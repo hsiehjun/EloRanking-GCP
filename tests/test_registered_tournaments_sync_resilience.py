@@ -553,12 +553,54 @@ def test_organizer_only_events_excluded_from_registered_tournaments():
         assert res['tournaments'][0]['bcp_event_id'] == 'LVO2026'
         print("✅ routers/auth.py correctly excludes organizer-only event from API response!")
 
-    # 3. Verify frontend code has isValidRegisteredTournament
+    # 3. Verify frontend code has isValidRegisteredTournament and isTournamentConcluded
     root_dir = Path(__file__).resolve().parent.parent
     my_hub_js = (root_dir / "web" / "js" / "my_hub.js").read_text(encoding="utf-8")
     assert "isValidRegisteredTournament" in my_hub_js
+    assert "isTournamentConcluded" in my_hub_js
     assert "is_organizer || ev.isOwner || ev.isTO" in my_hub_js
-    print("✅ frontend my_hub.js contains isValidRegisteredTournament guard!")
+    print("✅ frontend my_hub.js contains isValidRegisteredTournament & isTournamentConcluded guards!")
+
+
+def test_concluded_events_excluded_from_registered_tournaments():
+    """Verify that concluded/ended tournaments (e.g. LVO 2026 after Oct 5) are excluded from active Registered Events."""
+    from bcp_adapter import BcpAdapter, bcp_adapter
+    from routers.auth import api_user_registered_tournaments
+
+    mock_user_info = {
+        "first_name": "John",
+        "last_name": "Hsieh",
+        "display_name": "John Hsieh",
+        "player_id": "p_12345",
+        "bcp_user_id": "MEV83VFANA"
+    }
+    mock_auth_bcp = MagicMock()
+    mock_auth_bcp.get_user_by_id.return_value = mock_user_info
+
+    concluded_lvo = {
+        "id": "7ohG0RuDqC1k",
+        "name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open",
+        "eventDate": "2026-10-02T16:00:00.000Z",
+        "eventEndDate": "2026-10-05T02:00:00.000Z",
+        "ended": True,
+        "myPlayer": {"id": "p_12345", "army": "Necrons", "checkedIn": True}
+    }
+    upcoming_gt = {
+        "id": "bcp_upcoming_gt_2026",
+        "name": "SoCal Open 2026",
+        "eventDate": "2026-10-24T16:00:00.000Z",
+        "eventEndDate": "2026-10-25T20:00:00.000Z",
+        "ended": False,
+        "myPlayer": {"id": "p_12345", "army": "Necrons", "checkedIn": False}
+    }
+
+    with patch.object(BcpAdapter, "execute_call", return_value=({"data": [concluded_lvo, upcoming_gt]}, None)), \
+         patch("core.get_auth_manager", return_value=mock_auth_bcp):
+        ok, err, events = bcp_adapter.fetch_user_registered_events("u_concluded_test", explicit_token="mock_tok")
+        assert ok is True
+        assert len(events) == 1
+        assert events[0]["bcp_event_id"] == "bcp_upcoming_gt_2026"
+    print("✅ bcp_adapter excludes concluded tournaments from registered events!")
 
 
 if __name__ == '__main__':
@@ -571,5 +613,7 @@ if __name__ == '__main__':
     test_scraper_sync_event_roster_pruning_and_404_deletion()
     test_multi_row_registered_tournaments_merging_and_frontend_sync()
     test_organizer_only_events_excluded_from_registered_tournaments()
+    test_concluded_events_excluded_from_registered_tournaments()
     print('ALL UNIFIED REGISTERED TOURNAMENTS SYNC TESTS PASSED!')
+
 

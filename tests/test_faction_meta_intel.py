@@ -300,6 +300,35 @@ class TestFactionMetaIntel(unittest.TestCase):
         self.assertEqual(r30["summary_kpis"]["total_matches"], 15000)
         self.assertEqual(rall["summary_kpis"]["total_matches"], 50000)
 
+    def test_meta_search_box_and_mobile_responsive_layout(self):
+        app_html = (self.root_dir / "web" / "app.html").read_text(encoding="utf-8")
+        self.assertIn('class="search-input-group meta-search-box"', app_html)
+        self.assertNotIn('<div class="search-box"', app_html)
+        self.assertIn("meta-controls-bar", app_html)
+        self.assertIn("meta-window-bar", app_html)
+        self.assertIn("meta-view-modes-bar", app_html)
+        self.assertIn("meta-goldilocks-callout", app_html)
+
+        styles_css = (self.root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn(".search-input-group,\n.search-box {", styles_css)
+        self.assertIn("#faction-meta-table td:nth-child(6)", styles_css)
+        self.assertIn("#faction-meta-table td:nth-child(9)", styles_css)
+        self.assertIn(".meta-kpis-strip", styles_css)
+
+    def test_modals_js_multilayer_cache_and_superset_derivation(self):
+        modals_js = (self.root_dir / "web" / "js" / "modals.js").read_text(encoding="utf-8")
+        self.assertIn("FACTION_MODAL_STORAGE_KEY", modals_js)
+        self.assertIn("deriveFactionModalFromCachedSuperset", modals_js)
+        self.assertIn("fetchFactionDetailsShared", modals_js)
+        self.assertIn("prefetchFactionModalData", modals_js)
+        self.assertIn("prefetchTopFactionsModalCache", modals_js)
+        self.assertIn("prefetchRemainingModalTimeframes", modals_js)
+
+    def test_database_bitmapscan_and_matchups_reuse(self):
+        db_content = (self.root_dir / "database.py").read_text(encoding="utf-8")
+        self.assertIn("SET LOCAL enable_bitmapscan = off", db_content)
+        self.assertIn("matchups_by_faction", db_content)
+
 
 if __name__ == "__main__":
     unittest.main()

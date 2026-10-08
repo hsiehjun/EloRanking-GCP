@@ -100,6 +100,29 @@
     return localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token') || sessionStorage.getItem('elo_auth_token') || '';
   }
 
+  function getOrCreateGuestId() {
+    const GUEST_KEY = 'gt_guest_id';
+    let gid = '';
+    try {
+      gid = localStorage.getItem(GUEST_KEY) || sessionStorage.getItem(GUEST_KEY) || '';
+    } catch (e) {}
+    if (!gid) {
+      try {
+        const m = document.cookie.match(/(?:^|;\s*)gt_guest_id=([^;]+)/);
+        if (m && m[1]) gid = decodeURIComponent(m[1]);
+      } catch (e) {}
+    }
+    if (!gid) {
+      gid = 'guest_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now().toString(36);
+    }
+    try {
+      localStorage.setItem(GUEST_KEY, gid);
+      sessionStorage.setItem(GUEST_KEY, gid);
+      document.cookie = `gt_guest_id=${encodeURIComponent(gid)}; path=/; max-age=2592000; SameSite=Lax`;
+    } catch (e) {}
+    return gid;
+  }
+
   function getCleanRoomShareUrl(mid) {
     const cleanId = mid || matchId || '';
     if (!cleanId) {
@@ -111,10 +134,272 @@
     return `${window.location.origin}/11th/tracker/aos?match_id=${encodeURIComponent(cleanId)}`;
   }
 
-  window.__copyRoomShareLink = function (mid) {
+  window.__copyRoomShareLink = function (mid, btnEl) {
     const shareUrl = getCleanRoomShareUrl(mid);
-    navigator.clipboard.writeText(shareUrl);
-    alert('🔗 Room Link Copied! Share with your opponent.');
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      if (btnEl && btnEl.tagName) {
+        const orig = btnEl.innerHTML;
+        btnEl.innerHTML = '✅ LINK COPIED!';
+        setTimeout(() => { btnEl.innerHTML = orig; }, 1600);
+      } else {
+        alert('🔗 Room Link Copied! Share with your opponent.');
+      }
+    }).catch(() => {
+      prompt('Copy this Match Room Link to share with your opponent:', shareUrl);
+    });
+  };
+
+  let _aosShareChatThreadsCache = [];
+  let _aosShareUserSearchTimer = null;
+
+  window.__sendRoomInviteToChat = async function (mid, opts, btnEl) {
+    const targetMid = mid || matchId;
+    if (!targetMid) return;
+    const token = getAuthToken();
+    if (!token) {
+      alert('Please sign in to OmniTactica to send invites in Chat, or use Copy Link above.');
+      return;
+    }
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.textContent = 'Sending...';
+    }
+    try {
+      const resp = await fetch(`/api/tracker/room/${encodeURIComponent(targetMid)}/share_chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          token: token,
+          request_id: (opts && opts.requestId) || undefined,
+          receiver_id: (opts && opts.receiverId) || undefined
+        })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.success) {
+        if (btnEl) {
+          btnEl.style.background = '#10b981';
+          btnEl.style.color = '#070b14';
+          btnEl.style.borderColor = '#10b981';
+          btnEl.textContent = '✅ Sent in Chat!';
+        }
+        const statusBanner = document.getElementById('gt-share-modal-status');
+        if (statusBanner) {
+          statusBanner.style.display = 'block';
+          statusBanner.style.background = 'rgba(16,185,129,0.14)';
+          statusBanner.style.border = '1px solid rgba(16,185,129,0.4)';
+          statusBanner.style.color = '#34d399';
+          statusBanner.innerHTML = `✅ Match Room <b>#${escapeHtml(targetMid)}</b> invite card sent to <b>${escapeHtml((opts && opts.targetLabel) || data.target_label || 'Chat')}</b>!`;
+        }
+      } else {
+        throw new Error(data.detail || 'Could not send invite');
+      }
+    } catch (err) {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = '📨 Send Invite';
+      }
+      const statusBanner = document.getElementById('gt-share-modal-status');
+      if (statusBanner) {
+        statusBanner.style.display = 'block';
+        statusBanner.style.background = 'rgba(239,68,68,0.14)';
+        statusBanner.style.border = '1px solid rgba(239,68,68,0.4)';
+        statusBanner.style.color = '#f87171';
+        statusBanner.textContent = `⚠️ ${err.message || 'Error sending chat invite'}`;
+      }
+    }
+  };
+
+  function renderAosShareChatTargets(mid, threads, searchedUsers, queryStr) {
+    const listEl = document.getElementById('gt-share-chat-list');
+    if (!listEl) return;
+    const token = getAuthToken();
+    if (!token) {
+      listEl.innerHTML = `
+        <div style="padding:14px; text-align:center; color:#94a3b8; font-size:12px; background:#070b14; border:1px dashed #334155; border-radius:10px;">
+          🔒 Sign in to an OmniTactica account to send interactive room cards in Chat, or use <b>Copy Link</b> above to share with anyone!
+        </div>
+      `;
+      return;
+    }
+
+    const q = (queryStr || '').trim().toLowerCase();
+    const items = [];
+    const seenUserIds = new Set();
+
+    (threads || []).forEach(r => {
+      if (!r || r.status === 'declined') return;
+      const isGroup = r.is_group || String(r.id || '').startsWith('grp_');
+      const name = isGroup
+        ? (r.receiver_name || 'Group Chat')
+        : (r.receiver_name || r.sender_name || 'Player');
+      const sub = isGroup
+        ? (r.group_type === 'league' ? '🏆 League Chat' : '⚔️ Pod Group Chat')
+        : (r.receiver_factions || r.sender_factions || 'OmniTactica Player Chat');
+      if (q && !name.toLowerCase().includes(q) && !sub.toLowerCase().includes(q)) return;
+      items.push({
+        requestId: r.id,
+        receiverId: null,
+        name: name,
+        subtitle: sub,
+        badge: isGroup ? 'GROUP' : 'CHAT'
+      });
+    });
+
+    (searchedUsers || []).forEach(u => {
+      if (!u || !u.id || seenUserIds.has(u.id)) return;
+      seenUserIds.add(u.id);
+      items.push({
+        requestId: null,
+        receiverId: u.id,
+        name: u.display_name || 'Player',
+        subtitle: [u.factions, u.location_name].filter(Boolean).join(' • ') || 'OmniTactica Player',
+        badge: 'PLAYER'
+      });
+    });
+
+    if (items.length === 0) {
+      listEl.innerHTML = `
+        <div style="padding:14px; text-align:center; color:#94a3b8; font-size:12px; background:#070b14; border:1px solid #1e293b; border-radius:10px;">
+          ${q ? `No players or chats matching "${escapeHtml(queryStr)}".` : 'No active chats yet. Type a player name above to search OmniTactica players!'}
+        </div>
+      `;
+      return;
+    }
+
+    listEl.innerHTML = items.slice(0, 15).map(item => `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; background:#070b14; border:1px solid #1e293b; border-radius:10px; padding:9px 12px;">
+        <div style="min-width:0; text-align:left;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span style="font-size:12.5px; font-weight:800; color:#f8fafc; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.name)}</span>
+            <span style="font-size:9.5px; font-weight:800; padding:1px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace; background:${item.badge === 'GROUP' ? 'rgba(245,158,11,0.16)' : 'rgba(56,189,248,0.14)'}; color:${item.badge === 'GROUP' ? '#fbbf24' : '#38bdf8'};">${item.badge}</span>
+          </div>
+          <div style="font-size:11px; color:#64748b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px;">${escapeHtml(item.subtitle)}</div>
+        </div>
+        <button type="button" onclick="window.__sendRoomInviteToChat('${escapeHtml(mid)}', { requestId: '${escapeHtml(item.requestId || '')}', receiverId: '${escapeHtml(item.receiverId || '')}', targetLabel: '${escapeHtml(item.name)}' }, this)" style="background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:8px; padding:6px 11px; font-size:11px; font-weight:800; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; flex-shrink:0;">
+          📨 Send Invite
+        </button>
+      </div>
+    `).join('');
+  }
+
+  window.__openShareRoomModal = async function (mid) {
+    const activeMid = mid || matchId || '';
+    if (!activeMid) {
+      alert('No active Match Room ID found.');
+      return;
+    }
+    const shareUrl = getCleanRoomShareUrl(activeMid);
+    const scorecardUrl = `${window.location.origin}/scorecard/${encodeURIComponent(activeMid)}`;
+
+    let modal = document.getElementById('gt-share-room-modal');
+    if (modal) modal.remove();
+
+    modal = document.createElement('div');
+    modal.id = 'gt-share-room-modal';
+    modal.style.cssText = "position:fixed; inset:0; z-index:1000000; background:rgba(4,7,14,0.92); backdrop-filter:blur(14px); display:flex; align-items:center; justify-content:center; padding:14px; font-family:'Inter',sans-serif; box-sizing:border-box;";
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+    modal.innerHTML = `
+      <div style="background:#0e1526; border:1px solid #1e293b; border-radius:20px; width:100%; max-width:520px; max-height:92vh; display:flex; flex-direction:column; box-shadow:0 25px 70px rgba(0,0,0,0.88); overflow:hidden; color:#f8fafc; box-sizing:border-box;">
+        <div style="padding:16px 20px; background:#090f1e; border-bottom:1px solid #1e293b; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:22px;">🔗</span>
+            <div style="text-align:left;">
+              <h2 style="font-size:16px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; margin:0; letter-spacing:0.03em;">SHARE MATCH ROOM</h2>
+              <div style="font-size:11px; color:#f59e0b; font-family:'JetBrains Mono',monospace;">AoS Room #${escapeHtml(activeMid)} • Guest &amp; Multi-Device Ready</div>
+            </div>
+          </div>
+          <button type="button" onclick="document.getElementById('gt-share-room-modal').remove()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:15px;">✕</button>
+        </div>
+
+        <div style="padding:18px 20px; overflow-y:auto; display:flex; flex-direction:column; gap:16px;">
+          <div style="background:#090f1e; border:1px solid rgba(245,158,11,0.35); border-radius:14px; padding:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+              <span style="font-size:11.5px; font-weight:800; color:#f59e0b; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">1. Share via Direct Link or Room Key</span>
+              <span style="font-size:10px; font-weight:700; color:#10b981; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.3); padding:2px 7px; border-radius:999px;">✓ No Account Required for P2</span>
+            </div>
+            <p style="font-size:11.5px; color:#94a3b8; margin:0 0 10px; line-height:1.45; text-align:left;">
+              Your opponent can open this link in any browser without signing in to join as <b>Player 2 (Guest)</b>. Once both seats are filled, any 3rd+ person opening the link is automatically routed to the <b>Real-Time Spectator Scorecard</b>.
+            </p>
+            <div style="display:flex; gap:8px; margin-bottom:8px;">
+              <input id="gt-share-modal-url-input" readonly value="${shareUrl}" style="flex:1; min-width:0; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 10px; font-size:11px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; outline:none;" onclick="this.select()" />
+              <button type="button" id="gt-share-copy-link-btn" onclick="window.__copyRoomShareLink('${escapeHtml(activeMid)}', this)" style="background:#f59e0b; color:#090d16; font-weight:800; font-size:11px; border:none; padding:9px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">
+                📋 COPY LINK
+              </button>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" id="gt-share-copy-key-btn" onclick="navigator.clipboard.writeText('${escapeHtml(activeMid)}'); this.innerHTML='✅ KEY COPIED!'; setTimeout(()=>this.innerHTML='🔑 Copy Key (${escapeHtml(activeMid)})', 1600);" style="flex:1; background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:8px; padding:7px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:'JetBrains Mono',monospace;">
+                🔑 Copy Key (${escapeHtml(activeMid)})
+              </button>
+              <button type="button" id="gt-share-copy-spectator-btn" onclick="navigator.clipboard.writeText('${scorecardUrl}'); this.innerHTML='✅ SCORECARD LINK COPIED!'; setTimeout(()=>this.innerHTML='👀 Copy Spectator Scorecard Link', 1600);" style="flex:1; background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.35); border-radius:8px; padding:7px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:'JetBrains Mono',monospace;">
+                👀 Copy Spectator Scorecard Link
+              </button>
+            </div>
+          </div>
+
+          <div style="background:#090f1e; border:1px solid rgba(56,189,248,0.35); border-radius:14px; padding:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+              <span style="font-size:11.5px; font-weight:800; color:#38bdf8; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">2. Share in OmniTactica Chat</span>
+              <span style="font-size:10px; color:#94a3b8;">Direct &amp; League/Pod Chats</span>
+            </div>
+            <div id="gt-share-modal-status" style="display:none; margin-bottom:10px; padding:8px 11px; border-radius:8px; font-size:11.5px; font-weight:600; text-align:left;"></div>
+            <div style="margin-bottom:10px;">
+              <input id="gt-share-chat-search" type="text" placeholder="Search opponent name, active chat, or league group..." style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:8px; padding:8px 11px; font-size:12px; color:#f8fafc; outline:none;" />
+            </div>
+            <div id="gt-share-chat-list" style="display:flex; flex-direction:column; gap:7px; max-height:210px; overflow-y:auto;">
+              <div style="padding:12px; text-align:center; color:#94a3b8; font-size:12px;">Loading your OmniTactica chats...</div>
+            </div>
+          </div>
+
+          <div style="background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.22); border-radius:10px; padding:10px 12px; font-size:11px; color:#cbd5e1; line-height:1.45; text-align:left;">
+            📱 <b>Using an iPad + Phone?</b> Sign into the same OmniTactica account on both devices and open this room. Both devices sync live as <b>your player seat</b> without taking Player 2's slot.
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const token = getAuthToken();
+    const searchInput = document.getElementById('gt-share-chat-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        const q = searchInput.value || '';
+        renderAosShareChatTargets(activeMid, _aosShareChatThreadsCache, [], q);
+        if (_aosShareUserSearchTimer) clearTimeout(_aosShareUserSearchTimer);
+        if (q.trim().length >= 1 && token) {
+          _aosShareUserSearchTimer = setTimeout(async () => {
+            try {
+              const uResp = await fetch(`/api/connect/users/search?q=${encodeURIComponent(q.trim())}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              if (uResp.ok) {
+                const uData = await uResp.json();
+                renderAosShareChatTargets(activeMid, _aosShareChatThreadsCache, uData.users || [], q);
+              }
+            } catch (e) {}
+          }, 220);
+        }
+      });
+    }
+
+    if (!token) {
+      renderAosShareChatTargets(activeMid, [], [], '');
+      return;
+    }
+
+    try {
+      const resp = await fetch('/api/connect/requests', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        _aosShareChatThreadsCache = (data && data.requests) ? data.requests : [];
+      }
+    } catch (e) {}
+    renderAosShareChatTargets(activeMid, _aosShareChatThreadsCache, [], searchInput ? searchInput.value : '');
   };
 
   function hideAosLoadingOverlay() {
@@ -182,14 +467,21 @@
 
       // 2. Local REST dev_server & PostgreSQL persistent storage
       try {
+        const token = getAuthToken();
+        const guestId = getOrCreateGuestId();
         await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/state`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            ...(guestId ? { 'X-Guest-Id': guestId } : {})
+          },
           body: JSON.stringify({
             match_id: matchId,
             game_system: 'aos',
             version: ver,
-            state
+            state,
+            guest_id: guestId
           })
         });
       } catch (e) {
@@ -322,9 +614,13 @@
       } catch (e) {}
 
       const token = getAuthToken();
+      const guestId = getOrCreateGuestId();
       try {
-        const chk = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/check`, {
-          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        const chk = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/check?guest_id=${encodeURIComponent(guestId)}`, {
+          headers: {
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            ...(guestId ? { 'X-Guest-Id': guestId } : {})
+          }
         });
         if (chk.ok) {
           const chkData = await chk.json();
@@ -341,9 +637,10 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            ...(guestId ? { 'X-Guest-Id': guestId } : {})
           },
-          body: JSON.stringify({ token: token || undefined })
+          body: JSON.stringify({ token: token || undefined, guest_id: guestId || undefined })
         });
         if (joinResp.ok) {
           const joinData = await joinResp.json();
@@ -950,7 +1247,17 @@
     window.dispatchEvent(new CustomEvent('aos_state_change', { detail: state }));
     if (matchId) {
       try {
-        await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/finalize`, { method: 'POST' });
+        const token = getAuthToken();
+        const guestId = getOrCreateGuestId();
+        await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/finalize`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            ...(guestId ? { 'X-Guest-Id': guestId } : {})
+          },
+          body: JSON.stringify({ state, guest_id: guestId })
+        });
       } catch(e) {}
     }
     const modal = document.getElementById('gt-complete-modal');
@@ -1164,9 +1471,10 @@
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(getAuthToken() ? { 'Authorization': `Bearer ${getAuthToken()}` } : {})
+          ...(getAuthToken() ? { 'Authorization': `Bearer ${getAuthToken()}` } : {}),
+          ...(getOrCreateGuestId() ? { 'X-Guest-Id': getOrCreateGuestId() } : {})
         },
-        body: JSON.stringify({ role: targetRole, army_list: payloadList })
+        body: JSON.stringify({ role: targetRole, army_list: payloadList, guest_id: getOrCreateGuestId() })
       });
       let attachedList = payloadList;
       if (resp.ok) {
@@ -1898,8 +2206,8 @@ General's Regiment
         <a href="/11th/tracker/aos" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
           🎲 Lobby
         </a>
-        <span style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:11px; background:#070b14; padding:4px 7px; border-radius:6px; border:1px solid #334155; font-weight:800;">
-          #${matchId || 'AOS-LOCAL'}
+        <span onclick="if(window.__openShareRoomModal) window.__openShareRoomModal('${matchId || ''}'); else window.__copyRoomShareLink('${matchId || ''}');" title="Click to Share Room in Chat or Copy Link" style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:11px; background:#070b14; padding:4px 7px; border-radius:6px; border:1px solid #334155; font-weight:800; cursor:pointer;">
+          #${matchId || 'AOS-LOCAL'} 🔗
         </span>
         ${isSpectator ? `
           <span style="font-family:'JetBrains Mono',monospace; color:#cbd5e1; font-size:11px; background:rgba(100,116,139,0.25); border:1px solid rgba(148,163,184,0.3); padding:4px 8px; border-radius:6px; font-weight:800; display:inline-flex; align-items:center; gap:4px;">
@@ -1943,7 +2251,7 @@ General's Regiment
             🏁 Finish
           </button>
         ` : ''}
-        <button onclick="const shareUrl = window.location.origin + '/11th/tracker/aos?match_id=' + encodeURIComponent('${matchId || ''}'); navigator.clipboard.writeText(shareUrl); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Room Link">
+        <button id="gt-hud-share-btn" onclick="if(window.__openShareRoomModal) window.__openShareRoomModal('${matchId || ''}'); else window.__copyRoomShareLink('${matchId || ''}');" style="background:#0284c7; color:#fff; border:none; padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Share Room in Chat or Copy Link">
           🔗 Share
         </button>
       </div>

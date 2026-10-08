@@ -1509,12 +1509,13 @@ class BcpAdapter:
             return False, "Player is not linked to Best Coast Pairings", []
 
         # Query official BCP v1 events endpoint used by bestcoastpairings.com/play/my-events
-        # Filters events ending after (now - 7 days) to capture active, recent, and upcoming events in 1 single call
+        # Filters events ending after (now - 12 hours) to capture active and upcoming events in 1 single call
         from datetime import datetime, timezone, timedelta
         from urllib.parse import quote
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
         cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M")
+        today_cutoff_str = cutoff.strftime("%Y-%m-%d")
         encoded_cutoff = quote(cutoff_str)
 
         sync_url = f"{BCP_API_BASE}/events?limit=100&playerEvents=true&toEvents=true&eventEndDateFrom={encoded_cutoff}"
@@ -1549,6 +1550,21 @@ class BcpAdapter:
                 continue
             ev_id = str(item.get("id") or item.get("_id") or "")
             if not ev_id:
+                continue
+
+            # Exclude concluded/ended tournaments so only active or upcoming events remain in Registered Events
+            if bool(item.get("ended") or item.get("is_ended")):
+                continue
+            item_status = item.get("status")
+            if isinstance(item_status, dict) and bool(item_status.get("ended") or item_status.get("is_ended")):
+                continue
+            if isinstance(item_status, str) and item_status.strip().lower() in ("ended", "completed", "finished", "concluded"):
+                continue
+
+            ev_start_raw = str(item.get("eventDate") or item.get("startDate") or item.get("eventStartDate") or "").strip()
+            ev_end_raw = str(item.get("endDate") or item.get("eventEndDate") or "").strip()
+            ref_date_str = ev_end_raw or ev_start_raw
+            if len(ref_date_str) >= 10 and ref_date_str[:10] < today_cutoff_str:
                 continue
 
             loc = item.get("location") if isinstance(item.get("location"), dict) else {}

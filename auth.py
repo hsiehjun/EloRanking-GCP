@@ -2927,6 +2927,14 @@ class AuthManager:
             except Exception as e:
                 logger.debug(f"Error merging native leagues into registered_tournaments: {e}")
         user_lists = self.db.get_user_army_lists(user_id) if (user_id and hasattr(self.db, "get_user_army_lists")) else []
+        if not user_lists and user_id:
+            try:
+                from newrecruit_integration import _resolve_nr_cloud_account, fetch_nr_cloud_lists_for_user
+                nr_acct = _resolve_nr_cloud_account(str(user_id))
+                if nr_acct and nr_acct.get("connected") and nr_acct.get("access"):
+                    user_lists = fetch_nr_cloud_lists_for_user(str(user_id), nr_acct.get("access"), target_sys) or []
+            except Exception as e:
+                logger.debug(f"Notice fetching NewRecruit cloud lists for badge evaluation: {e}")
         b_eval = badges.evaluate_player_badges(
             player_data=p_stat,
             history=history_points,

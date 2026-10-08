@@ -229,7 +229,7 @@ SEASON_2026_CATALOG_40K: List[Dict[str, Any]] = [
         "rarity": "common",
         "glory": 25,
         "icon": "📜",
-        "description": "Save at least 1 army roster in your Army Vault."
+        "description": "Save at least 1 army roster in NewRecruit Studio or submit a tournament roster."
     },
     {
         "id": "s26_40k_faction_loyalist",
@@ -473,7 +473,7 @@ SEASON_2026_CATALOG_AOS: List[Dict[str, Any]] = [
         "rarity": "common",
         "glory": 25,
         "icon": "📜",
-        "description": "Save at least 1 army roster in your Army Vault."
+        "description": "Save at least 1 army roster in NewRecruit Studio or submit a tournament roster."
     },
     {
         "id": "s26_aos_faction_loyalist",
@@ -649,8 +649,18 @@ def evaluate_player_seasonal_badges(
     factions_with_3_wins = len([f for f, count in faction_wins_map.items() if count >= 3])
     factions_with_5_wins = len([f for f, count in faction_wins_map.items() if count >= 5])
 
-    # Army vault
+    # Army rosters (NewRecruit Studio rosters + submitted tournament/tracker rosters)
     vault_roster_count = len(raw_armylists)
+    if vault_roster_count == 0:
+        for r in (raw_registrations or []):
+            if isinstance(r, dict) and (r.get("has_list_submitted") or r.get("has_list") or r.get("army_list") or r.get("list_id")):
+                vault_roster_count += 1
+        for t in (raw_tournaments or []):
+            if isinstance(t, dict) and (t.get("has_list_submitted") or t.get("has_list") or t.get("army_list") or t.get("list_id")):
+                vault_roster_count += 1
+        for s in (raw_tracker or []):
+            if isinstance(s, dict) and (s.get("p1_army_list") or s.get("p2_army_list") or s.get("has_army_list")):
+                vault_roster_count += 1
 
     # 3. Evaluate Each Seasonal Trophy
     evaluated = []
@@ -769,7 +779,7 @@ def evaluate_player_seasonal_badges(
             unlocked = vault_roster_count >= 1
             progress = {"current": min(vault_roster_count, 1), "target": 1, "unit": "rosters"}
             if unlocked:
-                provenance = "Saved battle roster in Army Vault"
+                provenance = "Saved battle roster in NewRecruit Studio"
 
         elif "faction_loyalist" in b_id:
             unlocked = max_faction_wins >= 10

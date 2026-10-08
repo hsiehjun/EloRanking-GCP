@@ -71,6 +71,7 @@
     tournamentId: null,
     tableNum: null
   };
+  window.__gtGetClientState = () => clientState;
 
   function getTrackerTournamentId() {
     if (clientState.tournamentId) return clientState.tournamentId;
@@ -151,6 +152,41 @@
 
   function getAuthToken() {
     return originalGetItem('elo_auth_token') || originalGetItem('native_session_token') || sessionStorage.getItem('elo_auth_token') || '';
+  }
+
+  function getOrCreateGuestId() {
+    try {
+      let gid = originalGetItem('gt_guest_id') || sessionStorage.getItem('gt_guest_id');
+      if (!gid && typeof document !== 'undefined' && document.cookie) {
+        const m = document.cookie.match(/(?:^|;\s*)gt_guest_id=([^;]+)/);
+        if (m && m[1]) gid = decodeURIComponent(m[1]);
+      }
+      if (!gid || !String(gid).startsWith('guest_')) {
+        gid = 'guest_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now().toString(36);
+      }
+      try { originalSetItem('gt_guest_id', gid); } catch (e) {}
+      try { sessionStorage.setItem('gt_guest_id', gid); } catch (e) {}
+      try { document.cookie = `gt_guest_id=${encodeURIComponent(gid)}; path=/; max-age=2592000; SameSite=Lax`; } catch (e) {}
+      return gid;
+    } catch (e) {
+      return 'guest_fallback_' + Math.random().toString(36).substring(2, 9);
+    }
+  }
+  window.__getGtGuestId = getOrCreateGuestId;
+
+  function hasSharedMatchParams() {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      return Boolean(
+        p.get('match_id') ||
+        p.get('room') ||
+        p.get('match') ||
+        p.get('id') ||
+        ((p.get('eventId') || p.get('event_id')) && (p.get('table') || p.get('table_num')))
+      );
+    } catch (e) {
+      return false;
+    }
   }
 
   function setAuthToken(token) {
@@ -309,10 +345,16 @@
     }
   };
 
-  // 2. Strict Authentication Verification
+  // 2. Authentication & Guest Seat Verification
   async function verifySession() {
     const token = getAuthToken();
+    const canJoinAsGuest = isPlay && hasSharedMatchParams();
     if (!token) {
+      if (canJoinAsGuest) {
+        clientState.isGuest = true;
+        clientState.guestId = getOrCreateGuestId();
+        return true;
+      }
       window.location.href = '/login?redirect=' + encodeURIComponent(window.location.href);
       return false;
     }
@@ -325,6 +367,8 @@
         const userObj = data && (data.user || ((data.id || data.email) ? data : null));
         if (data && data.authenticated !== false && userObj) {
           currentUser = userObj;
+          clientState.isGuest = false;
+          clientState.guestId = getOrCreateGuestId();
           try {
             originalSetItem('native_user_profile', JSON.stringify(userObj));
           } catch(e) {}
@@ -332,11 +376,21 @@
           return true;
         } else if (data && data.authenticated === false) {
           clearAuthToken();
+          if (canJoinAsGuest) {
+            clientState.isGuest = true;
+            clientState.guestId = getOrCreateGuestId();
+            return true;
+          }
           window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
           return false;
         }
       } else if (resp.status === 401 || resp.status === 403) {
         clearAuthToken();
+        if (canJoinAsGuest) {
+          clientState.isGuest = true;
+          clientState.guestId = getOrCreateGuestId();
+          return true;
+        }
         window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
         return false;
       }
@@ -716,13 +770,15 @@
     // 2. Server-side finalize (persists in PostgreSQL and removes from active Firestore)
     try {
       const token = getAuthToken();
+      const guestId = getOrCreateGuestId();
       const resp = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/finalize`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : ''
+          'Authorization': token ? `Bearer ${token}` : '',
+          'X-Guest-Id': guestId
         },
-        body: JSON.stringify({ token: token, match_id: matchId, state: st })
+        body: JSON.stringify({ token: token, guest_id: guestId, match_id: matchId, state: st })
       });
       if (resp.ok) {
         if (typeof firebase !== 'undefined' && firebase.firestore) {
@@ -1095,10 +1151,278 @@
       : `${window.location.origin}${basePath}`;
   }
 
-  window.__copyRoomShareLink = function (mid) {
+  window.__copyRoomShareLink = function (mid, silentBtn) {
     const shareUrl = getCleanRoomShareUrl(mid);
-    navigator.clipboard.writeText(shareUrl);
-    alert('🔗 Room Link Copied! Share with your opponent.');
+    try {
+      navigator.clipboard.writeText(shareUrl);
+    } catch (e) {}
+    if (silentBtn && silentBtn.tagName) {
+      const orig = silentBtn.innerHTML;
+      silentBtn.innerHTML = '✅ COPIED!';
+      setTimeout(() => { silentBtn.innerHTML = orig; }, 1800);
+      return;
+    }
+    alert('🔗 Room Link Copied! Share with your opponent (no account needed to join as Player 2).');
+  };
+
+  let _shareChatThreadsCache = [];
+  let _shareUserSearchTimer = null;
+
+  window.__sendRoomInviteToChat = async function (matchId, opts, btnEl) {
+    const targetMid = matchId || (clientState && clientState.matchId) || getActiveMatchId();
+    if (!targetMid) return;
+    const token = getAuthToken();
+    if (!token) {
+      alert('Please sign in to OmniTactica to send invites in Chat, or use Copy Link above.');
+      return;
+    }
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.textContent = 'Sending...';
+    }
+    try {
+      const resp = await fetch(`/api/tracker/room/${encodeURIComponent(targetMid)}/share_chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          token: token,
+          request_id: (opts && opts.requestId) || undefined,
+          receiver_id: (opts && opts.receiverId) || undefined
+        })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.success) {
+        if (btnEl) {
+          btnEl.style.background = '#10b981';
+          btnEl.style.color = '#070b14';
+          btnEl.style.borderColor = '#10b981';
+          btnEl.textContent = '✅ Sent in Chat!';
+        }
+        const statusBanner = document.getElementById('gt-share-modal-status');
+        if (statusBanner) {
+          statusBanner.style.display = 'block';
+          statusBanner.style.background = 'rgba(16,185,129,0.14)';
+          statusBanner.style.border = '1px solid rgba(16,185,129,0.4)';
+          statusBanner.style.color = '#34d399';
+          statusBanner.innerHTML = `✅ Match Room <b>#${escapeHtml(targetMid)}</b> invite card sent to <b>${escapeHtml((opts && opts.targetLabel) || data.target_label || 'Chat')}</b>!`;
+        }
+      } else {
+        throw new Error(data.detail || 'Could not send invite');
+      }
+    } catch (err) {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = '📨 Send Invite';
+      }
+      const statusBanner = document.getElementById('gt-share-modal-status');
+      if (statusBanner) {
+        statusBanner.style.display = 'block';
+        statusBanner.style.background = 'rgba(239,68,68,0.14)';
+        statusBanner.style.border = '1px solid rgba(239,68,68,0.4)';
+        statusBanner.style.color = '#f87171';
+        statusBanner.textContent = `⚠️ ${err.message || 'Error sending chat invite'}`;
+      }
+    }
+  };
+
+  function renderShareChatTargets(matchId, threads, searchedUsers, queryStr) {
+    const listEl = document.getElementById('gt-share-chat-list');
+    if (!listEl) return;
+    const token = getAuthToken();
+    if (!token) {
+      listEl.innerHTML = `
+        <div style="padding:14px; text-align:center; color:#94a3b8; font-size:12px; background:#070b14; border:1px dashed #334155; border-radius:10px;">
+          🔒 Sign in to an OmniTactica account to send interactive room cards in Chat, or use <b>Copy Link</b> above to share with anyone!
+        </div>
+      `;
+      return;
+    }
+
+    const q = (queryStr || '').trim().toLowerCase();
+    const myUid = currentUser ? currentUser.id : '';
+    const items = [];
+    const seenUserIds = new Set();
+
+    (threads || []).forEach(r => {
+      if (!r || r.status === 'declined') return;
+      const isGroup = r.is_group || String(r.id || '').startsWith('grp_');
+      const isOut = r.sender_id === myUid;
+      const peerId = isGroup ? null : (isOut ? r.receiver_id : r.sender_id);
+      if (peerId) seenUserIds.add(peerId);
+      const name = isGroup
+        ? (r.receiver_name || 'Group Chat')
+        : ((isOut ? r.receiver_name : r.sender_name) || 'Player');
+      const sub = isGroup
+        ? (r.group_type === 'league' ? '🏆 League Chat' : '⚔️ Pod Group Chat')
+        : ((isOut ? r.receiver_factions : r.sender_factions) || 'OmniTactica Player Chat');
+      if (q && !name.toLowerCase().includes(q) && !sub.toLowerCase().includes(q)) return;
+      items.push({
+        requestId: r.id,
+        receiverId: peerId,
+        name: name,
+        subtitle: sub,
+        badge: isGroup ? 'GROUP' : 'CHAT'
+      });
+    });
+
+    (searchedUsers || []).forEach(u => {
+      if (!u || !u.id || u.id === myUid || seenUserIds.has(u.id)) return;
+      seenUserIds.add(u.id);
+      items.push({
+        requestId: null,
+        receiverId: u.id,
+        name: u.display_name || 'Player',
+        subtitle: [u.factions, u.location_name].filter(Boolean).join(' • ') || 'OmniTactica Player',
+        badge: 'PLAYER'
+      });
+    });
+
+    if (items.length === 0) {
+      listEl.innerHTML = `
+        <div style="padding:14px; text-align:center; color:#94a3b8; font-size:12px; background:#070b14; border:1px solid #1e293b; border-radius:10px;">
+          ${q ? `No players or chats matching "${escapeHtml(queryStr)}".` : 'No active chats yet. Type a player name above to search OmniTactica players!'}
+        </div>
+      `;
+      return;
+    }
+
+    listEl.innerHTML = items.slice(0, 15).map(item => `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; background:#070b14; border:1px solid #1e293b; border-radius:10px; padding:9px 12px;">
+        <div style="min-width:0; text-align:left;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span style="font-size:12.5px; font-weight:800; color:#f8fafc; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.name)}</span>
+            <span style="font-size:9.5px; font-weight:800; padding:1px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace; background:${item.badge === 'GROUP' ? 'rgba(245,158,11,0.16)' : 'rgba(56,189,248,0.14)'}; color:${item.badge === 'GROUP' ? '#fbbf24' : '#38bdf8'};">${item.badge}</span>
+          </div>
+          <div style="font-size:11px; color:#64748b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px;">${escapeHtml(item.subtitle)}</div>
+        </div>
+        <button type="button" onclick="window.__sendRoomInviteToChat('${escapeHtml(matchId)}', { requestId: '${escapeHtml(item.requestId || '')}', receiverId: '${escapeHtml(item.receiverId || '')}', targetLabel: '${escapeHtml(item.name)}' }, this)" style="background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:8px; padding:6px 11px; font-size:11px; font-weight:800; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; flex-shrink:0;">
+          📨 Send Invite
+        </button>
+      </div>
+    `).join('');
+  }
+
+  window.__openShareRoomModal = async function (mid) {
+    const matchId = mid || (clientState && clientState.matchId) || getActiveMatchId() || '';
+    if (!matchId) {
+      alert('No active Match Room ID found.');
+      return;
+    }
+    const shareUrl = getCleanRoomShareUrl(matchId);
+    const scorecardUrl = `${window.location.origin}/scorecard/${encodeURIComponent(matchId)}`;
+
+    let modal = document.getElementById('gt-share-room-modal');
+    if (modal) modal.remove();
+
+    modal = document.createElement('div');
+    modal.id = 'gt-share-room-modal';
+    modal.style.cssText = "position:fixed; inset:0; z-index:1000000; background:rgba(4,7,14,0.92); backdrop-filter:blur(14px); display:flex; align-items:center; justify-content:center; padding:14px; font-family:'Inter',sans-serif; box-sizing:border-box;";
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+    modal.innerHTML = `
+      <div style="background:#0e1526; border:1px solid #1e293b; border-radius:20px; width:100%; max-width:520px; max-height:92vh; display:flex; flex-direction:column; box-shadow:0 25px 70px rgba(0,0,0,0.88); overflow:hidden; color:#f8fafc; box-sizing:border-box;">
+        <div style="padding:16px 20px; background:#090f1e; border-bottom:1px solid #1e293b; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:22px;">🔗</span>
+            <div style="text-align:left;">
+              <h2 style="font-size:16px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; margin:0; letter-spacing:0.03em;">SHARE MATCH ROOM</h2>
+              <div style="font-size:11px; color:#38bdf8; font-family:'JetBrains Mono',monospace;">Room #${escapeHtml(matchId)} • Guest &amp; Multi-Device Ready</div>
+            </div>
+          </div>
+          <button type="button" onclick="document.getElementById('gt-share-room-modal').remove()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:15px;">✕</button>
+        </div>
+
+        <div style="padding:18px 20px; overflow-y:auto; display:flex; flex-direction:column; gap:16px;">
+          <!-- Option 1: Share via Link / Room Key (No Account Needed) -->
+          <div style="background:#090f1e; border:1px solid rgba(245,158,11,0.35); border-radius:14px; padding:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+              <span style="font-size:11.5px; font-weight:800; color:#f59e0b; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">1. Share via Direct Link or Room Key</span>
+              <span style="font-size:10px; font-weight:700; color:#10b981; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.3); padding:2px 7px; border-radius:999px;">✓ No Account Required for P2</span>
+            </div>
+            <p style="font-size:11.5px; color:#94a3b8; margin:0 0 10px; line-height:1.45; text-align:left;">
+              Your opponent can open this link in any browser without signing in to join as <b>Player 2 (Guest)</b>. Once both seats are filled, any 3rd+ person opening the link is automatically routed to the <b>Real-Time Spectator Scorecard</b>.
+            </p>
+            <div style="display:flex; gap:8px; margin-bottom:8px;">
+              <input id="gt-share-modal-url-input" readonly value="${shareUrl}" style="flex:1; min-width:0; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 10px; font-size:11px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; outline:none;" onclick="this.select()" />
+              <button type="button" id="gt-share-copy-link-btn" onclick="window.__copyRoomShareLink('${escapeHtml(matchId)}', this)" style="background:#f59e0b; color:#090d16; font-weight:800; font-size:11px; border:none; padding:9px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">
+                📋 COPY LINK
+              </button>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" id="gt-share-copy-key-btn" onclick="navigator.clipboard.writeText('${escapeHtml(matchId)}'); this.innerHTML='✅ KEY COPIED!'; setTimeout(()=>this.innerHTML='🔑 Copy Key (${escapeHtml(matchId)})', 1600);" style="flex:1; background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:8px; padding:7px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:'JetBrains Mono',monospace;">
+                🔑 Copy Key (${escapeHtml(matchId)})
+              </button>
+              <button type="button" id="gt-share-copy-spectator-btn" onclick="navigator.clipboard.writeText('${scorecardUrl}'); this.innerHTML='✅ SCORECARD LINK COPIED!'; setTimeout(()=>this.innerHTML='👀 Copy Spectator Scorecard Link', 1600);" style="flex:1; background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.35); border-radius:8px; padding:7px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:'JetBrains Mono',monospace;">
+                👀 Copy Spectator Scorecard Link
+              </button>
+            </div>
+          </div>
+
+          <!-- Option 2: Share in OmniTactica Chat -->
+          <div style="background:#090f1e; border:1px solid rgba(56,189,248,0.35); border-radius:14px; padding:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+              <span style="font-size:11.5px; font-weight:800; color:#38bdf8; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">2. Share in OmniTactica Chat</span>
+              <span style="font-size:10px; color:#94a3b8;">Direct &amp; League/Pod Chats</span>
+            </div>
+            <div id="gt-share-modal-status" style="display:none; margin-bottom:10px; padding:8px 11px; border-radius:8px; font-size:11.5px; font-weight:600; text-align:left;"></div>
+            <div style="margin-bottom:10px;">
+              <input id="gt-share-chat-search" type="text" placeholder="Search opponent name, active chat, or league group..." style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:8px; padding:8px 11px; font-size:12px; color:#f8fafc; outline:none;" />
+            </div>
+            <div id="gt-share-chat-list" style="display:flex; flex-direction:column; gap:7px; max-height:210px; overflow-y:auto;">
+              <div style="padding:12px; text-align:center; color:#94a3b8; font-size:12px;">Loading your OmniTactica chats...</div>
+            </div>
+          </div>
+
+          <!-- Multi-Device Same-Player Info Banner -->
+          <div style="background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.22); border-radius:10px; padding:10px 12px; font-size:11px; color:#cbd5e1; line-height:1.45; text-align:left;">
+            📱 <b>Using an iPad + Phone?</b> Sign into the same OmniTactica account on both devices and open this room. Both devices sync live as <b>your player seat</b> without taking Player 2's slot.
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const token = getAuthToken();
+    const searchInput = document.getElementById('gt-share-chat-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        const q = searchInput.value || '';
+        renderShareChatTargets(matchId, _shareChatThreadsCache, [], q);
+        if (_shareUserSearchTimer) clearTimeout(_shareUserSearchTimer);
+        if (q.trim().length >= 1 && token) {
+          _shareUserSearchTimer = setTimeout(async () => {
+            try {
+              const uResp = await fetch(`/api/connect/users/search?q=${encodeURIComponent(q.trim())}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              if (uResp.ok) {
+                const uData = await uResp.json();
+                renderShareChatTargets(matchId, _shareChatThreadsCache, uData.users || [], q);
+              }
+            } catch (e) {}
+          }, 220);
+        }
+      });
+    }
+
+    if (!token) {
+      renderShareChatTargets(matchId, [], [], '');
+      return;
+    }
+
+    try {
+      const resp = await fetch('/api/connect/requests', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        _shareChatThreadsCache = (data && data.requests) ? data.requests : [];
+      }
+    } catch (e) {}
+    renderShareChatTargets(matchId, _shareChatThreadsCache, [], searchInput ? searchInput.value : '');
   };
 
   // 3. Initialize Match Room / Play / Setup / Landing
@@ -1202,6 +1526,7 @@
       }
 
       let chkData = {};
+      const guestId = getOrCreateGuestId();
 
       if (matchId) {
         window.__showGtLoadingOverlay(
@@ -1210,11 +1535,16 @@
         );
         // Direct URL or History access: verify room and determine if player or spectator during loading screen!
         try {
-          const chk = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/check`, {
-            headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+          const chk = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/check?guest_id=${encodeURIComponent(guestId)}`, {
+            headers: {
+              'Authorization': `Bearer ${getAuthToken()}`,
+              'X-Guest-Id': guestId
+            }
           });
           chkData = await chk.json();
-          if (chk.ok && (chkData.is_finished || (!chkData.is_referee && chkData.role !== 'referee' && (chkData.is_spectator || chkData.role === 'spectator' || (chkData.is_full && !chkData.is_open_for_p2))))) {
+          if (chkData.user_id_p1) clientState.userIdP1 = chkData.user_id_p1;
+          if (chkData.user_id_p2) clientState.userIdP2 = chkData.user_id_p2;
+          if (chk.ok && (chkData.is_finished || (!chkData.is_referee && chkData.role !== 'referee' && (chkData.is_spectator || chkData.role === 'spectator' || (chkData.is_full && !chkData.is_open_for_p2 && chkData.role !== 'player1' && chkData.role !== 'player2'))))) {
             // Concluded matches or 3rd user spectator/non-competitor roles redirect to Digital Scorecard while still on loading screen
             window.__showGtLoadingOverlay(
               chkData.is_finished ? '🏁 Match Concluded' : '👀 Spectator Mode Detected',
@@ -1287,10 +1617,12 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${getAuthToken()}`
+            'Authorization': `Bearer ${getAuthToken()}`,
+            'X-Guest-Id': guestId
           },
           body: JSON.stringify({
             token: getAuthToken(),
+            guest_id: guestId,
             player_name: myName || undefined,
             claim_role: isSpectatorExplicit ? 'spectator' : (explicitRole || undefined)
           })
@@ -1309,6 +1641,9 @@
             return;
           }
           clientState.role = joinData.role || 'player2';
+          if (joinData.user_id_p1) clientState.userIdP1 = joinData.user_id_p1;
+          if (joinData.user_id_p2) clientState.userIdP2 = joinData.user_id_p2;
+          if (joinData.version) clientState.version = Math.max(clientState.version || 0, Number(joinData.version) || 1);
           updateSpectatorModeUI();
           if (joinData.state) {
             applyRemoteState(joinData.state);
@@ -1444,10 +1779,12 @@
     window.__showGtLoadingOverlay(loadingTitle, loadingSubtitle, true);
 
     // Verify if room exists on the server!
+    const guestId = getOrCreateGuestId();
     try {
-      const resp = await fetch(`/api/tracker/room/${encodeURIComponent(code)}/check`, {
+      const resp = await fetch(`/api/tracker/room/${encodeURIComponent(code)}/check?guest_id=${encodeURIComponent(guestId)}`, {
         headers: {
           'Authorization': `Bearer ${getAuthToken()}`,
+          'X-Guest-Id': guestId,
           'X-Game-System': isAosMode ? 'aos' : '40k'
         }
       });
@@ -1484,10 +1821,12 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${getAuthToken()}`
+            'Authorization': `Bearer ${getAuthToken()}`,
+            'X-Guest-Id': guestId
           },
           body: JSON.stringify({
             token: getAuthToken(),
+            guest_id: guestId,
             player_name: myName || undefined
           })
         });
@@ -1663,17 +2002,22 @@
         <div style="background:#0e1526; border:1px solid #1e293b; border-radius:20px; width:100%; max-width:480px; box-shadow:0 25px 70px rgba(0,0,0,0.85); overflow:hidden; padding:28px 24px; text-align:center;">
           <div style="font-size:32px; margin-bottom:6px;">⚔️</div>
           <h2 style="font-size:20px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">ROOM KEY GENERATED</h2>
-          <p style="font-size:13px; color:#94a3b8; margin:6px 0 18px;">Share this Room Key with Player 2 to begin collaborative setup.</p>
+          <p style="font-size:13px; color:#94a3b8; margin:6px 0 18px;">Share this Room Key with Player 2 to begin collaborative setup (no account required for Player 2).</p>
           
           <div style="background:#070b14; border:2px dashed #f59e0b; border-radius:14px; padding:16px; margin-bottom:18px;">
             <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#94a3b8; margin-bottom:4px; letter-spacing:0.08em;">ROOM KEY</div>
             <div style="font-size:26px; font-weight:900; color:#f59e0b; font-family:'JetBrains Mono',monospace; letter-spacing:0.1em;">${matchId}</div>
           </div>
 
-          <div style="display:flex; gap:8px; margin-bottom:20px;">
+          <div style="display:flex; gap:8px; margin-bottom:10px;">
             <input readonly value="${inviteUrl}" style="flex:1; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; font-size:11px; color:#cbd5e1; font-family:'JetBrains Mono',monospace; outline:none;" />
-            <button onclick="navigator.clipboard.writeText('${inviteUrl}'); alert('📋 Invite Link Copied! Send to Player 2.');" style="background:#0284c7; color:#fff; font-weight:800; font-size:11px; border:none; padding:10px 14px; border-radius:8px; cursor:pointer;">
+            <button onclick="window.__copyRoomShareLink('${escapeHtml(matchId)}', this)" style="background:#0284c7; color:#fff; font-weight:800; font-size:11px; border:none; padding:10px 14px; border-radius:8px; cursor:pointer;">
               COPY LINK
+            </button>
+          </div>
+          <div style="margin-bottom:18px;">
+            <button onclick="window.__openShareRoomModal('${escapeHtml(matchId)}')" style="width:100%; background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-weight:800; font-size:12px; padding:9px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace;">
+              💬 SHARE IN OMNITACTICA CHAT
             </button>
           </div>
 
@@ -1722,7 +2066,7 @@
           const resp = await fetch(`/api/tracker/room/${matchId}`);
           if (resp.ok) {
             const data = await resp.json();
-            if (data.online_count >= 2 || data.user_id_p2 || (data.state && data.state.user_id_p2)) {
+            if (data.user_id_p2 || (data.state && data.state.user_id_p2) || (data.state && data.state.game && data.state.game.p2Name && data.state.game.p2Name !== 'Player 2')) {
               advanceToSetup(data.state && data.state.game ? data.state.game.p2Name : '');
             }
           }
@@ -1736,9 +2080,7 @@
       sse.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
-          if (msg.type === 'presence' && msg.count >= 2) {
-            advanceToSetup();
-          } else if (msg.type === 'state_update' && msg.state && (msg.state.user_id_p2 || (msg.state.game && msg.state.game.p2Name && msg.state.game.p2Name !== 'Player 2'))) {
+          if (msg.type === 'state_update' && msg.state && (msg.state.user_id_p2 || (msg.state.game && msg.state.game.p2Name && msg.state.game.p2Name !== 'Player 2'))) {
             advanceToSetup(msg.state.game ? msg.state.game.p2Name : '');
           }
         } catch (e) {}
@@ -1766,7 +2108,7 @@
         let stateObj = {};
         try { stateObj = JSON.parse(rawState); } catch(e) {}
 
-        const p2Connected = clientState.onlineCount >= 2 || !!(stateObj.user_id_p2 || (stateObj.game && stateObj.game.p2Name && stateObj.game.p2Name !== 'Player 2'));
+        const p2Connected = Boolean(clientState.userIdP2 || stateObj.user_id_p2 || (stateObj.game && stateObj.game.p2Name && stateObj.game.p2Name !== 'Player 2') || clientState.role === 'player2');
         const inviteUrl = getCleanRoomShareUrl(clientState.matchId);
 
         const widget = document.createElement('div');
@@ -1775,26 +2117,34 @@
         
         if (!p2Connected) {
           widget.innerHTML = `
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
               <span style="font-size:12px; font-weight:800; color:#38bdf8; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">⚔️ Room Key: ${clientState.matchId} (1/2 Players)</span>
               <span style="display:flex; align-items:center; gap:6px; font-size:11px; color:#f59e0b;">
                 <span style="width:6px; height:6px; border-radius:50%; background:#f59e0b; display:inline-block;"></span>
                 Waiting for Player 2...
               </span>
             </div>
-            <p style="margin:0 0 10px; font-size:12px; color:#94a3b8;">Share this Room Key with Player 2 to collaborate live on army setup:</p>
-            <div style="display:flex; gap:8px;">
-              <input readonly value="${inviteUrl}" style="flex:1; background:#070b14; border:1px solid #334155; border-radius:8px; padding:8px 10px; font-size:11px; color:#cbd5e1; font-family:'JetBrains Mono',monospace; outline:none;" />
-              <button onclick="window.__copyRoomShareLink('${escapeHtml(clientState.matchId)}');" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:11px; text-transform:uppercase; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; letter-spacing:0.04em;">
+            <p style="margin:0 0 10px; font-size:12px; color:#94a3b8;">Share this link or invite via OmniTactica Chat (no account needed for Player 2 to join as Guest):</p>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <input readonly value="${inviteUrl}" style="flex:1; min-width:180px; background:#070b14; border:1px solid #334155; border-radius:8px; padding:8px 10px; font-size:11px; color:#cbd5e1; font-family:'JetBrains Mono',monospace; outline:none;" />
+              <button onclick="window.__copyRoomShareLink('${escapeHtml(clientState.matchId)}', this);" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:11px; text-transform:uppercase; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; letter-spacing:0.04em; white-space:nowrap;">
                 📋 COPY LINK
+              </button>
+              <button onclick="window.__openShareRoomModal('${escapeHtml(clientState.matchId)}');" style="background:#0284c7; color:#fff; font-weight:800; font-size:11px; text-transform:uppercase; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; letter-spacing:0.04em; white-space:nowrap;">
+                💬 SHARE IN CHAT
               </button>
             </div>
           `;
         } else {
           widget.innerHTML = `
-            <div style="display:flex; align-items:center; justify-content:space-between;">
-              <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${stateObj.game && stateObj.game.p2Name ? stateObj.game.p2Name : 'Opponent'})</span>
-              <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">2/2 Players Active (Collaborative Live)</span>
+            <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+              <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${escapeHtml(stateObj.game && stateObj.game.p2Name ? stateObj.game.p2Name : 'Opponent')})</span>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">2/2 Players Active (Live Sync)</span>
+                <button onclick="window.__openShareRoomModal('${escapeHtml(clientState.matchId)}');" style="background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); border-radius:6px; padding:4px 9px; font-size:10.5px; font-weight:800; cursor:pointer; font-family:'JetBrains Mono',monospace;">
+                  🔗 Share / Spectator Link
+                </button>
+              </div>
             </div>
           `;
         }
@@ -2815,6 +3165,8 @@
               remoteHist,
               remoteTrays
             );
+            if (data.user_id_p1) clientState.userIdP1 = data.user_id_p1;
+            if (data.user_id_p2) clientState.userIdP2 = data.user_id_p2;
             if (data.rosters) {
               if (data.rosters.player1) clientState.p1ArmyList = data.rosters.player1;
               if (data.rosters.player2) clientState.p2ArmyList = data.rosters.player2;
@@ -2823,6 +3175,8 @@
             if (data.version && data.version > clientState.version && data.state && !clientState.isApplyingRemote) {
               clientState.version = data.version;
               applyRemoteState(data.state);
+            } else if (data.user_id_p2) {
+              injectMultiplayerHUD();
             }
           }
         }, (err) => {
@@ -3177,16 +3531,19 @@
 
     // 2. Broadcast via API
     try {
+      const guestId = getOrCreateGuestId();
       const resp = await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/state`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getAuthToken()}`
+          'Authorization': `Bearer ${getAuthToken()}`,
+          'X-Guest-Id': guestId
         },
         body: JSON.stringify({
           match_id: clientState.matchId,
           client_id: clientState.clientId,
           token: getAuthToken(),
+          guest_id: guestId,
           role: clientState.role,
           version: clientState.version,
           state: parsedState
@@ -3194,6 +3551,9 @@
       });
       if (resp.ok) {
         const resData = await resp.json();
+        if (resData.version) {
+          clientState.version = Math.max(clientState.version || 0, Number(resData.version));
+        }
         if (resData.is_abandoned || resData.status === 'abandoned') {
           handleRemoteMatchDiscarded();
           return;
@@ -3216,6 +3576,8 @@
       if (clientState.matchId && stateObj && typeof stateObj === 'object') {
         stateObj.id = clientState.matchId;
         stateObj.match_id = clientState.matchId;
+        if (stateObj.user_id_p1) clientState.userIdP1 = stateObj.user_id_p1;
+        if (stateObj.user_id_p2) clientState.userIdP2 = stateObj.user_id_p2;
       }
       const oldState = originalGetItem('gdm-11e-tracker-state');
       const serialized = JSON.stringify(stateObj);
@@ -3293,11 +3655,17 @@
 
       // Refresh invite widget if P2 just connected
       const widget = document.getElementById('gt-invite-widget');
-      if (widget && stateObj.game && stateObj.game.p2Name && stateObj.game.p2Name !== 'Player 2') {
+      const p2ReadyNow = Boolean(clientState.userIdP2 || stateObj.user_id_p2 || (stateObj.game && stateObj.game.p2Name && stateObj.game.p2Name !== 'Player 2') || clientState.role === 'player2');
+      if (widget && p2ReadyNow) {
         widget.innerHTML = `
-          <div style="display:flex; align-items:center; justify-content:space-between;">
-            <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${stateObj.game.p2Name})</span>
-            <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">2/2 Players (Collaborative Live)</span>
+          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+            <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${escapeHtml((stateObj.game && stateObj.game.p2Name) || 'Opponent')})</span>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">2/2 Players Active (Live Sync)</span>
+              <button onclick="window.__openShareRoomModal('${escapeHtml(clientState.matchId)}');" style="background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); border-radius:6px; padding:4px 9px; font-size:10.5px; font-weight:800; cursor:pointer; font-family:'JetBrains Mono',monospace;">
+                🔗 Share / Spectator Link
+              </button>
+            </div>
           </div>
         `;
       }
@@ -3349,10 +3717,15 @@
 
       try {
         const resp = await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}`, {
-          headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+          headers: {
+            'Authorization': `Bearer ${getAuthToken()}`,
+            'X-Guest-Id': getOrCreateGuestId()
+          }
         });
         if (resp.ok) {
           const data = await resp.json();
+          if (data.user_id_p1) clientState.userIdP1 = data.user_id_p1;
+          if (data.user_id_p2) clientState.userIdP2 = data.user_id_p2;
           if (data.online_count !== undefined) {
             clientState.onlineCount = data.online_count;
             injectMultiplayerHUD();
@@ -3413,6 +3786,8 @@
             return;
           }
           if (msg.type === 'state_update') {
+            if (msg.user_id_p1) clientState.userIdP1 = msg.user_id_p1;
+            if (msg.user_id_p2) clientState.userIdP2 = msg.user_id_p2;
             if (msg.sender !== clientState.clientId && msg.state) {
               if (msg.version >= clientState.version) {
                 clientState.version = msg.version;
@@ -3524,7 +3899,7 @@
         e.stopPropagation();
         return;
       }
-      if (e.target && e.target.closest && (e.target.closest('#gt-sync-hud') || e.target.closest('#gt-complete-modal') || e.target.closest('#gt-army-list-modal') || e.target.closest('#gt-user-status-bar'))) return;
+      if (e.target && e.target.closest && (e.target.closest('#gt-sync-hud') || e.target.closest('#gt-complete-modal') || e.target.closest('#gt-army-list-modal') || e.target.closest('#gt-share-room-modal') || e.target.closest('#gt-user-status-bar'))) return;
       scheduleNotifyStateChanged();
     }, true);
 
@@ -3534,7 +3909,7 @@
         e.stopPropagation();
         return;
       }
-      if (e.target && e.target.closest && (e.target.closest('#gt-sync-hud') || e.target.closest('#gt-complete-modal') || e.target.closest('#gt-army-list-modal') || e.target.closest('#gt-user-status-bar'))) return;
+      if (e.target && e.target.closest && (e.target.closest('#gt-sync-hud') || e.target.closest('#gt-complete-modal') || e.target.closest('#gt-army-list-modal') || e.target.closest('#gt-share-room-modal') || e.target.closest('#gt-user-status-bar'))) return;
       scheduleNotifyStateChanged();
     }, true);
 
@@ -3565,7 +3940,7 @@
         }
       }
 
-      if (target.closest && (target.closest('#gt-sync-hud') || target.closest('#gt-complete-modal') || target.closest('#gt-army-list-modal') || target.closest('#gt-user-status-bar'))) return;
+      if (target.closest && (target.closest('#gt-sync-hud') || target.closest('#gt-complete-modal') || target.closest('#gt-army-list-modal') || target.closest('#gt-share-room-modal') || target.closest('#gt-user-status-bar'))) return;
       scheduleNotifyStateChanged();
       autoToggleCpInDom();
     }, true);
@@ -3589,11 +3964,11 @@
     try { stateObj = JSON.parse(raw) || {}; } catch(e) {}
     const game = stateObj.game || {};
 
-    const p1Raw = game.p1Name || (currentUser ? currentUser.display_name : 'Player 1') || 'Player 1';
+    const p1Raw = game.p1Name || (currentUser && clientState.role === 'player1' ? currentUser.display_name : 'Player 1') || 'Player 1';
     let p2Raw = game.p2Name;
-    const isP2Ready = clientState.onlineCount >= 2 || (game.p2Name && game.p2Name !== 'Player 2') || !!stateObj.user_id_p2;
+    const isP2Ready = Boolean(clientState.userIdP2 || stateObj.user_id_p2 || (game.p2Name && game.p2Name !== 'Player 2') || clientState.role === 'player2');
     if (!p2Raw || p2Raw === 'Player 2') {
-      p2Raw = isP2Ready ? 'Player 2 (Opponent)' : 'Waiting for P2...';
+      p2Raw = isP2Ready ? (clientState.isGuest && clientState.role === 'player2' ? 'Player 2 (Guest)' : 'Player 2 (Opponent)') : 'Waiting for P2...';
     }
 
     // Role-aware (You) display
@@ -3656,8 +4031,8 @@
         <a href="/11th/tracker" onclick="if(window.__showGtLoadingOverlay) window.__showGtLoadingOverlay('🎲 Entering Game Tracker Lobby', 'Loading active tabletop rooms & match history...');" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:4px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
           🎲 Lobby
         </a>
-        <span style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:10.5px; background:#070b14; padding:4px 6px; border-radius:6px; border:1px solid #334155; font-weight:800; white-space:nowrap;">
-          #${compactMatchId}${tableNum ? ` (T${tableNum})` : ''}
+        <span onclick="window.__openShareRoomModal()" title="Tap to Share Match Room (Link or OmniTactica Chat)" style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:10.5px; background:#070b14; padding:4px 6px; border-radius:6px; border:1px solid #334155; font-weight:800; white-space:nowrap; cursor:pointer;">
+          #${compactMatchId}${tableNum ? ` (T${tableNum})` : ''} 🔗
         </span>
         ${isSpectator ? `
           <span style="font-family:'JetBrains Mono',monospace; color:#cbd5e1; font-size:11px; background:rgba(100,116,139,0.25); border:1px solid rgba(148,163,184,0.3); padding:4px 8px; border-radius:6px; font-weight:800; display:inline-flex; align-items:center; gap:4px;">
@@ -3730,7 +4105,7 @@
             📄 Scorecard
           </button>
         ` : '')}
-        <button onclick="window.__copyRoomShareLink();" style="background:#0284c7; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Room Link">
+        <button id="gt-hud-share-btn" onclick="window.__openShareRoomModal()" style="background:#0284c7; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Share Match Room (Link or OmniTactica Chat)">
           🔗 Share
         </button>
         <button onclick="window.gtOpenFeedbackModal()" style="background:rgba(255,255,255,0.06); color:#94a3b8; border:1px solid rgba(255,255,255,0.12); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Send Feedback or Report an Issue">
@@ -3838,10 +4213,11 @@
             const preloadedList = JSON.parse(preloadedRaw);
             if (preloadedList && (preloadedList.id || preloadedList.list_key || preloadedList.name)) {
               const role = clientState.role === 'player2' ? 'player2' : 'player1';
+              const guestId = getOrCreateGuestId();
               const attachResp = await fetch(`/api/tracker/room/${clientState.matchId}/armylist`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
-                body: JSON.stringify({ role: role, army_list: preloadedList })
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}`, 'X-Guest-Id': guestId },
+                body: JSON.stringify({ role: role, army_list: preloadedList, guest_id: guestId })
               });
               if (attachResp.ok) {
                 const attachData = await attachResp.json().catch(() => ({}));
@@ -3909,10 +4285,11 @@
       const urlParams = new URLSearchParams(window.location.search);
       const matchId = clientState.matchId || urlParams.get('match_id') || 'MATCH';
       const role = clientState.role === 'player2' ? 'player2' : 'player1';
+      const guestId = getOrCreateGuestId();
       const resp = await fetch(`/api/tracker/room/${matchId}/armylist`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
-        body: JSON.stringify({ role: role, army_list: listData })
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}`, 'X-Guest-Id': guestId },
+        body: JSON.stringify({ role: role, army_list: listData, guest_id: guestId })
       });
       if (resp.ok) {
         const resData = await resp.json().catch(() => ({}));
@@ -4851,6 +5228,8 @@ Space Marines - Gladius Task Force (2000 pts)
     minimized: false,
     activePlayerTab: 1,
     target: 0,
+    distExpanded: { 1: false, 2: false },
+    historyExpanded: { 1: false, 2: false },
     p1: {
       tray: [], // Array of { id: number, val: number, selected: boolean, rolled: boolean }
       skin: localStorage.getItem('gt-dice-skin-p1') || ''
@@ -4868,6 +5247,18 @@ Space Marines - Gladius Task Force (2000 pts)
     }
   };
   window.diceRollerState = diceRollerState;
+
+  window.gtToggleDiceSection = function(section, playerNum = null) {
+    const pNum = playerNum ? (Number(playerNum) === 2 ? 2 : 1) : (diceRollerState.activePlayerTab || 1);
+    if (section === 'dist') {
+      diceRollerState.distExpanded = diceRollerState.distExpanded || { 1: false, 2: false };
+      diceRollerState.distExpanded[pNum] = !diceRollerState.distExpanded[pNum];
+    } else if (section === 'history') {
+      diceRollerState.historyExpanded = diceRollerState.historyExpanded || { 1: false, 2: false };
+      diceRollerState.historyExpanded[pNum] = !diceRollerState.historyExpanded[pNum];
+    }
+    renderDiceRollerContent();
+  };
 
   // Restore saved dice trays from localStorage
   try {
@@ -5047,6 +5438,21 @@ Space Marines - Gladius Task Force (2000 pts)
       modal = document.createElement('div');
       modal.id = 'gt-dice-roller-modal';
       document.body.appendChild(modal);
+    }
+
+    if (!window.__gtDiceOutsideBound) {
+      window.__gtDiceOutsideBound = true;
+      document.addEventListener('pointerdown', (e) => {
+        if (!diceRollerState.visible || diceRollerState.minimized) return;
+        const m = document.getElementById('gt-dice-roller-modal');
+        if (!m || m.style.display === 'none') return;
+        if (m.contains(e.target)) return;
+        const toggleBtn = e.target && e.target.closest && e.target.closest('[onclick*="gtToggleDiceRoller"], [onclick*="gtMinimizeDiceRoller"], #gt-btn-dice, .gt-dice-toggle-btn');
+        if (toggleBtn) return;
+        diceRollerState.visible = false;
+        try { localStorage.setItem('gt-dice-visible', 'false'); } catch(err) {}
+        mountDiceRollerModal();
+      });
     }
 
     if (!diceRollerState.visible) {
@@ -5249,29 +5655,22 @@ Space Marines - Gladius Task Force (2000 pts)
     const playerHistory = (diceRollerState.history || []).filter(h => Number(h.player_num || 1) === pNum);
     const accentColor = pNum === 2 ? '#f43f5e' : '#38bdf8';
     const isMobileHidden = diceRollerState.activePlayerTab !== pNum ? 'mobile-hidden' : '';
+    const isDistOpen = Boolean(diceRollerState.distExpanded && diceRollerState.distExpanded[pNum]);
+    const isHistOpen = Boolean(diceRollerState.historyExpanded && diceRollerState.historyExpanded[pNum]);
 
     return `
       <div class="gt-player-dice-card player-${pNum} ${isMobileHidden}" id="gt-dice-panel-p${pNum}" data-player="${pNum}">
-        <!-- 1. Player Header & Armory Skin Selector -->
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:8px;">
-          <div style="display:flex; align-items:center; gap:7px; min-width:0;">
-            <span style="width:10px; height:10px; border-radius:50%; background:${accentColor}; box-shadow:0 0 8px ${accentColor}; flex-shrink:0;"></span>
-            <span style="font-size:13px; font-weight:900; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(pName)}</span>
-            <span style="font-size:10px; font-weight:700; color:#94a3b8; background:rgba(255,255,255,0.06); padding:2px 6px; border-radius:4px;">P${pNum}</span>
-          </div>
-          <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
-            <select class="gt-dice-skin-select" id="gt-dice-skin-select-p${pNum}" onchange="window.gtSetPlayerDiceSkin(${pNum}, this.value)" style="background:#090d16; color:#fbbf24; border:1px solid rgba(245,158,11,0.35); border-radius:6px; padding:3px 7px; font-size:10.5px; font-weight:700; cursor:pointer; max-width:195px;" title="Choose ${escapeHtml(pName)}'s Armory Dice Skin">
-              ${ARMORY_DICE_SKIN_OPTIONS.map(opt => `
-                <option value="${opt.id}" ${opt.id === activeSkinId ? 'selected' : ''}>${escapeHtml(opt.label)}</option>
-              `).join('')}
-            </select>
-          </div>
-        </div>
-
-        <!-- 2. Add Dice & Clear Bar -->
-        <div style="display:flex; flex-direction:column; gap:5px;">
+        <!-- 1. Add Dice & Clear Bar -->
+        <div style="display:flex; flex-direction:column; gap:5px; flex-shrink:0;">
           <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:#cbd5e1; font-weight:700;">
-            <span>DICE IN TRAY: <b id="${pNum === 1 ? 'gt-dice-count-display' : 'gt-dice-count-display-p2'}" style="color:#f59e0b; font-size:13px; font-family:'JetBrains Mono',monospace;">${totalInTray}</b> <span style="color:#38bdf8; font-size:10.5px;">(${selectedCount} selected)</span></span>
+            <span style="display:inline-flex; align-items:center; flex-wrap:wrap; gap:4px;">
+              <span class="gt-desktop-player-pill" style="display:inline-flex; align-items:center; gap:5px; margin-right:2px;">
+                <span style="width:8px; height:8px; border-radius:50%; background:${accentColor}; box-shadow:0 0 6px ${accentColor}; flex-shrink:0;"></span>
+                <span style="color:#fff; font-weight:900;">${escapeHtml(pName)}</span>
+                <span style="color:#475569;">&bull;</span>
+              </span>
+              <span>DICE IN TRAY: <b id="${pNum === 1 ? 'gt-dice-count-display' : 'gt-dice-count-display-p2'}" style="color:#f59e0b; font-size:13px; font-family:'JetBrains Mono',monospace;">${totalInTray}</b> <span style="color:#38bdf8; font-size:10.5px;">(${selectedCount} selected)</span></span>
+            </span>
             <span style="font-size:10px; color:#64748b;">Max 100</span>
           </div>
           <div style="display:flex; gap:5px; align-items:center; flex-wrap:wrap;">
@@ -5284,31 +5683,30 @@ Space Marines - Gladius Task Force (2000 pts)
           </div>
         </div>
 
-        <!-- 3. Select Dice in Tray Bar (All, 6, 5, 4, 3, 2, 1, Unselect All) -->
-        <div style="display:flex; flex-direction:column; gap:5px;">
+        <!-- 2. Select Dice in Tray Bar (Toggle All, 6, 5, 4, 3, 2, 1) -->
+        <div style="display:flex; flex-direction:column; gap:5px; flex-shrink:0;">
           <div style="display:flex; justify-content:space-between; align-items:center; font-size:10.5px; color:#94a3b8; font-weight:800; text-transform:uppercase; letter-spacing:0.04em;">
             <span>Select Dice in Tray:</span>
             <span style="font-size:10px; color:#64748b; font-weight:600; text-transform:none;">Tap numbers or individual dice</span>
           </div>
           <div class="gt-dice-select-bar">
-            <button type="button" class="gt-dice-sel-btn ${totalInTray > 0 && selectedCount === totalInTray ? 'active' : ''}" onclick="window.gtSelectAll(true, ${pNum})">All</button>
+            <button type="button" class="gt-dice-sel-btn ${totalInTray > 0 && selectedCount === totalInTray ? 'active' : ''}" onclick="window.gtToggleSelectAll(${pNum})" title="Toggle select/unselect all dice in tray">All</button>
             ${[6, 5, 4, 3, 2, 1].map(face => {
               const c = trayFaceCounts[face] || 0;
               const isSel = isFaceFullySelected(face);
               return `
-                <button type="button" class="gt-dice-sel-btn ${isSel ? 'active' : ''}" onclick="window.gtToggleSelectFace(${face}, ${pNum})" title="Select/Deselect all ${face}s in tray">
+                <button type="button" class="gt-dice-sel-btn ${isSel ? 'active' : ''}" onclick="window.gtToggleSelectFace(${face}, ${pNum})" title="Toggle ${face}s in tray">
                   <span>${face}</span>
                   ${hasRolled ? `<span style="font-size:9.5px; opacity:0.75; color:${c > 0 ? '#fbbf24' : '#475569'};">(${c})</span>` : ''}
                 </button>
               `;
             }).join('')}
-            <button type="button" class="gt-dice-sel-btn ${selectedCount === 0 ? 'active' : ''}" style="color:#94a3b8; margin-left:auto;" onclick="window.gtSelectAll(false, ${pNum})">Unselect All</button>
           </div>
         </div>
 
-        <!-- 4. Clickable Dice Tray -->
+        <!-- 3. Clickable Dice Tray (Expanded to take up main screen real estate) -->
         <div class="gt-dice-tray">
-          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:5px; font-size:10.5px; flex-wrap:wrap; gap:4px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:5px; font-size:10.5px; flex-wrap:wrap; gap:4px; flex-shrink:0;">
             <span style="font-weight:800; color:#cbd5e1;">TRAY (${totalInTray} DICE)</span>
             ${hasRolled ? `
               <div style="display:flex; gap:8px; align-items:center; font-family:'JetBrains Mono',monospace; font-size:10.5px; font-weight:800;">
@@ -5322,7 +5720,7 @@ Space Marines - Gladius Task Force (2000 pts)
 
           <div class="gt-dice-grid ${skinClass}" id="${pNum === 1 ? 'gt-dice-grid-p1' : 'gt-dice-grid-p2'}" data-dice-skin="${activeSkinId}" data-custom-dice="${isCustom}"${customStyle}>
             ${totalInTray === 0 ? `
-              <div style="width:100%; text-align:center; color:#64748b; font-size:11.5px; padding:18px 0;">
+              <div style="width:100%; text-align:center; color:#64748b; font-size:11.5px; padding:24px 0;">
                 Tray is empty. Tap <b style="color:#f59e0b;">+1</b>, <b style="color:#f59e0b;">+5</b>, <b style="color:#f59e0b;">+10</b>, or <b style="color:#f59e0b;">+20</b> above to add dice.
               </div>
             ` : tray.map((die, idx) => {
@@ -5355,8 +5753,8 @@ Space Marines - Gladius Task Force (2000 pts)
           </div>
         </div>
 
-        <!-- 5. Roll Action Buttons -->
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <!-- 4. Roll Action Buttons -->
+        <div style="display:flex; gap:8px; flex-wrap:wrap; flex-shrink:0;">
           ${(selectedCount > 0 && selectedCount < totalInTray && hasRolled) ? `
             <button type="button" id="${pNum === 1 ? 'btn-main-roll-dice' : 'btn-main-roll-dice-p2'}" onclick="window.gtExecuteDiceRoll(${pNum}, 'selected_only')" style="flex:1.25; min-width:160px; background:linear-gradient(135deg, #f59e0b, #d97706); color:#090d16; border:none; padding:10px 12px; border-radius:9px; font-size:13px; font-weight:900; cursor:pointer; box-shadow:0 4px 14px rgba(245,158,11,0.35); display:flex; justify-content:center; align-items:center; gap:6px;">
               🎲 Roll ${selectedCount} Selected
@@ -5371,19 +5769,20 @@ Space Marines - Gladius Task Force (2000 pts)
           `}
         </div>
 
-        <!-- 6. Cumulative Dice Distribution (All Rolls & Rerolls Counted) -->
-        <div class="gt-dice-dist-box" id="gt-dice-dist-p${pNum}">
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap;">
-            <span style="font-size:10.5px; font-weight:800; color:#cbd5e1; text-transform:uppercase; letter-spacing:0.04em;">
-              📊 Dice Distribution <span style="color:#38bdf8;">(${dist.totalRolled} Rolled)</span>
+        <!-- 5. Cumulative Dice Distribution (Minimized by Default, Click to Expand) -->
+        <div class="gt-dice-dist-box ${isDistOpen ? 'is-open' : 'is-collapsed'}" id="gt-dice-dist-p${pNum}" style="flex-shrink:0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap; cursor:pointer; user-select:none;" onclick="window.gtToggleDiceSection('dist', ${pNum})" title="Tap to ${isDistOpen ? 'minimize' : 'expand'} Dice Distribution">
+            <span style="font-size:10.5px; font-weight:800; color:#cbd5e1; text-transform:uppercase; letter-spacing:0.04em; display:inline-flex; align-items:center; gap:5px;">
+              <span>📊 Dice Distribution</span> <span style="color:#38bdf8;">(${dist.totalRolled} Rolled)</span>
             </span>
             <div style="display:flex; align-items:center; gap:8px; font-size:10.5px; font-family:'JetBrains Mono',monospace;">
               <span style="color:${dist.totalRolled > 0 ? (dist.avg >= 3.5 ? '#10b981' : '#f59e0b') : '#64748b'}; font-weight:800;">
                 Avg: ${dist.totalRolled > 0 ? dist.avg.toFixed(2) : '—'} <span style="color:#64748b; font-weight:600;">(Exp 3.50)</span>
               </span>
+              <span style="color:#94a3b8; font-size:10px;">${isDistOpen ? '▾' : '▸'}</span>
             </div>
           </div>
-          <div class="gt-dice-dist-bars">
+          <div class="gt-dice-dist-bars" style="display:${isDistOpen ? 'grid' : 'none'};">
             ${[1, 2, 3, 4, 5, 6].map(face => {
               const count = dist.counts[face] || 0;
               const pct = dist.totalRolled > 0 ? Math.round((count / dist.totalRolled) * 100) : 0;
@@ -5407,13 +5806,16 @@ Space Marines - Gladius Task Force (2000 pts)
           </div>
         </div>
 
-        <!-- 7. Player Roll History -->
-        <div style="border-top:1px solid rgba(255,255,255,0.08); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#94a3b8; font-weight:800;">
+        <!-- 6. Player Roll History (Minimized by Default, Click to Expand) -->
+        <div class="gt-dice-history-box ${isHistOpen ? 'is-open' : 'is-collapsed'}" style="background:rgba(9,13,22,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:7px 10px; display:flex; flex-direction:column; gap:5px; flex-shrink:0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#94a3b8; font-weight:800; cursor:pointer; user-select:none;" onclick="window.gtToggleDiceSection('history', ${pNum})" title="Tap to ${isHistOpen ? 'minimize' : 'expand'} Roll History">
             <span>📜 ${escapeHtml(pName.toUpperCase())} ROLL HISTORY (${playerHistory.length})</span>
-            ${playerHistory.length > 0 ? `<button type="button" onclick="window.gtClearDiceHistory(${pNum})" style="background:transparent; border:none; color:#f87171; font-size:9.5px; font-weight:700; cursor:pointer;">Clear History</button>` : ''}
+            <div style="display:flex; align-items:center; gap:8px;">
+              ${isHistOpen && playerHistory.length > 0 ? `<button type="button" onclick="event.stopPropagation(); window.gtClearDiceHistory(${pNum})" style="background:transparent; border:none; color:#f87171; font-size:9.5px; font-weight:700; cursor:pointer;">Clear History</button>` : ''}
+              <span style="color:#94a3b8; font-size:10px;">${isHistOpen ? '▾' : '▸'}</span>
+            </div>
           </div>
-          <div id="gt-dice-history-list-p${pNum}" style="display:flex; flex-direction:column; gap:4px; max-height:95px; overflow-y:auto;">
+          <div id="gt-dice-history-list-p${pNum}" style="display:${isHistOpen ? 'flex' : 'none'}; flex-direction:column; gap:4px; max-height:95px; overflow-y:auto;">
             ${playerHistory.length === 0 ? `
               <div style="font-size:10px; color:#475569; text-align:center; padding:6px 0;">No rolls recorded yet.</div>
             ` : playerHistory.slice(-12).reverse().map((h, i) => {
@@ -5479,7 +5881,7 @@ Space Marines - Gladius Task Force (2000 pts)
     modal.classList.remove('is-minimized');
     modal.innerHTML = `
       <div class="gt-dice-header">
-        <div style="display:flex; align-items:center; gap:8px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:12.5px; color:#f59e0b; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:8px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:12px; color:#f59e0b; flex-wrap:wrap;">
           <span>🎲</span>
           <span>DUAL TABLETOP DICE ROLLER</span>
           <span style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); font-size:9.5px; padding:2px 6px; border-radius:4px; color:#f59e0b;">LIVE SYNC</span>
@@ -5585,13 +5987,22 @@ Space Marines - Gladius Task Force (2000 pts)
     }
   };
 
-  window.gtSelectAll = function(selectAll = true, playerNum = null) {
+  window.gtSelectAll = function(selectAll = 'toggle', playerNum = null) {
     const pNum = playerNum ? (Number(playerNum) === 2 ? 2 : 1) : (diceRollerState.activePlayerTab || 1);
     const bucket = getPlayerBucket(pNum);
     const tray = bucket.tray || [];
-    tray.forEach(d => { d.selected = Boolean(selectAll); });
+    if (selectAll === 'toggle') {
+      const allSel = tray.length > 0 && tray.every(d => d.selected);
+      tray.forEach(d => { d.selected = !allSel; });
+    } else {
+      tray.forEach(d => { d.selected = Boolean(selectAll); });
+    }
     saveDiceTray();
     renderDiceRollerContent();
+  };
+
+  window.gtToggleSelectAll = function(playerNum = null) {
+    window.gtSelectAll('toggle', playerNum);
   };
 
   window.gtToggleSelectFace = function(faceVal, playerNum = null) {
@@ -5605,21 +6016,12 @@ Space Marines - Gladius Task Force (2000 pts)
     const matching = rolled.filter(d => d.val === face);
     if (matching.length === 0) return;
 
-    const allCurrentlySelected = tray.length > 0 && tray.every(d => d.selected);
-    const hasOtherFaces = rolled.some(d => d.val !== face);
-
-    if (allCurrentlySelected && hasOtherFaces) {
-      // If "All" was active, clicking a specific number selects just that number
-      tray.forEach(d => {
-        d.selected = Boolean(d.rolled && d.val === face);
-      });
-    } else {
-      // Otherwise toggle this specific face value on/off so user can combine e.g. 6, 5, 4
-      const isFaceAllSelected = matching.every(d => d.selected);
-      matching.forEach(d => {
-        d.selected = !isFaceAllSelected;
-      });
-    }
+    // Pure toggle: if all dice of this face are currently selected, unselect them (keeping other faces intact);
+    // otherwise select all dice of this face (adding to any existing selection).
+    const isFaceAllSelected = matching.every(d => d.selected);
+    matching.forEach(d => {
+      d.selected = !isFaceAllSelected;
+    });
 
     saveDiceTray();
     renderDiceRollerContent();

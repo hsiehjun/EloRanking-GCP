@@ -872,23 +872,33 @@ DEV_STUDIO_EVENT["pairings_status"] = "staged"
 AUTH_INJECTION = """<script>
   (function() {
     try {
-      localStorage.setItem('elo_auth_token', 'dev-auth-token-123');
-      localStorage.setItem('native_session_token', 'dev-auth-token-123');
-      sessionStorage.setItem('elo_auth_token', 'dev-auth-token-123');
-      if (!localStorage.getItem('native_user_profile')) {
-        localStorage.setItem('native_user_profile', JSON.stringify({
-          id: 'p_innes',
-          username: 'innes_wilson',
-          display_name: 'Innes Wilson',
-          email: 'innes.wilson@example.com',
-          role: 'admin',
-          is_admin: true,
-          player_id: 'p_innes',
-          bcp_player_id: 'p_innes'
-        }));
+      var qpInit = new URLSearchParams(window.location.search);
+      if (qpInit.get('guest') === '1' || qpInit.get('no_auth') === '1') {
+        localStorage.removeItem('elo_auth_token');
+        localStorage.removeItem('native_session_token');
+        sessionStorage.removeItem('elo_auth_token');
+        document.cookie = 'session_token=; path=/; max-age=0; SameSite=Lax';
+      } else {
+        if (!localStorage.getItem('elo_auth_token')) {
+          localStorage.setItem('elo_auth_token', 'dev-auth-token-123');
+          localStorage.setItem('native_session_token', 'dev-auth-token-123');
+          sessionStorage.setItem('elo_auth_token', 'dev-auth-token-123');
+          document.cookie = 'session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax';
+        }
+        if (!localStorage.getItem('native_user_profile')) {
+          localStorage.setItem('native_user_profile', JSON.stringify({
+            id: 'p_innes',
+            username: 'innes_wilson',
+            display_name: 'Innes Wilson',
+            email: 'innes.wilson@example.com',
+            role: 'admin',
+            is_admin: true,
+            player_id: 'p_innes',
+            bcp_player_id: 'p_innes'
+          }));
+        }
       }
       localStorage.setItem('pwa_install_dismissed', String(Date.now()));
-      document.cookie = 'session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax';
     } catch (e) {}
 
     window.addEventListener('load', function() {
@@ -1833,6 +1843,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 p_load = json.loads(body.decode("utf-8")) if body else {}
             except Exception:
                 p_load = {}
+            auth_hdr = self.headers.get("Authorization", "")
+            tok_str = (p_load.get("token") or (auth_hdr[7:].strip() if auth_hdr.startswith("Bearer ") else "")).strip()
+            guest_hdr = (p_load.get("guest_id") or self.headers.get("X-Guest-Id") or "").strip()
+            u_id = f"auth_{tok_str}" if tok_str else (guest_hdr or "usr_dev")
             is_aos = p_load.get("game_system") == "aos" or str(p_load.get("match_id", "")).startswith("AOS-")
             token = secrets.token_hex(4).upper()
             match_id = p_load.get("match_id") or (f"AOS-{token[:4]}-{token[4:]}" if is_aos else f"WH40K-{token[:4]}-{token[4:]}")
@@ -1842,6 +1856,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "game_system": "aos" if is_aos else "40k",
                 "round": 1,
                 "round_num": 1,
+                "user_id_p1": u_id,
+                "user_id_p2": None,
                 "game": {
                     "p1Name": p_load.get("p1_name", "Player 1"),
                     "p2Name": p_load.get("p2_name", "Player 2"),
@@ -1856,6 +1872,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "success": True,
                 "match_id": match_id,
                 "role": "player1",
+                "user_id_p1": u_id,
+                "user_id_p2": None,
                 "game_system": "aos" if is_aos else "40k",
                 "p1_name": p_load.get("p1_name", "Player 1"),
                 "p2_name": p_load.get("p2_name", "Player 2"),
@@ -1867,6 +1885,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "status": "active",
                 "version": 1,
                 "online_count": 1,
+                "user_id_p1": u_id,
+                "user_id_p2": None,
                 "p1_name": p_load.get("p1_name", "Player 1"),
                 "p2_name": p_load.get("p2_name", "Player 2"),
                 "state": init_state
@@ -2199,7 +2219,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             tail = clean_path.replace("api/tracker/", "")
             if tail.startswith("room/"):
                 tail = tail[5:]
-            sub_actions = ["/state", "/join", "/check", "/finalize", "/discard", "/clock", "/dice_tray", "/dice_roll", "/armylist"]
+            sub_actions = ["/state", "/join", "/check", "/finalize", "/discard", "/clock", "/dice_tray", "/dice_roll", "/armylist", "/share_chat"]
             action = None
             for sa in sub_actions:
                 if tail.endswith(sa):
@@ -2216,11 +2236,32 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         "game_system": "aos" if room_id.startswith("AOS-") else "40k",
                         "version": 1,
                         "online_count": 1,
+                        "user_id_p1": None,
+                        "user_id_p2": None,
                         "state": None
                     }
 
                 entry = ROOMS_DB[room_id]
+                if action == "share_chat":
+                    res = {
+                        "success": True,
+                        "match_id": room_id,
+                        "request_id": payload.get("request_id") or "req_dev_chat_1",
+                        "target_label": payload.get("target_label") or "Opponent Chat",
+                        "message_id": "msg_dev_" + secrets.token_hex(4)
+                    }
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(res).encode("utf-8"))
+                    return
+
                 if "state" in payload and payload["state"] is not None:
+                    if isinstance(payload["state"], dict):
+                        if entry.get("user_id_p1"):
+                            payload["state"]["user_id_p1"] = entry["user_id_p1"]
+                        if entry.get("user_id_p2"):
+                            payload["state"]["user_id_p2"] = entry["user_id_p2"]
                     entry["state"] = payload["state"]
                     entry["version"] = payload.get("version", entry.get("version", 1) + 1)
                 elif payload and any(k in payload for k in ("p1", "p2", "round", "game")):
@@ -2252,12 +2293,43 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
                 if action == "join":
-                    entry["online_count"] = entry.get("online_count", 1) + 1
+                    auth_hdr = self.headers.get("Authorization", "")
+                    tok_str = (payload.get("token") or (auth_hdr[7:].strip() if auth_hdr.startswith("Bearer ") else "")).strip()
+                    guest_hdr = (payload.get("guest_id") or self.headers.get("X-Guest-Id") or "").strip()
+                    u_id = f"auth_{tok_str}" if tok_str else (guest_hdr or None)
+
+                    p1_id = entry.get("user_id_p1")
+                    p2_id = entry.get("user_id_p2")
+                    claim_role = payload.get("claim_role")
+
+                    if claim_role == "spectator":
+                        assigned_role = "spectator"
+                    elif u_id and p1_id and u_id == p1_id:
+                        assigned_role = "player1"
+                    elif u_id and p2_id and u_id == p2_id:
+                        assigned_role = "player2"
+                    elif not p1_id:
+                        assigned_role = "player1"
+                        entry["user_id_p1"] = u_id or "p1_default"
+                    elif not p2_id and u_id != p1_id:
+                        assigned_role = "player2"
+                        entry["user_id_p2"] = u_id or "p2_guest"
+                    else:
+                        assigned_role = "spectator"
+
+                    if assigned_role in ("player1", "player2"):
+                        entry["online_count"] = 2 if (entry.get("user_id_p1") and entry.get("user_id_p2")) else 1
+                        if isinstance(entry.get("state"), dict):
+                            entry["state"]["user_id_p1"] = entry.get("user_id_p1")
+                            entry["state"]["user_id_p2"] = entry.get("user_id_p2")
+
                     res = {
                         "success": True,
                         "match_id": room_id,
-                        "role": payload.get("claim_role") or "player1",
-                        "online_count": entry["online_count"],
+                        "role": assigned_role,
+                        "user_id_p1": entry.get("user_id_p1"),
+                        "user_id_p2": entry.get("user_id_p2"),
+                        "online_count": entry.get("online_count", 1),
                         "version": entry.get("version", 1),
                         "state": entry.get("state")
                     }
@@ -2622,11 +2694,13 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         if clean_path in ("api/auth/me", "api/auth/session"):
             cookie_hdr = self.headers.get("Cookie", "")
             auth_hdr = self.headers.get("Authorization", "")
+            ref_hdr = self.headers.get("Referer", "")
             qp_auth = urllib.parse.parse_qs(query_str)
             token_param = (qp_auth.get("token") or [""])[0].strip()
             bearer_tok = auth_hdr[7:].strip() if auth_hdr.startswith("Bearer ") else ""
             candidate_tok = token_param or bearer_tok
-            if candidate_tok and any(candidate_tok.lower().startswith(p) for p in ("stale", "invalid", "expired", "dead", "revoked")):
+            is_guest_req = ("guest=1" in ref_hdr or "no_auth=1" in ref_hdr or "guest=1" in query_str or "no_auth=1" in query_str)
+            if is_guest_req or (candidate_tok and any(candidate_tok.lower().startswith(p) for p in ("stale", "invalid", "expired", "dead", "revoked"))):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Set-Cookie", "session_token=; Path=/; Max-Age=0")
@@ -2708,14 +2782,84 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 }, default=str).encode("utf-8"))
             return
 
+        if clean_path == "api/connect/requests":
+            mock_requests = [
+                {
+                    "id": "req_marcus_01",
+                    "sender_id": "p_innes",
+                    "sender_name": "Innes Wilson",
+                    "receiver_id": "usr_marcus_01",
+                    "receiver_name": "Marcus Vance",
+                    "receiver_factions": "Adeptus Custodes",
+                    "status": "accepted",
+                    "is_group": False,
+                },
+                {
+                    "id": "grp_lone_star_league",
+                    "sender_id": "p_innes",
+                    "receiver_id": "grp_lone_star_league",
+                    "receiver_name": "Lone Star 40k Premier League",
+                    "status": "accepted",
+                    "is_group": True,
+                    "group_type": "league",
+                },
+            ]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"success": True, "requests": mock_requests}).encode("utf-8"))
+            return
+
+        if clean_path == "api/connect/users/search":
+            parsed_url = urllib.parse.urlparse(self.path)
+            q_params = urllib.parse.parse_qs(parsed_url.query)
+            q_str = (q_params.get("q", [""])[0] or "").strip().lower()
+            mock_users = [
+                {"id": "usr_marcus_01", "display_name": "Marcus Vance", "factions": "Adeptus Custodes", "location_name": "Austin, TX"},
+                {"id": "usr_elena_02", "display_name": "Elena Rostova", "factions": "Aeldari", "location_name": "Seattle, WA"},
+                {"id": "usr_darius_03", "display_name": "Darius Thorne", "factions": "Chaos Space Marines", "location_name": "Chicago, IL"},
+            ]
+            filtered = [u for u in mock_users if not q_str or q_str in u["display_name"].lower() or q_str in u["factions"].lower()]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"success": True, "users": filtered}).encode("utf-8"))
+            return
+
         if clean_path.endswith("/check"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
                 check_id = clean_path.replace("api/tracker/room/", "").replace("/check", "").strip("/")
-                room_data = ROOMS_DB.get(check_id, {})
+                room_data = ROOMS_DB.get(check_id) or ROOMS_DB.get(check_id.upper()) or {}
                 sys_id = room_data.get("game_system") or ("aos" if check_id.startswith("AOS-") else "40k")
+                parsed_url = urllib.parse.urlparse(self.path)
+                q_params = urllib.parse.parse_qs(parsed_url.query)
+                auth_hdr = self.headers.get("Authorization", "")
+                tok_str = (auth_hdr[7:].strip() if auth_hdr.startswith("Bearer ") else "").strip()
+                guest_id = (q_params.get("guest_id", [""])[0] or self.headers.get("X-Guest-Id") or "").strip()
+                u_id = f"auth_{tok_str}" if tok_str else (guest_id or None)
+
+                p1_id = room_data.get("user_id_p1")
+                p2_id = room_data.get("user_id_p2")
+                is_fin = bool(room_data.get("is_finished", False))
+
+                if not p1_id or (u_id and u_id == p1_id):
+                    role = "player1"
+                elif u_id and p2_id and u_id == p2_id:
+                    role = "player2"
+                elif not p2_id and u_id != p1_id:
+                    role = "player2"
+                else:
+                    role = "spectator"
+
+                is_spec = bool(role == "spectator")
+                is_open_p2 = bool(not is_fin and not p2_id and role == "player2")
+                is_full = bool(is_fin or is_spec)
+
                 self.wfile.write(json.dumps({
                     "success": True,
                     "exists": True,
@@ -2723,8 +2867,13 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "game_system": sys_id,
                     "p1_name": room_data.get("p1_name", "Player 1"),
                     "p2_name": room_data.get("p2_name", "Player 2"),
-                    "is_full": False,
-                    "is_finished": False
+                    "user_id_p1": p1_id,
+                    "user_id_p2": p2_id,
+                    "role": role,
+                    "is_spectator": is_spec,
+                    "is_open_for_p2": is_open_p2,
+                    "is_full": is_full,
+                    "is_finished": is_fin
                 }).encode("utf-8"))
             return
 
@@ -4070,7 +4219,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "id": "ev_active_lvo_2026",
                     "bcp_event_id": "ev_active_lvo_2026",
                     "event_name": "LVO 2026 Warhammer 40K Champs",
-                    "event_date": "2026-01-18",
+                    "event_date": "2026-11-18",
                     "city": "Las Vegas",
                     "state": "NV",
                     "checked_in": True,
@@ -6119,7 +6268,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         "id": "ev_active_lvo_2026",
                         "bcp_event_id": "ev_active_lvo_2026",
                         "event_name": "LVO 2026 Warhammer 40K Champs",
-                        "event_date": "2026-01-18",
+                        "event_date": "2026-11-18",
                         "city": "Las Vegas",
                         "state": "NV",
                         "checked_in": True,
@@ -6523,7 +6672,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 or room_data.get("status") == "completed"
                 or (isinstance(st, dict) and (st.get("is_finished") or st.get("status") == "completed"))
             )
-            if not is_finished or not st:
+            if not st:
                 # Check if this is a BCP/Tournament match ID and return official bcp_match scorecard
                 bcp_match_fallback = None
                 ev_t_m = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", str(match_id), re.I)
@@ -6603,9 +6752,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "game_system": sys_id,
                     "game_record": room_data,
                     "state": st,
-                    "is_finished": True,
-                    "status": "completed",
-                    "source": "tracker_games"
+                    "is_finished": is_finished,
+                    "status": "completed" if is_finished else "in_progress",
+                    "source": "tracker_games" if is_finished else "firestore"
                 }, default=str).encode("utf-8"))
             return
 
@@ -6619,14 +6768,14 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     tail = tail[:-len(sa)].strip("/")
                     break
             room_id = tail.strip("/")
-            data = ROOMS_DB.get(room_id) or TRACKER_GAMES_DB.get(room_id) or TRACKER_GAMES_DB.get(room_id.upper()) or {}
+            data = ROOMS_DB.get(room_id) or ROOMS_DB.get(room_id.upper()) or TRACKER_GAMES_DB.get(room_id) or TRACKER_GAMES_DB.get(room_id.upper()) or {}
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
                 st = data.get("state") if isinstance(data, dict) else None
                 ver = data.get("version", 1) if isinstance(data, dict) else 1
-                online = data.get("online_count", 2) if isinstance(data, dict) else 2
+                online = data.get("online_count", 1) if isinstance(data, dict) else 1
                 sys_id = (data.get("game_system") if isinstance(data, dict) else None) or (st.get("gameSystem") if isinstance(st, dict) else None) or ("aos" if room_id.startswith("AOS-") else "40k")
                 p1_list = data.get("p1_army_list") if isinstance(data, dict) else None
                 p2_list = data.get("p2_army_list") if isinstance(data, dict) else None
@@ -6641,6 +6790,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "success": True,
                     "match_id": room_id,
                     "game_system": sys_id,
+                    "user_id_p1": data.get("user_id_p1") if isinstance(data, dict) else None,
+                    "user_id_p2": data.get("user_id_p2") if isinstance(data, dict) else None,
                     "p1_army_list": p1_list,
                     "p2_army_list": p2_list,
                     "data": data,
@@ -6850,29 +7001,47 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             sys_val = "aos" if "game_system=aos" in query_str else "40k"
             if sys_val == "aos":
                 f_list = [
-                    {"faction": "Stormcast Eternals", "win_rate": 56.4, "total_matches": 420, "wins": 237, "losses": 183, "draws": 0, "avg_score": 19.8, "tier_label": "S-Tier (>55%)"},
-                    {"faction": "Blades of Khorne", "win_rate": 53.1, "total_matches": 310, "wins": 165, "losses": 145, "draws": 0, "avg_score": 18.5, "tier_label": "Balanced (45-55%)"},
-                    {"faction": "Skaven", "win_rate": 50.2, "total_matches": 290, "wins": 146, "losses": 144, "draws": 0, "avg_score": 17.9, "tier_label": "Balanced (45-55%)"},
-                    {"faction": "Daughters of Khaine", "win_rate": 52.0, "total_matches": 210, "wins": 109, "losses": 101, "draws": 0, "avg_score": 18.2, "tier_label": "Balanced (45-55%)"}
+                    {"faction": "Stormcast Eternals", "win_rate": 56.4, "non_mirror_win_rate": 56.8, "total_matches": 420, "wins": 237, "losses": 183, "draws": 0, "meta_share": 18.2, "ci_margin": 3.8, "unique_pilots": 112, "x0_runs": 14, "x1_runs": 28, "tiwp_rate": 12.5, "over_rep_ratio": 1.38, "avg_score": 31.8, "avg_opp_score": 25.4, "avg_margin": 6.4, "tier": "S", "tier_label": "Overperforming (55%+)", "best_matchup": {"faction": "Skaven", "win_rate": 63.2, "matches": 38}, "worst_matchup": {"faction": "Nighthaunt", "win_rate": 46.2, "matches": 26}},
+                    {"faction": "Blades of Khorne", "win_rate": 53.1, "non_mirror_win_rate": 53.4, "total_matches": 310, "wins": 165, "losses": 145, "draws": 0, "meta_share": 13.4, "ci_margin": 4.5, "unique_pilots": 84, "x0_runs": 9, "x1_runs": 19, "tiwp_rate": 10.7, "over_rep_ratio": 1.15, "avg_score": 29.5, "avg_opp_score": 26.8, "avg_margin": 2.7, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "Sylvaneth", "win_rate": 61.0, "matches": 24}, "worst_matchup": {"faction": "Stormcast Eternals", "win_rate": 44.8, "matches": 29}},
+                    {"faction": "Skaven", "win_rate": 50.2, "non_mirror_win_rate": 50.2, "total_matches": 290, "wins": 146, "losses": 144, "draws": 0, "meta_share": 12.6, "ci_margin": 4.7, "unique_pilots": 79, "x0_runs": 6, "x1_runs": 15, "tiwp_rate": 7.6, "over_rep_ratio": 0.94, "avg_score": 27.9, "avg_opp_score": 27.5, "avg_margin": 0.4, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "Gloomspite Gitz", "win_rate": 58.3, "matches": 24}, "worst_matchup": {"faction": "Stormcast Eternals", "win_rate": 36.8, "matches": 38}},
+                    {"faction": "Daughters of Khaine", "win_rate": 52.0, "non_mirror_win_rate": 52.3, "total_matches": 210, "wins": 109, "losses": 101, "draws": 0, "meta_share": 9.1, "ci_margin": 5.5, "unique_pilots": 58, "x0_runs": 5, "x1_runs": 12, "tiwp_rate": 8.6, "over_rep_ratio": 1.08, "avg_score": 28.2, "avg_opp_score": 26.9, "avg_margin": 1.3, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "Cities of Sigmar", "win_rate": 60.0, "matches": 20}, "worst_matchup": {"faction": "Blades of Khorne", "win_rate": 45.0, "matches": 20}}
                 ]
                 trends = [
-                    {"month": "2026-06", "faction": "Stormcast Eternals", "win_rate": 55.0, "matches_in_month": 40},
-                    {"month": "2026-07", "faction": "Stormcast Eternals", "win_rate": 56.2, "matches_in_month": 42},
-                    {"month": "2026-08", "faction": "Stormcast Eternals", "win_rate": 56.4, "matches_in_month": 45}
+                    {"month": "2026-06", "faction": "Stormcast Eternals", "win_rate": 55.0, "matches_in_month": 40, "meta_share": 17.5},
+                    {"month": "2026-07", "faction": "Stormcast Eternals", "win_rate": 56.2, "matches_in_month": 42, "meta_share": 18.0},
+                    {"month": "2026-08", "faction": "Stormcast Eternals", "win_rate": 56.4, "matches_in_month": 45, "meta_share": 18.2}
                 ]
             else:
                 f_list = [
-                    {"faction": "Emperor's Children", "win_rate": 54.8, "total_matches": 580, "wins": 318, "losses": 255, "draws": 7, "avg_score": 79.4, "tier_label": "Balanced (45-55%)"},
-                    {"faction": "Necrons", "win_rate": 53.2, "total_matches": 1200, "wins": 638, "losses": 540, "draws": 22, "avg_score": 78.1, "tier_label": "Balanced (45-55%)"},
-                    {"faction": "Space Marines", "win_rate": 51.5, "total_matches": 2100, "wins": 1081, "losses": 980, "draws": 39, "avg_score": 76.5, "tier_label": "Balanced (45-55%)"},
-                    {"faction": "Aeldari", "win_rate": 49.8, "total_matches": 950, "wins": 473, "losses": 460, "draws": 17, "avg_score": 75.2, "tier_label": "Balanced (45-55%)"}
+                    {"faction": "Drukhari", "win_rate": 55.1, "non_mirror_win_rate": 55.4, "total_matches": 700, "wins": 384, "losses": 313, "draws": 3, "meta_share": 4.7, "ci_margin": 1.9, "unique_pilots": 410, "x0_runs": 18, "x1_runs": 42, "tiwp_rate": 11.2, "over_rep_ratio": 1.48, "avg_score": 78.4, "avg_opp_score": 69.2, "avg_margin": 9.2, "tier": "S", "tier_label": "Overperforming (55%+)", "best_matchup": {"faction": "Imperial Knights", "win_rate": 64.5, "matches": 31}, "worst_matchup": {"faction": "Adeptus Custodes", "win_rate": 44.1, "matches": 34}},
+                    {"faction": "Emperor's Children", "win_rate": 54.8, "non_mirror_win_rate": 55.0, "total_matches": 580, "wins": 318, "losses": 255, "draws": 7, "meta_share": 3.9, "ci_margin": 2.1, "unique_pilots": 320, "x0_runs": 14, "x1_runs": 33, "tiwp_rate": 10.4, "over_rep_ratio": 1.38, "avg_score": 79.4, "avg_opp_score": 70.6, "avg_margin": 8.8, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "World Eaters", "win_rate": 62.5, "matches": 24}, "worst_matchup": {"faction": "Death Guard", "win_rate": 45.8, "matches": 24}},
+                    {"faction": "Necrons", "win_rate": 53.2, "non_mirror_win_rate": 53.5, "total_matches": 1200, "wins": 638, "losses": 540, "draws": 22, "meta_share": 8.1, "ci_margin": 1.5, "unique_pilots": 640, "x0_runs": 26, "x1_runs": 64, "tiwp_rate": 9.8, "over_rep_ratio": 1.24, "avg_score": 78.1, "avg_opp_score": 71.8, "avg_margin": 6.3, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "Orks", "win_rate": 59.4, "matches": 64}, "worst_matchup": {"faction": "Thousand Sons", "win_rate": 44.7, "matches": 38}},
+                    {"faction": "Adeptus Custodes", "win_rate": 52.8, "non_mirror_win_rate": 53.0, "total_matches": 1050, "wins": 554, "losses": 482, "draws": 14, "meta_share": 7.1, "ci_margin": 1.6, "unique_pilots": 590, "x0_runs": 33, "x1_runs": 71, "tiwp_rate": 11.4, "over_rep_ratio": 1.80, "avg_score": 79.8, "avg_opp_score": 72.1, "avg_margin": 7.7, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "World Eaters", "win_rate": 63.8, "matches": 58}, "worst_matchup": {"faction": "Death Guard", "win_rate": 43.5, "matches": 46}},
+                    {"faction": "Space Marines", "win_rate": 51.5, "non_mirror_win_rate": 51.7, "total_matches": 2100, "wins": 1081, "losses": 980, "draws": 39, "meta_share": 14.2, "ci_margin": 1.1, "unique_pilots": 1120, "x0_runs": 31, "x1_runs": 88, "tiwp_rate": 7.2, "over_rep_ratio": 0.85, "avg_score": 76.5, "avg_opp_score": 74.1, "avg_margin": 2.4, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "Astra Militarum", "win_rate": 56.2, "matches": 89}, "worst_matchup": {"faction": "Drukhari", "win_rate": 45.2, "matches": 42}},
+                    {"faction": "World Eaters", "win_rate": 51.0, "non_mirror_win_rate": 51.2, "total_matches": 880, "wins": 449, "losses": 421, "draws": 10, "meta_share": 5.9, "ci_margin": 1.7, "unique_pilots": 495, "x0_runs": 16, "x1_runs": 44, "tiwp_rate": 8.4, "over_rep_ratio": 1.05, "avg_score": 77.2, "avg_opp_score": 75.0, "avg_margin": 2.2, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "Chaos Knights", "win_rate": 61.5, "matches": 39}, "worst_matchup": {"faction": "Adeptus Custodes", "win_rate": 36.2, "matches": 58}},
+                    {"faction": "Aeldari", "win_rate": 49.8, "non_mirror_win_rate": 49.9, "total_matches": 950, "wins": 473, "losses": 460, "draws": 17, "meta_share": 6.4, "ci_margin": 1.6, "unique_pilots": 530, "x0_runs": 19, "x1_runs": 48, "tiwp_rate": 8.9, "over_rep_ratio": 1.14, "avg_score": 75.2, "avg_opp_score": 75.4, "avg_margin": -0.2, "tier": "B", "tier_label": "Balanced Low (45-50%)", "best_matchup": {"faction": "Imperial Knights", "win_rate": 58.8, "matches": 34}, "worst_matchup": {"faction": "Necrons", "win_rate": 44.4, "matches": 54}}
                 ]
                 trends = [
-                    {"month": "2026-06", "faction": "Emperor's Children", "win_rate": 53.5, "matches_in_month": 80},
-                    {"month": "2026-07", "faction": "Emperor's Children", "win_rate": 54.2, "matches_in_month": 95},
-                    {"month": "2026-08", "faction": "Emperor's Children", "win_rate": 54.8, "matches_in_month": 110},
-                    {"month": "2026-08", "faction": "Necrons", "win_rate": 53.2, "matches_in_month": 150}
+                    {"month": "2026-06", "faction": "Emperor's Children", "win_rate": 53.5, "matches_in_month": 80, "meta_share": 3.8},
+                    {"month": "2026-07", "faction": "Emperor's Children", "win_rate": 54.2, "matches_in_month": 95, "meta_share": 3.9},
+                    {"month": "2026-08", "faction": "Emperor's Children", "win_rate": 54.8, "matches_in_month": 110, "meta_share": 4.1},
+                    {"month": "2026-08", "faction": "Necrons", "win_rate": 53.2, "matches_in_month": 150, "meta_share": 8.1}
                 ]
+
+            summary_kpis = {
+                "total_matches": 14820,
+                "total_appearances": 29640,
+                "total_pilots": 4105,
+                "total_x0_runs": 127,
+                "total_x1_runs": 340,
+                "active_factions": len(f_list),
+                "goldilocks_count": sum(1 for x in f_list if 45.0 <= x["win_rate"] <= 55.0),
+                "goldilocks_pct": round(sum(1 for x in f_list if 45.0 <= x["win_rate"] <= 55.0) * 100.0 / len(f_list), 1),
+                "most_popular": {"faction": "Space Marines", "meta_share": 14.2, "total_matches": 2100, "win_rate": 51.5, "unique_pilots": 1120},
+                "highest_win_rate": {"faction": f_list[0]["faction"], "win_rate": f_list[0]["win_rate"], "non_mirror_win_rate": f_list[0].get("non_mirror_win_rate", f_list[0]["win_rate"]), "total_matches": f_list[0]["total_matches"], "meta_share": f_list[0].get("meta_share", 5.0)},
+                "top_event_winner": {"faction": "Adeptus Custodes", "x0_runs": 33, "x1_runs": 71, "tiwp_rate": 11.4, "over_rep_ratio": 1.80, "win_rate": 52.8},
+                "highest_vp_margin": {"faction": f_list[0]["faction"], "avg_margin": f_list[0].get("avg_margin", 9.2), "avg_score": f_list[0].get("avg_score", 78.4), "avg_opp_score": f_list[0].get("avg_opp_score", 69.2), "win_rate": f_list[0]["win_rate"]},
+            }
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -6881,6 +7050,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({
                     "factions": f_list,
                     "monthly_trends": trends,
+                    "summary_kpis": summary_kpis,
+                    "matchup_matrix": {"factions": [x["faction"] for x in f_list[:6]], "cells": {}},
                     "total_factions_tracked": len(f_list),
                     "filter": {"granularity": "Monthly"}
                 }).encode("utf-8"))
@@ -6890,22 +7061,63 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             fname = urllib.parse.unquote(clean_path.replace("api/faction/", "").strip("/"))
             sys_val = "aos" if "game_system=aos" in query_str else "40k"
             tf_val = "1yr"
-            if "timeframe=6mo" in query_str:
-                tf_val = "6mo"
-            elif "timeframe=all" in query_str:
-                tf_val = "all"
+            for cand_tf in ("30d", "3mo", "6mo", "1yr", "all"):
+                if f"timeframe={cand_tf}" in query_str:
+                    tf_val = cand_tf
+                    break
+
+            matchups_list = [
+                {"opponent_faction": "Imperial Knights", "total_matches": 31, "wins": 20, "losses": 11, "draws": 0, "win_rate": 64.5, "avg_margin": 11.4},
+                {"opponent_faction": "Necrons", "total_matches": 24, "wins": 15, "losses": 9, "draws": 0, "win_rate": 62.5, "avg_margin": 8.6},
+                {"opponent_faction": "Space Marines", "total_matches": 20, "wins": 12, "losses": 8, "draws": 0, "win_rate": 60.0, "avg_margin": 6.9},
+                {"opponent_faction": "Aeldari", "total_matches": 18, "wins": 10, "losses": 7, "draws": 1, "win_rate": 55.6, "avg_margin": 4.2},
+                {"opponent_faction": "Tyranids", "total_matches": 15, "wins": 8, "losses": 7, "draws": 0, "win_rate": 53.3, "avg_margin": 2.1},
+                {"opponent_faction": "Chaos Space Marines", "total_matches": 14, "wins": 7, "losses": 7, "draws": 0, "win_rate": 50.0, "avg_margin": 0.4},
+                {"opponent_faction": "World Eaters", "total_matches": 16, "wins": 7, "losses": 9, "draws": 0, "win_rate": 43.8, "avg_margin": -3.8},
+                {"opponent_faction": "Adeptus Custodes", "total_matches": 18, "wins": 7, "losses": 11, "draws": 0, "win_rate": 38.9, "avg_margin": -8.2},
+            ]
+            tot_m = sum(m["total_matches"] for m in matchups_list)
+            tot_w = sum(m["wins"] for m in matchups_list)
+            tot_l = sum(m["losses"] for m in matchups_list)
+            tot_d = sum(m["draws"] for m in matchups_list)
+            wr_pct = round(tot_w * 100.0 / max(1, tot_m), 1)
 
             res = {
                 "faction": fname,
                 "game_system": sys_val,
                 "timeframe": tf_val,
                 "stats": {
-                    "total_recent_sample": 64,
-                    "recent_wins": 38,
-                    "recent_losses": 24,
-                    "recent_draws": 2,
+                    "total_matches": tot_m,
+                    "total_wins": tot_w,
+                    "total_losses": tot_l,
+                    "total_draws": tot_d,
+                    "win_rate": wr_pct,
+                    "non_mirror_win_rate": wr_pct,
+                    "avg_score": 78.4,
+                    "avg_opp_score": 69.8,
+                    "avg_margin": 8.6,
+                    "meta_share": 6.4,
+                    "unique_pilots": 92,
+                    "x0_runs": 9,
+                    "x1_runs": 24,
+                    "tiwp_rate": 9.8,
+                    "over_rep_ratio": 1.32,
+                    "tier": "A" if wr_pct < 55.0 else "S",
+                    "tier_label": "Balanced High (50-55%)" if wr_pct < 55.0 else "Overperforming (55%+)",
+                    "opponent_factions_count": len(matchups_list),
+                    "favored_matchups_count": sum(1 for m in matchups_list if m["win_rate"] >= 55.0),
+                    "even_matchups_count": sum(1 for m in matchups_list if 45.0 <= m["win_rate"] < 55.0),
+                    "unfavored_matchups_count": sum(1 for m in matchups_list if m["win_rate"] < 45.0),
+                    "best_matchup": {"faction": matchups_list[0]["opponent_faction"], "win_rate": matchups_list[0]["win_rate"], "matches": matchups_list[0]["total_matches"], "wins": matchups_list[0]["wins"], "losses": matchups_list[0]["losses"]},
+                    "worst_matchup": {"faction": matchups_list[-1]["opponent_faction"], "win_rate": matchups_list[-1]["win_rate"], "matches": matchups_list[-1]["total_matches"], "wins": matchups_list[-1]["wins"], "losses": matchups_list[-1]["losses"]},
+                    "total_recent_sample": 5,
+                    "recent_wins": 3,
+                    "recent_losses": 1,
+                    "recent_draws": 1,
+                    "recent_win_rate": 60.0,
                     "top_player_count": 5
                 },
+                "total_matches": tot_m,
                 "top_players": [
                     {"player_id": "p_innes", "player_name": "Innes Wilson", "team": "Art of War", "current_elo": 2185.4, "matches_played": 28, "wins": 24, "losses": 4, "draws": 0, "win_rate": 85.7, "avg_score": 89.2},
                     {"player_id": "p_david", "player_name": "David Gaylard", "team": "Team Zero Comp", "current_elo": 2120.0, "matches_played": 22, "wins": 17, "losses": 5, "draws": 0, "win_rate": 77.3, "avg_score": 83.1},
@@ -6920,17 +7132,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     {"id": "m_fac_4", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 2, "match_date": "2026-09-14", "player_id": "p_david", "player_name": "David Gaylard", "player_faction": fname, "player_score": 65, "opponent_id": "p_opp4", "opponent_name": "Richard Siegler", "opponent_faction": "Adeptus Custodes", "opponent_score": 88, "outcome": "L"},
                     {"id": "m_fac_5", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 1, "match_date": "2026-09-14", "player_id": "p_jack", "player_name": "Jack Harpster", "player_faction": fname, "player_score": 75, "opponent_id": "p_opp5", "opponent_name": "Brad Chester", "opponent_faction": "Genestealer Cults", "opponent_score": 75, "outcome": "D"}
                 ],
-                "matchups": [
-                    {"opponent_faction": "Necrons", "total_matches": 24, "wins": 15, "losses": 9, "draws": 0, "win_rate": 62.5},
-                    {"opponent_faction": "Space Marines", "total_matches": 20, "wins": 12, "losses": 8, "draws": 0, "win_rate": 60.0},
-                    {"opponent_faction": "Aeldari", "total_matches": 18, "wins": 10, "losses": 7, "draws": 1, "win_rate": 55.6},
-                    {"opponent_faction": "Tyranids", "total_matches": 15, "wins": 8, "losses": 7, "draws": 0, "win_rate": 53.3},
-                    {"opponent_faction": "Chaos Space Marines", "total_matches": 14, "wins": 7, "losses": 7, "draws": 0, "win_rate": 50.0},
-                    {"opponent_faction": "Adeptus Custodes", "total_matches": 12, "wins": 4, "losses": 8, "draws": 0, "win_rate": 33.3}
-                ]
+                "matchups": matchups_list
             }
-            res["stats"]["total_matches"] = sum(m.get("total_matches", 0) for m in res["matchups"])
-            res["total_matches"] = res["stats"]["total_matches"]
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()

@@ -43,9 +43,28 @@ function buildMyHubShellData(u) {
   };
 }
 
+function isTournamentConcluded(ev) {
+  if (!ev) return false;
+  if (ev.ended === true || ev.is_ended === true) return true;
+  if (ev.status && typeof ev.status === 'object' && (ev.status.ended === true || ev.status.is_ended === true)) return true;
+  const statusStr = typeof ev.status === 'string' ? ev.status.trim().toLowerCase() : '';
+  if (statusStr === 'ended' || statusStr === 'completed' || statusStr === 'finished' || statusStr === 'concluded') return true;
+  const evId = String(ev.id || ev.bcp_event_id || '');
+  if (ev.is_native_league || evId.startsWith('league_')) return false;
+  const evDate = ev.event_date || ev.start_date || ev.eventDate || '';
+  const endDate = ev.end_date || ev.eventEndDate || ev.endDate || '';
+  const days = computeDaysUntil(evDate);
+  if (days !== null && days < 0) {
+    const endDays = computeDaysUntil(endDate);
+    if (endDays === null || endDays < 0) return true;
+  }
+  return false;
+}
+
 function isValidRegisteredTournament(ev) {
   if (!ev) return false;
   if ((ev.is_organizer || ev.isOwner || ev.isTO) && !ev.player_id && !ev.bcp_player_id && !ev.has_explicit_player_data) return false;
+  if (isTournamentConcluded(ev)) return false;
   return true;
 }
 
@@ -1341,11 +1360,7 @@ function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
     `;
   }
 
-  const events = (tournaments || []).filter(isValidRegisteredTournament).filter(e => {
-    const dStr = e.event_date || e.start_date;
-    const days = computeDaysUntil(dStr);
-    return days === null || days >= 0 || (computeDaysUntil(e.end_date) || 0) >= 0;
-  });
+  const events = (tournaments || []).filter(isValidRegisteredTournament);
 
   if (events.length === 0) return '<div id="hub-overview-events-preview" style="display:none;"></div>';
 
@@ -1413,10 +1428,10 @@ async function syncBcpRegisteredTournaments() {
   try {
     const res = await window.api.syncUserRegisteredTournaments();
     if (res && res.success) {
-      if (typeof showNotification === 'function') {
-        showNotification(`Refreshed ${res.count || 0} registered tournament(s)`, 'success');
-      }
       const tournaments = (res.tournaments || []).filter(isValidRegisteredTournament);
+      if (typeof showNotification === 'function') {
+        showNotification(`Refreshed ${tournaments.length} active registered tournament(s)`, 'success');
+      }
       if (myHubData) {
         myHubData.registered_tournaments = tournaments;
         try {
@@ -1430,6 +1445,11 @@ async function syncBcpRegisteredTournaments() {
       const previewContainer = document.getElementById('hub-overview-events-preview');
       if (previewContainer) {
         previewContainer.outerHTML = renderNextEventOverviewPreview(tournaments, true);
+      }
+      const activeSubtabCountEl = document.querySelector('#hub-subtabs-bar .profile-subtab-btn[data-tab="active"] .profile-subtab-count');
+      if (activeSubtabCountEl) {
+        const actLen = (myHubData && myHubData.active_sessions && myHubData.active_sessions.length) || 0;
+        activeSubtabCountEl.textContent = String(actLen + tournaments.length);
       }
     } else {
       if (typeof showNotification === 'function') {
@@ -1479,7 +1499,7 @@ function renderMyHub(data) {
     ? computeProfileMatchupMatrix(history, data.matchup_matrix)
     : (data.matchup_matrix || []);
   const upcoming = data.upcoming_events || [];
-  const registeredTournaments = data.registered_tournaments || [];
+  const registeredTournaments = (data.registered_tournaments || []).filter(isValidRegisteredTournament);
   const totalHistoryMatches = history.length;
   const totalFactionGames = factionMastery.reduce((acc, f) => acc + (Number(f.games) || 0), 0);
   const totalMatchupGames = matchups.reduce((acc, m) => acc + (Number(m.total_encounters) || 0), 0);
@@ -1993,7 +2013,7 @@ function renderMyHub(data) {
         return `
           <button type="button" class="profile-subtab-btn hub-subtab-armory-btn" data-tab="armory" onclick="switchHubSubtab('armory')" title="${effectiveSpendableGlory.toLocaleString()} Spendable Glory Points Remaining">
             <span>🏛️ Armory</span>
-            <span class="profile-subtab-count" style="color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 800;">💰 <span id="hub-armory-balance-count">${effectiveSpendableGlory.toLocaleString()}</span> Left</span>
+            <span class="profile-subtab-count" style="color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); font-weight: 800;">💰 <span id="hub-armory-balance-count">${effectiveSpendableGlory.toLocaleString()}</span></span>
           </button>
         `;
       })()}
@@ -3303,6 +3323,9 @@ async function loadHubArmyLists() {
     const lists = mergeHubNewRecruitLists(localLists, cloudLists);
     hubSavedLists = lists;
     window.hubSavedLists = lists;
+    if (Array.isArray(lists) && lists.length > 0 && typeof window.reconcileHubRosterVaultBadge === 'function') {
+      window.reconcileHubRosterVaultBadge(lists);
+    }
     if (nrState && nrState.cloud_account) {
       if (nrState.cloud_account.connected) {
         hubNrCloudAccount = nrState.cloud_account;
@@ -3337,6 +3360,54 @@ async function loadHubArmyLists() {
     container.innerHTML = `<div style="color:var(--loss); font-size:0.85rem; padding:1.5rem; text-align:center;">Error loading army lists: ${e.message}</div>`;
   }
 }
+
+function reconcileHubRosterVaultBadge(lists) {
+  if (!Array.isArray(lists) || lists.length === 0) return;
+  const targets = [typeof myHubData !== 'undefined' ? myHubData : null, window.currentHubData].filter(Boolean);
+  let didUnlock = false;
+  targets.forEach(data => {
+    const sObj = data.seasonal && (data.seasonal[data.active_season || '2026'] || (data.seasonal.badges ? data.seasonal : null));
+    const checkList = [];
+    if (sObj && Array.isArray(sObj.badges)) checkList.push({ container: sObj, badges: sObj.badges, isSeasonal: true });
+    if (Array.isArray(data.badges)) checkList.push({ container: data, badges: data.badges, isSeasonal: false });
+
+    checkList.forEach(({ container, badges, isSeasonal }) => {
+      badges.forEach(b => {
+        if (!b || !b.id || !String(b.id).includes('roster_in_vault')) return;
+        b.description = 'Save at least 1 army roster in NewRecruit Studio or submit a tournament roster.';
+        b.progress = { current: 1, target: 1, unit: 'rosters' };
+        b.provenance = 'Saved battle roster in NewRecruit Studio';
+        if (!b.unlocked) {
+          b.unlocked = true;
+          didUnlock = true;
+          const gloryAdd = Number(b.glory || 25);
+          if (isSeasonal) {
+            container.unlocked_count = Number(container.unlocked_count || 0) + 1;
+            container.total_glory = Number(container.total_glory || 0) + gloryAdd;
+            if (container.total_badges) {
+              container.completion_pct = Math.round((container.unlocked_count / container.total_badges) * 100);
+            }
+          } else {
+            container.badge_count = Number(container.badge_count || 0) + 1;
+          }
+        }
+      });
+    });
+  });
+
+  if (didUnlock) {
+    const trophySubtabCount = document.querySelector('#hub-subtabs-bar .profile-subtab-btn[data-tab="trophies"] .profile-subtab-count');
+    const refData = (typeof myHubData !== 'undefined' && myHubData) || window.currentHubData;
+    if (trophySubtabCount && refData) {
+      trophySubtabCount.textContent = `${refData.badge_count || 0}/${refData.total_badges || 105}`;
+    }
+    const trophyPanel = document.getElementById('hub-panel-trophies');
+    if (trophyPanel && window.BadgesUI && typeof window.BadgesUI.renderTrophyRoom === 'function' && refData) {
+      window.BadgesUI.renderTrophyRoom(trophyPanel, refData, true, refData.player && refData.player.player_id);
+    }
+  }
+}
+window.reconcileHubRosterVaultBadge = reconcileHubRosterVaultBadge;
 
 function ensureBackgroundNrStudioWarmup() {
   if (document.getElementById('hub-nr-studio-iframe')) return;

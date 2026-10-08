@@ -31,7 +31,8 @@ function fetchJson(url, options = {}) {
   });
 }
 
-const ARTIFACT_DIR = '/usr/local/google/home/hsiehjun/.gemini/jetski/brain/28938324-a50e-4441-8d68-0e2840465302';
+const ARTIFACT_DIR = '/usr/local/google/home/hsiehjun/.gemini/jetski/brain/a6253a1a-ca8f-4466-9cc6-340c885b9577';
+const SERVER_PORT = process.env.PORT || 8000;
 
 async function takeScreenshot(client, filename, options = {}) {
   if (options.width && options.height) {
@@ -101,13 +102,27 @@ async function runMetaIntelFactionLatencyTests() {
   console.log('⚡ STARTING META INTEL FACTION DETAILS & LATENCY E2E VERIFICATION');
   console.log('======================================================================');
 
+  // ------------------------------------------------------------------
+  // TEST 0: Direct Server Endpoint Latency Benchmark (< 1000ms SLA)
+  // ------------------------------------------------------------------
+  console.log('\n[Test 0] Benchmarking /api/faction/{faction_name} latency across all timeframes...');
+  for (const tf of ['30d', '3mo', '6mo', '1yr', 'all']) {
+    const t0 = Date.now();
+    const data = await fetchJson(`http://127.0.0.1:${SERVER_PORT}/api/faction/Drukhari?system=40k&timeframe=${tf}&limit=50`);
+    const elapsed = Date.now() - t0;
+    console.log(`  ⏱️ /api/faction/Drukhari?timeframe=${tf} -> ${elapsed}ms (matchups=${(data.matchups || []).length}, matches=${(data.matches || []).length})`);
+    if (elapsed >= 1000) {
+      throw new Error(`Endpoint latency ${elapsed}ms exceeded strict 1000ms SLA for timeframe=${tf}!`);
+    }
+  }
+
   const chromePort = 9226;
   const chrome = spawn('google-chrome', [
     '--headless=new',
     `--remote-debugging-port=${chromePort}`,
     '--no-sandbox',
     '--disable-gpu',
-    '--window-size=1440,900',
+    '--window-size=1440,950',
     'about:blank'
   ]);
 
@@ -127,8 +142,8 @@ async function runMetaIntelFactionLatencyTests() {
     // ------------------------------------------------------------------
     // TEST 1: Load App & Navigate to Meta Intel (#factions)
     // ------------------------------------------------------------------
-    console.log('\n[Test 1] Navigating to http://127.0.0.1:5178/app.html#factions ...');
-    await client.send('Page.navigate', { url: 'http://127.0.0.1:5178/app.html#factions' });
+    console.log(`\n[Test 1] Navigating to http://127.0.0.1:${SERVER_PORT}/app.html#factions ...`);
+    await client.send('Page.navigate', { url: `http://127.0.0.1:${SERVER_PORT}/app.html#factions` });
     await sleep(2000);
 
     const activeNav = await client.eval(`
@@ -149,101 +164,102 @@ async function runMetaIntelFactionLatencyTests() {
       })()
     `);
     console.log(`  ✓ Faction cards rendered on screen: ${factionCount}`);
-    await takeScreenshot(client, '14_meta_intel_overview.png', { width: 1440, height: 900 });
 
     // ------------------------------------------------------------------
-    // TEST 2: Open Faction Modal for "Orks" - Verify Skeletons & Instant Modal Response
+    // TEST 2: Open Unified Faction Modal for "Drukhari"
     // ------------------------------------------------------------------
-    console.log('\n[Test 2] Opening Faction Modal for "Orks"...');
+    console.log('\n[Test 2] Opening Unified Faction Modal for "Drukhari"...');
     const openStartTime = Date.now();
     await client.eval(`
-      openFactionModal('Orks', '1yr');
+      openFactionModal('Drukhari', '1yr');
     `);
     const openDuration = Date.now() - openStartTime;
     console.log(`  ⚡ openFactionModal invoked in ${openDuration}ms`);
 
-    // Verify modal is open and active
-    const modalState = await client.eval(`
-      (function() {
-        const m = document.getElementById('faction-modal');
-        const title = document.getElementById('modal-faction-title');
-        const sub = document.getElementById('modal-faction-subtitle');
-        return {
-          exists: !!m,
-          display: m ? m.style.display : null,
-          hasActiveClass: m ? m.classList.contains('active') : false,
-          title: title ? title.innerText : null,
-          subtitle: sub ? sub.innerText : null
-        };
-      })()
-    `);
-    console.log(`  ✓ Faction Modal state:`, modalState);
-    if (!modalState.exists || (modalState.display === 'none' && !modalState.hasActiveClass)) {
-      throw new Error('Faction modal failed to open!');
-    }
-
-    // Wait for data load / SWR completion
-    await sleep(1200);
+    await sleep(600);
 
     const modalDataRendered = await client.eval(`
       (function() {
+        const subtabs = document.querySelectorAll('#faction-modal .faction-modal-subtabs');
+        const kpiCards = document.querySelectorAll('#faction-modal-kpis .fmodal-kpi-card');
         const matchRows = document.querySelectorAll('#faction-matches-body tr:not(.skeleton-row)');
-        const playerRows = document.querySelectorAll('#faction-players-body tr:not(.skeleton-row)');
         const matchupRows = document.querySelectorAll('#faction-matchups-body tr:not(.skeleton-row)');
+        const muView = document.getElementById('faction-view-matchups');
+        const mView = document.getElementById('faction-view-matches');
         const mCount = document.getElementById('faction-tab-matches-count');
-        const pCount = document.getElementById('faction-tab-players-count');
         const muCount = document.getElementById('faction-tab-matchups-count');
+        const tierBadge = document.getElementById('modal-faction-tier-badge');
         return {
+          legacySubtabsCount: subtabs.length,
+          kpiCardsCount: kpiCards.length,
           matchesCount: matchRows.length,
-          playersCount: playerRows.length,
           matchupsCount: matchupRows.length,
+          matchupsVisible: muView ? getComputedStyle(muView).display !== 'none' : false,
+          matchesVisible: mView ? getComputedStyle(mView).display !== 'none' : false,
+          muRectHeight: muView ? Math.round(muView.getBoundingClientRect().height) : 0,
+          mRectHeight: mView ? Math.round(mView.getBoundingClientRect().height) : 0,
           pillMatches: mCount ? mCount.innerText : null,
-          pillPlayers: pCount ? pCount.innerText : null,
-          pillMatchups: muCount ? muCount.innerText : null
+          pillMatchups: muCount ? muCount.innerText : null,
+          tierBadgeText: tierBadge ? tierBadge.innerText : null
         };
       })()
     `);
-    console.log(`  ✓ Data rendered inside Faction Modal:`, modalDataRendered);
-    if (modalDataRendered.matchesCount === 0) {
-      throw new Error('Faction matches failed to render inside modal!');
+    console.log(`  ✓ Unified Faction Modal state:`, modalDataRendered);
+    if (modalDataRendered.legacySubtabsCount !== 0) {
+      throw new Error('Legacy faction-modal-subtabs should be removed!');
     }
-    await takeScreenshot(client, '15_faction_modal_orks_matches.png', { width: 1440, height: 900 });
+    if (modalDataRendered.kpiCardsCount !== 4) {
+      throw new Error(`Expected 4 KPI cards, got ${modalDataRendered.kpiCardsCount}`);
+    }
+    if (!modalDataRendered.matchupsVisible || !modalDataRendered.matchesVisible) {
+      throw new Error('Both Matchups and Recent Games sections must be visible in unified view!');
+    }
+    if (modalDataRendered.matchesCount === 0 || modalDataRendered.matchupsCount === 0) {
+      throw new Error('Faction matchups or matches failed to render inside modal!');
+    }
+    await takeScreenshot(client, 'revamped_faction_modal_desktop.png', { width: 1440, height: 950 });
 
-    // ------------------------------------------------------------------
-    // TEST 3: Sub-tab Switching (Top Commanders & Matchups Matrix)
-    // ------------------------------------------------------------------
-    console.log('\n[Test 3] Testing Sub-tab switching...');
-    // Switch to Top Commanders
-    await client.eval(`switchFactionModalTab('players');`);
-    await sleep(300);
-    const playersTabActive = await client.eval(`
+    // Scroll to Recent Tournament Games section and capture screenshot
+    await client.eval(`
       (function() {
-        const view = document.getElementById('faction-view-players');
-        const btn = document.getElementById('faction-subtab-players');
-        return {
-          viewDisplay: view ? view.style.display : null,
-          btnActive: btn ? btn.classList.contains('active') : false
-        };
+        const el = document.getElementById('faction-view-matches');
+        if (el) el.scrollIntoView({ behavior: 'instant', block: 'start' });
       })()
     `);
-    console.log(`  ✓ Top Commanders sub-tab active:`, playersTabActive);
-    await takeScreenshot(client, '16_faction_modal_orks_top_commanders.png', { width: 1440, height: 900 });
-
-    // Switch to Matchups Matrix
-    await client.eval(`switchFactionModalTab('matchups');`);
     await sleep(300);
-    const matchupsTabActive = await client.eval(`
+    await takeScreenshot(client, 'revamped_faction_modal_desktop_games.png', { width: 1440, height: 950 });
+
+    // Scroll back to top and capture Mobile screenshot (390x844)
+    await client.eval(`
       (function() {
-        const view = document.getElementById('faction-view-matchups');
-        const btn = document.getElementById('faction-subtab-matchups');
-        return {
-          viewDisplay: view ? view.style.display : null,
-          btnActive: btn ? btn.classList.contains('active') : false
-        };
+        const body = document.querySelector('#faction-modal .modal-body');
+        if (body) body.scrollTop = 0;
       })()
     `);
-    console.log(`  ✓ Matchups Matrix sub-tab active:`, matchupsTabActive);
-    await takeScreenshot(client, '17_faction_modal_orks_matchups.png', { width: 1440, height: 900 });
+    await takeScreenshot(client, 'revamped_faction_modal_mobile.png', { width: 390, height: 844, mobile: true });
+
+    // Restore desktop viewport
+    await client.send('Emulation.setDeviceMetricsOverride', {
+      width: 1440,
+      height: 950,
+      deviceScaleFactor: 1,
+      mobile: false
+    });
+    await sleep(250);
+
+    // ------------------------------------------------------------------
+    // TEST 3: Interactive Matchup & Match Filter Pills
+    // ------------------------------------------------------------------
+    console.log('\n[Test 3] Testing Interactive Matchup Verdict & Match Outcome Filters...');
+    await client.eval(`setFactionModalMatchupFilter('FAVORED');`);
+    const favoredCount = await client.eval(`document.querySelectorAll('#faction-matchups-body tr').length;`);
+    console.log(`  ✓ Favored matchups filtered rows: ${favoredCount}`);
+    await client.eval(`setFactionModalMatchupFilter('ALL');`);
+
+    await client.eval(`setFactionModalMatchOutcomeFilter('W');`);
+    const winsCount = await client.eval(`document.querySelectorAll('#faction-matches-body tr').length;`);
+    console.log(`  ✓ Victory matches filtered rows: ${winsCount}`);
+    await client.eval(`setFactionModalMatchOutcomeFilter('ALL');`);
 
     // ------------------------------------------------------------------
     // TEST 4: Timeframe Switching (6mo, 1yr, all)

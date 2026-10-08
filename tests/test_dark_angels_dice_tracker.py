@@ -210,17 +210,37 @@ try:
             assert dist_initial['p1TotalRolled'] == 20 and dist_initial['p1Has20Rolled'], "Player 1 distribution should show (20 Rolled) after initial roll of 20!"
             assert dist_initial['p2TotalRolled'] == 15 and dist_initial['p2Has15Rolled'], "Player 2 distribution should show (15 Rolled) after initial roll of 15!"
 
-            # Test face selection (All, 6, 5, 4, 3, 2, 1, Unselect All) + clicking individual dice
+            # Test face selection (Toggle All, All->Face unselects just that face, individual dice)
             cid += 1
             selection_test = await eval_js(ws, cid, '''
                 (() => {
-                    // Select All
-                    window.gtSelectAll(true, 1);
-                    const allSelected = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip.selected').length;
-                    // Unselect All
+                    // Check that Distribution and Roll History are minimized by default
+                    const distBars = document.querySelector('#gt-dice-dist-p1 .gt-dice-dist-bars');
+                    const histList = document.getElementById('gt-dice-history-list-p1');
+                    const distMinimizedByDefault = distBars && getComputedStyle(distBars).display === 'none';
+                    const histMinimizedByDefault = histList && getComputedStyle(histList).display === 'none';
+
+                    // First clear selection, then test gtToggleSelectAll (1st tap -> 20 selected, 2nd tap -> 0 selected)
                     window.gtSelectAll(false, 1);
+                    window.gtToggleSelectAll(1);
+                    const allSelected = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip.selected').length;
+                    window.gtToggleSelectAll(1);
                     const noneSelected = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip.selected').length;
-                    // Toggle face 1 and face 2 (e.g. to reroll 1s and 2s)
+
+                    // Test: When All are selected, tapping a face (e.g. the face of the last die in tray) unselects ONLY that face and keeps the rest selected!
+                    window.gtToggleSelectAll(1);
+                    const tray = window.diceRollerState.p1.tray;
+                    const targetFace = tray[tray.length - 1].val;
+                    const targetFaceCount = tray.filter(d => d.val === targetFace).length;
+                    window.gtToggleSelectFace(targetFace, 1);
+                    const afterUnselectOneFace = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip.selected').length;
+                    const expectedAfterUnselectOneFace = 20 - targetFaceCount;
+                    // Tapping that same face again re-selects it back to 20!
+                    window.gtToggleSelectFace(targetFace, 1);
+                    const afterReselectOneFace = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip.selected').length;
+
+                    // Unselect all, then toggle face 1 and face 2
+                    window.gtSelectAll(false, 1);
                     window.gtToggleSelectFace(1, 1);
                     window.gtToggleSelectFace(2, 1);
                     const lowSelected = document.querySelectorAll('#gt-dice-panel-p1 .gt-die-pip.selected').length;
@@ -241,8 +261,13 @@ try:
                     const p2Selected = document.querySelectorAll('#gt-dice-panel-p2 .gt-die-pip.selected').length;
 
                     return {
+                        distMinimizedByDefault,
+                        histMinimizedByDefault,
                         allSelected,
                         noneSelected,
+                        afterUnselectOneFace,
+                        expectedAfterUnselectOneFace,
+                        afterReselectOneFace,
                         lowSelected,
                         afterClickFirst,
                         exactFourSelected,
@@ -251,8 +276,14 @@ try:
                 })()
             ''')
             print("Selection Controls Test:", json.dumps(selection_test, indent=2))
-            assert selection_test['allSelected'] == 20, "Select All should select all 20 dice!"
-            assert selection_test['noneSelected'] == 0, "Unselect All should select 0 dice!"
+            assert selection_test['distMinimizedByDefault'], "Dice Distribution should be minimized by default!"
+            assert selection_test['histMinimizedByDefault'], "Roll History should be minimized by default!"
+            assert selection_test['allSelected'] == 20, "1st tap on All should select all 20 dice!"
+            assert selection_test['noneSelected'] == 0, "2nd tap on All should unselect all dice!"
+            assert selection_test['afterUnselectOneFace'] == selection_test['expectedAfterUnselectOneFace'], (
+                f"Tapping a number when All are selected should unselect only that number! Expected {selection_test['expectedAfterUnselectOneFace']}, got {selection_test['afterUnselectOneFace']}"
+            )
+            assert selection_test['afterReselectOneFace'] == 20, "Tapping that number again should re-select it back to 20!"
             assert selection_test['exactFourSelected'] == 4, "Clicking 4 dice should select 4 dice!"
             assert selection_test['p2Selected'] == 6, "Clicking 6 dice on P2 should select 6 dice!"
 
@@ -376,9 +407,14 @@ try:
                     window.gtToggleDieSelection(2, 1);
                     const m = document.getElementById('gt-dice-roller-modal');
                     const rect = m.getBoundingClientRect();
+                    const hdr = m.querySelector('.gt-dice-header');
+                    const tray = document.querySelector('#gt-dice-panel-p1 .gt-dice-tray');
+                    const trayRect = tray ? tray.getBoundingClientRect() : { height: 0 };
                     return {
                         modalWidth: rect.width,
                         modalHeight: rect.height,
+                        headerHiddenOnMobile: hdr ? getComputedStyle(hdr).display === 'none' : true,
+                        trayHeight: Math.round(trayRect.height),
                         p1Visible: getComputedStyle(document.getElementById('gt-dice-panel-p1')).display !== 'none',
                         p2Visible: getComputedStyle(document.getElementById('gt-dice-panel-p2')).display !== 'none'
                     };
@@ -386,6 +422,8 @@ try:
             ''')
             print("Mobile Player 1 View Check:", json.dumps(mobile_p1_info, indent=2))
             assert mobile_p1_info['p1Visible'] and not mobile_p1_info['p2Visible'], "On mobile, active tab Player 1 should be visible and Player 2 hidden!"
+            assert mobile_p1_info['headerHiddenOnMobile'], "On mobile, top .gt-dice-header should be hidden to maximize screen real estate!"
+            assert mobile_p1_info['trayHeight'] > 320, f"On mobile, dice tray should take up large screen real estate (>320px), got {mobile_p1_info['trayHeight']}"
             assert mobile_p1_info['modalHeight'] > 650, f"On mobile, dice roller should take up most of the screen (>650px), got {mobile_p1_info['modalHeight']}"
             await take_screenshot(ws, cid, 'test_dice_mobile_p1_full.png')
 
@@ -403,6 +441,21 @@ try:
             print("Mobile Player 2 View Check:", json.dumps(mobile_p2_info, indent=2))
             assert mobile_p2_info['p2Visible'] and not mobile_p2_info['p1Visible'], "On mobile, switching to Player 2 should show Player 2 and hide Player 1!"
             await take_screenshot(ws, cid, 'test_dice_mobile_p2_full.png')
+
+            # Test tapping outside the dice roller closes it
+            cid += 1
+            outside_close_check = await eval_js(ws, cid, '''
+                (() => {
+                    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 5, clientY: 5 }));
+                    const m = document.getElementById('gt-dice-roller-modal');
+                    const closedAfterOutsideTap = !window.diceRollerState.visible && (!m || m.style.display === 'none');
+                    // Re-open for minimized screenshot check
+                    window.gtToggleDiceRoller();
+                    return { closedAfterOutsideTap };
+                })()
+            ''')
+            print("Outside Tap Close Check:", json.dumps(outside_close_check, indent=2))
+            assert outside_close_check['closedAfterOutsideTap'], "Tapping outside the dice roller should exit/close it!"
 
             # Test Minimize on Mobile
             cid += 1

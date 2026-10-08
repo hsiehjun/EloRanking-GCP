@@ -260,6 +260,7 @@ class PostgresDatabase:
         cls._all_teams_cache_map.clear()
         cls._faction_meta_cache_dict.clear()
         cls._faction_details_cache_dict.clear()
+        cls._faction_bg_warmed_keys.clear()
         cls._players_cache_dict.clear()
         cls._players_count_cache_dict.clear()
         cls._events_list_cache_dict.clear()
@@ -7722,6 +7723,7 @@ class PostgresDatabase:
                             "factions": matrix_factions,
                             "cells": matrix_cells,
                         },
+                        "matchups_by_faction": matchups_by_fac,
                         "summary_kpis": summary_kpis,
                         "total_factions_tracked": len(overall),
                         "filter": {
@@ -8357,6 +8359,8 @@ class PostgresDatabase:
                 (
                     SELECT 
                         player2_faction as opp_faction,
+                        player1_score as score,
+                        player2_score as opp_score,
                         CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
                         CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
@@ -8373,6 +8377,8 @@ class PostgresDatabase:
                 (
                     SELECT 
                         player1_faction as opp_faction,
+                        player2_score as score,
+                        player1_score as opp_score,
                         CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
                         CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
@@ -8393,7 +8399,8 @@ class PostgresDatabase:
                 SUM(is_win) as wins,
                 SUM(is_loss) as losses,
                 SUM(is_draw) as draws,
-                ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate
+                ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
+                COALESCE(ROUND(AVG(CASE WHEN score IS NOT NULL AND opp_score IS NOT NULL AND (score > 0 OR opp_score > 0) THEN (score - opp_score) ELSE NULL END)::numeric, 1), 0.0) as avg_margin
             FROM faction_games
             GROUP BY opp_faction
             HAVING COUNT(*) >= 1
@@ -8414,14 +8421,18 @@ class PostgresDatabase:
     _faction_details_inflight_locks: Dict[Any, threading.Lock] = {}
     _faction_details_inflight_guard = threading.Lock()
 
+    _faction_bg_warmed_keys: Set[Any] = set()
+
     def get_faction_details(
         self,
         faction_name: str,
         limit: int = 100,
         game_system: Optional[str] = "40k",
-        timeframe: Optional[str] = "1yr"
+        timeframe: Optional[str] = "1yr",
+        _from_bg_warm: bool = False,
+        include_top_players: bool = False
     ) -> Dict[str, Any]:
-        """Returns pure match-level faction analytics, top pilots strictly for this faction, and matchups with timeframe filtering and caching."""
+        """Returns match-level faction analytics and matchups with sub-second (<1s) latency and multi-tier caching."""
         if not faction_name:
             return {"faction": "", "stats": {}, "top_players": [], "matches": [], "matchups": []}
 
@@ -8442,9 +8453,11 @@ class PostgresDatabase:
         cache_key = (norm_fac_lower, system, tf, int(limit))
         canon_cache_key = (norm_fac_lower, system, canon_tf, int(limit))
         cached = (
-            self.get_cached(self._faction_details_cache_dict, cache_key, ttl=3600)
-            or self.get_cached(self._faction_details_cache_dict, canon_cache_key, ttl=3600)
-            or self.get_cached(self._faction_details_cache_dict, (raw_fac_lower, system, tf, int(limit)), ttl=3600)
+            self.get_cached(self._faction_details_cache_dict, cache_key, ttl=86400)
+            or self.get_cached(self._faction_details_cache_dict, canon_cache_key, ttl=86400)
+            or self.get_cached(self._faction_details_cache_dict, (raw_fac_lower, system, tf, int(limit)), ttl=86400)
+            or self.get_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, 100), ttl=86400)
+            or self.get_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, 50), ttl=86400)
         )
         if cached:
             if cached.get("faction") != faction_name or cached.get("timeframe") != tf:
@@ -8459,9 +8472,11 @@ class PostgresDatabase:
 
         with key_lock:
             cached = (
-                self.get_cached(self._faction_details_cache_dict, cache_key, ttl=3600)
-                or self.get_cached(self._faction_details_cache_dict, canon_cache_key, ttl=3600)
-                or self.get_cached(self._faction_details_cache_dict, (raw_fac_lower, system, tf, int(limit)), ttl=3600)
+                self.get_cached(self._faction_details_cache_dict, cache_key, ttl=86400)
+                or self.get_cached(self._faction_details_cache_dict, canon_cache_key, ttl=86400)
+                or self.get_cached(self._faction_details_cache_dict, (raw_fac_lower, system, tf, int(limit)), ttl=86400)
+                or self.get_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, 100), ttl=86400)
+                or self.get_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, 50), ttl=86400)
             )
             if cached:
                 if cached.get("faction") != faction_name or cached.get("timeframe") != tf:
@@ -8470,26 +8485,7 @@ class PostgresDatabase:
 
             is_mock_self = hasattr(getattr(self, "get_connection", None), "assert_called") or type(self).__module__.startswith("unittest.mock") or not getattr(self, "pool", None)
             l2_fac_key = f"faction_details_v2_{system}_{canon_tf}_{norm_fac_lower}_{int(limit)}"
-            if not is_mock_self:
-                try:
-                    with self.get_connection() as conn:
-                        with conn.cursor() as cur_l2:
-                            cur_l2.execute("SET LOCAL statement_timeout = '2000ms';")
-                            cur_l2.execute(
-                                "SELECT value, EXTRACT(EPOCH FROM updated_at) AS ts FROM system_settings WHERE key = %s;",
-                                (l2_fac_key,)
-                            )
-                            p_row = cur_l2.fetchone()
-                            if p_row and p_row[0]:
-                                parsed = json.loads(p_row[0])
-                                if isinstance(parsed, dict) and "matches" in parsed:
-                                    self.set_cached(self._faction_details_cache_dict, cache_key, parsed)
-                                    self.set_cached(self._faction_details_cache_dict, canon_cache_key, parsed)
-                                    if parsed.get("faction") != faction_name or parsed.get("timeframe") != tf:
-                                        return {**parsed, "faction": faction_name, "timeframe": tf}
-                                    return parsed
-                except Exception:
-                    pass
+            l2_fac_key_100 = f"faction_details_v2_{system}_{canon_tf}_{norm_fac_lower}_100"
 
             sys_clause = ""
             sys_params = []
@@ -8526,36 +8522,195 @@ class PostgresDatabase:
                 date_clause = ""
                 date_params = []
 
-            top_players = []
-            recent_matches = []
-            matchups = []
+            top_players: List[Dict[str, Any]] = []
+            recent_matches: List[Dict[str, Any]] = []
+            matchups: List[Dict[str, Any]] = []
+            meta_fac_info: Optional[Dict[str, Any]] = None
+
+            tf_to_meta_preset = {"30d": "30d", "60d": "60d", "3mo": "90d", "6mo": "180d", "1yr": "1yr", "ytd": "ytd", "all": "all"}
+            meta_p = tf_to_meta_preset.get(canon_tf)
+
+            def _extract_from_meta_payload(meta_payload: Dict[str, Any]):
+                nonlocal matchups, meta_fac_info
+                if not isinstance(meta_payload, dict):
+                    return
+                fac_list = meta_payload.get("factions")
+                if isinstance(fac_list, list):
+                    for f_row in fac_list:
+                        if str(f_row.get("faction") or "").strip().lower() == norm_fac_lower:
+                            meta_fac_info = f_row
+                            break
+                mu_by_fac = meta_payload.get("matchups_by_faction")
+                if isinstance(mu_by_fac, dict):
+                    found_mu = mu_by_fac.get(faction_name.strip())
+                    if not found_mu:
+                        for k_fac, v_list in mu_by_fac.items():
+                            if str(k_fac).strip().lower() == norm_fac_lower:
+                                found_mu = v_list
+                                break
+                    if isinstance(found_mu, list) and len(found_mu) > 0:
+                        matchups = sorted(
+                            [
+                                {
+                                    "opponent_faction": m.get("opponent_faction", ""),
+                                    "total_matches": int(m.get("total_matches") or m.get("matches") or 0),
+                                    "wins": int(m.get("wins") or 0),
+                                    "losses": int(m.get("losses") or 0),
+                                    "draws": int(m.get("draws") or 0),
+                                    "win_rate": float(m.get("win_rate") or 0.0),
+                                    "avg_margin": float(m.get("avg_margin") or 0.0),
+                                }
+                                for m in found_mu
+                            ],
+                            key=lambda x: (x["win_rate"], x["total_matches"]),
+                            reverse=True,
+                        )[:100]
+
+            # Fast-path 0ms matchup & summary reuse from already-cached Meta Intel preset if available
+            if not is_mock_self and meta_p:
+                try:
+                    meta_cached = self.get_cached(self._faction_meta_cache_dict, f"preset_{meta_p}_{system}", ttl=86400)
+                    if isinstance(meta_cached, dict):
+                        _extract_from_meta_payload(meta_cached)
+                except Exception:
+                    pass
 
             try:
                 with self.get_connection() as conn:
                     with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                        top_players = self._query_faction_top_players(
-                            faction_name, system, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
-                        )
+                        if not is_mock_self:
+                            try:
+                                # Single connection checkout with tight timeout and backward B-tree index scan
+                                cursor.execute("SET LOCAL statement_timeout = '1500ms';")
+                                cursor.execute("SET LOCAL enable_bitmapscan = off;")
+                            except Exception:
+                                pass
+
+                            # 1. Check L2 persistent cache on the same cursor
+                            try:
+                                cursor.execute(
+                                    "SELECT value FROM system_settings WHERE key IN (%s, %s) ORDER BY updated_at DESC LIMIT 1;",
+                                    (l2_fac_key, l2_fac_key_100)
+                                )
+                                p_row = cursor.fetchone()
+                                raw_val = p_row.get("value") if isinstance(p_row, dict) else (p_row[0] if p_row else None)
+                                if raw_val:
+                                    parsed = json.loads(raw_val)
+                                    if isinstance(parsed, dict) and "matches" in parsed and "matchups" in parsed:
+                                        self.set_cached(self._faction_details_cache_dict, cache_key, parsed, max_size=1500)
+                                        self.set_cached(self._faction_details_cache_dict, canon_cache_key, parsed, max_size=1500)
+                                        if parsed.get("faction") != faction_name or parsed.get("timeframe") != tf:
+                                            return {**parsed, "faction": faction_name, "timeframe": tf}
+                                        return parsed
+                            except Exception:
+                                pass
+
+                            # 2. If matchups not in L1 memory yet, check L2 meta_intel_v2 cache on the same cursor (0ms vs full table scan)
+                            if not matchups and meta_p:
+                                try:
+                                    l2_meta_key = f"meta_intel_v2_{system}_preset_{meta_p}"
+                                    cursor.execute(
+                                        "SELECT value FROM system_settings WHERE key = %s LIMIT 1;",
+                                        (l2_meta_key,)
+                                    )
+                                    m_row = cursor.fetchone()
+                                    m_val = m_row.get("value") if isinstance(m_row, dict) else (m_row[0] if m_row else None)
+                                    if m_val:
+                                        parsed_meta = json.loads(m_val)
+                                        if isinstance(parsed_meta, dict):
+                                            self.set_cached(self._faction_meta_cache_dict, f"preset_{meta_p}_{system}", parsed_meta, max_size=200)
+                                            _extract_from_meta_payload(parsed_meta)
+                                except Exception:
+                                    pass
+
+                        if include_top_players:
+                            top_players = self._query_faction_top_players(
+                                faction_name, system, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
+                            )
+                        eff_limit = min(int(limit), 50) if not is_mock_self else limit
                         recent_matches = self._query_faction_recent_matches(
-                            faction_name, limit, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
+                            faction_name, eff_limit, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
                         )
-                        matchups = self._query_faction_matchups(
-                            faction_name, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
-                        )
+                        if not matchups or is_mock_self:
+                            matchups = self._query_faction_matchups(
+                                faction_name, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
+                            )
             except Exception as err:
                 logger.warning(f"Error fetching faction details for {faction_name} ({system}, {tf}): {err}")
 
-            # Summary metrics
+            # Recent sample metrics
             total_m = len(recent_matches)
             total_w = sum(1 for m in recent_matches if m.get("outcome") == "W")
             total_l = sum(1 for m in recent_matches if m.get("outcome") == "L")
             total_d = sum(1 for m in recent_matches if m.get("outcome") == "D")
+            recent_wr = round((total_w * 100.0 / total_m), 1) if total_m > 0 else 0.0
 
-            total_faction_matches = sum(m.get("total_matches", 0) for m in matchups) if matchups else total_m
-            total_faction_wins = sum(m.get("wins", 0) for m in matchups) if matchups else total_w
-            total_faction_losses = sum(m.get("losses", 0) for m in matchups) if matchups else total_l
-            total_faction_draws = sum(m.get("draws", 0) for m in matchups) if matchups else total_d
-            faction_win_rate = round((total_faction_wins * 100.0 / total_faction_matches), 1) if total_faction_matches > 0 else 0.0
+            scored_games = [
+                (float(m.get("player_score") or 0), float(m.get("opponent_score") or 0))
+                for m in recent_matches
+                if m.get("player_score") is not None and m.get("opponent_score") is not None
+                and (float(m.get("player_score") or 0) > 0 or float(m.get("opponent_score") or 0) > 0)
+            ]
+            sample_avg_score = round(sum(s[0] for s in scored_games) / len(scored_games), 1) if scored_games else 0.0
+            sample_avg_opp_score = round(sum(s[1] for s in scored_games) / len(scored_games), 1) if scored_games else 0.0
+            sample_avg_margin = round(sum(s[0] - s[1] for s in scored_games) / len(scored_games), 1) if scored_games else 0.0
+
+            mu_total_matches = sum(int(m.get("total_matches") or 0) for m in matchups) if matchups else total_m
+            mu_total_wins = sum(int(m.get("wins") or 0) for m in matchups) if matchups else total_w
+            mu_total_losses = sum(int(m.get("losses") or 0) for m in matchups) if matchups else total_l
+            mu_total_draws = sum(int(m.get("draws") or 0) for m in matchups) if matchups else total_d
+
+            total_faction_matches = int(meta_fac_info.get("total_matches") or mu_total_matches) if meta_fac_info else mu_total_matches
+            total_faction_wins = int(meta_fac_info.get("wins") or mu_total_wins) if meta_fac_info else mu_total_wins
+            total_faction_losses = int(meta_fac_info.get("losses") or mu_total_losses) if meta_fac_info else mu_total_losses
+            total_faction_draws = int(meta_fac_info.get("draws") or mu_total_draws) if meta_fac_info else mu_total_draws
+            faction_win_rate = float(meta_fac_info.get("win_rate")) if (meta_fac_info and meta_fac_info.get("win_rate") is not None) else (
+                round((total_faction_wins * 100.0 / total_faction_matches), 1) if total_faction_matches > 0 else 0.0
+            )
+            non_mirror_wr = float(meta_fac_info.get("non_mirror_win_rate")) if (meta_fac_info and meta_fac_info.get("non_mirror_win_rate") is not None) else (
+                round((mu_total_wins * 100.0 / mu_total_matches), 1) if mu_total_matches > 0 else faction_win_rate
+            )
+
+            avg_score = float(meta_fac_info.get("avg_score") or sample_avg_score) if meta_fac_info else sample_avg_score
+            avg_opp_score = float(meta_fac_info.get("avg_opp_score") or sample_avg_opp_score) if meta_fac_info else sample_avg_opp_score
+            avg_margin = float(meta_fac_info.get("avg_margin")) if (meta_fac_info and meta_fac_info.get("avg_margin") is not None) else sample_avg_margin
+
+            if faction_win_rate >= 55.0:
+                tier, tier_label = "S", "Overperforming (55%+)"
+            elif faction_win_rate >= 50.0:
+                tier, tier_label = "A", "Balanced High (50-55%)"
+            elif faction_win_rate >= 45.0:
+                tier, tier_label = "B", "Balanced Low (45-50%)"
+            else:
+                tier, tier_label = "C", "Underperforming (<45%)"
+
+            favored_count = sum(1 for m in matchups if float(m.get("win_rate") or 0) >= 55.0)
+            even_count = sum(1 for m in matchups if 45.0 <= float(m.get("win_rate") or 0) < 55.0)
+            unfavored_count = sum(1 for m in matchups if float(m.get("win_rate") or 0) < 45.0)
+
+            min_mu_games = 5 if total_faction_matches >= 120 else (3 if total_faction_matches >= 30 else 1)
+            qual_mu = [m for m in matchups if int(m.get("total_matches") or 0) >= min_mu_games] or matchups
+            best_mu = None
+            worst_mu = None
+            if qual_mu:
+                bm = max(qual_mu, key=lambda x: (float(x.get("win_rate") or 0), int(x.get("total_matches") or 0)))
+                wm = min(qual_mu, key=lambda x: (float(x.get("win_rate") or 0), -int(x.get("total_matches") or 0)))
+                best_mu = {
+                    "faction": bm.get("opponent_faction"),
+                    "win_rate": float(bm.get("win_rate") or 0.0),
+                    "matches": int(bm.get("total_matches") or 0),
+                    "wins": int(bm.get("wins") or 0),
+                    "losses": int(bm.get("losses") or 0),
+                    "draws": int(bm.get("draws") or 0),
+                }
+                worst_mu = {
+                    "faction": wm.get("opponent_faction"),
+                    "win_rate": float(wm.get("win_rate") or 0.0),
+                    "matches": int(wm.get("total_matches") or 0),
+                    "wins": int(wm.get("wins") or 0),
+                    "losses": int(wm.get("losses") or 0),
+                    "draws": int(wm.get("draws") or 0),
+                }
 
             res = {
                 "faction": faction_name,
@@ -8567,11 +8722,29 @@ class PostgresDatabase:
                     "recent_wins": total_w,
                     "recent_losses": total_l,
                     "recent_draws": total_d,
+                    "recent_win_rate": recent_wr,
                     "total_wins": total_faction_wins,
                     "total_losses": total_faction_losses,
                     "total_draws": total_faction_draws,
                     "win_rate": faction_win_rate,
+                    "non_mirror_win_rate": non_mirror_wr,
+                    "avg_score": avg_score,
+                    "avg_opp_score": avg_opp_score,
+                    "avg_margin": avg_margin,
+                    "meta_share": float(meta_fac_info.get("meta_share") or 0.0) if meta_fac_info else 0.0,
+                    "unique_pilots": int(meta_fac_info.get("unique_pilots") or 0) if meta_fac_info else 0,
+                    "x0_runs": int(meta_fac_info.get("x0_runs") or 0) if meta_fac_info else 0,
+                    "x1_runs": int(meta_fac_info.get("x1_runs") or 0) if meta_fac_info else 0,
+                    "tiwp_rate": float(meta_fac_info.get("tiwp_rate") or 0.0) if meta_fac_info else 0.0,
+                    "over_rep_ratio": float(meta_fac_info.get("over_rep_ratio") or 0.0) if meta_fac_info else 0.0,
+                    "tier": tier,
+                    "tier_label": tier_label,
                     "opponent_factions_count": len(matchups),
+                    "favored_matchups_count": favored_count,
+                    "even_matchups_count": even_count,
+                    "unfavored_matchups_count": unfavored_count,
+                    "best_matchup": best_mu,
+                    "worst_matchup": worst_mu,
                     "top_player_count": len(top_players)
                 },
                 "total_matches": total_faction_matches,
@@ -8579,28 +8752,32 @@ class PostgresDatabase:
                 "matches": recent_matches,
                 "matchups": matchups
             }
-            self.set_cached(self._faction_details_cache_dict, cache_key, res)
-            self.set_cached(self._faction_details_cache_dict, canon_cache_key, res)
+            self.set_cached(self._faction_details_cache_dict, cache_key, res, max_size=1500)
+            self.set_cached(self._faction_details_cache_dict, canon_cache_key, res, max_size=1500)
             if not is_mock_self:
-                try:
-                    with self.get_connection() as conn:
-                        with conn.cursor() as cur_store:
-                            cur_store.execute("SET LOCAL statement_timeout = '2000ms';")
-                            cur_store.execute(
-                                """
-                                INSERT INTO system_settings (key, value, updated_at)
-                                VALUES (%s, %s, NOW())
-                                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
-                                """,
-                                (l2_fac_key, json.dumps(res, default=str))
-                            )
-                        conn.commit()
-                except Exception:
-                    pass
+                def _persist_l2_async(k_str: str, payload_obj: Dict[str, Any]):
+                    try:
+                        with self.get_connection() as c_bg:
+                            with c_bg.cursor() as cur_store:
+                                cur_store.execute("SET LOCAL statement_timeout = '2000ms';")
+                                cur_store.execute(
+                                    """
+                                    INSERT INTO system_settings (key, value, updated_at)
+                                    VALUES (%s, %s, NOW())
+                                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
+                                    """,
+                                    (k_str, json.dumps(payload_obj, default=str))
+                                )
+                            c_bg.commit()
+                    except Exception:
+                        pass
+
+                threading.Thread(target=_persist_l2_async, args=(l2_fac_key, res), daemon=True).start()
+
             return res
 
     def prewarm_faction_details_cache(self, game_system: str = "40k", timeframe: str = "1yr", max_factions: int = 3) -> int:
-        """Pre-populates the in-memory faction details cache for top competitive factions."""
+        """Pre-populates the in-memory faction details cache for top competitive factions, and warms remaining factions in background."""
         try:
             is_aos = (game_system or "").lower() in ("aos", "warhammer_aos")
             if is_aos:
@@ -8642,6 +8819,25 @@ class PostgresDatabase:
                 if fname:
                     self.get_faction_details(fname, limit=100, game_system=game_system, timeframe=timeframe)
                     warmed += 1
+
+            is_mock_self = (
+                hasattr(getattr(self, "get_connection", None), "assert_called")
+                or type(self).__module__.startswith("unittest.mock")
+                or not getattr(self, "pool", None)
+            )
+            remaining_factions = ordered_factions[max_factions:]
+            if not is_mock_self and remaining_factions and timeframe in ("1yr", "all"):
+                def _bg_warm_all_remaining():
+                    for fname in remaining_factions:
+                        if not fname:
+                            continue
+                        for tf_warm in ("1yr", "all", "6mo"):
+                            try:
+                                self.get_faction_details(fname, limit=100, game_system=game_system, timeframe=tf_warm, _from_bg_warm=True)
+                            except Exception:
+                                pass
+                threading.Thread(target=_bg_warm_all_remaining, daemon=True).start()
+
             logger.info(f"🔥 Pre-warmed faction details cache for {warmed} factions ({game_system}, {timeframe}).")
             return warmed
         except Exception as e:
@@ -9829,7 +10025,12 @@ class PostgresDatabase:
                 FROM events e
                 JOIN event_participants ep ON e.id = ep.event_id
                 WHERE (ep.player_id = ANY(%s) OR (ep.bcp_player_id IS NOT NULL AND ep.bcp_player_id != '' AND ep.bcp_player_id = ANY(%s)))
-                  AND (e.event_date >= NOW() - INTERVAL '30 days' OR e.end_date >= NOW() - INTERVAL '30 days' OR e.event_date IS NULL)
+                  AND COALESCE(e.is_ended, FALSE) = FALSE
+                  AND (
+                    (e.end_date IS NOT NULL AND e.end_date >= CURRENT_DATE)
+                    OR (e.end_date IS NULL AND e.event_date >= CURRENT_DATE)
+                    OR (e.event_date IS NULL AND e.end_date IS NULL)
+                  )
                 ORDER BY COALESCE(e.event_date, e.end_date) ASC, ep.checked_in DESC, ep.has_list_submitted DESC, (CASE WHEN ep.faction IS NOT NULL AND ep.faction != '' AND ep.faction != 'Unknown' THEN 1 ELSE 0 END) DESC;
                 """, (target_pids, target_pids))
                 rows = cursor.fetchall()

@@ -669,11 +669,35 @@ def _sync_api_user_registered_tournaments(
         except Exception as enrich_err:
             logger.debug(f"Notice during in-memory tournament enrichment: {enrich_err}")
 
+    def _is_concluded_event(t: Dict[str, Any]) -> bool:
+        if not isinstance(t, dict):
+            return False
+        if bool(t.get("ended") or t.get("is_ended")):
+            return True
+        st = t.get("status")
+        if isinstance(st, dict) and bool(st.get("ended") or st.get("is_ended")):
+            return True
+        if isinstance(st, str) and st.strip().lower() in ("ended", "completed", "finished", "concluded"):
+            return True
+        ev_id = str(t.get("id") or t.get("bcp_event_id") or "")
+        if bool(t.get("is_native_league") or ev_id.startswith("league_")):
+            return False
+        end_dt = str(t.get("end_date") or t.get("eventEndDate") or t.get("endDate") or "").strip()
+        start_dt = str(t.get("event_date") or t.get("start_date") or t.get("eventDate") or "").strip()
+        ref_dt = end_dt or start_dt
+        if len(ref_dt) >= 10:
+            from datetime import datetime, timezone, timedelta
+            today_str = (datetime.now(timezone.utc) - timedelta(hours=12)).strftime("%Y-%m-%d")
+            if ref_dt[:10] < today_str:
+                return True
+        return False
+
     # Ensure tournaments returned do not include organizer-only events where user has no player registration
-    # and require active competitor participation
+    # and require active (non-concluded) competitor participation
     combined_tournaments = [
         t for t in combined_tournaments
-        if not ((t.get("isOwner") or t.get("isTO") or t.get("is_organizer")) and not (t.get("player_id") or t.get("bcp_player_id") or t.get("has_explicit_player_data")))
+        if not _is_concluded_event(t)
+        and not ((t.get("isOwner") or t.get("isTO") or t.get("is_organizer")) and not (t.get("player_id") or t.get("bcp_player_id") or t.get("has_explicit_player_data")))
         and (bool(t.get("player_id") or t.get("bcp_player_id") or t.get("has_explicit_player_data") or t.get("faction") or t.get("army")) or not (t.get("isOwner") or t.get("isTO") or t.get("is_organizer")))
     ]
 

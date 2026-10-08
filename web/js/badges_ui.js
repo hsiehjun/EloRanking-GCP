@@ -35,6 +35,9 @@
    */
   function getSeasonalData(data) {
     if (!data) return null;
+    if (window.hubSavedLists && Array.isArray(window.hubSavedLists) && window.hubSavedLists.length > 0 && typeof window.reconcileHubRosterVaultBadge === 'function') {
+      window.reconcileHubRosterVaultBadge(window.hubSavedLists);
+    }
     if (data.seasonal) {
       var seasonKey = data.active_season || '2026';
       if (data.seasonal[seasonKey]) return data.seasonal[seasonKey];

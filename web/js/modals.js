@@ -1031,26 +1031,285 @@ async function changeFactionModalTimeframe(tf) {
 }
 window.changeFactionModalTimeframe = changeFactionModalTimeframe;
 
+const FACTION_MODAL_STORAGE_KEY = 'omni_faction_modal_cache_v2';
 const factionModalDataCache = new Map();
+const factionModalInflightPromises = new Map();
 let factionModalAbortController = null;
 
-function renderFactionTableSkeletons() {
+// Hydrate factionModalDataCache from sessionStorage / localStorage on startup
+(function hydrateFactionModalCacheFromStorage() {
+  try {
+    const raw = sessionStorage.getItem(FACTION_MODAL_STORAGE_KEY) || localStorage.getItem(FACTION_MODAL_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+    const now = Date.now();
+    Object.entries(parsed).forEach(([k, v]) => {
+      if (v && v.data && v.timestamp && (now - v.timestamp < 21600000)) { // keep up to 6 hours for instant stale-while-revalidate
+        factionModalDataCache.set(k, v);
+      }
+    });
+  } catch (e) {}
+})();
+
+function persistFactionModalCacheToStorage() {
+  try {
+    const entries = Array.from(factionModalDataCache.entries())
+      .sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0))
+      .slice(0, 35);
+    const obj = {};
+    entries.forEach(([k, v]) => { obj[k] = v; });
+    const serialized = JSON.stringify(obj);
+    try { sessionStorage.setItem(FACTION_MODAL_STORAGE_KEY, serialized); } catch (e) {}
+    try { localStorage.setItem(FACTION_MODAL_STORAGE_KEY, serialized); } catch (e) {}
+  } catch (e) {}
+}
+
+function setFactionModalCacheEntry(cacheKey, data) {
+  const now = Date.now();
+  factionModalDataCache.set(cacheKey, { timestamp: now, data });
+  persistFactionModalCacheToStorage();
+}
+
+function deriveFactionModalFromCachedSuperset(factionName, sys, targetTf) {
+  const facNorm = (factionName || '').trim().toLowerCase();
+  const tfDaysMap = { '30d': 31, '3mo': 92, '6mo': 183, '1yr': 366, 'all': 36500 };
+  const targetDays = tfDaysMap[targetTf] || 366;
+  const candidateOrder = ['all', '1yr', '6mo', '3mo'];
+
+  for (const candTf of candidateOrder) {
+    const candDays = tfDaysMap[candTf] || 0;
+    if (candDays < targetDays && !(targetTf === 'all' && candTf === '1yr')) continue;
+    const candEntry = factionModalDataCache.get(`${facNorm}_${sys}_${candTf}`);
+    if (!candEntry || !candEntry.data) continue;
+    const src = candEntry.data;
+    const cutoffStr = targetTf === 'all'
+      ? ''
+      : new Date(Date.now() - targetDays * 86400000).toISOString().substring(0, 10);
+    const filteredMatches = cutoffStr
+      ? (src.matches || []).filter(m => !m.match_date || String(m.match_date).substring(0, 10) >= cutoffStr)
+      : (src.matches || []);
+
+    // Also check if factionMetaClientCache has exact matchup / total_matches stats for this timeframe
+    let metaMatchups = null;
+    let metaTotalMatches = null;
+    try {
+      const presetMap = { '30d': '30d', '3mo': '90d', '6mo': '180d', '1yr': '1yr', 'all': 'all' };
+      const metaKey = `${sys}_preset_${presetMap[targetTf] || targetTf}`;
+      if (typeof factionMetaClientCache !== 'undefined' && factionMetaClientCache.has(metaKey)) {
+        const metaData = factionMetaClientCache.get(metaKey).data;
+        if (metaData && Array.isArray(metaData.factions)) {
+          const foundFac = metaData.factions.find(f => String(f.faction || '').trim().toLowerCase() === facNorm);
+          if (foundFac) {
+            metaTotalMatches = foundFac.total_matches;
+          }
+        }
+        if (metaData && metaData.matchups_by_faction) {
+          const muList = metaData.matchups_by_faction[factionName] || metaData.matchups_by_faction[facNorm];
+          if (Array.isArray(muList) && muList.length > 0) {
+            metaMatchups = muList.map(m => ({
+              opponent_faction: m.opponent_faction,
+              total_matches: m.total_matches || m.matches || 0,
+              wins: m.wins || 0,
+              losses: m.losses || 0,
+              draws: m.draws || 0,
+              win_rate: m.win_rate || 0
+            }));
+          }
+        }
+      }
+    } catch (e) {}
+
+    return {
+      faction: factionName,
+      game_system: sys,
+      timeframe: targetTf,
+      stats: {
+        ...(src.stats || {}),
+        total_matches: metaTotalMatches || (targetTf === candTf ? (src.total_matches || filteredMatches.length) : filteredMatches.length)
+      },
+      total_matches: metaTotalMatches || (targetTf === candTf ? (src.total_matches || filteredMatches.length) : filteredMatches.length),
+      top_players: src.top_players || [],
+      matches: filteredMatches,
+      matchups: metaMatchups || src.matchups || [],
+      _derived: true
+    };
+  }
+  return null;
+}
+
+function deriveInstantFactionMetaSnapshot(factionName, sys, targetTf) {
+  const facNorm = (factionName || '').trim().toLowerCase();
+  if (!facNorm) return null;
+  const presetMap = { '30d': '30d', '3mo': '90d', '6mo': '180d', '1yr': '1yr', 'all': 'all' };
+  const mappedPreset = presetMap[targetTf] || targetTf;
+  const metaKey = `${sys}_preset_${mappedPreset}`;
+
+  let metaSource = null;
+  try {
+    if (typeof factionMetaClientCache !== 'undefined' && factionMetaClientCache.has(metaKey)) {
+      metaSource = factionMetaClientCache.get(metaKey).data;
+    } else if (typeof factionMetaData !== 'undefined' && factionMetaData && Array.isArray(factionMetaData.factions)) {
+      metaSource = factionMetaData;
+    }
+  } catch (e) {}
+
+  if (!metaSource || !Array.isArray(metaSource.factions)) return null;
+  const facEntry = metaSource.factions.find(f => String(f.faction || '').trim().toLowerCase() === facNorm);
+  const muDict = metaSource.matchups_by_faction || {};
+  let rawMu = muDict[factionName] || muDict[facNorm] || null;
+  if (!rawMu) {
+    const matchKey = Object.keys(muDict).find(k => String(k).trim().toLowerCase() === facNorm);
+    if (matchKey) rawMu = muDict[matchKey];
+  }
+  if (!facEntry && (!Array.isArray(rawMu) || rawMu.length === 0)) return null;
+
+  const matchups = Array.isArray(rawMu)
+    ? rawMu.map(m => ({
+        opponent_faction: m.opponent_faction || '',
+        total_matches: Number(m.total_matches || m.matches || 0),
+        wins: Number(m.wins || 0),
+        losses: Number(m.losses || 0),
+        draws: Number(m.draws || 0),
+        win_rate: Number(m.win_rate || 0),
+        avg_margin: Number(m.avg_margin || 0)
+      }))
+    : [];
+
+  return {
+    faction: factionName,
+    game_system: sys,
+    timeframe: targetTf,
+    stats: facEntry ? {
+      total_matches: Number(facEntry.total_matches || 0),
+      total_wins: Number(facEntry.wins || 0),
+      total_losses: Number(facEntry.losses || 0),
+      total_draws: Number(facEntry.draws || 0),
+      win_rate: Number(facEntry.win_rate || 0),
+      non_mirror_win_rate: Number(facEntry.non_mirror_win_rate ?? facEntry.win_rate ?? 0),
+      avg_score: Number(facEntry.avg_score || 0),
+      avg_opp_score: Number(facEntry.avg_opp_score || 0),
+      avg_margin: Number(facEntry.avg_margin || 0),
+      meta_share: Number(facEntry.meta_share || 0),
+      unique_pilots: Number(facEntry.unique_pilots || 0),
+      x0_runs: Number(facEntry.x0_runs || 0),
+      x1_runs: Number(facEntry.x1_runs || 0),
+      tiwp_rate: Number(facEntry.tiwp_rate || 0),
+      over_rep_ratio: Number(facEntry.over_rep_ratio || 0),
+      tier: facEntry.tier || '',
+      tier_label: facEntry.tier_label || '',
+      best_matchup: facEntry.best_matchup || null,
+      worst_matchup: facEntry.worst_matchup || null,
+      opponent_factions_count: matchups.length
+    } : {},
+    total_matches: facEntry ? Number(facEntry.total_matches || 0) : 0,
+    top_players: [],
+    matches: [],
+    matchups,
+    _instantMetaOnly: true
+  };
+}
+
+function fetchFactionDetailsShared(factionName, sys, tf) {
+  const facNorm = (factionName || '').trim().toLowerCase();
+  const cacheKey = `${facNorm}_${sys}_${tf}`;
+  if (factionModalInflightPromises.has(cacheKey)) {
+    return factionModalInflightPromises.get(cacheKey);
+  }
+  const p = window.api.getFactionDetails(factionName, 50, sys, tf)
+    .then(data => {
+      factionModalInflightPromises.delete(cacheKey);
+      if (data && !data.error && !data.aborted) {
+        setFactionModalCacheEntry(cacheKey, data);
+      }
+      return data;
+    })
+    .catch(err => {
+      factionModalInflightPromises.delete(cacheKey);
+      throw err;
+    });
+  factionModalInflightPromises.set(cacheKey, p);
+  return p;
+}
+
+let _lastHoveredFactionPrefetch = '';
+function prefetchFactionModalData(factionName, sysOverride = null) {
+  if (!factionName) return;
+  const sys = sysOverride || (typeof currentGameSystem !== 'undefined' && currentGameSystem ? currentGameSystem : '40k');
+  const facNorm = factionName.trim().toLowerCase();
+  const activeTf = currentFactionTimeframe || '1yr';
+  const hoverKey = `${facNorm}_${sys}_${activeTf}`;
+  if (_lastHoveredFactionPrefetch === hoverKey) return;
+  _lastHoveredFactionPrefetch = hoverKey;
+
+  const ck = `${facNorm}_${sys}_${activeTf}`;
+  const existing = factionModalDataCache.get(ck);
+  if (existing && (Date.now() - existing.timestamp < 1800000)) return;
+  fetchFactionDetailsShared(factionName, sys, activeTf).catch(() => {});
+}
+window.prefetchFactionModalData = prefetchFactionModalData;
+
+function prefetchTopFactionsModalCache(factionsList, sysOverride = null) {
+  if (!Array.isArray(factionsList) || factionsList.length === 0) return;
+  const sys = sysOverride || (typeof currentGameSystem !== 'undefined' && currentGameSystem ? currentGameSystem : '40k');
+  setTimeout(async () => {
+    for (const fac of factionsList.slice(0, 3)) {
+      if (!fac) continue;
+      const facNorm = String(fac).trim().toLowerCase();
+      const ck = `${facNorm}_${sys}_1yr`;
+      const existing = factionModalDataCache.get(ck);
+      if (existing && (Date.now() - existing.timestamp < 1800000)) continue;
+      try {
+        await fetchFactionDetailsShared(fac, sys, '1yr');
+      } catch (e) {}
+    }
+  }, 1200);
+}
+window.prefetchTopFactionsModalCache = prefetchTopFactionsModalCache;
+
+function prefetchRemainingModalTimeframes(factionName, sys, activeTf) {
+  if (!factionName) return;
+  const facNorm = factionName.trim().toLowerCase();
+  const fallbackTf = activeTf === '1yr' ? '3mo' : '1yr';
+  setTimeout(async () => {
+    const ck = `${facNorm}_${sys}_${fallbackTf}`;
+    const existing = factionModalDataCache.get(ck);
+    if (existing && (Date.now() - existing.timestamp < 1800000)) return;
+    try {
+      await fetchFactionDetailsShared(factionName, sys, fallbackTf);
+    } catch (e) {}
+  }, 800);
+}
+
+let currentFactionStats = {};
+let fmodalMatchupVerdictFilter = 'ALL';
+let fmodalMatchOutcomeFilter = 'ALL';
+
+function renderFactionTableSkeletons(onlyMatches = false) {
   const matchBody = document.getElementById('faction-matches-body');
-  const playersBody = document.getElementById('faction-players-body');
   const matchupsBody = document.getElementById('faction-matchups-body');
+  const kpiStrip = document.getElementById('faction-modal-kpis');
   const subEl = document.getElementById('modal-faction-subtitle');
-  if (subEl) subEl.innerText = 'Analyzing competitive meta and commanders...';
+  if (subEl && !onlyMatches) subEl.innerText = 'Analyzing competitive meta matchups and recent games...';
 
   const mCount = document.getElementById('faction-tab-matches-count');
-  if (mCount) mCount.innerText = '...';
-  const pCount = document.getElementById('faction-tab-players-count');
-  if (pCount) pCount.innerText = '...';
+  if (mCount && !onlyMatches) mCount.innerText = '...';
   const muCount = document.getElementById('faction-tab-matchups-count');
-  if (muCount) muCount.innerText = '...';
+  if (muCount && !onlyMatches) muCount.innerText = '...';
+
+  if (kpiStrip && !onlyMatches) {
+    kpiStrip.innerHTML = Array.from({ length: 4 }).map(() => `
+      <div class="fmodal-kpi-card">
+        <div class="skeleton-box" style="width:95px; height:12px; margin-bottom:8px;"></div>
+        <div class="skeleton-box" style="width:130px; height:24px; margin-bottom:6px;"></div>
+        <div class="skeleton-box" style="width:110px; height:12px;"></div>
+      </div>
+    `).join('');
+  }
 
   if (matchBody) {
     let mHtml = '';
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 5; i++) {
       mHtml += `
         <tr class="skeleton-row">
           <td><div class="skeleton-box" style="width:75px;"></div></td>
@@ -1065,38 +1324,203 @@ function renderFactionTableSkeletons() {
     matchBody.innerHTML = mHtml;
   }
 
-  if (playersBody) {
-    let pHtml = '';
-    for (let i = 0; i < 5; i++) {
-      pHtml += `
-        <tr class="skeleton-row">
-          <td><div class="skeleton-box" style="width:25px;"></div></td>
-          <td><div class="skeleton-box" style="width:130px;"></div></td>
-          <td><div class="skeleton-box" style="width:60px;"></div></td>
-          <td><div class="skeleton-box" style="width:50px;"></div></td>
-          <td><div class="skeleton-box" style="width:70px;"></div></td>
-          <td><div class="skeleton-box" style="width:50px;"></div></td>
-        </tr>
-      `;
-    }
-    playersBody.innerHTML = pHtml;
-  }
-
-  if (matchupsBody) {
+  if (matchupsBody && !onlyMatches) {
     let muHtml = '';
     for (let i = 0; i < 5; i++) {
       muHtml += `
         <tr class="skeleton-row">
           <td><div class="skeleton-box" style="width:25px;"></div></td>
           <td><div class="skeleton-box" style="width:140px;"></div></td>
-          <td><div class="skeleton-box" style="width:65px;"></div></td>
+          <td><div class="skeleton-box" style="width:85px;"></div></td>
           <td><div class="skeleton-box" style="width:80px;"></div></td>
-          <td><div class="skeleton-box" style="width:75px;"></div></td>
+          <td><div class="skeleton-box" style="width:95px;"></div></td>
         </tr>
       `;
     }
     matchupsBody.innerHTML = muHtml;
   }
+}
+
+function renderFactionModalKpis(data, sys, tf) {
+  const kpiStrip = document.getElementById('faction-modal-kpis');
+  const tierBadge = document.getElementById('modal-faction-tier-badge');
+  if (!kpiStrip) return;
+
+  const stats = data.stats || {};
+  const matchups = data.matchups || [];
+  const matches = data.matches || [];
+
+  const muTotalGames = matchups.reduce((acc, m) => acc + (Number(m.total_matches) || 0), 0);
+  const muWins = matchups.reduce((acc, m) => acc + (Number(m.wins) || 0), 0);
+  const muLosses = matchups.reduce((acc, m) => acc + (Number(m.losses) || 0), 0);
+  const muDraws = matchups.reduce((acc, m) => acc + (Number(m.draws) || 0), 0);
+
+  const sampleWins = matches.filter(m => m.outcome === 'W').length;
+  const sampleLosses = matches.filter(m => m.outcome === 'L').length;
+  const sampleDraws = matches.filter(m => m.outcome === 'D').length;
+
+  const totalGames = Number(stats.total_matches || data.total_matches || muTotalGames || matches.length || 0);
+  const totalWins = Number(stats.total_wins ?? (muTotalGames > 0 ? muWins : sampleWins));
+  const totalLosses = Number(stats.total_losses ?? (muTotalGames > 0 ? muLosses : sampleLosses));
+  const totalDraws = Number(stats.total_draws ?? (muTotalGames > 0 ? muDraws : sampleDraws));
+  const winRate = stats.win_rate !== undefined && stats.win_rate !== null
+    ? Number(stats.win_rate)
+    : (totalGames > 0 ? (totalWins * 100.0 / totalGames) : 0);
+  const nonMirrorWr = stats.non_mirror_win_rate !== undefined && stats.non_mirror_win_rate !== null
+    ? Number(stats.non_mirror_win_rate)
+    : winRate;
+
+  // Determine Tier & Color
+  let tierCode = stats.tier || (winRate >= 55 ? 'S' : (winRate >= 50 ? 'A' : (winRate >= 45 ? 'B' : 'C')));
+  let statusShort = winRate >= 55 ? 'Overperforming' : (winRate >= 50 ? 'Balanced High' : (winRate >= 45 ? 'Balanced Low' : 'Underperforming'));
+  let wrColor = '#22c55e';
+  let tierBg = 'rgba(34, 197, 94, 0.14)';
+  let tierBorder = 'rgba(34, 197, 94, 0.35)';
+  if (winRate >= 55.0) {
+    wrColor = '#f59e0b';
+    tierBg = 'rgba(245, 158, 11, 0.15)';
+    tierBorder = 'rgba(245, 158, 11, 0.4)';
+  } else if (winRate >= 45.0) {
+    wrColor = '#22c55e';
+    tierBg = 'rgba(34, 197, 94, 0.14)';
+    tierBorder = 'rgba(34, 197, 94, 0.35)';
+  } else {
+    wrColor = '#ef4444';
+    tierBg = 'rgba(239, 68, 68, 0.14)';
+    tierBorder = 'rgba(239, 68, 68, 0.35)';
+  }
+
+  if (tierBadge) {
+    tierBadge.style.display = 'inline-flex';
+    tierBadge.style.background = tierBg;
+    tierBadge.style.color = wrColor;
+    tierBadge.style.border = `1px solid ${tierBorder}`;
+    tierBadge.innerText = `${tierCode}-Tier • ${winRate.toFixed(1)}% WR`;
+  }
+
+  // Compute Avg Score & Margin
+  let avgScore = Number(stats.avg_score || 0);
+  let avgOppScore = Number(stats.avg_opp_score || 0);
+  let avgMargin = Number(stats.avg_margin || 0);
+  if (!avgScore && matches.length > 0) {
+    const scored = matches.filter(m => (Number(m.player_score) || 0) > 0 || (Number(m.opponent_score) || 0) > 0);
+    if (scored.length > 0) {
+      avgScore = scored.reduce((s, m) => s + (Number(m.player_score) || 0), 0) / scored.length;
+      avgOppScore = scored.reduce((s, m) => s + (Number(m.opponent_score) || 0), 0) / scored.length;
+      avgMargin = avgScore - avgOppScore;
+    }
+  }
+
+  // Best & Worst Matchups
+  const minQualGames = totalGames >= 120 ? 5 : (totalGames >= 30 ? 3 : 1);
+  const qualMu = matchups.filter(m => (Number(m.total_matches) || 0) >= minQualGames);
+  const poolMu = qualMu.length > 0 ? qualMu : matchups;
+  const sortedByWrDesc = poolMu.slice().sort((a, b) => (Number(b.win_rate) || 0) - (Number(a.win_rate) || 0) || (Number(b.total_matches) || 0) - (Number(a.total_matches) || 0));
+  const sortedByWrAsc = poolMu.slice().sort((a, b) => (Number(a.win_rate) || 0) - (Number(b.win_rate) || 0) || (Number(b.total_matches) || 0) - (Number(a.total_matches) || 0));
+
+  const bestMu = stats.best_matchup || (sortedByWrDesc[0] ? {
+    faction: sortedByWrDesc[0].opponent_faction,
+    win_rate: sortedByWrDesc[0].win_rate,
+    matches: sortedByWrDesc[0].total_matches,
+    wins: sortedByWrDesc[0].wins,
+    losses: sortedByWrDesc[0].losses
+  } : null);
+
+  const worstMu = stats.worst_matchup || (sortedByWrAsc[0] ? {
+    faction: sortedByWrAsc[0].opponent_faction,
+    win_rate: sortedByWrAsc[0].win_rate,
+    matches: sortedByWrAsc[0].total_matches,
+    wins: sortedByWrAsc[0].wins,
+    losses: sortedByWrAsc[0].losses
+  } : null);
+
+  const wPct = totalGames > 0 ? Math.max(0, Math.min(100, (totalWins / totalGames) * 100)) : 50;
+  const dPct = totalGames > 0 ? Math.max(0, Math.min(100 - wPct, (totalDraws / totalGames) * 100)) : 0;
+  const lPct = Math.max(0, 100 - wPct - dPct);
+
+  const marginSign = avgMargin > 0 ? '+' : '';
+  const marginColor = avgMargin > 0 ? 'var(--win)' : (avgMargin < 0 ? 'var(--loss)' : 'var(--text-secondary)');
+  const x0Runs = Number(stats.x0_runs || 0);
+  const x1Runs = Number(stats.x1_runs || 0);
+  const metaShare = Number(stats.meta_share || 0);
+
+  let card2SubHtml = '';
+  if (x0Runs > 0 || x1Runs > 0) {
+    card2SubHtml = `🏆 <strong>${x0Runs}</strong> Undefeated (X-0) • <strong>${x1Runs}</strong> Podium (X-1)`;
+  } else if (metaShare > 0) {
+    card2SubHtml = `📊 <strong>${metaShare.toFixed(1)}%</strong> Meta Share • <strong>${matchups.length}</strong> Factions Faced`;
+  } else if (matches.length > 0) {
+    const recWr = ((sampleWins / matches.length) * 100).toFixed(1);
+    card2SubHtml = `🔥 Recent Sample: <strong>${sampleWins}W-${sampleLosses}L${sampleDraws ? `-${sampleDraws}D` : ''}</strong> (${recWr}%)`;
+  } else {
+    card2SubHtml = `📊 <strong>${matchups.length}</strong> Opponent Factions Tracked`;
+  }
+
+  const safeBestJs = bestMu && bestMu.faction ? escapeHtml(String(bestMu.faction).replace(/'/g, "\\'")) : '';
+  const safeWorstJs = worstMu && worstMu.faction ? escapeHtml(String(worstMu.faction).replace(/'/g, "\\'")) : '';
+
+  kpiStrip.innerHTML = `
+    <div class="fmodal-kpi-card">
+      <div class="fmodal-kpi-label">PERIOD WIN RATE &amp; RECORD</div>
+      <div class="fmodal-kpi-main-row">
+        <span class="fmodal-kpi-big" style="color:${wrColor};">${winRate.toFixed(1)}%</span>
+        <span class="fmodal-kpi-tag" style="background:${tierBg}; color:${wrColor}; border:1px solid ${tierBorder};">${escapeHtml(statusShort)}</span>
+      </div>
+      <div class="fmodal-wdl-bar" title="${totalWins}W - ${totalLosses}L - ${totalDraws}D">
+        <div style="width:${wPct.toFixed(1)}%; background:var(--win);"></div>
+        <div style="width:${dPct.toFixed(1)}%; background:var(--draw);"></div>
+        <div style="width:${lPct.toFixed(1)}%; background:var(--loss);"></div>
+      </div>
+      <div class="fmodal-kpi-sub">
+        <span style="color:var(--win); font-weight:700;">${totalWins.toLocaleString()}W</span> -
+        <span style="color:var(--loss); font-weight:700;">${totalLosses.toLocaleString()}L</span>${totalDraws ? ` - <span style="color:var(--draw); font-weight:700;">${totalDraws.toLocaleString()}D</span>` : ''}
+        <span style="color:var(--text-muted);">• ${totalGames.toLocaleString()} games (Non-Mirror ${nonMirrorWr.toFixed(1)}%)</span>
+      </div>
+    </div>
+
+    <div class="fmodal-kpi-card">
+      <div class="fmodal-kpi-label">SCORING &amp; TOURNAMENT OUTPUT</div>
+      <div class="fmodal-kpi-main-row">
+        ${avgScore > 0 ? `
+          <span class="fmodal-kpi-big" style="color:#fff;">${avgScore.toFixed(1)} <span style="font-size:0.82rem; font-weight:600; color:var(--text-secondary);">vs ${avgOppScore.toFixed(1)} VP</span></span>
+          <span class="fmodal-kpi-tag" style="background:rgba(15,23,42,0.7); color:${marginColor}; border:1px solid var(--border); font-family:var(--font-mono);">${marginSign}${avgMargin.toFixed(1)} VP</span>
+        ` : `
+          <span class="fmodal-kpi-big" style="color:#fff;">${totalGames.toLocaleString()} <span style="font-size:0.85rem; font-weight:600; color:var(--text-secondary);">Games</span></span>
+        `}
+      </div>
+      <div class="fmodal-kpi-sub" style="margin-top:0.35rem;">
+        ${card2SubHtml}
+      </div>
+    </div>
+
+    <div class="fmodal-kpi-card ${bestMu ? 'clickable' : ''}" ${bestMu ? `onclick="openFactionModal('${safeBestJs}', '${escapeHtml(tf)}')" title="Inspect ${escapeHtml(bestMu.faction)} Meta Dossier"` : ''}>
+      <div class="fmodal-kpi-label">🎯 BEST MATCHUP (FAVORITE PREY)</div>
+      ${bestMu && bestMu.faction ? `
+        <div class="fmodal-kpi-main-row">
+          <span class="fmodal-kpi-fac-name">${escapeHtml(bestMu.faction)}</span>
+          <span class="fmodal-kpi-wr" style="color:var(--win);">${Number(bestMu.win_rate || 0).toFixed(1)}%</span>
+        </div>
+        <div class="fmodal-kpi-sub">
+          ${bestMu.wins !== undefined ? `<span style="color:var(--win); font-weight:600;">${bestMu.wins}W</span> - <span style="color:var(--loss); font-weight:600;">${bestMu.losses}L</span> • ` : ''}
+          <span>${Number(bestMu.matches || 0)} games played</span>
+        </div>
+      ` : `<div class="fmodal-kpi-sub" style="margin-top:0.5rem;">Insufficient matchup sample in this window</div>`}
+    </div>
+
+    <div class="fmodal-kpi-card ${worstMu ? 'clickable' : ''}" ${worstMu ? `onclick="openFactionModal('${safeWorstJs}', '${escapeHtml(tf)}')" title="Inspect ${escapeHtml(worstMu.faction)} Meta Dossier"` : ''}>
+      <div class="fmodal-kpi-label">⚠️ TOUGHEST COUNTER (NEMESIS)</div>
+      ${worstMu && worstMu.faction ? `
+        <div class="fmodal-kpi-main-row">
+          <span class="fmodal-kpi-fac-name">${escapeHtml(worstMu.faction)}</span>
+          <span class="fmodal-kpi-wr" style="color:var(--loss);">${Number(worstMu.win_rate || 0).toFixed(1)}%</span>
+        </div>
+        <div class="fmodal-kpi-sub">
+          ${worstMu.wins !== undefined ? `<span style="color:var(--win); font-weight:600;">${worstMu.wins}W</span> - <span style="color:var(--loss); font-weight:600;">${worstMu.losses}L</span> • ` : ''}
+          <span>${Number(worstMu.matches || 0)} games played</span>
+        </div>
+      ` : `<div class="fmodal-kpi-sub" style="margin-top:0.5rem;">Insufficient matchup sample in this window</div>`}
+    </div>
+  `;
 }
 
 function applyFactionModalData(data, sys, tf) {
@@ -1107,98 +1531,92 @@ function applyFactionModalData(data, sys, tf) {
   currentFactionMatches = matches;
   currentFactionPlayers = topPlayers;
   currentFactionMatchups = matchups;
+  currentFactionStats = data.stats || {};
 
   const tfLabels = { '30d': '1 Month', '3mo': '3 Months', '6mo': '6 Months', '1yr': '1 Year', 'all': 'All Time' };
   const sysLabel = sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K';
 
-  // Calculate total games across all faction matchups in this window
   const totalGamesInMatchups = matchups.reduce((acc, m) => acc + (Number(m.total_matches) || 0), 0);
   const totalMatchesCount = (data.stats && data.stats.total_matches) || data.total_matches || totalGamesInMatchups || matches.length;
 
   const subEl = document.getElementById('modal-faction-subtitle');
   if (subEl) {
-    if (totalMatchesCount > matches.length) {
-      subEl.innerText = `${sysLabel} Competitive Meta • ${tfLabels[tf] || '1 Year'} window • ${totalMatchesCount.toLocaleString()} matches analyzed across ${matchups.length} faction matchups`;
-    } else {
-      subEl.innerText = `${sysLabel} Competitive Meta • ${tfLabels[tf] || '1 Year'} window • ${matches.length} matches analyzed across ${matchups.length} faction matchups`;
-    }
+    subEl.innerText = `${sysLabel} Competitive Meta • ${tfLabels[tf] || '1 Year'} Window • ${Number(totalMatchesCount || 0).toLocaleString()} matches analyzed across ${matchups.length} faction matchups`;
   }
 
   const mCount = document.getElementById('faction-tab-matches-count');
-  if (mCount) mCount.innerText = totalMatchesCount > matches.length ? totalMatchesCount.toLocaleString() : matches.length;
+  if (mCount) mCount.innerText = matches.length > 0 ? matches.length.toLocaleString() : (data._instantMetaOnly ? '...' : '0');
   const pCount = document.getElementById('faction-tab-players-count');
   if (pCount) pCount.innerText = topPlayers.length;
   const muCount = document.getElementById('faction-tab-matchups-count');
   if (muCount) muCount.innerText = matchups.length;
 
-  renderFactionMatchesRows(matches);
-  renderFactionPlayersRows(topPlayers);
+  renderFactionModalKpis(data, sys, tf);
   renderFactionMatchupsRows(matchups);
+  if (!data._instantMetaOnly) {
+    renderFactionMatchesRows(matches);
+  }
 }
 
 async function loadFactionModalData(factionName, tf = '1yr') {
   const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
-  const cacheKey = `${(factionName || '').trim().toLowerCase()}_${sys}_${tf}`;
+  const facNorm = (factionName || '').trim().toLowerCase();
+  const cacheKey = `${facNorm}_${sys}_${tf}`;
   const cachedEntry = factionModalDataCache.get(cacheKey);
   const now = Date.now();
-  const isFresh = cachedEntry && (now - cachedEntry.timestamp < 300000); // 5 min TTL
+  const isFresh = cachedEntry && (now - cachedEntry.timestamp < 1800000); // 30 min fresh TTL
 
-  // Cancel prior pending fetch if user clicked rapidly
-  if (factionModalAbortController) {
-    try { factionModalAbortController.abort(); } catch (e) {}
-  }
+  const reqFaction = factionName;
+  const reqTf = tf;
   factionModalAbortController = new AbortController();
-  const currentSignal = factionModalAbortController.signal;
 
   const hasExistingData = (currentFactionMatches && currentFactionMatches.length > 0) ||
-                          (currentFactionPlayers && currentFactionPlayers.length > 0) ||
                           (currentFactionMatchups && currentFactionMatchups.length > 0);
 
   if (cachedEntry) {
     applyFactionModalData(cachedEntry.data, sys, tf);
+    prefetchRemainingModalTimeframes(factionName, sys, tf);
     if (isFresh) {
       return;
     }
-  } else if (!hasExistingData) {
-    // Only blank to skeletons if no data is currently on screen
-    renderFactionTableSkeletons();
   } else {
-    // Keep existing data visible and show non-intrusive revalidating status
-    const subEl = document.getElementById('modal-faction-subtitle');
-    if (subEl) {
-      const tfLabels = { '30d': '1 Month', '3mo': '3 Months', '6mo': '6 Months', '1yr': '1 Year', 'all': 'All Time' };
-      subEl.innerHTML = `Refreshing ${escapeHtml(tfLabels[tf] || tf)} data... <span style="display:inline-block; width:12px; height:12px; border:2px solid var(--accent); border-right-color:transparent; border-radius:50%; animation:spin 0.6s linear infinite; vertical-align:middle; margin-left:6px;"></span>`;
+    const derived = deriveFactionModalFromCachedSuperset(factionName, sys, tf);
+    if (derived && derived.matches && derived.matches.length > 0) {
+      applyFactionModalData(derived, sys, tf);
+    } else {
+      const instantMeta = deriveInstantFactionMetaSnapshot(factionName, sys, tf);
+      if (instantMeta) {
+        applyFactionModalData(instantMeta, sys, tf);
+        renderFactionTableSkeletons(true);
+      } else if (!hasExistingData) {
+        renderFactionTableSkeletons(false);
+      } else {
+        const subEl = document.getElementById('modal-faction-subtitle');
+        if (subEl) {
+          const tfLabels = { '30d': '1 Month', '3mo': '3 Months', '6mo': '6 Months', '1yr': '1 Year', 'all': 'All Time' };
+          subEl.innerHTML = `Refreshing ${escapeHtml(tfLabels[tf] || tf)} data... <span style="display:inline-block; width:12px; height:12px; border:2px solid var(--accent); border-right-color:transparent; border-radius:50%; animation:spin 0.6s linear infinite; vertical-align:middle; margin-left:6px;"></span>`;
+        }
+      }
     }
   }
 
-  // 12-second safety timeout so modal never hangs indefinitely
-  const timeoutId = setTimeout(() => {
-    if (!currentSignal.aborted) {
-      try { factionModalAbortController.abort(); } catch (e) {}
-    }
-  }, 12000);
-
   try {
-    const data = await window.api.getFactionDetails(factionName, 100, sys, tf, { signal: currentSignal });
-    clearTimeout(timeoutId);
-    if (currentSignal.aborted) return;
+    const data = await fetchFactionDetailsShared(factionName, sys, tf);
+    if (currentFactionName !== reqFaction || currentFactionTimeframe !== reqTf) return;
     if (data && !data.error && !data.aborted) {
-      factionModalDataCache.set(cacheKey, { timestamp: Date.now(), data });
       applyFactionModalData(data, sys, tf);
+      prefetchRemainingModalTimeframes(factionName, sys, tf);
     } else if (data && data.error) {
       throw new Error(data.error);
     }
   } catch (err) {
-    clearTimeout(timeoutId);
-    if (err && (err.name === 'AbortError' || currentSignal.aborted)) return;
+    if (currentFactionName !== reqFaction || currentFactionTimeframe !== reqTf) return;
     console.warn("Notice loading faction modal data:", err);
     if (!cachedEntry && !hasExistingData) {
       const errMsg = err && err.message ? err.message : 'Request timed out';
-      const retryHtml = `<tr><td colspan="7" class="empty-state" style="color:var(--loss); text-align:center; padding:2rem;">Data unavailable (${escapeHtml(errMsg)}). <button class="btn btn-secondary btn-sm" style="margin-left:8px;" onclick="loadFactionModalData('${escapeHtml(factionName)}', '${escapeHtml(tf)}')">Retry</button></td></tr>`;
+      const retryHtml = `<tr><td colspan="6" class="empty-state" style="color:var(--loss); text-align:center; padding:2rem;">Data unavailable (${escapeHtml(errMsg)}). <button class="btn btn-secondary btn-sm" style="margin-left:8px;" onclick="loadFactionModalData('${escapeHtml(factionName)}', '${escapeHtml(tf)}')">Retry</button></td></tr>`;
       const matchBody = document.getElementById('faction-matches-body');
       if (matchBody) matchBody.innerHTML = retryHtml;
-      const playersBody = document.getElementById('faction-players-body');
-      if (playersBody) playersBody.innerHTML = retryHtml;
       const matchupsBody = document.getElementById('faction-matchups-body');
       if (matchupsBody) matchupsBody.innerHTML = retryHtml;
     }
@@ -1217,6 +1635,21 @@ async function openFactionModal(factionName, initialTf = null, initialSubtab = '
     currentFactionMatchups = [];
   }
 
+  fmodalMatchupVerdictFilter = 'ALL';
+  fmodalMatchOutcomeFilter = 'ALL';
+  const muSearch = document.getElementById('fmodal-mu-search');
+  if (muSearch) muSearch.value = '';
+  const mSearch = document.getElementById('fmodal-matches-search');
+  if (mSearch) mSearch.value = '';
+  ['ALL', 'FAVORED', 'EVEN', 'UNFAVORED'].forEach(k => {
+    const btn = document.getElementById(`fmodal-mu-filter-${k.toLowerCase()}`);
+    if (btn) btn.classList.toggle('active', k === 'ALL');
+  });
+  ['ALL', 'W', 'L', 'D'].forEach(k => {
+    const btn = document.getElementById(`fmodal-match-filter-${k.toLowerCase()}`);
+    if (btn) btn.classList.toggle('active', k === 'ALL');
+  });
+
   let resolvedTf = initialTf;
   if (!resolvedTf && typeof factionTimeframe !== 'undefined') {
     const mapFromMeta = { '30d': '30d', '60d': '3mo', '90d': '3mo', '180d': '6mo', 'ytd': '6mo', '1yr': '1yr', 'all': 'all' };
@@ -1229,62 +1662,126 @@ async function openFactionModal(factionName, initialTf = null, initialSubtab = '
   const titleEl = document.getElementById('modal-faction-title');
   if (titleEl) titleEl.innerText = factionName || 'Faction Meta';
 
-  switchFactionModalTab(initialSubtab || 'matches');
   await loadFactionModalData(currentFactionName, currentFactionTimeframe);
 }
 
 function switchFactionModalTab(tabName) {
-  ['matches', 'players', 'matchups'].forEach(t => {
-    const btn = document.getElementById(`faction-subtab-${t}`);
-    const view = document.getElementById(`faction-view-${t}`);
-    if (btn) btn.classList.toggle('active', t === tabName);
-    if (view) view.style.display = (t === tabName) ? 'block' : 'none';
-  });
+  const targetId = tabName === 'matchups' ? 'faction-view-matchups' : 'faction-view-matches';
+  const el = document.getElementById(targetId);
+  if (el && typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 }
+
+function setFactionModalMatchupFilter(verdict) {
+  fmodalMatchupVerdictFilter = verdict || 'ALL';
+  ['ALL', 'FAVORED', 'EVEN', 'UNFAVORED'].forEach(k => {
+    const btn = document.getElementById(`fmodal-mu-filter-${k.toLowerCase()}`);
+    if (btn) btn.classList.toggle('active', k === fmodalMatchupVerdictFilter);
+  });
+  renderFactionMatchupsRows(currentFactionMatchups);
+}
+window.setFactionModalMatchupFilter = setFactionModalMatchupFilter;
+
+function onFactionModalMatchupControlChange() {
+  renderFactionMatchupsRows(currentFactionMatchups);
+}
+window.onFactionModalMatchupControlChange = onFactionModalMatchupControlChange;
+
+function setFactionModalMatchOutcomeFilter(outcome) {
+  fmodalMatchOutcomeFilter = outcome || 'ALL';
+  ['ALL', 'W', 'L', 'D'].forEach(k => {
+    const btn = document.getElementById(`fmodal-match-filter-${k.toLowerCase()}`);
+    if (btn) btn.classList.toggle('active', k === fmodalMatchOutcomeFilter);
+  });
+  renderFactionMatchesRows(currentFactionMatches);
+}
+window.setFactionModalMatchOutcomeFilter = setFactionModalMatchOutcomeFilter;
+
+function onFactionModalMatchControlChange() {
+  renderFactionMatchesRows(currentFactionMatches);
+}
+window.onFactionModalMatchControlChange = onFactionModalMatchControlChange;
 
 function renderFactionMatchesRows(matches) {
   const tbody = document.getElementById('faction-matches-body');
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  if (!matches || matches.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No match records found for this faction.</td></tr>';
+  const allMatches = Array.isArray(matches) ? matches : [];
+  const summaryEl = document.getElementById('fmodal-recent-summary-pill');
+  if (summaryEl) {
+    if (allMatches.length > 0) {
+      const w = allMatches.filter(m => m.outcome === 'W').length;
+      const l = allMatches.filter(m => m.outcome === 'L').length;
+      const d = allMatches.filter(m => m.outcome === 'D').length;
+      const wr = ((w / allMatches.length) * 100).toFixed(1);
+      summaryEl.innerHTML = `• Sample Record: <strong style="color:var(--win);">${w}W</strong>-<strong style="color:var(--loss);">${l}L</strong>${d ? `-${d}D` : ''} (<strong>${wr}%</strong>)`;
+    } else {
+      summaryEl.innerHTML = '';
+    }
+  }
+
+  const searchInput = document.getElementById('fmodal-matches-search');
+  const q = searchInput ? String(searchInput.value || '').trim().toLowerCase() : '';
+
+  const filtered = allMatches.filter(m => {
+    if (fmodalMatchOutcomeFilter !== 'ALL' && m.outcome !== fmodalMatchOutcomeFilter) return false;
+    if (q) {
+      const hay = `${m.event_name || ''} ${m.player_name || ''} ${m.opponent_name || ''} ${m.opponent_faction || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No recent games match the selected filter in this timeframe.</td></tr>';
     return;
   }
 
-  matches.forEach((m, idx) => {
+  filtered.forEach(m => {
     const tr = document.createElement('tr');
     const isWin = m.outcome === 'W';
     const isLoss = m.outcome === 'L';
     const outcomeBadge = isWin 
       ? '<span class="badge badge-win">Victory</span>' 
       : (isLoss ? '<span class="badge badge-loss">Defeat</span>' : '<span class="badge badge-draw">Draw</span>');
-    const scoreStr = `${m.player_score !== null && m.player_score !== undefined ? m.player_score : '-'} - ${m.opponent_score !== null && m.opponent_score !== undefined ? m.opponent_score : '-'}`;
+    const pScore = m.player_score !== null && m.player_score !== undefined ? Number(m.player_score) : null;
+    const oScore = m.opponent_score !== null && m.opponent_score !== undefined ? Number(m.opponent_score) : null;
+    const scoreStr = `${pScore !== null ? pScore : '-'} - ${oScore !== null ? oScore : '-'}`;
+    const diff = (pScore !== null && oScore !== null && (pScore > 0 || oScore > 0)) ? (pScore - oScore) : null;
+    const diffHtml = diff !== null
+      ? `<span style="font-size:0.7rem; margin-left:4px; color:${diff > 0 ? 'var(--win)' : (diff < 0 ? 'var(--loss)' : 'var(--text-muted)')};">(${diff > 0 ? '+' : ''}${diff})</span>`
+      : '';
     const dateStr = (m.match_date ? (typeof m.match_date === 'string' ? m.match_date.substring(0, 10) : new Date(m.match_date).toISOString().substring(0, 10)) : '');
+    const evName = m.event_name || 'Tournament';
+    const pName = m.player_name || 'Player';
+    const oppName = m.opponent_name || 'Opponent';
+    const oppFac = m.opponent_faction || 'Various';
 
     tr.innerHTML = `
-      <td style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-secondary);">${dateStr || '#'}</td>
-      <td>
-        <span class="player-link" style="font-weight:600;" onclick="event.stopPropagation(); openEventModal('${m.event_id}')">
-          ${escapeHtml(m.event_name || 'Tournament')}
-        </span>
-        <span style="font-size:0.75rem; color:var(--text-muted); margin-left:0.3rem;">R${m.round || 1}</span>
-      </td>
-      <td>
-        <span class="player-link" style="font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(m.player_id || '')}', '${escapeHtml(String(m.player_name || '').replace(/'/g, "\\'"))}')">
-          ${escapeHtml(m.player_name || 'Player')}
-        </span>
-      </td>
-      <td style="font-family:var(--font-mono); font-weight:700; color:#fff;">
-        ${scoreStr}
-      </td>
-      <td>
-        <div style="font-weight:600;">
-          <span class="player-link" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(m.opponent_id || '')}', '${escapeHtml(String(m.opponent_name || '').replace(/'/g, "\\'"))}')">${escapeHtml(m.opponent_name || 'Opponent')}</span>
+      <td style="font-family:var(--font-mono); font-size:0.78rem; color:var(--text-secondary); white-space:nowrap;">${dateStr || '#'}</td>
+      <td style="min-width:0;">
+        <div class="fmodal-cell-val" style="display:flex; align-items:center; gap:0.35rem; min-width:0;">
+          <span class="player-link" style="font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(evName)}" onclick="event.stopPropagation(); openEventModal('${m.event_id}')">${escapeHtml(evName)}</span>
+          <span style="font-size:0.72rem; color:var(--text-muted); flex-shrink:0;">R${m.round || 1}</span>
         </div>
-        <div style="font-size:0.75rem; color:var(--text-secondary);">${escapeHtml(m.opponent_faction || 'Various')}</div>
       </td>
-      <td>${outcomeBadge}</td>
+      <td style="min-width:0;">
+        <span class="player-link fmodal-cell-val" style="font-weight:600; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(pName)}" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(m.player_id || '')}', '${escapeHtml(String(pName).replace(/'/g, "\\'"))}')">${escapeHtml(pName)}</span>
+      </td>
+      <td style="font-family:var(--font-mono); font-weight:700; color:#fff; white-space:nowrap;">
+        <span class="fmodal-cell-val">${scoreStr}${diffHtml}</span>
+      </td>
+      <td style="min-width:0;">
+        <div class="fmodal-cell-val" style="min-width:0;">
+          <div style="font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+            <span class="player-link" title="${escapeHtml(oppName)}" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(m.opponent_id || '')}', '${escapeHtml(String(oppName).replace(/'/g, "\\'"))}')">${escapeHtml(oppName)}</span>
+          </div>
+          <div style="font-size:0.72rem; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(oppFac)}">${escapeHtml(oppFac)}</div>
+        </div>
+      </td>
+      <td style="white-space:nowrap;"><span class="fmodal-cell-val">${outcomeBadge}</span></td>
     `;
     tbody.appendChild(tr);
   });
@@ -1294,47 +1791,6 @@ function renderFactionPlayersRows(players) {
   const tbody = document.getElementById('faction-players-body');
   if (!tbody) return;
   tbody.innerHTML = '';
-
-  if (!players || players.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No ranked players found for this faction.</td></tr>';
-    return;
-  }
-
-  players.forEach((p, idx) => {
-    const tr = document.createElement('tr');
-    const safeName = String(p.player_name || 'Player').replace(/'/g, "\\'");
-    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id, p.player_name || ''); };
-
-    const rank = idx + 1;
-    const eloBadgeClass = getEloBadgeClass(p.current_elo, p.matches_played);
-    const teamPill = p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); font-size:0.68rem; margin-top:0.2rem; cursor:pointer;" onclick="event.stopPropagation(); openTeamModal('${escapeHtml(p.team)}')" title="View ${escapeHtml(p.team)} Roster">🛡️ ${escapeHtml(p.team)}</span>` : '';
-
-    tr.innerHTML = `
-      <td class="rank-cell">#${rank}</td>
-      <td>
-        <div class="player-name-cell">
-          <span class="player-link">${escapeHtml(p.player_name || 'Player')}</span>
-          ${teamPill}
-        </div>
-      </td>
-      <td>
-        ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(p.current_elo || 1500, p.matches_played || 10) : `<span class="elo-badge ${eloBadgeClass}">${Number(p.current_elo || 1500).toFixed(1)}</span>`}
-      </td>
-      <td style="font-family:var(--font-mono); color:var(--text-secondary);">
-        ${Number(p.peak_elo || p.current_elo || 1500).toFixed(1)}
-      </td>
-      <td style="font-family:var(--font-mono); font-size:0.85rem;">
-        <span style="color:var(--win); font-weight:600;">${p.wins || 0}W</span> - 
-        <span style="color:var(--loss); font-weight:600;">${p.losses || 0}L</span>
-      </td>
-      <td style="font-family:var(--font-mono); font-weight:600;">
-        <span style="color: ${p.win_rate >= 60 ? 'var(--win)' : (p.win_rate >= 45 ? 'var(--accent)' : 'var(--text-secondary)')};">
-          ${Number(p.win_rate || 0).toFixed(1)}%
-        </span>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
 }
 
 function renderFactionMatchupsRows(matchups) {
@@ -1342,31 +1798,110 @@ function renderFactionMatchupsRows(matchups) {
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  if (!matchups || matchups.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No matchup pairings recorded yet.</td></tr>';
+  const allMatchups = Array.isArray(matchups) ? matchups : [];
+  const favCount = allMatchups.filter(m => Number(m.win_rate || 0) >= 55.0).length;
+  const evenCount = allMatchups.filter(m => Number(m.win_rate || 0) >= 45.0 && Number(m.win_rate || 0) < 55.0).length;
+  const unfavCount = allMatchups.filter(m => Number(m.win_rate || 0) < 45.0).length;
+
+  const spreadEl = document.getElementById('fmodal-matchup-spread-summary');
+  if (spreadEl) {
+    if (allMatchups.length > 0) {
+      spreadEl.innerHTML = `• <span style="color:var(--win); font-weight:600;">${favCount} Favored</span> • <span style="color:var(--accent); font-weight:600;">${evenCount} Even</span> • <span style="color:var(--loss); font-weight:600;">${unfavCount} Tough</span>`;
+    } else {
+      spreadEl.innerHTML = '';
+    }
+  }
+
+  const searchEl = document.getElementById('fmodal-mu-search');
+  const q = searchEl ? String(searchEl.value || '').trim().toLowerCase() : '';
+  const sortEl = document.getElementById('fmodal-mu-sort');
+  const sortMode = sortEl ? sortEl.value : 'games_desc';
+
+  let list = allMatchups.filter(m => {
+    const wr = Number(m.win_rate || 0);
+    if (fmodalMatchupVerdictFilter === 'FAVORED' && wr < 55.0) return false;
+    if (fmodalMatchupVerdictFilter === 'EVEN' && (wr < 45.0 || wr >= 55.0)) return false;
+    if (fmodalMatchupVerdictFilter === 'UNFAVORED' && wr >= 45.0) return false;
+    if (q && !String(m.opponent_faction || '').toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  list = list.slice().sort((a, b) => {
+    const wrA = Number(a.win_rate || 0);
+    const wrB = Number(b.win_rate || 0);
+    const gA = Number(a.total_matches || 0);
+    const gB = Number(b.total_matches || 0);
+    if (sortMode === 'wr_desc') return (wrB - wrA) || (gB - gA);
+    if (sortMode === 'wr_asc') return (wrA - wrB) || (gB - gA);
+    return (gB - gA) || (wrB - wrA);
+  });
+
+  if (list.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No matchup pairings match the selected filter.</td></tr>';
     return;
   }
 
-  matchups.forEach((m, idx) => {
+  list.forEach((m, idx) => {
     const tr = document.createElement('tr');
     const wr = Number(m.win_rate || 0);
+    const games = Number(m.total_matches || 0);
+    const margin = Number(m.avg_margin || 0);
     const wrColor = wr >= 55.0 ? 'var(--win)' : (wr >= 45.0 ? 'var(--accent)' : 'var(--loss)');
+    const barWidth = Math.max(4, Math.min(100, wr));
+
+    let verdictLabel = '⚖️ Even';
+    let verdictStyle = 'background:rgba(56, 189, 248, 0.12); color:var(--accent); border:1px solid rgba(56, 189, 248, 0.3);';
+    if (wr >= 60.0) {
+      verdictLabel = '🟢 Favored+';
+      verdictStyle = 'background:rgba(34, 197, 94, 0.16); color:var(--win); border:1px solid rgba(34, 197, 94, 0.38);';
+    } else if (wr >= 55.0) {
+      verdictLabel = '🟢 Favored';
+      verdictStyle = 'background:rgba(34, 197, 94, 0.12); color:var(--win); border:1px solid rgba(34, 197, 94, 0.28);';
+    } else if (wr < 40.0) {
+      verdictLabel = '🔴 Counter';
+      verdictStyle = 'background:rgba(239, 68, 68, 0.16); color:var(--loss); border:1px solid rgba(239, 68, 68, 0.38);';
+    } else if (wr < 45.0) {
+      verdictLabel = '🟠 Unfavored';
+      verdictStyle = 'background:rgba(239, 68, 68, 0.12); color:var(--loss); border:1px solid rgba(239, 68, 68, 0.28);';
+    }
+
+    const oppName = m.opponent_faction || 'Unknown';
+    const safeOppJs = escapeHtml(String(oppName).replace(/'/g, "\\'"));
+    const facColor = typeof getFactionColor === 'function' ? getFactionColor(oppName) : 'var(--accent)';
+    const marginBadge = margin !== 0
+      ? `<span style="font-family:var(--font-mono); font-size:0.72rem; color:${margin > 0 ? 'var(--win)' : 'var(--loss)'}; white-space:nowrap;">${margin > 0 ? '+' : ''}${margin.toFixed(1)} VP</span>`
+      : '';
 
     tr.innerHTML = `
       <td class="rank-cell">#${idx + 1}</td>
       <td style="font-weight:700; color:#fff;">
-        ⚔️ vs. ${escapeHtml(m.opponent_faction)}
+        <div class="fmodal-cell-val" style="display:flex; align-items:center; gap:0.45rem;">
+          <span style="width:8px; height:8px; border-radius:50%; background:${facColor}; flex-shrink:0;"></span>
+          <span class="player-link" onclick="event.stopPropagation(); openFactionModal('${safeOppJs}', '${escapeHtml(currentFactionTimeframe || '1yr')}')" title="Inspect ${escapeHtml(oppName)}">${escapeHtml(oppName)}</span>
+        </div>
       </td>
-      <td style="font-family:var(--font-mono); font-weight:800; font-size:1.05rem; color:${wrColor};">
-        ${wr.toFixed(1)}%
+      <td>
+        <div class="fmodal-cell-val" style="display:flex; align-items:center; gap:0.55rem;">
+          <span style="font-family:var(--font-mono); font-weight:800; font-size:0.95rem; color:${wrColor}; min-width:48px;">${wr.toFixed(1)}%</span>
+          <div class="fmodal-wr-bar-track" title="Win Rate: ${wr.toFixed(1)}% (50% midline)">
+            <div class="fmodal-wr-bar-fill" style="width:${barWidth}%; background:${wrColor};"></div>
+            <div class="fmodal-wr-bar-midline"></div>
+          </div>
+        </div>
       </td>
-      <td style="font-family:var(--font-mono); font-size:0.85rem;">
-        <span style="color:var(--win); font-weight:600;">${m.wins || 0}W</span> - 
-        <span style="color:var(--loss); font-weight:600;">${m.losses || 0}L</span>
-        ${m.draws ? ` - <span style="color:var(--draw); font-weight:600;">${m.draws}D</span>` : ''}
+      <td style="font-family:var(--font-mono); font-size:0.84rem; white-space:nowrap;">
+        <span class="fmodal-cell-val">
+          <span style="color:var(--win); font-weight:600;">${m.wins || 0}W</span> - 
+          <span style="color:var(--loss); font-weight:600;">${m.losses || 0}L</span>
+          ${m.draws ? ` - <span style="color:var(--draw); font-weight:600;">${m.draws}D</span>` : ''}
+        </span>
       </td>
-      <td style="font-family:var(--font-mono); font-weight:600;">
-        <span class="badge" style="background:var(--bg-primary); border:1px solid var(--border);">${m.total_matches} Games</span>
+      <td>
+        <div class="fmodal-cell-val" style="display:flex; align-items:center; gap:0.35rem; flex-wrap:nowrap; white-space:nowrap;">
+          <span class="badge" style="background:var(--bg-primary); border:1px solid var(--border); font-family:var(--font-mono); font-size:0.72rem;" title="${games} Games Played">${games}G</span>
+          <span class="badge" style="${verdictStyle} font-size:0.7rem; font-weight:700;">${verdictLabel}</span>
+          ${marginBadge}
+        </div>
       </td>
     `;
     tbody.appendChild(tr);

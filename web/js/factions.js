@@ -211,6 +211,11 @@ function scheduleFactionPresetsPrefetch(sys) {
         // Silent background warm
       }
     }
+    // Also warm top factions' 1yr modal details in background for instant modal open
+    if (typeof window.prefetchTopFactionsModalCache === 'function' && factionMetaData && Array.isArray(factionMetaData.factions)) {
+      const topFacNames = factionMetaData.factions.slice(0, 8).map(f => f.faction).filter(Boolean);
+      window.prefetchTopFactionsModalCache(topFacNames, sysKey);
+    }
   }, 350);
 }
 
@@ -297,13 +302,13 @@ function renderFactionMetaKpis() {
   strip.innerHTML = `
     <div class="meta-kpi-card">
       <div class="meta-kpi-label">📊 Field Sample (${escapeHtml(factionTimeframe.toUpperCase())})</div>
-      <div class="meta-kpi-value">${formatNumber(totalMatches)} <span style="font-size:0.78rem; font-weight:600; color:var(--text-secondary);">games</span></div>
+      <div class="meta-kpi-val meta-kpi-value">${formatNumber(totalMatches)} <span style="font-size:0.78rem; font-weight:600; color:var(--text-secondary);">games</span></div>
       <div class="meta-kpi-sub">${formatNumber(totalAppearances)} army entries • ${formatNumber(totalPilots)} pilots</div>
     </div>
 
     <div class="meta-kpi-card">
       <div class="meta-kpi-label">⚖️ Metawatch Health</div>
-      <div class="meta-kpi-value" style="color:${goldilocksPct >= 55 ? 'var(--win)' : (goldilocksPct >= 40 ? '#fbbf24' : 'var(--loss)')};">
+      <div class="meta-kpi-val meta-kpi-value" style="color:${goldilocksPct >= 55 ? 'var(--win)' : (goldilocksPct >= 40 ? '#fbbf24' : 'var(--loss)')};">
         ${goldilocksPct.toFixed(0)}% <span style="font-size:0.76rem; font-weight:600; color:var(--text-secondary);">Balanced</span>
       </div>
       <div class="meta-kpi-sub">${goldilocksCount} of ${activeFactions} armies in 45%–55% zone</div>
@@ -311,25 +316,25 @@ function renderFactionMetaKpis() {
 
     <div class="meta-kpi-card clickable" onclick="openFactionModal('${escapeHtml(String(popName).replace(/'/g, "\\'"))}')">
       <div class="meta-kpi-label">🔥 Most Played Army</div>
-      <div class="meta-kpi-value meta-kpi-faction">${escapeHtml(popName)}</div>
+      <div class="meta-kpi-val meta-kpi-value meta-kpi-faction">${escapeHtml(popName)}</div>
       <div class="meta-kpi-sub"><b style="color:#38bdf8;">${popShare}% Share</b> • ${popMatches} games (${popWr}% WR)</div>
     </div>
 
     <div class="meta-kpi-card clickable" onclick="openFactionModal('${escapeHtml(String(hwrName).replace(/'/g, "\\'"))}')">
       <div class="meta-kpi-label">👑 Apex Win Rate</div>
-      <div class="meta-kpi-value meta-kpi-faction">${escapeHtml(hwrName)}</div>
+      <div class="meta-kpi-val meta-kpi-value meta-kpi-faction">${escapeHtml(hwrName)}</div>
       <div class="meta-kpi-sub"><b style="color:#a855f7;">${hwrVal}% WR</b> (${hwrNm}% ex-mirror • ${hwrGames}g)</div>
     </div>
 
     <div class="meta-kpi-card clickable" onclick="openFactionModal('${escapeHtml(String(evName).replace(/'/g, "\\'"))}')">
       <div class="meta-kpi-label">🏆 Undefeated Finisher</div>
-      <div class="meta-kpi-value meta-kpi-faction">${escapeHtml(evName)}</div>
+      <div class="meta-kpi-val meta-kpi-value meta-kpi-faction">${escapeHtml(evName)}</div>
       <div class="meta-kpi-sub"><b style="color:var(--win);">${evX0} X-0 Runs</b> • ${evX1} Podiums (${escapeHtml(evOverRep)})</div>
     </div>
 
     <div class="meta-kpi-card clickable" onclick="openFactionModal('${escapeHtml(String(vpName).replace(/'/g, "\\'"))}')">
       <div class="meta-kpi-label">⚡ VP Differential Leader</div>
-      <div class="meta-kpi-value meta-kpi-faction">${escapeHtml(vpName)}</div>
+      <div class="meta-kpi-val meta-kpi-value meta-kpi-faction">${escapeHtml(vpName)}</div>
       <div class="meta-kpi-sub"><b style="color:${vpMarginNum >= 0 ? 'var(--win)' : 'var(--loss)'};">${vpMarginStr}/game</b> • ${vpAvgScore} avg pts</div>
     </div>
   `;
@@ -380,6 +385,11 @@ function renderFactionMetaRows() {
     const tr = document.createElement('tr');
     const safeFacJs = String(f.faction || '').replace(/'/g, "\\'");
     tr.onclick = () => openFactionModal(f.faction);
+    tr.onmouseenter = () => {
+      if (typeof window.prefetchFactionModalData === 'function') {
+        window.prefetchFactionModalData(f.faction);
+      }
+    };
 
     const overallWr = Number(f.win_rate) || 0;
     const nonMirrorWr = f.non_mirror_win_rate != null ? Number(f.non_mirror_win_rate) : overallWr;
@@ -415,7 +425,7 @@ function renderFactionMetaRows() {
     } else if (x1Runs > 0) {
       overRepBadge = `<span style="font-size:0.72rem; color:var(--text-secondary);">${x1Runs} X-1 cuts</span>`;
     } else {
-      overRepBadge = `<span style="font-size:0.72rem; color:var(--text-muted);">—</span>`;
+      overRepBadge = `<span class="meta-tiwp-dash" style="font-size:0.72rem; color:var(--text-muted);">—</span>`;
     }
 
     let matchupHtml = '<span style="color:var(--text-muted); font-size:0.75rem;">—</span>';
@@ -441,63 +451,63 @@ function renderFactionMetaRows() {
     }
 
     tr.innerHTML = `
-      <td style="color:var(--text-muted); font-family:var(--font-mono); font-size:0.84rem;">#${idx + 1}</td>
-      <td>
-        <div style="display:flex; align-items:center; gap:0.5rem;">
+      <td class="meta-td-rank" style="color:var(--text-muted); font-family:var(--font-mono); font-size:0.84rem;">#${idx + 1}</td>
+      <td class="meta-td-faction">
+        <div style="display:flex; align-items:center; gap:0.5rem; min-width:0;">
           <span style="width:9px; height:9px; border-radius:50%; background:${facColor}; flex-shrink:0; box-shadow:0 0 6px ${facColor}88;"></span>
-          <div>
-            <div class="player-link" style="font-weight:700; font-size:0.92rem;">${escapeHtml(f.faction)}</div>
-            <div style="font-size:0.72rem; color:var(--text-muted);">
+          <div style="min-width:0;">
+            <div class="player-link meta-fac-name" style="font-weight:700; font-size:0.92rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(f.faction)}</div>
+            <div class="meta-fac-pilots" style="font-size:0.72rem; color:var(--text-muted);">
               ${pilots > 0 ? `👤 ${formatNumber(pilots)} commanders` : `${formatNumber(totalMatches)} entries`}
             </div>
           </div>
         </div>
       </td>
-      <td>
+      <td class="meta-td-tier">
         <span class="tier-badge tier-${tier}">${tier}</span>
-        <div style="font-size:0.7rem; color:var(--text-secondary); margin-top:0.18rem;">${tierShort}</div>
+        <div class="meta-tier-short" style="font-size:0.7rem; color:var(--text-secondary); margin-top:0.18rem;">${tierShort}</div>
       </td>
-      <td style="min-width:155px;">
-        <div style="display:flex; align-items:baseline; justify-content:space-between; gap:0.35rem;">
+      <td class="meta-td-wr" style="min-width:155px;">
+        <div class="meta-wr-top-row" style="display:flex; align-items:baseline; justify-content:space-between; gap:0.35rem;">
           <span class="${wrClass}" style="font-size:0.96rem; font-weight:800; font-family:var(--font-mono);">${activeWr.toFixed(1)}%</span>
-          <span style="font-size:0.68rem; color:var(--text-muted); font-family:var(--font-mono);">${ciMargin > 0 ? `±${ciMargin.toFixed(1)}%` : ''}</span>
+          <span class="meta-wr-ci" style="font-size:0.68rem; color:var(--text-muted); font-family:var(--font-mono);">${ciMargin > 0 ? `±${ciMargin.toFixed(1)}%` : ''}</span>
         </div>
         <div class="meta-wr-bar-track" title="Goldilocks Zone: 45% - 55%">
           <div class="meta-wr-goldilocks-band"></div>
           <div class="meta-wr-bar-fill" style="width:${wrBarPct.toFixed(1)}%; background:${wrBarColor};"></div>
         </div>
-        <div style="font-size:0.69rem; color:var(--text-secondary); margin-top:0.15rem; font-family:var(--font-mono);">${altWrLabel}</div>
+        <div class="meta-alt-wr" style="font-size:0.69rem; color:var(--text-secondary); margin-top:0.15rem; font-family:var(--font-mono);">${altWrLabel}</div>
       </td>
-      <td style="min-width:125px;">
-        <div style="display:flex; align-items:baseline; justify-content:space-between;">
-          <span style="font-family:var(--font-mono); font-weight:700; color:#e2e8f0; font-size:0.88rem;">${metaShare.toFixed(1)}%</span>
+      <td class="meta-td-share" style="min-width:125px;">
+        <div class="meta-share-top-row" style="display:flex; align-items:baseline; justify-content:space-between; gap:0.35rem;">
+          <span style="font-family:var(--font-mono); font-weight:700; color:#e2e8f0; font-size:0.88rem;">${metaShare.toFixed(1)}% <span class="meta-share-mobile-lbl" style="display:none; font-size:0.68rem; font-weight:500; color:var(--text-muted);">Share</span></span>
           <span style="font-family:var(--font-mono); font-size:0.73rem; color:var(--text-secondary);">${formatNumber(totalMatches)}g</span>
         </div>
         <div class="meta-share-bar-track">
           <div class="meta-share-bar-fill" style="width:${shareBarPct.toFixed(1)}%;"></div>
         </div>
-        <div style="font-size:0.68rem; color:var(--text-muted); margin-top:0.12rem;">${mirrors > 0 ? `${formatNumber(mirrors)} mirror games` : '0 mirrors'}</div>
+        <div class="meta-mirrors-lbl" style="font-size:0.68rem; color:var(--text-muted); margin-top:0.12rem;">${mirrors > 0 ? `${formatNumber(mirrors)} mirror games` : '0 mirrors'}</div>
       </td>
-      <td style="font-family:var(--font-mono);">
-        <div style="display:flex; align-items:center; gap:0.35rem;">
+      <td class="meta-td-x0" style="font-family:var(--font-mono);">
+        <div class="meta-x0-wrap" style="display:flex; align-items:center; gap:0.35rem;">
           <span class="badge" style="background:${x0Runs > 0 ? 'rgba(34,197,94,0.14)' : 'rgba(148,163,184,0.1)'}; color:${x0Runs > 0 ? '#4ade80' : 'var(--text-secondary)'}; border:1px solid ${x0Runs > 0 ? 'rgba(34,197,94,0.3)' : 'rgba(148,163,184,0.2)'}; font-size:0.75rem; font-weight:700;">
             🏆 ${x0Runs} X-0
           </span>
         </div>
-        <div style="margin-top:0.2rem;">${overRepBadge}</div>
+        <div class="meta-tiwp-wrap" style="margin-top:0.2rem;">${overRepBadge}</div>
       </td>
-      <td style="font-family:var(--font-mono); font-size:0.84rem; white-space:nowrap;">
+      <td class="meta-td-record" style="font-family:var(--font-mono); font-size:0.84rem; white-space:nowrap;">
         <span style="color:var(--win); font-weight:700;">${formatNumber(f.wins)}W</span> -
         <span style="color:var(--loss); font-weight:700;">${formatNumber(f.losses)}L</span>
         ${f.draws ? ` - <span style="color:var(--draw); font-weight:600;">${formatNumber(f.draws)}D</span>` : ''}
       </td>
-      <td style="font-family:var(--font-mono);">
+      <td class="meta-td-vp" style="font-family:var(--font-mono);">
         <div style="font-weight:700; color:#f8fafc; font-size:0.86rem;">${avgScore > 0 ? `${avgScore.toFixed(1)} VP` : '-'}</div>
         <div style="font-size:0.73rem; font-weight:700; color:${avgMargin > 0.5 ? 'var(--win)' : (avgMargin < -0.5 ? 'var(--loss)' : 'var(--text-secondary)')};">
           ${avgScore > 0 ? `${avgMargin >= 0 ? '+' : ''}${avgMargin.toFixed(1)} diff` : ''}
         </div>
       </td>
-      <td>${matchupHtml}</td>
+      <td class="meta-td-matchups">${matchupHtml}</td>
     `;
     tbody.appendChild(tr);
   });
@@ -515,12 +525,12 @@ function renderFactionDistribution() {
 
   const total = factions.length || 1;
   container.innerHTML = `
-    <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; font-size:0.8rem;">
+    <div class="meta-dist-pills" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; font-size:0.8rem;">
       <div><b>Armies:</b> <span style="color:#fff; font-family:var(--font-mono); font-weight:700;">${total}</span></div>
-      <div><span class="tier-badge tier-S">S</span> 55%+: <b>${tiers.S}</b></div>
-      <div><span class="tier-badge tier-A">A</span> 50-55%: <b>${tiers.A}</b></div>
-      <div><span class="tier-badge tier-B">B</span> 45-50%: <b>${tiers.B}</b></div>
-      <div><span class="tier-badge tier-C">C</span> &lt;45%: <b>${tiers.C}</b></div>
+      <div><span class="tier-badge tier-S">S</span> <span class="meta-dist-range">55%+:</span> <b>${tiers.S}</b></div>
+      <div><span class="tier-badge tier-A">A</span> <span class="meta-dist-range">50-55%:</span> <b>${tiers.A}</b></div>
+      <div><span class="tier-badge tier-B">B</span> <span class="meta-dist-range">45-50%:</span> <b>${tiers.B}</b></div>
+      <div><span class="tier-badge tier-C">C</span> <span class="meta-dist-range">&lt;45%:</span> <b>${tiers.C}</b></div>
     </div>
   `;
 }

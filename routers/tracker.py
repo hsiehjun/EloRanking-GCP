@@ -61,12 +61,14 @@ class TrackerJoinPayload(BaseModel):
     token: Optional[str] = None
     player_name: Optional[str] = None
     player_id: Optional[str] = None
+    guest_id: Optional[str] = None
     claim_role: Optional[str] = None
     faction: Optional[str] = None
     detachment: Optional[str] = None
 
 class TrackerActionPayload(BaseModel):
     token: Optional[str] = None
+    guest_id: Optional[str] = None
     match_id: Optional[str] = None
     state: Optional[Dict[str, Any]] = None
 
@@ -74,9 +76,48 @@ class TrackerStatePayload(BaseModel):
     match_id: str
     client_id: Optional[str] = "anon"
     token: Optional[str] = None
+    guest_id: Optional[str] = None
     role: Optional[str] = "editor"
     version: int = 1
     state: Dict[str, Any]
+
+class TrackerShareChatPayload(BaseModel):
+    request_id: Optional[str] = None
+    receiver_id: Optional[str] = None
+    message: Optional[str] = None
+
+
+def _extract_guest_id(request: Optional[Request] = None, payload: Optional[Any] = None, body: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Extract stable unauthenticated guest_id from payload, JSON body, query params, headers, or cookies."""
+    candidates = []
+    if payload is not None:
+        candidates.append(getattr(payload, "guest_id", None))
+        candidates.append(getattr(payload, "player_id", None))
+    if isinstance(body, dict):
+        candidates.append(body.get("guest_id"))
+        candidates.append(body.get("player_id"))
+    if request is not None:
+        try:
+            if hasattr(request, "query_params") and request.query_params:
+                candidates.append(request.query_params.get("guest_id"))
+        except Exception:
+            pass
+        try:
+            if hasattr(request, "headers") and request.headers:
+                candidates.append(request.headers.get("X-Guest-Id") or request.headers.get("x-guest-id"))
+        except Exception:
+            pass
+        try:
+            if hasattr(request, "cookies") and request.cookies:
+                candidates.append(request.cookies.get("gt_guest_id"))
+        except Exception:
+            pass
+    for c in candidates:
+        if c and isinstance(c, str):
+            clean = c.strip()
+            if clean and clean.lower() not in ("none", "null", "undefined", "anon"):
+                return clean[:64]
+    return None
 
 def check_user_matches_player(user: Optional[Dict[str, Any]], target_name: Optional[str], target_id: Optional[str] = None) -> bool:
     """Determine if an authenticated user corresponds to a specific tournament pairing participant."""
@@ -592,24 +633,27 @@ def init_tracker_room_from_tournament(match_id: str, fs_engine, db) -> Dict[str,
 def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict[str, Any], match_id: str, payload: Optional[Any] = None) -> Tuple[str, Optional[str]]:
     """
     Determines role ('player1', 'player2', 'referee', 'spectator') and slot to claim ('user_id_p1', 'user_id_p2', or None).
-    Ensures that for event matches (BCP-*, ES-*, or rooms with event_id), ONLY the assigned table competitors
-    can enter as player1 or player2.
-    For referee role, ONLY the specific Tournament Organizer of this tournament (or platform superadmin / assigned referee)
-    can enter as referee. All other users enter as spectator.
+    Supports:
+    - Multi-device same-player access: if user/guest_id already matches user_id_p1 or user_id_p2, returns ('player1', None) or ('player2', None) without taking the opponent's slot.
+    - Guest access without credentials: a guest with a stable guest_id can claim the open player2 slot when player1 has set up the room.
+    - 3rd+ person spectator routing: once both player1 and player2 slots are claimed, any subsequent distinct user/guest enters as 'spectator'.
     """
+    guest_id = getattr(payload, "guest_id", None) or getattr(payload, "player_id", None) if payload else None
     candidate_user = user
-    if not candidate_user and payload and (getattr(payload, "player_id", None) or getattr(payload, "player_name", None)):
+    if not candidate_user and payload and (guest_id or getattr(payload, "player_name", None)):
         candidate_user = {
-            "id": getattr(payload, "player_id", None),
+            "id": guest_id,
             "display_name": getattr(payload, "player_name", None)
         }
 
     u_id = None
     if candidate_user:
         if isinstance(candidate_user, dict):
-            u_id = candidate_user.get("id") or candidate_user.get("user_id")
+            u_id = candidate_user.get("id") or candidate_user.get("user_id") or guest_id
         else:
-            u_id = getattr(candidate_user, "id", None) or getattr(candidate_user, "user_id", None)
+            u_id = getattr(candidate_user, "id", None) or getattr(candidate_user, "user_id", None) or guest_id
+    elif guest_id:
+        u_id = guest_id
 
     st = room_dict.get("state", {}) if isinstance(room_dict.get("state"), dict) else {}
     game = st.get("game", {}) if isinstance(st.get("game"), dict) else {}
@@ -646,15 +690,22 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
     if claim_role == "spectator":
         return ("spectator", None)
 
+    # Multi-device / returning player check: if this user or guest already owns Player 1 or Player 2,
+    # always return their existing seat without claiming the other player's slot or becoming spectator.
+    if u_id and p1_id and str(u_id) == str(p1_id):
+        return ("player1", None)
+    if u_id and p2_id and str(u_id) == str(p2_id):
+        return ("player2", None)
+
     if is_tournament:
-        # Strict table pairings: ONLY the two matched competitors can claim player slots
+        # Strict table pairings: matched competitors claim their assigned slots
         matches_p1 = bool(candidate_user and check_user_matches_player(candidate_user, p1_assigned_name, p1_target_id))
         matches_p2 = bool(candidate_user and check_user_matches_player(candidate_user, p2_assigned_name, p2_target_id))
 
         if matches_p1:
-            return ("player1", None if p1_id == u_id else "user_id_p1")
+            return ("player1", None if (p1_id and str(p1_id) == str(u_id)) else "user_id_p1")
         if matches_p2:
-            return ("player2", None if p2_id == u_id else "user_id_p2")
+            return ("player2", None if (p2_id and str(p2_id) == str(u_id)) else "user_id_p2")
         # Strict staff check: ONLY this specific tournament's TO (or platform admin) enters as referee
         is_tournament_staff = check_user_is_tournament_staff(
             candidate_user,
@@ -664,25 +715,29 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
         )
         if is_tournament_staff:
             return ("referee", None)
+        # If ONE player has already set up the game in the room (e.g. p1_id is claimed and p2_id is open),
+        # allow the shared link recipient (including an unauthenticated Guest) to claim the open opponent slot.
+        if p1_id and not p2_id and (not u_id or str(u_id) != str(p1_id)):
+            return ("player2", "user_id_p2")
+        if p2_id and not p1_id and (not u_id or str(u_id) != str(p2_id)):
+            return ("player1", "user_id_p1")
         return ("spectator", None)
     else:
-        if u_id and p1_id == u_id:
-            return ("player1", None)
-        if u_id and p2_id == u_id:
-            return ("player2", None)
-
-        # Casual match logic: 1st user gets player1, 2nd user gets player2, 3rd user gets spectator
-        if claim_role == "player2" and not p2_id:
+        # Casual match logic:
+        # - 1st distinct person gets player1
+        # - 2nd distinct person (authenticated user OR Guest with guest_id != p1_id) gets player2
+        # - 3rd+ person after both p1_id and p2_id are claimed gets spectator
+        if claim_role == "player2" and not p2_id and (not p1_id or not u_id or str(u_id) != str(p1_id)):
             return ("player2", "user_id_p2")
-        if claim_role == "player1" and not p1_id:
+        if claim_role == "player1" and not p1_id and (not p2_id or not u_id or str(u_id) != str(p2_id)):
             return ("player1", "user_id_p1")
         if not p1_id:
             return ("player1", "user_id_p1")
-        if not p2_id and u_id != p1_id:
+        if not p2_id and (not u_id or str(u_id) != str(p1_id)):
             return ("player2", "user_id_p2")
         if u_id and u_id in (room_dict.get("referee_ids") or []):
             return ("referee", None)
-        return ("spectator" if (p1_id and p2_id) else "player1", None)
+        return ("spectator", None)
 
 @router.post("/api/tracker/room/create", summary="Create or connect to a multiplayer match room with host player")
 async def api_tracker_create_room(request: Request, payload: Optional[TrackerCreatePayload] = None):
@@ -1091,6 +1146,8 @@ def _api_tracker_check_room_sync(match_id: str, request: Request):
         except Exception:
             pass
     user_id = user["id"] if user else None
+    guest_id = _extract_guest_id(request)
+    effective_uid = user_id or guest_id
     
     if hasattr(fs_engine, "is_room_discarded") and fs_engine.is_room_discarded(match_id) is True:
         TRACKER_ROOMS.pop(match_id, None)
@@ -1166,8 +1223,8 @@ def _api_tracker_check_room_sync(match_id: str, request: Request):
     p1_target_id = game.get("p1Id")
     p2_target_id = game.get("p2Id")
 
-    is_p1 = bool(user_id and p1_id == user_id)
-    is_p2 = bool(user_id and p2_id == user_id)
+    is_p1 = bool(effective_uid and p1_id and str(effective_uid) == str(p1_id))
+    is_p2 = bool(effective_uid and p2_id and str(effective_uid) == str(p2_id))
     is_finished = bool(room.get("is_finished") or (isinstance(room.get("state"), dict) and room["state"].get("is_finished")))
     is_tournament = (
         match_id.startswith("BCP-") or
@@ -1176,23 +1233,30 @@ def _api_tracker_check_room_sync(match_id: str, request: Request):
         bool(game.get("eventId"))
     )
 
-    user_id = user["id"] if user else None
     room_sys = room.get("game_system") or st.get("game_system") or st.get("gameSystem") or ("aos" if match_id.startswith("AOS-") else "40k")
 
     if is_tournament:
         is_tournament_staff = check_user_is_tournament_staff(user, room, match_id=match_id)
-        matches_p1 = bool(user and check_user_matches_player(user, p1_assigned_name, p1_target_id))
-        matches_p2 = bool(user and check_user_matches_player(user, p2_assigned_name, p2_target_id))
-        is_open_for_p2 = bool(not is_finished and p2_id is None and matches_p2)
-        is_full = bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2 and not is_tournament_staff) or (not matches_p1 and not matches_p2 and not is_p1 and not is_p2 and not is_tournament_staff))
-        is_spectator = bool(not matches_p1 and not matches_p2 and not is_tournament_staff)
-        assigned_role = "player1" if matches_p1 else ("player2" if matches_p2 else ("referee" if is_tournament_staff else "spectator"))
+        matches_p1 = is_p1 or bool(user and check_user_matches_player(user, p1_assigned_name, p1_target_id))
+        matches_p2 = is_p2 or bool(user and check_user_matches_player(user, p2_assigned_name, p2_target_id))
+        can_claim_open_p2 = bool(not is_finished and p1_id is not None and p2_id is None and not is_p1 and not is_tournament_staff)
+        can_claim_open_p1 = bool(not is_finished and p2_id is not None and p1_id is None and not is_p2 and not is_tournament_staff)
+        is_open_for_p2 = bool(not is_finished and p2_id is None and (matches_p2 or can_claim_open_p2))
+        assigned_role = (
+            "player1" if (matches_p1 or can_claim_open_p1)
+            else ("player2" if (matches_p2 or can_claim_open_p2)
+            else ("referee" if is_tournament_staff else "spectator"))
+        )
+        is_spectator = bool(assigned_role == "spectator")
+        is_full = bool(is_finished or is_spectator)
         return {
             "exists": True,
             "match_id": match_id,
             "game_system": room_sys,
             "p1_name": p1_assigned_name,
             "p2_name": p2_assigned_name,
+            "user_id_p1": p1_id,
+            "user_id_p2": p2_id,
             "is_full": is_full,
             "is_open_for_p2": is_open_for_p2,
             "is_finished": is_finished,
@@ -1213,6 +1277,8 @@ def _api_tracker_check_room_sync(match_id: str, request: Request):
             "game_system": room_sys,
             "p1_name": p1_assigned_name,
             "p2_name": p2_assigned_name,
+            "user_id_p1": p1_id,
+            "user_id_p2": p2_id,
             "is_full": is_full,
             "is_open_for_p2": is_open_for_p2,
             "is_finished": is_finished,
@@ -1245,7 +1311,14 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
         except Exception:
             pass
     user_id = user["id"] if user else None
-    user_name = (user.get("display_name") or user.get("name")) if user else None
+    guest_id = _extract_guest_id(request, payload=payload)
+    effective_uid = user_id or guest_id
+    user_name = (user.get("display_name") or user.get("name")) if user else (payload.player_name if payload and payload.player_name else None)
+    if guest_id:
+        if payload is None:
+            payload = TrackerJoinPayload(guest_id=guest_id)
+        elif not payload.guest_id:
+            payload.guest_id = guest_id
     
     if match_id not in TRACKER_ROOMS or fs_engine.is_connected is True:
         fs_doc = fs_engine.get_room(match_id)
@@ -1315,10 +1388,10 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
     )
 
     if claim_slot == "user_id_p1":
-        room["user_id_p1"] = user_id or f"p1_{secrets.token_hex(3)}"
+        room["user_id_p1"] = effective_uid or f"p1_{secrets.token_hex(3)}"
         if isinstance(st, dict):
             st["user_id_p1"] = room["user_id_p1"]
-        room["version"] = room.get("version", 1) + 1
+        room["version"] = int(room.get("version") or 1) + 1
         try:
             fs_engine.update_room(match_id, {
                 "user_id_p1": room["user_id_p1"],
@@ -1329,7 +1402,7 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
         except Exception:
             pass
     elif claim_slot == "user_id_p2":
-        room["user_id_p2"] = user_id or f"p2_{secrets.token_hex(3)}"
+        room["user_id_p2"] = effective_uid or f"p2_{secrets.token_hex(3)}"
         if isinstance(st, dict):
             st["user_id_p2"] = room["user_id_p2"]
         if payload and payload.faction and not game.get("p2Faction"):
@@ -1338,7 +1411,7 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
             game["p2Detachment"] = payload.detachment
         if not is_tournament and payload and payload.player_name and payload.player_name != "Player 2":
             game["p2Name"] = payload.player_name
-        room["version"] = room.get("version", 1) + 1
+        room["version"] = int(room.get("version") or 1) + 1
 
         try:
             fs_engine.update_room(match_id, {
@@ -1387,10 +1460,13 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
         "match_id": match_id,
         "game_system": room_sys,
         "role": role,
-        "user_id": user_id,
+        "user_id": effective_uid,
+        "guest_id": guest_id,
+        "is_guest": bool(user is None and guest_id),
         "user_name": user_name,
         "user_id_p1": room.get("user_id_p1"),
         "user_id_p2": room.get("user_id_p2"),
+        "version": room.get("version", 1),
         "state": st,
         "chess_clock": room.get("chess_clock"),
         "is_finished": bool(room.get("is_finished") or (isinstance(st, dict) and st.get("is_finished"))),
@@ -1437,6 +1513,8 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
         except Exception:
             pass
     user_id = user["id"] if user else None
+    guest_id = _extract_guest_id(request, payload=payload)
+    effective_uid = user_id or guest_id
     
     if match_id not in TRACKER_ROOMS or fs_engine.is_connected is True:
         fs_doc = fs_engine.get_room(match_id)
@@ -1482,8 +1560,8 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
     
     room = TRACKER_ROOMS[match_id]
     
-    is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
-    is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
+    is_p1 = bool(effective_uid and room.get("user_id_p1") and str(room.get("user_id_p1")) == str(effective_uid))
+    is_p2 = bool(effective_uid and room.get("user_id_p2") and str(room.get("user_id_p2")) == str(effective_uid))
     is_tournament = (
         match_id.startswith("BCP-") or
         match_id.startswith("ES-") or
@@ -1504,21 +1582,26 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
             if not (is_p1 or is_p2 or is_ref or payload.role in ("player1", "player2", "referee", "editor")):
                 raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot modify match state")
     
+    new_ver = max(int(room.get("version") or 0) + 1, int(payload.version or 1))
     room["state"] = payload.state
-    room["version"] = payload.version
+    room["version"] = new_ver
     room["updated_at"] = datetime.now(timezone.utc).isoformat()
     
-    # If user_id_p1 or user_id_p2 in state, retain them
+    # Preserve user_id_p1 and user_id_p2 across multi-device / guest state saves
     if payload.state.get("user_id_p1"):
         room["user_id_p1"] = payload.state["user_id_p1"]
+    elif room.get("user_id_p1") and isinstance(payload.state, dict):
+        payload.state["user_id_p1"] = room["user_id_p1"]
     if payload.state.get("user_id_p2"):
         room["user_id_p2"] = payload.state["user_id_p2"]
+    elif room.get("user_id_p2") and isinstance(payload.state, dict):
+        payload.state["user_id_p2"] = room["user_id_p2"]
 
     # Hot storage update in Cloud Firestore Native (ZERO PostgreSQL write)
     try:
         fs_engine.update_room(match_id, {
             "state": payload.state,
-            "version": payload.version,
+            "version": new_ver,
             "user_id_p1": room.get("user_id_p1"),
             "user_id_p2": room.get("user_id_p2")
         })
@@ -1530,13 +1613,13 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
     msg = {
         "type": "state_update",
         "sender": payload.client_id,
-        "version": payload.version,
+        "version": new_ver,
         "state": payload.state
     }
     for q in listeners:
         await q.put(msg)
 
-    return {"success": True, "match_id": match_id, "version": payload.version}
+    return {"success": True, "match_id": match_id, "version": new_ver}
 
 @router.get("/api/tracker/room/{match_id}", summary="Get current match room state")
 def api_tracker_get_state(match_id: str):
@@ -1562,7 +1645,7 @@ def api_tracker_get_state(match_id: str):
     except Exception:
         pass
 
-    online_count = max(1, len(TRACKER_LISTENERS.get(match_id, [])))
+    online_count = max(1, sum(1 for l_q in TRACKER_LISTENERS.get(match_id, []) if not getattr(l_q, "_is_spectator", False)))
     # Resolve event_id to dynamically attach live tournament master clock and judge calls
     ev_id = None
     if match_id in TRACKER_ROOMS:
@@ -1974,8 +2057,10 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
     state = (payload.state if payload and payload.state else None) or room.get("state") or {}
 
     user_id = user["id"] if user else None
-    is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
-    is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
+    guest_id = _extract_guest_id(request, payload=payload)
+    effective_uid = user_id or guest_id
+    is_p1 = bool(effective_uid and room.get("user_id_p1") and str(room.get("user_id_p1")) == str(effective_uid))
+    is_p2 = bool(effective_uid and room.get("user_id_p2") and str(room.get("user_id_p2")) == str(effective_uid))
     is_tournament = (
         match_id.startswith("BCP-") or
         match_id.startswith("ES-") or
@@ -4337,6 +4422,8 @@ async def api_tracker_attach_armylist(match_id: str, request: Request):
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     user = auth_mgr.get_session(session_token) if session_token else None
     user_id = user["id"] if user else None
+    guest_id = _extract_guest_id(request, body=body)
+    effective_uid = user_id or guest_id
 
     # 1. Update in-memory room
     if match_id not in TRACKER_ROOMS:
@@ -4347,13 +4434,13 @@ async def api_tracker_attach_armylist(match_id: str, request: Request):
         }
 
     room = TRACKER_ROOMS[match_id]
-    if user_id:
+    if effective_uid:
         if role == "player1" and not room.get("user_id_p1"):
-            room["user_id_p1"] = user_id
+            room["user_id_p1"] = effective_uid
         elif role == "player2" and not room.get("user_id_p2"):
-            room["user_id_p2"] = user_id
-    is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
-    is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
+            room["user_id_p2"] = effective_uid
+    is_p1 = bool(effective_uid and room.get("user_id_p1") and str(room.get("user_id_p1")) == str(effective_uid))
+    is_p2 = bool(effective_uid and room.get("user_id_p2") and str(room.get("user_id_p2")) == str(effective_uid))
     has_assigned_players = bool(room.get("user_id_p1") or room.get("user_id_p2"))
     is_tournament = (
         match_id.startswith("BCP-") or
@@ -4463,6 +4550,8 @@ async def api_tracker_update_clock(match_id: str, request: Request):
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     user = auth_mgr.get_session(session_token) if session_token else None
     user_id = user["id"] if user else None
+    guest_id = _extract_guest_id(request, body=body)
+    effective_uid = user_id or guest_id
 
     fs_engine = get_firestore_engine()
     if fs_engine.is_room_discarded(match_id):
@@ -4476,8 +4565,8 @@ async def api_tracker_update_clock(match_id: str, request: Request):
         }
 
     room = TRACKER_ROOMS[match_id]
-    is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
-    is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
+    is_p1 = bool(effective_uid and room.get("user_id_p1") and str(room.get("user_id_p1")) == str(effective_uid))
+    is_p2 = bool(effective_uid and room.get("user_id_p2") and str(room.get("user_id_p2")) == str(effective_uid))
     is_tournament = (
         match_id.startswith("BCP-") or
         match_id.startswith("ES-") or
@@ -4528,6 +4617,124 @@ async def api_tracker_update_clock(match_id: str, request: Request):
             pass
 
     return {"success": True, "chess_clock": clock_data}
+
+
+@router.post("/api/tracker/room/{match_id}/share_chat", summary="Share live Game Tracker room invite directly in OmniTactica Chat")
+def api_tracker_share_chat(match_id: str, payload: TrackerShareChatPayload, request: Request):
+    match_id = normalize_tracker_match_id(match_id)
+    auth_mgr = get_auth_manager()
+    auth_header = request.headers.get("Authorization", "")
+    session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    user = auth_mgr.get_session(session_token) if session_token else None
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required to share in OmniTactica Chat")
+
+    db = get_database()
+    fs_engine = get_firestore_engine()
+    sender_id = user["id"]
+    sender_name = user.get("display_name") or user.get("email") or "Player 1"
+    msg_text = (payload.message or "").strip() or f"⚔️ Join my live Game Tracker room ({match_id})!"
+
+    req_id = (payload.request_id or "").strip()
+    receiver_id = (payload.receiver_id or "").strip()
+
+    # 1. If sharing to a group chat (grp_league_* or grp_pod_*)
+    if req_id.lower().startswith("grp_league_") or req_id.lower().startswith("grp_pod_"):
+        import leagues_hub_service
+        svc = leagues_hub_service.get_leagues_hub_service()
+        res = svc.send_group_chat_message(
+            channel_id=req_id,
+            sender_id=sender_id,
+            sender_name=sender_name,
+            message_text=msg_text,
+            room_key=match_id
+        )
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Failed to share room in group chat"))
+        return {"success": True, "request_id": req_id, "match_id": match_id, "message_id": res.get("message_id")}
+
+    # 2. If receiver_id is provided without an active accepted request_id, find or create an accepted thread
+    if not req_id and receiver_id:
+        if str(receiver_id) == str(sender_id):
+            raise HTTPException(status_code=400, detail="Cannot share a match room to yourself")
+        try:
+            with db.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                    cursor.execute("""
+                        SELECT id, status FROM match_requests
+                        WHERE ((sender_id = %s AND receiver_id = %s) OR (sender_id = %s AND receiver_id = %s))
+                          AND status IN ('pending', 'accepted')
+                        ORDER BY updated_at DESC LIMIT 1;
+                    """, (sender_id, receiver_id, receiver_id, sender_id))
+                    existing = cursor.fetchone()
+                    if existing:
+                        req_id = existing["id"]
+                        if existing["status"] != "accepted":
+                            cursor.execute("UPDATE match_requests SET status = 'accepted', updated_at = NOW() WHERE id = %s;", (req_id,))
+                            conn.commit()
+                    else:
+                        import uuid
+                        req_id = f"mrq_{uuid.uuid4().hex[:16]}"
+                        cursor.execute("""
+                            INSERT INTO match_requests (
+                                id, sender_id, receiver_id, status, proposed_venue,
+                                proposed_points, proposed_date, note, created_at, updated_at
+                            ) VALUES (%s, %s, %s, 'accepted', 'Game Tracker Match', 2000, '', %s, NOW(), NOW());
+                        """, (req_id, sender_id, receiver_id, msg_text))
+                        conn.commit()
+        except Exception as e:
+            logger.warning(f"Error resolving/creating chat thread for share_chat: {e}")
+            raise HTTPException(status_code=400, detail="Could not open chat thread with selected user")
+
+    if not req_id:
+        raise HTTPException(status_code=400, detail="Either request_id or receiver_id is required")
+
+    # Ensure if the thread was 'pending', sharing a room invite activates it so the message can be delivered
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE match_requests SET status = 'accepted', updated_at = NOW() WHERE id = %s AND status = 'pending' AND (sender_id = %s OR receiver_id = %s);",
+                    (req_id, sender_id, sender_id)
+                )
+                conn.commit()
+    except Exception:
+        pass
+
+    res = db.send_chat_message(req_id, sender_id, msg_text, room_key=match_id)
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("error", "Failed to send room invite in chat"))
+
+    try:
+        from routers.connect import _invalidate_unread_count
+        chat_info = db.get_chat_messages(req_id, sender_id)
+        req_info = chat_info.get("request", {}) or {}
+        s_uid = req_info.get("sender_id")
+        r_uid = req_info.get("receiver_id")
+        other_id = r_uid if s_uid == sender_id else s_uid
+        _invalidate_unread_count([sender_id, other_id])
+
+        msg_obj = {
+            "id": res.get("message_id"),
+            "request_id": req_id,
+            "sender_id": sender_id,
+            "sender_name": sender_name,
+            "message_text": msg_text,
+            "room_key": match_id,
+            "created_at": res.get("created_at") or datetime.now(timezone.utc).isoformat()
+        }
+        fs_engine.append_chat_message(req_id, msg_obj)
+        if other_id:
+            fs_engine.notify_user_requests_updated([sender_id, other_id], reason="room_invite")
+    except Exception as fs_e:
+        logger.warning(f"Notice syncing shared room chat message to Firestore: {fs_e}")
+
+    return {
+        "success": True,
+        "request_id": req_id,
+        "match_id": match_id,
+        "message_id": res.get("message_id")
+    }
 
 @router.post("/api/tracker/room/{match_id}/dice_tray", summary="Synchronize live tabletop dice tray across players")
 async def api_tracker_sync_dice_tray(match_id: str, request: Request):
@@ -4704,12 +4911,13 @@ async def api_tracker_roll_dice(match_id: str, request: Request):
 async def api_tracker_stream(match_id: str, client_id: str = "anon"):
     match_id = normalize_tracker_match_id(match_id)
     q = asyncio.Queue()
+    q._is_spectator = str(client_id).startswith("spectator")
     if match_id not in TRACKER_LISTENERS:
         TRACKER_LISTENERS[match_id] = []
     TRACKER_LISTENERS[match_id].append(q)
 
     # Broadcast live presence count to ALL connected listeners in this room
-    cur_count = len(TRACKER_LISTENERS[match_id])
+    cur_count = max(1, sum(1 for l_q in TRACKER_LISTENERS[match_id] if not getattr(l_q, "_is_spectator", False)))
     p_msg = {"type": "presence", "count": cur_count}
     for l_q in list(TRACKER_LISTENERS[match_id]):
         try:
@@ -4755,7 +4963,7 @@ async def api_tracker_stream(match_id: str, client_id: str = "anon"):
         finally:
             if match_id in TRACKER_LISTENERS and q in TRACKER_LISTENERS[match_id]:
                 TRACKER_LISTENERS[match_id].remove(q)
-            rem_count = len(TRACKER_LISTENERS.get(match_id, []))
+            rem_count = max(1, sum(1 for l_q in TRACKER_LISTENERS.get(match_id, []) if not getattr(l_q, "_is_spectator", False)))
             disconn_msg = {"type": "presence", "count": rem_count}
             for rem_q in list(TRACKER_LISTENERS.get(match_id, [])):
                 try:

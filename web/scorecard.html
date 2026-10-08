@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=952deb5d20">
+  <link rel="manifest" href="/manifest.json?v=ebd73e921c">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "952deb5d20";</script>
+  <script>window.APP_VERSION = "ebd73e921c";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -1029,6 +1029,8 @@
     let liveTimer = null;
     let isLivePolling = false;
     let cachedMappableMatches = [];
+    let scorecardSseSource = null;
+    let scorecardFirestoreUnsub = null;
 
     async function pollLiveScorecardQuietly() {
       if (isLivePolling || document.hidden) return;
@@ -1055,18 +1057,102 @@
       }
     }
 
+    function applyLiveScorecardStatePatch(matchId, newState, isFinishedFlag) {
+      if (!newState || typeof newState !== 'object') return;
+      const fin = Boolean(isFinishedFlag || newState.is_finished || newState.status === 'completed');
+      if (!globalScorecardData) {
+        globalScorecardData = {
+          success: true,
+          match_id: matchId,
+          state: newState,
+          game_record: { state: newState },
+          is_finished: fin,
+          status: fin ? 'completed' : 'in_progress',
+          source: 'firestore'
+        };
+      } else {
+        globalScorecardData.state = newState;
+        if (!globalScorecardData.game_record || typeof globalScorecardData.game_record !== 'object') {
+          globalScorecardData.game_record = {};
+        }
+        globalScorecardData.game_record.state = newState;
+        if (globalScorecardData.source !== 'tracker_games') {
+          globalScorecardData.source = 'firestore';
+        }
+        if (fin) {
+          globalScorecardData.is_finished = true;
+          globalScorecardData.status = 'completed';
+        }
+      }
+      renderScorecardData(globalScorecardData);
+    }
+
+    function initFirestoreLiveListener(matchId) {
+      if (!matchId) return;
+      const normMid = String(matchId).trim().toUpperCase().replace(/^(WH40K-|AOS-)/i, '');
+
+      // 1. Real-time Server-Sent Events (SSE) stream for sub-second spectator updates
+      if (!scorecardSseSource && typeof EventSource !== 'undefined') {
+        try {
+          const cid = 'spectator_' + Math.random().toString(36).substring(2, 8);
+          scorecardSseSource = new EventSource(`/api/tracker/room/${encodeURIComponent(matchId)}/stream?client_id=${encodeURIComponent(cid)}`);
+          scorecardSseSource.onmessage = (ev) => {
+            try {
+              const msg = JSON.parse(ev.data);
+              if (!msg) return;
+              if (msg.type === 'state_update' && msg.state) {
+                applyLiveScorecardStatePatch(matchId, msg.state, false);
+              } else if (msg.type === 'game_finished') {
+                if (msg.state) applyLiveScorecardStatePatch(matchId, msg.state, true);
+                pollLiveScorecardQuietly();
+              } else if (msg.type === 'armylist_update') {
+                pollLiveScorecardQuietly();
+              }
+            } catch (e) {}
+          };
+          scorecardSseSource.onerror = () => {
+            // Browser automatically reconnects EventSource; poll fallback remains active
+          };
+        } catch (e) {}
+      }
+
+      // 2. Direct Cloud Firestore onSnapshot listener
+      if (!scorecardFirestoreUnsub && typeof firebase !== 'undefined' && firebase.firestore) {
+        try {
+          if (!firebase.apps || !firebase.apps.length) {
+            firebase.initializeApp({ projectId: "eloranking-506820" });
+          }
+          const db = firebase.firestore();
+          scorecardFirestoreUnsub = db.collection('rooms').doc(normMid).onSnapshot((snap) => {
+            if (!snap || !snap.exists) return;
+            const d = snap.data();
+            if (d && d.state) {
+              applyLiveScorecardStatePatch(matchId, d.state, Boolean(d.is_finished));
+            }
+          }, () => {});
+        } catch (e) {}
+      }
+    }
+
     function setupLiveScorecardUpdates(isFinished) {
       if (liveTimer) {
         clearInterval(liveTimer);
         liveTimer = null;
       }
       if (!isFinished) {
-        liveTimer = setInterval(pollLiveScorecardQuietly, 3500);
+        const matchId = getMatchIdFromPath();
+        initFirestoreLiveListener(matchId);
+        liveTimer = setInterval(pollLiveScorecardQuietly, 2500);
+      } else {
+        if (scorecardSseSource) {
+          try { scorecardSseSource.close(); } catch (e) {}
+          scorecardSseSource = null;
+        }
+        if (scorecardFirestoreUnsub) {
+          try { scorecardFirestoreUnsub(); } catch (e) {}
+          scorecardFirestoreUnsub = null;
+        }
       }
-    }
-
-    function initFirestoreLiveListener(matchId) {
-      return;
     }
 
     async function loadScorecard() {

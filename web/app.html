@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=952deb5d20">
+  <link rel="manifest" href="/manifest.json?v=ebd73e921c">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=952deb5d20">
-  <link rel="stylesheet" href="/css/styles.min.css?v=952deb5d20">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=952deb5d20">
-  <link rel="preload" href="/js/app.bundle.min.js?v=952deb5d20" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=ebd73e921c">
+  <link rel="stylesheet" href="/css/styles.min.css?v=ebd73e921c">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=ebd73e921c">
+  <link rel="preload" href="/js/app.bundle.min.js?v=ebd73e921c" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "952deb5d20";</script>
+  <script>window.APP_VERSION = "ebd73e921c";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -1197,24 +1197,24 @@
 
       <!-- View 1: Faction Meta & Balance Zone -->
       <div id="lead-view-factions">
-        <div class="controls-bar" style="flex-wrap: wrap; gap: 0.75rem; justify-content: space-between;">
-          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
-            <span style="font-weight: 700; font-size: 0.88rem; color: #fff; margin-right: 0.15rem;">⏱️ Window:</span>
+        <div class="controls-bar meta-controls-bar" style="flex-wrap: wrap; gap: 0.75rem; justify-content: space-between;">
+          <div class="meta-window-bar" style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <span class="meta-window-label" style="font-weight: 700; font-size: 0.88rem; color: #fff; margin-right: 0.15rem;">⏱️ Window:</span>
             <button id="faction-preset-30d" class="subtab-btn" onclick="setFactionTimeframe('30d')" title="Last 30 Days">1M</button>
             <button id="faction-preset-60d" class="subtab-btn" onclick="setFactionTimeframe('60d')" title="Last 60 Days">2M</button>
             <button id="faction-preset-90d" class="subtab-btn active" onclick="setFactionTimeframe('90d')" title="Last 90 Days (Default)">3M</button>
             <button id="faction-preset-180d" class="subtab-btn" onclick="setFactionTimeframe('180d')" title="Last 6 Months">6M</button>
             <button id="faction-preset-1yr" class="subtab-btn" onclick="setFactionTimeframe('1yr')" title="Last 12 Months">1Y</button>
-            <button id="faction-preset-ytd" class="subtab-btn" onclick="setFactionTimeframe('ytd')" title="2026 Year-To-Date">2026 YTD</button>
-            <button id="faction-preset-all" class="subtab-btn" onclick="setFactionTimeframe('all')" title="All Historical Matches">All Time</button>
-            <button id="faction-preset-custom" class="subtab-btn" onclick="setFactionTimeframe('custom')" title="Custom Date Range">Custom ⚙️</button>
+            <button id="faction-preset-ytd" class="subtab-btn" onclick="setFactionTimeframe('ytd')" title="2026 Year-To-Date"><span class="meta-lbl-desktop">2026 YTD</span><span class="meta-lbl-mobile">YTD</span></button>
+            <button id="faction-preset-all" class="subtab-btn" onclick="setFactionTimeframe('all')" title="All Historical Matches"><span class="meta-lbl-desktop">All Time</span><span class="meta-lbl-mobile">All</span></button>
+            <button id="faction-preset-custom" class="subtab-btn" onclick="setFactionTimeframe('custom')" title="Custom Date Range"><span class="meta-lbl-desktop">Custom ⚙️</span><span class="meta-lbl-mobile">⚙️</span></button>
           </div>
 
-          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
-            <button id="faction-mode-btn-table" class="subtab-btn active" onclick="setFactionViewMode('table')">📋 Tier &amp; Stats</button>
-            <button id="faction-mode-btn-quadrant" class="subtab-btn" onclick="setFactionViewMode('quadrant')">🎯 Meta Quadrant</button>
-            <button id="faction-mode-btn-matrix" class="subtab-btn" onclick="setFactionViewMode('matrix')">🔥 Matchup Matrix</button>
-            <button id="faction-mode-btn-chart" class="subtab-btn" onclick="setFactionViewMode('chart')">📈 Meta Timeline</button>
+          <div class="meta-view-modes-bar" style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+            <button id="faction-mode-btn-table" class="subtab-btn active" onclick="setFactionViewMode('table')"><span class="meta-lbl-desktop">📋 Tier &amp; Stats</span><span class="meta-lbl-mobile">📋 Tiers</span></button>
+            <button id="faction-mode-btn-quadrant" class="subtab-btn" onclick="setFactionViewMode('quadrant')"><span class="meta-lbl-desktop">🎯 Meta Quadrant</span><span class="meta-lbl-mobile">🎯 Quadrant</span></button>
+            <button id="faction-mode-btn-matrix" class="subtab-btn" onclick="setFactionViewMode('matrix')"><span class="meta-lbl-desktop">🔥 Matchup Matrix</span><span class="meta-lbl-mobile">🔥 Matrix</span></button>
+            <button id="faction-mode-btn-chart" class="subtab-btn" onclick="setFactionViewMode('chart')"><span class="meta-lbl-desktop">📈 Meta Timeline</span><span class="meta-lbl-mobile">📈 Timeline</span></button>
           </div>
         </div>
 
@@ -1261,12 +1261,12 @@
         <div id="faction-meta-kpis-strip" class="meta-kpis-strip" style="margin-top: 1rem; margin-bottom: 1rem;"></div>
 
         <!-- Goldilocks & Tier Distribution Bar -->
-        <div class="info-callout" style="margin-top: 0.5rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+        <div class="info-callout meta-goldilocks-callout" style="margin-top: 0.5rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span style="font-size: 1.2rem;">⚖️</span>
+            <span class="meta-goldilocks-icon" style="font-size: 1.2rem;">⚖️</span>
             <div>
               <b style="color: #fff;">Goldilocks Balance Zone (45% - 55%):</b>
-              <span style="color: var(--text-secondary);">
+              <span class="meta-goldilocks-desc" style="color: var(--text-secondary);">
                 Factions above <b>55% Win Rate</b> are <span style="color:#a855f7; font-weight:600;">S-Tier</span>; below <b>45%</b> are underperforming. Click any army for Top Commanders, Matchups &amp; Lists.
               </span>
             </div>
@@ -1277,10 +1277,10 @@
         <!-- Faction View 1: Enhanced Tier & Competitive Stats Table -->
         <div id="faction-view-table-container">
           <div class="meta-table-toolbar">
-            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-              <div class="search-box" style="min-width: 210px; max-width: 260px;">
+            <div class="meta-toolbar-left" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <div class="search-input-group meta-search-box" style="min-width: 200px; max-width: 260px;">
                 <span class="search-icon">🔍</span>
-                <input type="text" id="faction-search-input" placeholder="Filter faction..." oninput="onFactionTableFilterChange()">
+                <input type="text" id="faction-search-input" class="search-input" placeholder="Filter faction..." oninput="onFactionTableFilterChange()">
               </div>
               <div class="meta-tier-pills" role="group" aria-label="Filter by balance tier">
                 <button type="button" class="meta-pill-btn active" data-tier="ALL" onclick="setFactionTierFilter('ALL')">All Tiers</button>
@@ -1290,7 +1290,7 @@
                 <button type="button" class="meta-pill-btn" data-tier="C" onclick="setFactionTierFilter('C')"><span class="tier-dot tier-C-dot"></span>C-Tier</button>
               </div>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+            <div class="meta-toolbar-right" style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
               <label class="meta-toggle-label" title="Toggle between Overall Win Rate and Pure Non-Mirror Win Rate">
                 <input type="checkbox" id="faction-exclude-mirrors-toggle" onchange="onFactionTableFilterChange()">
                 <span>Exclude Mirror Matches</span>
@@ -3488,49 +3488,91 @@
     </div>
   </div>
 
-  <!-- Faction Details & Games Modal -->
+  <!-- Faction Details & Meta Insights Modal -->
   <div id="faction-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
-    <div class="modal-window" style="max-width: 900px;">
-      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; position: relative; padding-right: 3rem;">
-        <div>
-          <h2 id="modal-faction-title" style="font-size: 1.35rem; font-weight: 700; color: #fff; margin: 0;">Faction Meta</h2>
-          <div id="modal-faction-subtitle" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.2rem;"></div>
+    <div class="modal-window" style="max-width: 980px;">
+      <div class="modal-header faction-modal-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; position: relative; padding-right: 3rem;">
+        <div style="min-width: 0; flex: 1;">
+          <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+            <h2 id="modal-faction-title" style="font-size: 1.35rem; font-weight: 800; color: #fff; margin: 0;">Faction Meta</h2>
+            <span id="modal-faction-tier-badge" class="badge" style="display: none; font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 999px;"></span>
+          </div>
+          <div id="modal-faction-subtitle" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.22rem;"></div>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div class="faction-modal-tf-wrap" style="display: flex; align-items: center; gap: 0.5rem;">
           <div class="faction-timeframe-selector" style="display: inline-flex; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 6px; padding: 2px;">
             <button type="button" id="faction-tf-30d" class="faction-tf-btn" onclick="changeFactionModalTimeframe('30d')" style="border:none; background:transparent; color:var(--text-secondary); font-size:0.75rem; font-weight:600; padding:0.25rem 0.55rem; border-radius:4px; cursor:pointer;">1M</button>
             <button type="button" id="faction-tf-3mo" class="faction-tf-btn" onclick="changeFactionModalTimeframe('3mo')" style="border:none; background:transparent; color:var(--text-secondary); font-size:0.75rem; font-weight:600; padding:0.25rem 0.55rem; border-radius:4px; cursor:pointer;">3M</button>
-            <button type="button" id="faction-tf-6mo" class="faction-tf-btn" onclick="changeFactionModalTimeframe('6mo')" style="border:none; background:transparent; color:var(--text-secondary); font-size:0.75rem; font-weight:600; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;">6 Months</button>
-            <button type="button" id="faction-tf-1yr" class="faction-tf-btn active" onclick="changeFactionModalTimeframe('1yr')" style="border:none; background:var(--accent); color:#fff; font-size:0.75rem; font-weight:700; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;">1 Year</button>
-            <button type="button" id="faction-tf-all" class="faction-tf-btn" onclick="changeFactionModalTimeframe('all')" style="border:none; background:transparent; color:var(--text-secondary); font-size:0.75rem; font-weight:600; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;">All Time</button>
+            <button type="button" id="faction-tf-6mo" class="faction-tf-btn" onclick="changeFactionModalTimeframe('6mo')" style="border:none; background:transparent; color:var(--text-secondary); font-size:0.75rem; font-weight:600; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;"><span class="meta-lbl-desktop">6 Months</span><span class="meta-lbl-mobile">6M</span></button>
+            <button type="button" id="faction-tf-1yr" class="faction-tf-btn active" onclick="changeFactionModalTimeframe('1yr')" style="border:none; background:var(--accent); color:#fff; font-size:0.75rem; font-weight:700; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;"><span class="meta-lbl-desktop">1 Year</span><span class="meta-lbl-mobile">1Y</span></button>
+            <button type="button" id="faction-tf-all" class="faction-tf-btn" onclick="changeFactionModalTimeframe('all')" style="border:none; background:transparent; color:var(--text-secondary); font-size:0.75rem; font-weight:600; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;"><span class="meta-lbl-desktop">All Time</span><span class="meta-lbl-mobile">All</span></button>
           </div>
           <button class="modal-close" onclick="closeModal('faction-modal')" style="position: absolute; top: 0.85rem; right: 0.85rem; margin: 0;">✕</button>
         </div>
       </div>
 
-      <div class="modal-body">
-        <!-- Sub-tabs within Faction Modal -->
-        <div class="subtabs-bar faction-modal-subtabs" style="margin-bottom: 0.85rem;">
-          <button id="faction-subtab-matches" class="subtab-btn active" onclick="switchFactionModalTab('matches')" title="Recent Games & Matches">
-            <span class="subtab-text-desktop">⚔️ Recent Games & Matches</span>
-            <span class="subtab-text-mobile">⚔️ Matches</span>
-            <span id="faction-tab-matches-count" class="subtab-count-badge">0</span>
-          </button>
-          <button id="faction-subtab-players" class="subtab-btn" onclick="switchFactionModalTab('players')" title="Top Commanders">
-            <span class="subtab-text-desktop">👑 Top Commanders</span>
-            <span class="subtab-text-mobile">👑 Commanders</span>
-            <span id="faction-tab-players-count" class="subtab-count-badge">0</span>
-          </button>
-          <button id="faction-subtab-matchups" class="subtab-btn" onclick="switchFactionModalTab('matchups')" title="Opponent Faction Matchups">
-            <span class="subtab-text-desktop">📊 Faction Matchups</span>
-            <span class="subtab-text-mobile">📊 vs Factions</span>
-            <span id="faction-tab-matchups-count" class="subtab-count-badge">0</span>
-          </button>
+      <div class="modal-body fmodal-unified-body">
+        <!-- Period Performance & Matchup Insights Strip -->
+        <div id="faction-modal-kpis" class="fmodal-kpi-grid"></div>
+
+        <!-- Section 1: Faction Matchup Breakdown -->
+        <div id="faction-view-matchups" class="fmodal-section-card">
+          <div class="fmodal-section-header">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <h3 class="fmodal-section-title">📊 Faction Matchup Breakdown</h3>
+              <span id="faction-tab-matchups-count" class="fmodal-count-pill">0</span>
+              <span id="fmodal-matchup-spread-summary" style="font-size: 0.75rem; color: var(--text-secondary);"></span>
+            </div>
+            <div class="fmodal-section-controls">
+              <div class="fmodal-filter-pills" role="group" aria-label="Filter matchups by verdict">
+                <button type="button" id="fmodal-mu-filter-all" class="fmodal-pill-btn active" onclick="setFactionModalMatchupFilter('ALL')">All</button>
+                <button type="button" id="fmodal-mu-filter-favored" class="fmodal-pill-btn" onclick="setFactionModalMatchupFilter('FAVORED')">🟢 Favored</button>
+                <button type="button" id="fmodal-mu-filter-even" class="fmodal-pill-btn" onclick="setFactionModalMatchupFilter('EVEN')">⚖️ Even</button>
+                <button type="button" id="fmodal-mu-filter-unfavored" class="fmodal-pill-btn" onclick="setFactionModalMatchupFilter('UNFAVORED')">🔴 Tough</button>
+              </div>
+              <select id="fmodal-mu-sort" class="fmodal-mini-select" onchange="onFactionModalMatchupControlChange()" aria-label="Sort matchups">
+                <option value="games_desc">Most Played</option>
+                <option value="wr_desc">Best Win Rate</option>
+                <option value="wr_asc">Toughest First</option>
+              </select>
+              <input type="text" id="fmodal-mu-search" class="fmodal-mini-search" placeholder="Filter opponent..." oninput="onFactionModalMatchupControlChange()" aria-label="Search opponent faction">
+            </div>
+          </div>
+          <div class="table-container fmodal-table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Opponent Faction</th>
+                  <th>Win Rate</th>
+                  <th>Record (W-L-D)</th>
+                  <th>Games &amp; Verdict</th>
+                </tr>
+              </thead>
+              <tbody id="faction-matchups-body"></tbody>
+            </table>
+          </div>
         </div>
 
-        <!-- View 1: Matches -->
-        <div id="faction-view-matches">
-          <div class="table-container" style="max-height: 420px;">
+        <!-- Section 2: Recent Tournament Games -->
+        <div id="faction-view-matches" class="fmodal-section-card">
+          <div class="fmodal-section-header">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <h3 class="fmodal-section-title">⚔️ Recent Tournament Games</h3>
+              <span id="faction-tab-matches-count" class="fmodal-count-pill">0</span>
+              <span id="fmodal-recent-summary-pill" style="font-size: 0.75rem; color: var(--text-secondary);"></span>
+            </div>
+            <div class="fmodal-section-controls">
+              <div class="fmodal-filter-pills" role="group" aria-label="Filter recent games by outcome">
+                <button type="button" id="fmodal-match-filter-all" class="fmodal-pill-btn active" onclick="setFactionModalMatchOutcomeFilter('ALL')">All</button>
+                <button type="button" id="fmodal-match-filter-w" class="fmodal-pill-btn" onclick="setFactionModalMatchOutcomeFilter('W')">Wins</button>
+                <button type="button" id="fmodal-match-filter-l" class="fmodal-pill-btn" onclick="setFactionModalMatchOutcomeFilter('L')">Losses</button>
+                <button type="button" id="fmodal-match-filter-d" class="fmodal-pill-btn" onclick="setFactionModalMatchOutcomeFilter('D')">Draws</button>
+              </div>
+              <input type="text" id="fmodal-matches-search" class="fmodal-mini-search" placeholder="Filter event, player, or faction..." oninput="onFactionModalMatchControlChange()" aria-label="Search recent games">
+            </div>
+          </div>
+          <div class="table-container fmodal-table-scroll">
             <table>
               <thead>
                 <tr>
@@ -3546,43 +3588,6 @@
             </table>
           </div>
         </div>
-
-        <!-- View 2: Top Players -->
-        <div id="faction-view-players" style="display: none;">
-          <div class="table-container" style="max-height: 420px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Rank</th>
-                  <th>Player Name</th>
-                  <th>Current Elo</th>
-                  <th>Peak Elo</th>
-                  <th>Record (W-L)</th>
-                  <th>Win Rate</th>
-                </tr>
-              </thead>
-              <tbody id="faction-players-body"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- View 3: Matchups -->
-        <div id="faction-view-matchups" style="display: none;">
-          <div class="table-container" style="max-height: 420px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Rank</th>
-                  <th>Opponent Faction</th>
-                  <th>Win Rate</th>
-                  <th>Record (W-L-D)</th>
-                  <th>Sample Size</th>
-                </tr>
-              </thead>
-              <tbody id="faction-matchups-body"></tbody>
-            </table>
-          </div>
-        </div>
       </div>
     </div>
   </div> <!-- #faction-modal -->
@@ -3594,7 +3599,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=952deb5d20"></script>
+  <script src="/js/app.bundle.min.js?v=ebd73e921c"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

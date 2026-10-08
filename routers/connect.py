@@ -129,6 +129,58 @@ def api_search_connect_players(
     )
     return {"success": True, "players": players}
 
+@router.get("/api/connect/users/search", summary="Search registered OmniTactica users by name to share Game Tracker room in chat")
+def api_search_connect_users(request: Request, q: str = Query("", min_length=0)):
+    auth_mgr = get_auth_manager()
+    auth_header = request.headers.get("Authorization", "")
+    session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    user = auth_mgr.get_session(session_token) if session_token else None
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    db = get_database()
+    clean_q = (q or "").strip()
+    results = []
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                if clean_q:
+                    like_pat = f"%{clean_q}%"
+                    cursor.execute("""
+                        SELECT u.id, u.display_name, u.email,
+                               COALESCE(pr.current_elo, 1500.0) AS current_elo,
+                               pr.top_faction
+                        FROM users u
+                        LEFT JOIN player_ratings pr ON (u.player_id = pr.player_id OR u.id = pr.player_id)
+                        WHERE u.id != %s
+                          AND (u.display_name ILIKE %s OR u.email ILIKE %s)
+                        ORDER BY u.display_name ASC
+                        LIMIT 20;
+                    """, (user["id"], like_pat, like_pat))
+                else:
+                    cursor.execute("""
+                        SELECT u.id, u.display_name, u.email,
+                               COALESCE(pr.current_elo, 1500.0) AS current_elo,
+                               pr.top_faction
+                        FROM users u
+                        LEFT JOIN player_ratings pr ON (u.player_id = pr.player_id OR u.id = pr.player_id)
+                        WHERE u.id != %s
+                        ORDER BY u.created_at DESC NULLS LAST
+                        LIMIT 15;
+                    """, (user["id"],))
+                for r in cursor.fetchall():
+                    row_d = dict(r)
+                    results.append({
+                        "id": row_d.get("id"),
+                        "display_name": row_d.get("display_name") or (row_d.get("email", "").split("@")[0] if row_d.get("email") else "Player"),
+                        "top_faction": row_d.get("top_faction") or "",
+                        "current_elo": float(row_d["current_elo"]) if row_d.get("current_elo") is not None else 1500.0
+                    })
+    except Exception as e:
+        logger.warning(f"Notice searching registered OmniTactica users: {e}")
+
+    return {"success": True, "users": results}
+
 @router.get("/api/connect/requests", summary="Get user match requests and chats (including League & Pod seasonal group chats)")
 def api_get_connect_requests(request: Request):
     auth_mgr = get_auth_manager()
