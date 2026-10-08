@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>OmniTactica • Warhammer 40k Elo Rankings & Game Tracker</title>
+  <title>OmniTactica • Warhammer 40K &amp; Age of Sigmar Competitive Hub</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=ffa0c30d72">
+  <link rel="manifest" href="/manifest.json?v=7ddd096840">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=ffa0c30d72">
-  <link rel="stylesheet" href="/css/styles.min.css?v=ffa0c30d72">
-  <script>window.APP_VERSION = "ffa0c30d72";</script>
+  <link rel="stylesheet" href="/css/theme.css?v=7ddd096840">
+  <link rel="stylesheet" href="/css/styles.min.css?v=7ddd096840">
+  <script>window.APP_VERSION = "7ddd096840";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -184,7 +184,7 @@
             <div class="logo-title" style="display:flex; align-items:center; gap:6px;">
               <span style="font-weight:900; letter-spacing:0.04em; background: linear-gradient(135deg, #ffffff 0%, #38bdf8 60%, #0284c7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">OmniTactica</span>
             </div>
-            <div class="logo-subtitle">40K Tactical Suite</div>
+            <div class="logo-subtitle">40K &amp; AoS Tactical Suite</div>
           </div>
         </a>
 
@@ -200,1583 +200,668 @@
       </div>
     </header>
 
-    <!-- Hero Section -->
+    <!-- 1. Focused Hero Section -->
     <section class="landing-hero" id="landing-auth-card-anchor">
       <div class="landing-hero-left">
-        <!-- Hero Suite Eyebrow Badge -->
         <div class="landing-hero-eyebrow">
           <div class="landing-hero-eyebrow-top">
             <span class="landing-hero-eyebrow-tag">100% FREE &amp; OPEN</span>
             <span class="landing-hero-eyebrow-title">By The Community, For The Community</span>
           </div>
           <div class="landing-hero-eyebrow-bottom">
-            <span>Local Matchmaking</span>
+            <span>⚔️ Warhammer 40K</span>
             <span class="dot">&bull;</span>
-            <span>Live Scoring</span>
+            <span>⚡ Age of Sigmar</span>
             <span class="dot">&bull;</span>
-            <span>FLGS Radar</span>
+            <span>Elo &amp; Meta Intel</span>
             <span class="dot">&bull;</span>
-            <span>Real-Time Chat</span>
-            <span class="dot">&bull;</span>
-            <span>Transparent Elo</span>
+            <span>Live Game Tracker</span>
           </div>
         </div>
 
         <h1 class="landing-title">
           Built By The Community.<br>
-          <span style="background: linear-gradient(135deg, #38bdf8 0%, #10b981 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">For The Tabletop Community.</span>
+          <span style="background: linear-gradient(90deg, #38bdf8, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">For The Tabletop Community.</span>
         </h1>
-        <p class="landing-subtitle">
-          OmniTactica is an independent digital platform built by players and tournament organizers for the tabletop community. Discover your local scene in the <strong>Community Hub</strong>, find nearby sparring partners on the <strong>Sparring Radar</strong>, coordinate games via <strong>real-time push chat</strong>, score matches with our 11th edition <strong>Live Game Tracker</strong>, find friendly local game stores, and follow transparent <strong>Elo Leaderboards</strong> across <strong>tabletop competitors and gaming clubs worldwide</strong>—<strong>100% free and open to everyone</strong>.
+
+        <p class="landing-subtitle" style="margin-bottom: 1.5rem;">
+          The all-in-one competitive hub for <strong style="color:#e2e8f0;">Warhammer 40K</strong> and <strong style="color:#e2e8f0;">Age of Sigmar</strong>. Track your personal Elo trajectory and faction mastery, explore StatCheck-style <strong style="color:#e2e8f0;">Meta Intel</strong>, find local opponents &amp; events in the <strong style="color:#e2e8f0;">Community Hub</strong>, and score tabletop battles in real time.
         </p>
 
-        <!-- Hero CTAs -->
-        <div style="display: flex; gap: 0.85rem; align-items: center; margin: 1.35rem 0 1.65rem; flex-wrap: wrap;">
-          <a href="#sparring" class="btn btn-primary" style="padding: 0.7rem 1.4rem; font-size: 0.9rem; font-weight: 800; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 18px rgba(56,189,248,0.35); border-radius: 8px;">
-            <span>🎯 Explore Sparring Radar</span>
-            <span>↓</span>
+        <!-- Clean Hero Actions -->
+        <div style="display:flex; flex-wrap:wrap; gap:0.65rem; margin-bottom:1.25rem;">
+          <a href="/login?mode=register&redirect=/app" class="auth-submit-btn" style="display:inline-flex; align-items:center; gap:8px; padding:10px 20px; border-radius:10px; font-weight:800; font-size:0.86rem; text-decoration:none; width:auto;">
+            <span>⚡ Get Started Free</span>
           </a>
-          <a href="#game-tracker-showcase" class="btn" style="padding: 0.7rem 1.3rem; font-size: 0.9rem; font-weight: 700; background: rgba(255,255,255,0.06); color: #f8fafc; border: 1px solid rgba(255,255,255,0.16); text-decoration: none; border-radius: 8px;">
-            🎲 Game Tracker Demo ↓
+          <a href="#features" style="display:inline-flex; align-items:center; gap:6px; padding:10px 16px; border-radius:10px; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; font-weight:700; font-size:0.84rem; text-decoration:none;">
+            <span>✨ Platform Features &darr;</span>
           </a>
-          <a href="#features" class="btn" style="padding: 0.7rem 1.3rem; font-size: 0.9rem; font-weight: 700; background: rgba(56,189,248,0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); text-decoration: none; border-radius: 8px;">
-            ⚡ Platform Features ↓
+          <a href="#community-hub-showcase" style="display:inline-flex; align-items:center; gap:6px; padding:10px 16px; border-radius:10px; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.12); color:#e2e8f0; font-weight:700; font-size:0.84rem; text-decoration:none;">
+            <span>🎯 Interactive Preview &darr;</span>
           </a>
         </div>
 
-        <!-- Stats Bar -->
-        <div class="landing-stats-bar" style="margin-bottom: 0;">
+        <!-- Streamlined 4-Pillar Highlights Bar (Zero Repetition) -->
+        <div class="landing-stats-bar">
           <div>
-            <div class="landing-stat-val">Community</div>
-            <div class="landing-stat-lbl">Built by Players &amp; TOs</div>
+            <div class="landing-stat-val">40K &amp; AoS</div>
+            <div class="landing-stat-lbl">Dual Game Systems</div>
           </div>
           <div>
-            <div class="landing-stat-val">100% Free</div>
-            <div class="landing-stat-lbl">Open Ratings &amp; Data</div>
+            <div class="landing-stat-val">Meta Intel</div>
+            <div class="landing-stat-lbl">Tiers, Quadrant &amp; Matrix</div>
           </div>
           <div>
-            <div class="landing-stat-val">Community Hub</div>
-            <div class="landing-stat-lbl">Radar, Chat &amp; FLGS</div>
+            <div class="landing-stat-val">My Hub</div>
+            <div class="landing-stat-lbl">Elo, Rosters &amp; Armory</div>
           </div>
           <div>
             <div class="landing-stat-val">Live Sync</div>
-            <div class="landing-stat-lbl">11th Ed. Game Tracker</div>
+            <div class="landing-stat-lbl">Tracker, Radar &amp; Leagues</div>
           </div>
         </div>
       </div>
 
-      <!-- Hero Right: Game Tracker Match Room Showcase -->
+      <!-- Right Column: Clean Commander Hub & Career Card Snapshot -->
       <div class="landing-hero-right">
-        <div style="background: linear-gradient(180deg, #0d1527 0%, #080d1a 100%); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 18px; padding: 1.25rem; box-shadow: 0 25px 60px rgba(0,0,0,0.85), 0 0 35px rgba(56,189,248,0.12); position: relative; overflow: hidden;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 1.1rem;">🎲</span>
-              <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; font-weight: 800; color: #38bdf8; letter-spacing: 0.06em; text-transform: uppercase;">Match Lobby &bull; Live Room Creation</span>
+        <div class="landing-auth-card" style="padding: 1.25rem; background: linear-gradient(180deg, rgba(15,23,42,0.96) 0%, rgba(10,15,29,0.98) 100%); border: 1px solid rgba(16,185,129,0.35); box-shadow: 0 20px 50px rgba(0,0,0,0.65), 0 0 28px rgba(16,185,129,0.12);">
+          <!-- Card Header -->
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:0.9rem; padding-bottom:0.65rem; border-bottom:1px solid rgba(255,255,255,0.08); flex-wrap:wrap;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:1rem;">🎖️</span>
+              <span style="font-size:0.76rem; font-weight:800; color:#38bdf8; text-transform:uppercase; letter-spacing:0.06em;">Commander Hub &bull; Career &amp; Armory</span>
             </div>
-            <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; color: #22c55e; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); padding: 2px 8px; border-radius: 9999px; font-family: 'JetBrains Mono', monospace;">
-              <span style="width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px #22c55e;"></span> LIVE SYNC &bull; 11TH ED.
-            </span>
+            <div style="display:inline-flex; align-items:center; gap:4px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.12); border-radius:999px; padding:2px 8px; font-size:0.68rem; font-weight:800;">
+              <span style="color:#38bdf8;">⚔️ 40K</span>
+              <span style="color:#475569;">|</span>
+              <span style="color:#f59e0b;">⚡ AoS</span>
+            </div>
           </div>
 
-          <div style="border-radius: 10px; overflow: hidden; border: 1px solid rgba(56, 189, 248, 0.25); box-shadow: 0 10px 30px rgba(0,0,0,0.6);">
-            <img src="/assets/room-creation.png?v=67.0" alt="OmniTactica Game Tracker Match Lobby & Room Creation" style="width: 100%; height: auto; display: block; border-radius: 9px;">
-          </div>
-          <div style="margin-top: 0.75rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.76rem; color: #94a3b8; font-family: 'Inter', sans-serif;">
-            <span>⚡ Host or join live 40k matches with instant room keys &bull; P2P &amp; Cloud Sync</span>
-            <a href="#game-tracker-showcase" style="color: #38bdf8; font-weight: 700; text-decoration: none;">Interactive Demo ↓</a>
-          </div>
-
-          <!-- Sparring Radar Mini Callout underneath showcase -->
-          <div style="margin-top: 0.85rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; font-size: 0.78rem;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 1.15rem;">🎯</span>
-              <div>
-                <div style="font-weight: 700; color: #fff;">Community Hub &amp; Sparring Radar</div>
-                <div style="font-size: 0.72rem; color: #94a3b8;">Find nearby sparring partners, coordinate via chat &amp; invite to rooms in 1 click</div>
+          <!-- Commander Identity Row -->
+          <div style="display:flex; align-items:center; gap:0.85rem; margin-bottom:0.85rem;">
+            <div style="width:48px; height:48px; border-radius:12px; background:rgba(16,185,129,0.12); border:1.5px solid rgba(16,185,129,0.45); display:flex; align-items:center; justify-content:center; font-size:1.35rem; color:#10b981; flex-shrink:0;">
+              ⚜️
+            </div>
+            <div style="min-width:0; flex:1;">
+              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                <span style="font-size:1.1rem; font-weight:900; color:#fff;">Commander Profile</span>
+                <span style="font-size:0.62rem; font-weight:800; padding:2px 7px; border-radius:4px; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#fbbf24; text-transform:uppercase;">⚡ Phaeron of the Infinite</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:5px;">
+                <span style="font-size:0.72rem; font-weight:800; padding:2px 8px; border-radius:999px; background:rgba(168,85,247,0.18); border:1px solid rgba(168,85,247,0.45); color:#d8b4fe;">🟣 GRAND MARSHAL &bull; 1,895 Elo</span>
+                <span style="font-size:0.68rem; font-weight:700; padding:2px 7px; border-radius:999px; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#38bdf8;">Peak: 1,912</span>
+                <span style="font-size:0.68rem; font-weight:700; padding:2px 7px; border-radius:999px; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.35); color:#fbbf24;">🏆 5x Champion</span>
               </div>
             </div>
-            <a href="#sparring" class="btn btn-outline" style="font-size: 0.72rem; padding: 4px 10px; border-radius: 6px; text-decoration: none; border-color: rgba(56,189,248,0.4); color: #38bdf8; white-space: nowrap;">
-              Explore Radar ↓
-            </a>
+          </div>
+
+          <!-- Signature Honors Strip -->
+          <div style="background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:0.5rem 0.65rem; margin-bottom:0.8rem; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            <span style="font-size:0.65rem; font-weight:800; color:#94a3b8; text-transform:uppercase;">🎖️ Honors (84/105):</span>
+            <span style="font-size:0.65rem; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.35); color:#fca5a5;">👑 The Triple Crown</span>
+            <span style="font-size:0.65rem; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.35); color:#7dd3fc;">📈 The Apex Gauntlet</span>
+            <span style="font-size:0.65rem; font-weight:700; padding:2px 6px; border-radius:4px; background:rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.35); color:#d8b4fe;">⚔️ The Kingslayer</span>
+          </div>
+
+          <!-- 3 Compact Career Stat Boxes -->
+          <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.5rem; margin-bottom:0.8rem;">
+            <div style="background:rgba(15,23,42,0.85); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:0.55rem; text-align:center;">
+              <div style="font-size:0.62rem; color:#64748b; font-weight:700; text-transform:uppercase;">Record</div>
+              <div style="font-size:0.86rem; font-weight:800; font-family:'JetBrains Mono', monospace; margin-top:2px;">
+                <span style="color:#10b981;">67W</span>-<span style="color:#ef4444;">32L</span>-<span style="color:#f59e0b;">1D</span>
+              </div>
+            </div>
+            <div style="background:rgba(15,23,42,0.85); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:0.55rem; text-align:center;">
+              <div style="font-size:0.62rem; color:#64748b; font-weight:700; text-transform:uppercase;">Win Rate</div>
+              <div style="font-size:0.86rem; font-weight:800; color:#10b981; font-family:'JetBrains Mono', monospace; margin-top:2px;">67.0%</div>
+            </div>
+            <div style="background:rgba(15,23,42,0.85); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:0.55rem; text-align:center;">
+              <div style="font-size:0.62rem; color:#64748b; font-weight:700; text-transform:uppercase;">Top Armies</div>
+              <div style="font-size:0.75rem; font-weight:800; color:#e2e8f0; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Necrons &bull; Dark Angels</div>
+            </div>
+          </div>
+
+          <!-- Next Elo Tier Progress -->
+          <div style="background:rgba(15,23,42,0.85); border:1px solid rgba(255,255,255,0.07); border-radius:8px; padding:0.6rem 0.75rem; margin-bottom:0.85rem;">
+            <div style="display:flex; justify-content:space-between; font-size:0.7rem; font-weight:700; margin-bottom:5px;">
+              <span style="color:#cbd5e1;">⚔️ Next Elo Tier: <strong style="color:#fff;">High Warlord</strong></span>
+              <span style="color:#38bdf8;">4.7 Elo needed (95%)</span>
+            </div>
+            <div style="height:6px; background:#1e293b; border-radius:999px; overflow:hidden;">
+              <div style="width:95%; height:100%; background:linear-gradient(90deg, #6366f1, #a855f7, #ec4899); border-radius:999px;"></div>
+            </div>
+          </div>
+
+          <!-- Hub Feature Tabs Strip -->
+          <div style="display:flex; flex-wrap:wrap; gap:5px; padding-top:0.2rem;">
+            <span style="font-size:0.68rem; font-weight:800; padding:4px 9px; border-radius:6px; background:rgba(56,189,248,0.18); border:1px solid rgba(56,189,248,0.45); color:#38bdf8;">⚡ Active &amp; Rosters</span>
+            <span style="font-size:0.68rem; font-weight:700; padding:4px 9px; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.08); color:#cbd5e1;">📈 Elo Trajectory</span>
+            <span style="font-size:0.68rem; font-weight:700; padding:4px 9px; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.08); color:#cbd5e1;">🛡️ Faction Mastery</span>
+            <span style="font-size:0.68rem; font-weight:700; padding:4px 9px; border-radius:6px; background:rgba(15,23,42,0.9); border:1px solid rgba(255,255,255,0.08); color:#cbd5e1;">🎯 Matchup Matrix</span>
+            <span style="font-size:0.68rem; font-weight:700; padding:4px 9px; border-radius:6px; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.35); color:#fbbf24;">🏛️ Armory</span>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Community Hub & Sparring Radar Interactive Showcase -->
-    <section class="landing-connect-showcase" id="community-hub-showcase" style="position: relative; padding-top: 2.5rem;">
-      <span id="sparring" style="position: absolute; top: -80px; visibility: hidden;"></span>
-      <span id="connect" style="position: absolute; top: -80px; visibility: hidden;"></span>
-      
-      <div class="landing-sec-head" style="text-align: center; margin-bottom: 2.25rem;">
-        <div class="landing-badge" style="margin-bottom: 0.75rem; background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.4); color: #10b981;">
-          👥 BY THE COMMUNITY, FOR THE COMMUNITY
-        </div>
-        <h2 class="landing-sec-title" style="font-size: clamp(1.8rem, 3.5vw, 2.5rem);">
-          Hyperlocal Sparring Radar &amp; Matchmaking.<br>
-          <span style="background: linear-gradient(135deg, #38bdf8 0%, #10b981 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Discover Nearby Generals, Propose Battles, and Sync Tabletop Clashes.</span>
-        </h2>
-        <p class="landing-sec-sub" style="max-width: 820px; margin: 0 auto; line-height: 1.6;">
-          OmniTactica bridges the gap between digital competitor ratings and real-world tabletop games. Test this live interactive walkthrough: discover nearby opponents on the Sparring Radar by GPS, FLGS venue, and Elo; send a direct chat request and match proposal; and coordinate match details before launching a live Game Tracker room.
+    <!-- 2. Core Platform Suite (6 Clear, Non-Redundant Feature Cards in a 3x2 Grid) -->
+    <section class="landing-features-sec" id="features" style="margin-top: 1.5rem;">
+      <div class="landing-sec-head" style="margin-bottom: 2rem;">
+        <div class="landing-badge" style="margin-bottom: 0.6rem;">⚡ Unified Tabletop Suite</div>
+        <h2 class="landing-sec-title">Everything You Need in One Place</h2>
+        <p class="landing-sec-sub">
+          Six integrated tools built for Warhammer 40K and Age of Sigmar players, clubs, and tournament competitors.
         </p>
-      </div>
-
-      <!-- Interactive 3-Stage Walkthrough Showcase -->
-      <div style="background: linear-gradient(180deg, #0d1527 0%, #090f1d 100%); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 18px; box-shadow: 0 25px 65px rgba(0,0,0,0.85), 0 0 35px rgba(56,189,248,0.12); overflow: hidden; margin-bottom: 2rem;">
-        
-        <!-- Stage Switcher Tabs -->
-        <div class="omni-stage-tabs">
-          <button class="omni-stage-btn active" id="omni-stage-tab-1" onclick="setOmniStage(1)">
-            <div class="omni-stage-num">1</div>
-            <div>
-              <div style="font-weight: 800; font-size: 0.92rem; color: #fff;">🎯 Sparring Radar</div>
-              <div style="font-size: 0.74rem; color: #94a3b8;">Discover local players by GPS &amp; Elo</div>
-            </div>
-          </button>
-          <button class="omni-stage-btn" id="omni-stage-tab-2" onclick="setOmniStage(2)">
-            <div class="omni-stage-num">2</div>
-            <div>
-              <div style="font-weight: 800; font-size: 0.92rem; color: #fff;">💬 Chat Request &amp; Match Proposal</div>
-              <div style="font-size: 0.74rem; color: #94a3b8;">Message, FLGS venue, points &amp; date</div>
-            </div>
-          </button>
-          <button class="omni-stage-btn" id="omni-stage-tab-3" onclick="setOmniStage(3)">
-            <div class="omni-stage-num">3</div>
-            <div>
-              <div style="font-weight: 800; font-size: 0.92rem; color: #fff;">⚔️ Match Chat &amp; Tracker Bridge</div>
-              <div style="font-size: 0.74rem; color: #94a3b8;">Real-time chat &amp; 1-click room sync</div>
-            </div>
-          </button>
-        </div>
-
-        <!-- Stage 1 Content: Sparring Radar -->
-        <div id="omni-stage-view-1" class="omni-stage-content" style="display: block;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
-            <div>
-              <h4 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 8px;">
-                <span>🎯 Hyperlocal Sparring Radar</span>
-                <span id="demo-radar-status-badge" style="font-size: 0.7rem; font-weight: 700; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); padding: 2px 8px; border-radius: 6px;">3 Active Within 50 Miles</span>
-              </h4>
-              <p style="font-size: 0.82rem; color: #94a3b8; margin: 0;">
-                Generals are sorted by availability, FLGS venue, and proximity. Click <strong>⚔️ Propose Sparring Match</strong> on any card to test the app's challenge flow!
-              </p>
-            </div>
-            <!-- Authentic Controls Toolbar matching the actual Community Hub banner -->
-            <div class="comm-header-controls" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-              <!-- Status Toggle (Interactive: Click to test pausing radar) -->
-              <button id="demo-btn-toggle-lfg" onclick="toggleDemoLfgStatus()" class="btn" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.35); font-weight: 700; font-size: 0.76rem; padding: 0.38rem 0.8rem; cursor: pointer; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;" title="Click to toggle Available vs Off Duty">
-                <span id="demo-user-status-dot" style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 7px #10b981;"></span>
-                <span id="demo-user-status-text">Available</span>
-              </button>
-
-              <!-- Location Pill -->
-              <div style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.76rem; padding: 0.38rem 0.75rem; border-radius: 8px; border: 1px solid rgba(56,189,248,0.35); color: #f8fafc; background: rgba(56,189,248,0.06);">
-                <span>📍</span>
-                <span style="font-weight: 600;">Poway, CA</span>
-                <span style="font-size: 0.68rem; color: #10b981; font-weight: 700;">● GPS Locked</span>
-              </div>
-
-              <!-- Radius Dropdown -->
-              <select id="demo-radius-select" class="form-input" style="font-size: 0.76rem; font-weight: 700; color: #fff; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.38rem 0.65rem; cursor: pointer;" onchange="changeDemoRadius(this.value)">
-                <option value="25">25 Miles</option>
-                <option value="50" selected>50 Miles</option>
-                <option value="100">100 Miles</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Radar Sub-toolbar matching actual app comm-subview-toolbar -->
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-              <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8;">⚔️ Play Style:</span>
-              <select id="demo-user-pref-style" class="form-input" style="font-size: 0.76rem; font-weight: 700; color: #38bdf8; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.38rem 0.65rem; cursor: pointer;" onchange="changeDemoMatchPreference(this.value)" title="Filter sparring radar by play style">
-                <option value="all">All Play Styles</option>
-                <option value="Tournament Prep">Competitive / Tournament Prep (Marcus)</option>
-                <option value="Competitive">Competitive 2k (Tara)</option>
-                <option value="Casual">Casual / Practice (Dave)</option>
-              </select>
-            </div>
-            <div style="font-size: 0.76rem; color: #94a3b8;">
-              <span id="demo-radar-summary">3 active players • 50 mi</span>
-            </div>
-          </div>
-
-          <!-- Paused / Off Duty State (matches app exactly when radar is paused) -->
-          <div id="demo-radar-paused-view" style="display: none; text-align: center; padding: 3rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 100%; box-sizing: border-box; margin-bottom: 1.5rem;">
-            <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(100, 116, 139, 0.15); border: 1px solid rgba(100, 116, 139, 0.3); display: inline-flex; align-items: center; justify-content: center; font-size: 1.8rem; margin: 0 auto 0.85rem;">
-              📡
-            </div>
-            <div style="display: inline-block; padding: 3px 12px; border-radius: 9999px; background: rgba(100, 116, 139, 0.2); color: #94a3b8; font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.65rem;">
-              Status: Off Duty (Hidden)
-            </div>
-            <h3 style="color: #fff; font-size: 1.2rem; font-weight: 800; margin: 0 0 0.4rem;">
-              Sparring Radar Is Paused
-            </h3>
-            <p style="color: #94a3b8; font-size: 0.86rem; line-height: 1.5; max-width: 500px; margin: 0 auto 1.25rem;">
-              You are currently marked as <strong>Off Duty</strong>. Your profile is hidden from local matchmaking and the live radar is turned off.<br><br>
-              Enable <strong>Available for Games</strong> to discover nearby sparring partners within <span style="color: #38bdf8; font-weight: 700;">50 miles</span> and allow opponents to challenge you.
-            </p>
-            <button onclick="toggleDemoLfgStatus()" class="btn btn-primary" style="padding: 0.6rem 1.4rem; font-size: 0.88rem; font-weight: 800; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(56, 189, 248, 0.25); cursor: pointer;">
-              <span>⚡</span> <span>Enable "Available for Games"</span>
-            </button>
-          </div>
-
-          <!-- Cards Grid Mockup matching actual oc-player-card format from connect.js -->
-          <div id="demo-radar-cards-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 1.15rem;">
-            <!-- Player Card 1: Marcus Vance -->
-            <div id="demo-card-marcus" class="oc-player-card" style="background: #090f1d; border-color: rgba(56, 189, 248, 0.28); display: flex; flex-direction: column; justify-content: space-between;">
-              <div>
-                <div class="oc-player-header">
-                  <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <div class="oc-player-avatar" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff;">MV</div>
-                    <div>
-                      <div style="font-weight: 800; color: #fff; font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
-                        <span>Marcus "Grim" Vance</span>
-                        <span style="font-size: 0.72rem; color: #38bdf8;" title="Verified Competitor">✓</span>
-                      </div>
-                      <div style="font-size: 0.76rem; color: #38bdf8; margin-top: 1px;">📍 4.2 miles away</div>
-                    </div>
-                  </div>
-                  <div style="text-align: right;">
-                    <div style="font-weight: 800; font-family: var(--font-heading); color: #fff; font-size: 1.05rem;">1,842</div>
-                    <div style="font-size: 0.68rem;">
-                      <span class="oc-badge" style="background: rgba(234,179,8,0.15); color: #eab308; border: 1px solid rgba(234,179,8,0.3);">Grandmaster</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Tactical Info Box (matches app exactly) -->
-                <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.85rem; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.4rem;">
-                  <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #94a3b8;">Home Venue:</span>
-                    <span style="font-weight: 600; color: #cbd5e1; max-width: 170px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Game Haven FLGS</span>
-                  </div>
-                  <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #94a3b8;">Match Preference:</span>
-                    <span style="font-weight: 600; color: #38bdf8;">Tournament Prep • 2,000 pts</span>
-                  </div>
-                  <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #94a3b8;">Army / Faction:</span>
-                    <span style="font-weight: 600; color: #cbd5e1;">Aeldari (Craftworlds)</span>
-                  </div>
-                </div>
-
-                <div style="font-size: 0.76rem; color: #94a3b8; line-height: 1.4; margin-bottom: 0.85rem; font-style: italic;">
-                  "Prepping for the upcoming Super-Major. Looking for tight, timed 2k matches against Top-100 meta lists. Pariah Nexus layouts."
-                </div>
-              </div>
-
-              <div id="demo-btn-container-marcus">
-                <button onclick="setOmniChallenge('marcus')" class="btn btn-primary" style="width: 100%; padding: 0.55rem; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                  ⚔️ Propose Sparring Match
-                </button>
-              </div>
-            </div>
-
-            <!-- Player Card 2: Tara Lindqvist -->
-            <div id="demo-card-tara" class="oc-player-card" style="background: #090f1d; border-color: rgba(255, 255, 255, 0.1); display: flex; flex-direction: column; justify-content: space-between;">
-              <div>
-                <div class="oc-player-header">
-                  <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <div class="oc-player-avatar" style="background: linear-gradient(135deg, #7c3aed 0%, #4c1d95 100%); color: #fff;">TL</div>
-                    <div>
-                      <div style="font-weight: 800; color: #fff; font-size: 0.95rem;">Tara Lindqvist</div>
-                      <div style="font-size: 0.76rem; color: #38bdf8; margin-top: 1px;">📍 8.7 miles away</div>
-                    </div>
-                  </div>
-                  <div style="text-align: right;">
-                    <div style="font-weight: 800; font-family: var(--font-heading); color: #fff; font-size: 1.05rem;">1,670</div>
-                    <div style="font-size: 0.68rem;">
-                      <span class="oc-badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);">Master</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Tactical Info Box (matches app exactly) -->
-                <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.85rem; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.4rem;">
-                  <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #94a3b8;">Home Venue:</span>
-                    <span style="font-weight: 600; color: #cbd5e1; max-width: 170px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Titan Games &amp; Hobbies</span>
-                  </div>
-                  <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #94a3b8;">Match Preference:</span>
-                    <span style="font-weight: 600; color: #38bdf8;">Competitive • 2,000 pts</span>
-                  </div>
-                  <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #94a3b8;">Army / Faction:</span>
-                    <span style="font-weight: 600; color: #cbd5e1;">World Eaters</span>
-                  </div>
-                </div>
-
-                <div style="font-size: 0.76rem; color: #94a3b8; line-height: 1.4; margin-bottom: 0.85rem; font-style: italic;">
-                  "Testing Angron + 3 Eightbound blocks. Down for weeknight sparring at Titan Games or Battleground."
-                </div>
-              </div>
-
-              <div id="demo-btn-container-tara">
-                <button onclick="setOmniChallenge('tara')" class="btn btn-primary" style="width: 100%; padding: 0.55rem; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                  ⚔️ Propose Sparring Match
-                </button>
-              </div>
-            </div>
-
-            <!-- Player Card 3: Dave Ramirez -->
-            <div id="demo-card-dave" class="oc-player-card" style="background: #090f1d; border-color: rgba(255, 255, 255, 0.1); display: flex; flex-direction: column; justify-content: space-between;">
-              <div>
-                <div class="oc-player-header">
-                  <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <div class="oc-player-avatar" style="background: linear-gradient(135deg, #059669 0%, #064e3b 100%); color: #fff;">DR</div>
-                    <div>
-                      <div style="font-weight: 800; color: #fff; font-size: 0.95rem;">Dave Ramirez</div>
-                      <div style="font-size: 0.76rem; color: #38bdf8; margin-top: 1px;">📍 11.5 miles away</div>
-                    </div>
-                  </div>
-                  <div style="text-align: right;">
-                    <div style="font-weight: 800; font-family: var(--font-heading); color: #fff; font-size: 1.05rem;">1,520</div>
-                    <div style="font-size: 0.68rem;">
-                      <span class="oc-badge" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3);">Veteran</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Tactical Info Box (matches app exactly) -->
-                <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.85rem; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.4rem;">
-                  <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #94a3b8;">Home Venue:</span>
-                    <span style="font-weight: 600; color: #cbd5e1; max-width: 170px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Red Dragon Hobbies</span>
-                  </div>
-                  <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #94a3b8;">Match Preference:</span>
-                    <span style="font-weight: 600; color: #38bdf8;">Casual / Practice • 1,500 pts</span>
-                  </div>
-                  <div style="display: flex; justify-content: space-between;">
-                    <span style="color: #94a3b8;">Army / Faction:</span>
-                    <span style="font-weight: 600; color: #cbd5e1;">Necrons (Canoptek Court)</span>
-                  </div>
-                </div>
-
-                <div style="font-size: 0.76rem; color: #94a3b8; line-height: 1.4; margin-bottom: 0.85rem; font-style: italic;">
-                  "Getting back into 10th/11th edition. Looking for chill Sunday games. Happy to play 1k Incursion or 2k Strike Force."
-                </div>
-              </div>
-
-              <div id="demo-btn-container-dave">
-                <button onclick="setOmniChallenge('dave')" class="btn btn-primary" style="width: 100%; padding: 0.55rem; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                  ⚔️ Propose Sparring Match
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Stage 2 Content: Send Chat Request & Match Proposal Modal Mockup -->
-        <div id="omni-stage-view-2" class="omni-stage-content" style="display: none;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
-            <div>
-              <h4 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 8px;">
-                <span>💬 Send Chat Request &amp; Match Proposal</span>
-                <span style="font-size: 0.7rem; font-weight: 700; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); padding: 2px 8px; border-radius: 6px;">Zero Ambiguity</span>
-              </h4>
-              <p style="font-size: 0.82rem; color: #94a3b8; margin: 0;">
-                Send a direct message and lock in FLGS venue, points limit, and schedule before meeting up at the table. Matches the exact modal in the app!
-              </p>
-            </div>
-            <button onclick="setOmniStage(3)" class="btn btn-outline" style="font-size: 0.78rem; padding: 5px 12px; border-radius: 6px; color: #38bdf8; border-color: rgba(56,189,248,0.4);">
-              Skip to Match Chat Preview →
-            </button>
-          </div>
-
-          <!-- Proposal Card Form Mockup (matches propose-match-modal 100%) -->
-          <div style="max-width: 520px; margin: 0 auto; background: #090f1d; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 14px; padding: 1.5rem; box-shadow: 0 15px 35px rgba(0,0,0,0.5);">
-            <!-- Modal Header -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.75rem;">
-              <div style="display: flex; align-items: center; gap: 0.6rem;">
-                <span style="font-size: 1.4rem;">💬</span>
-                <div>
-                  <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0;">Send Chat Request</h3>
-                  <div style="font-size: 0.75rem; color: #94a3b8;">Send a direct message &amp; match challenge to <span id="demo-proposal-target-name" style="color: #38bdf8; font-weight: 700;">Marcus "Grim" Vance</span></div>
-                </div>
-              </div>
-              <div class="oc-player-avatar" id="demo-proposal-target-avatar" style="width: 34px; height: 34px; font-size: 0.8rem; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);">MV</div>
-            </div>
-
-            <!-- Target Summary Line -->
-            <div style="margin-bottom: 1rem; padding: 0.5rem 0.75rem; background: rgba(56,189,248,0.06); border: 1px solid rgba(56,189,248,0.2); border-radius: 8px; font-size: 0.78rem; display: flex; justify-content: space-between; align-items: center;">
-              <span style="color: #94a3b8;">Target Opponent:</span>
-              <span id="demo-proposal-target-army" style="font-weight: 700; color: #38bdf8;">Aeldari (Craftworlds) • 1,842 Elo (Grandmaster)</span>
-            </div>
-
-            <!-- Message / Introduction Field -->
-            <div style="margin-bottom: 1rem;">
-              <label style="display: block; font-size: 0.76rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">Message / Introduction *</label>
-              <textarea id="demo-proposal-target-note" class="search-input" style="width: 100%; min-height: 70px; resize: vertical; box-sizing: border-box; font-size: 0.82rem; line-height: 1.4; color: #cbd5e1;">Hey Marcus! Bringing my Space Marine Gladius Task Force for tournament test games. Let's do Thursday 6:30 PM at Game Haven!</textarea>
-            </div>
-
-            <!-- Optional Sparring Details Box -->
-            <div style="margin-bottom: 1.2rem; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.85rem; background: rgba(15,23,42,0.4);">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
-                <span style="font-size: 0.78rem; font-weight: 700; color: #38bdf8;">⚔️ Optional Sparring Details</span>
-                <span class="oc-badge" style="font-size: 0.68rem; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.25);">Google Places</span>
-              </div>
-
-              <div style="margin-bottom: 0.75rem;">
-                <label style="display: block; font-size: 0.74rem; font-weight: 600; color: #94a3b8; margin-bottom: 0.25rem;">Proposed Store / Club Venue</label>
-                <div style="position: relative;">
-                  <input type="text" id="demo-proposal-target-venue" class="search-input" style="width: 100%; box-sizing: border-box; padding-left: 34px; font-size: 0.82rem;" value="Game Haven FLGS">
-                  <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 14px; pointer-events: none; opacity: 0.8;">📍</span>
-                </div>
-              </div>
-
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-                <div>
-                  <label style="display: block; font-size: 0.74rem; font-weight: 600; color: #94a3b8; margin-bottom: 0.25rem;">Points Limit</label>
-                  <input type="text" id="demo-proposal-target-points" class="search-input" style="width: 100%; font-size: 0.82rem; box-sizing: border-box;" value="2,000 pts">
-                </div>
-                <div>
-                  <label style="display: block; font-size: 0.74rem; font-weight: 600; color: #94a3b8; margin-bottom: 0.25rem;">Target Date / Time</label>
-                  <input type="text" id="demo-proposal-target-date" class="search-input" style="width: 100%; font-size: 0.82rem; box-sizing: border-box;" value="Thursday 6:30 PM">
-                </div>
-              </div>
-            </div>
-
-            <!-- Action Buttons -->
-            <div style="display: flex; justify-content: flex-end; gap: 0.6rem;">
-              <button onclick="setOmniStage(1)" class="btn btn-outline" style="padding: 0.55rem 1rem; font-size: 0.8rem; border-radius: 7px; color: #94a3b8;">
-                Back to Radar
-              </button>
-              <button onclick="sendDemoProposal()" class="btn btn-primary" style="padding: 0.55rem 1.3rem; font-size: 0.82rem; font-weight: 800; border-radius: 7px; box-shadow: 0 4px 15px rgba(56,189,248,0.35);">
-                💬 Send Chat Request &amp; Launch Chat ➔
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Stage 3 Content: Real-Time Chat & Tracker Room Sync -->
-        <div id="omni-stage-view-3" class="omni-stage-content" style="display: none;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
-            <div>
-              <h4 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 8px;">
-                <span>💬 Direct Match Chat &amp; Digital Scorecard Bridge</span>
-                <span style="font-size: 0.7rem; font-weight: 700; background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); padding: 2px 8px; border-radius: 6px;">Live Messenger</span>
-              </h4>
-              <p style="font-size: 0.82rem; color: #94a3b8; margin: 0;">
-                Coordinate FLGS match times in real time, confirm match details, and launch a live Game Tracker room with synchronized scorecards in one click.
-              </p>
-            </div>
-            <button onclick="setOmniStage(1)" class="btn btn-outline" style="font-size: 0.78rem; padding: 5px 12px; border-radius: 6px; color: #38bdf8; border-color: rgba(56,189,248,0.4);">
-              ↺ Back to Step 1
-            </button>
-          </div>
-
-          <!-- Chat UI Shell Mockup -->
-          <div style="max-width: 820px; margin: 0 auto; background: #070b14; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 14px; overflow: hidden; box-shadow: 0 15px 40px rgba(0,0,0,0.6);">
-            <!-- Mock Chat Header -->
-            <div style="background: #0f172a; padding: 0.85rem 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <div class="oc-player-avatar" id="demo-chat-player-avatar" style="width: 36px; height: 36px; font-size: 0.85rem; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);">MV</div>
-                <div>
-                  <div style="font-size: 0.88rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 6px;">
-                    <span id="demo-chat-player-name">Marcus "Grim" Vance</span>
-                    <span style="font-size: 0.72rem; color: #22c55e;">● online</span>
-                  </div>
-                  <div id="demo-chat-player-sub" style="font-size: 0.74rem; color: #94a3b8;">Aeldari (Craftworlds) &bull; Game Haven FLGS</div>
-                </div>
-              </div>
-              <div style="display: flex; gap: 0.5rem; align-items: center;">
-                <span style="font-size: 0.74rem; font-weight: 700; color: #10b981; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25); padding: 3px 8px; border-radius: 6px;">
-                  Match Accepted
-                </span>
-              </div>
-            </div>
-
-            <!-- Messages List -->
-            <div id="demo-chat-messages-container" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; min-height: 280px; max-height: 380px; overflow-y: auto; background: radial-gradient(circle at 50% 20%, rgba(56,189,248,0.03) 0%, transparent 60%), #070b14;">
-              <!-- Message Incoming -->
-              <div class="oc-msg-bubble oc-msg-in" style="max-width: 75%;">
-                <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 2px;">Marcus Vance &bull; 6:15 PM</div>
-                <div>Challenge accepted! Thursday at 6:30 PM at Game Haven works great. I have table 4 on hold. Ready for your Gladius Marines!</div>
-              </div>
-
-              <!-- Message Outgoing with Room Card -->
-              <div class="oc-msg-bubble oc-msg-out" style="max-width: 80%;">
-                <div style="font-size: 0.7rem; color: rgba(255,255,255,0.75); margin-bottom: 2px;">You &bull; 6:18 PM</div>
-                <div>Awesome! I just generated our live Game Tracker room for the match. Jump in whenever you're ready:</div>
-                
-                <!-- 1-Click Game Tracker Card -->
-                <div class="oc-msg-room-card" style="background: rgba(0,0,0,0.5); border-color: rgba(255,255,255,0.25); margin-top: 8px;">
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 1.2rem;">🎲</span>
-                    <div>
-                      <div style="font-weight: 800; font-size: 0.8rem; color: #fff;">Live Game Tracker Room</div>
-                      <div style="font-size: 0.72rem; color: #93c5fd; font-family: monospace;">Room Key: OMNI-7842</div>
-                    </div>
-                  </div>
-                  <a href="#game-tracker-showcase" style="background: #38bdf8; color: #020617; font-weight: 800; font-size: 0.72rem; padding: 4px 10px; border-radius: 6px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
-                    Preview Scorecard ↓
-                  </a>
-                </div>
-              </div>
-
-              <!-- Message Incoming Confirmation -->
-              <div class="oc-msg-bubble oc-msg-in" style="max-width: 75%;">
-                <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 2px;">Marcus Vance &bull; 6:20 PM</div>
-                <div>Connected! My secondary objectives and CP counter are syncing live to your screen. See you on Thursday. 🔥</div>
-              </div>
-            </div>
-
-            <!-- Active Interactive Input Bar -->
-            <div style="padding: 0.75rem 1.25rem; background: #0f172a; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 0.5rem; align-items: center;">
-              <input type="text" id="demo-chat-input" placeholder="Type a message or match details and press Enter..." onkeydown="if(event.key==='Enter') sendDemoChatMessage()" style="flex: 1; background: #090f1d; border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 0.6rem 0.9rem; border-radius: 8px; font-size: 0.82rem;">
-              <button type="button" onclick="sendDemoChatMessage()" onpointerdown="event.preventDefault()" onmousedown="event.preventDefault()" style="background: #0284c7; color: #fff; border: none; padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.82rem; font-weight: 700; cursor: pointer;">
-                Send
-              </button>
-            </div>
-          </div>
-
-          <!-- Bottom Navigation inside Stage 3 -->
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
-            <button onclick="setOmniStage(1)" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 1rem; border-radius: 6px; color: #38bdf8; border-color: rgba(56,189,248,0.4);">
-              ↺ Test Another Opponent on Radar
-            </button>
-            <a href="#game-tracker-showcase" class="btn btn-primary" style="padding: 0.55rem 1.25rem; font-size: 0.82rem; font-weight: 800; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 14px rgba(56,189,248,0.3);">
-              🎲 Jump to Live Scorecard Demo ↓
-            </a>
-          </div>
-        </div>
-      </div>
-
-      <!-- Sparring Radar to Tracker Bridge CTA -->
-      <div style="text-align: center; margin-top: 1.5rem;">
-        <a href="#game-tracker-showcase" class="btn btn-primary" style="padding: 0.65rem 1.4rem; font-size: 0.88rem; font-weight: 800; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 18px rgba(56,189,248,0.35); border-radius: 8px;">
-          <span>🎲 See the Live Game Tracker Scorecard in Action</span>
-          <span>↓</span>
-        </a>
-      </div>
-    </section>
-
-    <!-- Game Tracker Interactive Showcase -->
-    <section class="landing-connect-showcase" id="game-tracker-showcase" style="position: relative; padding-top: 2.5rem; margin-top: 2rem;">
-      <span id="tracker" style="position: absolute; top: -80px; visibility: hidden;"></span>
-
-      <div class="landing-sec-head" style="text-align: center; margin-bottom: 2.25rem;">
-        <div class="landing-badge" style="margin-bottom: 0.75rem; background: rgba(56, 189, 248, 0.12); border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
-          🎲 11TH EDITION READY • LIVE PEER-TO-PEER SCORING
-        </div>
-        <h2 class="landing-sec-title" style="font-size: clamp(1.8rem, 3.5vw, 2.5rem);">
-          Tabletop Digital Scoreboard &amp; Live Match Tracker.<br>
-          <span style="background: linear-gradient(135deg, #38bdf8 0%, #a855f7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Everything You Need at the Table, Completely Free.</span>
-        </h2>
-        <p class="landing-sec-sub" style="max-width: 820px; margin: 0 auto; line-height: 1.6;">
-          Test the interactive scoreboard below. Score primary &amp; secondary mission VP, track Command Points, roll battle-shock tests, and run tournament chess clocks. Real-time peer sync ensures both players and spectators see the board state instantaneously on any mobile or desktop screen.
-        </p>
-      </div>
-
-      <!-- Authentic 11th Edition Game Tracker App Shell -->
-      <style>
-        @media (max-width: 768px) {
-          .gtk-scoreboard-wrap {
-            flex-direction: column !important;
-          }
-          .gtk-scoreboard-wrap > div:first-child {
-            border-right: none !important;
-            border-bottom: 1px solid #273042 !important;
-          }
-        }
-      </style>
-      <div style="background-color: #0a0c10; background-image: linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px); background-size: 40px 40px; border: 1px solid #273042; border-radius: 18px; box-shadow: 0 25px 65px rgba(0,0,0,0.85), 0 0 35px rgba(56,189,248,0.12); overflow: hidden; margin-bottom: 2rem;">
-        
-        <!-- Real Multiplayer Sync HUD (Exact OmniTactica App Component) -->
-        <div style="background: #0f172a; border-bottom: 1px solid #273042; padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem; font-family: 'JetBrains Mono', monospace;">
-          <!-- Left: Hub & Lobby Navigation & Match Tag -->
-          <div style="display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;">
-            <a href="#community-hub-showcase" style="display: inline-flex; align-items: center; gap: 3px; color: #38bdf8; text-decoration: none; font-size: 11px; font-weight: 800; background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.25); padding: 4px 8px; border-radius: 6px; cursor: pointer;">
-              🏠 Hub
-            </a>
-            <a href="/11th/tracker" style="display: inline-flex; align-items: center; gap: 3px; color: #f59e0b; text-decoration: none; font-size: 11px; font-weight: 800; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.25); padding: 4px 8px; border-radius: 6px; cursor: pointer;">
-              🎲 Lobby
-            </a>
-            <span style="font-family: 'JetBrains Mono', monospace; color: #f59e0b; font-size: 11px; background: #070b14; padding: 4px 7px; border-radius: 6px; border: 1px solid #334155; font-weight: 800;">
-              #WH40K-7842 (T4)
-            </span>
-          </div>
-
-          <!-- Center: Connected Players Matchup -->
-          <div style="display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-size: 11px; padding: 0 6px; flex-shrink: 0;">
-            <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; flex-shrink: 0; display: inline-block;"></span>
-            <span style="color: #38bdf8;">Marcus Vance (Aeldari)</span>
-            <span style="color: #64748b; font-size: 10px;">vs</span>
-            <span style="color: #ef4444;">Tara Lindqvist (World Eaters)</span>
-            <span style="font-size: 9px; color: #10b981; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); padding: 2px 6px; border-radius: 4px; font-weight: 800;">LIVE SYNC</span>
-          </div>
-
-          <!-- Right: In-App Action Buttons -->
-          <div style="display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap;">
-            <button onclick="setTrackerTab('clocks')" style="background: #0f172a; color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Open Tournament Chess Clock">
-              ⏱️ Clock
-            </button>
-            <button onclick="setTrackerTab('dice')" style="background: #0f172a; color: #f59e0b; border: 1px solid rgba(245,158,11,0.4); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Open Synchronized Dice Roller">
-              🎲 Dice
-            </button>
-            <button onclick="setTrackerTab('roster')" style="background: #4f46e5; color: #fff; border: 1px solid #6366f1; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="View Opponent's Army List & Stratagems">
-              📜 Opponent List 🟢
-            </button>
-            <button onclick="setTrackerTab('objectives')" style="background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.25); padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Open Scorecard">
-              📄 Scorecard
-            </button>
-            <a href="/11th/tracker" style="background: #059669; color: #fff; border: 1px solid #10b981; padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="Launch Live Match Tracker in Full App">
-              🏁 Launch Tracker
-            </a>
-          </div>
-        </div>
-
-        <!-- App Scorecard Core (BattleScorecard.jsx & PlayerScorecard.jsx) -->
-        <div style="padding: 1.25rem; max-width: 860px; margin: 0 auto;">
-
-          <!-- BattleScorecard Match Header Scoreboard -->
-          <div style="background: #181d28; border: 1px solid #273042; border-radius: 14px; display: flex; overflow: hidden; margin-bottom: 0.85rem;" class="gtk-scoreboard-wrap">
-            
-            <!-- Player 1 Score Column -->
-            <div style="flex: 1; padding: 0.85rem 1.15rem; background: rgba(56, 189, 248, 0.08); border-right: 1px solid #273042;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.12em;">
-                  Marcus Vance
-                </span>
-                <span style="font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; background: #273042; color: #f0f4fc; padding: 2px 7px; border-radius: 9999px;">
-                  CP <b id="demo-p1-header-cp" style="color: #38bdf8;">2</b>
-                </span>
-              </div>
-              <div style="display: flex; align-items: center; gap: 12px;">
-                <span id="demo-p1-total" style="font-size: 38px; font-weight: 900; color: #f0f4fc; font-family: ui-monospace, monospace; line-height: 1;">
-                  68
-                </span>
-                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px;">
-                  <!-- Pri Progress Bar -->
-                  <div style="display: flex; align-items: center; gap: 6px;">
-                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; width: 22px;">PRI</span>
-                    <div style="flex: 1; height: 6px; background: #273042; border-radius: 9999px; overflow: hidden;">
-                      <div id="demo-p1-pri-bar" style="height: 100%; width: 77.7%; background: #38bdf8; border-radius: 9999px; transition: width 0.3s ease;"></div>
-                    </div>
-                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: #94a3b8;"><span id="demo-p1-pri">35</span>/45</span>
-                  </div>
-                  <!-- Sec Progress Bar -->
-                  <div style="display: flex; align-items: center; gap: 6px;">
-                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; width: 22px;">SEC</span>
-                    <div style="flex: 1; height: 6px; background: #273042; border-radius: 9999px; overflow: hidden;">
-                      <div id="demo-p1-sec-bar" style="height: 100%; width: 51.1%; background: #38bdf8; border-radius: 9999px; transition: width 0.3s ease;"></div>
-                    </div>
-                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: #94a3b8;"><span id="demo-p1-sec">23</span>/45</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Player 2 Score Column -->
-            <div style="flex: 1; padding: 0.85rem 1.15rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-direction: row-reverse;">
-                <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 800; color: #ef4444; text-transform: uppercase; letter-spacing: 0.12em;">
-                  Tara Lindqvist
-                </span>
-                <span style="font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; background: #273042; color: #f0f4fc; padding: 2px 7px; border-radius: 9999px;">
-                  CP <b id="demo-p2-header-cp" style="color: #ef4444;">1</b>
-                </span>
-              </div>
-              <div style="display: flex; align-items: center; gap: 12px; flex-direction: row-reverse;">
-                <span id="demo-p2-total" style="font-size: 38px; font-weight: 900; color: #f0f4fc; font-family: ui-monospace, monospace; line-height: 1;">
-                  62
-                </span>
-                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px;">
-                  <!-- Pri Progress Bar (mirrored) -->
-                  <div style="display: flex; align-items: center; gap: 6px; flex-direction: row-reverse;">
-                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; width: 22px; text-align: right;">PRI</span>
-                    <div style="flex: 1; height: 6px; background: #273042; border-radius: 9999px; overflow: hidden; display: flex; justify-content: flex-end;">
-                      <div id="demo-p2-pri-bar" style="height: 100%; width: 66.6%; background: #ef4444; border-radius: 9999px; transition: width 0.3s ease;"></div>
-                    </div>
-                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: #94a3b8;"><span id="demo-p2-pri">30</span>/45</span>
-                  </div>
-                  <!-- Sec Progress Bar (mirrored) -->
-                  <div style="display: flex; align-items: center; gap: 6px; flex-direction: row-reverse;">
-                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; width: 22px; text-align: right;">SEC</span>
-                    <div style="flex: 1; height: 6px; background: #273042; border-radius: 9999px; overflow: hidden; display: flex; justify-content: flex-end;">
-                      <div id="demo-p2-sec-bar" style="height: 100%; width: 48.8%; background: #ef4444; border-radius: 9999px; transition: width 0.3s ease;"></div>
-                    </div>
-                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: #94a3b8;"><span id="demo-p2-sec">22</span>/45</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-          <!-- Round Stepper and Match Layout Bar -->
-          <div style="margin-bottom: 0.85rem; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <div style="background: #181d28; border: 1px solid #273042; border-radius: 12px; display: flex; flex: 1; align-items: center; justify-content: space-between; padding: 4px 8px;">
-              <button type="button" onclick="stepTrackerRound(-1)" aria-label="Previous round" style="background: transparent; border: none; color: #f0f4fc; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; font-size: 1.25rem;">
-                ‹
-              </button>
-              <div style="text-align: center;">
-                <span style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.16em; color: #94a3b8;">
-                  BATTLE ROUND
-                </span>
-                <span style="font-size: 24px; font-weight: 900; color: #f0f4fc; font-family: ui-monospace, monospace; line-height: 1;">
-                  <span id="demo-round-num">3</span> <span style="font-size: 13px; color: #94a3b8; font-weight: 700;">of 5</span>
-                </span>
-              </div>
-              <button type="button" onclick="stepTrackerRound(1)" aria-label="Next round" style="background: transparent; border: none; color: #f0f4fc; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; font-size: 1.25rem;">
-                ›
-              </button>
-            </div>
-
-            <!-- Terrain Layout Modal Pill -->
-            <button type="button" onclick="alert('🗺️ Pariah Nexus Layout 2 (Hammer & Anvil)\nDeployment: Search and Destroy\nTerrain: 6 Heavy Ruins, 2 Light Industrial Craters.')" style="background: #181d28; border: 1px solid #273042; border-radius: 12px; height: 50px; padding: 0 14px; display: flex; align-items: center; gap: 6px; color: #38bdf8; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 800; cursor: pointer;" title="Inspect Terrain Layout">
-              <span>🗺️ Layout 2</span>
-            </button>
-
-            <!-- Match Settings Pill -->
-            <button type="button" onclick="alert('⚙️ Match Configuration\nGame Size: Strike Force (2,000 pts)\nMission Type: Tactical Secondaries\nRuleset: 11th Edition Grand Tournament Season 2026')" style="background: #181d28; border: 1px solid #273042; border-radius: 12px; height: 50px; padding: 0 14px; display: flex; align-items: center; gap: 6px; color: #94a3b8; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 800; cursor: pointer;" title="Match Settings">
-              <span>⚙️ 2,000 pts</span>
-            </button>
-          </div>
-
-          <!-- Dual PlayerScorecard Columns (PlayerScorecard.jsx) -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0.85rem;" id="demo-player-cards-grid">
-            
-            <!-- Player 1 Scorecard (Marcus Vance - Aeldari) -->
-            <div style="background: #181d28; border: 1px solid #273042; border-radius: 14px; overflow: hidden;">
-              <!-- Player Header Banner -->
-              <div style="padding: 0.75rem 1rem; border-bottom: 1px solid #273042; display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                  <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.14em;">
-                    Marcus Vance
-                  </div>
-                  <span style="display: inline-block; margin-top: 3px; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; text-transform: uppercase; background: #1f7a82; color: #fff; padding: 2px 8px; border-radius: 9999px;">
-                    Reconnaissance Force
-                  </span>
-                </div>
-                <div style="text-align: right;">
-                  <div id="demo-p1-card-vp" style="font-size: 32px; font-weight: 900; color: #f0f4fc; font-family: ui-monospace, monospace; line-height: 1;">68</div>
-                  <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.14em;">Total VP</div>
-                </div>
-              </div>
-
-              <!-- Command Points Row -->
-              <div style="padding: 0.6rem 1rem; border-bottom: 1px solid #273042; display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.16em; color: #94a3b8;">
-                  Command Points
-                </span>
-                <div style="display: inline-flex; border: 2px solid #273042; border-radius: 8px; overflow: hidden;">
-                  <button type="button" onclick="adjustDemoCP('p1', -1)" style="width: 32px; height: 30px; background: transparent; border: none; border-right: 1px solid #273042; color: #cbd5e1; cursor: pointer; font-size: 14px; font-weight: 800; display: flex; align-items: center; justify-content: center;">-</button>
-                  <span id="demo-p1-cp" style="min-width: 2.2rem; display: flex; align-items: center; justify-content: center; font-family: ui-monospace, monospace; font-size: 16px; font-weight: 800; color: #f0f4fc;">2</span>
-                  <button type="button" onclick="adjustDemoCP('p1', 1)" style="width: 32px; height: 30px; background: #38bdf8; border: none; border-left: 1px solid #273042; color: #070b14; cursor: pointer; font-size: 14px; font-weight: 800; display: flex; align-items: center; justify-content: center;">+</button>
-                </div>
-              </div>
-
-              <!-- Primary Mission Row -->
-              <div style="padding: 0.75rem 1rem; border-bottom: 1px solid #273042;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.16em; color: #94a3b8;">
-                    Primary Mission
-                  </span>
-                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 800; color: #94a3b8;">
-                    <span id="demo-p1-pri-score">10</span> / 15
-                  </span>
-                </div>
-                <button type="button" id="demo-p1-pri-btn" onclick="toggleDemoPrimary('p1')" style="width: 100%; border: 2px solid #1e9d52; background: rgba(30, 157, 82, 0.08); border-radius: 10px; padding: 0.55rem 0.75rem; display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
-                  <span style="font-weight: 800; font-size: 15px; color: #fff; text-transform: uppercase; letter-spacing: 0.04em;">
-                    Take and Hold
-                  </span>
-                  <span id="demo-p1-pri-badge" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 800; background: #1e9d52; color: #fff; padding: 3px 8px; border-radius: 6px;">
-                    +10 VP · R3
-                  </span>
-                </button>
-              </div>
-
-              <!-- Secondaries · Tactical Row -->
-              <div style="padding: 0.75rem 1rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.16em; color: #94a3b8;">
-                    Secondaries · Tactical
-                  </span>
-                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 800; color: #94a3b8;">
-                    <span id="demo-p1-sec-score">8</span> / 15
-                  </span>
-                </div>
-                
-                <!-- Secondary Cards Stack -->
-                <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px;">
-                  <button type="button" onclick="toggleDemoSecondary('cleanse', 'p1', 4, this)" style="background: #12161f; border: 2px solid #1e9d52; border-radius: 10px; padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
-                    <span style="font-weight: 800; font-size: 14px; color: #fff; text-transform: uppercase;">Cleanse</span>
-                    <span class="demo-sec-badge" style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; color: #1e9d52;">+4 VP · R3</span>
-                  </button>
-                  <button type="button" onclick="toggleDemoSecondary('bel', 'p1', 4, this)" style="background: #12161f; border: 2px solid #1e9d52; border-radius: 10px; padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
-                    <span style="font-weight: 800; font-size: 14px; color: #fff; text-transform: uppercase;">Behind Enemy Lines</span>
-                    <span class="demo-sec-badge" style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; color: #1e9d52;">+4 VP · R3</span>
-                  </button>
-                  <button type="button" onclick="toggleDemoSecondary('assass', 'p1', 5, this)" style="background: #12161f; border: 2px solid #38bdf8; border-radius: 10px; padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
-                    <span style="font-weight: 800; font-size: 14px; color: #fff; text-transform: uppercase;">Assassination</span>
-                    <span class="demo-sec-badge" style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; color: #38bdf8;">Held · R2</span>
-                  </button>
-                </div>
-
-                <!-- Draw Secondary Button -->
-                <button type="button" onclick="drawDemoSecondary('p1', this)" style="width: 100%; height: 40px; background: #38bdf8; color: #070b14; border: none; border-radius: 10px; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                  <span>+</span> Draw Secondary (12 Left)
-                </button>
-              </div>
-            </div>
-
-            <!-- Player 2 Scorecard (Tara Lindqvist - World Eaters) -->
-            <div style="background: #181d28; border: 1px solid #273042; border-radius: 14px; overflow: hidden;">
-              <!-- Player Header Banner -->
-              <div style="padding: 0.75rem 1rem; border-bottom: 1px solid #273042; display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                  <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 800; color: #ef4444; text-transform: uppercase; letter-spacing: 0.14em;">
-                    Tara Lindqvist
-                  </div>
-                  <span style="display: inline-block; margin-top: 3px; font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 800; text-transform: uppercase; background: #8a2b2b; color: #fff; padding: 2px 8px; border-radius: 9999px;">
-                    Hammer Force
-                  </span>
-                </div>
-                <div style="text-align: right;">
-                  <div id="demo-p2-card-vp" style="font-size: 32px; font-weight: 900; color: #f0f4fc; font-family: ui-monospace, monospace; line-height: 1;">62</div>
-                  <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.14em;">Total VP</div>
-                </div>
-              </div>
-
-              <!-- Command Points Row -->
-              <div style="padding: 0.6rem 1rem; border-bottom: 1px solid #273042; display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.16em; color: #94a3b8;">
-                  Command Points
-                </span>
-                <div style="display: inline-flex; border: 2px solid #273042; border-radius: 8px; overflow: hidden;">
-                  <button type="button" onclick="adjustDemoCP('p2', -1)" style="width: 32px; height: 30px; background: transparent; border: none; border-right: 1px solid #273042; color: #cbd5e1; cursor: pointer; font-size: 14px; font-weight: 800; display: flex; align-items: center; justify-content: center;">-</button>
-                  <span id="demo-p2-cp" style="min-width: 2.2rem; display: flex; align-items: center; justify-content: center; font-family: ui-monospace, monospace; font-size: 16px; font-weight: 800; color: #f0f4fc;">1</span>
-                  <button type="button" onclick="adjustDemoCP('p2', 1)" style="width: 32px; height: 30px; background: #ef4444; border: none; border-left: 1px solid #273042; color: #fff; cursor: pointer; font-size: 14px; font-weight: 800; display: flex; align-items: center; justify-content: center;">+</button>
-                </div>
-              </div>
-
-              <!-- Primary Mission Row -->
-              <div style="padding: 0.75rem 1rem; border-bottom: 1px solid #273042;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.16em; color: #94a3b8;">
-                    Primary Mission
-                  </span>
-                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 800; color: #94a3b8;">
-                    <span id="demo-p2-pri-score">10</span> / 15
-                  </span>
-                </div>
-                <button type="button" id="demo-p2-pri-btn" onclick="toggleDemoPrimary('p2')" style="width: 100%; border: 2px solid #1e9d52; background: rgba(30, 157, 82, 0.08); border-radius: 10px; padding: 0.55rem 0.75rem; display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
-                  <span style="font-weight: 800; font-size: 15px; color: #fff; text-transform: uppercase; letter-spacing: 0.04em;">
-                    Purge the Foe
-                  </span>
-                  <span id="demo-p2-pri-badge" style="font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 800; background: #1e9d52; color: #fff; padding: 3px 8px; border-radius: 6px;">
-                    +10 VP · R3
-                  </span>
-                </button>
-              </div>
-
-              <!-- Secondaries · Tactical Row -->
-              <div style="padding: 0.75rem 1rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.16em; color: #94a3b8;">
-                    Secondaries · Tactical
-                  </span>
-                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 800; color: #94a3b8;">
-                    <span id="demo-p2-sec-score">10</span> / 15
-                  </span>
-                </div>
-                
-                <!-- Secondary Cards Stack -->
-                <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px;">
-                  <button type="button" onclick="toggleDemoSecondary('bid', 'p2', 6, this)" style="background: #12161f; border: 2px solid #1e9d52; border-radius: 10px; padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
-                    <span style="font-weight: 800; font-size: 14px; color: #fff; text-transform: uppercase;">Bring It Down</span>
-                    <span class="demo-sec-badge" style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; color: #1e9d52;">+6 VP · R2</span>
-                  </button>
-                  <button type="button" onclick="toggleDemoSecondary('ebl', 'p2', 4, this)" style="background: #12161f; border: 2px solid #1e9d52; border-radius: 10px; padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
-                    <span style="font-weight: 800; font-size: 14px; color: #fff; text-transform: uppercase;">Extend Battle Lines</span>
-                    <span class="demo-sec-badge" style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; color: #1e9d52;">+4 VP · R3</span>
-                  </button>
-                  <button type="button" onclick="toggleDemoSecondary('ad', 'p2', 4, this)" style="background: #12161f; border: 2px solid #ef4444; border-radius: 10px; padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
-                    <span style="font-weight: 800; font-size: 14px; color: #fff; text-transform: uppercase;">Area Denial</span>
-                    <span class="demo-sec-badge" style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 800; color: #ef4444;">Held · R3</span>
-                  </button>
-                </div>
-
-                <!-- Draw Secondary Button -->
-                <button type="button" onclick="drawDemoSecondary('p2', this)" style="width: 100%; height: 40px; background: #ef4444; color: #fff; border: none; border-radius: 10px; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
-                  <span>+</span> Draw Secondary (11 Left)
-                </button>
-              </div>
-            </div>
-
-          </div>
-        </div>
-
-        <!-- Tabletop Capabilities Sub-Tabs (Integrated In-App Modules) -->
-        <div style="background: #0d121c; border-top: 1px solid #273042; border-bottom: 1px solid #273042; display: flex; overflow-x: auto;">
-          <button onclick="setTrackerTab('objectives')" id="demo-tab-btn-objectives" class="omni-stage-btn active" style="flex: 1; padding: 0.85rem 1rem; font-size: 0.85rem; border-bottom: 2px solid #38bdf8; color: #fff; font-weight: 700; cursor: pointer; white-space: nowrap;">
-            🎯 Mission Rules &amp; VP Math
-          </button>
-          <button onclick="setTrackerTab('clocks')" id="demo-tab-btn-clocks" class="omni-stage-btn" style="flex: 1; padding: 0.85rem 1rem; font-size: 0.85rem; border-bottom: 2px solid transparent; color: #94a3b8; font-weight: 700; cursor: pointer; white-space: nowrap;">
-            ⏱️ Tournament Chess Clock
-          </button>
-          <button onclick="setTrackerTab('dice')" id="demo-tab-btn-dice" class="omni-stage-btn" style="flex: 1; padding: 0.85rem 1rem; font-size: 0.85rem; border-bottom: 2px solid transparent; color: #94a3b8; font-weight: 700; cursor: pointer; white-space: nowrap;">
-            🎲 Synchronized Dice Roller
-          </button>
-          <button onclick="setTrackerTab('roster')" id="demo-tab-btn-roster" class="omni-stage-btn" style="flex: 1; padding: 0.85rem 1rem; font-size: 0.85rem; border-bottom: 2px solid transparent; color: #94a3b8; font-weight: 700; cursor: pointer; white-space: nowrap;">
-            📜 Roster &amp; Stratagems
-          </button>
-        </div>
-
-        <!-- Sub-Tab 1: Objectives & Mission Scoring -->
-        <div id="demo-tab-content-objectives" style="padding: 1.5rem; display: block;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
-            
-            <!-- Primary Mission Rules & Modifiers -->
-            <div style="background: #090f1d; border: 1px solid #273042; border-radius: 10px; padding: 1.15rem;">
-              <div style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace;">Primary Mission Scoring Matrix</div>
-              <div style="font-weight: 800; font-size: 0.98rem; color: #fff; margin-bottom: 0.4rem;">Take and Hold (Pariah Nexus GT)</div>
-              <p style="font-size: 0.78rem; color: #94a3b8; margin: 0 0 0.85rem 0; line-height: 1.45;">
-                In the Command phase of Battle Rounds 2–5, score 4 VP for holding one objective marker, and an additional 4 VP for holding more objective markers than your opponent (max 15 VP/round, max 45 VP match cap).
-              </p>
-              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                <button onclick="quickAddPrimaryVP('p1', 4, this)" class="btn btn-outline" style="font-size: 0.75rem; padding: 5px 10px; border-radius: 6px; color: #38bdf8; border-color: rgba(56,189,248,0.3); cursor: pointer;">
-                  +4 VP (Marcus Holds 1)
-                </button>
-                <button onclick="quickAddPrimaryVP('p1', 4, this)" class="btn btn-outline" style="font-size: 0.75rem; padding: 5px 10px; border-radius: 6px; color: #38bdf8; border-color: rgba(56,189,248,0.3); cursor: pointer;">
-                  +4 VP (Marcus Holds More)
-                </button>
-                <button onclick="quickAddPrimaryVP('p2', 4, this)" class="btn btn-outline" style="font-size: 0.75rem; padding: 5px 10px; border-radius: 6px; color: #ef4444; border-color: rgba(239,68,68,0.3); cursor: pointer;">
-                  +4 VP (Tara Holds 1)
-                </button>
-                <button onclick="quickAddPrimaryVP('p2', 4, this)" class="btn btn-outline" style="font-size: 0.75rem; padding: 5px 10px; border-radius: 6px; color: #ef4444; border-color: rgba(239,68,68,0.3); cursor: pointer;">
-                  +4 VP (Tara Holds More)
-                </button>
-              </div>
-            </div>
-
-            <!-- Tactical Secondaries Engine Details -->
-            <div style="background: #090f1d; border: 1px solid #273042; border-radius: 10px; padding: 1.15rem;">
-              <div style="font-size: 0.72rem; font-weight: 800; color: #c084fc; text-transform: uppercase; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace;">11th Edition Tactical Secondary Engine</div>
-              <div style="font-weight: 800; font-size: 0.98rem; color: #fff; margin-bottom: 0.4rem;">Dynamic Draw &amp; Discard CP Economy</div>
-              <p style="font-size: 0.78rem; color: #94a3b8; margin: 0 0 0.85rem 0; line-height: 1.45;">
-                Draw 2 secondary cards at the start of your Command phase. Complete missions for instant VP, or discard an unachievable card at the end of your turn to generate +1 Command Point. Maximum 45 VP per match.
-              </p>
-              <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.78rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 5px 8px; border-radius: 6px;">
-                  <span style="color: #cbd5e1;">⚡ Secondary Deck Draw</span>
-                  <span style="color: #38bdf8; font-family: 'JetBrains Mono', monospace; font-weight: 700;">Draw up to 2 cards / round</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 5px 8px; border-radius: 6px;">
-                  <span style="color: #cbd5e1;">🔄 Discard for CP</span>
-                  <span style="color: #f59e0b; font-family: 'JetBrains Mono', monospace; font-weight: 700;">+1 CP per turn</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 5px 8px; border-radius: 6px;">
-                  <span style="color: #cbd5e1;">🎨 Battle-Ready Paint Bonus</span>
-                  <span style="color: #10b981; font-family: 'JetBrains Mono', monospace; font-weight: 700;">+10 VP Included</span>
-                </div>
-              </div>
-            </div>
-
-          </div>
-        </div>
-
-        <!-- Sub-Tab 2: Chess Clock & Battle-Shock -->
-        <div id="demo-tab-content-clocks" style="padding: 1.5rem; display: none;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; align-items: start;">
-            
-            <!-- Tournament Chess Clock Simulator -->
-            <div style="background: #090f1d; border: 1px solid #273042; border-radius: 10px; padding: 1.25rem;">
-              <div style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace;">Official Tournament Chess Clock</div>
-              <div style="font-weight: 800; font-size: 0.98rem; color: #fff; margin-bottom: 0.5rem;">Synchronized Peer-to-Peer Timers</div>
-              <p style="font-size: 0.78rem; color: #94a3b8; margin: 0 0 1rem 0; line-height: 1.45;">
-                Dual countdown timers with instant websocket broadcast. When a player finishes their turn or passes priority during defensive rolls, one tap switches active clock time.
-              </p>
-              <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem;">
-                <div style="flex: 1; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 8px; text-align: center;">
-                  <div style="font-size: 10px; color: #38bdf8; font-weight: 800;">MARCUS (Aeldari)</div>
-                  <div id="demo-clock-p1" style="font-size: 20px; font-weight: 900; color: #f0f4fc; font-family: ui-monospace, monospace;">01:14:10</div>
-                </div>
-                <div style="flex: 1; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 8px; text-align: center;">
-                  <div style="font-size: 10px; color: #ef4444; font-weight: 800;">TARA (World Eaters)</div>
-                  <div id="demo-clock-p2" style="font-size: 20px; font-weight: 900; color: #f0f4fc; font-family: ui-monospace, monospace;">00:54:18</div>
-                </div>
-              </div>
-              <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-                <button onclick="toggleDemoClock(this)" class="btn btn-primary" id="demo-clock-toggle-btn" style="padding: 0.55rem 1.2rem; font-size: 0.8rem; font-weight: 800; border-radius: 7px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
-                  <span>▶ Start / Switch Turn Clock</span>
-                </button>
-                <span id="demo-clock-status" style="font-size: 0.75rem; color: #94a3b8; font-family: 'JetBrains Mono', monospace;">Clock: Paused</span>
-              </div>
-            </div>
-
-            <!-- Battle-Shock Test Simulator -->
-            <div style="background: #090f1d; border: 1px solid #273042; border-radius: 10px; padding: 1.25rem;">
-              <div style="font-size: 0.72rem; font-weight: 800; color: #ef4444; text-transform: uppercase; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace;">Leadership &amp; Battle-Shock Test</div>
-              <div style="font-weight: 800; font-size: 0.98rem; color: #fff; margin-bottom: 0.5rem;">2D6 Check vs. Datasheet Leadership</div>
-              <p style="font-size: 0.78rem; color: #94a3b8; margin: 0 0 1rem 0; line-height: 1.45;">
-                Units below Half-strength must test in the Command phase. Failing sets Objective Control (OC) to 0 and blocks Stratagem targeting until next turn.
-              </p>
-              <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem;">
-                <button onclick="rollDemoBattleShock()" class="btn btn-outline" style="padding: 0.55rem 1.1rem; font-size: 0.8rem; font-weight: 800; border-radius: 7px; color: #ef4444; border-color: rgba(239,68,68,0.4); display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
-                  <span>🎲 Test Tara's Berzerkers (Ld 6+)</span>
-                </button>
-                <div id="demo-shock-roll-result" style="font-size: 0.78rem; color: #cbd5e1; font-family: monospace;">
-                  Ready to roll (Ld 6+)
-                </div>
-              </div>
-              <div style="background: rgba(255,255,255,0.03); border-radius: 6px; padding: 6px 10px; font-size: 0.74rem; color: #94a3b8;">
-                ℹ️ Pass: 2D6 roll &ge; unit Leadership value. Fail: Unit OC becomes 0.
-              </div>
-            </div>
-
-          </div>
-        </div>
-
-        <!-- Sub-Tab 3: Digital Dice Roller -->
-        <div id="demo-tab-content-dice" style="padding: 1.5rem; display: none;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
-            
-            <!-- Quick Dice Roller -->
-            <div style="background: #090f1d; border: 1px solid #273042; border-radius: 10px; padding: 1.25rem;">
-              <div style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace;">Synchronized Tabletop Dice Engine</div>
-              <div style="font-weight: 800; font-size: 0.98rem; color: #fff; margin-bottom: 0.5rem;">Fast Attack &amp; Wound Sequence (10 D6)</div>
-              <p style="font-size: 0.78rem; color: #94a3b8; margin: 0 0 0.85rem 0; line-height: 1.45;">
-                Cryptographically secure random number generation broadcast live to opponent screens. Hits on 3+, Critical 6s highlighted, Wounds on 4+.
-              </p>
-              <button onclick="rollDemoDice()" class="btn btn-primary" style="padding: 0.5rem 1.2rem; font-size: 0.8rem; font-weight: 800; border-radius: 7px; margin-bottom: 0.75rem; cursor: pointer;">
-                🎲 Roll 10 Attacks (D6)
-              </button>
-              <div id="demo-dice-results" style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 0.5rem; font-size: 1.15rem;">
-                <span class="hub-loc-chip active" style="padding: 2px 8px;">⚂ 3</span>
-                <span class="hub-loc-chip active" style="padding: 2px 8px;">⚄ 5</span>
-                <span class="hub-loc-chip active" style="padding: 2px 8px; border-color: #f59e0b; color: #f59e0b;">⚅ 6★</span>
-                <span class="hub-loc-chip" style="padding: 2px 8px; opacity: 0.4;">⚀ 1</span>
-                <span class="hub-loc-chip active" style="padding: 2px 8px;">⚃ 4</span>
-                <span class="hub-loc-chip active" style="padding: 2px 8px;">⚂ 3</span>
-                <span class="hub-loc-chip active" style="padding: 2px 8px; border-color: #f59e0b; color: #f59e0b;">⚅ 6★</span>
-                <span class="hub-loc-chip active" style="padding: 2px 8px;">⚄ 5</span>
-                <span class="hub-loc-chip" style="padding: 2px 8px; opacity: 0.4;">⚁ 2</span>
-                <span class="hub-loc-chip active" style="padding: 2px 8px;">⚃ 4</span>
-              </div>
-              <div id="demo-dice-summary" style="font-size: 0.75rem; color: #10b981; font-weight: 700;">
-                8 Hits (2 Criticals) &bull; 5 Successful Wounds!
-              </div>
-            </div>
-
-            <!-- Dice Features Info -->
-            <div style="background: #090f1d; border: 1px solid #273042; border-radius: 10px; padding: 1.25rem;">
-              <div style="font-size: 0.72rem; font-weight: 800; color: #f59e0b; text-transform: uppercase; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace;">Anti-Cheat &amp; Spectator Feed</div>
-              <div style="font-weight: 800; font-size: 0.98rem; color: #fff; margin-bottom: 0.5rem;">Transparent Peer Verification</div>
-              <p style="font-size: 0.78rem; color: #94a3b8; margin: 0 0 1rem 0; line-height: 1.45;">
-                Every roll is timestamped and logged in match history. Opponents see the dice tumble on their phone in real time, eliminating tabletop disputes.
-              </p>
-              <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 0.75rem; font-size: 0.75rem; color: #f0f4fc;">
-                <div style="font-weight: 800; color: #f59e0b; margin-bottom: 2px;">⚡ Integrated Re-Rolls &amp; Modifiers</div>
-                <div>Support for Command Re-roll (1 CP), Sustained Hits, Lethal Hits, Devastating Wounds, and Twin-linked weapon rerolls.</div>
-              </div>
-            </div>
-
-          </div>
-        </div>
-
-        <!-- Sub-Tab 4: Opponent Roster & Stratagems (Integrated NewRecruit Play Mode Inspector) -->
-        <div id="demo-tab-content-roster" style="padding: 1.5rem; display: none;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
-            
-            <!-- Live Army List Datasheet Preview -->
-            <div style="background: #090f1d; border: 1px solid #273042; border-radius: 10px; padding: 1.25rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <div style="font-size: 0.72rem; font-weight: 800; color: #ef4444; text-transform: uppercase; font-family: 'JetBrains Mono', monospace;">Opponent Datasheet (NewRecruit Sync)</div>
-                <span style="font-size: 0.7rem; color: #10b981; background: rgba(16,185,129,0.12); padding: 2px 6px; border-radius: 4px;">🟢 In Range</span>
-              </div>
-              <div style="font-weight: 800; font-size: 1rem; color: #fff; margin-bottom: 0.5rem;">Khorne Berzerkers (10 Models)</div>
-              
-              <!-- Statline Grid -->
-              <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; text-align: center; background: #12161f; border: 1px solid #273042; border-radius: 6px; padding: 6px 4px; margin-bottom: 0.75rem; font-family: 'JetBrains Mono', monospace;">
-                <div><div style="font-size: 9px; color: #94a3b8;">M</div><div style="font-weight: 800; font-size: 12px; color: #fff;">6"</div></div>
-                <div><div style="font-size: 9px; color: #94a3b8;">T</div><div style="font-weight: 800; font-size: 12px; color: #fff;">4</div></div>
-                <div><div style="font-size: 9px; color: #94a3b8;">SV</div><div style="font-weight: 800; font-size: 12px; color: #fff;">3+</div></div>
-                <div><div style="font-size: 9px; color: #94a3b8;">W</div><div style="font-weight: 800; font-size: 12px; color: #fff;">2</div></div>
-                <div><div style="font-size: 9px; color: #94a3b8;">LD</div><div style="font-weight: 800; font-size: 12px; color: #fff;">6+</div></div>
-                <div><div style="font-size: 9px; color: #94a3b8;">OC</div><div style="font-weight: 800; font-size: 12px; color: #38bdf8;">2</div></div>
-              </div>
-
-              <!-- Health Tracker -->
-              <div style="margin-bottom: 0.6rem;">
-                <div style="display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; font-family: 'JetBrains Mono', monospace; margin-bottom: 3px;">
-                  <span>Unit Health</span>
-                  <span style="color: #10b981; font-weight: 800;">20 / 20 Wounds</span>
-                </div>
-                <div style="height: 6px; background: #273042; border-radius: 9999px; overflow: hidden;">
-                  <div style="width: 100%; height: 100%; background: #10b981;"></div>
-                </div>
-              </div>
-
-              <div style="font-size: 0.74rem; color: #cbd5e1; line-height: 1.4;">
-                <b style="color: #ef4444;">Weapons:</b> Berzerker chainblade (A4, S5, AP-1, D1), Bolt pistol, Icon of Khorne (+1 to Blessing rolls).
-              </div>
-            </div>
-
-            <!-- Integrated NewRecruit Play Mode Stratagem Cards -->
-            <div style="background: #090f1d; border: 1px solid #273042; border-radius: 10px; padding: 1.25rem;">
-              <div style="font-size: 0.72rem; font-weight: 800; color: #f59e0b; text-transform: uppercase; margin-bottom: 4px; font-family: 'JetBrains Mono', monospace;">NewRecruit Play Mode Stratagems</div>
-              <div style="font-weight: 800; font-size: 0.98rem; color: #fff; margin-bottom: 0.5rem;">Instant Rules, Phase &amp; CP Costs</div>
-
-              <!-- Stratagem 1: World Eaters -->
-              <div style="background: #12161f; border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.6rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
-                  <span style="font-weight: 800; font-size: 0.85rem; color: #fff;">FOR THE BLOOD GOD!</span>
-                  <span style="font-size: 0.72rem; font-weight: 800; color: #ef4444; background: rgba(239,68,68,0.15); padding: 2px 6px; border-radius: 4px;">1 CP</span>
-                </div>
-                <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 0.35rem;">World Eaters &bull; Battle Tactic &bull; Fight Phase</div>
-                <div style="font-size: 0.75rem; color: #cbd5e1; line-height: 1.35;">
-                  Until the end of the phase, each time a model in your unit makes an attack, an unmodified hit roll of 5+ scores a Critical Hit.
-                </div>
-              </div>
-
-              <!-- Stratagem 2: Aeldari -->
-              <div style="background: #12161f; border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; padding: 0.75rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
-                  <span style="font-weight: 800; font-size: 0.85rem; color: #fff;">LIGHTNING-FAST REACTIONS</span>
-                  <span style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; background: rgba(56,189,248,0.15); padding: 2px 6px; border-radius: 4px;">1 CP</span>
-                </div>
-                <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 0.35rem;">Aeldari &bull; Battle Tactic &bull; Opponent's Shooting / Fight Phase</div>
-                <div style="font-size: 0.75rem; color: #cbd5e1; line-height: 1.35;">
-                  Until the end of the phase, each time an attack targets your unit, subtract 1 from the Hit roll made for that attack.
-                </div>
-              </div>
-
-            </div>
-
-          </div>
-        </div>
-
-        <!-- Scorecard Showcase Bottom Action Row -->
-        <div style="background: #070b14; border-top: 1px solid #273042; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
-          <div style="display: flex; align-items: center; gap: 8px; font-size: 0.78rem; color: #94a3b8;">
-            <span>⚡ 100% Free Live Matchmaking &amp; Scoring</span>
-            <span>&bull;</span>
-            <span>Zero App Downloads Required</span>
-            <span>&bull;</span>
-            <span>11th Edition Official Scoring Rules</span>
-          </div>
-          <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
-            <a href="#community-hub-showcase" class="btn btn-outline" style="font-size: 0.78rem; padding: 6px 12px; border-radius: 7px; color: #cbd5e1; border-color: rgba(255,255,255,0.15); text-decoration: none;">
-              🎯 Sparring Radar Example ↑
-            </a>
-            <a href="#features" class="btn btn-outline" style="font-size: 0.78rem; padding: 6px 12px; border-radius: 7px; color: #38bdf8; border-color: rgba(56,189,248,0.3); text-decoration: none;">
-              📊 6 Platform Pillars ↓
-            </a>
-            <a href="/11th/tracker" class="btn btn-primary" style="font-size: 0.78rem; padding: 6px 14px; border-radius: 7px; font-weight: 800; text-decoration: none; box-shadow: 0 4px 14px rgba(56,189,248,0.3);">
-              🏁 Open Live Game Tracker (Room #WH40K-7842) →
-            </a>
-          </div>
-        </div>
-
-      </div>
-    </section>
-
-    <!-- Tactical Capabilities & Community Suite -->
-    <section class="landing-features-sec" id="features">
-      <div class="landing-sec-head">
-        <div class="landing-badge" style="margin-bottom: 0.75rem;">Tactical Capabilities</div>
-        <h2 class="landing-sec-title">Built for Serious Tabletop Competitors</h2>
-        <p class="landing-sec-sub">Six powerful, community-driven pillars designed from the ground up for players, gaming clubs, and tournament organizers.</p>
       </div>
 
       <div class="landing-grid-4">
-        <!-- Feature 1: Live Game Tracker -->
-        <div class="landing-feat-card" id="tracker">
-          <div class="landing-feat-icon">🎲</div>
-          <h3 class="landing-feat-title">Live-Sync 11th Ed. Game Tracker</h3>
-          <p class="landing-feat-desc">
-            Tabletop digital scoreboard with real-time peer sync. Features round progression (R1–R5), automated primary &amp; secondary mission VP math, CP &amp; battle-shock counters, tournament chess clocks, fast digital dice rolling, and integrated NewRecruit Play Mode datasheets &amp; stratagems.
-          </p>
-          <a href="#game-tracker-showcase" style="display: inline-flex; align-items: center; gap: 5px; color: #38bdf8; font-size: 0.82rem; font-weight: 700; text-decoration: none; margin-top: 0.75rem;">
-            Interactive Scorecard Demo ↑
-          </a>
-        </div>
-
-        <!-- Feature 2: Local Game Store (FLGS) Directory -->
-        <div class="landing-feat-card" id="game-stores">
-          <div class="landing-feat-icon">🏪</div>
-          <h3 class="landing-feat-title">Local Game Store (FLGS) &amp; Venue Directory</h3>
-          <p class="landing-feat-desc">
-            Discover friendly local game stores, hobby shops, and tabletop clubs within 25 to 500 miles. Set your home store so neighboring players can challenge you at your favorite venue and support the brick-and-mortar spaces that power the hobby.
-          </p>
-          <a href="#community-hub-showcase" style="display: inline-flex; align-items: center; gap: 5px; color: #38bdf8; font-size: 0.82rem; font-weight: 700; text-decoration: none; margin-top: 0.75rem;">
-            Explore Nearby Venues &amp; Stores ↑
-          </a>
-        </div>
-
-        <!-- Feature 3: Player & Team Elo Leaderboards -->
+        <!-- 1. Leaderboards, My Hub & Teams -->
         <div class="landing-feat-card" id="leaderboard">
-          <div class="landing-feat-icon">👑</div>
-          <h3 class="landing-feat-title">Global &amp; Local Tabletop Elo Leaderboards</h3>
-          <p class="landing-feat-desc">
-            Transparent Elo ratings and skill trajectories calculated across community, club, and tournament matches. Explore individual rankings, regional club standings, career win percentages, peak ratings, and faction performance histories.
-          </p>
-          <a href="/login?redirect=/app#leaderboard" style="display: inline-flex; align-items: center; gap: 5px; color: #38bdf8; font-size: 0.82rem; font-weight: 700; text-decoration: none; margin-top: 0.75rem;">
-            Sign In to Browse Leaderboards ↗
-          </a>
+          <div class="landing-feat-icon" style="background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.35); color: #f59e0b;">🏆</div>
+          <div class="landing-feat-title">Commander Hub, Elo &amp; Teams</div>
+          <div class="landing-feat-desc">
+            Track global and regional Elo rankings across <strong>40K &amp; Age of Sigmar</strong>. Follow your personal Elo trajectory, faction mastery, club team rosters, and unlock 100+ career trophies &amp; Armory titles.
+          </div>
+          <div style="margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 6px;">
+            <span class="hub-loc-chip active" style="font-size: 0.68rem;">Global &amp; Regional Elo</span>
+            <span class="hub-loc-chip" style="font-size: 0.68rem;">Team Rankings</span>
+            <span class="hub-loc-chip" style="font-size: 0.68rem;">105+ Trophies &amp; Armory</span>
+          </div>
         </div>
 
-        <!-- Feature 4: Meta Intel & Matchup Predictor -->
-        <div class="landing-feat-card" id="meta-intel" style="position: relative;">
-          <span id="predictor" style="position: absolute; top: -80px; visibility: hidden;"></span>
-          <div class="landing-feat-icon">📊</div>
-          <h3 class="landing-feat-title">Meta Intel &amp; Matchup Predictor</h3>
-          <p class="landing-feat-desc">
-            Deep statistical clarity into the competitive landscape. Analyze real-time faction win rates, tournament representation, and balance dataslate shifts, or simulate head-to-head clashes between any two competitors with algorithmic win probabilities.
-          </p>
-          <a href="/login?redirect=/app#meta-intel" style="display: inline-flex; align-items: center; gap: 5px; color: #38bdf8; font-size: 0.82rem; font-weight: 700; text-decoration: none; margin-top: 0.75rem;">
-            Sign In to Analyze Meta Win Rates ↗
-          </a>
+        <!-- 2. StatCheck-Style Meta Intel -->
+        <div class="landing-feat-card" id="meta-intel">
+          <div class="landing-feat-icon" style="background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.35); color: #10b981;">📊</div>
+          <div class="landing-feat-title">StatCheck Meta Intel &amp; Matrix</div>
+          <div class="landing-feat-desc">
+            Explore live <strong>S–D Faction Tier Lists</strong>, Popularity vs. Power <strong>Meta Quadrants</strong>, interactive <strong>N&times;N Matchup Heatmaps</strong>, 4-0+ conversion rates, and the Head-to-Head Matchup Predictor.
+          </div>
+          <div style="margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 6px;">
+            <span class="hub-loc-chip active" style="font-size: 0.68rem; border-color: rgba(16,185,129,0.4); color: #10b981;">Tier List &amp; Quadrant</span>
+            <span class="hub-loc-chip" style="font-size: 0.68rem;">N&times;N Matchup Matrix</span>
+            <span class="hub-loc-chip" style="font-size: 0.68rem;">Matchup Predictor</span>
+          </div>
         </div>
 
-        <!-- Feature 5: Unified Tournament Radar -->
-        <div class="landing-feat-card" id="tournaments">
-          <div class="landing-feat-icon">🎯</div>
-          <h3 class="landing-feat-title">Unified Tournament Radar (25–500 Miles)</h3>
-          <p class="landing-feat-desc">
-            Discover upcoming Grand Tournaments, Major GTs, and RTTs within 25 to 500 miles of your live GPS or chosen city. Inspect registered competitor rosters, calculate dynamic Field Avg Elo ratings, and preview matchup spreads before you register.
-          </p>
-          <a href="#community-hub-showcase" style="display: inline-flex; align-items: center; gap: 5px; color: #38bdf8; font-size: 0.82rem; font-weight: 700; text-decoration: none; margin-top: 0.75rem;">
-            View Tournament Radar ↑
-          </a>
-        </div>
-
-        <!-- Feature 6: Real-Time Sparring Radar & Matchmaking -->
+        <!-- 3. Sparring Radar & Real-Time Chat -->
         <div class="landing-feat-card" id="sparring-radar">
-          <div class="landing-feat-icon">⚔️</div>
-          <h3 class="landing-feat-title">Real-Time Sparring Radar &amp; Matchmaking</h3>
-          <p class="landing-feat-desc">
-            Broadcast your tabletop availability, filter nearby generals within 25 to 500 miles, propose 1,000pt or 2,000pt sparring matches, and coordinate games at your local store with instant direct messaging.
-          </p>
-          <a href="#sparring" style="display: inline-flex; align-items: center; gap: 5px; color: #38bdf8; font-size: 0.82rem; font-weight: 700; text-decoration: none; margin-top: 0.75rem;">
-            Explore Sparring Radar ↑
+          <div class="landing-feat-icon" style="background: rgba(56, 189, 248, 0.12); border-color: rgba(56, 189, 248, 0.35); color: #38bdf8;">🎯</div>
+          <div class="landing-feat-title">Sparring Radar &amp; Live Chat</div>
+          <div class="landing-feat-desc">
+            Discover nearby players sorted by GPS distance, Elo band, and play style (Casual, Competitive, or GT Prep). Send 1-click sparring challenges and coordinate in real-time push chat.
+          </div>
+          <div style="margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 6px;">
+            <span class="hub-loc-chip active" style="font-size: 0.68rem;">GPS Proximity</span>
+            <span class="hub-loc-chip" style="font-size: 0.68rem;">1-Click Challenge</span>
+            <span class="hub-loc-chip" style="font-size: 0.68rem;">Real-Time Chat</span>
+          </div>
+        </div>
+
+        <!-- 4. Tournament Radar & Leagues Hub -->
+        <div class="landing-feat-card" id="tournaments">
+          <div class="landing-feat-icon" style="background: rgba(168, 85, 247, 0.12); border-color: rgba(168, 85, 247, 0.35); color: #a855f7;">🗺️</div>
+          <div class="landing-feat-title">Tournament Radar &amp; Leagues</div>
+          <div class="landing-feat-desc">
+            Find upcoming RTTs, GTs, and Majors on an interactive map ranked by <strong>Field Average Elo</strong>, or join local escalation &amp; seasonal leagues with automated pod pairings and standings.
+          </div>
+          <div style="margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 6px;">
+            <span class="hub-loc-chip active" style="font-size: 0.68rem; border-color: rgba(168,85,247,0.4); color: #d8b4fe;">Field Strength Elo</span>
+            <span class="hub-loc-chip" style="font-size: 0.68rem;">Interactive Map</span>
+            <span class="hub-loc-chip" style="font-size: 0.68rem;">Leagues Hub</span>
+          </div>
+        </div>
+
+        <!-- 5. Live Game Tracker (40K & AoS) -->
+        <div class="landing-feat-card" id="tracker">
+          <div class="landing-feat-icon" style="background: rgba(56, 189, 248, 0.12); border-color: rgba(56, 189, 248, 0.35); color: #38bdf8;">🎲</div>
+          <div class="landing-feat-title">Live Game Tracker (40K &amp; AoS)</div>
+          <div class="landing-feat-desc">
+            Score tabletop battles in real time with peer-to-peer sync. Includes Primary &amp; Secondary VP math, Command Points, tournament chess clocks, and synchronized dice rolling.
+          </div>
+          <div style="margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 6px;">
+            <span class="hub-loc-chip active" style="font-size: 0.68rem;">P2P Live Sync</span>
+            <span class="hub-loc-chip" style="font-size: 0.68rem;">Tactical Secondaries</span>
+            <span class="hub-loc-chip" style="font-size: 0.68rem;">Chess Clocks</span>
+          </div>
+        </div>
+
+        <!-- 6. Local Game Stores & NewRecruit Army Lists -->
+        <div class="landing-feat-card" id="game-stores">
+          <div class="landing-feat-icon" style="background: rgba(244, 63, 94, 0.12); border-color: rgba(244, 63, 94, 0.35); color: #fb7185;">🏪</div>
+          <div class="landing-feat-title">FLGS Directory &amp; Army Lists</div>
+          <div class="landing-feat-desc">
+            Check into Friendly Local Game Stores to see table counts and local regulars, and manage your <strong>NewRecruit army lists</strong> with instant Play Mode unit datasheets and weapon profiles.
+          </div>
+          <div style="margin-top: 0.9rem; display: flex; flex-wrap: wrap; gap: 6px;">
+            <span class="hub-loc-chip active" style="font-size: 0.68rem; border-color: rgba(244,63,94,0.4); color: #fda4af;">FLGS Store Radar</span>
+            <span class="hub-loc-chip" style="font-size: 0.68rem;">NewRecruit Studio</span>
+            <span class="hub-loc-chip" style="font-size: 0.68rem;">Unit Datasheets</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Single Unified Interactive Preview (Toggle between Sparring Radar & Live Game Tracker) -->
+    <section class="landing-connect-showcase" id="community-hub-showcase" style="margin-top: 3rem; margin-bottom: 3rem;">
+      <div id="sparring"></div>
+      <div class="landing-sec-head" style="margin-bottom: 1.5rem;">
+        <div class="landing-badge" style="background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.35); color: #10b981; margin-bottom: 0.5rem;">
+          🎯 Interactive Sandbox &bull; Try Before Signing In
+        </div>
+        <h2 class="landing-sec-title" style="font-size: 1.85rem;">Test the Live Tools in Action</h2>
+        <p class="landing-sec-sub">
+          Switch between the <strong>Live Game Tracker Scorecard</strong> and the <strong>Sparring Radar &amp; Match Chat</strong> below.
+        </p>
+
+        <!-- Clean 2-Mode Switcher -->
+        <div style="display:inline-flex; gap:6px; background:#0b111e; border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:5px; margin-top:1rem; flex-wrap:wrap; justify-content:center;">
+          <button type="button" id="sandbox-mode-btn-tracker" onclick="switchLandingSandboxMode('tracker')" style="padding:8px 16px; border-radius:8px; border:none; background:linear-gradient(135deg, #0284c7, #0369a1); color:#fff; font-weight:800; font-size:0.82rem; cursor:pointer; transition:all 0.2s;">
+            🎲 Live Game Tracker Scorecard
+          </button>
+          <button type="button" id="sandbox-mode-btn-radar" onclick="switchLandingSandboxMode('radar')" style="padding:8px 16px; border-radius:8px; border:none; background:transparent; color:#94a3b8; font-weight:800; font-size:0.82rem; cursor:pointer; transition:all 0.2s;">
+            🎯 Sparring Radar &amp; Match Chat
+          </button>
+        </div>
+      </div>
+
+      <!-- SANDBOX PANEL A: Compact Live Game Tracker Scorecard -->
+      <div id="sandbox-panel-tracker" style="background: #0b0f19; border: 1px solid rgba(56, 189, 248, 0.28); border-radius: 18px; overflow: hidden; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);">
+        <div style="padding: 0.75rem 1.25rem; background: rgba(15,23,42,0.9); border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <span style="font-size: 0.75rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">🎲 Match Lobby &bull; Live Room Creation &amp; Scoring</span>
+          <span style="font-size: 0.72rem; color: #94a3b8;">Click any <strong style="color:#fff;">CP (+/-)</strong>, <strong style="color:#fff;">Primary</strong>, or <strong style="color:#fff;">Secondary</strong> button below to test live scoring</span>
+        </div>
+
+        <div style="padding: 1.25rem; background: radial-gradient(circle at 50% 0%, rgba(30, 41, 59, 0.45) 0%, rgba(11, 15, 25, 0.98) 75%);">
+          <div style="max-width: 920px; margin: 0 auto;">
+            <!-- Top Dual Scoreboard Banner -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.65rem; margin-bottom: 0.75rem;">
+              <div style="background: #131824; border: 1px solid #262f45; border-radius: 10px; padding: 0.75rem 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; font-weight: 800; color: #38bdf8; letter-spacing: 0.05em;">MARCUS VANCE (AELDARI)</span>
+                  <span style="background: #1c2539; border: 1px solid #2e3b52; border-radius: 999px; padding: 2px 8px; font-size: 0.65rem; font-weight: 800; color: #94a3b8;">CP <strong id="demo-p1-header-cp" style="color: #38bdf8;">2</strong></span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.85rem;">
+                  <div id="demo-p1-total" style="font-family: 'Inter', sans-serif; font-size: 2.1rem; font-weight: 900; color: #fff; line-height: 1;">68</div>
+                  <div style="flex: 1; display: flex; flex-direction: column; gap: 5px;">
+                    <div style="display: flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: #94a3b8;">
+                      <span style="width: 24px;">PRI</span>
+                      <div style="flex: 1; height: 5px; background: #1e293b; border-radius: 999px; overflow: hidden;">
+                        <div id="demo-p1-pri-bar" style="width: 77%; height: 100%; background: #38bdf8; border-radius: 999px; transition: width 0.25s ease;"></div>
+                      </div>
+                      <span style="width: 34px; text-align: right;"><span id="demo-p1-pri">35</span>/45</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: #94a3b8;">
+                      <span style="width: 24px;">SEC</span>
+                      <div style="flex: 1; height: 5px; background: #1e293b; border-radius: 999px; overflow: hidden;">
+                        <div id="demo-p1-sec-bar" style="width: 51%; height: 100%; background: #38bdf8; border-radius: 999px; transition: width 0.25s ease;"></div>
+                      </div>
+                      <span style="width: 34px; text-align: right;"><span id="demo-p1-sec">23</span>/45</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="background: #131824; border: 1px solid #262f45; border-radius: 10px; padding: 0.75rem 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                  <span style="background: #1c2539; border: 1px solid #2e3b52; border-radius: 999px; padding: 2px 8px; font-size: 0.65rem; font-weight: 800; color: #94a3b8;">CP <strong id="demo-p2-header-cp" style="color: #ef4444;">1</strong></span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; font-weight: 800; color: #ef4444; letter-spacing: 0.05em;">TARA LINDQVIST (WORLD EATERS)</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.85rem;">
+                  <div style="flex: 1; display: flex; flex-direction: column; gap: 5px;">
+                    <div style="display: flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: #94a3b8;">
+                      <span style="width: 34px;"><span id="demo-p2-pri">30</span>/45</span>
+                      <div style="flex: 1; height: 5px; background: #1e293b; border-radius: 999px; overflow: hidden; display: flex; justify-content: flex-end;">
+                        <div id="demo-p2-pri-bar" style="width: 66%; height: 100%; background: #ef4444; border-radius: 999px; transition: width 0.25s ease;"></div>
+                      </div>
+                      <span style="width: 24px; text-align: right;">PRI</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: #94a3b8;">
+                      <span style="width: 34px;"><span id="demo-p2-sec">22</span>/45</span>
+                      <div style="flex: 1; height: 5px; background: #1e293b; border-radius: 999px; overflow: hidden; display: flex; justify-content: flex-end;">
+                        <div id="demo-p2-sec-bar" style="width: 48%; height: 100%; background: #ef4444; border-radius: 999px; transition: width 0.25s ease;"></div>
+                      </div>
+                      <span style="width: 24px; text-align: right;">SEC</span>
+                    </div>
+                  </div>
+                  <div id="demo-p2-total" style="font-family: 'Inter', sans-serif; font-size: 2.1rem; font-weight: 900; color: #fff; line-height: 1;">62</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Battle Round Bar -->
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem; align-items: stretch; flex-wrap: wrap;">
+              <div style="flex: 1; min-width: 200px; background: #131824; border: 1px solid #262f45; border-radius: 10px; padding: 0.45rem 1rem; display: flex; justify-content: space-between; align-items: center;">
+                <button type="button" onclick="stepTrackerRound(-1)" style="background: transparent; border: none; color: #cbd5e1; font-size: 1rem; cursor: pointer; padding: 4px 10px;">&#10094;</button>
+                <div style="text-align: center;">
+                  <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; color: #94a3b8; letter-spacing: 0.08em; text-transform: uppercase;">BATTLE ROUND</div>
+                  <div style="font-family: 'Inter', sans-serif; font-size: 1rem; font-weight: 900; color: #fff;"><span id="demo-round-num">3</span> <span style="font-size: 0.72rem; color: #64748b; font-weight: 600;">of 5</span></div>
+                </div>
+                <button type="button" onclick="stepTrackerRound(1)" style="background: transparent; border: none; color: #cbd5e1; font-size: 1rem; cursor: pointer; padding: 4px 10px;">&#10095;</button>
+              </div>
+              <div style="background: #131824; border: 1px solid #262f45; border-radius: 10px; padding: 0 0.9rem; display: flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 700; color: #94a3b8;">
+                <span>🗺️ Pariah Nexus / GHB</span>
+                <span>&bull;</span>
+                <span>⚙️ 2,000 pts</span>
+              </div>
+            </div>
+
+            <!-- Interactive Player Scoring Cards -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
+              <!-- P1 Card -->
+              <div style="background: #131824; border: 1px solid #262f45; border-radius: 12px; padding: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 0.65rem;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: #94a3b8;">COMMAND POINTS</span>
+                  <div style="display: flex; align-items: center; background: #1a2130; border: 1px solid #2a344a; border-radius: 6px; overflow: hidden;">
+                    <button type="button" onclick="adjustDemoCP('p1', -1)" style="width: 28px; height: 26px; background: transparent; border: none; color: #94a3b8; font-weight: 800; cursor: pointer;">-</button>
+                    <span id="demo-p1-cp" style="width: 28px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; font-weight: 800; color: #fff;">2</span>
+                    <button type="button" onclick="adjustDemoCP('p1', 1)" style="width: 28px; height: 26px; background: #38bdf8; border: none; color: #070b14; font-weight: 900; cursor: pointer;">+</button>
+                  </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 0.66rem; color: #94a3b8; margin-bottom: 0.35rem;">
+                  <span>PRIMARY MISSION</span>
+                  <span><strong id="demo-p1-pri-score" style="color: #fff;">10</strong> / 15</span>
+                </div>
+                <button type="button" id="demo-p1-pri-btn" onclick="toggleDemoPrimary('p1')" style="width: 100%; background: rgba(30, 157, 82, 0.08); border: 1.5px solid #1e9d52; border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin-bottom: 0.65rem;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; font-weight: 800; color: #fff;">TAKE AND HOLD</span>
+                  <span id="demo-p1-pri-badge" style="background: #1e9d52; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; font-weight: 800; padding: 2px 8px; border-radius: 999px;">+10 VP &middot; R3</span>
+                </button>
+
+                <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 0.66rem; color: #94a3b8; margin-bottom: 0.35rem;">
+                  <span>SECONDARIES &middot; TACTICAL</span>
+                  <span><strong id="demo-p1-sec-score" style="color: #fff;">8</strong> / 15</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                  <button type="button" onclick="toggleDemoSecondary('cleanse', 'p1', 4, this)" style="width: 100%; background: rgba(30, 157, 82, 0.06); border: 1.5px solid #1e9d52; border-radius: 8px; padding: 0.45rem 0.75rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; font-weight: 800; color: #fff;">CLEANSE</span>
+                    <span class="demo-sec-badge" style="color: #1e9d52; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; font-weight: 800;">+4 VP &middot; R3</span>
+                  </button>
+                  <button type="button" onclick="toggleDemoSecondary('assass', 'p1', 5, this)" style="width: 100%; background: rgba(56, 189, 248, 0.05); border: 1.5px solid #38bdf8; border-radius: 8px; padding: 0.45rem 0.75rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; font-weight: 800; color: #fff;">ASSASSINATION</span>
+                    <span class="demo-sec-badge" style="color: #38bdf8; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; font-weight: 800;">Held &middot; R2</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- P2 Card -->
+              <div style="background: #131824; border: 1px solid #262f45; border-radius: 12px; padding: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 0.65rem;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: #94a3b8;">COMMAND POINTS</span>
+                  <div style="display: flex; align-items: center; background: #1a2130; border: 1px solid #2a344a; border-radius: 6px; overflow: hidden;">
+                    <button type="button" onclick="adjustDemoCP('p2', -1)" style="width: 28px; height: 26px; background: transparent; border: none; color: #94a3b8; font-weight: 800; cursor: pointer;">-</button>
+                    <span id="demo-p2-cp" style="width: 28px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; font-weight: 800; color: #fff;">1</span>
+                    <button type="button" onclick="adjustDemoCP('p2', 1)" style="width: 28px; height: 26px; background: #ef4444; border: none; color: #fff; font-weight: 900; cursor: pointer;">+</button>
+                  </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 0.66rem; color: #94a3b8; margin-bottom: 0.35rem;">
+                  <span>PRIMARY MISSION</span>
+                  <span><strong id="demo-p2-pri-score" style="color: #fff;">10</strong> / 15</span>
+                </div>
+                <button type="button" id="demo-p2-pri-btn" onclick="toggleDemoPrimary('p2')" style="width: 100%; background: rgba(30, 157, 82, 0.08); border: 1.5px solid #1e9d52; border-radius: 8px; padding: 0.55rem 0.75rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin-bottom: 0.65rem;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; font-weight: 800; color: #fff;">PURGE THE FOE</span>
+                  <span id="demo-p2-pri-badge" style="background: #1e9d52; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; font-weight: 800; padding: 2px 8px; border-radius: 999px;">+10 VP &middot; R3</span>
+                </button>
+
+                <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 0.66rem; color: #94a3b8; margin-bottom: 0.35rem;">
+                  <span>SECONDARIES &middot; TACTICAL</span>
+                  <span><strong id="demo-p2-sec-score" style="color: #fff;">10</strong> / 15</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                  <button type="button" onclick="toggleDemoSecondary('bid', 'p2', 6, this)" style="width: 100%; background: rgba(30, 157, 82, 0.06); border: 1.5px solid #1e9d52; border-radius: 8px; padding: 0.45rem 0.75rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; font-weight: 800; color: #fff;">BRING IT DOWN</span>
+                    <span class="demo-sec-badge" style="color: #1e9d52; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; font-weight: 800;">+6 VP &middot; R2</span>
+                  </button>
+                  <button type="button" onclick="toggleDemoSecondary('ad', 'p2', 5, this)" style="width: 100%; background: rgba(239, 68, 68, 0.06); border: 1.5px solid #ef4444; border-radius: 8px; padding: 0.45rem 0.75rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; font-weight: 800; color: #fff;">AREA DENIAL</span>
+                    <span class="demo-sec-badge" style="color: #ef4444; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; font-weight: 800;">Held &middot; R3</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SANDBOX PANEL B: Interactive Sparring Radar & Match Chat -->
+      <div id="sandbox-panel-radar" style="display: none; background: #0b111e; border: 1px solid rgba(56, 189, 248, 0.28); border-radius: 18px; overflow: hidden; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);">
+        <div class="omni-stage-tabs">
+          <button type="button" class="omni-stage-btn active" id="stage-btn-1" onclick="switchOmniStage(1)">
+            <span class="omni-stage-num">1</span>
+            <div>
+              <div style="font-weight: 800; font-size: 0.9rem;">🎯 Sparring Radar</div>
+              <div style="font-size: 0.72rem; opacity: 0.75;">Find local players by GPS &amp; Elo</div>
+            </div>
+          </button>
+          <button type="button" class="omni-stage-btn" id="stage-btn-2" onclick="switchOmniStage(2)">
+            <span class="omni-stage-num">2</span>
+            <div>
+              <div style="font-weight: 800; font-size: 0.9rem;">💬 Propose Match</div>
+              <div style="font-size: 0.72rem; opacity: 0.75;">Pick FLGS venue, points &amp; date</div>
+            </div>
+          </button>
+          <button type="button" class="omni-stage-btn" id="stage-btn-3" onclick="switchOmniStage(3)">
+            <span class="omni-stage-num">3</span>
+            <div>
+              <div style="font-weight: 800; font-size: 0.9rem;">⚔️ Chat &amp; Room Invite</div>
+              <div style="font-size: 0.72rem; opacity: 0.75;">Real-time chat &amp; 1-click room sync</div>
+            </div>
+          </button>
+        </div>
+
+        <!-- Stage 1: Radar Cards -->
+        <div class="omni-stage-content" id="omni-stage-1" style="display: block; padding: 1.5rem;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem;">
+            <div class="sparring-card" style="background: #111827; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; justify-content: space-between;">
+              <div>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.6rem;">
+                  <div>
+                    <div style="font-weight: 800; color: #fff; font-size: 0.95rem;">Marcus "Grim" Vance</div>
+                    <div style="font-size: 0.74rem; color: #38bdf8; font-weight: 600;">📍 4.2 miles away &bull; Game Haven FLGS</div>
+                  </div>
+                  <div style="font-family: 'JetBrains Mono', monospace; font-weight: 800; color: #f59e0b; font-size: 0.95rem;">1,842 Elo</div>
+                </div>
+                <div style="font-size: 0.76rem; color: #cbd5e1; margin-bottom: 0.85rem;">
+                  <strong>Aeldari</strong> &bull; Tournament Prep (2,000 pts)
+                </div>
+              </div>
+              <button type="button" onclick="demoSelectSparringPartner('Marcus &quot;Grim&quot; Vance', '1,842 Elo', 'Aeldari', 'Game Haven FLGS')" class="btn-sparring-challenge" style="width: 100%; padding: 8px; background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; border: none; border-radius: 8px; font-weight: 800; font-size: 0.8rem; cursor: pointer;">
+                ⚔️ Propose Sparring Match
+              </button>
+            </div>
+
+            <div class="sparring-card" style="background: #111827; border: 1px solid #1e293b; border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; justify-content: space-between;">
+              <div>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.6rem;">
+                  <div>
+                    <div style="font-weight: 800; color: #fff; font-size: 0.95rem;">Tara Lindqvist</div>
+                    <div style="font-size: 0.74rem; color: #38bdf8; font-weight: 600;">📍 8.7 miles away &bull; Titan Games</div>
+                  </div>
+                  <div style="font-family: 'JetBrains Mono', monospace; font-weight: 800; color: #38bdf8; font-size: 0.95rem;">1,670 Elo</div>
+                </div>
+                <div style="font-size: 0.76rem; color: #cbd5e1; margin-bottom: 0.85rem;">
+                  <strong>World Eaters</strong> &bull; Competitive (2,000 pts)
+                </div>
+              </div>
+              <button type="button" onclick="demoSelectSparringPartner('Tara Lindqvist', '1,670 Elo', 'World Eaters', 'Titan Games')" class="btn-sparring-challenge" style="width: 100%; padding: 8px; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 8px; font-weight: 800; font-size: 0.8rem; cursor: pointer;">
+                ⚔️ Propose Sparring Match
+              </button>
+            </div>
+
+            <div class="sparring-card" style="background: #111827; border: 1px solid #1e293b; border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; justify-content: space-between;">
+              <div>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.6rem;">
+                  <div>
+                    <div style="font-weight: 800; color: #fff; font-size: 0.95rem;">Dave Ramirez</div>
+                    <div style="font-size: 0.74rem; color: #38bdf8; font-weight: 600;">📍 11.5 miles away &bull; Red Dragon</div>
+                  </div>
+                  <div style="font-family: 'JetBrains Mono', monospace; font-weight: 800; color: #10b981; font-size: 0.95rem;">1,520 Elo</div>
+                </div>
+                <div style="font-size: 0.76rem; color: #cbd5e1; margin-bottom: 0.85rem;">
+                  <strong>Necrons</strong> &bull; Casual / Practice (2,000 pts)
+                </div>
+              </div>
+              <button type="button" onclick="demoSelectSparringPartner('Dave Ramirez', '1,520 Elo', 'Necrons', 'Red Dragon')" class="btn-sparring-challenge" style="width: 100%; padding: 8px; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 8px; font-weight: 800; font-size: 0.8rem; cursor: pointer;">
+                ⚔️ Propose Sparring Match
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 2: Challenge Proposal -->
+        <div class="omni-stage-content" id="omni-stage-2" style="display: none; padding: 1.5rem;">
+          <div style="max-width: 540px; margin: 0 auto; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 14px; padding: 1.25rem;">
+            <div style="font-size: 1rem; font-weight: 800; color: #fff; margin-bottom: 0.25rem;">⚔️ Propose Sparring Match</div>
+            <div style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 1rem;">
+              Target: <strong id="demo-challenge-target" style="color: #38bdf8;">Marcus "Grim" Vance (1,842 Elo)</strong>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; margin-bottom: 0.85rem;">
+              <div>
+                <label style="display: block; font-size: 0.68rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px;">Venue / FLGS</label>
+                <input id="demo-challenge-venue" type="text" value="Game Haven FLGS - Table 4" style="width: 100%; box-sizing: border-box; background: #090d16; border: 1px solid #1e293b; border-radius: 8px; padding: 8px 10px; color: #fff; font-size: 0.8rem;">
+              </div>
+              <div>
+                <label style="display: block; font-size: 0.68rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 4px;">Format</label>
+                <input type="text" value="2,000 pts Strike Force" readonly style="width: 100%; box-sizing: border-box; background: #090d16; border: 1px solid #1e293b; border-radius: 8px; padding: 8px 10px; color: #38bdf8; font-size: 0.8rem; font-weight: 700;">
+              </div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+              <button type="button" onclick="switchOmniStage(1)" style="padding: 8px 14px; background: rgba(255,255,255,0.06); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; font-weight: 700; font-size: 0.8rem; cursor: pointer;">&larr; Back</button>
+              <button type="button" onclick="switchOmniStage(3)" style="padding: 8px 16px; background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; border: none; border-radius: 8px; font-weight: 800; font-size: 0.8rem; cursor: pointer;">🚀 Send Proposal &amp; Open Chat &rarr;</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 3: Live Chat & 1-Click Room Card -->
+        <div class="omni-stage-content" id="omni-stage-3" style="display: none; padding: 1.5rem;">
+          <div style="max-width: 680px; margin: 0 auto; background: #0d1322; border: 1px solid #1e293b; border-radius: 12px; display: flex; flex-direction: column; overflow: hidden;">
+            <div style="padding: 0.75rem 1rem; background: #111827; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 800; color: #fff; font-size: 0.86rem;">💬 Marcus "Grim" Vance &bull; <span style="color:#10b981; font-size:0.75rem;">Online</span></span>
+              <span style="font-size: 0.7rem; color: #38bdf8; font-weight: 700;">⚔️ Accepted &bull; Game Haven FLGS</span>
+            </div>
+
+            <div id="demo-chat-messages-container" style="padding: 1rem; display: flex; flex-direction: column; gap: 0.65rem; max-height: 240px; overflow-y: auto;">
+              <div class="oc-msg-bubble oc-msg-in" style="max-width: 80%; align-self: flex-start; background: #1e293b; color: #fff; padding: 0.6rem 0.85rem; border-radius: 10px 10px 10px 2px; font-size: 0.8rem;">
+                Accepted! I spun up our live Game Tracker room below so our secondaries and chess clocks are ready:
+              </div>
+
+              <!-- Embedded 1-Click Game Room Card -->
+              <div class="oc-msg-room-card" style="align-self: flex-start; width: 290px; max-width: 90%; background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(2, 132, 199, 0.15)); border: 1px solid rgba(56, 189, 248, 0.45); border-radius: 10px; padding: 0.75rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                  <span style="font-size: 0.66rem; font-weight: 800; color: #38bdf8; text-transform: uppercase;">🎲 Live Game Room Invite</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 2px 6px; border-radius: 4px; font-weight: 800;">KEY: OMNI-749B</span>
+                </div>
+                <div style="font-weight: 800; color: #fff; font-size: 0.82rem; margin-bottom: 0.5rem;">Aeldari vs. Space Marines (2,000 pts)</div>
+                <button type="button" onclick="switchLandingSandboxMode('tracker')" style="display: block; width: 100%; border: none; text-align: center; padding: 6px; background: #10b981; color: #070b14; font-weight: 900; font-size: 0.76rem; border-radius: 6px; cursor: pointer;">
+                  ⚡ Join Live Game Room &rarr;
+                </button>
+              </div>
+            </div>
+
+            <div style="padding: 0.65rem 0.85rem; background: #111827; border-top: 1px solid rgba(255,255,255,0.06); display: flex; gap: 0.5rem; align-items: center;">
+              <input id="demo-chat-input" type="text" placeholder="Type a message in the demo chat..." onkeydown="if(event.key==='Enter'){event.preventDefault();sendDemoChatMessage();}" style="flex: 1; background: #090d16; border: 1px solid #1e293b; border-radius: 999px; padding: 7px 13px; font-size: 0.78rem; color: #fff; outline: none;">
+              <button type="button" onpointerdown="event.preventDefault()" onmousedown="event.preventDefault()" onclick="sendDemoChatMessage()" style="padding: 7px 14px; background: #0284c7; border: none; border-radius: 999px; font-size: 0.75rem; font-weight: 800; color: #fff; cursor: pointer;">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Compact Bottom Callout Banner -->
+    <section style="max-width: 1120px; margin: 0 auto 3.5rem; padding: 0 1.5rem;">
+      <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(15, 23, 42, 0.92) 55%, rgba(56, 189, 248, 0.08) 100%); border: 1px solid rgba(16, 185, 129, 0.28); border-radius: 18px; padding: 2rem 1.75rem; text-align: center;">
+        <h2 style="font-family: 'Cinzel', Georgia, serif; font-size: 1.65rem; font-weight: 900; color: #fff; margin: 0 0 0.5rem;">
+          An Open Platform for Every Tabletop General
+        </h2>
+        <p style="font-size: 0.92rem; color: #cbd5e1; max-width: 660px; margin: 0 auto 1.25rem; line-height: 1.55;">
+          Built to support local game stores, casual hobbyists, and competitive tournament circuits across Warhammer 40K and Age of Sigmar.
+        </p>
+
+        <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem; margin-bottom: 1.35rem;">
+          <span style="padding: 5px 12px; border-radius: 999px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(16, 185, 129, 0.35); color: #10b981; font-size: 0.75rem; font-weight: 800;">✓ Zero Paywalls</span>
+          <span style="padding: 5px 12px; border-radius: 999px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.35); color: #38bdf8; font-size: 0.75rem; font-weight: 800;">✓ 40K &amp; Age of Sigmar</span>
+          <span style="padding: 5px 12px; border-radius: 999px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(245, 158, 11, 0.35); color: #f59e0b; font-size: 0.75rem; font-weight: 800;">✓ Circuit Compatible</span>
+        </div>
+
+        <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
+          <a href="/login?mode=register&redirect=/app" class="auth-submit-btn" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; font-size: 0.88rem; font-weight: 800; text-decoration: none; border-radius: 10px; width: auto;">
+            <span>⚡ Create Free Account</span>
+          </a>
+          <a href="/login?redirect=/app" class="nav-btn" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; font-size: 0.88rem; font-weight: 700; color: #e2e8f0; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; background: rgba(15,23,42,0.7); text-decoration: none;">
+            <span>Sign In to Hub &rarr;</span>
           </a>
         </div>
       </div>
     </section>
 
-    <!-- Community Commitment & Free Access Section -->
-    <section style="max-width: 1320px; margin: 3rem auto 2.5rem; padding: 0 1.5rem;">
-      <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(16, 36, 60, 0.85) 100%); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 16px; padding: 2.25rem 2rem; box-shadow: 0 15px 40px rgba(0,0,0,0.6);">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2rem; align-items: center;">
-          <div>
-            <div style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; font-weight: 800; color: #10b981; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); padding: 3px 10px; border-radius: 9999px; text-transform: uppercase; margin-bottom: 0.75rem;">
-              🛡️ 100% Free Tabletop Suite
-            </div>
-            <h3 style="font-size: 1.5rem; font-weight: 800; color: #fff; margin-bottom: 0.6rem; font-family: 'Cinzel', Georgia, serif;">
-              An Open Platform for Every Tabletop General
-            </h3>
-            <p style="font-size: 0.88rem; color: #94a3b8; line-height: 1.6; margin-bottom: 1.25rem;">
-              OmniTactica was founded on the belief that community tools should bring hobbyists together, not divide them. Every ranking, match tracker, sparring radar, chat channel, and tournament feature is completely free for every player, club, and organizer.
-            </p>
-            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-              <a href="/login?mode=register&redirect=/app" class="btn btn-primary" style="padding: 0.6rem 1.3rem; font-size: 0.85rem; font-weight: 800; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 15px rgba(56,189,248,0.35);">
-                <span>⚡ Join the Tabletop Community</span>
-                <span>→</span>
-              </a>
-              <a href="#game-tracker-showcase" class="btn btn-outline" style="padding: 0.6rem 1.1rem; font-size: 0.85rem; border-radius: 8px; text-decoration: none; color: #cbd5e1; border-color: rgba(255,255,255,0.15);">
-                🎲 Try Scorecard Demo ↑
-              </a>
-            </div>
-          </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-            <div style="background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 1rem;">
-              <div style="font-size: 1.25rem; margin-bottom: 0.3rem;">🔓</div>
-              <div style="font-weight: 700; font-size: 0.88rem; color: #fff;">Open Data &amp; Ratings</div>
-              <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 3px;">Full Elo trajectories, matchup histories, and meta analytics without restrictions.</div>
-            </div>
-            <div style="background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 1rem;">
-              <div style="font-size: 1.25rem; margin-bottom: 0.3rem;">🤝</div>
-              <div style="font-weight: 700; font-size: 0.88rem; color: #fff;">Circuit Compatible</div>
-              <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 3px;">Complements official tournament systems, community circuits, and local FLGS events.</div>
-            </div>
-            <div style="background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 1rem;">
-              <div style="font-size: 1.25rem; margin-bottom: 0.3rem;">💬</div>
-              <div style="font-weight: 700; font-size: 0.88rem; color: #fff;">Community Focused</div>
-              <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 3px;">Direct player chat, sparring match proposals, and local store community support.</div>
-            </div>
-            <div style="background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 1rem;">
-              <div style="font-size: 1.25rem; margin-bottom: 0.3rem;">⚡</div>
-              <div style="font-weight: 700; font-size: 0.88rem; color: #fff;">Zero Paywalls</div>
-              <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 3px;">No subscriptions or hidden fees. Built by players who love the tabletop hobby.</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Footer -->
     <footer class="landing-footer">
-      <div style="font-weight: 700; color: #cbd5e1; margin-bottom: 0.4rem;">OMNITACTICA &bull; Tabletop Community &amp; Tactical Suite</div>
-      <div style="color: #94a3b8; font-size: 0.78rem; max-width: 720px; margin: 0 auto 0.6rem; line-height: 1.55;">
-        An independent competitive platform built by the community, for the community. 100% free and open for every tabletop player, gaming club, and tournament organizer.
-      </div>
-      <div style="color: #64748b; font-size: 0.72rem; max-width: 740px; margin: 0 auto; line-height: 1.5; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.6rem;">
-        OmniTactica is an independent tool and is not affiliated with, authorized, or endorsed by Games Workshop Ltd. Warhammer 40,000 and all associated marks, names, and characters are trademarks or registered trademarks of Games Workshop Limited. All rights reserved by their respective owners.
-      </div>
+      <div style="margin-bottom: 0.5rem; font-weight: 700; color: #94a3b8;">OmniTactica &bull; Warhammer 40K &amp; Age of Sigmar Competitive Hub</div>
+      <div>Built by the community, for the community. Unofficial hobby companion and not affiliated with or endorsed by Games Workshop.</div>
     </footer>
   </div>
 
-
-  <!-- Landing Page Interactive Features: Sparring Radar & Game Tracker Demos -->
+  <!-- Landing Page Interactive Sandbox Controllers -->
   <script>
-    // 1. Sparring Radar Stage Switcher & Challenge Data
-    const challengeProfiles = {
-      marcus: {
-        name: 'Marcus "Grim" Vance',
-        army: 'Aeldari (Craftworlds) • 1,842 Elo (Grandmaster)',
-        initials: 'MV',
-        venue: 'Game Haven FLGS',
-        points: '2,000 pts',
-        date: 'Thursday 6:30 PM',
-        note: 'Hey Marcus! Bringing my Space Marine Gladius Task Force for tournament test games. Let\'s do Thursday 6:30 PM at Game Haven!'
-      },
-      tara: {
-        name: 'Tara Lindqvist',
-        army: 'World Eaters • 1,670 Elo (Master)',
-        initials: 'TL',
-        venue: 'Titan Games & Hobbies',
-        points: '2,000 pts',
-        date: 'Friday 6:00 PM',
-        note: 'Hey Tara! Down to spar against your World Eaters. Bringing 2k Strike Force on Pariah Nexus terrain. Let\'s play Friday evening!'
-      },
-      dave: {
-        name: 'Dave Ramirez',
-        army: 'Necrons (Canoptek Court) • 1,520 Elo (Veteran)',
-        initials: 'DR',
-        venue: 'Red Dragon Hobbies',
-        points: '1,500 pts',
-        date: 'Sunday 1:00 PM',
-        note: 'Hey Dave! Let\'s get a chill game in this weekend at Red Dragon Hobbies. Relaxed pace!'
+    function switchLandingSandboxMode(mode) {
+      var trackerPanel = document.getElementById('sandbox-panel-tracker');
+      var radarPanel = document.getElementById('sandbox-panel-radar');
+      var trackerBtn = document.getElementById('sandbox-mode-btn-tracker');
+      var radarBtn = document.getElementById('sandbox-mode-btn-radar');
+      if (mode === 'radar') {
+        if (trackerPanel) trackerPanel.style.display = 'none';
+        if (radarPanel) radarPanel.style.display = 'block';
+        if (radarBtn) {
+          radarBtn.style.background = 'linear-gradient(135deg, #0284c7, #0369a1)';
+          radarBtn.style.color = '#fff';
+        }
+        if (trackerBtn) {
+          trackerBtn.style.background = 'transparent';
+          trackerBtn.style.color = '#94a3b8';
+        }
+      } else {
+        if (trackerPanel) trackerPanel.style.display = 'block';
+        if (radarPanel) radarPanel.style.display = 'none';
+        if (trackerBtn) {
+          trackerBtn.style.background = 'linear-gradient(135deg, #0284c7, #0369a1)';
+          trackerBtn.style.color = '#fff';
+        }
+        if (radarBtn) {
+          radarBtn.style.background = 'transparent';
+          radarBtn.style.color = '#94a3b8';
+        }
       }
-    };
+    }
 
-    function setOmniStage(stage) {
+    function switchOmniStage(stageNum) {
       for (var i = 1; i <= 3; i++) {
-        var tab = document.getElementById('omni-stage-tab-' + i);
-        var view = document.getElementById('omni-stage-view-' + i);
-        if (tab && view) {
-          if (i === stage) {
-            tab.classList.add('active');
-            view.style.display = 'block';
-          } else {
-            tab.classList.remove('active');
-            view.style.display = 'none';
-          }
-        }
-      }
-    }
-
-    function setOmniChallenge(playerKey) {
-      var p = challengeProfiles[playerKey] || challengeProfiles.marcus;
-      var nameEl = document.getElementById('demo-proposal-target-name');
-      var armyEl = document.getElementById('demo-proposal-target-army');
-      var avatarEl = document.getElementById('demo-proposal-target-avatar');
-      var venueEl = document.getElementById('demo-proposal-target-venue');
-      var pointsEl = document.getElementById('demo-proposal-target-points');
-      var dateEl = document.getElementById('demo-proposal-target-date');
-      var noteEl = document.getElementById('demo-proposal-target-note');
-      if (nameEl) nameEl.textContent = p.name;
-      if (armyEl) armyEl.textContent = p.army;
-      if (avatarEl) avatarEl.textContent = p.initials;
-      if (venueEl) {
-        if ('value' in venueEl) venueEl.value = p.venue;
-        else venueEl.textContent = p.venue;
-      }
-      if (pointsEl) {
-        if ('value' in pointsEl) pointsEl.value = p.points;
-        else pointsEl.textContent = p.points;
-      }
-      if (dateEl) {
-        if ('value' in dateEl) dateEl.value = p.date;
-        else dateEl.textContent = p.date;
-      }
-      if (noteEl) {
-        if ('value' in noteEl) noteEl.value = p.note;
-        else noteEl.textContent = p.note;
-      }
-      setOmniStage(2);
-    }
-
-    function setRadarFilter(filterKey, btnEl) {
-      if (!btnEl) return;
-      var parent = btnEl.parentElement;
-      if (parent) {
-        var btns = parent.querySelectorAll('button');
-        btns.forEach(function(b) { b.classList.remove('active'); });
-      }
-      btnEl.classList.add('active');
-    }
-
-    var demoLfgActive = true;
-
-    function toggleDemoLfgStatus() {
-      demoLfgActive = !demoLfgActive;
-      var dot = document.getElementById('demo-user-status-dot');
-      var text = document.getElementById('demo-user-status-text');
-      var btn = document.getElementById('demo-btn-toggle-lfg');
-      var grid = document.getElementById('demo-radar-cards-grid');
-      var paused = document.getElementById('demo-radar-paused-view');
-      var badge = document.getElementById('demo-radar-status-badge');
-
-      if (!demoLfgActive) {
-        if (dot) { dot.style.background = '#94a3b8'; dot.style.boxShadow = 'none'; }
-        if (text) text.textContent = 'Off Duty';
+        var btn = document.getElementById('stage-btn-' + i);
+        var panel = document.getElementById('omni-stage-' + i);
         if (btn) {
-          btn.style.background = 'rgba(100,116,139,0.15)';
-          btn.style.color = '#94a3b8';
-          btn.style.borderColor = 'rgba(100,116,139,0.35)';
+          if (i === stageNum) btn.classList.add('active');
+          else btn.classList.remove('active');
         }
-        if (grid) grid.style.display = 'none';
-        if (paused) paused.style.display = 'block';
-        if (badge) {
-          badge.textContent = 'Radar Paused (Off Duty)';
-          badge.style.color = '#94a3b8';
-          badge.style.borderColor = 'rgba(100,116,139,0.35)';
-        }
-      } else {
-        if (dot) { dot.style.background = '#10b981'; dot.style.boxShadow = '0 0 7px #10b981'; }
-        if (text) text.textContent = 'Available';
-        if (btn) {
-          btn.style.background = 'rgba(16,185,129,0.15)';
-          btn.style.color = '#10b981';
-          btn.style.borderColor = 'rgba(16,185,129,0.35)';
-        }
-        if (grid) grid.style.display = 'grid';
-        if (paused) paused.style.display = 'none';
-        var sel = document.getElementById('demo-user-pref-style');
-        changeDemoMatchPreference(sel ? sel.value : 'all');
-      }
-    }
-
-    function changeDemoMatchPreference(val) {
-      if (!demoLfgActive) {
-        toggleDemoLfgStatus();
-      }
-      var marcus = document.getElementById('demo-card-marcus');
-      var tara = document.getElementById('demo-card-tara');
-      var dave = document.getElementById('demo-card-dave');
-      var badge = document.getElementById('demo-radar-status-badge');
-
-      if (val === 'Tournament Prep') {
-        if (marcus) marcus.style.display = 'flex';
-        if (tara) tara.style.display = 'none';
-        if (dave) dave.style.display = 'none';
-        if (badge) {
-          badge.textContent = '1 Active • Tournament Prep';
-          badge.style.color = '#38bdf8';
-          badge.style.borderColor = 'rgba(56,189,248,0.3)';
-        }
-      } else if (val === 'Competitive') {
-        if (marcus) marcus.style.display = 'none';
-        if (tara) tara.style.display = 'flex';
-        if (dave) dave.style.display = 'none';
-        if (badge) {
-          badge.textContent = '1 Active • Competitive 2k';
-          badge.style.color = '#38bdf8';
-          badge.style.borderColor = 'rgba(56,189,248,0.3)';
-        }
-      } else if (val === 'Casual') {
-        if (marcus) marcus.style.display = 'none';
-        if (tara) tara.style.display = 'none';
-        if (dave) dave.style.display = 'flex';
-        if (badge) {
-          badge.textContent = '1 Active • Casual / Practice';
-          badge.style.color = '#38bdf8';
-          badge.style.borderColor = 'rgba(56,189,248,0.3)';
-        }
-      } else {
-        if (marcus) marcus.style.display = 'flex';
-        if (tara) tara.style.display = 'flex';
-        if (dave) dave.style.display = 'flex';
-        if (badge) {
-          badge.textContent = '3 Active Within 50 Miles';
-          badge.style.color = '#38bdf8';
-          badge.style.borderColor = 'rgba(56,189,248,0.3)';
+        if (panel) {
+          panel.style.display = (i === stageNum) ? 'block' : 'none';
         }
       }
     }
 
-    function changeDemoRadius(val) {
-      if (!demoLfgActive) return;
-      var badge = document.getElementById('demo-radar-status-badge');
-      var marcus = document.getElementById('demo-card-marcus');
-      var tara = document.getElementById('demo-card-tara');
-      var dave = document.getElementById('demo-card-dave');
-      var r = parseInt(val, 10);
-      if (r <= 25) {
-        if (marcus) marcus.style.display = 'flex';
-        if (tara) tara.style.display = 'flex';
-        if (dave) dave.style.display = 'none';
-        if (badge) badge.textContent = '2 Active Within 25 Miles';
-      } else {
-        var sel = document.getElementById('demo-user-pref-style');
-        changeDemoMatchPreference(sel ? sel.value : 'all');
-      }
+    function demoSelectSparringPartner(name, elo, faction, venue) {
+      var targetEl = document.getElementById('demo-challenge-target');
+      var venueEl = document.getElementById('demo-challenge-venue');
+      if (targetEl) targetEl.textContent = name + ' (' + elo + ' • ' + faction + ')';
+      if (venueEl && venue) venueEl.value = venue + ' - Table 4';
+      switchOmniStage(2);
     }
 
     function escapeHtmlDemo(str) {
-      if (!str) return '';
       return String(str)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-    }
-
-    function sendDemoProposal() {
-      var nameEl = document.getElementById('demo-proposal-target-name');
-      var armyEl = document.getElementById('demo-proposal-target-army');
-      var avatarEl = document.getElementById('demo-proposal-target-avatar');
-      var venueEl = document.getElementById('demo-proposal-target-venue');
-      var pointsEl = document.getElementById('demo-proposal-target-points');
-      var dateEl = document.getElementById('demo-proposal-target-date');
-      var noteEl = document.getElementById('demo-proposal-target-note');
-
-      var targetName = nameEl ? nameEl.textContent : 'Marcus "Grim" Vance';
-      var targetArmy = armyEl ? armyEl.textContent : 'Aeldari';
-      var targetAvatar = avatarEl ? avatarEl.textContent : 'MV';
-      var venue = venueEl ? ('value' in venueEl ? venueEl.value : venueEl.textContent) : 'Game Haven FLGS';
-      var points = pointsEl ? ('value' in pointsEl ? pointsEl.value : pointsEl.textContent) : '2,000 pts';
-      var date = dateEl ? ('value' in dateEl ? dateEl.value : dateEl.textContent) : 'Thursday 6:30 PM';
-      var note = noteEl ? ('value' in noteEl ? noteEl.value : noteEl.textContent) : 'Challenge proposal sent!';
-
-      var chatName = document.getElementById('demo-chat-player-name');
-      var chatAvatar = document.getElementById('demo-chat-player-avatar');
-      var chatSub = document.getElementById('demo-chat-player-sub');
-      if (chatName) chatName.textContent = targetName;
-      if (chatAvatar) chatAvatar.textContent = targetAvatar;
-      if (chatSub) chatSub.textContent = targetArmy + ' • ' + venue;
-
-      var container = document.getElementById('demo-chat-messages-container');
-      if (container) {
-        var proposalBubble = document.createElement('div');
-        proposalBubble.className = 'oc-msg-bubble oc-msg-out';
-        proposalBubble.style.maxWidth = '82%';
-        proposalBubble.style.alignSelf = 'flex-end';
-        proposalBubble.style.background = '#0c182c';
-        proposalBubble.style.border = '1px solid rgba(56, 189, 248, 0.4)';
-        proposalBubble.style.borderRadius = '12px';
-        proposalBubble.style.padding = '0.95rem';
-        proposalBubble.style.marginTop = '0.5rem';
-        proposalBubble.innerHTML =
-          '<div style="font-size: 0.72rem; color: #38bdf8; font-weight: 800; margin-bottom: 0.35rem; text-transform: uppercase;">⚔️ Sparring Match Proposal Sent</div>' +
-          '<div style="font-size: 0.82rem; color: #f1f5f9; margin-bottom: 0.6rem; line-height: 1.4;">' + escapeHtmlDemo(note) + '</div>' +
-          '<div style="background: rgba(0,0,0,0.4); border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.76rem; display: flex; flex-direction: column; gap: 0.25rem;">' +
-            '<div style="color: #cbd5e1;">📍 <strong>Venue:</strong> ' + escapeHtmlDemo(venue) + '</div>' +
-            '<div style="color: #cbd5e1;">🎲 <strong>Rules / Limit:</strong> 11th Ed. &bull; ' + escapeHtmlDemo(points) + '</div>' +
-            '<div style="color: #cbd5e1;">📅 <strong>Target Time:</strong> ' + escapeHtmlDemo(date) + '</div>' +
-          '</div>';
-        container.appendChild(proposalBubble);
-        container.scrollTop = container.scrollHeight;
-      }
-
-      setOmniStage(3);
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
     }
 
     function sendDemoChatMessage() {
@@ -1793,13 +878,10 @@
         bubble.style.alignSelf = 'flex-end';
         bubble.style.background = 'linear-gradient(135deg, #0284c7, #0369a1)';
         bubble.style.color = '#fff';
-        bubble.style.padding = '0.65rem 0.95rem';
+        bubble.style.padding = '0.6rem 0.85rem';
         bubble.style.borderRadius = '10px 10px 2px 10px';
-        bubble.style.fontSize = '0.82rem';
-        bubble.style.marginTop = '0.5rem';
-        bubble.innerHTML =
-          '<div style="font-size: 0.7rem; color: #bae6fd; margin-bottom: 2px; text-align: right;">You &bull; Just now</div>' +
-          '<div>' + escapeHtmlDemo(text) + '</div>';
+        bubble.style.fontSize = '0.8rem';
+        bubble.innerHTML = '<div>' + escapeHtmlDemo(text) + '</div>';
         container.appendChild(bubble);
         container.scrollTop = container.scrollHeight;
       }
@@ -1814,19 +896,15 @@
         reply.style.alignSelf = 'flex-start';
         reply.style.background = '#1e293b';
         reply.style.color = '#fff';
-        reply.style.padding = '0.65rem 0.95rem';
+        reply.style.padding = '0.6rem 0.85rem';
         reply.style.borderRadius = '10px 10px 10px 2px';
-        reply.style.fontSize = '0.82rem';
-        reply.style.marginTop = '0.5rem';
-        reply.innerHTML =
-          '<div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 2px;">Marcus Vance &bull; Just now</div>' +
-          '<div>Sounds great! Table 4 is confirmed. Looking forward to our 11th edition showdown! 🔥</div>';
+        reply.style.fontSize = '0.8rem';
+        reply.innerHTML = '<div>Sounds great! Table 4 is confirmed. See you there! 🔥</div>';
         container.appendChild(reply);
         container.scrollTop = container.scrollHeight;
-      }, 900);
+      }, 700);
     }
 
-    // 2. Game Tracker Demo Controller (Authentic 11th Edition Scoring Engine)
     var trackerDemoState = {
       round: 3,
       p1Score: 68,
@@ -1839,18 +917,12 @@
       p2Sec: 22,
       p2Paint: 10,
       p2CP: 1,
-      clockInterval: null,
-      activeClockPlayer: null,
-      p1Seconds: 4450,
-      p2Seconds: 3258,
       p1PrimaryScored: true,
       p2PrimaryScored: true,
       secondaries: {
         cleanse: true,
-        bel: true,
         assass: false,
         bid: true,
-        ebl: true,
         ad: false
       }
     };
@@ -1860,28 +932,24 @@
       trackerDemoState.p2Score = trackerDemoState.p2Pri + trackerDemoState.p2Sec + trackerDemoState.p2Paint;
 
       var p1Tot = document.getElementById('demo-p1-total');
-      var p1CardVp = document.getElementById('demo-p1-card-vp');
       var p1Pri = document.getElementById('demo-p1-pri');
       var p1Sec = document.getElementById('demo-p1-sec');
       var p1PriBar = document.getElementById('demo-p1-pri-bar');
       var p1SecBar = document.getElementById('demo-p1-sec-bar');
 
       var p2Tot = document.getElementById('demo-p2-total');
-      var p2CardVp = document.getElementById('demo-p2-card-vp');
       var p2Pri = document.getElementById('demo-p2-pri');
       var p2Sec = document.getElementById('demo-p2-sec');
       var p2PriBar = document.getElementById('demo-p2-pri-bar');
       var p2SecBar = document.getElementById('demo-p2-sec-bar');
 
       if (p1Tot) p1Tot.textContent = trackerDemoState.p1Score;
-      if (p1CardVp) p1CardVp.textContent = trackerDemoState.p1Score;
       if (p1Pri) p1Pri.textContent = trackerDemoState.p1Pri;
       if (p1Sec) p1Sec.textContent = trackerDemoState.p1Sec;
       if (p1PriBar) p1PriBar.style.width = Math.min(100, Math.max(0, (trackerDemoState.p1Pri / 45) * 100)) + '%';
       if (p1SecBar) p1SecBar.style.width = Math.min(100, Math.max(0, (trackerDemoState.p1Sec / 45) * 100)) + '%';
 
       if (p2Tot) p2Tot.textContent = trackerDemoState.p2Score;
-      if (p2CardVp) p2CardVp.textContent = trackerDemoState.p2Score;
       if (p2Pri) p2Pri.textContent = trackerDemoState.p2Pri;
       if (p2Sec) p2Sec.textContent = trackerDemoState.p2Sec;
       if (p2PriBar) p2PriBar.style.width = Math.min(100, Math.max(0, (trackerDemoState.p2Pri / 45) * 100)) + '%';
@@ -1890,44 +958,9 @@
 
     function stepTrackerRound(delta) {
       var nextRound = Math.max(1, Math.min(5, trackerDemoState.round + delta));
-      setTrackerRound(nextRound);
-    }
-
-    function setTrackerRound(r) {
-      trackerDemoState.round = r;
+      trackerDemoState.round = nextRound;
       var numEl = document.getElementById('demo-round-num');
-      if (numEl) numEl.textContent = r;
-
-      var p1Badge = document.getElementById('demo-p1-pri-badge');
-      if (p1Badge && trackerDemoState.p1PrimaryScored) {
-        p1Badge.textContent = '+10 VP · R' + r;
-      }
-      var p2Badge = document.getElementById('demo-p2-pri-badge');
-      if (p2Badge && trackerDemoState.p2PrimaryScored) {
-        p2Badge.textContent = '+10 VP · R' + r;
-      }
-    }
-
-    function setTrackerTab(tabName) {
-      var tabs = ['objectives', 'clocks', 'dice', 'roster'];
-      tabs.forEach(function(t) {
-        var btn = document.getElementById('demo-tab-btn-' + t);
-        var content = document.getElementById('demo-tab-content-' + t);
-        if (btn) {
-          if (t === tabName) {
-            btn.classList.add('active');
-            btn.style.borderBottomColor = '#38bdf8';
-            btn.style.color = '#fff';
-          } else {
-            btn.classList.remove('active');
-            btn.style.borderBottomColor = 'transparent';
-            btn.style.color = '#94a3b8';
-          }
-        }
-        if (content) {
-          content.style.display = (t === tabName) ? 'block' : 'none';
-        }
-      });
+      if (numEl) numEl.textContent = nextRound;
     }
 
     function adjustDemoCP(player, delta) {
@@ -1993,28 +1026,6 @@
       updateDemoScores();
     }
 
-    function quickAddPrimaryVP(player, pts, btnEl) {
-      if (player === 'p1') {
-        trackerDemoState.p1Pri = Math.min(45, trackerDemoState.p1Pri + pts);
-      } else {
-        trackerDemoState.p2Pri = Math.min(45, trackerDemoState.p2Pri + pts);
-      }
-      updateDemoScores();
-      if (btnEl) {
-        var origText = btnEl.textContent;
-        btnEl.style.background = 'rgba(16,185,129,0.2)';
-        btnEl.style.borderColor = '#10b981';
-        btnEl.style.color = '#10b981';
-        btnEl.textContent = '✓ Added ' + pts + ' VP';
-        setTimeout(function() {
-          btnEl.style.background = '';
-          btnEl.style.borderColor = '';
-          btnEl.style.color = '';
-          btnEl.textContent = origText;
-        }, 1200);
-      }
-    }
-
     function toggleDemoSecondary(key, player, pts, btnEl) {
       var isP1 = (player === 'p1');
       var badge = btnEl ? btnEl.querySelector('.demo-sec-badge') : null;
@@ -2031,9 +1042,7 @@
           var sc2 = document.getElementById('demo-p2-sec-score');
           if (sc2) sc2.textContent = Math.max(0, parseInt(sc2.textContent || '10') - pts);
         }
-        if (btnEl) {
-          btnEl.style.borderColor = defaultColor;
-        }
+        if (btnEl) btnEl.style.borderColor = defaultColor;
         if (badge) {
           badge.style.color = defaultColor;
           badge.textContent = 'Held · R' + trackerDemoState.round;
@@ -2049,117 +1058,13 @@
           var sc2 = document.getElementById('demo-p2-sec-score');
           if (sc2) sc2.textContent = Math.min(15, parseInt(sc2.textContent || '6') + pts);
         }
-        if (btnEl) {
-          btnEl.style.borderColor = '#1e9d52';
-        }
+        if (btnEl) btnEl.style.borderColor = '#1e9d52';
         if (badge) {
           badge.style.color = '#1e9d52';
           badge.textContent = '+' + pts + ' VP · R' + trackerDemoState.round;
         }
       }
       updateDemoScores();
-    }
-
-    var demoCardPool = [
-      { name: 'Sabotage', pts: 4 },
-      { name: 'Storm Hostile Objective', pts: 4 },
-      { name: 'Secure No Man\'s Land', pts: 5 },
-      { name: 'Engage on All Fronts', pts: 4 },
-      { name: 'Establish Locus', pts: 4 }
-    ];
-    function drawDemoSecondary(player, btnEl) {
-      var randCard = demoCardPool[Math.floor(Math.random() * demoCardPool.length)];
-      if (btnEl) {
-        var orig = btnEl.innerHTML;
-        btnEl.style.background = '#10b981';
-        btnEl.style.color = '#fff';
-        btnEl.innerHTML = '✓ Drawn: ' + randCard.name + ' (+' + randCard.pts + ' VP)';
-        setTimeout(function() {
-          btnEl.style.background = (player === 'p1') ? '#38bdf8' : '#ef4444';
-          btnEl.style.color = (player === 'p1') ? '#070b14' : '#fff';
-          btnEl.innerHTML = orig;
-        }, 1600);
-      }
-    }
-
-    function formatTime(totalSec) {
-      var h = Math.floor(totalSec / 3600);
-      var m = Math.floor((totalSec % 3600) / 60);
-      var s = totalSec % 60;
-      return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
-    }
-
-    function toggleDemoClock(btnEl) {
-      var statusEl = document.getElementById('demo-clock-status');
-      if (trackerDemoState.clockInterval) {
-        if (trackerDemoState.activeClockPlayer === 'p2') {
-          trackerDemoState.activeClockPlayer = 'p1';
-          if (statusEl) statusEl.textContent = 'Active Turn: Marcus Vance (Aeldari)';
-          if (btnEl) btnEl.innerHTML = '<span>⇄ Switch Turn (to Tara)</span>';
-        } else {
-          clearInterval(trackerDemoState.clockInterval);
-          trackerDemoState.clockInterval = null;
-          trackerDemoState.activeClockPlayer = null;
-          if (statusEl) statusEl.textContent = 'Clock: Paused';
-          if (btnEl) btnEl.innerHTML = '<span>▶ Resume Chess Clock</span>';
-          return;
-        }
-      } else {
-        trackerDemoState.activeClockPlayer = 'p2';
-        if (statusEl) statusEl.textContent = 'Active Turn: Tara Lindqvist (World Eaters)';
-        if (btnEl) btnEl.innerHTML = '<span>⇄ Switch Turn (to Marcus)</span>';
-        trackerDemoState.clockInterval = setInterval(function() {
-          if (trackerDemoState.activeClockPlayer === 'p2') {
-            trackerDemoState.p2Seconds = Math.max(0, trackerDemoState.p2Seconds - 1);
-            var el = document.getElementById('demo-clock-p2');
-            if (el) el.textContent = formatTime(trackerDemoState.p2Seconds);
-          } else if (trackerDemoState.activeClockPlayer === 'p1') {
-            trackerDemoState.p1Seconds = Math.max(0, trackerDemoState.p1Seconds - 1);
-            var el = document.getElementById('demo-clock-p1');
-            if (el) el.textContent = formatTime(trackerDemoState.p1Seconds);
-          }
-        }, 1000);
-      }
-    }
-
-    function rollDemoBattleShock() {
-      var d1 = Math.floor(Math.random() * 6) + 1;
-      var d2 = Math.floor(Math.random() * 6) + 1;
-      var sum = d1 + d2;
-      var resEl = document.getElementById('demo-shock-roll-result');
-      if (sum < 6) {
-        if (resEl) resEl.innerHTML = '<span style="color:#ef4444; font-weight:800;">🎲 ' + d1 + ' + 🎲 ' + d2 + ' = ' + sum + ' &bull; FAILED (0 OC &amp; No Stratagems)</span>';
-      } else {
-        if (resEl) resEl.innerHTML = '<span style="color:#10b981; font-weight:800;">🎲 ' + d1 + ' + 🎲 ' + d2 + ' = ' + sum + ' &bull; PASSED (Full OC &amp; Ready)</span>';
-      }
-    }
-
-    function rollDemoDice() {
-      var diceBox = document.getElementById('demo-dice-results');
-      var sumBox = document.getElementById('demo-dice-summary');
-      if (!diceBox || !sumBox) return;
-      var rolls = [];
-      var hits = 0;
-      var crits = 0;
-      var pips = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
-      for (var i = 0; i < 10; i++) {
-        var r = Math.floor(Math.random() * 6) + 1;
-        rolls.push(r);
-        if (r >= 3) hits++;
-        if (r === 6) crits++;
-      }
-      var wounds = Math.floor(hits * 0.6);
-      var html = '';
-      rolls.forEach(function(r) {
-        var isCrit = (r === 6);
-        var isHit = (r >= 3);
-        var style = isCrit 
-          ? 'padding: 2px 8px; border-color: #f59e0b; color: #f59e0b;' 
-          : (isHit ? 'padding: 2px 8px;' : 'padding: 2px 8px; opacity: 0.4;');
-        html += '<span class="hub-loc-chip ' + (isHit ? 'active' : '') + '" style="' + style + '">' + pips[r] + ' ' + r + (isCrit ? '★' : '') + '</span>';
-      });
-      diceBox.innerHTML = html;
-      sumBox.innerHTML = hits + ' Hits (' + crits + ' Criticals) &bull; ' + wounds + ' Successful Wounds!';
     }
   </script>
 </body>

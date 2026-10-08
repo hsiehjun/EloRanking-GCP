@@ -5946,11 +5946,17 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 .landing-grid-4 {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1.5rem;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
 }
 
-@media (max-width: 800px) {
+@media (max-width: 1040px) {
+  .landing-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 680px) {
   .landing-grid-4 {
     grid-template-columns: 1fr;
   }
