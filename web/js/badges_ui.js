@@ -1861,12 +1861,12 @@
     }
     if (typeof window.openEventModal === 'function') {
       if (eventId) {
-        window.openEventModal(eventId, false, 'results');
+        window.openEventModal(eventId, false, null);
       } else {
         console.warn('openEventModalFromChampionship: No eventId provided for', eventName);
       }
     } else if (typeof openEventModal === 'function') {
-      openEventModal(eventId, false, 'results');
+      openEventModal(eventId, false, null);
     } else {
       console.warn('openEventModal is not available');
     }

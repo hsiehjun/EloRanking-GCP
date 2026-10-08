@@ -323,7 +323,8 @@ class TestJourneyPlacings(unittest.TestCase):
             js_code = f.read()
         self.assertIn("function synthesizeClientUserEventRegistration(ev, existingReg = null)", js_code)
         self.assertIn("userRegData = synthesizeClientUserEventRegistration(ev, userRegData);", js_code)
-        self.assertIn("event-hub-participant-banner", js_code)
+        self.assertNotIn("You competed in this tournament", js_code)
+        self.assertIn("if (shouldShowPlayerTab) {\n        targetTab = 'player';", js_code)
 
     def test_full_field_computed_rank_and_multi_player_cache_isolation(self):
         PostgresDatabase._player_tournaments_cache_dict.clear()

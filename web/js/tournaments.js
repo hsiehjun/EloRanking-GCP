@@ -419,7 +419,7 @@ function synthesizeClientUserEventRegistration(ev, existingReg = null) {
     return existingReg;
   }
   const candIds = new Set(
-    [u.player_id, u.bcp_user_id, u.bcp_player_id, u.id, u.user_id]
+    [u.player_id, u.bcp_user_id, u.bcp_player_id, u.id, u.user_id, ...(Array.isArray(u.linked_players) ? u.linked_players : [])]
       .filter(Boolean)
       .map(x => String(x).trim().toLowerCase())
   );
@@ -516,15 +516,17 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     currentEventRegistration = null;
   }
 
-  // Set active tab immediately to prevent visual flashing (default to pairings for live ongoing events, teams for team tournaments, results otherwise)
+  // Set active tab immediately to prevent visual flashing (default to player station/results if registered, pairings for live ongoing events, teams for team tournaments, results otherwise)
   let guessedOngoing = false;
   if (currentEventData && String(currentEventData.id) === String(eventId)) {
     if (typeof isTournamentOngoing === 'function') guessedOngoing = isTournamentOngoing(currentEventData);
     else guessedOngoing = Boolean(!currentEventData.ended && (currentEventData.matches || []).length > 0);
   }
   const guessedIsTeam = Boolean(currentEventData && String(currentEventData.id) === String(eventId) && (currentEventData.is_team_event || (currentEventData.teams && currentEventData.teams.length > 0)));
+  const guessedIsRegistered = Boolean(currentEventRegistration && currentEventRegistration.is_registered);
   let immediateTab = 'results';
-  if (guessedOngoing) immediateTab = 'matches';
+  if (guessedIsRegistered) immediateTab = 'player';
+  else if (guessedOngoing) immediateTab = 'matches';
   else if (guessedIsTeam) immediateTab = 'teams';
   switchEventModalTab(initialTab || immediateTab);
 
@@ -735,9 +737,9 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     let userRegData = (regResult.status === 'fulfilled' && regResult.value && !regResult.value.error) ? regResult.value : null;
     userRegData = synthesizeClientUserEventRegistration(ev, userRegData);
 
-    // If regPromise resolves after the 120ms fast-path window, hydrate the registration banner & Player Station asynchronously
+    // If regPromise resolves after the 120ms fast-path window, hydrate Player Station asynchronously and switch to it if no explicit tab was requested
     if (regPromise) {
-      regPromise.then(lateReg => {
+      regPromise.then(async lateReg => {
         if (lateReg && !lateReg.error && String(currentOpenEventId) === String(eventId)) {
           const mergedReg = synthesizeClientUserEventRegistration(ev, lateReg);
           if (mergedReg && mergedReg.is_registered) {
@@ -751,13 +753,16 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
               renderQuickEventModal(ev, mergedReg);
             }
             if (typeof renderPlayerStation === 'function') {
-              renderPlayerStation(ev, mergedReg);
+              await renderPlayerStation(ev, mergedReg);
             }
             if (typeof renderEventHubHeroSection === 'function') {
               renderEventHubHeroSection(ev, mergedReg);
             }
             if (typeof renderPersonalEventScorecard === 'function') {
               renderPersonalEventScorecard(ev, mergedReg);
+            }
+            if (!initialTab) {
+              switchEventModalTab('player');
             }
           }
         }
@@ -2869,7 +2874,7 @@ async function submitTournamentRegistration(e) {
       }
       setTimeout(() => {
         closeTournamentRegistrationModal();
-        openEventModal(eventId, true, 'results');
+        openEventModal(eventId, true, 'player');
       }, 1200);
     } else {
       if (msg) {
@@ -4010,63 +4015,13 @@ function renderQuickEventModal(ev, userRegData) {
     badgesEl.innerHTML = `${getEventTierBadgeHtml(kpi.totalPlayers, ev.name || ev.event_name || '', kpi.numRounds)} ${sysBadge} ${statusBadge} ${formatBadge}`;
   }
 
-  // Personal Registration Status Banner
+  // Personal Registration State (used to default to Player Station / My Results tab when opening Event Hub)
   userRegData = synthesizeClientUserEventRegistration(ev, userRegData);
   currentEventRegistration = (userRegData && userRegData.is_registered) ? userRegData : null;
   const regBanner = document.getElementById('modal-quick-reg-banner');
   if (regBanner) {
-    if (userRegData && userRegData.is_registered) {
-      const preg = userRegData.player_registration || userRegData.player || {};
-      const checkedIn = Boolean(preg.checked_in);
-      const dropped = Boolean(preg.dropped);
-      const fac = formatEventPlayerFaction(preg.faction || preg.army_name || 'Faction Pending');
-      if (!kpi.ended) {
-        const statusText = dropped ? '🚫 Dropped' : (checkedIn ? '✅ Checked In' : '⚠️ Not Checked In');
-        regBanner.style.display = 'block';
-        regBanner.innerHTML = `
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.65rem 0.95rem; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.35); border-radius:8px; flex-wrap:wrap;">
-            <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.82rem; color:#ecfdf5;">
-              <span style="font-size:1rem;">🟢</span>
-              <div>
-                <strong style="color:#10b981;">You are registered for this event</strong>
-                <span style="color:var(--text-secondary); margin-left:0.35rem;">• ${statusText} • ${escapeHtml(fac)}</span>
-              </div>
-            </div>
-            <button type="button" onclick="openEventHubFromModal('player')" class="btn-sm btn-primary" style="background:#10b981; border-color:#059669; color:#fff; font-weight:700; font-size:0.76rem; padding:0.35rem 0.85rem; cursor:pointer;">
-              👤 Manage Registration & Check-In ➔
-            </button>
-          </div>
-        `;
-      } else {
-        const myPid = String(preg.player_id || preg.bcp_player_id || '').trim().toLowerCase();
-        const myName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
-        const myPlayerRec = (kpi.players || []).find(p => {
-          const pPid = String(p.player_id || p.bcp_player_id || '').trim().toLowerCase();
-          const pName = String(p.full_name || `${p.first_name || ''} ${p.last_name || ''}`).trim().toLowerCase();
-          return (myPid && pPid === myPid) || (myName && pName === myName);
-        });
-        const rankText = (myPlayerRec && myPlayerRec.placement > 0) ? `Placed #${myPlayerRec.placement}` : 'Competitor';
-        const recText = myPlayerRec ? `${myPlayerRec.event_wins || 0}W-${myPlayerRec.event_losses || 0}L` : '';
-        regBanner.style.display = 'block';
-        regBanner.innerHTML = `
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.65rem 0.95rem; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.35); border-radius:8px; flex-wrap:wrap;">
-            <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.82rem; color:#f0f9ff;">
-              <span style="font-size:1rem;">🏆</span>
-              <div>
-                <strong style="color:#38bdf8;">You competed in this event</strong>
-                <span style="color:var(--text-secondary); margin-left:0.35rem;">• ${escapeHtml(rankText)}${recText ? ` (${escapeHtml(recText)})` : ''} • ${escapeHtml(fac)}</span>
-              </div>
-            </div>
-            <button type="button" onclick="openEventHubFromModal('player')" class="btn-sm btn-primary" style="background:#0284c7; border-color:#38bdf8; color:#fff; font-weight:700; font-size:0.76rem; padding:0.35rem 0.85rem; cursor:pointer;">
-              🏆 View My Results & Player Station ➔
-            </button>
-          </div>
-        `;
-      }
-    } else {
-      regBanner.style.display = 'none';
-      regBanner.innerHTML = '';
-    }
+    regBanner.style.display = 'none';
+    regBanner.innerHTML = '';
   }
 
   // 4-Card Quick KPI Strip
@@ -4324,7 +4279,7 @@ function openEventHubFromModal(explicitTab = null) {
     const isOngoing = (typeof isTournamentOngoing === 'function')
       ? isTournamentOngoing(currentEventData)
       : (!ended && (currentEventData?.matches || []).length > 0);
-    if (isRegistered && !ended) {
+    if (isRegistered) {
       targetTab = 'player';
     } else if (isOngoing) {
       targetTab = 'matches';
@@ -4491,7 +4446,7 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
       const isOngoing = (typeof isTournamentOngoing === 'function')
         ? isTournamentOngoing(ev)
         : (!ended && eventMatchesCache.length > 0);
-      if (shouldShowPlayerTab && !ended) {
+      if (shouldShowPlayerTab) {
         targetTab = 'player';
       } else if (isOngoing && eventMatchesCache.length > 0) {
         targetTab = 'matches';
@@ -4580,55 +4535,6 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
   const topSeedName = kpi.topSeedPlayer ? (kpi.topSeedPlayer.full_name || 'Competitor') : '-';
   const topSeedElo = kpi.topSeedPlayer ? Number(kpi.topSeedPlayer.current_elo || 1500).toFixed(1) : '-';
 
-  let participantBannerHtml = '';
-  if (userRegData && userRegData.is_registered) {
-    const preg = userRegData.player_registration || userRegData.player || {};
-    const myPid = String(preg.player_id || preg.bcp_player_id || '').trim().toLowerCase();
-    const myName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
-    const myPlayerRec = (kpi.players || []).find(p => {
-      const pPid = String(p.player_id || p.bcp_player_id || '').trim().toLowerCase();
-      const pName = String(p.full_name || `${p.first_name || ''} ${p.last_name || ''}`).trim().toLowerCase();
-      return (myPid && pPid === myPid) || (myName && pName === myName);
-    });
-    const fac = formatEventPlayerFaction(preg.faction || preg.army_name || (myPlayerRec && (myPlayerRec.faction || myPlayerRec.army_name)) || 'Faction Pending');
-    if (kpi.ended) {
-      const rankStr = (myPlayerRec && myPlayerRec.placement > 0) ? `Placed #${myPlayerRec.placement} of ${kpi.totalPlayers}` : 'Participant';
-      const recStr = myPlayerRec ? `${myPlayerRec.event_wins || 0}W-${myPlayerRec.event_losses || 0}L` : '';
-      participantBannerHtml = `
-        <div id="event-hub-participant-banner" style="margin-top: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.7rem 1rem; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 10px; flex-wrap: wrap;">
-          <div style="display: flex; align-items: center; gap: 0.55rem; font-size: 0.85rem; color: #f0f9ff;">
-            <span style="font-size: 1.05rem;">🏆</span>
-            <div>
-              <strong style="color: #38bdf8;">You competed in this tournament</strong>
-              <span style="color: var(--text-secondary); margin-left: 0.35rem;">• ${escapeHtml(rankStr)}${recStr ? ` (${escapeHtml(recStr)})` : ''} • ${escapeHtml(fac)}</span>
-            </div>
-          </div>
-          <button type="button" onclick="switchEventModalTab('player')" class="btn-sm btn-primary" style="background: #0284c7; border-color: #38bdf8; color: #fff; font-weight: 700; font-size: 0.78rem; padding: 0.4rem 0.9rem; cursor: pointer;">
-            🏆 Open Player Station & My Results ➔
-          </button>
-        </div>
-      `;
-    } else {
-      const checkedIn = Boolean(preg.checked_in);
-      const dropped = Boolean(preg.dropped);
-      const statusText = dropped ? '🚫 Dropped' : (checkedIn ? '✅ Checked In' : '⚠️ Not Checked In');
-      participantBannerHtml = `
-        <div id="event-hub-participant-banner" style="margin-top: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.7rem 1rem; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 10px; flex-wrap: wrap;">
-          <div style="display: flex; align-items: center; gap: 0.55rem; font-size: 0.85rem; color: #ecfdf5;">
-            <span style="font-size: 1.05rem;">⚡</span>
-            <div>
-              <strong style="color: #10b981;">You are registered for this event</strong>
-              <span style="color: var(--text-secondary); margin-left: 0.35rem;">• ${statusText} • ${escapeHtml(fac)}</span>
-            </div>
-          </div>
-          <button type="button" onclick="switchEventModalTab('player')" class="btn-sm btn-primary" style="background: #10b981; border-color: #059669; color: #fff; font-weight: 700; font-size: 0.78rem; padding: 0.4rem 0.9rem; cursor: pointer;">
-            ⚡ Open Player Station ➔
-          </button>
-        </div>
-      `;
-    }
-  }
-
   heroSection.innerHTML = `
     <div class="profile-hero-card event-hub-hero-card" style="margin-bottom: 1.25rem;">
       <div class="profile-hero-top">
@@ -4668,8 +4574,6 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
           </button>
         </div>
       </div>
-
-      ${participantBannerHtml}
 
       <!-- 4 Hero KPI Cards (Desktop & Tablet) -->
       <div id="event-hub-kpis-grid" class="profile-kpi-grid event-hub-kpi-grid" style="margin-top: 1.2rem;">
