@@ -1696,15 +1696,16 @@ class DiceTrackerApp {
 
         if (
           area >= 4 &&
-          area <= 155 &&
+          area <= (isDarkPip ? 155 : 53) &&
           bW >= 2 &&
           bW <= 17 &&
           bH >= 2 &&
           bH <= 17 &&
-          aspect >= 0.55 &&
-          aspect <= 1.8 &&
-          fillRatio >= 0.35 &&
-          validRingPts >= 6
+          aspect >= 0.62 &&
+          aspect <= 1.65 &&
+          fillRatio >= 0.36 &&
+          validRingPts >= 6 &&
+          (isDarkPip || (peakLum >= 195 && blobMeanLum >= 165))
         ) {
           candidatePips.push({
             x: cx,
@@ -1723,9 +1724,10 @@ class DiceTrackerApp {
           bW <= 34 &&
           bH >= 12 &&
           bH <= 34 &&
-          aspect >= 0.6 &&
-          aspect <= 1.65 &&
-          validRingPts >= 6
+          aspect >= 0.65 &&
+          aspect <= 1.55 &&
+          validRingPts >= 7 &&
+          (isDarkPip || (peakLum >= 195 && blobMeanLum >= 165))
         ) {
           candidateEmblems.push({
             x: cx,
@@ -1738,155 +1740,246 @@ class DiceTrackerApp {
       }
     }
 
-    // Stage 1B: Multi-Scale DoG 3x3 Local-Peak + Saddle-Valley Decomposition for Real-World Camera Dice
-    // Resolves dim/small physical pips (lum 62..185) and splits optical-blurred multi-pip clusters
+    // Stage 1B: Translucent & Colored Physical Dice Crisp White-Pip 5x5 Peak Detector
+    // Detects bright white pips (val >= 225, 3x3 core >= 232) on medium-bright colored or
+    // translucent dice bodies (bg9 in 95..212) and decomposes subsurface-scattered pip clusters.
     if (allowDarkDice) {
-      const rawPeaks = [];
-      const minProm = Math.max(18, contrastSensitivity);
-      const invBg1BArea = 1 / ((2 * rBg1B + 1) * (2 * rBg1B + 1));
-      const rRing = 10;
-      const dRing = 7;
-      const rxOff = [-rRing, rRing, 0, 0, -dRing, dRing, -dRing, dRing];
-      const ryOff = [0, 0, -rRing, rRing, -dRing, -dRing, dRing, dRing];
+      const brightPeaks = [];
+      const minBrightProm = Math.max(32, contrastSensitivity * 1.4);
+      const rRing5 = 5;
+      const dRing4 = 4;
+      const rxOff5 = [-rRing5, rRing5, 0, 0, -dRing4, dRing4, -dRing4, dRing4];
+      const ryOff5 = [0, 0, -rRing5, rRing5, -dRing4, -dRing4, dRing4, dRing4];
 
-      for (let y = yStart + 2; y < yEnd - 2; y++) {
+      for (let y = yStart + 3; y < yEnd - 3; y++) {
         const rowOff = y * width;
-        const satTopRow = (y - rBg1B) * satW;
-        const satBotRow = (y + rBg1B + 1) * satW;
-        const satInTop = (y - 1) * satW;
-        const satInBot = (y + 2) * satW;
-
-        for (let x = xStart + 2; x < xEnd - 2; x++) {
+        for (let x = xStart + 3; x < xEnd - 3; x++) {
           const idx = rowOff + x;
           const val = gray[idx];
-          // Fast 1-cycle pre-filter: only inspect real-camera dim/medium pips (62..185);
-          // crisp synthetic pips (val >= 205) are already 100% handled by Stage 1A
-          if (val < 62 || val > 185) continue;
+          if (val < 225) continue;
 
-          // 3x3 Non-Maximum Suppression with tie-breaking (executes before SAT math for <1ms speed)
-          const rPrev = rowOff - width;
-          const rNext = rowOff + width;
+          // Fast 4-cardinal neighbor pre-check before 5x5 loop (skips flat white die bodies in O(1))
           if (
-            gray[rPrev + x - 1] >= val ||
-            gray[rPrev + x] >= val ||
-            gray[rPrev + x + 1] >= val ||
-            gray[rowOff + x - 1] >= val ||
-            gray[rowOff + x + 1] > val ||
-            gray[rNext + x - 1] > val ||
-            gray[rNext + x] > val ||
-            gray[rNext + x + 1] > val
+            gray[idx - 1] >= val ||
+            gray[idx + 1] > val ||
+            gray[idx - width] >= val ||
+            gray[idx + width] > val
           ) {
             continue;
           }
 
-          const bgMean = (
-            sat[satBotRow + x + rBg1B + 1] -
-            sat[satTopRow + x + rBg1B + 1] -
-            sat[satBotRow + x - rBg1B] +
-            sat[satTopRow + x - rBg1B]
-          ) * invBg1BArea;
-
-          if (bgMean > 120 || val < bgMean * 1.45) continue;
-
-          const innerMean = (
-            sat[satInBot + x + 2] -
-            sat[satInTop + x + 2] -
-            sat[satInBot + x - 1] +
-            sat[satInTop + x - 1]
-          ) * invInnerArea;
-
-          const prom = innerMean - bgMean;
-          if (prom < minProm) continue;
-
-          // Reject corners/edges of bright light-colored dice via 4-quadrant 7x7 SAT means
-          if (
-            boxMean(x - 6, y - 6, 3) > 120 ||
-            boxMean(x + 6, y - 6, 3) > 120 ||
-            boxMean(x - 6, y + 6, 3) > 120 ||
-            boxMean(x + 6, y + 6, 3) > 120
-          ) {
-            continue;
+          // 5x5 Non-Maximum Suppression with tie-breaking
+          let isMax5 = true;
+          for (let dy = -2; dy <= 2 && isMax5; dy++) {
+            const rOff = (y + dy) * width;
+            for (let dx = -2; dx <= 2; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const nv = gray[rOff + x + dx];
+              if (dy < 0 || (dy === 0 && dx < 0) ? nv >= val : nv > val) {
+                isMax5 = false;
+                break;
+              }
+            }
           }
+          if (!isMax5) continue;
 
-          let darkPts = 0;
+          const in1 = boxMean(x, y, 1);
+          if (in1 < 232) continue;
+
+          const bg9 = boxMean(x, y, 9);
+          if (bg9 < 95 || bg9 > 212) continue;
+
+          const prom = in1 - bg9;
+          if (prom < minBrightProm) continue;
+
+          let validPts = 0;
           let ringSum = 0;
           for (let k = 0; k < 8; k++) {
-            const rl = gray[(y + ryOff[k]) * width + (x + rxOff[k])];
-            if (val - rl >= minProm && rl < 130) {
-              darkPts++;
+            const rl = gray[(y + ryOff5[k]) * width + (x + rxOff5[k])];
+            if (val - rl >= 22 && rl >= 95 && rl <= 228) {
+              validPts++;
               ringSum += rl;
             }
           }
-          if (darkPts < 6) continue;
+          if (validPts < 6) continue;
 
-          rawPeaks.push({
+          brightPeaks.push({
             x,
             y,
-            size: 3.8,
-            area: 9,
+            size: 5.5,
+            area: 24,
             polarity: "light_pip",
-            bodyLum: ringSum / darkPts,
+            bodyLum: ringSum / validPts,
             peakLum: val,
             val,
-            bgMean,
+            bgMean: bg9,
             prom
           });
         }
       }
 
-      if (rawPeaks.length > 0) {
-        // Saddle-Valley Decomposition: merge plateau twin peaks, keep genuine valley-separated pips
-        rawPeaks.sort((a, b) => b.val - a.val);
-        const filteredDogPips = [];
-        for (let i = 0; i < rawPeaks.length; i++) {
-          const p = rawPeaks[i];
+      if (brightPeaks.length > 0) {
+        brightPeaks.sort((a, b) => b.val - a.val);
+        const dedupedBright = [];
+        for (let i = 0; i < brightPeaks.length; i++) {
+          const p = brightPeaks[i];
           if (candidateEmblems.some(emb => Math.hypot(emb.x - p.x, emb.y - p.y) <= emb.size * 0.75)) {
             continue;
           }
-          let merged = false;
-          for (let j = 0; j < filteredDogPips.length; j++) {
-            const ex = filteredDogPips[j];
-            const d = Math.hypot(ex.x - p.x, ex.y - p.y);
-            if (d < 3.2) {
-              merged = true;
-              break;
-            }
-            if (d < 7.5) {
-              let minLineVal = 255;
-              for (let s = 1; s <= 3; s++) {
-                const t = s * 0.25;
-                const lx = Math.round(ex.x + (p.x - ex.x) * t);
-                const ly = Math.round(ex.y + (p.y - ex.y) * t);
-                const lv = gray[ly * width + lx];
-                if (lv < minLineVal) minLineVal = lv;
-              }
-              if (minLineVal >= Math.min(ex.val, p.val) - 1) {
-                merged = true;
-                break;
-              }
-            }
-          }
-          if (!merged) {
-            filteredDogPips.push(p);
+          if (!dedupedBright.some(ex => Math.hypot(ex.x - p.x, ex.y - p.y) < 3.8)) {
+            dedupedBright.push(p);
           }
         }
 
-        // Replace any low/medium-luminance Stage 1A light_pip blobs (which may have merged blurred pips)
-        // with the saddle-decomposed Stage 1B peaks, while keeping any high-lum Stage 1A pips not in Stage 1B
+        // Remove any Stage 1A light_pip blob that overlaps a Stage 1B peak
         for (let j = candidatePips.length - 1; j >= 0; j--) {
           const cp = candidatePips[j];
-          if (cp.polarity === "light_pip" && (cp.peakLum || 255) <= 185) {
+          if (
+            cp.polarity === "light_pip" &&
+            dedupedBright.some(bp => Math.hypot(cp.x - bp.x, cp.y - bp.y) <= Math.max(6.0, cp.size * 0.85))
+          ) {
             candidatePips.splice(j, 1);
           }
         }
-        const highLumStage1A = candidatePips.filter(cp => cp.polarity === "light_pip");
-        for (let i = 0; i < filteredDogPips.length; i++) {
-          const dp = filteredDogPips[i];
-          const coveredByHighLum = highLumStage1A.some(
-            cp => Math.hypot(cp.x - dp.x, cp.y - dp.y) <= Math.max(4.0, cp.size * 0.65)
-          );
-          if (!coveredByHighLum) {
-            candidatePips.push(dp);
+        for (let i = 0; i < dedupedBright.length; i++) {
+          candidatePips.push(dedupedBright[i]);
+        }
+      }
+    }
+
+    // Stage 1C: Pitch-Dark Room / Low-Exposure Camera Fallback (ONLY when tray median lum <= 22 and no normal pips found)
+    if (allowDarkDice && candidatePips.length === 0 && candidateEmblems.length === 0) {
+      const sampleLums = [];
+      for (let sy = 1; sy <= 5; sy++) {
+        const py = Math.round(yStart + ((yEnd - yStart) * sy) / 6);
+        for (let sx = 1; sx <= 5; sx++) {
+          const px = Math.round(xStart + ((xEnd - xStart) * sx) / 6);
+          sampleLums.push(boxMean(px, py, 4));
+        }
+      }
+      sampleLums.sort((a, b) => a - b);
+      const trayMedianLum = sampleLums[12] || 60;
+
+      if (trayMedianLum <= 22) {
+        const rawPeaks = [];
+        const minProm = Math.max(18, contrastSensitivity);
+        const invBg1BArea = 1 / ((2 * rBg1B + 1) * (2 * rBg1B + 1));
+        const rRing = 10;
+        const dRing = 7;
+        const rxOff = [-rRing, rRing, 0, 0, -dRing, dRing, -dRing, dRing];
+        const ryOff = [0, 0, -rRing, rRing, -dRing, -dRing, dRing, dRing];
+
+        for (let y = yStart + 2; y < yEnd - 2; y++) {
+          const rowOff = y * width;
+          const satTopRow = (y - rBg1B) * satW;
+          const satBotRow = (y + rBg1B + 1) * satW;
+          const satInTop = (y - 1) * satW;
+          const satInBot = (y + 2) * satW;
+
+          for (let x = xStart + 2; x < xEnd - 2; x++) {
+            const idx = rowOff + x;
+            const val = gray[idx];
+            if (val < 62 || val > 185) continue;
+
+            const rPrev = rowOff - width;
+            const rNext = rowOff + width;
+            if (
+              gray[rPrev + x - 1] >= val ||
+              gray[rPrev + x] >= val ||
+              gray[rPrev + x + 1] >= val ||
+              gray[rowOff + x - 1] >= val ||
+              gray[rowOff + x + 1] > val ||
+              gray[rNext + x - 1] > val ||
+              gray[rNext + x] > val ||
+              gray[rNext + x + 1] > val
+            ) {
+              continue;
+            }
+
+            const bgMean = (
+              sat[satBotRow + x + rBg1B + 1] -
+              sat[satTopRow + x + rBg1B + 1] -
+              sat[satBotRow + x - rBg1B] +
+              sat[satTopRow + x - rBg1B]
+            ) * invBg1BArea;
+
+            if (bgMean > 120 || val < bgMean * 1.45) continue;
+
+            const innerMean = (
+              sat[satInBot + x + 2] -
+              sat[satInTop + x + 2] -
+              sat[satInBot + x - 1] +
+              sat[satInTop + x - 1]
+            ) * invInnerArea;
+
+            const prom = innerMean - bgMean;
+            if (prom < minProm) continue;
+
+            if (
+              boxMean(x - 6, y - 6, 3) > 120 ||
+              boxMean(x + 6, y - 6, 3) > 120 ||
+              boxMean(x - 6, y + 6, 3) > 120 ||
+              boxMean(x + 6, y + 6, 3) > 120
+            ) {
+              continue;
+            }
+
+            let darkPts = 0;
+            let ringSum = 0;
+            for (let k = 0; k < 8; k++) {
+              const rl = gray[(y + ryOff[k]) * width + (x + rxOff[k])];
+              if (val - rl >= minProm && rl < 130) {
+                darkPts++;
+                ringSum += rl;
+              }
+            }
+            if (darkPts < 6) continue;
+
+            rawPeaks.push({
+              x,
+              y,
+              size: 3.8,
+              area: 9,
+              polarity: "light_pip",
+              bodyLum: ringSum / darkPts,
+              peakLum: val,
+              val,
+              bgMean,
+              prom
+            });
+          }
+        }
+
+        if (rawPeaks.length > 0) {
+          rawPeaks.sort((a, b) => b.val - a.val);
+          for (let i = 0; i < rawPeaks.length; i++) {
+            const p = rawPeaks[i];
+            let merged = false;
+            for (let j = 0; j < candidatePips.length; j++) {
+              const ex = candidatePips[j];
+              const d = Math.hypot(ex.x - p.x, ex.y - p.y);
+              if (d < 3.2) {
+                merged = true;
+                break;
+              }
+              if (d < 7.5) {
+                let minLineVal = 255;
+                for (let s = 1; s <= 3; s++) {
+                  const t = s * 0.25;
+                  const lx = Math.round(ex.x + (p.x - ex.x) * t);
+                  const ly = Math.round(ex.y + (p.y - ex.y) * t);
+                  const lv = gray[ly * width + lx];
+                  if (lv < minLineVal) minLineVal = lv;
+                }
+                if (minLineVal >= Math.min(ex.val, p.val) - 1) {
+                  merged = true;
+                  break;
+                }
+              }
+            }
+            if (!merged) {
+              candidatePips.push(p);
+            }
           }
         }
       }
@@ -2017,7 +2110,7 @@ class DiceTrackerApp {
     const tMin = Math.min(0.45, Math.max(0.36, ((p1.size || 6) * 0.60) / dist));
     const tMax = Math.max(0.55, Math.min(0.64, 1.0 - ((p2.size || 6) * 0.60) / dist));
     const localBodyLum = ((p1.bodyLum || 160) + (p2.bodyLum || 160)) * 0.5;
-    const minBodyLumDarkDie = Math.max(10, localBodyLum - 22);
+    const minBodyLumDarkDie = Math.max(10, localBodyLum - 32);
     let bodyHits = 0;
     let gapCrossings = 0;
     for (let s = 0; s < 5; s++) {
@@ -2029,8 +2122,8 @@ class DiceTrackerApp {
         if (lum >= Math.min(135, localBodyLum - 28)) bodyHits++;
         else if (lum < Math.min(95, localBodyLum - 45)) gapCrossings++;
       } else {
-        if (lum >= minBodyLumDarkDie && lum <= Math.max(168, localBodyLum + 80)) bodyHits++;
-        else if (lum < minBodyLumDarkDie - 2 || lum > Math.max(180, localBodyLum + 95)) gapCrossings++;
+        if (lum >= minBodyLumDarkDie && lum <= Math.max(172, localBodyLum + 80)) bodyHits++;
+        else if (lum < minBodyLumDarkDie - 2 || lum > Math.max(185, localBodyLum + 95)) gapCrossings++;
       }
     }
     return (gapCrossings === 0 && bodyHits >= 3) || (dist < 16 && bodyHits >= 3 && gapCrossings <= 1);

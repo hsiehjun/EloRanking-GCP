@@ -605,6 +605,70 @@ const realCamDet = app.detectRealDice({ data: realCamBuf, width: 640, height: 48
 const realCamSum = realCamDet.reduce((a, d) => a + d.value, 0);
 const realCamFaces = realCamDet.map(d => d.value).sort((a, b) => a - b).join(',');
 
+// 8. Test Real Mobile Un-Squished Camera Feed: 3 Translucent/Colored Dice ([5, 1, 4], sum=10)
+// on Grey Neoprene Mat (lum 65..95 with fabric glints up to 118) + Black Tray Rim + Bright Beige Table (lum 192)
+const transCamBuf = new Uint8ClampedArray(640 * 480 * 4);
+for (let y = 0; y < 480; y++) {
+  for (let x = 0; x < 640; x++) {
+    const idx = (y * 640 + x) * 4;
+    let lum = 72;
+    if (x < 145 || x > 495) {
+      lum = 192; // Bright beige exterior table
+    } else if (x < 172 || x > 470) {
+      lum = 28; // Black leather/neoprene tray wall
+    } else {
+      // Grey neoprene mat with local fabric texture/glints (64..115)
+      lum = 68 + ((x * 13 + y * 7) % 18) + (x % 29 === 0 && y % 31 === 0 ? 26 : 0);
+    }
+    transCamBuf[idx] = lum; transCamBuf[idx+1] = lum; transCamBuf[idx+2] = lum; transCamBuf[idx+3] = 255;
+  }
+}
+function paintTranslucentDie(buf, cx, cy, pips, hasSideShadowPip = false) {
+  for (let dy = -15; dy <= 15; dy++) {
+    for (let dx = -15; dx <= 15; dx++) {
+      const idx = ((cy + dy) * 640 + (cx + dx)) * 4;
+      const bodyLum = dy > 13 ? 26 : 168; // 3D shadow edge at bottom
+      buf[idx] = bodyLum - 25; buf[idx+1] = bodyLum; buf[idx+2] = bodyLum + 18;
+    }
+  }
+  for (const [ox, oy] of pips) {
+    const px = cx + ox, py = cy + oy;
+    for (let dy = -4; dy <= 4; dy++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        const d2 = dx * dx + dy * dy;
+        if (d2 > 16) continue;
+        // Subsurface scattering halo (218) + bright white 3x3 core (248..255)
+        const lum = d2 === 0 ? 254 : (d2 <= 2 ? 250 : (d2 <= 5 ? 236 : 218));
+        const idx = ((py + dy) * 640 + (px + dx)) * 4;
+        if (lum > buf[idx+1]) {
+          buf[idx] = lum; buf[idx+1] = lum; buf[idx+2] = lum;
+        }
+      }
+    }
+  }
+  if (hasSideShadowPip) {
+    // Dimmer 3D side-face pip right on bottom shadow edge (must be rejected)
+    const sx = cx - 8, sy = cy + 13;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const idx = ((sy + dy) * 640 + (sx + dx)) * 4;
+        const lum = dx === 0 && dy === 0 ? 221 : 204;
+        buf[idx] = lum; buf[idx+1] = lum; buf[idx+2] = lum;
+      }
+    }
+  }
+}
+// Die A = 5 (rotated 45 deg diamond at 211, 249)
+paintTranslucentDie(transCamBuf, 211, 249, [[0,-8],[-8,0],[0,0],[8,0],[0,9]], false);
+// Die B = 1 (at 439, 213 with 3D side-face pip on shadow edge)
+paintTranslucentDie(transCamBuf, 439, 213, [[0,0]], true);
+// Die C = 4 (at 310, 356)
+paintTranslucentDie(transCamBuf, 310, 356, [[-6,-7],[5,-7],[-6,6],[5,6]], false);
+
+const transCamDet = app.detectRealDice({ data: transCamBuf, width: 640, height: 480 }, 640, 480);
+const transCamSum = transCamDet.reduce((a, d) => a + d.value, 0);
+const transCamFaces = transCamDet.map(d => d.value).sort((a, b) => a - b).join(',');
+
 console.log(JSON.stringify({
   poolResults,
   avgFrameMs: totalTimingMs / totalTimingFrames,
@@ -623,7 +687,10 @@ console.log(JSON.stringify({
   antiFlickerStayedIdle,
   realCamCount: realCamDet.length,
   realCamSum,
-  realCamFaces
+  realCamFaces,
+  transCamCount: transCamDet.length,
+  transCamSum,
+  transCamFaces
 }));
 """
         proc = subprocess.run(
@@ -683,7 +750,12 @@ console.log(JSON.stringify({
         self.assertEqual(result["realCamSum"], 23)
         self.assertEqual(result["realCamFaces"], "3,3,3,4,5,5")
 
-        # 8. Verify Performance (< 15ms per 640x480 frame)
+        # 8. Verify Real Mobile Camera Translucent/Colored Dice on Grey Neoprene Mat ([1,4,5], sum=10, 0 false positives)
+        self.assertEqual(result["transCamCount"], 3)
+        self.assertEqual(result["transCamSum"], 10)
+        self.assertEqual(result["transCamFaces"], "1,4,5")
+
+        # 9. Verify Performance (< 15ms per 640x480 frame)
         self.assertLess(
             result["avgFrameMs"],
             15.0,
