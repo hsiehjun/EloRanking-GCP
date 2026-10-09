@@ -121,6 +121,54 @@ def _extract_guest_id(request: Optional[Request] = None, payload: Optional[Any] 
                 return clean
     return None
 
+
+def _is_guest_seat_id(val: Any) -> bool:
+    """Return True if a seat's user_id belongs to an unauthenticated Guest (e.g. 'guest_...', 'p2_...', 'p1_...')."""
+    if val is None:
+        return False
+    s = str(val).strip()
+    return s.startswith("guest_") or s.startswith("p2_") or s.startswith("p1_")
+
+
+def _maybe_rebind_guest_seat(room: Dict[str, Any], effective_uid: Optional[str], role: Optional[str] = None, fs_engine: Any = None, match_id: Optional[str] = None) -> Tuple[bool, bool]:
+    """
+    If a Guest loses connection or switches browsers/tabs and sends an action with their current
+    guest_id and explicit role='player2'/'player1' while that seat is held by an unauthenticated guest_... ID,
+    rebind the guest seat to their current guest_id so they are never locked out mid-match.
+    Returns (is_p1, is_p2).
+    """
+    p1_uid = room.get("user_id_p1")
+    p2_uid = room.get("user_id_p2")
+    is_p1 = bool(effective_uid and p1_uid and str(p1_uid) == str(effective_uid))
+    is_p2 = bool(effective_uid and p2_uid and str(p2_uid) == str(effective_uid))
+
+    if not is_p1 and not is_p2 and effective_uid and _is_guest_seat_id(effective_uid):
+        norm_role = str(role or "").strip().lower()
+        if norm_role in ("player2", "p2") or (norm_role in ("editor", "") and p2_uid is None):
+            if (p2_uid is None or _is_guest_seat_id(p2_uid)) and (not p1_uid or str(p1_uid) != str(effective_uid)):
+                room["user_id_p2"] = effective_uid
+                if isinstance(room.get("state"), dict):
+                    room["state"]["user_id_p2"] = effective_uid
+                is_p2 = True
+                if fs_engine and match_id:
+                    try:
+                        fs_engine.update_room(match_id, {"user_id_p2": effective_uid})
+                    except Exception:
+                        pass
+        elif norm_role in ("player1", "p1"):
+            if (p1_uid is None or _is_guest_seat_id(p1_uid)) and (not p2_uid or str(p2_uid) != str(effective_uid)):
+                room["user_id_p1"] = effective_uid
+                if isinstance(room.get("state"), dict):
+                    room["state"]["user_id_p1"] = effective_uid
+                is_p1 = True
+                if fs_engine and match_id:
+                    try:
+                        fs_engine.update_room(match_id, {"user_id_p1": effective_uid})
+                    except Exception:
+                        pass
+
+    return is_p1, is_p2
+
 def check_user_matches_player(user: Optional[Dict[str, Any]], target_name: Optional[str], target_id: Optional[str] = None) -> bool:
     """Determine if an authenticated user corresponds to a specific tournament pairing participant."""
     if not user:
@@ -683,9 +731,13 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
         bool(game.get("eventId"))
     )
 
-    claim_role = getattr(payload, "claim_role", None)
+    claim_role = str(getattr(payload, "claim_role", None) or "").strip().lower()
     if claim_role == "spectator":
         return ("spectator", None)
+    if claim_role == "p2":
+        claim_role = "player2"
+    elif claim_role == "p1":
+        claim_role = "player1"
 
     # Multi-device / returning player check: if this user or guest already owns Player 1 or Player 2,
     # always return their existing seat without claiming the other player's slot or becoming spectator.
@@ -693,6 +745,9 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
         return ("player1", None)
     if u_id and p2_id and str(u_id) == str(p2_id):
         return ("player2", None)
+
+    p1_is_guest_seat = _is_guest_seat_id(p1_id)
+    p2_is_guest_seat = _is_guest_seat_id(p2_id)
 
     if is_tournament:
         # Strict table pairings: matched authenticated competitors claim their assigned slots
@@ -714,10 +769,14 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
             return ("referee", None)
         # If ONE player has already set up the game in the room (e.g. p1_id is claimed and p2_id is open),
         # allow an unauthenticated Guest with a valid guest_id (or if the opponent pairing is generic/unassigned)
-        # to claim the open opponent slot. Non-paired authenticated tournament players enter as spectator.
+        # to claim the open opponent slot, or reclaim a Guest seat if they lost connection and explicitly claim_role.
         is_guest_caller = bool(candidate_user is None and guest_id)
         has_unassigned_p2 = not p2_target_id and p2_assigned_name in ("", "Player 2", "Opponent", "Unknown")
         has_unassigned_p1 = not p1_target_id and p1_assigned_name in ("", "Player 1", "Unknown")
+        if claim_role == "player2" and (not p2_id or p2_is_guest_seat) and (not p1_id or not u_id or str(u_id) != str(p1_id)) and (is_guest_caller or has_unassigned_p2):
+            return ("player2", "user_id_p2")
+        if claim_role == "player1" and (not p1_id or p1_is_guest_seat) and (not p2_id or not u_id or str(u_id) != str(p2_id)) and (is_guest_caller or has_unassigned_p1):
+            return ("player1", "user_id_p1")
         if p1_id and not p2_id and (not u_id or str(u_id) != str(p1_id)) and (is_guest_caller or has_unassigned_p2):
             return ("player2", "user_id_p2")
         if p2_id and not p1_id and (not u_id or str(u_id) != str(p2_id)) and (is_guest_caller or has_unassigned_p1):
@@ -727,10 +786,11 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
         # Casual match logic:
         # - 1st distinct person gets player1
         # - 2nd distinct person (authenticated user OR Guest with guest_id != p1_id) gets player2
+        # - Returning Guest who lost connection/session can reclaim a Guest seat when claim_role is specified
         # - 3rd+ person after both p1_id and p2_id are claimed gets spectator
-        if claim_role == "player2" and not p2_id and (not p1_id or not u_id or str(u_id) != str(p1_id)):
+        if claim_role == "player2" and (not p2_id or p2_is_guest_seat) and (not p1_id or not u_id or str(u_id) != str(p1_id)):
             return ("player2", "user_id_p2")
-        if claim_role == "player1" and not p1_id and (not p2_id or not u_id or str(u_id) != str(p2_id)):
+        if claim_role == "player1" and (not p1_id or p1_is_guest_seat) and (not p2_id or not u_id or str(u_id) != str(p2_id)):
             return ("player1", "user_id_p1")
         if not p1_id:
             return ("player1", "user_id_p1")
@@ -1237,6 +1297,11 @@ def _api_tracker_check_room_sync(match_id: str, request: Request):
 
     room_sys = room.get("game_system") or st.get("game_system") or st.get("gameSystem") or ("aos" if match_id.startswith("AOS-") else "40k")
 
+    p1_is_guest = _is_guest_seat_id(p1_id)
+    p2_is_guest = _is_guest_seat_id(p2_id)
+    can_reclaim_guest_p2 = bool(not is_finished and not is_p1 and p2_is_guest)
+    can_reclaim_guest_p1 = bool(not is_finished and not is_p2 and p1_is_guest)
+
     if is_tournament:
         is_tournament_staff = check_user_is_tournament_staff(user, room, match_id=match_id)
         matches_p1 = is_p1 or bool(user and check_user_matches_player(user, p1_assigned_name, p1_target_id))
@@ -1262,11 +1327,16 @@ def _api_tracker_check_room_sync(match_id: str, request: Request):
             "p2_name": p2_assigned_name,
             "user_id_p1": p1_id,
             "user_id_p2": p2_id,
+            "p1_is_guest": p1_is_guest,
+            "p2_is_guest": p2_is_guest,
+            "can_reclaim_guest_p1": bool(can_reclaim_guest_p1 and not is_tournament_staff and (is_guest_caller or has_unassigned_p1)),
+            "can_reclaim_guest_p2": bool(can_reclaim_guest_p2 and not is_tournament_staff and (is_guest_caller or has_unassigned_p2)),
             "is_full": is_full,
             "is_open_for_p2": is_open_for_p2,
             "is_finished": is_finished,
             "is_spectator": is_spectator,
             "is_referee": is_tournament_staff,
+            "is_participant": bool(assigned_role in ("player1", "player2", "referee")),
             "role": assigned_role,
             "scorecard_url": f"/scorecard/{match_id}"
         }
@@ -1284,11 +1354,16 @@ def _api_tracker_check_room_sync(match_id: str, request: Request):
             "p2_name": p2_assigned_name,
             "user_id_p1": p1_id,
             "user_id_p2": p2_id,
+            "p1_is_guest": p1_is_guest,
+            "p2_is_guest": p2_is_guest,
+            "can_reclaim_guest_p1": can_reclaim_guest_p1,
+            "can_reclaim_guest_p2": can_reclaim_guest_p2,
             "is_full": is_full,
             "is_open_for_p2": is_open_for_p2,
             "is_finished": is_finished,
             "is_spectator": is_spectator,
             "is_referee": is_staff,
+            "is_participant": bool(assigned_role in ("player1", "player2", "referee")),
             "role": assigned_role,
             "scorecard_url": f"/scorecard/{match_id}"
         }
@@ -1565,8 +1640,9 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
     
     room = TRACKER_ROOMS[match_id]
     
-    is_p1 = bool(effective_uid and room.get("user_id_p1") and str(room.get("user_id_p1")) == str(effective_uid))
-    is_p2 = bool(effective_uid and room.get("user_id_p2") and str(room.get("user_id_p2")) == str(effective_uid))
+    is_p1, is_p2 = _maybe_rebind_guest_seat(
+        room, effective_uid, role=payload.role, fs_engine=fs_engine, match_id=match_id
+    )
     is_tournament = (
         match_id.startswith("BCP-") or
         match_id.startswith("ES-") or
@@ -2159,8 +2235,9 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
     user_id = user["id"] if user else None
     guest_id = _extract_guest_id(request, payload=payload)
     effective_uid = user_id or guest_id
-    is_p1 = bool(effective_uid and room.get("user_id_p1") and str(room.get("user_id_p1")) == str(effective_uid))
-    is_p2 = bool(effective_uid and room.get("user_id_p2") and str(room.get("user_id_p2")) == str(effective_uid))
+    is_p1, is_p2 = _maybe_rebind_guest_seat(
+        room, effective_uid, role="player2" if (guest_id and not user_id) else None, fs_engine=fs_engine, match_id=match_id
+    )
     is_tournament = (
         match_id.startswith("BCP-") or
         match_id.startswith("ES-") or
@@ -4550,8 +4627,9 @@ async def api_tracker_attach_armylist(match_id: str, request: Request):
             room["user_id_p1"] = effective_uid
         elif role == "player2" and not room.get("user_id_p2"):
             room["user_id_p2"] = effective_uid
-    is_p1 = bool(effective_uid and room.get("user_id_p1") and str(room.get("user_id_p1")) == str(effective_uid))
-    is_p2 = bool(effective_uid and room.get("user_id_p2") and str(room.get("user_id_p2")) == str(effective_uid))
+    is_p1, is_p2 = _maybe_rebind_guest_seat(
+        room, effective_uid, role=role, fs_engine=fs_engine, match_id=match_id
+    )
     has_assigned_players = bool(room.get("user_id_p1") or room.get("user_id_p2"))
     is_tournament = (
         match_id.startswith("BCP-") or
@@ -4695,8 +4773,9 @@ async def api_tracker_update_clock(match_id: str, request: Request):
             }
 
     room = TRACKER_ROOMS[match_id]
-    is_p1 = bool(effective_uid and room.get("user_id_p1") and str(room.get("user_id_p1")) == str(effective_uid))
-    is_p2 = bool(effective_uid and room.get("user_id_p2") and str(room.get("user_id_p2")) == str(effective_uid))
+    is_p1, is_p2 = _maybe_rebind_guest_seat(
+        room, effective_uid, role=body.get("role") if isinstance(body, dict) else None, fs_engine=fs_engine, match_id=match_id
+    )
     is_tournament = (
         match_id.startswith("BCP-") or
         match_id.startswith("ES-") or
@@ -4910,8 +4989,9 @@ async def api_tracker_sync_dice_tray(match_id: str, request: Request):
             }
 
     room = TRACKER_ROOMS[match_id]
-    is_p1 = bool(effective_uid and room.get("user_id_p1") and str(room.get("user_id_p1")) == str(effective_uid))
-    is_p2 = bool(effective_uid and room.get("user_id_p2") and str(room.get("user_id_p2")) == str(effective_uid))
+    is_p1, is_p2 = _maybe_rebind_guest_seat(
+        room, effective_uid, role=body.get("role") if isinstance(body, dict) else None, fs_engine=fs_engine, match_id=match_id
+    )
     is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
     if room.get("user_id_p1") and room.get("user_id_p2") and effective_uid:
         if not (is_p1 or is_p2 or is_ref or check_user_is_tournament_staff(user, room, match_id=match_id)):
@@ -5019,8 +5099,9 @@ async def api_tracker_roll_dice(match_id: str, request: Request):
             }
 
     room = TRACKER_ROOMS[match_id]
-    is_p1 = bool(effective_uid and room.get("user_id_p1") and str(room.get("user_id_p1")) == str(effective_uid))
-    is_p2 = bool(effective_uid and room.get("user_id_p2") and str(room.get("user_id_p2")) == str(effective_uid))
+    is_p1, is_p2 = _maybe_rebind_guest_seat(
+        room, effective_uid, role=body.get("role") if isinstance(body, dict) else None, fs_engine=fs_engine, match_id=match_id
+    )
     is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
     if room.get("user_id_p1") and room.get("user_id_p2") and effective_uid:
         if not (is_p1 or is_p2 or is_ref or check_user_is_tournament_staff(user, room, match_id=match_id)):

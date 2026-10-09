@@ -161,12 +161,21 @@
         const m = document.cookie.match(/(?:^|;\s*)gt_guest_id=([^;]+)/);
         if (m && m[1]) gid = decodeURIComponent(m[1]);
       }
+      if (!gid && typeof window !== 'undefined' && typeof window.name === 'string' && window.name.includes('gt_gid:')) {
+        const nm = window.name.match(/gt_gid:(guest_[A-Za-z0-9_-]+)/);
+        if (nm && nm[1]) gid = nm[1];
+      }
       if (!gid || !String(gid).startsWith('guest_')) {
         gid = 'guest_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now().toString(36);
       }
       try { originalSetItem('gt_guest_id', gid); } catch (e) {}
       try { sessionStorage.setItem('gt_guest_id', gid); } catch (e) {}
       try { document.cookie = `gt_guest_id=${encodeURIComponent(gid)}; path=/; max-age=2592000; SameSite=Lax`; } catch (e) {}
+      try {
+        if (typeof window !== 'undefined' && typeof window.name === 'string' && !window.name.includes('gt_gid:')) {
+          window.name = (window.name ? window.name + ';' : '') + `gt_gid:${gid}`;
+        }
+      } catch (e) {}
       return gid;
     } catch (e) {
       return 'guest_fallback_' + Math.random().toString(36).substring(2, 9);
@@ -174,16 +183,129 @@
   }
   window.__getGtGuestId = getOrCreateGuestId;
 
+  function getSavedRoomSeat(matchId) {
+    if (!matchId) return '';
+    const normMid = String(matchId).trim().toUpperCase();
+    try {
+      const p = new URLSearchParams(window.location.search);
+      const urlRole = (p.get('role') || p.get('seat') || p.get('claim_role') || '').trim().toLowerCase();
+      if (urlRole === 'player2' || urlRole === 'p2') return 'player2';
+      if (urlRole === 'player1' || urlRole === 'p1') return 'player1';
+      if (urlRole === 'spectator') return 'spectator';
+    } catch (e) {}
+    const key = `gt_seat_${normMid}`;
+    try {
+      const saved = originalGetItem(key) || sessionStorage.getItem(key);
+      if (saved === 'player1' || saved === 'player2') return saved;
+    } catch (e) {}
+    try {
+      if (typeof document !== 'undefined' && document.cookie) {
+        const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '_');
+        const re = new RegExp(`(?:^|;\\s*)${safeKey}=([^;]+)`);
+        const m = document.cookie.match(re);
+        if (m && (m[1] === 'player1' || m[1] === 'player2')) return m[1];
+      }
+    } catch (e) {}
+    try {
+      if (typeof window !== 'undefined' && typeof window.name === 'string') {
+        const re = new RegExp(`${normMid}:(player1|player2)`);
+        const m = window.name.match(re);
+        if (m && m[1]) return m[1];
+      }
+    } catch (e) {}
+    return '';
+  }
+
+  function saveRoomSeat(matchId, role) {
+    if (!matchId || (role !== 'player1' && role !== 'player2')) return;
+    const normMid = String(matchId).trim().toUpperCase();
+    const key = `gt_seat_${normMid}`;
+    try { originalSetItem(key, role); } catch (e) {}
+    try { sessionStorage.setItem(key, role); } catch (e) {}
+    try {
+      const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '_');
+      document.cookie = `${safeKey}=${role}; path=/; max-age=604800; SameSite=Lax`;
+    } catch (e) {}
+    try {
+      if (typeof window !== 'undefined' && typeof window.name === 'string' && !window.name.includes(`${normMid}:`)) {
+        window.name = (window.name ? window.name + ';' : '') + `${normMid}:${role}`;
+      }
+    } catch (e) {}
+  }
+
+  function promptGuestRejoinOrSpectate(matchId, chkData) {
+    return new Promise((resolve) => {
+      if (typeof window.__hideGtLoadingOverlay === 'function') {
+        window.__hideGtLoadingOverlay(true);
+      }
+      const existing = document.getElementById('gt-guest-rejoin-modal');
+      if (existing) existing.remove();
+
+      const p1Name = (chkData && chkData.p1_name) ? chkData.p1_name : 'Player 1';
+      const p2Name = (chkData && chkData.p2_name) ? chkData.p2_name : 'Player 2';
+      const canReclaimP2 = Boolean(chkData && chkData.can_reclaim_guest_p2);
+      const canReclaimP1 = Boolean(chkData && chkData.can_reclaim_guest_p1);
+      const targetRole = canReclaimP2 ? 'player2' : (canReclaimP1 ? 'player1' : 'player2');
+      const targetLabel = targetRole === 'player2' ? `${p2Name} (Player 2)` : `${p1Name} (Player 1)`;
+
+      const modal = document.createElement('div');
+      modal.id = 'gt-guest-rejoin-modal';
+      modal.style.cssText = 'position:fixed; inset:0; z-index:9999999; background:rgba(4,7,17,0.92); backdrop-filter:blur(10px); display:flex; align-items:center; justify-content:center; padding:16px; font-family:Inter,system-ui,sans-serif;';
+      modal.innerHTML = `
+        <div style="background:#0e1526; border:1px solid rgba(56,189,248,0.35); border-radius:20px; width:100%; max-width:440px; padding:22px 20px; box-shadow:0 25px 70px rgba(0,0,0,0.9); color:#f8fafc; text-align:center;">
+          <div style="font-size:32px; margin-bottom:8px;">⚔️</div>
+          <h2 style="font-size:17px; font-weight:800; margin:0 0 6px; font-family:'JetBrains Mono',monospace; color:#f8fafc;">
+            MATCH IN PROGRESS
+          </h2>
+          <div style="font-size:12px; color:#38bdf8; font-family:'JetBrains Mono',monospace; font-weight:700; margin-bottom:12px;">
+            Room #${escapeHtml(matchId)} • ${escapeHtml(p1Name)} vs ${escapeHtml(p2Name)}
+          </div>
+          <p style="font-size:12.5px; color:#cbd5e1; line-height:1.5; margin:0 0 18px;">
+            This match already has an active Guest seat for <b>${escapeHtml(targetLabel)}</b>. Did you lose connection / switch browsers, or are you here to watch?
+          </p>
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <button type="button" id="gt-rejoin-guest-seat-btn" style="width:100%; background:linear-gradient(135deg,#10b981,#059669); color:#04130d; font-weight:800; font-size:13px; border:none; border-radius:12px; padding:13px 16px; cursor:pointer; font-family:'JetBrains Mono',monospace; box-shadow:0 6px 20px rgba(16,185,129,0.3);">
+              ⚔️ REJOIN AS ${escapeHtml(targetLabel.toUpperCase())}
+            </button>
+            <button type="button" id="gt-spectate-match-btn" style="width:100%; background:#1e293b; color:#38bdf8; font-weight:700; font-size:12.5px; border:1px solid rgba(56,189,248,0.4); border-radius:12px; padding:12px 16px; cursor:pointer; font-family:'JetBrains Mono',monospace;">
+              👀 WATCH LIVE SCORECARD (SPECTATOR)
+            </button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      document.getElementById('gt-rejoin-guest-seat-btn').onclick = () => {
+        modal.remove();
+        resolve(targetRole);
+      };
+      document.getElementById('gt-spectate-match-btn').onclick = () => {
+        modal.remove();
+        resolve('spectator');
+      };
+    });
+  }
+
   function hasSharedMatchParams() {
     try {
       const p = new URLSearchParams(window.location.search);
-      return Boolean(
+      if (
         p.get('match_id') ||
         p.get('room') ||
         p.get('match') ||
         p.get('id') ||
         ((p.get('eventId') || p.get('event_id')) && (p.get('table') || p.get('table_num')))
-      );
+      ) {
+        return true;
+      }
+      const raw = originalGetItem('gdm-11e-tracker-state');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && (parsed.match_id || (typeof parsed.id === 'string' && (parsed.id.startsWith('WH40K-') || parsed.id.startsWith('AOS-'))))) {
+          return true;
+        }
+      }
+      return false;
     } catch (e) {
       return false;
     }
@@ -1614,6 +1736,7 @@
             const isTournMatch = (urlMid.startsWith('BCP-') || urlMid.startsWith('ES-') || /^(?:WH40K-|AOS-)?(?:BCP|ES)-/i.test(urlMid));
             clientState.matchId = isTournMatch ? urlMid : urlMid.toUpperCase();
             clientState.role = handoff.role || 'player1';
+            saveRoomSeat(clientState.matchId, clientState.role);
             if (typeof diceRollerState !== 'undefined') {
               diceRollerState.history = [];
               diceRollerState.tray = [];
@@ -1622,6 +1745,9 @@
             cleanUrl.searchParams.set('match_id', clientState.matchId);
             cleanUrl.searchParams.delete('mode');
             cleanUrl.searchParams.delete('role');
+            if (!getAuthToken() && (clientState.role === 'player1' || clientState.role === 'player2')) {
+              cleanUrl.searchParams.set('seat', clientState.role === 'player2' ? 'p2' : 'p1');
+            }
             window.history.replaceState({}, '', cleanUrl.toString());
 
             updateSpectatorModeUI();
@@ -1668,8 +1794,11 @@
         matchId = `BCP-${evId}-R${rNum}-T${tNum}`;
       }
 
-      const explicitRole = params.get('role');
-      const isSpectatorExplicit = params.get('role') === 'spectator' || params.get('spectate') === 'true';
+      const rawExplicitRole = (params.get('role') || params.get('seat') || params.get('claim_role') || '').trim().toLowerCase();
+      let resolvedClaimRole = (rawExplicitRole === 'p2' || rawExplicitRole === 'player2')
+        ? 'player2'
+        : ((rawExplicitRole === 'p1' || rawExplicitRole === 'player1') ? 'player1' : (rawExplicitRole || getSavedRoomSeat(matchId)));
+      const isSpectatorExplicit = rawExplicitRole === 'spectator' || params.get('spectate') === 'true';
       if (isSpectatorExplicit && matchId) {
         window.__showGtLoadingOverlay(
           '👀 Spectator Mode Detected',
@@ -1699,22 +1828,52 @@
           chkData = await chk.json();
           if (chkData.user_id_p1) clientState.userIdP1 = chkData.user_id_p1;
           if (chkData.user_id_p2) clientState.userIdP2 = chkData.user_id_p2;
-          if (chk.ok && (chkData.is_finished || (!chkData.is_referee && chkData.role !== 'referee' && (chkData.is_spectator || chkData.role === 'spectator' || (chkData.is_full && !chkData.is_open_for_p2 && chkData.role !== 'player1' && chkData.role !== 'player2'))))) {
-            // Concluded matches or 3rd user spectator/non-competitor roles redirect to Digital Scorecard while still on loading screen
+          if (!chk.ok || !chkData.exists) {
+            alert(`❌ Room Key "${matchId}" does not exist or has expired.`);
+            window.location.href = clientState.isGuest ? '/' : '/11th/tracker';
+            return;
+          }
+          if (chkData.is_finished) {
             window.__showGtLoadingOverlay(
-              chkData.is_finished ? '🏁 Match Concluded' : '👀 Spectator Mode Detected',
-              chkData.is_finished
-                ? 'Opening Verified Final Digital Scorecard...'
-                : 'Room has 2 active players — redirecting to Live Digital Scorecard...',
+              '🏁 Match Concluded',
+              'Opening Verified Final Digital Scorecard...',
               true
             );
             window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
             return;
           }
-          if (!chk.ok || !chkData.exists) {
-            alert(`❌ Room Key "${matchId}" does not exist or has expired.`);
-            window.location.href = clientState.isGuest ? '/' : '/11th/tracker';
-            return;
+          const wouldBeSpectator = Boolean(
+            !chkData.is_referee &&
+            chkData.role !== 'referee' &&
+            (chkData.is_spectator || chkData.role === 'spectator' || (chkData.is_full && !chkData.is_open_for_p2 && chkData.role !== 'player1' && chkData.role !== 'player2'))
+          );
+          if (wouldBeSpectator) {
+            const canAutoReclaimSavedGuestSeat = Boolean(
+              (resolvedClaimRole === 'player2' && chkData.can_reclaim_guest_p2) ||
+              (resolvedClaimRole === 'player1' && chkData.can_reclaim_guest_p1)
+            );
+            if (!canAutoReclaimSavedGuestSeat && (chkData.can_reclaim_guest_p2 || chkData.can_reclaim_guest_p1)) {
+              const choice = await promptGuestRejoinOrSpectate(matchId, chkData);
+              if (choice === 'spectator') {
+                window.__showGtLoadingOverlay(
+                  '👀 Spectator Mode Detected',
+                  'Opening Live Digital Scorecard...',
+                  true
+                );
+                window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
+                return;
+              }
+              resolvedClaimRole = choice;
+            } else if (!canAutoReclaimSavedGuestSeat) {
+              // Both seats are held by registered users -> route 3rd user to Digital Scorecard
+              window.__showGtLoadingOverlay(
+                '👀 Spectator Mode Detected',
+                'Room has 2 active players — redirecting to Live Digital Scorecard...',
+                true
+              );
+              window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
+              return;
+            }
           }
         } catch (e) {}
       } else {
@@ -1736,6 +1895,7 @@
             matchId = data.match_id;
             clientState.matchId = matchId;
             clientState.role = data.role || 'player1';
+            saveRoomSeat(matchId, clientState.role);
             updateSpectatorModeUI();
             if (clientState.role === 'spectator') return;
             applyRemoteState(data.state);
@@ -1758,12 +1918,6 @@
         diceRollerState.history = [];
         diceRollerState.tray = [];
       }
-      // Clean URL bar: keep only match_id (strip &role=... and &mode=...) so shared/copied links never leak role
-      const url = new URL(window.location.href);
-      url.searchParams.set('match_id', clientState.matchId);
-      url.searchParams.delete('mode');
-      url.searchParams.delete('role');
-      window.history.replaceState({}, '', url.toString());
 
       // Join room during loading screen to bind Player 1 / Player 2 slot or detect 3rd-user Spectator (Strict 2-Player Capacity)
       try {
@@ -1779,7 +1933,7 @@
             token: getAuthToken(),
             guest_id: guestId,
             player_name: myName || undefined,
-            claim_role: isSpectatorExplicit ? 'spectator' : (explicitRole || undefined)
+            claim_role: isSpectatorExplicit ? 'spectator' : (resolvedClaimRole || undefined)
           })
         });
         if (resp.ok) {
@@ -1796,6 +1950,7 @@
             return;
           }
           clientState.role = joinData.role || 'player2';
+          saveRoomSeat(clientState.matchId, clientState.role);
           if (joinData.user_id_p1) clientState.userIdP1 = joinData.user_id_p1;
           if (joinData.user_id_p2) clientState.userIdP2 = joinData.user_id_p2;
           if (joinData.version) clientState.version = Math.max(clientState.version || 0, Number(joinData.version) || 1);
@@ -1805,6 +1960,16 @@
           }
         }
       } catch (e) {}
+
+      // Clean URL bar: keep match_id (and ?seat=p2 for Guests so refreshing or tab recovery always retains their seat)
+      const url = new URL(window.location.href);
+      url.searchParams.set('match_id', clientState.matchId);
+      url.searchParams.delete('mode');
+      url.searchParams.delete('role');
+      if (!getAuthToken() && (clientState.role === 'player1' || clientState.role === 'player2')) {
+        url.searchParams.set('seat', clientState.role === 'player2' ? 'p2' : 'p1');
+      }
+      window.history.replaceState({}, '', url.toString());
 
       if (clientState.role === 'spectator') {
         window.__showGtLoadingOverlay(
@@ -1957,16 +2122,27 @@
       const isAosMatch = isAosMode || code.startsWith('AOS-') || data.game_system === 'aos';
       const playBaseUrl = isAosMatch ? '/11th/tracker/aos' : '/11th/tracker/play';
       const targetMid = data.match_id || code;
+      let lobbyClaimRole = getSavedRoomSeat(targetMid) || undefined;
 
       if (data.is_full && !data.is_open_for_p2 && !data.is_referee && data.role !== 'player1' && data.role !== 'player2') {
-        window.__hideGtLoadingOverlay(true);
-        const proceed = confirm(`⚠️ Room "${code}" already has 2 active players (${data.p1_name} vs ${data.p2_name}). View Scorecard as Spectator?`);
-        if (!proceed) {
-          if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
+        if (!data.is_finished && (data.can_reclaim_guest_p2 || data.can_reclaim_guest_p1)) {
+          const choice = await promptGuestRejoinOrSpectate(targetMid, data);
+          if (choice === 'spectator') {
+            window.location.href = `/scorecard/${encodeURIComponent(targetMid)}`;
+            return;
+          }
+          lobbyClaimRole = choice;
+          window.__showGtLoadingOverlay(loadingTitle, `Reconnecting to Room #${targetMid} as ${choice === 'player2' ? 'Player 2' : 'Player 1'}...`, true);
+        } else {
+          window.__hideGtLoadingOverlay(true);
+          const proceed = confirm(`⚠️ Room "${code}" already has 2 active players (${data.p1_name} vs ${data.p2_name}). View Scorecard as Spectator?`);
+          if (!proceed) {
+            if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
+            return;
+          }
+          window.location.href = `/scorecard/${encodeURIComponent(targetMid)}`;
           return;
         }
-        window.location.href = `/scorecard/${encodeURIComponent(data.match_id || code)}`;
-        return;
       }
 
       // Pre-join room during Lobby overlay so play.html/aos.html opens with zero second loading screen
@@ -1982,7 +2158,8 @@
           body: JSON.stringify({
             token: getAuthToken(),
             guest_id: guestId,
-            player_name: myName || undefined
+            player_name: myName || undefined,
+            claim_role: lobbyClaimRole
           })
         });
         if (joinResp.ok) {
@@ -1991,6 +2168,7 @@
             window.location.href = `/scorecard/${encodeURIComponent(targetMid)}`;
             return;
           }
+          saveRoomSeat(targetMid, joinData.role || 'player2');
           if (joinData.state) {
             joinData.state.id = targetMid;
             joinData.state.match_id = targetMid;
@@ -2009,7 +2187,10 @@
         }
       } catch (e) {}
 
-      window.location.href = `${playBaseUrl}?match_id=${encodeURIComponent(data.match_id || code)}`;
+      const seatSuffix = (!getAuthToken() && (lobbyClaimRole === 'player2' || lobbyClaimRole === 'player1'))
+        ? `&seat=${lobbyClaimRole === 'player2' ? 'p2' : 'p1'}`
+        : '';
+      window.location.href = `${playBaseUrl}?match_id=${encodeURIComponent(targetMid)}${seatSuffix}`;
     } catch (err) {
       window.__hideGtLoadingOverlay(true);
       if (errDiv) {
@@ -4041,6 +4222,57 @@
         }
       } catch (e) {}
     }, 3000);
+
+    // 3. Automatic Reconnect & Guest Seat Rebind on Phone Wake / Network Switch (Wi-Fi <-> 5G)
+    if (!window.__gtReconnectListenersBound) {
+      window.__gtReconnectListenersBound = true;
+      const handleWakeReconnect = async () => {
+        if (!clientState.matchId || clientState.isFinalizing || clientState.isDiscarded) return;
+        if (document.hidden) return;
+        try {
+          if (!clientState.eventSource || clientState.eventSource.readyState === EventSource.CLOSED) {
+            startRealtimeStream();
+          }
+          if (clientState.role === 'player1' || clientState.role === 'player2') {
+            saveRoomSeat(clientState.matchId, clientState.role);
+            await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/join`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${getAuthToken()}`,
+                'X-Guest-Id': getOrCreateGuestId()
+              },
+              body: JSON.stringify({
+                match_id: clientState.matchId,
+                token: getAuthToken(),
+                guest_id: getOrCreateGuestId(),
+                claim_role: clientState.role
+              })
+            }).catch(() => {});
+          }
+          const resp = await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}`, {
+            headers: {
+              'Authorization': `Bearer ${getAuthToken()}`,
+              'X-Guest-Id': getOrCreateGuestId()
+            }
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.user_id_p1) clientState.userIdP1 = data.user_id_p1;
+            if (data.user_id_p2) clientState.userIdP2 = data.user_id_p2;
+            if (data.chess_clock) applyRemoteChessClock(data.chess_clock);
+            if (data.version && data.version > clientState.version && data.state) {
+              clientState.version = data.version;
+              applyRemoteState(data.state);
+            }
+          }
+        } catch (e) {}
+      };
+      window.addEventListener('online', handleWakeReconnect);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') handleWakeReconnect();
+      });
+    }
   }
 
   function startRealtimeStream() {
@@ -5485,7 +5717,8 @@ Space Marines - Gladius Task Force (2000 pts)
       duration_minutes: chessClock.durationMinutes || 75,
       last_start_time: chessClock.running ? chessClock.lastStartTime : null,
       updated_at: chessClock.updatedAt,
-      guest_id: getOrCreateGuestId()
+      guest_id: getOrCreateGuestId(),
+      role: clientState.role
     };
     if (typeof firebase !== 'undefined' && firebase.firestore) {
       try {

@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=b0d7638221">
+  <link rel="manifest" href="/manifest.json?v=1e24a98dca">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "b0d7638221";</script>
+  <script>window.APP_VERSION = "1e24a98dca";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -632,6 +632,7 @@
           <span id="sc-footer-edition-pill"></span>
         </div>
         <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+          <a id="sc-rejoin-guest-btn" href="#" class="btn-sc" style="display:none; background:rgba(16,185,129,0.16); border-color:rgba(16,185,129,0.45); color:#34d399; font-weight:800;">⚔️ Rejoin as Player</a>
           <button id="sc-map-event-btn" class="btn-sc" style="display:none; background:rgba(245,158,11,0.14); border-color:rgba(245,158,11,0.4); color:#fbbf24;" onclick="openScorecardMapEventModal()">🏆 Map to Event Match</button>
           <button class="btn-sc" onclick="window.print()">🖨️ Print</button>
           <a href="/11th/tracker" class="btn-sc btn-sc-primary">🎲 Tracker Lobby</a>
@@ -1383,6 +1384,28 @@
         }
       }
 
+      const rawP1Uid = String(rec.user_id_p1 || st.user_id_p1 || '').trim().toLowerCase();
+      const rawP2Uid = String(rec.user_id_p2 || st.user_id_p2 || '').trim().toLowerCase();
+      const isP2GuestOrOpen = !rawP2Uid || rawP2Uid.startsWith('guest_') || rawP2Uid.startsWith('p2_') || rawP2Uid.startsWith('anon_');
+      const isP1Guest = rawP1Uid.startsWith('guest_') || rawP1Uid.startsWith('p1_') || rawP1Uid.startsWith('anon_');
+      const liveMid = String(data.match_id || getMatchIdFromPath() || '').trim();
+      const trackerBasePath = isAos ? '/aos/tracker/play' : '/11th/tracker/play';
+      const rejoinSeat = isP2GuestOrOpen ? 'p2' : (isP1Guest ? 'p1' : '');
+      const rejoinUrl = rejoinSeat
+        ? `${trackerBasePath}?match_id=${encodeURIComponent(liveMid)}&seat=${rejoinSeat}`
+        : `${trackerBasePath}?match_id=${encodeURIComponent(liveMid)}`;
+
+      const rejoinBtn = document.getElementById('sc-rejoin-guest-btn');
+      if (rejoinBtn) {
+        if (!isFinished && liveMid) {
+          rejoinBtn.href = rejoinUrl;
+          rejoinBtn.innerText = isP2GuestOrOpen ? `⚔️ Rejoin as ${p2Name}` : (isP1Guest ? `⚔️ Rejoin as ${p1Name}` : '⚔️ Open in Game Tracker');
+          rejoinBtn.style.display = 'inline-flex';
+        } else {
+          rejoinBtn.style.display = 'none';
+        }
+      }
+
       const statusBadgeContainer = document.getElementById('sc-status-badges');
       if (statusBadgeContainer) {
         if (isFinished) {
@@ -1421,7 +1444,10 @@
       } else {
         winnerBanner.className = 'sc-live-banner';
         winnerBanner.style.display = 'flex';
-        winnerText.innerHTML = `<span class="sc-badge-pulse"></span> LIVE SCORECARD • Battle Round ${roundNum} In Progress • Auto-updating`;
+        const rejoinPill = liveMid
+          ? ` <a href="${rejoinUrl}" style="margin-left:8px; padding:2px 9px; border-radius:6px; background:rgba(16,185,129,0.22); border:1px solid rgba(16,185,129,0.55); color:#6ee7b7; text-decoration:none; font-size:0.72rem; font-weight:800; white-space:nowrap;">⚔️ Rejoin Match</a>`
+          : '';
+        winnerText.innerHTML = `<span class="sc-badge-pulse"></span> LIVE SCORECARD • Battle Round ${roundNum} In Progress${rejoinPill}`;
       }
 
       if (eventId) {

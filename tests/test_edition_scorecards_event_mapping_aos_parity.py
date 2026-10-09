@@ -941,6 +941,90 @@ def test_11th_ed_hand_secondaries_in_finish_modal_router_and_database():
     assert res["r1Sec"] == 8  # 5 + 3 in Round 1
 
 
+def test_guest_reconnection_seat_reclaim_vs_spectator_mode():
+    """Verifies that:
+    1. When a Guest player joins as Player 2 (`guest_initial_abc`) and then loses connection /
+       switches browsers / loses session (generating a brand-new `guest_new_xyz`),
+       `/api/tracker/room/{match_id}/check` reports `p2_is_guest=True` and `can_reclaim_guest_p2=True`
+       while keeping `can_reclaim_guest_p1=False` (since Player 1 is a registered user).
+    2. A 3rd-party spectator with no `claim_role` or `claim_role='spectator'` is assigned
+       `role='spectator'` and does NOT overwrite the Guest's seat.
+    3. The returning Guest passing `claim_role='player2'` reclaims Player 2 and rebinds
+       `user_id_p2` to `guest_new_xyz`.
+    4. Mid-match state/clock/dice pushes from a reconnected Guest with `role='player2'`
+       automatically rebind `user_id_p2` via `_maybe_rebind_guest_seat`, whereas attempts to
+       rebind a registered user's seat (`player1`) are rejected.
+    """
+    match_id = "TEST-GUEST-REJOIN-01"
+    room = {
+        "match_id": match_id,
+        "status": "in_progress",
+        "user_id_p1": "registered_user_hsiehjun",
+        "user_id_p2": "guest_initial_abc",
+        "p1_name": "John Hsieh",
+        "p2_name": "Kyle (Guest)",
+        "state": {
+            "started": True,
+            "round": 2,
+            "game": {"p1Name": "John Hsieh", "p2Name": "Kyle (Guest)"},
+        },
+    }
+    tracker_router.TRACKER_ROOMS[match_id] = room
+    try:
+        # 1. Check room with a brand-new guest ID (simulating lost session / new browser tab)
+        from types import SimpleNamespace
+        mock_req = SimpleNamespace(headers={"X-Guest-Id": "guest_new_xyz"}, cookies={}, query_params={})
+        chk = tracker_router._api_tracker_check_room_sync(match_id, mock_req)
+        assert chk["exists"] is True
+        assert chk["is_full"] is True
+        assert chk["p1_is_guest"] is False
+        assert chk["p2_is_guest"] is True
+        assert chk["can_reclaim_guest_p1"] is False
+        assert chk["can_reclaim_guest_p2"] is True
+        assert chk["is_participant"] is False
+
+        # 2. A Spectator joining without claim_role or with claim_role='spectator' gets 'spectator'
+        role_spec, field_spec = tracker_router.determine_existing_room_role(
+            None, room, match_id, payload=SimpleNamespace(guest_id="guest_spectator_999", claim_role="spectator")
+        )
+        assert role_spec == "spectator" and field_spec is None
+        assert room["user_id_p2"] == "guest_initial_abc"
+
+        role_unclaimed, field_unclaimed = tracker_router.determine_existing_room_role(
+            None, room, match_id, payload=SimpleNamespace(guest_id="guest_spectator_999", claim_role=None)
+        )
+        assert role_unclaimed == "spectator" and field_unclaimed is None
+
+        # 3. Returning Guest reclaiming Player 2 with claim_role='player2' succeeds
+        role_reclaim, field_reclaim = tracker_router.determine_existing_room_role(
+            None, room, match_id, payload=SimpleNamespace(guest_id="guest_new_xyz", claim_role="player2")
+        )
+        assert role_reclaim == "player2"
+        assert field_reclaim == "user_id_p2"
+
+        # Cannot reclaim registered Player 1 seat as a guest
+        role_steal_p1, field_steal_p1 = tracker_router.determine_existing_room_role(
+            None, room, match_id, payload=SimpleNamespace(guest_id="guest_new_xyz", claim_role="player1")
+        )
+        assert role_steal_p1 == "spectator" and field_steal_p1 is None
+
+        # 4. Mid-match action rebind via _maybe_rebind_guest_seat
+        is_p1, is_p2 = tracker_router._maybe_rebind_guest_seat(
+            room, effective_uid="guest_after_wifi_drop_777", role="player2", fs_engine=None, match_id=match_id
+        )
+        assert is_p1 is False and is_p2 is True
+        assert room["user_id_p2"] == "guest_after_wifi_drop_777"
+
+        # Attempting to rebind registered Player 1 seat fails
+        is_p1_bad, is_p2_bad = tracker_router._maybe_rebind_guest_seat(
+            room, effective_uid="guest_attacker_000", role="player1", fs_engine=None, match_id=match_id
+        )
+        assert is_p1_bad is False and is_p2_bad is False
+        assert room["user_id_p1"] == "registered_user_hsiehjun"
+    finally:
+        tracker_router.TRACKER_ROOMS.pop(match_id, None)
+
+
 if __name__ == "__main__":
     test_edition_detection_and_unclipped_9th_ed_secondaries()
     print("✓ test_edition_detection_and_unclipped_9th_ed_secondaries passed")
@@ -960,7 +1044,10 @@ if __name__ == "__main__":
     print("✓ test_multi_edition_176_games_import_and_epoch_string_dates passed")
     test_11th_ed_hand_secondaries_in_finish_modal_router_and_database()
     print("✓ test_11th_ed_hand_secondaries_in_finish_modal_router_and_database passed")
+    test_guest_reconnection_seat_reclaim_vs_spectator_mode()
+    print("✓ test_guest_reconnection_seat_reclaim_vs_spectator_mode passed")
     print("ALL TESTS PASSED!")
+
 
 
 
