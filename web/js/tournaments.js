@@ -8104,7 +8104,8 @@ function renderEventCreatorHub(ev) {
     }
 
     if (selectedMatch) {
-      p1 = players.find(p => String(p.player_id || p.id) === String(selectedMatch?.player1_id) || p.full_name === selectedMatch?.player1_name) || {
+      ensureEventSearchIndex();
+      p1 = lookupEventPlayerFast(selectedMatch?.player1_id, selectedMatch?.player1_name) || {
         player_id: selectedMatch.player1_id || '',
         full_name: selectedMatch.player1_name || 'Player 1',
         faction: selectedMatch.player1_faction || 'Army',
@@ -8112,7 +8113,7 @@ function renderEventCreatorHub(ev) {
         list_id: selectedMatch.player1_list_id || '',
         current_elo: selectedMatch.player1_elo || 1500
       };
-      p2 = players.find(p => String(p.player_id || p.id) === String(selectedMatch?.player2_id) || p.full_name === selectedMatch?.player2_name) || {
+      p2 = lookupEventPlayerFast(selectedMatch?.player2_id, selectedMatch?.player2_name) || {
         player_id: selectedMatch.player2_id || '',
         full_name: selectedMatch.player2_name || 'Player 2',
         faction: selectedMatch.player2_faction || 'Army',
@@ -8162,12 +8163,6 @@ function renderEventCreatorHub(ev) {
       ${bodyHtml}
     </div>
   `;
-
-  if (creatorHubActiveMode === 'caster' && selectedMatch && p1 && p2) {
-    setTimeout(() => {
-      hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch);
-    }, 10);
-  }
 }
 window.renderEventCreatorHub = renderEventCreatorHub;
 
@@ -8597,262 +8592,358 @@ function updateCasterRosterPreviewDom(side, playerObj, rosterText, listId) {
 }
 
 /* ==========================================================================
-   MODE 1: CASTER DECK (LIVE DESK & TALE OF THE TAPE)
+   MODE 1: CASTER DECK (FLOOR RADAR GRID + CLICKABLE TABLE DETAILS MODAL)
    ========================================================================== */
-function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, matchRounds, totalRounds) {
-  let rawJson = (ev && ev.raw_json) || {};
-  if (typeof rawJson === 'string') {
-    try { rawJson = JSON.parse(rawJson); } catch (e) { rawJson = {}; }
-  }
-  curRound = curRound || selectedCasterRound || ev.current_round || 1;
-  matchRounds = matchRounds || [...new Set(matches.map(m => Number(m.round)).filter(r => r > 0))].sort((a, b) => a - b);
-  const resolvedNumRounds = Number(ev.num_rounds || ev.numberOfRounds || ev.rounds_count || ev.rounds || ev.total_rounds || rawJson.numberOfRounds || rawJson.numRounds || 0);
-  totalRounds = Math.max(
-    Number(totalRounds || 0),
-    resolvedNumRounds,
-    matchRounds.length > 0 ? Math.max(...matchRounds) : 0,
-    Number(ev.current_round || 0),
-    1
-  );
+let _casterRadarFilter = 'all'; // 'all' | 'unfinished' | 'completed'
+let _casterRadarSearch = '';
 
-  const maxR = Math.max(totalRounds, matchRounds.length > 0 ? Math.max(...matchRounds) : 1, 1);
-  const roundList = Array.from({ length: maxR }, (_, i) => i + 1);
+function setCasterRadarRound(roundNum) {
+  selectedCasterRound = Number(roundNum) || 1;
+  if (currentEventData) {
+    renderEventCreatorHub(currentEventData);
+  }
+}
+window.setCasterRadarRound = setCasterRadarRound;
+
+function setCasterRadarFilter(filterVal) {
+  _casterRadarFilter = filterVal || 'all';
+  if (currentEventData) {
+    renderEventCreatorHub(currentEventData);
+  }
+}
+window.setCasterRadarFilter = setCasterRadarFilter;
+
+function handleCasterRadarSearch(val) {
+  _casterRadarSearch = String(val || '').trim().toLowerCase();
+  const gridEl = document.getElementById('caster-radar-grid');
+  if (gridEl && currentEventData && creatorHubActiveMode === 'caster') {
+    const eventId = String(currentEventData.id || currentEventData.event_id || currentOpenEventId || '');
+    const state = _eventToHubStateCache.get(eventId) || {};
+    const activeSessions = Array.isArray(state.active_sessions) ? state.active_sessions : [];
+    const roundMatches = Array.isArray(window._casterCurrentRoundMatches) ? window._casterCurrentRoundMatches : [];
+    const curRound = Number(window._casterCurrentRound || selectedCasterRound || currentEventData.current_round || 1);
+    gridEl.innerHTML = buildCasterRadarGridHtml(eventId, roundMatches, curRound, activeSessions);
+    return;
+  }
+  if (currentEventData) renderEventCreatorHub(currentEventData);
+}
+window.handleCasterRadarSearch = handleCasterRadarSearch;
+
+function buildCasterRadarGridHtml(eventId, roundMatches, curRound, activeSessions) {
+  ensureEventSearchIndex();
+  const totalTables = Array.isArray(roundMatches) ? roundMatches.length : 0;
+  if (totalTables === 0) {
+    return `
+      <div class="card" style="grid-column:1 / -1; padding:1.75rem; text-align:center; color:var(--text-muted); background:rgba(15,23,42,0.5);">
+        No pairings published yet for this round on BCP.
+      </div>
+    `;
+  }
+
+  const trackerTableSet = new Set((activeSessions || []).map(s => String(s.table_num || s.table_number || '').trim()).filter(Boolean));
+  const cardsHtml = [];
+
+  for (let idx = 0; idx < roundMatches.length; idx++) {
+    const m = roundMatches[idx];
+    if (!m) continue;
+    const tNum = String(m.table ?? m.table_number ?? (idx + 1));
+    const tNumInt = Number(m.table ?? m.table_number ?? (idx + 1)) || (idx + 1);
+    const isDone = typeof isToHubMatchCompleted === 'function'
+      ? isToHubMatchCompleted(m)
+      : Boolean(m.is_bye || m.is_done || (m.player1_score !== null && m.player1_score !== undefined && m.player2_score !== null && m.player2_score !== undefined && (Number(m.player1_score) > 0 || Number(m.player2_score) > 0 || m.winner_id || m.is_draw)));
+    const hasTracker = trackerTableSet.has(tNum) || Boolean(m.live_session_id || m.tracker_active);
+
+    if (_casterRadarFilter === 'unfinished' && isDone) continue;
+    if (_casterRadarFilter === 'completed' && !isDone) continue;
+    if (_casterRadarSearch) {
+      const tSearch = `table ${tNum} t${tNum}`;
+      const mSearch = m._searchText || `${m.player1_name || ''} ${m.player2_name || ''} ${m.player1_faction || ''} ${m.player2_faction || ''}`.toLowerCase();
+      if (!tSearch.includes(_casterRadarSearch) && !mSearch.includes(_casterRadarSearch)) continue;
+    }
+
+    const s1 = m.player1_score ?? m.score1 ?? '-';
+    const s2 = m.player2_score ?? m.score2 ?? '-';
+    const roundVal = Number(m.round || m.round_number || curRound || 1);
+    const p1Rec = m._p1Record !== undefined ? m._p1Record : lookupEventPlayerFast(m.player1_id, m.player1_name);
+    const p2Rec = m._p2Record !== undefined ? m._p2Record : lookupEventPlayerFast(m.player2_id, m.player2_name);
+    const p1ListRaw = String(m.player1_list_id || (p1Rec && (p1Rec.list_id || p1Rec.listId)) || '');
+    const p2ListRaw = String(m.player2_list_id || (p2Rec && (p2Rec.list_id || p2Rec.listId)) || '');
+    const p1HasList = Boolean((p1Rec && hasPlayerSubmittedList(p1Rec)) || p1ListRaw);
+    const p2NameRaw = String(m.player2_name || 'Player 2').trim();
+    const isByeP2 = Boolean(m.is_bye || p2NameRaw.toUpperCase() === 'BYE');
+    const p2HasList = Boolean(!isByeP2 && ((p2Rec && hasPlayerSubmittedList(p2Rec)) || p2ListRaw));
+
+    const cardKey = `${eventId}:${roundVal}:${idx}:${tNum}:${isDone ? 1 : 0}:${hasTracker ? 1 : 0}:${s1}:${s2}:${p1HasList ? 1 : 0}:${p2HasList ? 1 : 0}:${p1ListRaw}:${p2ListRaw}`;
+    if (m._cachedCasterRadarCardKey === cardKey && m._cachedCasterRadarCardHtml) {
+      cardsHtml.push(m._cachedCasterRadarCardHtml);
+      continue;
+    }
+
+    const matchId = m.tracker_match_id || `BCP-${eventId}-R${roundVal}-T${tNum}`;
+    const safeMatchId = String(matchId).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const targetP1Id = String((p1Rec && (p1Rec.player_id || p1Rec.id)) || m.player1_id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const targetP1Name = String((p1Rec && (p1Rec.full_name || p1Rec.name)) || m.player1_name || 'Player 1').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const targetP2Id = String((p2Rec && (p2Rec.player_id || p2Rec.id)) || m.player2_id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const targetP2Name = String((p2Rec && (p2Rec.full_name || p2Rec.name)) || p2NameRaw).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const safeP1ListId = p1ListRaw.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const safeP2ListId = p2ListRaw.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+    const p1FacDisplay = (p1Rec && p1Rec._displayFac) || formatEventPlayerFaction(m.player1_faction || p1Rec?.faction || '');
+    const p2FacDisplay = isByeP2 ? 'BYE' : ((p2Rec && p2Rec._displayFac) || formatEventPlayerFaction(m.player2_faction || p2Rec?.faction || ''));
+
+    const borderCol = isDone ? 'rgba(34,197,94,0.32)' : 'rgba(245,158,11,0.4)';
+    const statusBadge = isDone
+      ? `<span class="badge" style="background:rgba(34,197,94,0.16); color:#4ade80; border:1px solid rgba(34,197,94,0.35); font-size:0.66rem;">✅ FINAL</span>`
+      : `<span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.38); font-size:0.66rem;">⏳ IN PROGRESS</span>`;
+
+    const scorecardBtnHtml = !isByeP2
+      ? `<button type="button" class="btn-xs btn-outline to-hub-scorecard-btn" onclick="event.stopPropagation(); openScorecardModal('${escapeHtml(safeMatchId)}')" title="View Table ${escapeHtml(tNum)} Scorecard" style="font-size:0.64rem; padding:2px 6px; border-radius:5px; color:#e2e8f0; border:1px solid rgba(255,255,255,0.18); background:rgba(255,255,255,0.06); cursor:pointer; font-weight:700; display:inline-flex; align-items:center; gap:3px; line-height:1.25;">📄 Scorecard</button>`
+      : '';
+
+    const p1RosterBtnHtml = `<button type="button" class="btn-xs btn-outline to-hub-roster-btn" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(targetP1Id)}', '${escapeHtml(targetP1Name)}', '${escapeHtml(safeP1ListId)}')" title="View ${escapeHtml(m.player1_name || 'Player 1')}'s Army Roster" style="font-size:0.62rem; padding:1px 5px; border-radius:4px; color:${p1HasList ? '#38bdf8' : '#94a3b8'}; border:1px solid ${p1HasList ? 'rgba(56,189,248,0.38)' : 'rgba(148,163,184,0.28)'}; background:${p1HasList ? 'rgba(56,189,248,0.1)' : 'rgba(255,255,255,0.04)'}; cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:2px; line-height:1.25; flex-shrink:0;">📋 Roster</button>`;
+
+    const p2RosterBtnHtml = !isByeP2
+      ? `<button type="button" class="btn-xs btn-outline to-hub-roster-btn" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(targetP2Id)}', '${escapeHtml(targetP2Name)}', '${escapeHtml(safeP2ListId)}')" title="View ${escapeHtml(p2NameRaw)}'s Army Roster" style="font-size:0.62rem; padding:1px 5px; border-radius:4px; color:${p2HasList ? '#38bdf8' : '#94a3b8'}; border:1px solid ${p2HasList ? 'rgba(56,189,248,0.38)' : 'rgba(148,163,184,0.28)'}; background:${p2HasList ? 'rgba(56,189,248,0.1)' : 'rgba(255,255,255,0.04)'}; cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:2px; line-height:1.25; flex-shrink:0;">📋 Roster</button>`
+      : '';
+
+    const cardHtml = `
+      <div class="card to-hub-table-card" onclick="openCasterDeskTableModal(${tNumInt}, ${roundVal})" title="Click to open Table ${escapeHtml(tNum)} Caster Desk Matchup & Dossiers" style="padding:0.75rem 0.9rem; background:rgba(15,23,42,0.82); border:1px solid ${borderCol}; border-radius:10px; display:flex; flex-direction:column; gap:0.45rem; cursor:pointer; transition:transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.35rem; flex-wrap:wrap;">
+          <span style="font-family:var(--font-mono); font-weight:800; font-size:0.84rem; color:#f8fafc; display:inline-flex; align-items:center; gap:0.35rem;">
+            Table ${escapeHtml(tNum)}
+            <span class="to-hub-table-comms-hint" style="font-size:0.68rem; color:#c084fc; font-weight:700; opacity:0.9;">🎙️</span>
+          </span>
+          <div style="display:flex; align-items:center; gap:0.3rem; flex-wrap:wrap;">
+            ${scorecardBtnHtml}
+            ${hasTracker ? `<span class="badge" style="background:rgba(56,189,248,0.16); color:#38bdf8; font-size:0.64rem;">📱 Tracker</span>` : ''}
+            ${statusBadge}
+          </div>
+        </div>
+        <div class="to-hub-player-click-row" onclick="event.stopPropagation(); openCasterDeskTableModal(${tNumInt}, ${roundVal})" title="Open Table ${escapeHtml(tNum)} Caster Desk Matchup & Dossiers" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding:0.2rem 0.35rem; margin:0 -0.35rem; border-radius:6px;">
+          <div style="min-width:0; flex:1;">
+            <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:0.3rem;">
+              <span style="overflow:hidden; text-overflow:ellipsis;">${escapeHtml(m.player1_name || 'Player 1')}</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:0.35rem; margin-top:2px; min-width:0;">
+              <span style="font-size:0.7rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(p1FacDisplay)}</span>
+              ${p1RosterBtnHtml}
+            </div>
+          </div>
+          <span onclick="event.stopPropagation(); ${!isByeP2 ? `openScorecardModal('${escapeHtml(safeMatchId)}')` : ''}" title="${!isByeP2 ? `View Table ${escapeHtml(tNum)} Scorecard` : ''}" style="font-family:var(--font-mono); font-weight:800; font-size:0.92rem; color:${isDone ? '#4ade80' : '#94a3b8'}; padding:2px 4px; border-radius:4px;">${escapeHtml(String(s1))}</span>
+        </div>
+        <div class="to-hub-player-click-row" onclick="event.stopPropagation(); openCasterDeskTableModal(${tNumInt}, ${roundVal})" title="Open Table ${escapeHtml(tNum)} Caster Desk Matchup & Dossiers" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding:0.3rem 0.35rem 0.2rem; margin:0 -0.35rem; border-top:1px solid rgba(255,255,255,0.06); border-radius:0 0 6px 6px;">
+          <div style="min-width:0; flex:1;">
+            <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:0.3rem;">
+              <span style="overflow:hidden; text-overflow:ellipsis;">${escapeHtml(p2NameRaw)}</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:0.35rem; margin-top:2px; min-width:0;">
+              <span style="font-size:0.7rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(p2FacDisplay)}</span>
+              ${p2RosterBtnHtml}
+            </div>
+          </div>
+          <span onclick="event.stopPropagation(); ${!isByeP2 ? `openScorecardModal('${escapeHtml(safeMatchId)}')` : ''}" title="${!isByeP2 ? `View Table ${escapeHtml(tNum)} Scorecard` : ''}" style="font-family:var(--font-mono); font-weight:800; font-size:0.92rem; color:${isDone ? '#38bdf8' : '#94a3b8'}; padding:2px 4px; border-radius:4px;">${escapeHtml(String(s2))}</span>
+        </div>
+      </div>
+    `;
+    m._cachedCasterRadarCardKey = cardKey;
+    m._cachedCasterRadarCardHtml = cardHtml;
+    cardsHtml.push(cardHtml);
+  }
+
+  if (cardsHtml.length === 0) {
+    return `
+      <div class="card" style="grid-column:1 / -1; padding:1.75rem; text-align:center; color:var(--text-muted); background:rgba(15,23,42,0.5);">
+        No tables match the selected filter.
+      </div>
+    `;
+  }
+  return cardsHtml.join('');
+}
+
+function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, maxR, isModal = true) {
+  const eventId = ev?.id || currentOpenEventId || currentEventData?.id || '';
+  const activeTableNum = Number(selectedMatch?.table_number || selectedMatch?.table || selectedCasterTable || 1);
+  const activeMatchId = selectedMatch?.tracker_match_id || `BCP-${eventId}-R${curRound}-T${activeTableNum}`;
   const curRoundMeta = getEventRoundMetadata(ev, matches, curRound, maxR);
 
-  const roundButtonsHtml = roundList.map(r => {
-    const rMeta = getEventRoundMetadata(ev, matches, r, maxR);
-    const isSel = r === curRound;
-    const isSpecial = rMeta.isShadowRound || rMeta.isTopCut;
-    const activeBorder = isSel ? (isSpecial ? rMeta.badgeColor : '#38bdf8') : (isSpecial ? rMeta.badgeBorder : 'rgba(255,255,255,0.1)');
-    const activeBg = isSel ? (isSpecial ? rMeta.badgeBg : 'rgba(56,189,248,0.22)') : (isSpecial ? 'rgba(168,85,247,0.08)' : 'transparent');
-    const activeCol = isSel ? '#fff' : (isSpecial ? rMeta.badgeColor : 'var(--text-muted)');
-    return `
-      <button type="button" onclick="selectCasterMatch(${selectedCasterTable || 1}, ${r})" class="btn-sm" title="${escapeHtml(rMeta.fullLabel)} (${rMeta.matchCount} tables)" style="padding: 3px 9px; font-size: 0.74rem; font-weight: 700; border-radius: 5px; border: 1px solid ${activeBorder}; background: ${activeBg}; color: ${activeCol}; cursor: pointer; white-space: nowrap;">
-        ${escapeHtml(rMeta.shortLabel)}
-      </button>
-    `;
-  }).join('');
+  const p1Info = resolveEventCompetitorRecord(
+    selectedMatch?.player1_id || p1?.player_id || p1?.id || '',
+    p1?.full_name || selectedMatch?.player1_name || 'Player 1',
+    selectedMatch?.player1_list_id || p1?.list_id || p1?.listId || ''
+  );
+  const p2Info = resolveEventCompetitorRecord(
+    selectedMatch?.player2_id || p2?.player_id || p2?.id || '',
+    p2?.full_name || selectedMatch?.player2_name || 'Player 2',
+    selectedMatch?.player2_list_id || p2?.list_id || p2?.listId || ''
+  );
 
-  // Case A: Real pairings exist for curRound
-  if (roundMatches && roundMatches.length > 0 && selectedMatch && p1 && p2) {
-    const eventId = ev?.id || currentOpenEventId || currentEventData?.id || '';
-    const activeTableNum = Number(selectedMatch?.table_number || selectedMatch?.table || selectedCasterTable || 1);
-    const activeMatchId = selectedMatch?.tracker_match_id || `BCP-${eventId}-R${curRound}-T${activeTableNum}`;
+  const p1Pid = String(p1Info?.pid || p1?.player_id || p1?.id || selectedMatch?.player1_id || '').trim();
+  const p2Pid = String(p2Info?.pid || p2?.player_id || p2?.id || selectedMatch?.player2_id || '').trim();
+  const p1Name = p1?.full_name || selectedMatch?.player1_name || 'Player 1';
+  const p2Name = p2?.full_name || selectedMatch?.player2_name || 'Player 2';
+  const p1SafeName = String(p1Name).replace(/'/g, "\\'");
+  const p2SafeName = String(p2Name).replace(/'/g, "\\'");
+  const p1SafePid = String(p1Pid).replace(/'/g, "\\'");
+  const p2SafePid = String(p2Pid).replace(/'/g, "\\'");
+  const p1ListId = String(p1Info?.listId || p1?.list_id || p1?.listId || selectedMatch?.player1_list_id || '').trim();
+  const p2ListId = String(p2Info?.listId || p2?.list_id || p2?.listId || selectedMatch?.player2_list_id || '').trim();
+  const p1SafeListId = p1ListId.replace(/'/g, "\\'");
+  const p2SafeListId = p2ListId.replace(/'/g, "\\'");
 
-    const p1Info = resolveEventCompetitorRecord(
-      selectedMatch?.player1_id || p1?.player_id || p1?.id || '',
-      p1?.full_name || selectedMatch?.player1_name || 'Player 1',
-      selectedMatch?.player1_list_id || p1?.list_id || p1?.listId || ''
-    );
-    const p2Info = resolveEventCompetitorRecord(
-      selectedMatch?.player2_id || p2?.player_id || p2?.id || '',
-      p2?.full_name || selectedMatch?.player2_name || 'Player 2',
-      selectedMatch?.player2_list_id || p2?.list_id || p2?.listId || ''
-    );
+  const p1ListDetails = typeof getPlayerListDetails === 'function' ? getPlayerListDetails(p1Info?.record || p1) : {};
+  const p2ListDetails = typeof getPlayerListDetails === 'function' ? getPlayerListDetails(p2Info?.record || p2) : {};
+  const p1RosterText = String(p1ListDetails.text || p1?.army_list || p1?.army_list_text || casterArmyListCache[p1ListId] || '').trim();
+  const p2RosterText = String(p2ListDetails.text || p2?.army_list || p2?.army_list_text || casterArmyListCache[p2ListId] || '').trim();
+  const p1HasList = Boolean(p1Info?.hasList || p1ListId || p1RosterText || p1?.has_list_submitted);
+  const p2HasList = Boolean(p2Info?.hasList || p2ListId || p2RosterText || p2?.has_list_submitted);
 
-    const p1Pid = String(p1Info?.pid || p1?.player_id || p1?.id || selectedMatch?.player1_id || '').trim();
-    const p2Pid = String(p2Info?.pid || p2?.player_id || p2?.id || selectedMatch?.player2_id || '').trim();
-    const p1Name = p1?.full_name || selectedMatch?.player1_name || 'Player 1';
-    const p2Name = p2?.full_name || selectedMatch?.player2_name || 'Player 2';
-    const p1SafeName = String(p1Name).replace(/'/g, "\\'");
-    const p2SafeName = String(p2Name).replace(/'/g, "\\'");
-    const p1SafePid = String(p1Pid).replace(/'/g, "\\'");
-    const p2SafePid = String(p2Pid).replace(/'/g, "\\'");
-    const p1ListId = String(p1Info?.listId || p1?.list_id || p1?.listId || selectedMatch?.player1_list_id || '').trim();
-    const p2ListId = String(p2Info?.listId || p2?.list_id || p2?.listId || selectedMatch?.player2_list_id || '').trim();
-    const p1SafeListId = p1ListId.replace(/'/g, "\\'");
-    const p2SafeListId = p2ListId.replace(/'/g, "\\'");
+  const p1Units = extractKeyListUnits(p1RosterText || p1?.army_list, p1?.faction, p1?.detachment);
+  const p2Units = extractKeyListUnits(p2RosterText || p2?.army_list, p2?.faction, p2?.detachment);
 
-    const p1ListDetails = typeof getPlayerListDetails === 'function' ? getPlayerListDetails(p1Info?.record || p1) : {};
-    const p2ListDetails = typeof getPlayerListDetails === 'function' ? getPlayerListDetails(p2Info?.record || p2) : {};
-    const p1RosterText = String(p1ListDetails.text || p1?.army_list || p1?.army_list_text || casterArmyListCache[p1ListId] || '').trim();
-    const p2RosterText = String(p2ListDetails.text || p2?.army_list || p2?.army_list_text || casterArmyListCache[p2ListId] || '').trim();
-    const p1HasList = Boolean(p1Info?.hasList || p1ListId || p1RosterText || p1?.has_list_submitted);
-    const p2HasList = Boolean(p2Info?.hasList || p2ListId || p2RosterText || p2?.has_list_submitted);
+  // Dynamic Past Head-to-Head (strictly prior encounters)
+  const sysH2h = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+  const h2hKey = getCasterH2hCacheKey(sysH2h, p1Pid, p2Pid, p1Name, p2Name);
+  const cachedApiH2h = Array.isArray(casterHeadToHeadCache[h2hKey]) ? casterHeadToHeadCache[h2hKey] : [];
+  const isH2hLoading = !Array.isArray(casterHeadToHeadCache[h2hKey]) && Boolean(window.api && typeof window.api.getHeadToHead === 'function');
+  const pastH2hMatches = filterPastHeadToHeadMatches([...cachedApiH2h, ...(Array.isArray(matches) ? matches : [])], ev, selectedMatch, curRound, p1Pid, p2Pid, p1Name, p2Name);
+  const h2hRec = computeCasterPastH2hRecord(pastH2hMatches, p1Pid, p2Pid, p1Name, p2Name);
+  const h2hText = h2hRec.summaryText;
 
-    const tableButtons = roundMatches.map(m => {
+  // Faction matchup stats
+  const fac1 = p1?.faction || 'Army';
+  const fac2 = p2?.faction || 'Army';
+  const fac3MoMetrics = computeCasterFaction3MoMetrics(fac1, fac2, matches, sysH2h);
+  const isFac3MoLoading = (!fac3MoMetrics.hasLoadedF1 || !fac3MoMetrics.hasLoadedF2) && Boolean(window.api && typeof window.api.getFactionDetails === 'function');
+  let facMatchupText = '';
+  if (!fac3MoMetrics.isMirror && fac3MoMetrics.h2hTotal > 0) {
+    const wr = Math.round((fac3MoMetrics.h2hF1Wins / fac3MoMetrics.h2hTotal) * 100);
+    facMatchupText = `${escapeHtml(fac3MoMetrics.fac1)} ${wr}% WR vs ${escapeHtml(fac3MoMetrics.fac2)} (${fac3MoMetrics.h2hF1Wins}W-${fac3MoMetrics.h2hF2Wins}L${fac3MoMetrics.h2hDraws > 0 ? `-${fac3MoMetrics.h2hDraws}D` : ''}, Past 3 Mo)`;
+  } else if (!fac3MoMetrics.isMirror && fac3MoMetrics.evTotal > 0) {
+    const wr = Math.round((fac3MoMetrics.evF1Wins / fac3MoMetrics.evTotal) * 100);
+    facMatchupText = `${escapeHtml(fac3MoMetrics.fac1)} has a ${wr}% win rate vs ${escapeHtml(fac3MoMetrics.fac2)} in this event (${fac3MoMetrics.evF1Wins}-${fac3MoMetrics.evF2Wins})`;
+  } else if (!fac3MoMetrics.isMirror) {
+    facMatchupText = `${escapeHtml(fac3MoMetrics.fac1)} vs ${escapeHtml(fac3MoMetrics.fac2)} Matchup`;
+  } else {
+    facMatchupText = `${escapeHtml(fac3MoMetrics.fac1)} Mirror Match`;
+  }
+
+  // Dynamic Elo stakes
+  const expectedP1 = 1 / (1 + Math.pow(10, (p2Elo - p1Elo) / 400));
+  const p1GainOnWin = Math.round(32 * (1 - expectedP1));
+  const p2GainOnWin = Math.round(32 * expectedP1);
+
+  const hasScore = selectedMatch?.player1_score !== null && selectedMatch?.player1_score !== undefined && selectedMatch?.player2_score !== null && selectedMatch?.player2_score !== undefined;
+  const scoreDisplay = hasScore ? `${selectedMatch.player1_score} - ${selectedMatch.player2_score}` : 'Live in Progress';
+
+  const buildPlayerDossierCard = (side, playerObj, opponentObj, pid, safePid, pname, safeName, listId, safeListId, hasList, rosterText, units, eloVal, gainOnWin, accentColor, borderAccent) => {
+    const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const cacheKey = `${sys}:${pid || pname.toLowerCase()}`;
+    const cachedProfile = casterPlayerProfileCache[cacheKey] || null;
+    const masteryHtml = buildCasterFactionMasteryHtml(playerObj, opponentObj, cachedProfile, accentColor, matches);
+
+    const playerMatches = matches.filter(m => {
+      const m1Id = String(m.player1_id || '').trim();
+      const m2Id = String(m.player2_id || '').trim();
+      const m1Name = String(m.player1_name || '').trim().toLowerCase();
+      const m2Name = String(m.player2_name || '').trim().toLowerCase();
+      if (pid && (m1Id === pid || m2Id === pid)) return true;
+      if (pname && (m1Name === pname.toLowerCase() || m2Name === pname.toLowerCase())) return true;
+      return false;
+    }).sort((a, b) => Number(a.round || 1) - Number(b.round || 1));
+
+    const pathRowsHtml = playerMatches.map(m => {
+      const m1Id = String(m.player1_id || '').trim();
+      const m1Name = String(m.player1_name || '').trim().toLowerCase();
+      const isP1Side = (pid && m1Id === pid) || (pname && m1Name === pname.toLowerCase());
+      const mySc = isP1Side ? m.player1_score : m.player2_score;
+      const opSc = isP1Side ? m.player2_score : m.player1_score;
+      const opName = isP1Side ? (m.player2_name || 'BYE') : (m.player1_name || 'BYE');
+      const opPid = isP1Side ? String(m.player2_id || '').trim() : String(m.player1_id || '').trim();
+      const opFac = isP1Side ? (m.player2_faction || '') : (m.player1_faction || '');
+      const safeOpName = String(opName).replace(/'/g, "\\'");
+      const safeOpPid = String(opPid).replace(/'/g, "\\'");
+      const rNum = Number(m.round || 1);
       const tNum = Number(m.table_number || m.table || 1);
-      const isSel = tNum === activeTableNum;
-      const p1n = escapeHtml((m.player1_name || 'P1').split(' ')[0]);
-      const p2n = escapeHtml((m.player2_name || 'P2').split(' ')[0]);
-      const isPod1 = Number(m.pod_num) === 1;
+      const rMeta = getEventRoundMetadata(ev, matches, rNum, maxR);
+      const mId = m.tracker_match_id || `BCP-${eventId}-R${rNum}-T${tNum}`;
+      const mHasScore = mySc !== null && mySc !== undefined && opSc !== null && opSc !== undefined;
+      let resPill = `<span class="badge" style="background:rgba(148,163,184,0.15); color:#94a3b8; font-size:0.66rem; white-space:nowrap; flex-shrink:0;">LIVE</span>`;
+      if (m.is_bye || opName === 'BYE') {
+        resPill = `<span class="badge badge-win" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">BYE</span>`;
+      } else if (mHasScore) {
+        if (Number(mySc) > Number(opSc)) resPill = `<span class="badge badge-win" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">W ${mySc}-${opSc}</span>`;
+        else if (Number(mySc) < Number(opSc)) resPill = `<span class="badge badge-loss" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">L ${mySc}-${opSc}</span>`;
+        else resPill = `<span class="badge badge-draw" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">D ${mySc}-${opSc}</span>`;
+      }
       return `
-        <button type="button" onclick="selectCasterMatch(${tNum}, ${curRound})" class="btn-sm" style="padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.76rem; font-weight: 700; cursor: pointer; border: 1px solid ${isSel ? 'var(--accent)' : (isPod1 && curRoundMeta.isShadowRound ? 'rgba(168,85,247,0.35)' : 'rgba(255,255,255,0.08)')}; background: ${isSel ? 'rgba(56, 189, 248, 0.15)' : 'rgba(15,23,42,0.6)'}; color: ${isSel ? '#38bdf8' : 'var(--text-secondary)'};">
-          Table ${tNum}: ${p1n} vs ${p2n}
-        </button>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.35rem 0.5rem; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; font-size: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.4rem; min-width: 0; flex: 1;">
+            <span style="font-family: var(--font-mono); font-weight: 800; color: ${rMeta.isShadowRound || rMeta.isTopCut ? rMeta.badgeColor : '#94a3b8'}; min-width: 28px;" title="${escapeHtml(rMeta.fullLabel)}">R${rNum}${rMeta.isShadowRound ? '🌑' : (rMeta.isTopCut ? '🏆' : '')}</span>
+            ${resPill}
+            <span style="color: var(--text-muted); font-size: 0.7rem;">vs</span>
+            ${(!m.is_bye && opName !== 'BYE') ? `
+              <span class="player-link" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(safeOpPid)}', '${escapeHtml(safeOpName)}')" style="font-weight: 700; color: #e2e8f0; cursor: pointer; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="View ${escapeHtml(opName)} Quick Profile">${escapeHtml(opName)}</span>
+            ` : `<span style="color: var(--text-muted);">BYE</span>`}
+            ${opFac ? `<span style="color: var(--text-muted); font-size: 0.68rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">(${escapeHtml(opFac)})</span>` : ''}
+          </div>
+          <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openScorecardModal('${escapeHtml(mId)}')" style="font-size: 0.68rem; padding: 2px 6px; border-radius: 4px; color: #38bdf8; border-color: rgba(56,189,248,0.3); background: rgba(56,189,248,0.06); cursor: pointer; flex-shrink: 0;" title="View Round ${rNum} Table ${tNum} Game Scorecard">
+            📄 Scorecard
+          </button>
+        </div>
       `;
     }).join('');
 
-    const p1Units = extractKeyListUnits(p1RosterText || p1?.army_list, p1?.faction, p1?.detachment);
-    const p2Units = extractKeyListUnits(p2RosterText || p2?.army_list, p2?.faction, p2?.detachment);
-
-    // Dynamic Past Head-to-Head (strictly prior encounters)
-    const sysH2h = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
-    const h2hKey = getCasterH2hCacheKey(sysH2h, p1Pid, p2Pid, p1Name, p2Name);
-    const cachedApiH2h = Array.isArray(casterHeadToHeadCache[h2hKey]) ? casterHeadToHeadCache[h2hKey] : [];
-    const isH2hLoading = !Array.isArray(casterHeadToHeadCache[h2hKey]) && Boolean(window.api && typeof window.api.getHeadToHead === 'function');
-    const pastH2hMatches = filterPastHeadToHeadMatches([...cachedApiH2h, ...(Array.isArray(matches) ? matches : [])], ev, selectedMatch, curRound, p1Pid, p2Pid, p1Name, p2Name);
-    const h2hRec = computeCasterPastH2hRecord(pastH2hMatches, p1Pid, p2Pid, p1Name, p2Name);
-    const h2hText = h2hRec.summaryText;
-
-    // Faction matchup stats
-    const fac1 = p1?.faction || 'Army';
-    const fac2 = p2?.faction || 'Army';
-    const fac3MoMetrics = computeCasterFaction3MoMetrics(fac1, fac2, matches, sysH2h);
-    const isFac3MoLoading = (!fac3MoMetrics.hasLoadedF1 || !fac3MoMetrics.hasLoadedF2) && Boolean(window.api && typeof window.api.getFactionDetails === 'function');
-    let facMatchupText = '';
-    if (!fac3MoMetrics.isMirror && fac3MoMetrics.h2hTotal > 0) {
-      const wr = Math.round((fac3MoMetrics.h2hF1Wins / fac3MoMetrics.h2hTotal) * 100);
-      facMatchupText = `${escapeHtml(fac3MoMetrics.fac1)} ${wr}% WR vs ${escapeHtml(fac3MoMetrics.fac2)} (${fac3MoMetrics.h2hF1Wins}W-${fac3MoMetrics.h2hF2Wins}L${fac3MoMetrics.h2hDraws > 0 ? `-${fac3MoMetrics.h2hDraws}D` : ''}, Past 3 Mo)`;
-    } else if (!fac3MoMetrics.isMirror && fac3MoMetrics.evTotal > 0) {
-      const wr = Math.round((fac3MoMetrics.evF1Wins / fac3MoMetrics.evTotal) * 100);
-      facMatchupText = `${escapeHtml(fac3MoMetrics.fac1)} has a ${wr}% win rate vs ${escapeHtml(fac3MoMetrics.fac2)} in this event (${fac3MoMetrics.evF1Wins}-${fac3MoMetrics.evF2Wins})`;
-    } else if (!fac3MoMetrics.isMirror) {
-      facMatchupText = `${escapeHtml(fac3MoMetrics.fac1)} vs ${escapeHtml(fac3MoMetrics.fac2)} Matchup`;
-    } else {
-      facMatchupText = `${escapeHtml(fac3MoMetrics.fac1)} Mirror Match`;
-    }
-
-    // Dynamic Elo stakes
-    const expectedP1 = 1 / (1 + Math.pow(10, (p2Elo - p1Elo) / 400));
-    const p1GainOnWin = Math.round(32 * (1 - expectedP1));
-    const p2GainOnWin = Math.round(32 * expectedP1);
-
-    const hasScore = selectedMatch?.player1_score !== null && selectedMatch?.player1_score !== undefined && selectedMatch?.player2_score !== null && selectedMatch?.player2_score !== undefined;
-    const scoreDisplay = hasScore ? `${selectedMatch.player1_score} - ${selectedMatch.player2_score}` : 'Live in Progress';
-
-    // Helper to build each player's Dossier card underneath the Headline Clash
-    const buildPlayerDossierCard = (side, playerObj, opponentObj, pid, safePid, pname, safeName, listId, safeListId, hasList, rosterText, units, eloVal, gainOnWin, accentColor, borderAccent) => {
-      const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
-      const cacheKey = `${sys}:${pid || pname.toLowerCase()}`;
-      const cachedProfile = casterPlayerProfileCache[cacheKey] || null;
-      const masteryHtml = buildCasterFactionMasteryHtml(playerObj, opponentObj, cachedProfile, accentColor, matches);
-
-      const playerMatches = matches.filter(m => {
-        const m1Id = String(m.player1_id || '').trim();
-        const m2Id = String(m.player2_id || '').trim();
-        const m1Name = String(m.player1_name || '').trim().toLowerCase();
-        const m2Name = String(m.player2_name || '').trim().toLowerCase();
-        if (pid && (m1Id === pid || m2Id === pid)) return true;
-        if (pname && (m1Name === pname.toLowerCase() || m2Name === pname.toLowerCase())) return true;
-        return false;
-      }).sort((a, b) => Number(a.round || 1) - Number(b.round || 1));
-
-      const pathRowsHtml = playerMatches.map(m => {
-        const m1Id = String(m.player1_id || '').trim();
-        const m1Name = String(m.player1_name || '').trim().toLowerCase();
-        const isP1Side = (pid && m1Id === pid) || (pname && m1Name === pname.toLowerCase());
-        const mySc = isP1Side ? m.player1_score : m.player2_score;
-        const opSc = isP1Side ? m.player2_score : m.player1_score;
-        const opName = isP1Side ? (m.player2_name || 'BYE') : (m.player1_name || 'BYE');
-        const opPid = isP1Side ? String(m.player2_id || '').trim() : String(m.player1_id || '').trim();
-        const opFac = isP1Side ? (m.player2_faction || '') : (m.player1_faction || '');
-        const safeOpName = String(opName).replace(/'/g, "\\'");
-        const safeOpPid = String(opPid).replace(/'/g, "\\'");
-        const rNum = Number(m.round || 1);
-        const tNum = Number(m.table_number || m.table || 1);
-        const rMeta = getEventRoundMetadata(ev, matches, rNum, maxR);
-        const mId = m.tracker_match_id || `BCP-${eventId}-R${rNum}-T${tNum}`;
-        const mHasScore = mySc !== null && mySc !== undefined && opSc !== null && opSc !== undefined;
-        let resPill = `<span class="badge" style="background:rgba(148,163,184,0.15); color:#94a3b8; font-size:0.66rem; white-space:nowrap; flex-shrink:0;">LIVE</span>`;
-        if (m.is_bye || opName === 'BYE') {
-          resPill = `<span class="badge badge-win" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">BYE</span>`;
-        } else if (mHasScore) {
-          if (Number(mySc) > Number(opSc)) resPill = `<span class="badge badge-win" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">W ${mySc}-${opSc}</span>`;
-          else if (Number(mySc) < Number(opSc)) resPill = `<span class="badge badge-loss" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">L ${mySc}-${opSc}</span>`;
-          else resPill = `<span class="badge badge-draw" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">D ${mySc}-${opSc}</span>`;
-        }
-        return `
-          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.35rem 0.5rem; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; font-size: 0.75rem;">
-            <div style="display: flex; align-items: center; gap: 0.4rem; min-width: 0; flex: 1;">
-              <span style="font-family: var(--font-mono); font-weight: 800; color: ${rMeta.isShadowRound || rMeta.isTopCut ? rMeta.badgeColor : '#94a3b8'}; min-width: 28px;" title="${escapeHtml(rMeta.fullLabel)}">R${rNum}${rMeta.isShadowRound ? '🌑' : (rMeta.isTopCut ? '🏆' : '')}</span>
-              ${resPill}
-              <span style="color: var(--text-muted); font-size: 0.7rem;">vs</span>
-              ${(!m.is_bye && opName !== 'BYE') ? `
-                <span class="player-link" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(safeOpPid)}', '${escapeHtml(safeOpName)}')" style="font-weight: 700; color: #e2e8f0; cursor: pointer; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="View ${escapeHtml(opName)} Quick Profile">${escapeHtml(opName)}</span>
-              ` : `<span style="color: var(--text-muted);">BYE</span>`}
-              ${opFac ? `<span style="color: var(--text-muted); font-size: 0.68rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">(${escapeHtml(opFac)})</span>` : ''}
+    return `
+      <div style="background: rgba(15, 23, 42, 0.78); border: 1px solid ${borderAccent}; border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0;">
+        <!-- Dossier Header -->
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem; flex-wrap: wrap;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+              <span class="player-link" onclick="openPlayerModal('${escapeHtml(safePid)}', '${escapeHtml(safeName)}')" style="font-size: 1.05rem; font-weight: 800; color: #fff; cursor: pointer; text-decoration: underline; text-decoration-color: ${accentColor}; text-underline-offset: 3px;" title="Click to open ${escapeHtml(pname)}'s Quick Profile">
+                👤 ${escapeHtml(pname)}
+              </span>
+              ${playerObj?.placement ? `<span class="badge" style="background: rgba(255,255,255,0.08); color: #f8fafc; font-size: 0.68rem;">Seed / Rank #${playerObj.placement}</span>` : ''}
             </div>
-            <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openScorecardModal('${escapeHtml(mId)}')" style="font-size: 0.68rem; padding: 2px 6px; border-radius: 4px; color: #38bdf8; border-color: rgba(56,189,248,0.3); background: rgba(56,189,248,0.06); cursor: pointer; flex-shrink: 0;" title="View Round ${rNum} Table ${tNum} Game Scorecard">
-              📄 Scorecard
+            <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.2rem;">
+              🛡️ <strong>${escapeHtml(playerObj?.faction || 'Army')}</strong> • <span style="color: ${accentColor}; font-weight: 600;">${escapeHtml(playerObj?.detachment || 'Standard Detachment')}</span>
+              ${playerObj?.team ? ` • 👥 ${escapeHtml(playerObj.team)}` : ''}
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+            <button type="button" class="btn-sm btn-outline" onclick="openPlayerModal('${escapeHtml(safePid)}', '${escapeHtml(safeName)}')" style="font-size: 0.72rem; padding: 3px 8px; color: #f8fafc; border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); cursor: pointer; font-weight: 700;">
+              👤 Quick Profile
+            </button>
+            <button type="button" class="btn-sm btn-outline" onclick="openEventPlayerListModal('${escapeHtml(safePid || safeName)}', '${escapeHtml(safeListId)}')" style="font-size: 0.72rem; padding: 3px 8px; color: ${accentColor}; border-color: ${borderAccent}; background: rgba(56,189,248,0.08); cursor: pointer; font-weight: 700;">
+              📋 Army Roster
             </button>
           </div>
-        `;
-      }).join('');
-
-      return `
-        <div style="background: rgba(15, 23, 42, 0.78); border: 1px solid ${borderAccent}; border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0;">
-          <!-- Dossier Header -->
-          <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem; flex-wrap: wrap;">
-            <div>
-              <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-                <span class="player-link" onclick="openPlayerModal('${escapeHtml(safePid)}', '${escapeHtml(safeName)}')" style="font-size: 1.05rem; font-weight: 800; color: #fff; cursor: pointer; text-decoration: underline; text-decoration-color: ${accentColor}; text-underline-offset: 3px;" title="Click to open ${escapeHtml(pname)}'s Quick Profile">
-                  👤 ${escapeHtml(pname)}
-                </span>
-                ${playerObj?.placement ? `<span class="badge" style="background: rgba(255,255,255,0.08); color: #f8fafc; font-size: 0.68rem;">Seed / Rank #${playerObj.placement}</span>` : ''}
-              </div>
-              <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 0.2rem;">
-                🛡️ <strong>${escapeHtml(playerObj?.faction || 'Army')}</strong> • <span style="color: ${accentColor}; font-weight: 600;">${escapeHtml(playerObj?.detachment || 'Standard Detachment')}</span>
-                ${playerObj?.team ? ` • 👥 ${escapeHtml(playerObj.team)}` : ''}
-              </div>
-            </div>
-            <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
-              <button type="button" class="btn-sm btn-outline" onclick="openPlayerModal('${escapeHtml(safePid)}', '${escapeHtml(safeName)}')" style="font-size: 0.72rem; padding: 3px 8px; color: #f8fafc; border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); cursor: pointer; font-weight: 700;">
-                👤 Quick Profile
-              </button>
-              <button type="button" class="btn-sm btn-outline" onclick="openEventPlayerListModal('${escapeHtml(safePid || safeName)}', '${escapeHtml(safeListId)}')" style="font-size: 0.72rem; padding: 3px 8px; color: ${accentColor}; border-color: ${borderAccent}; background: rgba(56,189,248,0.08); cursor: pointer; font-weight: 700;">
-                📋 Army Roster
-              </button>
-            </div>
-          </div>
-
-          <!-- Career & Faction Mastery Telemetry (Async Enriched) -->
-          <div id="caster-dossier-mastery-${side}">
-            ${masteryHtml}
-          </div>
-
-          <!-- Tournament Run & Round-by-Round Scorecards -->
-          <div>
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.25rem;">
-              <span style="font-size: 0.73rem; font-weight: 800; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em;">
-                ⚔️ Tournament Path (${playerObj?.event_wins || 0}W-${playerObj?.event_losses || 0}L • ${playerObj?.event_battle_points || 0} Battle Pts)
-              </span>
-              <span style="font-size: 0.7rem; font-family: var(--font-mono); color: #4ade80;">Win Stakes: +${gainOnWin} Elo</span>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 0.3rem; max-height: 210px; overflow-y: auto;">
-              ${pathRowsHtml || '<div style="font-size:0.75rem; color:var(--text-muted);">No matches recorded yet.</div>'}
-            </div>
-          </div>
         </div>
-      `;
-    };
 
-    return `
-      <!-- Match Table Selector Row -->
-      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.85rem 1rem;">
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.65rem; flex-wrap: wrap;">
-          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-            <span style="font-size: 0.84rem; font-weight: 700; color: #fff;">
-              🎯 Select Featured Broadcast Table (${escapeHtml(curRoundMeta.fullLabel)}):
+        <!-- Career & Faction Mastery Telemetry (Async Enriched) -->
+        <div id="caster-dossier-mastery-${side}">
+          ${masteryHtml}
+        </div>
+
+        <!-- Tournament Run & Round-by-Round Scorecards -->
+        <div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.25rem;">
+            <span style="font-size: 0.73rem; font-weight: 800; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em;">
+              ⚔️ Tournament Path (${playerObj?.event_wins || 0}W-${playerObj?.event_losses || 0}L • ${playerObj?.event_battle_points || 0} Battle Pts)
             </span>
-            ${(curRoundMeta.isShadowRound || curRoundMeta.isTopCut) ? `
-              <span class="badge" style="background: ${curRoundMeta.badgeBg}; color: ${curRoundMeta.badgeColor}; border: 1px solid ${curRoundMeta.badgeBorder}; font-size: 0.7rem; font-weight: 800; padding: 2px 8px;">
-                ${escapeHtml(curRoundMeta.badgeText)}
-              </span>
-            ` : ''}
+            <span style="font-size: 0.7rem; font-family: var(--font-mono); color: #4ade80;">Win Stakes: +${gainOnWin} Elo</span>
           </div>
-          <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
-            <span style="font-size: 0.76rem; color: var(--text-muted);">Round:</span>
-            ${roundButtonsHtml}
+          <div style="display: flex; flex-direction: column; gap: 0.3rem; max-height: 210px; overflow-y: auto;">
+            ${pathRowsHtml || '<div style="font-size:0.75rem; color:var(--text-muted);">No matches recorded yet.</div>'}
           </div>
-        </div>
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; max-height: 120px; overflow-y: auto;">
-          ${tableButtons}
         </div>
       </div>
+    `;
+  };
 
+  return `
+    <div style="display: flex; flex-direction: column; gap: 1rem;">
       <!-- TALE OF THE TAPE FIGHTER CARD -->
-      <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 12px; padding: 1.25rem; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+      <div style="background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(168, 85, 247, 0.38); border-radius: 12px; padding: 1.2rem; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
           <div style="font-size: 0.95rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
             <span>⚔️ Table ${activeTableNum} Headline Clash</span>
@@ -8860,13 +8951,18 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
               ${escapeHtml(curRoundMeta.badgeText)}
             </span>
           </div>
-          <div style="display: flex; gap: 0.45rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
             <button type="button" onclick="openScorecardModal('${escapeHtml(activeMatchId)}')" class="btn-sm btn-outline" style="font-size: 0.75rem; padding: 4px 10px; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; background: rgba(56, 189, 248, 0.1); cursor: pointer; font-weight: 700;">
               📄 Game Scorecard
             </button>
-            <button type="button" onclick="copyObsOverlayUrl('lower_third')" class="btn-sm btn-outline" style="font-size: 0.75rem; padding: 4px 10px; border-color: rgba(168, 85, 247, 0.4); color: #c084fc; cursor: pointer;">
+            <button type="button" onclick="copyObsOverlayUrl('lower_third', this)" class="btn-sm btn-outline" style="font-size: 0.75rem; padding: 4px 10px; border-color: rgba(168, 85, 247, 0.4); color: #c084fc; cursor: pointer;">
               📺 Copy OBS Lower-Third
             </button>
+            ${isModal ? `
+              <button type="button" onclick="closeCasterDeskTableModal()" title="Close Table Details" style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.16); color:#f8fafc; border-radius:8px; width:30px; height:30px; cursor:pointer; font-size:0.9rem; line-height:1; display:inline-flex; align-items:center; justify-content:center;">
+                ✕
+              </button>
+            ` : ''}
           </div>
         </div>
 
@@ -8970,7 +9066,7 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
       <div id="caster-faction-3mo-container">${buildCasterFaction3MoMatchupCardHtml(fac1, fac2, matches, sysH2h, isFac3MoLoading)}</div>
 
       <!-- SIDE-BY-SIDE COMMANDER DOSSIERS: FACTION MASTERY, ROSTERS & TOURNAMENT PATH -->
-      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 1.15rem;">
+      <div style="background: rgba(15, 23, 42, 0.78); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 1.15rem;">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
           <div>
             <h4 style="margin: 0; font-size: 0.98rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.45rem;">
@@ -8980,7 +9076,7 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
               Click either player's name for their full Quick Profile, inspect their submitted army list, or open any round's Game Scorecard.
             </div>
           </div>
-          <button type="button" onclick="switchCreatorHubMode('meta')" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 4px 10px; cursor: pointer; color: #38bdf8; border-color: rgba(56,189,248,0.35);">
+          <button type="button" onclick="closeCasterDeskTableModal(); switchCreatorHubMode('meta');" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 4px 10px; cursor: pointer; color: #38bdf8; border-color: rgba(56,189,248,0.35);">
             🧬 Force Disposition Power Grid ➔
           </button>
         </div>
@@ -8988,6 +9084,193 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 1rem;">
           ${buildPlayerDossierCard('p1', p1Info?.record || p1, p2Info?.record || p2, p1Pid, p1SafePid, p1Name, p1SafeName, p1ListId, p1SafeListId, p1HasList, p1RosterText, p1Units, p1Elo, p1GainOnWin, '#38bdf8', 'rgba(56, 189, 248, 0.35)')}
           ${buildPlayerDossierCard('p2', p2Info?.record || p2, p1Info?.record || p1, p2Pid, p2SafePid, p2Name, p2SafeName, p2ListId, p2SafeListId, p2HasList, p2RosterText, p2Units, p2Elo, p2GainOnWin, '#f43f5e', 'rgba(244, 63, 94, 0.35)')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function closeCasterDeskTableModal() {
+  const modal = document.getElementById('caster-desk-table-modal');
+  if (typeof closeModal === 'function') {
+    closeModal('caster-desk-table-modal');
+  }
+  if (modal) {
+    modal.remove();
+  }
+}
+window.closeCasterDeskTableModal = closeCasterDeskTableModal;
+
+function openCasterDeskTableModal(tableNum, roundNum) {
+  const ev = currentEventData || {};
+  const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0 ? eventPlayersCache : (ev.players || []);
+  const matches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0 ? eventMatchesCache : (ev.matches || []);
+  const curRound = Number(roundNum || selectedCasterRound || ev.current_round || 1);
+  const tNum = Number(tableNum || selectedCasterTable || 1);
+
+  selectedCasterTable = tNum;
+  selectedCasterRound = curRound;
+  syncActiveStreamToCasterDesk(tNum, curRound, true);
+
+  const roundMatches = matches.filter(m => Number(m.round || m.round_number || 1) === curRound);
+  const selectedMatch = roundMatches.find(m => Number(m.table_number || m.table) === tNum) || roundMatches[0];
+  if (!selectedMatch) {
+    if (typeof showToast === 'function') showToast('Could not load table details', 'warning');
+    return;
+  }
+
+  ensureEventSearchIndex();
+  const p1 = lookupEventPlayerFast(selectedMatch.player1_id, selectedMatch.player1_name) || {
+    player_id: selectedMatch.player1_id || '',
+    full_name: selectedMatch.player1_name || 'Player 1',
+    faction: selectedMatch.player1_faction || 'Army',
+    detachment: 'Standard',
+    list_id: selectedMatch.player1_list_id || '',
+    current_elo: selectedMatch.player1_elo || 1500
+  };
+  const p2 = lookupEventPlayerFast(selectedMatch.player2_id, selectedMatch.player2_name) || {
+    player_id: selectedMatch.player2_id || '',
+    full_name: selectedMatch.player2_name || 'Player 2',
+    faction: selectedMatch.player2_faction || 'Army',
+    detachment: 'Standard',
+    list_id: selectedMatch.player2_list_id || '',
+    current_elo: selectedMatch.player2_elo || 1500
+  };
+
+  const p1Elo = Number(selectedMatch.player1_elo || p1.current_elo || 1500);
+  const p2Elo = Number(selectedMatch.player2_elo || p2.current_elo || 1500);
+  const eloDiff = p2Elo - p1Elo;
+  const p1WinProb = Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, eloDiff / 400)))));
+  const p2WinProb = 100 - p1WinProb;
+
+  let rawJson = (ev && ev.raw_json) || {};
+  if (typeof rawJson === 'string') {
+    try { rawJson = JSON.parse(rawJson); } catch (e) { rawJson = {}; }
+  }
+  const matchRounds = [...new Set(matches.map(m => Number(m.round)).filter(r => r > 0))].sort((a, b) => a - b);
+  const resolvedNumRounds = Number(ev.num_rounds || ev.numberOfRounds || ev.rounds_count || ev.rounds || ev.total_rounds || rawJson.numberOfRounds || rawJson.numRounds || 0);
+  const maxR = Math.max(resolvedNumRounds, matchRounds.length > 0 ? Math.max(...matchRounds) : 1, Number(ev.current_round || 0), 1);
+
+  let modal = document.getElementById('caster-desk-table-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'caster-desk-table-modal';
+    modal.className = 'modal-backdrop';
+    modal.style.cssText = 'position:fixed; inset:0; background:rgba(2,6,23,0.84); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; padding:1rem; box-sizing:border-box;';
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeCasterDeskTableModal();
+    });
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+    <div class="card" style="width:100%; max-width:1080px; background:linear-gradient(165deg, rgba(15,23,42,0.98), rgba(9,14,28,0.99)); border:1px solid rgba(168,85,247,0.45); border-radius:14px; padding:1.15rem 1.25rem; box-shadow:0 24px 60px rgba(0,0,0,0.8); color:#f8fafc; max-height:92vh; overflow-y:auto;">
+      ${buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, maxR, true)}
+    </div>
+  `;
+
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
+  } else {
+    modal.style.display = 'flex';
+    modal.classList.add('active');
+  }
+
+  setTimeout(() => {
+    hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch);
+  }, 0);
+}
+window.openCasterDeskTableModal = openCasterDeskTableModal;
+
+function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, matchRounds, totalRounds) {
+  let rawJson = (ev && ev.raw_json) || {};
+  if (typeof rawJson === 'string') {
+    try { rawJson = JSON.parse(rawJson); } catch (e) { rawJson = {}; }
+  }
+  curRound = curRound || selectedCasterRound || ev.current_round || 1;
+  matchRounds = matchRounds || [...new Set(matches.map(m => Number(m.round)).filter(r => r > 0))].sort((a, b) => a - b);
+  const resolvedNumRounds = Number(ev.num_rounds || ev.numberOfRounds || ev.rounds_count || ev.rounds || ev.total_rounds || rawJson.numberOfRounds || rawJson.numRounds || 0);
+  totalRounds = Math.max(
+    Number(totalRounds || 0),
+    resolvedNumRounds,
+    matchRounds.length > 0 ? Math.max(...matchRounds) : 0,
+    Number(ev.current_round || 0),
+    1
+  );
+
+  const maxR = Math.max(totalRounds, matchRounds.length > 0 ? Math.max(...matchRounds) : 1, 1);
+  const roundList = Array.from({ length: maxR }, (_, i) => i + 1);
+  const curRoundMeta = getEventRoundMetadata(ev, matches, curRound, maxR);
+
+  const roundButtonsHtml = roundList.map(r => {
+    const rMeta = getEventRoundMetadata(ev, matches, r, maxR);
+    const isSel = r === curRound;
+    return `
+      <button type="button" class="btn ${isSel ? 'btn-primary' : 'btn-outline'}" onclick="setCasterRadarRound(${r})" title="${escapeHtml(rMeta.fullLabel)} (${rMeta.matchCount} tables)" style="font-size:0.76rem; font-weight:700; padding:0.32rem 0.7rem;">
+        Round ${r}
+      </button>
+    `;
+  }).join('');
+
+  // Case A: Real pairings exist for curRound -> Render TO Hub-style Table Radar Grid!
+  if (roundMatches && roundMatches.length > 0) {
+    const eventId = String(ev?.id || currentOpenEventId || currentEventData?.id || '');
+    window._casterCurrentRoundMatches = roundMatches;
+    window._casterCurrentRound = curRound;
+
+    const totalTables = roundMatches.length;
+    let doneCount = 0;
+    for (let i = 0; i < totalTables; i++) {
+      const m = roundMatches[i];
+      if (!m) continue;
+      const isDone = typeof isToHubMatchCompleted === 'function'
+        ? isToHubMatchCompleted(m)
+        : Boolean(m.is_bye || m.is_done || (m.player1_score !== null && m.player1_score !== undefined && m.player2_score !== null && m.player2_score !== undefined && (Number(m.player1_score) > 0 || Number(m.player2_score) > 0 || m.winner_id || m.is_draw)));
+      if (isDone) doneCount++;
+    }
+    const unfinishedCount = totalTables - doneCount;
+    const pct = totalTables > 0 ? Math.round((doneCount / totalTables) * 100) : 0;
+
+    const state = _eventToHubStateCache.get(eventId) || {};
+    const activeSessions = Array.isArray(state.active_sessions) ? state.active_sessions : [];
+    const tablesGridHtml = buildCasterRadarGridHtml(eventId, roundMatches, curRound, activeSessions);
+
+    return `
+      <div>
+        <!-- Round Selector & Completion Progress -->
+        <div class="card" style="padding:0.9rem 1.05rem; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:0.85rem;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.65rem;">
+            <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+              ${roundButtonsHtml}
+            </div>
+            <div style="font-size:0.84rem; font-weight:800; color:#f8fafc; font-family:var(--font-mono);">
+              Round ${curRound} Progress: <span style="color:#4ade80;">${doneCount}</span> / ${totalTables} Tables Completed (${pct}%)
+            </div>
+          </div>
+          <div style="width:100%; height:8px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden;">
+            <div style="width:${pct}%; height:100%; background:linear-gradient(90deg, #38bdf8, #4ade80); transition:width 0.3s ease;"></div>
+          </div>
+        </div>
+
+        <!-- Filter Pills & Search -->
+        <div class="to-hub-radar-toolbar" style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.85rem;">
+          <div class="to-hub-filter-pills" style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+            <button type="button" class="btn ${_casterRadarFilter === 'all' ? 'btn-primary' : 'btn-outline'}" onclick="setCasterRadarFilter('all')" style="font-size:0.74rem; padding:0.3rem 0.65rem;">
+              All (${totalTables})
+            </button>
+            <button type="button" class="btn ${_casterRadarFilter === 'unfinished' ? 'btn-primary' : 'btn-outline'}" onclick="setCasterRadarFilter('unfinished')" style="font-size:0.74rem; padding:0.3rem 0.65rem;">
+              ⏳ Unfinished (${unfinishedCount})
+            </button>
+            <button type="button" class="btn ${_casterRadarFilter === 'completed' ? 'btn-primary' : 'btn-outline'}" onclick="setCasterRadarFilter('completed')" style="font-size:0.74rem; padding:0.3rem 0.65rem;">
+              ✅ Completed (${doneCount})
+            </button>
+          </div>
+          <input id="caster-radar-search-input" class="to-hub-radar-search-input" type="text" placeholder="Search table # or player..." value="${escapeHtml(_casterRadarSearch)}" oninput="handleCasterRadarSearch(this.value)" style="padding:0.38rem 0.75rem; border-radius:8px; border:1px solid rgba(255,255,255,0.14); background:rgba(15,23,42,0.85); color:#fff; font-size:0.8rem; min-width:210px; box-sizing:border-box;" />
+        </div>
+
+        <!-- Table Radar Grid -->
+        <div id="caster-radar-grid" class="to-hub-radar-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:0.7rem;">
+          ${tablesGridHtml}
         </div>
       </div>
     `;
@@ -9003,7 +9286,6 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
             🎯 Select Featured Broadcast Table (${escapeHtml(curRoundMeta.fullLabel)}):
           </span>
           <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;">
-            <span style="font-size: 0.76rem; color: var(--text-muted);">Round:</span>
             ${roundButtonsHtml}
           </div>
         </div>
@@ -9018,7 +9300,7 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
           Official pairings for ${escapeHtml(curRoundMeta.fullLabel)} have not yet been posted by event organizers.
           Live matches are available for earlier rounds.
         </p>
-        <button type="button" onclick="selectCasterMatch(1, ${latestRound})" class="btn btn-primary" style="font-size: 0.84rem; font-weight: 700; padding: 0.5rem 1.25rem;">
+        <button type="button" onclick="setCasterRadarRound(${latestRound})" class="btn btn-primary" style="font-size: 0.84rem; font-weight: 700; padding: 0.5rem 1.25rem;">
           Jump to Round ${latestRound} Feature Tables ➔
         </button>
       </div>
@@ -12913,6 +13195,9 @@ let _toHubCommsContext = null;
 
 function closeToHubCommsModal() {
   const modal = document.getElementById('to-hub-comms-modal');
+  if (typeof closeModal === 'function') {
+    closeModal('to-hub-comms-modal');
+  }
   if (modal) {
     modal.remove();
   }
@@ -13087,11 +13372,15 @@ function renderToHubCommsModalDom(preserveMsg = '', preserveLevel = 'warning') {
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'to-hub-comms-modal';
-    modal.style.cssText = 'position:fixed; inset:0; z-index:10050; background:rgba(2,6,23,0.82); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; padding:1rem; box-sizing:border-box;';
+    modal.className = 'modal-backdrop';
+    modal.style.cssText = 'position:fixed; inset:0; background:rgba(2,6,23,0.82); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; padding:1rem; box-sizing:border-box;';
     modal.addEventListener('click', (e) => {
       if (e.target === modal) closeToHubCommsModal();
     });
     document.body.appendChild(modal);
+  }
+  if (!modal.classList.contains('active') && typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
   }
 
   const info = getToHubCommsTargetSummary(ctx);
