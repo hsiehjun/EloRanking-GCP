@@ -7392,19 +7392,6 @@ function copyCasterCheatSheet() {
 }
 window.copyCasterCheatSheet = copyCasterCheatSheet;
 
-function copyDiscordSummary() {
-  const el = document.getElementById('creator-discord-text');
-  if (!el) return;
-  const text = el.value || el.innerText || '';
-  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-    navigator.clipboard.writeText(text).then(() => {
-      if (typeof showProfileToast === 'function') showProfileToast('✓ Discord markdown summary copied!');
-      else alert('Discord markdown summary copied!');
-    }).catch(() => {});
-  }
-}
-window.copyDiscordSummary = copyDiscordSummary;
-
 function fallbackCopyTextToClipboard(text) {
   try {
     const ta = document.createElement('textarea');
@@ -8150,22 +8137,17 @@ function renderEventCreatorHub(ev) {
         <span>📺 Live Stream & OBS</span>
         <span class="badge" style="background:#ef4444; color:#fff; font-size:0.65rem; padding:1px 5px; border-radius:4px;">LIVE</span>
       </button>
-      <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'export' ? 'active' : ''}" onclick="switchCreatorHubMode('export')">
-        <span>📸 Media & Export Kit</span>
-      </button>
     </div>
   `;
 
   // Render specific mode body
   let bodyHtml = '';
-  if (creatorHubActiveMode === 'caster') {
-    bodyHtml = renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, matchRounds, totalRounds);
-  } else if (creatorHubActiveMode === 'stream') {
+  if (creatorHubActiveMode === 'stream') {
     bodyHtml = renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo, curRound);
   } else if (creatorHubActiveMode === 'meta') {
     bodyHtml = renderDeepMetaMode(ev, players, matches);
-  } else if (creatorHubActiveMode === 'export') {
-    bodyHtml = renderMediaExportMode(ev, players, matches, curRound);
+  } else {
+    bodyHtml = renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, matchRounds, totalRounds);
   }
 
   container.innerHTML = `
@@ -10893,283 +10875,6 @@ function renderDeepMetaMode(ev, players, matches) {
   `;
 }
 
-function renderMediaExportMode(ev, players, matches) {
-  const evName = ev.name || 'Tournament Event';
-  const curRound = ev.current_round || 3;
-  const venue = ev.venue || ev.city || 'Championship Series';
-
-  // Sort players by tournament rank
-  const sortedPlayers = [...players].sort((a, b) => {
-    if (Number(b.event_wins || 0) !== Number(a.event_wins || 0)) {
-      return Number(b.event_wins || 0) - Number(a.event_wins || 0);
-    }
-    return Number(b.event_battle_points || 0) - Number(a.event_battle_points || 0);
-  });
-
-  const top1 = sortedPlayers[0] || {};
-  const top2 = sortedPlayers[1] || {};
-  const top3 = sortedPlayers[2] || {};
-
-  // Find top upset dynamically
-  const upsets = [];
-  matches.forEach(m => {
-    if (m.is_bye || m.is_draw) return;
-    const hasScores = m.player1_score !== null && m.player1_score !== undefined && m.player2_score !== null && m.player2_score !== undefined;
-    const p1Score = Number(m.player1_score || 0);
-    const p2Score = Number(m.player2_score || 0);
-    let p1Won = false;
-    let p2Won = false;
-    if (m.winner_id) {
-      p1Won = String(m.winner_id) === String(m.player1_id);
-      p2Won = String(m.winner_id) === String(m.player2_id);
-    } else if (hasScores) {
-      p1Won = p1Score > p2Score;
-      p2Won = p2Score > p1Score;
-    }
-    if (!p1Won && !p2Won) return;
-
-    const wName = p1Won ? m.player1_name : m.player2_name;
-    const lName = p1Won ? m.player2_name : m.player1_name;
-    const wFac = p1Won ? (m.player1_faction || 'Army') : (m.player2_faction || 'Army');
-    const wElo = p1Won ? Number(m.player1_elo || 1500) : Number(m.player2_elo || 1500);
-    const lElo = p1Won ? Number(m.player2_elo || 1500) : Number(m.player1_elo || 1500);
-    const gap = lElo - wElo;
-    if (gap >= 25) {
-      upsets.push({ winnerName: wName, loserName: lName, winnerFaction: wFac, gap });
-    }
-  });
-  upsets.sort((a, b) => b.gap - a.gap);
-  const topUpset = upsets[0];
-
-  // Calculate top faction win rate
-  const facStats = {};
-  players.forEach(p => {
-    const f = p.faction || 'Other';
-    if (!facStats[f]) facStats[f] = { wins: 0, losses: 0 };
-    facStats[f].wins += Number(p.event_wins || 0);
-    facStats[f].losses += Number(p.event_losses || 0);
-  });
-  let topFactionName = 'Meta Standard';
-  let topFactionWr = '0.0';
-  let bestWr = -1;
-  Object.entries(facStats).forEach(([f, s]) => {
-    const tot = s.wins + s.losses;
-    if (tot >= 2) {
-      const wr = (s.wins / tot) * 100;
-      if (wr > bestWr) {
-        bestWr = wr;
-        topFactionName = f;
-        topFactionWr = wr.toFixed(1);
-      }
-    }
-  });
-  if (bestWr < 0 && players[0]?.faction) {
-    topFactionName = players[0].faction;
-    topFactionWr = '100.0';
-  }
-
-  const broadcastChannels = eventLiveStreams.map(s => s.channel).filter(Boolean);
-  const broadcastStr = broadcastChannels.length > 0 ? broadcastChannels.join(' & ') : 'OmniTactica LiveDesk';
-
-  const upsetText = topUpset 
-    ? `🔥 **Biggest Upset:** ${topUpset.winnerName} (${topUpset.winnerFaction}) def. ${topUpset.loserName} (+${topUpset.gap.toFixed(0)} Elo Delta)\n`
-    : `🛡️ **Tournament State:** Top seeds holding tables undefeated\n`;
-
-  const discordText = `🏆 **${evName}**\n` +
-    `📍 ${venue} • ${players.length} Competitors • Round ${curRound} Standings\n\n` +
-    `🥇 **1st Place:** ${top1.full_name || 'Player'} (${top1.faction || 'Army'}) - ${top1.event_wins || 0}-${top1.event_losses || 0} (${top1.event_battle_points || 0} pts)\n` +
-    (top2.full_name ? `🥈 **2nd Place:** ${top2.full_name} (${top2.faction || 'Army'}) - ${top2.event_wins || 0}-${top2.event_losses || 0} (${top2.event_battle_points || 0} pts)\n` : '') +
-    (top3.full_name ? `🥉 **3rd Place:** ${top3.full_name} (${top3.faction || 'Army'}) - ${top3.event_wins || 0}-${top3.event_losses || 0} (${top3.event_battle_points || 0} pts)\n\n` : '\n') +
-    `${upsetText}` +
-    `📺 **Live Broadcast:** ${broadcastStr}\n` +
-    `👉 View full live results & pairings on OmniTactica!`;
-
-  return `
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;" class="export-layout-grid">
-      <!-- Left Column: Infographic Social Card Preview -->
-      <div>
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem;">
-          <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff;">
-            📸 Social Graphic / Stream Card Preview
-          </h4>
-          <span class="badge" style="font-size: 0.72rem; background: rgba(168,85,247,0.15); color: #c084fc;">READY TO POST</span>
-        </div>
-
-        <div class="export-preview-card">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.75rem;">
-            <div>
-              <div style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: #c084fc;">OMNITACTICA META SNAPSHOT</div>
-              <div style="font-size: 1.15rem; font-weight: 900; color: #fff; margin-top: 0.15rem;">${escapeHtml(evName)}</div>
-              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.1rem;">Round ${curRound} Live Update • ${escapeHtml(venue)}</div>
-            </div>
-            <span style="font-size: 1.5rem;">🏆</span>
-          </div>
-
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.65rem; margin-bottom: 1rem; text-align: center;">
-            <div style="background: rgba(255,255,255,0.04); padding: 0.65rem; border-radius: 8px;">
-              <div style="font-size: 0.68rem; color: var(--text-muted);">TOP SEED</div>
-              <div style="font-size: 0.95rem; font-weight: 800; color: #fff; margin-top: 0.2rem;">${escapeHtml(top1.full_name || 'Leader')}</div>
-              <div style="font-size: 0.7rem; color: #38bdf8;">${top1.event_wins || 0}-${top1.event_losses || 0} (${top1.event_battle_points || 0} pts)</div>
-            </div>
-            <div style="background: rgba(255,255,255,0.04); padding: 0.65rem; border-radius: 8px;">
-              <div style="font-size: 0.68rem; color: var(--text-muted);">GIANT SLAYER</div>
-              <div style="font-size: 0.95rem; font-weight: 800; color: #ef4444; margin-top: 0.2rem;">${escapeHtml(topUpset?.winnerName || 'Chalk Field')}</div>
-              <div style="font-size: 0.7rem; color: #ef4444;">${topUpset ? `+${topUpset.gap.toFixed(0)} Elo Upset` : 'No Upsets'}</div>
-            </div>
-            <div style="background: rgba(255,255,255,0.04); padding: 0.65rem; border-radius: 8px;">
-              <div style="font-size: 0.68rem; color: var(--text-muted);">TOP FACTION</div>
-              <div style="font-size: 0.95rem; font-weight: 800; color: #34d399; margin-top: 0.2rem;">${escapeHtml(topFactionName)}</div>
-              <div style="font-size: 0.7rem; color: #34d399;">${topFactionWr}% Win Rate</div>
-            </div>
-          </div>
-
-          <div style="font-size: 0.72rem; color: var(--text-muted); text-align: center; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.6rem;">
-            Generated by OmniTactica Creator Studio • omnitactica.com
-          </div>
-        </div>
-      </div>
-
-      <!-- Right Column: One-Click Discord / Social Copier -->
-      <div style="display: flex; flex-direction: column; gap: 0.85rem;">
-        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem;">
-            <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff;">
-              📋 Discord / Reddit / Twitter Markdown
-            </h4>
-            <button type="button" onclick="copyDiscordSummary()" class="btn-sm btn-primary" style="font-size: 0.75rem; padding: 3px 10px; background: #5865F2; border-color: #4752C4; color: #fff; cursor: pointer;">
-              Copy Discord Post
-            </button>
-          </div>
-          <textarea id="creator-discord-text" rows="9" readonly style="width: 100%; box-sizing: border-box; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 0.65rem; font-family: monospace; font-size: 0.76rem; color: #e2e8f0; resize: none;">${discordText}</textarea>
-        </div>
-
-        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
-          <div>
-            <div style="font-weight: 700; color: #fff; font-size: 0.86rem;">Raw Tournament Data Export</div>
-            <div style="font-size: 0.74rem; color: var(--text-muted);">Download clean tournament data for podcast prep or spreadsheet analysis</div>
-          </div>
-          <div style="display: flex; gap: 0.4rem;">
-            <button type="button" onclick="exportPairingsCsv()" class="btn-sm btn-outline" style="font-size: 0.75rem; cursor: pointer; color: #38bdf8;">
-              📥 CSV Pairings
-            </button>
-            <button type="button" onclick="exportRosterJson()" class="btn-sm btn-outline" style="font-size: 0.75rem; cursor: pointer; color: #34d399;">
-              📥 JSON Roster
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function exportPairingsCsv(eventId) {
-  const evId = eventId || (typeof window !== 'undefined' && window.currentOpenEventId) || currentOpenEventId || (typeof window !== 'undefined' && window.currentEventData?.id) || currentEventData?.id || 'tournament';
-  const matches = (typeof window !== 'undefined' && window.eventMatchesCache && window.eventMatchesCache.length > 0)
-    ? window.eventMatchesCache
-    : ((eventMatchesCache && eventMatchesCache.length > 0)
-      ? eventMatchesCache
-      : ((typeof window !== 'undefined' && window.currentEventData?.matches) || currentEventData?.matches || []));
-  if (!matches || matches.length === 0) {
-    if (typeof alert === 'function') alert('No pairing data available to export.');
-    else console.warn('No pairing data available to export.');
-    return;
-  }
-
-  const headers = ['Round', 'Table', 'Player 1', 'P1 Faction', 'P1 Elo', 'P1 Score', 'Player 2', 'P2 Faction', 'P2 Elo', 'P2 Score', 'Winner', 'Status'];
-  const rows = matches.map(m => {
-    const isCompleted = m.player1_score !== null && m.player1_score !== undefined && m.player2_score !== null && m.player2_score !== undefined;
-    let winner = '';
-    if (m.winner_name) {
-      winner = m.winner_name;
-    } else if (isCompleted) {
-      if (Number(m.player1_score) > Number(m.player2_score)) winner = m.player1_name || 'Player 1';
-      else if (Number(m.player2_score) > Number(m.player1_score)) winner = m.player2_name || 'Player 2';
-      else winner = 'Tie / Draw';
-    }
-    const status = m.is_bye ? 'BYE' : (isCompleted ? 'Finished' : 'In Progress');
-    return [
-      m.round || 1,
-      m.table_number || m.table || 1,
-      `"${(m.player1_name || '').replace(/"/g, '""')}"`,
-      `"${(m.player1_faction || '').replace(/"/g, '""')}"`,
-      m.player1_elo || '',
-      m.player1_score !== null && m.player1_score !== undefined ? m.player1_score : '',
-      `"${(m.player2_name || '').replace(/"/g, '""')}"`,
-      `"${(m.player2_faction || '').replace(/"/g, '""')}"`,
-      m.player2_elo || '',
-      m.player2_score !== null && m.player2_score !== undefined ? m.player2_score : '',
-      `"${winner.replace(/"/g, '""')}"`,
-      status
-    ].join(',');
-  });
-
-  const csvContent = [headers.join(','), ...rows].join('\n');
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.setAttribute('href', url);
-  link.setAttribute('download', `${evId}_pairings.csv`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-  if (typeof showProfileToast === 'function') {
-    showProfileToast('✓ Pairings CSV downloaded successfully!');
-  }
-}
-window.exportPairingsCsv = exportPairingsCsv;
-
-function exportRosterJson(eventId) {
-  const evId = eventId || (typeof window !== 'undefined' && window.currentOpenEventId) || currentOpenEventId || (typeof window !== 'undefined' && window.currentEventData?.id) || currentEventData?.id || 'tournament';
-  const players = (typeof window !== 'undefined' && window.eventPlayersCache && window.eventPlayersCache.length > 0)
-    ? window.eventPlayersCache
-    : ((eventPlayersCache && eventPlayersCache.length > 0)
-      ? eventPlayersCache
-      : ((typeof window !== 'undefined' && window.currentEventData?.players) || currentEventData?.players || []));
-  if (!players || players.length === 0) {
-    if (typeof alert === 'function') alert('No player roster data available to export.');
-    else console.warn('No player roster data available to export.');
-    return;
-  }
-
-  const exportData = {
-    event_id: evId,
-    event_name: currentEventData?.name || evId,
-    exported_at: new Date().toISOString(),
-    total_players: players.length,
-    roster: players.map(p => ({
-      player_id: p.player_id || p.id,
-      name: p.full_name || p.name,
-      faction: p.faction || '',
-      detachment: p.detachment || '',
-      current_elo: p.current_elo || 1500,
-      record: {
-        wins: Number(p.event_wins || 0),
-        losses: Number(p.event_losses || 0),
-        draws: Number(p.event_draws || 0),
-        battle_points: Number(p.event_battle_points || 0)
-      },
-      team: p.team || '',
-      army_list: p.army_list || ''
-    }))
-  };
-
-  const jsonContent = JSON.stringify(exportData, null, 2);
-  const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.setAttribute('href', url);
-  link.setAttribute('download', `${evId}_roster.json`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-  if (typeof showProfileToast === 'function') {
-    showProfileToast('✓ Roster JSON downloaded successfully!');
-  }
-}
-window.exportRosterJson = exportRosterJson;
-
 // Helper: Extract top datasheets / characters from raw army list text
 function extractKeyListUnits(listText, faction, detachment) {
   if (!listText || typeof listText !== 'string' || listText.trim().length === 0) {
@@ -11273,7 +10978,6 @@ window.renderCasterDeckMode = renderCasterDeckMode;
 window.renderStreamStudioMode = renderStreamStudioMode;
 window.renderStorylinesMode = renderStorylinesMode;
 window.renderDeepMetaMode = renderDeepMetaMode;
-window.renderMediaExportMode = renderMediaExportMode;
 
 window.computeEventPlayerEloStats = computeEventPlayerEloStats;
 window.renderQuickEventModal = renderQuickEventModal;
@@ -11294,8 +10998,6 @@ window.copyEventArmyListModalText = copyEventArmyListModalText;
 window.copyEventPlayerListModalText = copyEventArmyListModalText;
 window.normalizeStreamRecord = normalizeStreamRecord;
 window.loadEventLivestreams = loadEventLivestreams;
-window.exportPairingsCsv = exportPairingsCsv;
-window.exportRosterJson = exportRosterJson;
 
 // ============================================================================
 // TO HUB, PUBLIC NEWS & INFO TAB & GLOBAL EVENT ANNOUNCEMENT BANNER
