@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=4d6b78df63">
+  <link rel="manifest" href="/manifest.json?v=98e10b0b42">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=4d6b78df63">
-  <link rel="stylesheet" href="/css/styles.min.css?v=4d6b78df63">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=4d6b78df63">
-  <link rel="preload" href="/js/app.bundle.min.js?v=4d6b78df63" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=98e10b0b42">
+  <link rel="stylesheet" href="/css/styles.min.css?v=98e10b0b42">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=98e10b0b42">
+  <link rel="preload" href="/js/app.bundle.min.js?v=98e10b0b42" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "4d6b78df63";</script>
+  <script>window.APP_VERSION = "98e10b0b42";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -1129,15 +1129,18 @@
     <!-- TAB 2: COMPETITIVE LEADERBOARDS -->
     <section id="tab-leaderboard" class="tab-panel">
       <!-- Subtabs Bar: Individual Standings, Team Rankings, Global ITC Rankings -->
-      <div class="subtabs-bar" style="margin-bottom: 1.25rem;">
+      <div class="subtabs-bar lead-main-subtabs-bar" style="margin-bottom: 1.25rem;">
         <button id="lead-subtab-players" class="subtab-btn active" onclick="switchLeaderboardSubtab('players')">
-          <span>👑 Individual Standings</span>
+          <span class="subtab-label-full">👑 Individual Standings</span>
+          <span class="subtab-label-short">👑 Individual</span>
         </button>
         <button id="lead-subtab-teams" class="subtab-btn" onclick="switchLeaderboardSubtab('teams')">
-          <span>🛡️ Team Rankings</span>
+          <span class="subtab-label-full">🛡️ Team Rankings</span>
+          <span class="subtab-label-short">🛡️ Teams</span>
         </button>
         <button id="lead-subtab-itc" class="subtab-btn" onclick="switchLeaderboardSubtab('itc')">
-          <span>🌍 Global ITC Rankings</span>
+          <span class="subtab-label-full">🌍 Global ITC Rankings</span>
+          <span class="subtab-label-short">🌍 Global ITC</span>
         </button>
       </div>
 
@@ -1211,13 +1214,13 @@
 
       <!-- View 3: Global ITC Rankings (Individual & Team) -->
       <div id="lead-view-itc" style="display: none;">
-        <div class="controls-bar" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-          <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
-            <div style="font-weight: 700; font-size: 0.95rem; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+        <div class="controls-bar itc-controls-bar" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+          <div class="itc-header-left" style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+            <div class="itc-title-group" style="font-weight: 700; font-size: 0.95rem; color: #fff; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <span id="itc-title-label">🌍 Warhammer Global ITC Rankings</span>
               <span id="itc-season-badge" class="badge" style="background: rgba(245, 158, 11, 0.14); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-size: 0.7rem; padding: 0.2rem 0.55rem;">2026 Season • Top 6 Events</span>
             </div>
-            <div style="display: inline-flex; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 8px; padding: 2px;">
+            <div class="itc-mode-toggle-group" style="display: inline-flex; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 8px; padding: 2px;">
               <button type="button" id="itc-mode-players" class="subtab-btn active" style="padding: 0.32rem 0.75rem; font-size: 0.78rem; border-radius: 6px;" onclick="setItcLeaderboardCategory('players')">
                 👤 Individual ITC
               </button>
@@ -1227,8 +1230,8 @@
             </div>
           </div>
 
-          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; flex: 1; justify-content: flex-end;">
-            <div id="itc-region-filters-group" style="display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+          <div class="itc-filters-right" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; flex: 1; justify-content: flex-end;">
+            <div id="itc-region-filters-group" class="itc-region-selects" style="display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
               <select id="itc-region-continent" class="filter-select" aria-label="ITC Region" onchange="onItcRegionContinentChange(this.value)" style="padding: 0.38rem 0.65rem; font-size: 0.78rem; font-weight: 600; min-width: 155px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.3); color: #e2e8f0; border-radius: 7px;">
                 <option value="61vXu5vli4">🌍 Global (Worldwide)</option>
                 <option value="P8bXpfDq998z">🌎 North America</option>
@@ -1268,7 +1271,7 @@
                 <option value="ERrHMJo9H5">US-West</option>
               </select>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; max-width: 260px; min-width: 180px;">
+            <div class="itc-search-wrap" style="display: flex; align-items: center; gap: 0.5rem; flex: 1; max-width: 260px; min-width: 180px;">
               <input type="text" id="itc-search-input" class="search-input" placeholder="Search player, team, or faction..." oninput="debounceItcSearch()" style="width: 100%; padding: 0.42rem 0.75rem; font-size: 0.82rem;" />
             </div>
           </div>
@@ -3735,7 +3738,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=4d6b78df63"></script>
+  <script src="/js/app.bundle.min.js?v=98e10b0b42"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

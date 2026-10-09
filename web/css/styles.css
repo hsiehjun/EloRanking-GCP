@@ -3060,8 +3060,128 @@ input, select, textarea {
   }
 }
 
+/* Desktop Defaults for Leaderboard Mobile Helpers */
+.lead-main-subtabs-bar .subtab-label-short,
+.itc-mobile-submeta,
+.itc-mobile-wr {
+  display: none;
+}
+
 /* Smartphone Vertical Cards (<= 640px): 100% Vertical Flow with ZERO Horizontal Scroll */
 @media (max-width: 768px) {
+  /* Leaderboard 3-Column Subtabs Bar on Mobile (No Horizontal Overflow) */
+  #tab-leaderboard .lead-main-subtabs-bar {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.35rem !important;
+    padding: 0.3rem !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+  #tab-leaderboard .lead-main-subtabs-bar .subtab-btn {
+    padding: 0.48rem 0.25rem !important;
+    font-size: 0.74rem !important;
+    justify-content: center !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  #tab-leaderboard .lead-main-subtabs-bar .subtab-label-full {
+    display: none !important;
+  }
+  #tab-leaderboard .lead-main-subtabs-bar .subtab-label-short {
+    display: inline !important;
+  }
+
+  /* Global ITC Controls Bar on Mobile */
+  #lead-view-itc .itc-controls-bar {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.55rem !important;
+    padding: 0.75rem !important;
+    margin-bottom: 0.75rem !important;
+  }
+  #lead-view-itc .itc-header-left {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.5rem !important;
+    width: 100% !important;
+  }
+  #lead-view-itc .itc-title-group {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.4rem !important;
+    width: 100% !important;
+    font-size: 0.85rem !important;
+  }
+  #lead-view-itc #itc-title-label {
+    font-size: 0.84rem !important;
+    line-height: 1.25 !important;
+    min-width: 0 !important;
+    flex: 1 !important;
+  }
+  #lead-view-itc #itc-season-badge {
+    font-size: 0.65rem !important;
+    padding: 0.18rem 0.48rem !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+  }
+  #lead-view-itc .itc-mode-toggle-group {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    width: 100% !important;
+    gap: 3px !important;
+    padding: 3px !important;
+    box-sizing: border-box !important;
+  }
+  #lead-view-itc .itc-mode-toggle-group .subtab-btn {
+    width: 100% !important;
+    justify-content: center !important;
+    text-align: center !important;
+    padding: 0.42rem 0.5rem !important;
+    font-size: 0.78rem !important;
+  }
+  #lead-view-itc .itc-filters-right {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.45rem !important;
+    width: 100% !important;
+  }
+  #lead-view-itc #itc-region-filters-group {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 0.4rem !important;
+    width: 100% !important;
+  }
+  #lead-view-itc #itc-region-continent,
+  #lead-view-itc #itc-region-country {
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 0.76rem !important;
+    padding: 0.42rem 0.5rem !important;
+    box-sizing: border-box !important;
+  }
+  #lead-view-itc #itc-region-subregion {
+    grid-column: 1 / -1 !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 0.76rem !important;
+    padding: 0.42rem 0.5rem !important;
+    box-sizing: border-box !important;
+  }
+  #lead-view-itc .itc-search-wrap {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
   .table-container {
     overflow-x: hidden !important;
     overflow-y: visible !important;
@@ -3125,7 +3245,11 @@ input, select, textarea {
   #lead-teams-table tr:has(.empty-state),
   #lead-teams-table tr:has(.spinner),
   #lead-teams-table tr.loading-row,
-  #lead-teams-table tr.empty-row {
+  #lead-teams-table tr.empty-row,
+  #lead-itc-table tr:has(.empty-state),
+  #lead-itc-table tr:has(.spinner),
+  #lead-itc-table tr.loading-row,
+  #lead-itc-table tr.empty-row {
     display: block !important;
     width: 100% !important;
     min-height: 120px !important;
@@ -3144,8 +3268,13 @@ input, select, textarea {
   #lead-teams-table tr:has(.spinner) td,
   #lead-teams-table tr.loading-row td,
   #lead-teams-table tr.empty-row td,
+  #lead-itc-table tr:has(.empty-state) td,
+  #lead-itc-table tr:has(.spinner) td,
+  #lead-itc-table tr.loading-row td,
+  #lead-itc-table tr.empty-row td,
   #leaderboard-table td.empty-state,
-  #lead-teams-table td.empty-state {
+  #lead-teams-table td.empty-state,
+  #lead-itc-table td.empty-state {
     display: block !important;
     width: 100% !important;
     grid-column: 1 / -1 !important;
@@ -3158,7 +3287,8 @@ input, select, textarea {
     font-weight: 500 !important;
   }
   #leaderboard-table td.empty-state .spinner,
-  #lead-teams-table td.empty-state .spinner {
+  #lead-teams-table td.empty-state .spinner,
+  #lead-itc-table td.empty-state .spinner {
     margin: 0 auto 0.75rem auto !important;
   }
 
@@ -3396,6 +3526,169 @@ input, select, textarea {
   #lead-teams-table tr:not(.loading-row):not(.empty-row) td:nth-child(5),
   #lead-teams-table tr:not(.loading-row):not(.empty-row) td:nth-child(6),
   #lead-teams-table tr:not(.loading-row):not(.empty-row) td:nth-child(7) {
+    display: none !important;
+  }
+
+  /* Global ITC Rankings High-Density Mobile Tiles (Individual & Team) */
+  #lead-itc-table tr:not(.loading-row):not(.empty-row):not(:has(.empty-state)):not(:has(.spinner)) {
+    display: grid !important;
+    grid-template-columns: 32px minmax(0, 1fr) auto !important;
+    grid-template-rows: auto auto !important;
+    align-items: center !important;
+    padding: 0.6rem 0.75rem !important;
+    gap: 4px 8px !important;
+    border-radius: 10px !important;
+    cursor: pointer !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+  }
+  #lead-itc-table tr:not(.loading-row):not(.empty-row) td {
+    padding: 0 !important;
+    border: none !important;
+  }
+  #lead-itc-table tr:not(.loading-row):not(.empty-row) td::before {
+    display: none !important;
+  }
+  /* Col 1, Rows 1-2: ITC Rank */
+  #lead-itc-table tr:not(.loading-row):not(.empty-row) td:nth-child(1) {
+    grid-column: 1 !important;
+    grid-row: 1 / span 2 !important;
+    font-weight: 800 !important;
+    font-size: 0.92rem !important;
+    color: #fbbf24 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  /* Col 2, Row 1: Player Name (+ Team Pill) or Team Name */
+  #lead-itc-table tr:not(.loading-row):not(.empty-row) td:nth-child(2) {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    font-weight: 800 !important;
+    font-size: 0.9rem !important;
+    color: #f8fafc !important;
+    border: none !important;
+    margin: 0 !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+  }
+  #lead-itc-table .player-name-cell {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: 2px 6px !important;
+  }
+  #lead-itc-table .player-link {
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 100% !important;
+    display: inline-block !important;
+  }
+  #lead-itc-table .itc-team-badge-pill {
+    margin-top: 0 !important;
+    font-size: 0.62rem !important;
+    padding: 0.1rem 0.4rem !important;
+    max-width: 140px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  /* Col 3, Row 1: ITC Points Badge */
+  #lead-itc-table tr:not(.loading-row):not(.empty-row) td:nth-child(3) {
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+    text-align: right !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+    align-items: center !important;
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+  }
+  #lead-itc-table .itc-pts-badge {
+    font-size: 0.78rem !important;
+    padding: 0.2rem 0.5rem !important;
+  }
+  /* Col 2, Row 2: Events Scored + Mobile Sub-meta (Elo / Faction / Power) */
+  #lead-itc-table tr:not(.loading-row):not(.empty-row) td:nth-child(4) {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+    font-size: 0.72rem !important;
+    color: var(--text-secondary) !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+  }
+  #lead-itc-table .itc-events-meta-wrap {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    flex-wrap: nowrap !important;
+  }
+  #lead-itc-table .itc-events-meta-wrap .roster-badge {
+    font-size: 0.65rem !important;
+    padding: 1px 5px !important;
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+  }
+  #lead-itc-table .itc-mobile-submeta {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+  #lead-itc-table .itc-mobile-submeta .elo-badge-pill,
+  #lead-itc-table .itc-mobile-submeta .elo-badge {
+    font-size: 0.66rem !important;
+    padding: 1px 5px !important;
+    flex-shrink: 0 !important;
+  }
+  #lead-itc-table .itc-mobile-submeta .faction-pill {
+    max-width: 96px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    margin: 0 !important;
+    font-size: 0.64rem !important;
+    padding: 1px 5px !important;
+  }
+  /* Col 3, Row 2: Season W-L-D Record + Inline Win Rate */
+  #lead-itc-table tr:not(.loading-row):not(.empty-row) td:nth-child(7) {
+    grid-column: 3 !important;
+    grid-row: 2 !important;
+    font-size: 0.7rem !important;
+    font-weight: 600 !important;
+    text-align: right !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+    align-items: center !important;
+    gap: 3px !important;
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+  }
+  #lead-itc-table .itc-mobile-wr {
+    display: inline !important;
+    font-weight: 700 !important;
+    margin-left: 2px !important;
+  }
+  /* Hide Desktop-Only Columns on Mobile (already surfaced in Row 2) */
+  #lead-itc-table tr:not(.loading-row):not(.empty-row) td:nth-child(5),
+  #lead-itc-table tr:not(.loading-row):not(.empty-row) td:nth-child(6),
+  #lead-itc-table tr:not(.loading-row):not(.empty-row) td:nth-child(8) {
     display: none !important;
   }
 

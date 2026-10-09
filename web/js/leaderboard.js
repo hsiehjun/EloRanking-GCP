@@ -1024,34 +1024,39 @@ function renderLeaderboardItcRows() {
         : `<span style="color:var(--text-muted); font-size:0.8rem;">—</span>`;
 
       const wr = Number(item.team_win_rate != null ? item.team_win_rate : (item.win_rate || 0)).toFixed(1);
+      const wrColor = wr >= 55 ? 'var(--win)' : (wr >= 45 ? 'var(--accent)' : 'var(--text-secondary)');
 
       tr.innerHTML = `
         <td class="rank-cell ${rankClass}">#${rank}</td>
         <td>
-          <div style="font-weight:600; color:#fff; display:flex; align-items:center; gap:0.4rem;">
-            <span>🛡️</span>
+          <div class="itc-team-name-cell" style="font-weight:600; color:#fff; display:flex; align-items:center; gap:0.4rem; min-width:0;">
+            <span style="flex-shrink:0;">🛡️</span>
             <span class="player-link">${escapeHtml(teamName)}</span>
           </div>
         </td>
         <td>
-          <span class="badge" style="background: rgba(245, 158, 11, 0.14); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-family: var(--font-mono); font-weight: 700; font-size: 0.86rem; padding: 0.25rem 0.6rem;">
+          <span class="badge itc-pts-badge" style="background: rgba(245, 158, 11, 0.14); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-family: var(--font-mono); font-weight: 700; font-size: 0.86rem; padding: 0.25rem 0.6rem;">
             🏆 ${pts}
           </span>
         </td>
         <td>
-          <span class="roster-badge" title="${eventsScored} of ${maxEvents} maximum counting events scored">
-            <span class="roster-badge-num">${eventsScored}</span> <span class="roster-badge-label">/ ${maxEvents} Events</span>
-          </span>
+          <div class="itc-events-meta-wrap">
+            <span class="roster-badge" title="${eventsScored} of ${maxEvents} maximum counting events scored">
+              <span class="roster-badge-num">${eventsScored}</span> <span class="roster-badge-label">/ ${maxEvents} Events</span>
+            </span>
+            ${hasPower ? `<span class="itc-mobile-submeta">${powerCellHtml}</span>` : ''}
+          </div>
         </td>
         <td>${powerCellHtml}</td>
         <td>${topPlayerHtml}</td>
-        <td style="font-family:var(--font-mono); font-size:0.85rem;">
+        <td class="itc-record-cell" style="font-family:var(--font-mono); font-size:0.85rem;">
           <span style="color:var(--win); font-weight:600;">${item.total_wins || 0}W</span> - 
           <span style="color:var(--loss); font-weight:600;">${item.total_losses || 0}L</span>
           ${item.total_draws ? ` - <span style="color:var(--draw); font-weight:600;">${item.total_draws}D</span>` : ''}
+          <span class="itc-mobile-wr" style="color:${wrColor};">(${wr}%)</span>
         </td>
         <td style="font-family:var(--font-mono); font-weight:600;">
-          <span style="color: ${wr >= 55 ? 'var(--win)' : (wr >= 45 ? 'var(--accent)' : 'var(--text-secondary)')};">
+          <span style="color: ${wrColor};">
             ${wr}%
           </span>
         </td>
@@ -1069,12 +1074,13 @@ function renderLeaderboardItcRows() {
         : `<span class="badge" style="background:rgba(148,163,184,0.1); color:var(--text-muted); border:1px solid rgba(148,163,184,0.2); font-size:0.7rem;">Unrated</span>`;
 
       const teamHtml = item.team
-        ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); font-size:0.68rem; margin-top:0.2rem; cursor:pointer;" onclick="event.stopPropagation(); openTeamModal('${escapeHtml(item.team)}')" title="View ${escapeHtml(item.team)} Roster">🛡️ ${escapeHtml(item.team)}</span>`
+        ? `<span class="badge itc-team-badge-pill" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); font-size:0.68rem; margin-top:0.2rem; cursor:pointer;" onclick="event.stopPropagation(); openTeamModal('${escapeHtml(item.team)}')" title="View ${escapeHtml(item.team)} Roster">🛡️ ${escapeHtml(item.team)}</span>`
         : '';
 
       const wr = Number(item.win_rate || 0).toFixed(1);
+      const wrColor = wr >= 60 ? 'var(--win)' : (wr >= 45 ? 'var(--accent)' : 'var(--text-secondary)');
+      const rawFacs = (item.top_faction || '').split(',').map(f => f.trim()).filter(Boolean);
       const factionCellHtml = (() => {
-        const rawFacs = (item.top_faction || '').split(',').map(f => f.trim()).filter(Boolean);
         if (!rawFacs.length) return `<span style="color:var(--text-muted); font-size:0.8rem;">—</span>`;
         const showCount = 2;
         const visible = rawFacs.slice(0, showCount);
@@ -1082,36 +1088,43 @@ function renderLeaderboardItcRows() {
         return visible.map(f => `<span class="faction-pill" title="${escapeHtml(f)}" style="margin:2px 3px 2px 0; display:inline-block;">${escapeHtml(f)}</span>`).join('') +
           (remaining > 0 ? `<span class="faction-pill" title="${escapeHtml(rawFacs.slice(showCount).join(', '))}" style="margin:2px 3px 2px 0; display:inline-block; opacity:0.85; font-size:0.72rem; cursor:help;">+${remaining}</span>` : '');
       })();
+      const mobilePrimaryFacHtml = rawFacs.length
+        ? `<span class="faction-pill" title="${escapeHtml(rawFacs[0])}">${escapeHtml(rawFacs[0])}</span>`
+        : '';
 
       tr.innerHTML = `
         <td class="rank-cell ${rankClass}">#${rank}</td>
         <td>
           <div class="player-name-cell">
-            <div style="display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+            <div style="display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; min-width: 0; max-width: 100%;">
               <span class="player-link">${escapeHtml(playerName)}</span>
             </div>
             ${teamHtml}
           </div>
         </td>
         <td>
-          <span class="badge" style="background: rgba(245, 158, 11, 0.14); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-family: var(--font-mono); font-weight: 700; font-size: 0.86rem; padding: 0.25rem 0.6rem;">
+          <span class="badge itc-pts-badge" style="background: rgba(245, 158, 11, 0.14); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); font-family: var(--font-mono); font-weight: 700; font-size: 0.86rem; padding: 0.25rem 0.6rem;">
             🏆 ${pts}
           </span>
         </td>
         <td>
-          <span class="roster-badge" title="${eventsScored} of ${maxEvents} maximum counting events scored">
-            <span class="roster-badge-num">${eventsScored}</span> <span class="roster-badge-label">/ ${maxEvents} Events</span>
-          </span>
+          <div class="itc-events-meta-wrap">
+            <span class="roster-badge" title="${eventsScored} of ${maxEvents} maximum counting events scored">
+              <span class="roster-badge-num">${eventsScored}</span> <span class="roster-badge-label">/ ${maxEvents} Events</span>
+            </span>
+            ${(hasElo || mobilePrimaryFacHtml) ? `<span class="itc-mobile-submeta">${hasElo ? eloCellHtml : ''}${mobilePrimaryFacHtml}</span>` : ''}
+          </div>
         </td>
         <td>${eloCellHtml}</td>
         <td class="col-faction">${factionCellHtml}</td>
-        <td style="font-family:var(--font-mono); font-size:0.85rem;">
+        <td class="itc-record-cell" style="font-family:var(--font-mono); font-size:0.85rem;">
           <span style="color:var(--win); font-weight:600;">${item.wins || 0}W</span> - 
           <span style="color:var(--loss); font-weight:600;">${item.losses || 0}L</span>
           ${item.draws ? ` - <span style="color:var(--draw); font-weight:600;">${item.draws}D</span>` : ''}
+          <span class="itc-mobile-wr" style="color:${wrColor};">(${wr}%)</span>
         </td>
         <td style="font-family:var(--font-mono); font-weight:600;">
-          <span style="color: ${wr >= 60 ? 'var(--win)' : (wr >= 45 ? 'var(--accent)' : 'var(--text-secondary)')};">
+          <span style="color: ${wrColor};">
             ${wr}%
           </span>
         </td>
