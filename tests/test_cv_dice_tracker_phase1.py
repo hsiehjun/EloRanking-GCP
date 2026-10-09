@@ -87,15 +87,19 @@ class TestCvDiceTrackerPhase1(unittest.TestCase):
             self.assertIn('id="rollerAttributionGroup"', html)
             self.assertIn('id="btnTorchToggle"', html)
             self.assertIn('id="camZoomSlider"', html)
+            self.assertIn("ort.min.js", html)
+            self.assertNotIn('id="btnCalibrateBg"', html)
 
         # Static asset handlers & files on disk
         js_resp = server.serve_dice_tracker_js()
         css_resp = server.serve_dice_tracker_css()
         manifest_resp = server.serve_dice_tracker_manifest()
+        onnx_resp = server.serve_dice_tracker_onnx()
         for file_resp, expected_name in [
             (js_resp, "app.js"),
             (css_resp, "styles.css"),
             (manifest_resp, "manifest.json"),
+            (onnx_resp, "yolov8n_dice.onnx"),
         ]:
             path_str = str(getattr(file_resp, "path", ""))
             self.assertTrue(path_str.endswith(expected_name), f"Expected {expected_name}, got {path_str}")
@@ -556,54 +560,42 @@ app.stepRollStateMachine(0.02, [], dummyRgba, 640, 480);
 statesDuringEmptyShake.push(app.rollState);
 const antiFlickerStayedIdle = statesDuringEmptyShake.every(s => s === 'IDLE');
 
-// Test Real-World Indoor Camera Physical Dice (6 small 20px dark dice with 95..158 lum optical-blurred pips: [5, 3, 3, 4, 3, 5], sum=23)
-const realCamBuf = new Uint8ClampedArray(640 * 480 * 4);
-for (let i = 0; i < realCamBuf.length; i += 4) {
-  realCamBuf[i] = 10; realCamBuf[i+1] = 12; realCamBuf[i+2] = 14; realCamBuf[i+3] = 255;
+// 7. Test YOLOv8n ONNX Preprocessor & Decoder (NMS + ROI Filtering + Value Classification)
+const onnxTensor = app.preprocessFrameForYoloOnnx(dummyRgba, 640, 480);
+const onnxTensorLen = onnxTensor.length;
+const onnxPadValOk = Math.abs(onnxTensor[0] - (114.0 / 255.0)) < 1e-4;
+
+// Construct synthetic [1, 10, 8400] YOLOv8n output tensor with:
+// - Anchor 100: Die 1 (value=5, class=4, conf=0.80) at (212, 254+80)
+// - Anchor 101: Duplicate overlapping anchor on Die 1 (value=5, conf=0.62) -> must be suppressed by NMS!
+// - Anchor 200: Die 2 (value=1, class=0, conf=0.83) at (438, 217+80)
+// - Anchor 300: Die 3 (value=4, class=3, conf=0.77) at (309, 358+80)
+// - Anchor 400: Outside-ROI distractor die (value=6, class=5, conf=0.91) at (12, 18+80) -> must be rejected by ROI!
+const numAnchors = 8400;
+const fakeYoloOut = new Float32Array(10 * numAnchors);
+function setYoloAnchor(idx, cx, cy480, bw, bh, classIdx, conf) {
+  fakeYoloOut[0 * numAnchors + idx] = cx;
+  fakeYoloOut[1 * numAnchors + idx] = cy480 + 80; // letterbox padTop=80
+  fakeYoloOut[2 * numAnchors + idx] = bw;
+  fakeYoloOut[3 * numAnchors + idx] = bh;
+  fakeYoloOut[(4 + classIdx) * numAnchors + idx] = conf;
 }
-function paintPhysicalDarkDie(buf, cx, cy, val, peakLum) {
-  const half = 10;
-  for (let dy = -half; dy <= half; dy++) {
-    for (let dx = -half; dx <= half; dx++) {
-      const idx = ((cy + dy) * 640 + (cx + dx)) * 4;
-      buf[idx] = 26; buf[idx+1] = 30; buf[idx+2] = 38;
-    }
-  }
-  const offsets = {
-    1: [[0,0]],
-    2: [[-5,-5],[5,5]],
-    3: [[-6,-4],[0,0],[6,4]],
-    4: [[-5,-4],[5,-4],[-5,4],[5,4]],
-    5: [[-5,-5],[5,-5],[0,0],[-5,5],[5,5]],
-    6: [[-5,-5],[5,-5],[-5,0],[5,0],[-5,5],[5,5]]
-  }[val];
-  for (const [ox, oy] of offsets) {
-    const px = cx + ox, py = cy + oy;
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        const d2 = dx * dx + dy * dy;
-        if (d2 > 5) continue;
-        const w = d2 === 0 ? 1.0 : (d2 === 1 ? 0.78 : (d2 === 2 ? 0.58 : 0.35));
-        const lum = Math.round(30 + (peakLum - 30) * w);
-        const idx = ((py + dy) * 640 + (px + dx)) * 4;
-        if (lum > buf[idx]) {
-          buf[idx] = lum; buf[idx+1] = lum; buf[idx+2] = lum;
-        }
-      }
-    }
-  }
-}
-paintPhysicalDarkDie(realCamBuf, 398, 94, 5, 138);
-paintPhysicalDarkDie(realCamBuf, 350, 196, 3, 148);
-paintPhysicalDarkDie(realCamBuf, 370, 259, 3, 152);
-paintPhysicalDarkDie(realCamBuf, 253, 265, 4, 158);
-paintPhysicalDarkDie(realCamBuf, 184, 278, 3, 135);
-paintPhysicalDarkDie(realCamBuf, 214, 346, 5, 128);
+setYoloAnchor(100, 212, 254, 42, 46, 4, 0.80); // value 5
+setYoloAnchor(101, 214, 255, 41, 45, 4, 0.62); // duplicate overlapping anchor -> suppressed by NMS
+setYoloAnchor(200, 438, 217, 37, 41, 0, 0.83); // value 1
+setYoloAnchor(300, 309, 358, 35, 40, 3, 0.77); // value 4
+setYoloAnchor(400, 12, 18, 36, 36, 5, 0.91);   // outside ROI -> rejected
 
 app.roiBox = { x: 0.08, y: 0.08, w: 0.84, h: 0.84 };
-const realCamDet = app.detectRealDice({ data: realCamBuf, width: 640, height: 480 }, 640, 480);
-const realCamSum = realCamDet.reduce((a, d) => a + d.value, 0);
-const realCamFaces = realCamDet.map(d => d.value).sort((a, b) => a - b).join(',');
+const rx = Math.max(8, Math.floor(640 * app.roiBox.x));
+const ry = Math.max(8, Math.floor(480 * app.roiBox.y));
+const rw = Math.min(640 - rx - 8, Math.floor(640 * app.roiBox.w));
+const rh = Math.min(480 - ry - 8, Math.floor(480 * app.roiBox.h));
+
+const onnxDecoded = app.decodeYoloOnnxOutput(fakeYoloOut, dummyRgba, 640, 480, rx, ry, rw, rh, 0.45);
+const onnxCount = onnxDecoded.length;
+const onnxSum = onnxDecoded.reduce((a, d) => a + d.value, 0);
+const onnxFaces = onnxDecoded.map(d => d.value).sort((a, b) => a - b).join(',');
 
 // 8. Test Real Mobile Un-Squished Camera Feed: 3 Translucent/Colored Dice ([5, 1, 4], sum=10)
 // on Grey Neoprene Mat (lum 65..95 with fabric glints up to 118) + Black Tray Rim + Bright Beige Table (lum 192)
@@ -685,9 +677,11 @@ console.log(JSON.stringify({
   syncedGtCount: syncedGt.length,
   syncedGtFirstSource: syncedGt[0] ? syncedGt[0].source : null,
   antiFlickerStayedIdle,
-  realCamCount: realCamDet.length,
-  realCamSum,
-  realCamFaces,
+  onnxTensorLen,
+  onnxPadValOk,
+  onnxCount,
+  onnxSum,
+  onnxFaces,
   transCamCount: transCamDet.length,
   transCamSum,
   transCamFaces
@@ -745,10 +739,12 @@ console.log(JSON.stringify({
             "State machine flickered out of IDLE during empty tray shake or 1-2 frame transient noise!",
         )
 
-        # 7. Verify Real-World Indoor Camera Physical Dice (6 dim/blurred dark dice: [3,3,3,4,5,5], sum=23)
-        self.assertEqual(result["realCamCount"], 6)
-        self.assertEqual(result["realCamSum"], 23)
-        self.assertEqual(result["realCamFaces"], "3,3,3,4,5,5")
+        # 7. Verify YOLOv8n ONNX Preprocessor & Decoder (NMS + ROI Filtering)
+        self.assertEqual(result["onnxTensorLen"], 3 * 640 * 640)
+        self.assertTrue(result["onnxPadValOk"])
+        self.assertEqual(result["onnxCount"], 3)
+        self.assertEqual(result["onnxSum"], 10)
+        self.assertEqual(result["onnxFaces"], "1,4,5")
 
         # 8. Verify Real Mobile Camera Translucent/Colored Dice on Grey Neoprene Mat ([1,4,5], sum=10, 0 false positives)
         self.assertEqual(result["transCamCount"], 3)
@@ -761,6 +757,28 @@ console.log(JSON.stringify({
             15.0,
             f"CV frame detection exceeded 15ms budget: {result['avgFrameMs']:.2f}ms",
         )
+
+    def test_yolov8n_onnx_model_and_dead_code_cleanup(self):
+        """Verify yolov8n_dice.onnx model exists and dead/obsolete code was removed from app.js."""
+        onnx_path = ROOT_DIR / "web" / "dice_tracker" / "yolov8n_dice.onnx"
+        self.assertTrue(onnx_path.is_file(), f"Missing yolov8n_dice.onnx at {onnx_path}")
+        self.assertGreater(onnx_path.stat().st_size, 10_000_000, "yolov8n_dice.onnx should be >10MB")
+
+        app_js = (ROOT_DIR / "web" / "dice_tracker" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("initOnnxModel", app_js)
+        self.assertIn("preprocessFrameForYoloOnnx", app_js)
+        self.assertIn("decodeYoloOnnxOutput", app_js)
+        self.assertIn("runLiveOnnxPass", app_js)
+        self.assertIn("computeRoiGrayAndSat", app_js)
+        self.assertIn("sampleDieBodyRgb", app_js)
+
+        # Verify obsolete/dead code is completely removed
+        self.assertNotIn("calibrateEmptyTray", app_js)
+        self.assertNotIn("emptyTrayBg", app_js)
+        self.assertNotIn("btnCalibrateBg", app_js)
+        self.assertNotIn("Stage 1C", app_js)
+        self.assertNotIn("invInnerArea", app_js)
+        self.assertNotIn("invQuadArea", app_js)
 
     def test_mobile_responsive_layout_and_zero_overflow(self):
         """Verify styles.css uses minmax(0, 1fr), min-width: 0, fixed-height state-machine-bar, and mobile history cards."""
@@ -779,4 +797,5 @@ console.log(JSON.stringify({
 
 if __name__ == "__main__":
     unittest.main()
+
 

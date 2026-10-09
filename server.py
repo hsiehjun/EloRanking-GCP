@@ -1019,6 +1019,19 @@ def serve_dice_tracker_manifest():
     raise HTTPException(status_code=404, detail="dice_tracker/manifest.json not found")
 
 
+@app.get("/dice-tracker/yolov8n_dice.onnx", include_in_schema=False)
+@app.get("/admin/dice-tracker/yolov8n_dice.onnx", include_in_schema=False)
+def serve_dice_tracker_onnx():
+    onnx_file = web_dir / "dice_tracker" / "yolov8n_dice.onnx"
+    if onnx_file.exists():
+        return FileResponse(
+            str(onnx_file),
+            media_type="application/octet-stream",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+    raise HTTPException(status_code=404, detail="dice_tracker/yolov8n_dice.onnx not found")
+
+
 
 
 # Global Structured Error Handler

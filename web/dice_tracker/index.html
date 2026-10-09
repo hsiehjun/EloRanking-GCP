@@ -27,11 +27,11 @@
             OmniTactica <span class="accent">WarDice CV</span>
             <span class="admin-pill">🛡️ Admin Sandbox</span>
           </h1>
-          <span class="subtitle-tag" id="engineBadge">Engine: 2-Stage Adaptive CV + Fused ROI SAT + Scoop Guard</span>
+          <span class="subtitle-tag" id="engineBadge">Engine: Hybrid YOLOv8n Dice Neural Net (ONNX) + Live Motion Tracker</span>
         </div>
       </div>
       <div class="session-controls">
-        <span id="cvPerfBadge" class="perf-telemetry-pill" title="Real-time 2-Stage CV frame processing latency">⚡ CV: -- ms</span>
+        <span id="cvPerfBadge" class="perf-telemetry-pill" title="Real-time CV frame processing latency">⚡ CV: -- ms</span>
         <span id="wakeLockStatus" class="wake-lock-tag">🔒 Keep Awake</span>
         <span id="sessionStatus" class="badge status-active">Session Active</span>
         <button id="btnStartGame" class="btn btn-primary btn-sm">New Session</button>
@@ -89,8 +89,7 @@
             </div>
           </div>
           <div class="camera-calib-group">
-            <button id="btnSetPlayerDice" class="btn btn-sm btn-accent" title="Pre-game calibration: scan or configure Player 1 &amp; Player 2 dice colors, pip contrast, and custom 6 symbols">🎯 Set Your Dice</button>
-            <button id="btnCalibrateBg" class="btn btn-sm btn-outline" title="Snapshots the empty dice tray to isolate dice against felt/mat textures">📸 Calibrate Tray</button>
+            <button id="btnSetPlayerDice" class="btn btn-sm btn-accent" title="Pre-game calibration: configure Player 1 &amp; Player 2 dice colors and custom 6 symbols">🎯 Set Your Dice</button>
             <button id="btnResetRoi" class="btn btn-sm btn-outline" title="Reset draggable green Dice Tray ROI box">📐 Reset Box</button>
           </div>
         </div>
@@ -426,6 +425,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
   <script src="/dice-tracker/app.js"></script>
 </body>
 </html>

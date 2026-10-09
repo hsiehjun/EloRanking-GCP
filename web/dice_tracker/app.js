@@ -1,9 +1,9 @@
-// OmniTactica WarDice CV - 2-Stage Adaptive Die-Face + Dual-Polarity Pip & ONNX Engine (Phase 1 Admin Lab)
+// OmniTactica WarDice CV - Hybrid YOLOv8n Dice Neural Network (ONNX) + Live Motion Tracker
 // Features:
-// 1. Hands-Free Roll Lifecycle State Machine (IDLE -> ROLLING -> SETTLING -> LOCKED -> SCOOP GUARD / REROLL)
-// 2. Strict Draggable ROI Tray Box (masks out & ignores 100% of dice/motion outside the tray)
-// 3. Fused Single-Pass ROI Gray+SAT & Pre-Allocated TypedArrays (~6-8ms/frame, zero per-frame heap garbage)
-// 4. Scale-Bounded Constellation Clustering + Dynamic Inter-Pip Bridge + 45° Euclidean Rotation Invariance
+// 1. Pre-trained 6-class YOLOv8n Dice Neural Network (yolov8n_dice.onnx, 95.6% Precision) via ONNX Runtime Web
+// 2. Hands-Free Roll Lifecycle State Machine (IDLE -> ROLLING -> SETTLING -> LOCKED -> SCOOP GUARD / REROLL)
+// 3. Strict Draggable ROI Tray Box (masks out & ignores 100% of dice/motion outside the tray)
+// 4. Fused Single-Pass ROI Gray+SAT & Pre-Allocated TypedArrays for 60fps motion tracking & physics simulation
 // 5. Stationary-Subset Scoop Guard (prevents false duplicate rolls when scooping failed dice out of tray)
 // 6. Dual-Player Attribution (Auto by Calibrated Dice Color / P1 / P2) & OmniTactica History/Distribution Parity
 
@@ -32,9 +32,6 @@ class DiceTrackerApp {
     this.roiBox = { x: 0.08, y: 0.08, w: 0.84, h: 0.84 };
     this.draggingRoiCorner = null;
 
-    // Static Empty Tray Reference Frame
-    this.emptyTrayBg = null;
-
     // Pre-Game Player Dice Profiles ("🎯 Set Your Dice")
     this.diceSchemes = {
       bone_black: { label: "Bone White + Black Pips", body: "#f0f4f8", stroke: "#9aa4b0", pip: "#11151c", polarity: "dark_pip" },
@@ -50,10 +47,13 @@ class DiceTrackerApp {
       p2CustomSix: true
     };
 
-    // Optional YOLOv8 ONNX Runtime Web Session
+    // YOLOv8n Dice Neural Network (ONNX Runtime Web) state
     this.onnxSession = null;
     this.onnxBusy = false;
-    this.lastOnnxDetections = null;
+    this.onnxReady = false;
+    this.latestOnnxDice = [];
+    this.onnxLatencyMs = 0;
+    this._onnxInputBuf = null;
 
     // Hands-Free Auto-Roll State Machine: 'IDLE' | 'ROLLING' | 'SETTLING' | 'LOCKED'
     this.rollState = "IDLE";
@@ -89,7 +89,7 @@ class DiceTrackerApp {
     // Performance telemetry EMA
     this.cvLatencyEmaMs = 0;
 
-    // Offscreen Physics Simulation Canvas (feeds raw pixel frames to the real CV pipeline)
+    // Offscreen Physics Simulation Canvas (feeds raw pixel frames to the CV pipeline)
     this.simCanvas = document.createElement("canvas");
     this.simCanvas.width = 640;
     this.simCanvas.height = 480;
@@ -110,30 +110,9 @@ class DiceTrackerApp {
     this.initChart();
     this.bindEvents();
     this.requestWakeLock();
+    this.initOnnxModel();
     this.updateStatsUI();
     this.updateStateMachineUI("IDLE", "Ready — Throw dice into tray or click '🎲 Roll 40 Dice (Live CV)'", 0);
-
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("autoroll")) {
-      const n = parseInt(params.get("autoroll"), 10) || 40;
-      setTimeout(() => {
-        this.startPhysicsSimRoll(n);
-        if (params.get("autoroll_chain") === "1") {
-          setTimeout(() => {
-            if (!this.btnRerollHits.disabled) {
-              this.btnRerollHits.click();
-            }
-          }, 1200);
-        }
-        if (params.get("show_conflict") === "1") {
-          setTimeout(() => {
-            this.playerDiceProfiles.p1Scheme = "black_white";
-            this.playerDiceProfiles.p2Scheme = "cobalt_white";
-            this.openSetDiceModal();
-          }, 1100);
-        }
-      }, 150);
-    }
   }
 
   ensureCvBuffers(width, height) {
@@ -143,6 +122,183 @@ class DiceTrackerApp {
     this._grayBuf = new Uint8Array(width * height);
     this._satBuf = new Int32Array((width + 1) * (height + 1));
     this._visitedBuf = new Uint8Array(width * height);
+  }
+
+  // ============================================================================
+  // HYBRID YOLOv8n DICE NEURAL NETWORK (ONNX RUNTIME WEB)
+  // ============================================================================
+  async initOnnxModel() {
+    if (typeof window === "undefined" || !window.ort || !window.ort.InferenceSession) {
+      return;
+    }
+    try {
+      if (window.ort.env && window.ort.env.wasm) {
+        window.ort.env.wasm.numThreads = 1;
+      }
+      this.onnxSession = await window.ort.InferenceSession.create(
+        "/dice-tracker/yolov8n_dice.onnx",
+        { executionProviders: ["wasm"] }
+      );
+      this.onnxReady = true;
+      if (this.engineBadge) {
+        this.engineBadge.innerText = "Engine: YOLOv8n Dice Neural Net (ONNX Ready ✅) + Live Tracker";
+      }
+    } catch (err) {
+      console.warn("YOLOv8n ONNX load fallback to local CV:", err);
+    }
+  }
+
+  preprocessFrameForYoloOnnx(rgba, width = 640, height = 480) {
+    const modelSize = 640;
+    const planeSize = modelSize * modelSize;
+    if (!this._onnxInputBuf || this._onnxInputBuf.length !== 3 * planeSize) {
+      this._onnxInputBuf = new Float32Array(3 * planeSize);
+    }
+    const tensor = this._onnxInputBuf;
+    const padTop = Math.floor((modelSize - height) / 2);
+    const padVal = 114.0 / 255.0;
+    const inv255 = 1.0 / 255.0;
+
+    // Fill top & bottom letterbox padding rows
+    const topPadPixels = padTop * modelSize;
+    const botPadStart = (padTop + height) * modelSize;
+    for (let c = 0; c < 3; c++) {
+      const cOff = c * planeSize;
+      tensor.fill(padVal, cOff, cOff + topPadPixels);
+      tensor.fill(padVal, cOff + botPadStart, cOff + planeSize);
+    }
+
+    // Copy 640x480 RGB pixels into planar CHW [1, 3, 640, 640]
+    const gPlaneOff = planeSize;
+    const bPlaneOff = 2 * planeSize;
+    for (let y = 0; y < height; y++) {
+      const dstRow = (y + padTop) * modelSize;
+      let srcIdx = y * width * 4;
+      for (let x = 0; x < width; x++, srcIdx += 4) {
+        const dstIdx = dstRow + x;
+        tensor[dstIdx] = rgba[srcIdx] * inv255;
+        tensor[gPlaneOff + dstIdx] = rgba[srcIdx + 1] * inv255;
+        tensor[bPlaneOff + dstIdx] = rgba[srcIdx + 2] * inv255;
+      }
+    }
+    return tensor;
+  }
+
+  decodeYoloOnnxOutput(outputData, rgba, width, height, rx, ry, rw, rh, confThresh = 0.52) {
+    const numAnchors = 8400;
+    const numClasses = 6;
+    const padTop = Math.floor((640 - height) / 2);
+    const minBoxPx = Math.max(18, Math.round(((this.minDiceSize ? parseInt(this.minDiceSize.value, 10) : 22) || 22) * 0.8));
+    const candidates = [];
+
+    for (let i = 0; i < numAnchors; i++) {
+      let maxScore = 0;
+      let bestClass = 0;
+      for (let c = 0; c < numClasses; c++) {
+        const score = outputData[(4 + c) * numAnchors + i];
+        if (score > maxScore) {
+          maxScore = score;
+          bestClass = c;
+        }
+      }
+      if (maxScore < confThresh) continue;
+
+      const cx = outputData[i];
+      const cy = outputData[numAnchors + i] - padTop;
+      const bw = outputData[2 * numAnchors + i];
+      const bh = outputData[3 * numAnchors + i];
+
+      // Strictly enforce Dice Tray ROI bounds + physical cube die size & aspect ratio
+      if (cx < rx || cx > rx + rw || cy < ry || cy > ry + rh) continue;
+      if (bw < minBoxPx || bh < minBoxPx || bw > 140 || bh > 140) continue;
+      const aspect = bw / (bh || 1);
+      if (aspect < 0.65 || aspect > 1.50) continue;
+
+      candidates.push({
+        x1: cx - bw * 0.5,
+        y1: cy - bh * 0.5,
+        x2: cx + bw * 0.5,
+        y2: cy + bh * 0.5,
+        w: bw,
+        h: bh,
+        value: bestClass + 1,
+        conf: maxScore
+      });
+    }
+
+    // Class-agnostic Greedy NMS (IoU > 0.45)
+    candidates.sort((a, b) => b.conf - a.conf);
+    const kept = [];
+    for (let i = 0; i < candidates.length; i++) {
+      const cand = candidates[i];
+      let suppressed = false;
+      for (let j = 0; j < kept.length; j++) {
+        const ex = kept[j];
+        const ix1 = Math.max(cand.x1, ex.x1);
+        const iy1 = Math.max(cand.y1, ex.y1);
+        const ix2 = Math.min(cand.x2, ex.x2);
+        const iy2 = Math.min(cand.y2, ex.y2);
+        const inter = Math.max(0, ix2 - ix1) * Math.max(0, iy2 - iy1);
+        if (inter > 0) {
+          const areaA = cand.w * cand.h;
+          const areaB = ex.w * ex.h;
+          if (inter / (areaA + areaB - inter + 1e-6) > 0.45) {
+            suppressed = true;
+            break;
+          }
+        }
+      }
+      if (!suppressed) {
+        kept.push(cand);
+      }
+    }
+
+    return kept.map(b => {
+      const dieObj = {
+        x: Math.round(b.x1),
+        y: Math.round(b.y1),
+        w: Math.round(b.w),
+        h: Math.round(b.h),
+        value: b.value,
+        conf: Number(b.conf.toFixed(3)),
+        polarity: "onnx_yolo",
+        isCustomSymbol: false,
+        owner: 1
+      };
+      dieObj.owner = this.classifyDieOwner(dieObj, rgba, width, height);
+      return dieObj;
+    });
+  }
+
+  async runLiveOnnxPass(rgba, width, height, rx, ry, rw, rh) {
+    if (!this.onnxReady || !this.onnxSession || this.onnxBusy) return;
+    this.onnxBusy = true;
+    try {
+      const t0 = performance.now();
+      const inputData = this.preprocessFrameForYoloOnnx(rgba, width, height);
+      const inputTensor = new window.ort.Tensor("float32", inputData, [1, 3, 640, 640]);
+      const feeds = { images: inputTensor };
+      const results = await this.onnxSession.run(feeds);
+      const outputTensor = results.output0 || results[Object.keys(results)[0]];
+      if (outputTensor && outputTensor.data) {
+        this.latestOnnxDice = this.decodeYoloOnnxOutput(
+          outputTensor.data,
+          rgba,
+          width,
+          height,
+          rx,
+          ry,
+          rw,
+          rh,
+          0.52
+        );
+        this.onnxLatencyMs = performance.now() - t0;
+      }
+    } catch (err) {
+      console.warn("ONNX frame inference error:", err);
+    } finally {
+      this.onnxBusy = false;
+    }
   }
 
   initDOM() {
@@ -163,7 +319,6 @@ class DiceTrackerApp {
     this.btnRerollHits = document.getElementById("btnRerollHits");
     this.btnRerollCount = document.getElementById("btnRerollCount");
     this.btnSetPlayerDice = document.getElementById("btnSetPlayerDice");
-    this.btnCalibrateBg = document.getElementById("btnCalibrateBg");
     this.btnResetRoi = document.getElementById("btnResetRoi");
     this.btnTorchToggle = document.getElementById("btnTorchToggle");
     this.camZoomSlider = document.getElementById("camZoomSlider");
@@ -351,7 +506,6 @@ class DiceTrackerApp {
       this.btnAutoFixDiceConflict.addEventListener("click", () => this.autoFixDiceConflict());
     }
 
-    this.btnCalibrateBg.addEventListener("click", () => this.calibrateEmptyTray());
     this.btnResetRoi.addEventListener("click", () => {
       this.roiBox = { x: 0.08, y: 0.08, w: 0.84, h: 0.84 };
       this.lastRoiGray = null;
@@ -491,21 +645,6 @@ class DiceTrackerApp {
     window.addEventListener("touchend", onPointerUp);
   }
 
-  calibrateEmptyTray() {
-    const frameData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
-    const gray = new Uint8Array(frameData.width * frameData.height);
-    const data = frameData.data;
-    for (let i = 0; i < data.length; i += 4) {
-      gray[i >> 2] = (77 * data[i] + 150 * data[i + 1] + 29 * data[i + 2]) >> 8;
-    }
-    this.emptyTrayBg = gray;
-    this.rollState = "IDLE";
-    this.lockedDiceSignature = "";
-    this.lastLockedSpatialDice = [];
-    this.hadLockedRollBeforeMotion = false;
-    this.updateStateMachineUI("IDLE", "📸 Empty tray calibrated! Throw dice into the tray.", 0);
-  }
-
   // ============================================================================
   // PRE-GAME "SET YOUR DICE" CALIBRATION WIZARD & SIMILARITY CONFLICT DETECTOR
   // ============================================================================
@@ -530,17 +669,8 @@ class DiceTrackerApp {
     return Math.round(Math.sqrt(wR * dr * dr + wG * dg * dg + wB * db * db) / 3);
   }
 
-  // Classify a single detected die as Player 1 (1) or Player 2 (2) based on calibrated dice profiles
-  classifyDieOwner(dieObj, rgba, width, height) {
-    const s1 = this.diceSchemes[this.playerDiceProfiles.p1Scheme] || this.diceSchemes.bone_black;
-    const s2 = this.diceSchemes[this.playerDiceProfiles.p2Scheme] || this.diceSchemes.crimson_gold;
-
-    // Fast path: if P1 and P2 use opposite pip polarities, polarity immediately distinguishes them!
-    if (s1.polarity !== s2.polarity && dieObj.polarity) {
-      return dieObj.polarity === s1.polarity ? 1 : 2;
-    }
-
-    if (!rgba) return 1;
+  sampleDieBodyRgb(dieObj, rgba, width, height) {
+    if (!rgba) return null;
     const pts = [
       [Math.round(dieObj.x + dieObj.w * 0.15), Math.round(dieObj.y + dieObj.h * 0.5)],
       [Math.round(dieObj.x + dieObj.w * 0.85), Math.round(dieObj.y + dieObj.h * 0.5)],
@@ -558,8 +688,20 @@ class DiceTrackerApp {
         cnt++;
       }
     }
-    if (cnt === 0) return 1;
-    const sampledRgb = { r: rSum / cnt, g: gSum / cnt, b: bSum / cnt };
+    return cnt > 0 ? { r: Math.round(rSum / cnt), g: Math.round(gSum / cnt), b: Math.round(bSum / cnt) } : null;
+  }
+
+  // Classify a single detected die as Player 1 (1) or Player 2 (2) based on calibrated dice profiles
+  classifyDieOwner(dieObj, rgba, width, height) {
+    const s1 = this.diceSchemes[this.playerDiceProfiles.p1Scheme] || this.diceSchemes.bone_black;
+    const s2 = this.diceSchemes[this.playerDiceProfiles.p2Scheme] || this.diceSchemes.crimson_gold;
+
+    if (s1.polarity !== s2.polarity && (dieObj.polarity === "dark_pip" || dieObj.polarity === "light_pip")) {
+      return dieObj.polarity === s1.polarity ? 1 : 2;
+    }
+
+    const sampledRgb = this.sampleDieBodyRgb(dieObj, rgba, width, height);
+    if (!sampledRgb) return 1;
     const d1 = this.computePerceptualDeltaE(sampledRgb, this.hexToRgb(s1.body));
     const d2 = this.computePerceptualDeltaE(sampledRgb, this.hexToRgb(s2.body));
     return d2 < d1 ? 2 : 1;
@@ -705,29 +847,9 @@ class DiceTrackerApp {
     const sampledColors = [];
 
     detected.forEach(d => {
-      const pts = [
-        [Math.round(d.x + d.w * 0.15), Math.round(d.y + d.h * 0.5)],
-        [Math.round(d.x + d.w * 0.85), Math.round(d.y + d.h * 0.5)],
-        [Math.round(d.x + d.w * 0.5), Math.round(d.y + d.h * 0.15)],
-        [Math.round(d.x + d.w * 0.5), Math.round(d.y + d.h * 0.85)]
-      ];
-      let rSum = 0, gSum = 0, bSum = 0, cnt = 0;
-      pts.forEach(([px, py]) => {
-        if (px >= 0 && px < w && py >= 0 && py < h) {
-          const off = (py * w + px) * 4;
-          rSum += rgba[off];
-          gSum += rgba[off + 1];
-          bSum += rgba[off + 2];
-          cnt++;
-        }
-      });
-      if (cnt > 0) {
-        sampledColors.push({
-          r: Math.round(rSum / cnt),
-          g: Math.round(gSum / cnt),
-          b: Math.round(bSum / cnt),
-          polarity: d.polarity
-        });
+      const rgb = this.sampleDieBodyRgb(d, rgba, w, h);
+      if (rgb) {
+        sampledColors.push({ ...rgb, polarity: d.polarity });
       }
     });
 
@@ -1112,24 +1234,10 @@ class DiceTrackerApp {
   }
 
   // ============================================================================
-  // CORE PIPELINE: STRICT ROI MOTION STATE MACHINE + 2-STAGE ADAPTIVE CV ENGINE
+  // CORE PIPELINE: STRICT ROI MOTION STATE MACHINE + HYBRID YOLOv8n ONNX ENGINE
   // ============================================================================
-  processCurrentCanvasFrame() {
-    const t0 = performance.now();
-    const width = this.canvas.width;
-    const height = this.canvas.height;
+  computeRoiGrayAndSat(data, width, height, rx, ry, rw, rh) {
     this.ensureCvBuffers(width, height);
-
-    const frameData = this.ctx.getImageData(0, 0, width, height);
-    const data = frameData.data;
-
-    // 1. Compute ROI bounds (strictly inside the green Dice Tray Box)
-    const rx = Math.max(8, Math.floor(width * this.roiBox.x));
-    const ry = Math.max(8, Math.floor(height * this.roiBox.y));
-    const rw = Math.min(width - rx - 8, Math.floor(width * this.roiBox.w));
-    const rh = Math.min(height - ry - 8, Math.floor(height * this.roiBox.h));
-
-    // 2. Single-pass Fused RGB->Grayscale + Integral Image (SAT) strictly over ROI + surround margin
     const gray = this._grayBuf;
     const sat = this._satBuf;
     const satW = width + 1;
@@ -1163,12 +1271,39 @@ class DiceTrackerApp {
         sat[satRowOffset + x] = sat[satPrevRowOffset + x] + rowSum;
       }
     }
+    return gray;
+  }
+
+  processCurrentCanvasFrame() {
+    const t0 = performance.now();
+    const width = this.canvas.width;
+    const height = this.canvas.height;
+
+    const frameData = this.ctx.getImageData(0, 0, width, height);
+    const data = frameData.data;
+
+    // 1. Compute ROI bounds (strictly inside the green Dice Tray Box)
+    const rx = Math.max(8, Math.floor(width * this.roiBox.x));
+    const ry = Math.max(8, Math.floor(height * this.roiBox.y));
+    const rw = Math.min(width - rx - 8, Math.floor(width * this.roiBox.w));
+    const rh = Math.min(height - ry - 8, Math.floor(height * this.roiBox.h));
+
+    // 2. Single-pass Fused RGB->Grayscale + Integral Image (SAT) over ROI
+    const gray = this.computeRoiGrayAndSat(data, width, height, rx, ry, rw, rh);
 
     // 3. Measure motion ONLY inside the Dice Tray ROI (ignores outside table movement)
     const roiMotion = this.computeRoiMotion(gray, width, rx, ry, rw, rh);
 
-    // 4. Run 2-Stage Adaptive Die-Body + Dual-Polarity Pip CV inside ROI
-    const rawDetections = this.detectDiceTwoStageAdaptive(gray, data, width, height, rx, ry, rw, rh, true);
+    // 4. Hybrid Detection:
+    // - On live camera with YOLOv8n ONNX loaded: run neural network pass & use authoritative ONNX detections
+    // - On physics simulator or while ONNX is loading: use fast 2-stage adaptive detector
+    let rawDetections;
+    if (this.isCameraRunning && this.onnxReady) {
+      this.runLiveOnnxPass(data, width, height, rx, ry, rw, rh);
+      rawDetections = this.latestOnnxDice;
+    } else {
+      rawDetections = this.detectDiceTwoStageAdaptive(gray, data, width, height, rx, ry, rw, rh, true);
+    }
 
     // 5. Update Hands-Free Roll Lifecycle State Machine
     this.stepRollStateMachine(roiMotion, rawDetections, data, width, height);
@@ -1177,8 +1312,12 @@ class DiceTrackerApp {
     this.cvLatencyEmaMs = this.cvLatencyEmaMs === 0 ? elapsedMs : this.cvLatencyEmaMs * 0.85 + elapsedMs * 0.15;
     if (this.cvPerfBadge && t0 - this._lastPerfUiUpdateMs >= 400) {
       this._lastPerfUiUpdateMs = t0;
-      const fpsCap = Math.min(120, Math.round(1000 / Math.max(1, this.cvLatencyEmaMs)));
-      this.cvPerfBadge.innerText = `⚡ ${this.cvLatencyEmaMs.toFixed(1)}ms (${fpsCap}fps)`;
+      if (this.isCameraRunning && this.onnxReady && this.onnxLatencyMs > 0) {
+        this.cvPerfBadge.innerText = `🧠 YOLOv8 ${this.onnxLatencyMs.toFixed(0)}ms | ⚡ ${this.cvLatencyEmaMs.toFixed(1)}ms`;
+      } else {
+        const fpsCap = Math.min(120, Math.round(1000 / Math.max(1, this.cvLatencyEmaMs)));
+        this.cvPerfBadge.innerText = `⚡ ${this.cvLatencyEmaMs.toFixed(1)}ms (${fpsCap}fps)`;
+      }
     }
 
     // 6. Render tray mask, draggable ROI handles, and per-die bounding boxes
@@ -1552,8 +1691,6 @@ class DiceTrackerApp {
     const candidatePips = [];
     const candidateEmblems = [];
     const invWindowArea = 1 / ((2 * rSurround + 1) * (2 * rSurround + 1));
-    const invInnerArea = 1 / 9;
-    const invQuadArea = 1 / 49;
 
     const boxMean = (cx, cy, r) => {
       const x0 = Math.max(0, cx - r);
@@ -1843,144 +1980,6 @@ class DiceTrackerApp {
         }
         for (let i = 0; i < dedupedBright.length; i++) {
           candidatePips.push(dedupedBright[i]);
-        }
-      }
-    }
-
-    // Stage 1C: Pitch-Dark Room / Low-Exposure Camera Fallback (ONLY when tray median lum <= 22 and no normal pips found)
-    if (allowDarkDice && candidatePips.length === 0 && candidateEmblems.length === 0) {
-      const sampleLums = [];
-      for (let sy = 1; sy <= 5; sy++) {
-        const py = Math.round(yStart + ((yEnd - yStart) * sy) / 6);
-        for (let sx = 1; sx <= 5; sx++) {
-          const px = Math.round(xStart + ((xEnd - xStart) * sx) / 6);
-          sampleLums.push(boxMean(px, py, 4));
-        }
-      }
-      sampleLums.sort((a, b) => a - b);
-      const trayMedianLum = sampleLums[12] || 60;
-
-      if (trayMedianLum <= 22) {
-        const rawPeaks = [];
-        const minProm = Math.max(18, contrastSensitivity);
-        const invBg1BArea = 1 / ((2 * rBg1B + 1) * (2 * rBg1B + 1));
-        const rRing = 10;
-        const dRing = 7;
-        const rxOff = [-rRing, rRing, 0, 0, -dRing, dRing, -dRing, dRing];
-        const ryOff = [0, 0, -rRing, rRing, -dRing, -dRing, dRing, dRing];
-
-        for (let y = yStart + 2; y < yEnd - 2; y++) {
-          const rowOff = y * width;
-          const satTopRow = (y - rBg1B) * satW;
-          const satBotRow = (y + rBg1B + 1) * satW;
-          const satInTop = (y - 1) * satW;
-          const satInBot = (y + 2) * satW;
-
-          for (let x = xStart + 2; x < xEnd - 2; x++) {
-            const idx = rowOff + x;
-            const val = gray[idx];
-            if (val < 62 || val > 185) continue;
-
-            const rPrev = rowOff - width;
-            const rNext = rowOff + width;
-            if (
-              gray[rPrev + x - 1] >= val ||
-              gray[rPrev + x] >= val ||
-              gray[rPrev + x + 1] >= val ||
-              gray[rowOff + x - 1] >= val ||
-              gray[rowOff + x + 1] > val ||
-              gray[rNext + x - 1] > val ||
-              gray[rNext + x] > val ||
-              gray[rNext + x + 1] > val
-            ) {
-              continue;
-            }
-
-            const bgMean = (
-              sat[satBotRow + x + rBg1B + 1] -
-              sat[satTopRow + x + rBg1B + 1] -
-              sat[satBotRow + x - rBg1B] +
-              sat[satTopRow + x - rBg1B]
-            ) * invBg1BArea;
-
-            if (bgMean > 120 || val < bgMean * 1.45) continue;
-
-            const innerMean = (
-              sat[satInBot + x + 2] -
-              sat[satInTop + x + 2] -
-              sat[satInBot + x - 1] +
-              sat[satInTop + x - 1]
-            ) * invInnerArea;
-
-            const prom = innerMean - bgMean;
-            if (prom < minProm) continue;
-
-            if (
-              boxMean(x - 6, y - 6, 3) > 120 ||
-              boxMean(x + 6, y - 6, 3) > 120 ||
-              boxMean(x - 6, y + 6, 3) > 120 ||
-              boxMean(x + 6, y + 6, 3) > 120
-            ) {
-              continue;
-            }
-
-            let darkPts = 0;
-            let ringSum = 0;
-            for (let k = 0; k < 8; k++) {
-              const rl = gray[(y + ryOff[k]) * width + (x + rxOff[k])];
-              if (val - rl >= minProm && rl < 130) {
-                darkPts++;
-                ringSum += rl;
-              }
-            }
-            if (darkPts < 6) continue;
-
-            rawPeaks.push({
-              x,
-              y,
-              size: 3.8,
-              area: 9,
-              polarity: "light_pip",
-              bodyLum: ringSum / darkPts,
-              peakLum: val,
-              val,
-              bgMean,
-              prom
-            });
-          }
-        }
-
-        if (rawPeaks.length > 0) {
-          rawPeaks.sort((a, b) => b.val - a.val);
-          for (let i = 0; i < rawPeaks.length; i++) {
-            const p = rawPeaks[i];
-            let merged = false;
-            for (let j = 0; j < candidatePips.length; j++) {
-              const ex = candidatePips[j];
-              const d = Math.hypot(ex.x - p.x, ex.y - p.y);
-              if (d < 3.2) {
-                merged = true;
-                break;
-              }
-              if (d < 7.5) {
-                let minLineVal = 255;
-                for (let s = 1; s <= 3; s++) {
-                  const t = s * 0.25;
-                  const lx = Math.round(ex.x + (p.x - ex.x) * t);
-                  const ly = Math.round(ex.y + (p.y - ex.y) * t);
-                  const lv = gray[ly * width + lx];
-                  if (lv < minLineVal) minLineVal = lv;
-                }
-                if (minLineVal >= Math.min(ex.val, p.val) - 1) {
-                  merged = true;
-                  break;
-                }
-              }
-            }
-            if (!merged) {
-              candidatePips.push(p);
-            }
-          }
         }
       }
     }
@@ -2415,47 +2414,13 @@ class DiceTrackerApp {
   }
 
   detectRealDice(frameData, width = 640, height = 480) {
-    this.ensureCvBuffers(width, height);
     const data = frameData.data;
     const rx = Math.max(8, Math.floor(width * this.roiBox.x));
     const ry = Math.max(8, Math.floor(height * this.roiBox.y));
     const rw = Math.min(width - rx - 8, Math.floor(width * this.roiBox.w));
     const rh = Math.min(height - ry - 8, Math.floor(height * this.roiBox.h));
 
-    const gray = this._grayBuf;
-    const sat = this._satBuf;
-    const satW = width + 1;
-    const rSurround = 10;
-    const xStart = Math.max(rSurround + 1, rx + 6);
-    const xEnd = Math.min(width - rSurround - 1, rx + rw - 6);
-    const yStart = Math.max(rSurround + 1, ry + 6);
-    const yEnd = Math.min(height - rSurround - 1, ry + rh - 6);
-
-    const satY0 = Math.max(1, Math.min(ry, yStart - rSurround));
-    const satY1 = Math.min(height, Math.max(ry + rh, yEnd + rSurround + 1));
-    const satX0 = Math.max(1, Math.min(rx, xStart - rSurround));
-    const satX1 = Math.min(width, Math.max(rx + rw, xEnd + rSurround + 1));
-
-    const zeroRowOff = (satY0 - 1) * satW;
-    for (let x = satX0 - 1; x <= satX1; x++) {
-      sat[zeroRowOff + x] = 0;
-    }
-
-    for (let y = satY0; y <= satY1; y++) {
-      let rowSum = 0;
-      const grayRowOffset = (y - 1) * width;
-      const satRowOffset = y * satW;
-      const satPrevRowOffset = (y - 1) * satW;
-      sat[satRowOffset + satX0 - 1] = 0;
-      let rgbaIdx = (grayRowOffset + satX0 - 1) * 4;
-      for (let x = satX0; x <= satX1; x++, rgbaIdx += 4) {
-        const lum = (77 * data[rgbaIdx] + 150 * data[rgbaIdx + 1] + 29 * data[rgbaIdx + 2]) >> 8;
-        gray[grayRowOffset + x - 1] = lum;
-        rowSum += lum;
-        sat[satRowOffset + x] = sat[satPrevRowOffset + x] + rowSum;
-      }
-    }
-
+    const gray = this.computeRoiGrayAndSat(data, width, height, rx, ry, rw, rh);
     return this.detectDiceTwoStageAdaptive(gray, data, width, height, rx, ry, rw, rh, true);
   }
 

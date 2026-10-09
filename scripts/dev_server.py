@@ -7516,6 +7516,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_file(WEB_DIR / "dice_tracker" / "manifest.json", "application/json; charset=utf-8", is_head)
             return
 
+        if clean_path in ("dice-tracker/yolov8n_dice.onnx", "admin/dice-tracker/yolov8n_dice.onnx"):
+            self._serve_file(WEB_DIR / "dice_tracker" / "yolov8n_dice.onnx", "application/octet-stream", is_head)
+            return
+
         if clean_path in ("login", "login.html", "tracker/login", "tracker/login.html"):
             self._serve_file(TRACKER_DIR / "login.html", "text/html; charset=utf-8", is_head)
             return
