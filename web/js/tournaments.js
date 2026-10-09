@@ -5546,19 +5546,25 @@ function copyEventHubLink(eventId, sys = '40k') {
   }
 }
 
-function openEventPlayerListModal(playerIdentifier, directPlayerObj = null) {
-  const fallbackListId = typeof directPlayerObj === 'string' ? directPlayerObj.trim() : '';
+function openEventPlayerListModal(playerIdentifier, directPlayerObj = null, thirdArgListId = '') {
+  const hasThirdArg = arguments.length >= 3;
+  const fallbackListId = hasThirdArg
+    ? (typeof thirdArgListId === 'string' ? thirdArgListId.trim() : '')
+    : (typeof directPlayerObj === 'string' ? directPlayerObj.trim() : '');
+  const lookupName = hasThirdArg && typeof directPlayerObj === 'string' && directPlayerObj.trim()
+    ? directPlayerObj.trim()
+    : playerIdentifier;
   let p = (directPlayerObj && typeof directPlayerObj === 'object')
     ? directPlayerObj
     : (playerIdentifier && typeof playerIdentifier === 'object' ? playerIdentifier : null);
   if (!p) {
-    const resolved = resolveEventCompetitorRecord(playerIdentifier, playerIdentifier, fallbackListId);
+    const resolved = resolveEventCompetitorRecord(playerIdentifier || lookupName, lookupName || playerIdentifier, fallbackListId);
     p = resolved ? resolved.record : null;
   } else if (fallbackListId && !p.list_id && !p.listId) {
     p = Object.assign({}, p, { list_id: fallbackListId });
   }
 
-  currentArmyListModalPlayer = p || { full_name: String(playerIdentifier || ''), player_id: String(playerIdentifier || ''), list_id: fallbackListId };
+  currentArmyListModalPlayer = p || { full_name: String(lookupName || playerIdentifier || ''), player_id: String(playerIdentifier || ''), list_id: fallbackListId };
   currentEventParsedRoster = p?._parsed_roster || null;
   currentEventArmyListText = '';
   window.__currentEventParsePromise = null;
@@ -11828,7 +11834,156 @@ function setToHubRadarFilter(filter) {
 
 function handleToHubRadarSearch(val) {
   _toHubRadarSearch = String(val || '').trim().toLowerCase();
+  const gridEl = document.getElementById('to-hub-radar-grid');
+  if (gridEl && currentEventData && _currentToHubSubtab === 'radar') {
+    const eventId = String(currentEventData.id || currentEventData.event_id || currentOpenEventId || '');
+    const state = _eventToHubStateCache.get(eventId) || {};
+    const judgeCalls = Array.isArray(state.judge_calls) ? state.judge_calls : [];
+    const openJudgeCalls = judgeCalls.filter(c => String(c.status || 'open').toLowerCase() !== 'resolved');
+    const activeSessions = Array.isArray(state.active_sessions) ? state.active_sessions : [];
+    const roundMatches = Array.isArray(window._toHubCurrentRoundMatches) ? window._toHubCurrentRoundMatches : [];
+    gridEl.innerHTML = buildToHubRadarGridHtml(eventId, roundMatches, openJudgeCalls, activeSessions);
+    return;
+  }
   if (currentEventData) renderEventToHub(currentEventData, true);
+}
+
+function buildToHubRadarGridHtml(eventId, roundMatches, openJudgeCalls, activeSessions) {
+  ensureEventSearchIndex();
+  const totalTables = Array.isArray(roundMatches) ? roundMatches.length : 0;
+  if (totalTables === 0) {
+    return `
+      <div class="card" style="grid-column:1 / -1; padding:1.75rem; text-align:center; color:var(--text-muted); background:rgba(15,23,42,0.5);">
+        No pairings published yet for this round on BCP.
+      </div>
+    `;
+  }
+
+  const judgeTableSet = new Set((openJudgeCalls || []).map(c => String(c.table_num || '').trim()).filter(Boolean));
+  const trackerTableSet = new Set((activeSessions || []).map(s => String(s.table_num || s.table_number || '').trim()).filter(Boolean));
+  const cardsHtml = [];
+
+  for (let idx = 0; idx < roundMatches.length; idx++) {
+    const m = roundMatches[idx];
+    if (!m) continue;
+    const tNum = String(m.table ?? m.table_number ?? (idx + 1));
+    const isDone = isToHubMatchCompleted(m);
+    const hasJudge = judgeTableSet.has(tNum);
+    const hasTracker = trackerTableSet.has(tNum) || Boolean(m.live_session_id || m.tracker_active);
+
+    if (_toHubRadarFilter === 'unfinished' && isDone) continue;
+    if (_toHubRadarFilter === 'completed' && !isDone) continue;
+    if (_toHubRadarFilter === 'tracker' && !hasTracker) continue;
+    if (_toHubRadarFilter === 'judge' && !hasJudge) continue;
+    if (_toHubRadarSearch) {
+      const tSearch = `table ${tNum} t${tNum}`;
+      const mSearch = m._searchText || `${m.player1_name || ''} ${m.player2_name || ''} ${m.player1_faction || ''} ${m.player2_faction || ''}`.toLowerCase();
+      if (!tSearch.includes(_toHubRadarSearch) && !mSearch.includes(_toHubRadarSearch)) continue;
+    }
+
+    const s1 = m.player1_score ?? m.score1 ?? '-';
+    const s2 = m.player2_score ?? m.score2 ?? '-';
+    const roundVal = Number(m.round || m.round_number || _toHubRadarRound || 1);
+    const p1Rec = m._p1Record !== undefined ? m._p1Record : lookupEventPlayerFast(m.player1_id, m.player1_name);
+    const p2Rec = m._p2Record !== undefined ? m._p2Record : lookupEventPlayerFast(m.player2_id, m.player2_name);
+    const p1ListRaw = String(m.player1_list_id || (p1Rec && (p1Rec.list_id || p1Rec.listId)) || '');
+    const p2ListRaw = String(m.player2_list_id || (p2Rec && (p2Rec.list_id || p2Rec.listId)) || '');
+    const p1HasList = Boolean((p1Rec && hasPlayerSubmittedList(p1Rec)) || p1ListRaw);
+    const p2NameRaw = String(m.player2_name || 'Player 2').trim();
+    const isByeP2 = Boolean(m.is_bye || p2NameRaw.toUpperCase() === 'BYE');
+    const p2HasList = Boolean(!isByeP2 && ((p2Rec && hasPlayerSubmittedList(p2Rec)) || p2ListRaw));
+
+    const cardKey = `${eventId}:${roundVal}:${idx}:${tNum}:${isDone ? 1 : 0}:${hasJudge ? 1 : 0}:${hasTracker ? 1 : 0}:${s1}:${s2}:${p1HasList ? 1 : 0}:${p2HasList ? 1 : 0}:${p1ListRaw}:${p2ListRaw}`;
+    if (m._cachedRadarCardKey === cardKey && m._cachedRadarCardHtml) {
+      cardsHtml.push(m._cachedRadarCardHtml);
+      continue;
+    }
+
+    const matchId = m.tracker_match_id || `BCP-${eventId}-R${roundVal}-T${tNum}`;
+    const safeMatchId = String(matchId).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const targetP1Id = String((p1Rec && (p1Rec.player_id || p1Rec.id)) || m.player1_id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const targetP1Name = String((p1Rec && (p1Rec.full_name || p1Rec.name)) || m.player1_name || 'Player 1').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const targetP2Id = String((p2Rec && (p2Rec.player_id || p2Rec.id)) || m.player2_id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const targetP2Name = String((p2Rec && (p2Rec.full_name || p2Rec.name)) || p2NameRaw).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const safeP1ListId = p1ListRaw.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const safeP2ListId = p2ListRaw.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+    const p1FacDisplay = (p1Rec && p1Rec._displayFac) || formatEventPlayerFaction(m.player1_faction || p1Rec?.faction || '');
+    const p2FacDisplay = isByeP2 ? 'BYE' : ((p2Rec && p2Rec._displayFac) || formatEventPlayerFaction(m.player2_faction || p2Rec?.faction || ''));
+
+    const borderCol = hasJudge
+      ? 'rgba(239,68,68,0.55)'
+      : (isDone ? 'rgba(34,197,94,0.32)' : 'rgba(245,158,11,0.4)');
+    const statusBadge = hasJudge
+      ? `<span class="badge" style="background:rgba(239,68,68,0.22); color:#fca5a5; border:1px solid rgba(239,68,68,0.45); font-size:0.66rem;">🚨 JUDGE CALL</span>`
+      : (isDone
+          ? `<span class="badge" style="background:rgba(34,197,94,0.16); color:#4ade80; border:1px solid rgba(34,197,94,0.35); font-size:0.66rem;">✅ FINAL</span>`
+          : `<span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.38); font-size:0.66rem;">⏳ IN PROGRESS</span>`);
+
+    const scorecardBtnHtml = !isByeP2
+      ? `<button type="button" class="btn-xs btn-outline to-hub-scorecard-btn" onclick="event.stopPropagation(); openScorecardModal('${escapeHtml(safeMatchId)}')" title="View Table ${escapeHtml(tNum)} Scorecard" style="font-size:0.64rem; padding:2px 6px; border-radius:5px; color:#e2e8f0; border:1px solid rgba(255,255,255,0.18); background:rgba(255,255,255,0.06); cursor:pointer; font-weight:700; display:inline-flex; align-items:center; gap:3px; line-height:1.25;">📄 Scorecard</button>`
+      : '';
+
+    const p1RosterBtnHtml = `<button type="button" class="btn-xs btn-outline to-hub-roster-btn" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(targetP1Id)}', '${escapeHtml(targetP1Name)}', '${escapeHtml(safeP1ListId)}')" title="View ${escapeHtml(m.player1_name || 'Player 1')}'s Army Roster" style="font-size:0.62rem; padding:1px 5px; border-radius:4px; color:${p1HasList ? '#38bdf8' : '#94a3b8'}; border:1px solid ${p1HasList ? 'rgba(56,189,248,0.38)' : 'rgba(148,163,184,0.28)'}; background:${p1HasList ? 'rgba(56,189,248,0.1)' : 'rgba(255,255,255,0.04)'}; cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:2px; line-height:1.25; flex-shrink:0;">📋 Roster</button>`;
+
+    const p2RosterBtnHtml = !isByeP2
+      ? `<button type="button" class="btn-xs btn-outline to-hub-roster-btn" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(targetP2Id)}', '${escapeHtml(targetP2Name)}', '${escapeHtml(safeP2ListId)}')" title="View ${escapeHtml(p2NameRaw)}'s Army Roster" style="font-size:0.62rem; padding:1px 5px; border-radius:4px; color:${p2HasList ? '#38bdf8' : '#94a3b8'}; border:1px solid ${p2HasList ? 'rgba(56,189,248,0.38)' : 'rgba(148,163,184,0.28)'}; background:${p2HasList ? 'rgba(56,189,248,0.1)' : 'rgba(255,255,255,0.04)'}; cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:2px; line-height:1.25; flex-shrink:0;">📋 Roster</button>`
+      : '';
+
+    const cardHtml = `
+      <div class="card to-hub-table-card" onclick="openToHubTableCommsModal(${idx}, 'table')" title="Click Table or Player to send Announcement or Direct Chat" style="padding:0.75rem 0.9rem; background:rgba(15,23,42,0.82); border:1px solid ${borderCol}; border-radius:10px; display:flex; flex-direction:column; gap:0.45rem; cursor:pointer; transition:transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.35rem; flex-wrap:wrap;">
+          <span style="font-family:var(--font-mono); font-weight:800; font-size:0.84rem; color:#f8fafc; display:inline-flex; align-items:center; gap:0.35rem;">
+            Table ${escapeHtml(tNum)}
+            <span class="to-hub-table-comms-hint" style="font-size:0.68rem; color:#38bdf8; font-weight:700; opacity:0.85;">📢 💬</span>
+          </span>
+          <div style="display:flex; align-items:center; gap:0.3rem; flex-wrap:wrap;">
+            ${scorecardBtnHtml}
+            ${hasTracker ? `<span class="badge" style="background:rgba(56,189,248,0.16); color:#38bdf8; font-size:0.64rem;">📱 Tracker</span>` : ''}
+            ${statusBadge}
+          </div>
+        </div>
+        <div class="to-hub-player-click-row" onclick="event.stopPropagation(); openToHubTableCommsModal(${idx}, 'p1')" title="Message or announce to ${escapeHtml(m.player1_name || 'Player 1')}" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding:0.2rem 0.35rem; margin:0 -0.35rem; border-radius:6px;">
+          <div style="min-width:0; flex:1;">
+            <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:0.3rem;">
+              <span style="overflow:hidden; text-overflow:ellipsis;">${escapeHtml(m.player1_name || 'Player 1')}</span>
+              <span class="to-hub-player-msg-icon" style="font-size:0.68rem; color:#38bdf8; flex-shrink:0;">💬</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:0.35rem; margin-top:2px; min-width:0;">
+              <span style="font-size:0.7rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(p1FacDisplay)}</span>
+              ${p1RosterBtnHtml}
+            </div>
+          </div>
+          <span onclick="event.stopPropagation(); ${!isByeP2 ? `openScorecardModal('${escapeHtml(safeMatchId)}')` : ''}" title="${!isByeP2 ? `View Table ${escapeHtml(tNum)} Scorecard` : ''}" style="font-family:var(--font-mono); font-weight:800; font-size:0.92rem; color:${isDone ? '#4ade80' : '#94a3b8'}; padding:2px 4px; border-radius:4px;">${escapeHtml(String(s1))}</span>
+        </div>
+        <div class="to-hub-player-click-row" onclick="event.stopPropagation(); openToHubTableCommsModal(${idx}, '${isByeP2 ? 'table' : 'p2'}')" title="${isByeP2 ? 'Table Actions' : `Message or announce to ${escapeHtml(p2NameRaw)}`}" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding:0.3rem 0.35rem 0.2rem; margin:0 -0.35rem; border-top:1px solid rgba(255,255,255,0.06); border-radius:0 0 6px 6px;">
+          <div style="min-width:0; flex:1;">
+            <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:0.3rem;">
+              <span style="overflow:hidden; text-overflow:ellipsis;">${escapeHtml(p2NameRaw)}</span>
+              ${!isByeP2 ? `<span class="to-hub-player-msg-icon" style="font-size:0.68rem; color:#38bdf8; flex-shrink:0;">💬</span>` : ''}
+            </div>
+            <div style="display:flex; align-items:center; gap:0.35rem; margin-top:2px; min-width:0;">
+              <span style="font-size:0.7rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(p2FacDisplay)}</span>
+              ${p2RosterBtnHtml}
+            </div>
+          </div>
+          <span onclick="event.stopPropagation(); ${!isByeP2 ? `openScorecardModal('${escapeHtml(safeMatchId)}')` : ''}" title="${!isByeP2 ? `View Table ${escapeHtml(tNum)} Scorecard` : ''}" style="font-family:var(--font-mono); font-weight:800; font-size:0.92rem; color:${isDone ? '#38bdf8' : '#94a3b8'}; padding:2px 4px; border-radius:4px;">${escapeHtml(String(s2))}</span>
+        </div>
+      </div>
+    `;
+    m._cachedRadarCardKey = cardKey;
+    m._cachedRadarCardHtml = cardHtml;
+    cardsHtml.push(cardHtml);
+  }
+
+  if (cardsHtml.length === 0) {
+    return `
+      <div class="card" style="grid-column:1 / -1; padding:1.75rem; text-align:center; color:var(--text-muted); background:rgba(15,23,42,0.5);">
+        No tables match the selected floor filter.
+      </div>
+    `;
+  }
+  return cardsHtml.join('');
 }
 
 function copyUnfinishedTablesList(eventId, roundNum) {
@@ -11874,37 +12029,6 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
   const doneCount = completedMatches.length;
   const pct = totalTables > 0 ? Math.round((doneCount / totalTables) * 100) : 0;
 
-  const judgeTableSet = new Set(openJudgeCalls.map(c => String(c.table_num || '').trim()).filter(Boolean));
-  const trackerTableSet = new Set(activeSessions.map(s => String(s.table_num || s.table_number || '').trim()).filter(Boolean));
-
-  const enrichedTables = roundMatches.map((m, idx) => {
-    const tNum = String(m.table ?? m.table_number ?? (idx + 1));
-    const isDone = isToHubMatchCompleted(m);
-    const hasJudge = judgeTableSet.has(tNum);
-    const hasTracker = trackerTableSet.has(tNum) || Boolean(m.live_session_id || m.tracker_active);
-    return {
-      match: m,
-      matchIdx: idx,
-      tableNum: tNum,
-      isDone,
-      hasJudge,
-      hasTracker,
-    };
-  });
-
-  const filteredTables = enrichedTables.filter(item => {
-    if (_toHubRadarFilter === 'unfinished' && item.isDone) return false;
-    if (_toHubRadarFilter === 'completed' && !item.isDone) return false;
-    if (_toHubRadarFilter === 'tracker' && !item.hasTracker) return false;
-    if (_toHubRadarFilter === 'judge' && !item.hasJudge) return false;
-    if (_toHubRadarSearch) {
-      const m = item.match;
-      const hay = `table ${item.tableNum} ${m.player1_name || ''} ${m.player2_name || ''} ${m.player1_faction || ''} ${m.player2_faction || ''}`.toLowerCase();
-      if (!hay.includes(_toHubRadarSearch)) return false;
-    }
-    return true;
-  });
-
   const roundPillsHtml = (roundNums.length > 0 ? roundNums : [1]).map(r => `
     <button type="button" class="btn ${_toHubRadarRound === r ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRadarRound(${r})" style="font-size:0.76rem; font-weight:700; padding:0.32rem 0.7rem;">
       Round ${r}
@@ -11912,11 +12036,17 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
   `).join('');
 
   const slowTablesBannerHtml = (unfinishedMatches.length > 0 && totalTables > 0) ? (() => {
-    const chips = enrichedTables.filter(t => !t.isDone).slice(0, 18).map(t => `
-      <span onclick="openToHubTableCommsModal(${t.matchIdx}, 'table')" title="Click to message or ping Table ${escapeHtml(t.tableNum)}" style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.2rem 0.55rem; background:rgba(245,158,11,0.18); border:1px solid rgba(245,158,11,0.4); border-radius:6px; font-size:0.75rem; font-weight:700; color:#fde68a; cursor:pointer;">
-        ⏳ Table ${escapeHtml(t.tableNum)} <span style="font-weight:500; color:#cbd5e1;">(${escapeHtml((t.match.player1_name || 'P1').split(' ')[0])} vs ${escapeHtml((t.match.player2_name || 'P2').split(' ')[0])})</span> 💬
-      </span>
-    `).join('');
+    const chips = [];
+    for (let idx = 0; idx < roundMatches.length && chips.length < 18; idx++) {
+      const m = roundMatches[idx];
+      if (!m || isToHubMatchCompleted(m)) continue;
+      const tNum = String(m.table ?? m.table_number ?? (idx + 1));
+      chips.push(`
+        <span onclick="openToHubTableCommsModal(${idx}, 'table')" title="Click to message or ping Table ${escapeHtml(tNum)}" style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.2rem 0.55rem; background:rgba(245,158,11,0.18); border:1px solid rgba(245,158,11,0.4); border-radius:6px; font-size:0.75rem; font-weight:700; color:#fde68a; cursor:pointer;">
+          ⏳ Table ${escapeHtml(tNum)} <span style="font-weight:500; color:#cbd5e1;">(${escapeHtml((m.player1_name || 'P1').split(' ')[0])} vs ${escapeHtml((m.player2_name || 'P2').split(' ')[0])})</span> 💬
+        </span>
+      `);
+    }
     return `
       <div class="card" style="padding:0.85rem 1.05rem; background:rgba(120,53,15,0.22); border:1px solid rgba(245,158,11,0.45); border-radius:10px; margin-bottom:0.85rem;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.5rem;">
@@ -11933,68 +12063,14 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
           </div>
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:0.4rem;">
-          ${chips}
+          ${chips.join('')}
           ${unfinishedMatches.length > 18 ? `<span style="font-size:0.75rem; color:var(--text-muted); align-self:center;">+${unfinishedMatches.length - 18} more</span>` : ''}
         </div>
       </div>
     `;
   })() : '';
 
-  const tablesGridHtml = filteredTables.length > 0
-    ? filteredTables.map(item => {
-        const m = item.match;
-        const s1 = m.player1_score ?? m.score1 ?? '-';
-        const s2 = m.player2_score ?? m.score2 ?? '-';
-        const p2NameRaw = String(m.player2_name || 'Player 2').trim();
-        const isByeP2 = p2NameRaw.toUpperCase() === 'BYE';
-        const borderCol = item.hasJudge
-          ? 'rgba(239,68,68,0.55)'
-          : (item.isDone ? 'rgba(34,197,94,0.32)' : 'rgba(245,158,11,0.4)');
-        const statusBadge = item.hasJudge
-          ? `<span class="badge" style="background:rgba(239,68,68,0.22); color:#fca5a5; border:1px solid rgba(239,68,68,0.45); font-size:0.66rem;">🚨 JUDGE CALL</span>`
-          : (item.isDone
-              ? `<span class="badge" style="background:rgba(34,197,94,0.16); color:#4ade80; border:1px solid rgba(34,197,94,0.35); font-size:0.66rem;">✅ FINAL</span>`
-              : `<span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.38); font-size:0.66rem;">⏳ IN PROGRESS</span>`);
-        return `
-          <div class="card to-hub-table-card" onclick="openToHubTableCommsModal(${item.matchIdx}, 'table')" title="Click Table or Player to send Announcement or Direct Chat" style="padding:0.75rem 0.9rem; background:rgba(15,23,42,0.82); border:1px solid ${borderCol}; border-radius:10px; display:flex; flex-direction:column; gap:0.45rem; cursor:pointer; transition:transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;">
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.4rem;">
-              <span style="font-family:var(--font-mono); font-weight:800; font-size:0.84rem; color:#f8fafc; display:inline-flex; align-items:center; gap:0.35rem;">
-                Table ${escapeHtml(item.tableNum)}
-                <span class="to-hub-table-comms-hint" style="font-size:0.68rem; color:#38bdf8; font-weight:700; opacity:0.85;">📢 💬</span>
-              </span>
-              <div style="display:flex; align-items:center; gap:0.3rem;">
-                ${item.hasTracker ? `<span class="badge" style="background:rgba(56,189,248,0.16); color:#38bdf8; font-size:0.64rem;">📱 Tracker</span>` : ''}
-                ${statusBadge}
-              </div>
-            </div>
-            <div class="to-hub-player-click-row" onclick="event.stopPropagation(); openToHubTableCommsModal(${item.matchIdx}, 'p1')" title="Message or announce to ${escapeHtml(m.player1_name || 'Player 1')}" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding:0.2rem 0.35rem; margin:0 -0.35rem; border-radius:6px;">
-              <div style="min-width:0; flex:1;">
-                <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:0.3rem;">
-                  <span style="overflow:hidden; text-overflow:ellipsis;">${escapeHtml(m.player1_name || 'Player 1')}</span>
-                  <span class="to-hub-player-msg-icon" style="font-size:0.68rem; color:#38bdf8; flex-shrink:0;">💬</span>
-                </div>
-                <div style="font-size:0.7rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(formatEventPlayerFaction(m.player1_faction || ''))}</div>
-              </div>
-              <span style="font-family:var(--font-mono); font-weight:800; font-size:0.92rem; color:${item.isDone ? '#4ade80' : '#94a3b8'};">${escapeHtml(String(s1))}</span>
-            </div>
-            <div class="to-hub-player-click-row" onclick="event.stopPropagation(); openToHubTableCommsModal(${item.matchIdx}, '${isByeP2 ? 'table' : 'p2'}')" title="${isByeP2 ? 'Table Actions' : `Message or announce to ${escapeHtml(p2NameRaw)}`}" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding:0.3rem 0.35rem 0.2rem; margin:0 -0.35rem; border-top:1px solid rgba(255,255,255,0.06); border-radius:0 0 6px 6px;">
-              <div style="min-width:0; flex:1;">
-                <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:0.3rem;">
-                  <span style="overflow:hidden; text-overflow:ellipsis;">${escapeHtml(p2NameRaw)}</span>
-                  ${!isByeP2 ? `<span class="to-hub-player-msg-icon" style="font-size:0.68rem; color:#38bdf8; flex-shrink:0;">💬</span>` : ''}
-                </div>
-                <div style="font-size:0.7rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(formatEventPlayerFaction(m.player2_faction || ''))}</div>
-              </div>
-              <span style="font-family:var(--font-mono); font-weight:800; font-size:0.92rem; color:${item.isDone ? '#38bdf8' : '#94a3b8'};">${escapeHtml(String(s2))}</span>
-            </div>
-          </div>
-        `;
-      }).join('')
-    : `
-      <div class="card" style="grid-column:1 / -1; padding:1.75rem; text-align:center; color:var(--text-muted); background:rgba(15,23,42,0.5);">
-        ${totalTables === 0 ? 'No pairings published yet for this round on BCP.' : 'No tables match the selected floor filter.'}
-      </div>
-    `;
+  const tablesGridHtml = buildToHubRadarGridHtml(eventId, roundMatches, openJudgeCalls, activeSessions);
 
   return `
     <div>
@@ -12035,7 +12111,7 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
       </div>
 
       <!-- Table Radar Grid -->
-      <div class="to-hub-radar-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:0.7rem;">
+      <div id="to-hub-radar-grid" class="to-hub-radar-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:0.7rem;">
         ${tablesGridHtml}
       </div>
     </div>
@@ -12850,19 +12926,25 @@ function openToHubTableCommsModal(matchIdx, initialTarget = 'table') {
     return;
   }
 
+  ensureEventSearchIndex();
   const eventId = currentOpenEventId || (currentEventData && currentEventData.id) || '';
   const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || 'Live Tournament';
   const tableNum = m.tableNum || m.table_number || m.table || (matchIdx + 1);
-  const roundNum = m.round || m.round_number || _toHubSelectedRound || 1;
+  const roundNum = m.round || m.round_number || _toHubRadarRound || 1;
+  const matchId = m.tracker_match_id || `BCP-${eventId}-R${roundNum}-T${tableNum}`;
 
   const p1Name = m.player1_name || 'Player 1';
   const p2Name = m.player2_name || (m.is_bye ? 'BYE' : 'Player 2');
-  const p1Id = String(m.player1_id || '');
-  const p2Id = String(m.player2_id || '');
-  const p1Fac = formatEventPlayerFaction(m.player1_faction);
-  const p2Fac = m.is_bye ? 'BYE' : formatEventPlayerFaction(m.player2_faction);
-  const p1ListId = String(m.player1_list_id || '');
-  const p2ListId = String(m.player2_list_id || '');
+  const p1Rec = m._p1Record !== undefined ? m._p1Record : lookupEventPlayerFast(m.player1_id, p1Name);
+  const p2Rec = m._p2Record !== undefined ? m._p2Record : lookupEventPlayerFast(m.player2_id, p2Name);
+  const p1Id = String((p1Rec && (p1Rec.player_id || p1Rec.id)) || m.player1_id || '');
+  const p2Id = String((p2Rec && (p2Rec.player_id || p2Rec.id)) || m.player2_id || '');
+  const p1Fac = (p1Rec && p1Rec._displayFac) || formatEventPlayerFaction(m.player1_faction || p1Rec?.faction);
+  const p2Fac = m.is_bye ? 'BYE' : ((p2Rec && p2Rec._displayFac) || formatEventPlayerFaction(m.player2_faction || p2Rec?.faction));
+  const p1ListId = String(m.player1_list_id || (p1Rec && (p1Rec.list_id || p1Rec.listId)) || '');
+  const p2ListId = String(m.player2_list_id || (p2Rec && (p2Rec.list_id || p2Rec.listId)) || '');
+  const p1HasList = Boolean((p1Rec && hasPlayerSubmittedList(p1Rec)) || p1ListId);
+  const p2HasList = Boolean(!m.is_bye && ((p2Rec && hasPlayerSubmittedList(p2Rec)) || p2ListId));
 
   _toHubCommsContext = {
     mode: 'table',
@@ -12870,10 +12952,11 @@ function openToHubTableCommsModal(matchIdx, initialTarget = 'table') {
     eventName: evName,
     tableNum,
     roundNum,
+    matchId: String(matchId),
     selectedTarget: (initialTarget === 'p2' && m.is_bye) ? 'p1' : (initialTarget || 'table'),
-    isBye: Boolean(m.is_bye),
-    p1: { id: p1Id, name: p1Name, faction: p1Fac, listId: p1ListId },
-    p2: { id: p2Id, name: p2Name, faction: p2Fac, listId: p2ListId },
+    isBye: Boolean(m.is_bye || String(p2Name).toUpperCase() === 'BYE'),
+    p1: { id: p1Id, name: p1Name, faction: p1Fac, listId: p1ListId, hasList: p1HasList },
+    p2: { id: p2Id, name: p2Name, faction: p2Fac, listId: p2ListId, hasList: p2HasList },
   };
 
   renderToHubCommsModalDom();
@@ -12906,10 +12989,11 @@ function openToHubPlayerCommsModal(playerId, playerName, faction = '', listId = 
     eventId: String(eventId),
     eventName: evName,
     tableNum: null,
-    roundNum: _toHubSelectedRound || 1,
+    roundNum: _toHubRadarRound || 1,
+    matchId: null,
     selectedTarget: 'p1',
     isBye: true,
-    p1: { id: String(playerId || ''), name: playerName || 'Player', faction: faction || '', listId: String(listId || '') },
+    p1: { id: String(playerId || ''), name: playerName || 'Player', faction: faction || '', listId: String(listId || ''), hasList: Boolean(listId) },
     p2: null,
   };
 
@@ -13012,8 +13096,13 @@ function renderToHubCommsModalDom(preserveMsg = '', preserveLevel = 'warning') {
 
   const info = getToHubCommsTargetSummary(ctx);
   const isTableMode = Boolean(ctx.tableNum);
+  const p1SafeId = escapeHtml((ctx.p1?.id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+  const p2SafeId = escapeHtml((ctx.p2?.id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
   const p1SafeName = escapeHtml((ctx.p1?.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
   const p2SafeName = escapeHtml((ctx.p2?.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+  const p1SafeListId = escapeHtml((ctx.p1?.listId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+  const p2SafeListId = escapeHtml((ctx.p2?.listId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+  const safeMatchId = escapeHtml((ctx.matchId || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
 
   const defaultMsg = preserveMsg || (
     ctx.selectedTarget === 'table' && ctx.tableNum
@@ -13034,6 +13123,11 @@ function renderToHubCommsModalDom(preserveMsg = '', preserveLevel = 'warning') {
               <span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-size:0.7rem; font-weight:800;">
                 🎲 TABLE ${escapeHtml(String(ctx.tableNum))} • ROUND ${escapeHtml(String(ctx.roundNum))}
               </span>
+            ` : ''}
+            ${ctx.matchId && !ctx.isBye ? `
+              <button type="button" class="btn-xs btn-outline" onclick="openScorecardModal('${safeMatchId}')" style="font-size:0.7rem; padding:2px 8px; border-radius:6px; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:700; display:inline-flex; align-items:center; gap:4px;">
+                📄 View Scorecard
+              </button>
             ` : ''}
           </div>
           <h3 style="margin:0.4rem 0 0; font-size:1.05rem; font-weight:800; color:#fff;">
@@ -13075,11 +13169,9 @@ function renderToHubCommsModalDom(preserveMsg = '', preserveLevel = 'warning') {
                   ${escapeHtml(ctx.p1.faction || 'Competitor')}
                 </div>
               </button>
-              ${ctx.p1.listId ? `
-                <button type="button" class="btn btn-outline" onclick="openEventPlayerListModal('${escapeHtml(ctx.p1.id)}', '${p1SafeName}', '${escapeHtml(ctx.p1.listId)}')" title="View ${escapeHtml(ctx.p1.name)}'s Army List" style="padding:0 0.5rem; font-size:0.75rem; border-radius:9px;">
-                  📄
-                </button>
-              ` : ''}
+              <button type="button" class="btn btn-outline" onclick="openEventPlayerListModal('${p1SafeId}', '${p1SafeName}', '${p1SafeListId}')" title="View ${escapeHtml(ctx.p1.name)}'s Army Roster" style="padding:0 0.5rem; font-size:0.72rem; border-radius:9px; color:${ctx.p1.hasList ? '#38bdf8' : '#94a3b8'}; border-color:${ctx.p1.hasList ? 'rgba(56,189,248,0.4)' : 'rgba(148,163,184,0.28)'};">
+                📋
+              </button>
             </div>
           ` : ''}
 
@@ -13093,11 +13185,9 @@ function renderToHubCommsModalDom(preserveMsg = '', preserveLevel = 'warning') {
                   ${escapeHtml(ctx.p2.faction || 'Competitor')}
                 </div>
               </button>
-              ${ctx.p2.listId ? `
-                <button type="button" class="btn btn-outline" onclick="openEventPlayerListModal('${escapeHtml(ctx.p2.id)}', '${p2SafeName}', '${escapeHtml(ctx.p2.listId)}')" title="View ${escapeHtml(ctx.p2.name)}'s Army List" style="padding:0 0.5rem; font-size:0.75rem; border-radius:9px;">
-                  📄
-                </button>
-              ` : ''}
+              <button type="button" class="btn btn-outline" onclick="openEventPlayerListModal('${p2SafeId}', '${p2SafeName}', '${p2SafeListId}')" title="View ${escapeHtml(ctx.p2.name)}'s Army Roster" style="padding:0 0.5rem; font-size:0.72rem; border-radius:9px; color:${ctx.p2.hasList ? '#38bdf8' : '#94a3b8'}; border-color:${ctx.p2.hasList ? 'rgba(56,189,248,0.4)' : 'rgba(148,163,184,0.28)'};">
+                📋
+              </button>
             </div>
           ` : ''}
         </div>
