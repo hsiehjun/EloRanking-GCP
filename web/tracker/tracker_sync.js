@@ -231,14 +231,171 @@
     } catch (e) {}
   }
 
+  function computeTrackerPlayerBreakdown(pObj, st) {
+    if (!pObj || typeof pObj !== 'object') {
+      return { pri: 0, priCap: 45, sec: 0, secCap: 45, paint: 0, total: 0, maxTotal: 100, isAos: false, roundSecTotals: [0, 0, 0, 0, 0] };
+    }
+    const stateObj = (st && typeof st === 'object') ? st : {};
+    const gameObj = (stateObj.game && typeof stateObj.game === 'object') ? stateObj.game : {};
+    const midStr = String(stateObj.match_id || stateObj.id || '').toUpperCase();
+    const isAos = Boolean(
+      String(stateObj.game_system || stateObj.gameSystem || '').toLowerCase() === 'aos' ||
+      midStr.startsWith('AOS-') ||
+      (typeof window !== 'undefined' && window.location && window.location.pathname.includes('/aos'))
+    );
+    const rounds = Array.isArray(pObj.rounds) ? pObj.rounds : [];
+
+    if (isAos) {
+      const rawPri = rounds.reduce((s, r) => s + (Number(r && r.primaryScore) || 0), 0);
+      const roundSecTotals = [1, 2, 3, 4, 5].map(rNum => {
+        const r = rounds.find(x => x && (x.round === rNum || x.battleRound === rNum)) || rounds[rNum - 1];
+        return Number(r && (r.tacticScore ?? r.secondaryScore)) || 0;
+      });
+      const rawTac = roundSecTotals.reduce((a, b) => a + b, 0);
+      const rawEd = String(pObj.edition || stateObj.edition || gameObj.edition || '').toLowerCase();
+      const isAos3e = rawEd.includes('3') || pObj.grandStrategyScore !== undefined;
+      if (isAos3e) {
+        const gs = Number(pObj.grandStrategyScore) || 0;
+        const calcTot = rawPri + rawTac + gs;
+        const total = calcTot > 0 ? calcTot : (Number(pObj.score ?? pObj.totalScore) || 0);
+        return { pri: rawPri, priCap: 30, sec: rawTac, secCap: 20, paint: gs, total, maxTotal: 60, isAos: true, roundSecTotals };
+      }
+      const pri = Math.min(30, rawPri);
+      const sec = Math.min(20, rawTac);
+      const calcTot = Math.min(50, pri + sec);
+      const total = calcTot > 0 ? calcTot : (Number(pObj.score ?? pObj.totalScore) || 0);
+      return { pri, priCap: 30, sec, secCap: 20, paint: 0, total, maxTotal: 50, isAos: true, roundSecTotals };
+    }
+
+    const rawEd = String(pObj.edition || stateObj.edition || gameObj.edition || '').trim().toLowerCase();
+    const isNative11th = Boolean(
+      !stateObj.imported_source &&
+      (pObj.deck || gameObj.p1Disposition || gameObj.p2Disposition || !rawEd || rawEd === '11th' || rawEd === '11e')
+    );
+
+    let priCap = 45;
+    let secCap = 45;
+    let maxTotal = 100;
+    let hasPaint = true;
+    if (rawEd === '8th' || rawEd === '8e' || rawEd === '8th_itc' || rawEd === 'itc' || Number(pObj.primaryCap) === 36) {
+      priCap = 36;
+      secCap = 12;
+      maxTotal = 48;
+      hasPaint = false;
+    } else if (!isNative11th && (rawEd === '10th' || rawEd === '10e' || (stateObj.imported_source && rawEd !== '9th' && rawEd !== '9e' && Number(pObj.primaryCap) !== 45 && Number(pObj.secondaryCap) !== 45))) {
+      priCap = Number(pObj.primaryCap) || 50;
+      secCap = Number(pObj.secondaryCap) || 40;
+      maxTotal = 100;
+      hasPaint = true;
+    } else {
+      priCap = Number(pObj.primaryCap) || 45;
+      secCap = Number(pObj.secondaryCap) || 45;
+      maxTotal = 100;
+      hasPaint = true;
+    }
+
+    let rawPri = rounds.reduce((s, r) => s + (Number(r && r.primaryScore) || 0), 0);
+    if (rawPri === 0 && Number(pObj.primaryScore) > 0) {
+      rawPri = Number(pObj.primaryScore);
+    }
+    const pri = Math.min(priCap, rawPri);
+
+    const hand = Array.isArray(pObj.hand) ? pObj.hand : [];
+    const roundSecTotals = [1, 2, 3, 4, 5].map(rNum => {
+      const seenKeys = new Set();
+      let rSecSum = 0;
+
+      // 1. Inspect hand (Tactical & Fixed secondary cards in Live 11th Ed Tracker)
+      hand.forEach(card => {
+        if (!card || typeof card !== 'object') return;
+        let pts = 0;
+        let matched = false;
+        if (card.recurring) {
+          const rScores = card.roundScores || {};
+          const entry = rScores[rNum] !== undefined ? rScores[rNum] : rScores[String(rNum)];
+          if (entry !== undefined && entry !== null) {
+            pts = (typeof entry === 'object') ? (Number(entry.points ?? entry.score) || 0) : (Number(entry) || 0);
+            matched = true;
+          }
+        } else if (Number(card.scoredRound) === rNum) {
+          pts = Number(card.points ?? card.score) || 0;
+          matched = true;
+        }
+        if (matched) {
+          const key = String(card.instanceId || card.cardId || card.id || card.name || '').toLowerCase();
+          if (key) seenKeys.add(key);
+          rSecSum += pts;
+        }
+      });
+
+      // 2. Inspect round's explicit secondaries array or numeric secondaryScore fallback
+      const r = rounds.find(x => x && (x.round === rNum || x.battleRound === rNum)) || rounds[rNum - 1];
+      if (r && Array.isArray(r.secondaries) && r.secondaries.length > 0) {
+        r.secondaries.forEach(s => {
+          if (!s) return;
+          if (typeof s === 'object') {
+            const key = String(s.instanceId || s.cardId || s.id || s.name || '').toLowerCase();
+            if (key && seenKeys.has(key)) return;
+            if (key) seenKeys.add(key);
+            rSecSum += Number(s.score ?? s.points) || 0;
+          }
+        });
+      }
+      if (rSecSum === 0 && r && Number(r.secondaryScore) > 0 && (hand.length === 0 || stateObj.imported_source)) {
+        rSecSum = Number(r.secondaryScore) || 0;
+      }
+      return rSecSum;
+    });
+
+    let rawSec = roundSecTotals.reduce((a, b) => a + b, 0);
+    if (rawSec === 0 && hand.length > 0) {
+      rawSec = hand.reduce((tot, card) => {
+        if (!card || typeof card !== 'object') return tot;
+        if (card.recurring) {
+          return tot + Object.values(card.roundScores || {}).reduce((acc, v) => acc + (typeof v === 'object' && v ? (Number(v.points ?? v.score) || 0) : (Number(v) || 0)), 0);
+        }
+        return tot + (card.scoredRound != null ? (Number(card.points ?? card.score) || 0) : 0);
+      }, 0);
+    }
+    if (rawSec === 0 && Number(pObj.secondaryScore) > 0 && (hand.length === 0 || stateObj.imported_source)) {
+      rawSec = Number(pObj.secondaryScore) || 0;
+    }
+    const sec = Math.min(secCap, rawSec);
+
+    const paint = !hasPaint
+      ? (Number(pObj.paintScore) || 0)
+      : (typeof pObj.paintScore === 'number' ? pObj.paintScore : (pObj.battleReady !== false ? 10 : 0));
+
+    const hasDetailData = Boolean(
+      rounds.some(r => r && (Number(r.primaryScore) > 0 || Number(r.secondaryScore) > 0 || (Array.isArray(r.secondaries) && r.secondaries.length > 0))) ||
+      hand.length > 0 ||
+      pObj.battleReady !== undefined ||
+      pObj.deck !== undefined
+    );
+    const calcTot = Math.min(maxTotal, pri + sec + paint);
+    const total = (!hasDetailData && Number(pObj.score ?? pObj.totalScore) > 0)
+      ? Number(pObj.score ?? pObj.totalScore)
+      : calcTot;
+
+    return { pri, priCap, sec, secCap, paint, total, maxTotal, isAos: false, roundSecTotals };
+  }
+
+  function computeTrackerPlayerVp(pObj, st) {
+    return computeTrackerPlayerBreakdown(pObj, st).total;
+  }
+
+  window.__computeTrackerPlayerBreakdown = computeTrackerPlayerBreakdown;
+  window.__computeTrackerPlayerVp = computeTrackerPlayerVp;
+  window.__injectDefaultCpIntoState = injectDefaultCpIntoState;
+
   function injectDefaultCpIntoState(raw) {
     if (!raw) return raw;
     try {
       const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
       if (obj && typeof obj === 'object') {
-        // Sanitize p1 & p2 rounds arrays to ensure no null elements crash Next.js/React!
+        // Sanitize p1 & p2 rounds arrays and synchronize computed Primary, Secondary (from hand) & Total scores
         ['p1', 'p2'].forEach(pKey => {
-          if (obj[pKey]) {
+          if (obj[pKey] && typeof obj[pKey] === 'object') {
             if (!obj[pKey].rounds || !Array.isArray(obj[pKey].rounds)) {
               obj[pKey].rounds = [
                 { round: 1, battleRound: 1, primaryScore: 0, secondaryScore: 0, secondaries: [] },
@@ -263,6 +420,27 @@
                 if (!Array.isArray(r.secondaries) && !r.secondaries) r.secondaries = [];
                 return r;
               });
+            }
+
+            const bd = computeTrackerPlayerBreakdown(obj[pKey], obj);
+            const hasHand = Array.isArray(obj[pKey].hand) && obj[pKey].hand.length > 0;
+            if (!obj.imported_source && (hasHand || obj[pKey].deck)) {
+              obj[pKey].rounds.forEach((r, idx) => {
+                if (r && typeof r === 'object') {
+                  r.secondaryScore = bd.roundSecTotals[idx] || 0;
+                }
+              });
+            }
+            obj[pKey].primaryScore = bd.pri;
+            obj[pKey].secondaryScore = bd.sec;
+            obj[pKey].score = bd.total;
+            obj[pKey].totalScore = bd.total;
+            if (pKey === 'p1') {
+              obj.p1Score = bd.total;
+              obj.p1_score = bd.total;
+            } else {
+              obj.p2Score = bd.total;
+              obj.p2_score = bd.total;
             }
           }
         });
@@ -499,16 +677,16 @@
     const p1Fac = game.p1Faction || st.p1_faction || '';
     const p2Fac = game.p2Faction || st.p2_faction || '';
 
-    function getVp(obj) {
-      if (obj.score !== undefined && obj.score > 0) return obj.score;
-      const pri = (obj.rounds || []).reduce((s, r) => s + (r.primaryScore || 0), 0);
-      const sec = (obj.rounds || []).reduce((s, r) => s + (r.secondaryScore || 0), 0);
-      const paint = obj.battleReady !== false ? 10 : 0;
-      return Math.min(100, Math.min(50, pri) + Math.min(40, sec) + paint);
-    }
-
-    const p1Score = getVp(p1);
-    const p2Score = getVp(p2);
+    const p1Bd = computeTrackerPlayerBreakdown(p1, st);
+    const p2Bd = computeTrackerPlayerBreakdown(p2, st);
+    const p1Score = p1Bd.total;
+    const p2Score = p2Bd.total;
+    const p1SubLine = p1Bd.isAos
+      ? `PRI: ${p1Bd.pri}/${p1Bd.priCap} • TAC: ${p1Bd.sec}/${p1Bd.secCap}`
+      : `PRI: ${p1Bd.pri}/${p1Bd.priCap} • SEC: ${p1Bd.sec}/${p1Bd.secCap} • PAINT: +${p1Bd.paint}`;
+    const p2SubLine = p2Bd.isAos
+      ? `PRI: ${p2Bd.pri}/${p2Bd.priCap} • TAC: ${p2Bd.sec}/${p2Bd.secCap}`
+      : `PRI: ${p2Bd.pri}/${p2Bd.priCap} • SEC: ${p2Bd.sec}/${p2Bd.secCap} • PAINT: +${p2Bd.paint}`;
 
     const winnerName = (p1Score > p2Score) ? p1Name : ((p2Score > p1Score) ? p2Name : 'Draw / Tie');
     const winnerColor = (p1Score > p2Score) ? '#38bdf8' : ((p2Score > p1Score) ? '#f43f5e' : '#f59e0b');
@@ -562,6 +740,7 @@
             <div style="text-align:left;">
               <div style="font-size:11px; color:#38bdf8; font-weight:700; text-transform:uppercase;">${escapeHtml(p1Name)}</div>
               <div style="font-size:11px; color:#64748b;">${escapeHtml(p1Fac || 'Army 1')}</div>
+              <div style="font-size:10px; color:#94a3b8; font-family:'JetBrains Mono',monospace; margin-top:3px;">${escapeHtml(p1SubLine)}</div>
             </div>
             <div style="font-family:'JetBrains Mono',monospace; font-size:26px; font-weight:900; color:#fff; display:flex; align-items:center; gap:6px;">
               <span style="color:#38bdf8;">${p1Score}</span>
@@ -571,6 +750,7 @@
             <div style="text-align:right;">
               <div style="font-size:11px; color:#f43f5e; font-weight:700; text-transform:uppercase;">${escapeHtml(p2Name)}</div>
               <div style="font-size:11px; color:#64748b;">${escapeHtml(p2Fac || 'Army 2')}</div>
+              <div style="font-size:10px; color:#94a3b8; font-family:'JetBrains Mono',monospace; margin-top:3px;">${escapeHtml(p2SubLine)}</div>
             </div>
           </div>
 
@@ -656,7 +836,7 @@
     const statusEl = document.getElementById('gt-complete-submit-status');
 
     const matchId = getActiveMatchId();
-    const raw = originalGetItem('gdm-11e-tracker-state');
+    const raw = injectDefaultCpIntoState(originalGetItem('gdm-11e-tracker-state'));
     let st = {};
     try { st = JSON.parse(raw) || {}; } catch(e) {}
     const game = st.game || {};
@@ -712,6 +892,7 @@
     st.is_finished = true;
     st.started = true;
     st.round = 5;
+    st = injectDefaultCpIntoState(st) || st;
 
     saveLocalState(st);
 
@@ -731,18 +912,8 @@
     const leagueId = urlParams.get('league_id') || st.league_id || game.leagueId || ((matchId && (matchId.includes('LG-') || matchId.includes('SD40K'))) ? 'league_sd40k_big_league' : '');
     if (leagueId) {
       try {
-        const calcSideScore = (sideObj, topVal) => {
-          if (topVal !== undefined && topVal !== null && Number(topVal) > 0) return Number(topVal);
-          if (!sideObj) return 0;
-          if (sideObj.score !== undefined && sideObj.score !== null && Number(sideObj.score) > 0) return Number(sideObj.score);
-          const rds = Array.isArray(sideObj.rounds) ? sideObj.rounds : [];
-          const prim = rds.reduce((acc, r) => acc + (Number(r.primaryScore) || 0), 0);
-          const sec = rds.reduce((acc, r) => acc + (Number(r.secondaryScore) || 0), 0);
-          const paint = sideObj.battleReady !== false ? 10 : 0;
-          return Math.min(100, Math.min(50, prim) + Math.min(40, sec) + paint);
-        };
-        const p1Score = calcSideScore(st.p1, st.p1_score ?? st.p1Score);
-        const p2Score = calcSideScore(st.p2, st.p2_score ?? st.p2Score);
+        const p1Score = computeTrackerPlayerVp(st.p1, st) || Number(st.p1_score ?? st.p1Score ?? 0);
+        const p2Score = computeTrackerPlayerVp(st.p2, st) || Number(st.p2_score ?? st.p2Score ?? 0);
         const p1Name = urlParams.get('p1') || game.p1Name || st.p1_name || '';
         const p2Name = urlParams.get('p2') || game.p2Name || st.p2_name || '';
         const podNum = parseInt(urlParams.get('pod_number') || st.pod_number || game.podNumber || '0', 10) || 1;
@@ -824,7 +995,7 @@
     if (btn) { btn.disabled = true; btn.textContent = 'SUBMITTING TO BCP...'; }
 
     const matchId = getActiveMatchId();
-    const raw = originalGetItem('gdm-11e-tracker-state');
+    const raw = injectDefaultCpIntoState(originalGetItem('gdm-11e-tracker-state'));
     let st = {};
     try { st = JSON.parse(raw) || {}; } catch(e) {}
     const game = st.game || {};
@@ -834,17 +1005,9 @@
     const layoutEl = document.getElementById('gt-match-layout');
     const layoutVal = (layoutEl ? layoutEl.value : '') || (game.terrainLayout ? (typeof game.terrainLayout === 'number' ? `Layout ${game.terrainLayout}` : String(game.terrainLayout)) : (st.terrain_layout || 'Layout A'));
 
-    function getVp(obj) {
-      if (obj.score !== undefined && obj.score > 0) return obj.score;
-      const pri = (obj.rounds || []).reduce((s, r) => s + (r.primaryScore || 0), 0);
-      const sec = (obj.rounds || []).reduce((s, r) => s + (r.secondaryScore || 0), 0);
-      const paint = obj.battleReady !== false ? 10 : 0;
-      return Math.min(100, Math.min(50, pri) + Math.min(40, sec) + paint);
-    }
-
     const urlParams = new URLSearchParams(window.location.search);
-    const p1Score = getVp(st.p1 || {});
-    const p2Score = getVp(st.p2 || {});
+    const p1Score = computeTrackerPlayerVp(st.p1 || {}, st);
+    const p2Score = computeTrackerPlayerVp(st.p2 || {}, st);
     let eventId = game.eventId || st.event_id || urlParams.get('event_id') || 'Casual';
     let roundNum = game.roundNum || st.round_num || urlParams.get('round_num') || 1;
     let tableNum = game.tableNum || st.table_num || urlParams.get('table_num') || 1;
@@ -1048,23 +1211,15 @@
 
   window.__copyMatchScorecardSummary = function () {
     const matchId = getActiveMatchId();
-    const raw = originalGetItem('gdm-11e-tracker-state');
+    const raw = injectDefaultCpIntoState(originalGetItem('gdm-11e-tracker-state'));
     let st = {};
     try { st = JSON.parse(raw) || {}; } catch(e) {}
     const game = st.game || {};
 
-    function getVp(obj) {
-      if (obj.score !== undefined && obj.score > 0) return obj.score;
-      const pri = (obj.rounds || []).reduce((s, r) => s + (r.primaryScore || 0), 0);
-      const sec = (obj.rounds || []).reduce((s, r) => s + (r.secondaryScore || 0), 0);
-      const paint = obj.battleReady !== false ? 10 : 0;
-      return Math.min(100, Math.min(50, pri) + Math.min(40, sec) + paint);
-    }
-
     const p1 = game.p1Name || st.p1_name || 'Player 1';
     const p2 = game.p2Name || st.p2_name || 'Player 2';
-    const p1S = getVp(st.p1 || {});
-    const p2S = getVp(st.p2 || {});
+    const p1S = computeTrackerPlayerVp(st.p1 || {}, st);
+    const p2S = computeTrackerPlayerVp(st.p2 || {}, st);
     const p1F = game.p1Faction || st.p1_faction || '';
     const p2F = game.p2Faction || st.p2_faction || '';
 
@@ -2532,8 +2687,8 @@
             const itemMid = (item.match_id || item.id || '').trim().toUpperCase();
             if (itemMid !== mid) return item;
             const newRound = st.round || item.round || item.current_round || 1;
-            const newP1S = (st.p1 && typeof st.p1.score === 'number') ? st.p1.score : (item.p1Score ?? item.p1_score ?? 0);
-            const newP2S = (st.p2 && typeof st.p2.score === 'number') ? st.p2.score : (item.p2Score ?? item.p2_score ?? 0);
+            const newP1S = st.p1 ? computeTrackerPlayerVp(st.p1, st) : (item.p1Score ?? item.p1_score ?? 0);
+            const newP2S = st.p2 ? computeTrackerPlayerVp(st.p2, st) : (item.p2Score ?? item.p2_score ?? 0);
             const newP1Name = data.p1_name || game.p1Name || item.p1_name || 'Player 1';
             const newP2Name = data.p2_name || game.p2Name || item.p2_name || 'Player 2';
             const newP1Fac = game.p1Faction || item.p1_faction || '';
@@ -2631,6 +2786,10 @@
                   if (!isNaN(tMs)) parsedDateMs = tMs;
                 }
               }
+              const calcP1S = (s.p1 && typeof s.p1 === 'object') ? computeTrackerPlayerVp(s.p1, s) : 0;
+              const calcP2S = (s.p2 && typeof s.p2 === 'object') ? computeTrackerPlayerVp(s.p2, s) : 0;
+              const resolvedP1S = calcP1S > 0 ? calcP1S : (item.p1_score ?? item.p1Score ?? 0);
+              const resolvedP2S = calcP2S > 0 ? calcP2S : (item.p2_score ?? item.p2Score ?? 0);
               return {
                 ...s,
                 id: item.match_id,
@@ -2661,11 +2820,11 @@
                   primary: item.primary_mission || 'Take & Hold',
                   deployment: item.deployment || 'Search & Destroy'
                 },
-                p1: s.p1 || { score: item.p1_score || 0 },
-                p2: s.p2 || { score: item.p2_score || 0 },
+                p1: s.p1 ? Object.assign({}, s.p1, { score: resolvedP1S }) : { score: resolvedP1S },
+                p2: s.p2 ? Object.assign({}, s.p2, { score: resolvedP2S }) : { score: resolvedP2S },
                 round: item.current_round || s.round || 1,
-                p1Score: item.p1_score ?? item.p1Score ?? 0,
-                p2Score: item.p2_score ?? item.p2Score ?? 0,
+                p1Score: resolvedP1S,
+                p2Score: resolvedP2S,
                 started: item.started,
                 isFinished: item.is_finished,
                 winner: item.winner_name

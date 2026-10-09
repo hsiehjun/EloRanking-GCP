@@ -1735,6 +1735,94 @@ def api_tracker_get_state(match_id: str):
         "event_id": ev_id
     }
 
+def _compute_tracker_side_score(side_obj: Any, state: Any = None, fallback_score: int = 0) -> int:
+    if not isinstance(side_obj, dict):
+        return int(fallback_score or 0)
+    st = state if isinstance(state, dict) else {}
+    game = st.get("game") if isinstance(st.get("game"), dict) else {}
+    mid_str = str(st.get("match_id") or st.get("id") or "").upper()
+    is_aos = (
+        str(st.get("game_system") or st.get("gameSystem") or "").lower() == "aos"
+        or mid_str.startswith("AOS-")
+    )
+    rounds = [r for r in (side_obj.get("rounds") or []) if isinstance(r, dict)]
+    raw_ed = str(side_obj.get("edition") or st.get("edition") or game.get("edition") or "").strip().lower()
+
+    if is_aos:
+        pri = sum(int(r.get("primaryScore") or 0) for r in rounds)
+        tac = sum(int(r.get("tacticScore") or r.get("secondaryScore") or 0) for r in rounds)
+        if "3" in raw_ed or side_obj.get("grandStrategyScore") is not None:
+            gs = int(side_obj.get("grandStrategyScore") or 0)
+            tot = pri + tac + gs
+            return tot if tot > 0 else int(side_obj.get("score") or side_obj.get("totalScore") or fallback_score or 0)
+        tot = min(50, min(30, pri) + min(20, tac))
+        return tot if tot > 0 else int(side_obj.get("score") or side_obj.get("totalScore") or fallback_score or 0)
+
+    is_native_11th = bool(
+        not st.get("imported_source")
+        and (side_obj.get("deck") or game.get("p1Disposition") or game.get("p2Disposition") or not raw_ed or raw_ed in ("11th", "11e"))
+    )
+    if "8th" in raw_ed or "itc" in raw_ed or int(side_obj.get("primaryCap") or 0) == 36:
+        pri_cap, sec_cap, max_tot, has_paint = 36, 12, 48, False
+    elif not is_native_11th and (raw_ed in ("10th", "10e") or (st.get("imported_source") and raw_ed not in ("9th", "9e") and int(side_obj.get("primaryCap") or 0) != 45 and int(side_obj.get("secondaryCap") or 0) != 45)):
+        pri_cap = int(side_obj.get("primaryCap") or 50)
+        sec_cap = int(side_obj.get("secondaryCap") or 40)
+        max_tot, has_paint = 100, True
+    else:
+        pri_cap = int(side_obj.get("primaryCap") or 45)
+        sec_cap = int(side_obj.get("secondaryCap") or 45)
+        max_tot, has_paint = 100, True
+
+    raw_pri = sum(int(r.get("primaryScore") or 0) for r in rounds)
+    if raw_pri == 0 and int(side_obj.get("primaryScore") or 0) > 0:
+        raw_pri = int(side_obj.get("primaryScore") or 0)
+    pri = min(pri_cap, raw_pri)
+
+    hand = side_obj.get("hand") if isinstance(side_obj.get("hand"), list) else []
+    raw_sec = 0
+    for card in hand:
+        if not isinstance(card, dict):
+            continue
+        if card.get("recurring"):
+            r_scores = card.get("roundScores")
+            if isinstance(r_scores, dict):
+                for rv in r_scores.values():
+                    if isinstance(rv, dict):
+                        raw_sec += int(rv.get("points") or rv.get("score") or 0)
+                    elif isinstance(rv, (int, float)):
+                        raw_sec += int(rv)
+        elif card.get("scoredRound") is not None:
+            raw_sec += int(card.get("points") or card.get("score") or 0)
+
+    if raw_sec == 0:
+        for r in rounds:
+            r_sec = int(r.get("secondaryScore") or 0)
+            if r_sec == 0 and isinstance(r.get("secondaries"), list):
+                r_sec = sum(int(s.get("score") or s.get("points") or 0) for s in r["secondaries"] if isinstance(s, dict))
+            raw_sec += r_sec
+    if raw_sec == 0 and int(side_obj.get("secondaryScore") or 0) > 0 and (not hand or st.get("imported_source")):
+        raw_sec = int(side_obj.get("secondaryScore") or 0)
+
+    sec = min(sec_cap, raw_sec)
+    if not has_paint:
+        paint = int(side_obj.get("paintScore") or 0)
+    elif isinstance(side_obj.get("paintScore"), (int, float)):
+        paint = int(side_obj["paintScore"])
+    else:
+        paint = 10 if side_obj.get("battleReady", True) is not False else 0
+
+    has_detail = bool(
+        any(int(r.get("primaryScore") or 0) > 0 or int(r.get("secondaryScore") or 0) > 0 or bool(r.get("secondaries")) for r in rounds)
+        or len(hand) > 0
+        or "battleReady" in side_obj
+        or "deck" in side_obj
+    )
+    calc_tot = min(max_tot, pri + sec + paint)
+    if not has_detail and int(side_obj.get("score") or side_obj.get("totalScore") or fallback_score or 0) > 0:
+        return int(side_obj.get("score") or side_obj.get("totalScore") or fallback_score or 0)
+    return calc_tot
+
+
 def _format_firestore_session_item(doc: Dict[str, Any]) -> Dict[str, Any]:
     st = doc.get("state", {}) if isinstance(doc.get("state"), dict) else {}
     game = st.get("game", {}) if isinstance(st.get("game"), dict) else {}
@@ -1747,8 +1835,8 @@ def _format_firestore_session_item(doc: Dict[str, Any]) -> Dict[str, Any]:
     p2_name = doc.get("p2_name") or game.get("p2Name") or "Player 2"
     p1_id = doc.get("user_id_p1") or st.get("user_id_p1") or (participants.get("player1", {}).get("uid") if isinstance(participants.get("player1"), dict) else None)
     p2_id = doc.get("user_id_p2") or st.get("user_id_p2") or (participants.get("player2", {}).get("uid") if isinstance(participants.get("player2"), dict) else None)
-    p1_score = p1.get("score", 0) if isinstance(p1, dict) else 0
-    p2_score = p2.get("score", 0) if isinstance(p2, dict) else 0
+    p1_score = _compute_tracker_side_score(p1, st, fallback_score=int(st.get("p1_score") or st.get("p1Score") or 0))
+    p2_score = _compute_tracker_side_score(p2, st, fallback_score=int(st.get("p2_score") or st.get("p2Score") or 0))
     p1_faction = game.get("p1Faction")
     p2_faction = game.get("p2Faction")
     primary_mission = game.get("p1Primary") or game.get("primary")
@@ -2143,24 +2231,19 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
 
         def _extract_tracker_score(side_key: str, top_key: str) -> int:
             if isinstance(state, dict):
-                if state.get(top_key) is not None:
-                    try:
-                        return int(state[top_key])
-                    except Exception:
-                        pass
-                side_obj = state.get(side_key) or {}
+                side_obj = state.get(side_key)
+                fb = 0
+                for k in (top_key, "p1Score" if side_key == "p1" else "p2Score"):
+                    if state.get(k) is not None:
+                        try:
+                            fb = int(state[k])
+                            break
+                        except Exception:
+                            pass
                 if isinstance(side_obj, dict):
-                    if side_obj.get("score") is not None and int(side_obj.get("score") or 0) > 0:
-                        return int(side_obj["score"])
-                    rounds_arr = side_obj.get("rounds") or []
-                    if isinstance(rounds_arr, list) and rounds_arr:
-                        raw_ed = str(side_obj.get("edition") or state.get("edition") or "11th").strip().lower()
-                        pri_cap = 50 if raw_ed in ("10th", "10e") else (36 if "8th" in raw_ed or "itc" in raw_ed else 45)
-                        sec_cap = 40 if raw_ed in ("10th", "10e") else (12 if "8th" in raw_ed or "itc" in raw_ed else 45)
-                        prim = sum(int(r.get("primaryScore") or 0) for r in rounds_arr if isinstance(r, dict))
-                        sec = sum(int(r.get("secondaryScore") or 0) for r in rounds_arr if isinstance(r, dict))
-                        paint = 0 if ("8th" in raw_ed or "itc" in raw_ed) else (10 if side_obj.get("battleReady") is not False else 0)
-                        return min(100, min(pri_cap, prim) + min(sec_cap, sec) + paint)
+                    return _compute_tracker_side_score(side_obj, state, fallback_score=fb)
+                if fb > 0:
+                    return fb
             return int(room.get(top_key) or 0)
 
         p1_score = _extract_tracker_score("p1", "p1_score")

@@ -6362,49 +6362,78 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
     maxTot = 48;
     hasPaint = false;
     edShortBadge = '🏛️ 8th ITC';
+  } else if (rawEd === '11th' || rawEd === '11e' || packId.includes('11th')) {
+    priCap = 45;
+    secCap = 45;
+    maxTot = 100;
+    hasPaint = true;
+    edShortBadge = '🚀 11th Ed';
   } else if (rawEd === '9th' || rawEd === '9e' || packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || Number(st?.p1?.primaryCap) === 45 || Number(st?.p1?.secondaryCap) === 45) {
     priCap = 45;
     secCap = 45;
     maxTot = 100;
     hasPaint = true;
     edShortBadge = '📜 9th Ed';
-  } else if (rawEd === '11th' || rawEd === '11e' || packId.includes('11th')) {
-    edShortBadge = '🚀 11th Ed';
   }
 
   const p1Rounds = Array.isArray(st?.p1?.rounds) ? st.p1.rounds : [];
   const p2Rounds = Array.isArray(st?.p2?.rounds) ? st.p2.rounds : [];
+  const p1Hand = Array.isArray(st?.p1?.hand) ? st.p1.hand : [];
+  const p2Hand = Array.isArray(st?.p2?.hand) ? st.p2.hand : [];
 
-  const extractRoundValues = (roundsArr, field, fallbackArr) => {
-    if (Array.isArray(fallbackArr) && fallbackArr.length > 0) return fallbackArr;
+  const extractRoundValues = (roundsArr, field, fallbackArr, handArr = []) => {
+    if (Array.isArray(fallbackArr) && fallbackArr.length > 0 && fallbackArr.some(v => Number(v || 0) > 0)) {
+      return fallbackArr;
+    }
     return [1, 2, 3, 4, 5].map(rNum => {
       const rObj = roundsArr.find(x => (x.round === rNum || x.battleRound === rNum)) || roundsArr[rNum - 1] || {};
-      if (field === 'secondaryScore' && isAosStream) {
-        return Number(rObj.tacticScore || 0);
+      if (field === 'secondaryScore') {
+        if (isAosStream) {
+          return Number(rObj.tacticScore || 0);
+        }
+        const directSec = Number(rObj.secondaryScore || 0);
+        const cardsSec = Array.isArray(rObj.secondaries)
+          ? rObj.secondaries.reduce((acc, s) => acc + Number(s?.points ?? s?.vp ?? s?.score ?? 0), 0)
+          : 0;
+        let handSec = 0;
+        if (Array.isArray(handArr)) {
+          handArr.forEach(c => {
+            if (!c || typeof c !== 'object') return;
+            if (c.recurring && c.roundScores && typeof c.roundScores === 'object') {
+              handSec += Number(c.roundScores[rNum] ?? c.roundScores[String(rNum)] ?? 0);
+            } else if (Number(c.scoredRound || 0) === rNum) {
+              handSec += Number(c.points ?? c.vp ?? c.score ?? 0);
+            }
+          });
+        }
+        return Math.max(directSec, cardsSec, handSec);
       }
       return Number(rObj[field] || 0);
     });
   };
 
   const p1Prim = extractRoundValues(p1Rounds, 'primaryScore', sc?.p1_primary);
-  const p1Sec = extractRoundValues(p1Rounds, 'secondaryScore', sc?.p1_secondary);
+  const p1Sec = extractRoundValues(p1Rounds, 'secondaryScore', sc?.p1_secondary, p1Hand);
   const p2Prim = extractRoundValues(p2Rounds, 'primaryScore', sc?.p2_primary);
-  const p2Sec = extractRoundValues(p2Rounds, 'secondaryScore', sc?.p2_secondary);
+  const p2Sec = extractRoundValues(p2Rounds, 'secondaryScore', sc?.p2_secondary, p2Hand);
 
-  const p1PrimTotal = sc?.p1_primary_total ?? Math.min(priCap, p1Prim.reduce((a, b) => a + Number(b || 0), 0));
-  const p1SecTotal = sc?.p1_secondary_total ?? Math.min(secCap, p1Sec.reduce((a, b) => a + Number(b || 0), 0));
-  const p2PrimTotal = sc?.p2_primary_total ?? Math.min(priCap, p2Prim.reduce((a, b) => a + Number(b || 0), 0));
-  const p2SecTotal = sc?.p2_secondary_total ?? Math.min(secCap, p2Sec.reduce((a, b) => a + Number(b || 0), 0));
+  const p1PrimTotal = Math.max(Number(sc?.p1_primary_total || 0), Math.min(priCap, p1Prim.reduce((a, b) => a + Number(b || 0), 0)));
+  const p1SecTotal = Math.max(Number(sc?.p1_secondary_total || 0), Math.min(secCap, p1Sec.reduce((a, b) => a + Number(b || 0), 0)));
+  const p2PrimTotal = Math.max(Number(sc?.p2_primary_total || 0), Math.min(priCap, p2Prim.reduce((a, b) => a + Number(b || 0), 0)));
+  const p2SecTotal = Math.max(Number(sc?.p2_secondary_total || 0), Math.min(secCap, p2Sec.reduce((a, b) => a + Number(b || 0), 0)));
   const p1Br = !hasPaint ? 0 : (sc?.p1_battle_ready !== undefined ? Number(sc.p1_battle_ready) : (typeof st?.p1?.paintScore === 'number' ? st.p1.paintScore : (st?.p1?.battleReady === false ? 0 : 10)));
   const p2Br = !hasPaint ? 0 : (sc?.p2_battle_ready !== undefined ? Number(sc.p2_battle_ready) : (typeof st?.p2?.paintScore === 'number' ? st.p2.paintScore : (st?.p2?.battleReady === false ? 0 : 10)));
   const p1Gs = hasGrandStrategy ? Number(st?.p1?.grandStrategyScore || (st?.p1?.grandStrategyAchieved ? 3 : 0)) : 0;
   const p2Gs = hasGrandStrategy ? Number(st?.p2?.grandStrategyScore || (st?.p2?.grandStrategyAchieved ? 3 : 0)) : 0;
 
+  const computedTrackerTotal1 = Math.min(maxTot, p1PrimTotal + p1SecTotal + p1Br + p1Gs);
+  const computedTrackerTotal2 = Math.min(maxTot, p2PrimTotal + p2SecTotal + p2Br + p2Gs);
+
   const computedTrackerS1 = isTrackerScorecard
-    ? (st?.p1?.score ?? rec?.p1_score ?? Math.min(maxTot, p1PrimTotal + p1SecTotal + p1Br + p1Gs))
+    ? Math.max(Number(st?.p1?.score ?? rec?.p1_score ?? 0), computedTrackerTotal1)
     : undefined;
   const computedTrackerS2 = isTrackerScorecard
-    ? (st?.p2?.score ?? rec?.p2_score ?? Math.min(maxTot, p2PrimTotal + p2SecTotal + p2Br + p2Gs))
+    ? Math.max(Number(st?.p2?.score ?? rec?.p2_score ?? 0), computedTrackerTotal2)
     : undefined;
 
   const rawS1 = computedTrackerS1 ?? sc?.player1_score ?? sc?.p1_total ?? sc?.bcp_match?.player1_score ?? match?.player1_score;

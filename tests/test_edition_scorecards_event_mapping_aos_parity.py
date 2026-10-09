@@ -395,7 +395,7 @@ def test_event_match_mapping_participant_verification_alignment_and_locking():
         patch.object(
             tracker_router,
             "_lookup_event_pairing_record",
-            side_effect=lambda db, ev_id, r_num, t_num: official_event_pairing
+            side_effect=lambda db, ev_id, r_num, t_num, **_kw: official_event_pairing
             if (ev_id == "socal-open-2026" and int(r_num) == 2 and int(t_num) == 4)
             else None,
         ),
@@ -849,6 +849,98 @@ def test_multi_edition_176_games_import_and_epoch_string_dates():
     assert ed_counts == {"11th": 60, "10th": 80, "9th": 36}, f"Unexpected edition breakdown: {ed_counts}"
 
 
+def test_11th_ed_hand_secondaries_in_finish_modal_router_and_database():
+    import json
+    import subprocess
+
+    # Exact 11th Edition match state (WH40K-B14F-B84E) where React tracker stored
+    # tactical secondary VP in `p1.hand` / `p2.hand` with `rounds[i].secondaryScore = 0`
+    # and stale `p1.score = 55`, `p2.score = 20`.
+    state_11e = {
+        "edition": "11th",
+        "mission": {"edition": "11th", "primaryName": "Direct Assault"},
+        "deployment": "Hammer and Anvil",
+        "battleRound": 5,
+        "p1": {
+            "name": "John Hsieh",
+            "faction": "Necrons",
+            "detachment": "Pantheon of Woe",
+            "battleReady": True,
+            "score": 55,
+            "rounds": [
+                {"round": 1, "primaryScore": 15, "secondaryScore": 0},
+                {"round": 2, "primaryScore": 0, "secondaryScore": 0},
+                {"round": 3, "primaryScore": 15, "secondaryScore": 0},
+                {"round": 4, "primaryScore": 0, "secondaryScore": 0},
+                {"round": 5, "primaryScore": 15, "secondaryScore": 0},
+            ],
+            "hand": [
+                {"name": "Marked for Death", "scoredRound": 1, "points": 5},
+                {"name": "Area Denial", "scoredRound": 1, "points": 3},
+                {"name": "Storm Hostile Objective", "scoredRound": 2, "points": 5},
+                {"name": "Extend Battle Lines", "scoredRound": 2, "points": 4},
+                {"name": "Wipe Out", "scoredRound": 3, "points": 6},
+                {"name": "Overwhelming Force", "scoredRound": 3, "points": 6},
+                {"name": "Defend Stronghold", "scoredRound": 4, "points": 4},
+                {"name": "Break Their Spirit", "scoredRound": 4, "points": 6},
+                {"name": "Verify Data", "scoredRound": 5, "points": 7},
+            ],  # Raw sum = 46 -> capped at 45 in 11th Ed!
+        },
+        "p2": {
+            "name": "Kyle Hoogervorst",
+            "faction": "Tyranids",
+            "detachment": "Subterranean Assault",
+            "battleReady": True,
+            "score": 20,
+            "rounds": [
+                {"round": 1, "primaryScore": 0, "secondaryScore": 0},
+                {"round": 2, "primaryScore": 5, "secondaryScore": 0},
+                {"round": 3, "primaryScore": 5, "secondaryScore": 0},
+                {"round": 4, "primaryScore": 0, "secondaryScore": 0},
+                {"round": 5, "primaryScore": 0, "secondaryScore": 0},
+            ],
+            "hand": [
+                {"name": "Cleanse", "scoredRound": 1, "points": 6},
+                {"name": "No Prisoners", "scoredRound": 2, "points": 3},
+                {"name": "Display of Might", "scoredRound": 3, "points": 4},
+                {"name": "Behind Enemy Lines", "discardedRound": 4, "points": 0},
+            ],  # Raw sum = 13 -> 10 Pri + 13 Sec + 10 Paint = 33
+        },
+    }
+
+    # 1. Verify routers/tracker.py _compute_tracker_side_score and _format_firestore_session_item
+    s1 = tracker_router._compute_tracker_side_score(state_11e["p1"], state_11e, fallback_score=55)
+    s2 = tracker_router._compute_tracker_side_score(state_11e["p2"], state_11e, fallback_score=20)
+    assert s1 == 100, f"Expected P1 score 100 (45 Pri + 45 Sec + 10 Paint), got {s1}"
+    assert s2 == 33, f"Expected P2 score 33 (10 Pri + 13 Sec + 10 Paint), got {s2}"
+
+    item = tracker_router._format_firestore_session_item({"match_id": "WH40K-B14F-B84E", "state": state_11e})
+    assert item["p1_score"] == 100
+    assert item["p2_score"] == 33
+
+    # 2. Verify web/tracker/tracker_sync.js computeTrackerPlayerBreakdown & injectDefaultCpIntoState via Node
+    node_script = f"""
+    const fs = require('fs');
+    global.window = {{ location: {{ search: '', pathname: '/tracker/play' }} }};
+    const src = fs.readFileSync('web/tracker/tracker_sync.js', 'utf8');
+    const startIdx = src.indexOf('function computeTrackerPlayerBreakdown(pObj, st)');
+    const endIdx = src.indexOf('// Override getItem');
+    eval(src.slice(startIdx, endIdx));
+    const st = {json.dumps(state_11e)};
+    const b1 = window.__computeTrackerPlayerBreakdown(st.p1, st);
+    const b2 = window.__computeTrackerPlayerBreakdown(st.p2, st);
+    const synced = JSON.parse(window.__injectDefaultCpIntoState(JSON.stringify(st)));
+    console.log(JSON.stringify({{ b1, b2, syncedP1: synced.p1.score, syncedP2: synced.p2.score, r1Sec: synced.p1.rounds[0].secondaryScore }}));
+    """
+    proc = subprocess.run(["node", "-e", node_script], capture_output=True, text=True, check=True)
+    res = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert res["b1"]["pri"] == 45 and res["b1"]["sec"] == 45 and res["b1"]["paint"] == 10 and res["b1"]["total"] == 100
+    assert res["b2"]["pri"] == 10 and res["b2"]["sec"] == 13 and res["b2"]["paint"] == 10 and res["b2"]["total"] == 33
+    assert res["syncedP1"] == 100
+    assert res["syncedP2"] == 33
+    assert res["r1Sec"] == 8  # 5 + 3 in Round 1
+
+
 if __name__ == "__main__":
     test_edition_detection_and_unclipped_9th_ed_secondaries()
     print("✓ test_edition_detection_and_unclipped_9th_ed_secondaries passed")
@@ -866,6 +958,8 @@ if __name__ == "__main__":
     print("✓ test_all_secondaries_preserved_including_unscored_discarded_and_held passed")
     test_multi_edition_176_games_import_and_epoch_string_dates()
     print("✓ test_multi_edition_176_games_import_and_epoch_string_dates passed")
+    test_11th_ed_hand_secondaries_in_finish_modal_router_and_database()
+    print("✓ test_11th_ed_hand_secondaries_in_finish_modal_router_and_database passed")
     print("ALL TESTS PASSED!")
 
 

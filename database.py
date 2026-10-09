@@ -9798,35 +9798,66 @@ class PostgresDatabase:
                 sec_cap = 40
                 max_tot = 100
 
-            pri_total = min(pri_cap, sum([r.get("primaryScore", 0) for r in rounds]))
+            pri_total = min(pri_cap, sum([int(r.get("primaryScore") or 0) for r in rounds]))
+            if pri_total == 0 and int(p_obj.get("primaryScore") or 0) > 0:
+                pri_total = min(pri_cap, int(p_obj.get("primaryScore") or 0))
             
             sec_total = 0
+            round_sec_map = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
             hand = p_obj.get("hand", [])
-            if isinstance(hand, list):
+            if isinstance(hand, list) and hand:
                 for card in hand:
-                    if not isinstance(card, dict) or card.get("status") == "discarded":
+                    if not isinstance(card, dict):
                         continue
                     if card.get("recurring"):
                         round_scores = card.get("roundScores", {})
                         if isinstance(round_scores, dict):
-                            for r_data in round_scores.values():
-                                if isinstance(r_data, dict):
-                                    sec_total += int(r_data.get("points") or 0)
-                                elif isinstance(r_data, (int, float)):
-                                    sec_total += int(r_data)
-                    else:
-                        if card.get("scoredRound") is not None:
-                            sec_total += int(card.get("points") or 0)
+                            for r_k, r_data in round_scores.items():
+                                pts = int(r_data.get("points") or r_data.get("score") or 0) if isinstance(r_data, dict) else (int(r_data) if isinstance(r_data, (int, float)) else 0)
+                                sec_total += pts
+                                try:
+                                    rk_int = int(r_k)
+                                    if rk_int in round_sec_map:
+                                        round_sec_map[rk_int] += pts
+                                except Exception:
+                                    pass
+                    elif card.get("scoredRound") is not None:
+                        pts = int(card.get("points") or card.get("score") or 0)
+                        sec_total += pts
+                        try:
+                            sr_int = int(card.get("scoredRound"))
+                            if sr_int in round_sec_map:
+                                round_sec_map[sr_int] += pts
+                        except Exception:
+                            pass
+                if not state.get("imported_source"):
+                    for idx, r_dict in enumerate(rounds):
+                        r_num = int(r_dict.get("round") or r_dict.get("battleRound") or (idx + 1))
+                        if r_num in round_sec_map:
+                            r_dict["secondaryScore"] = round_sec_map[r_num]
             
             if sec_total == 0:
-                sec_total = sum([r.get("secondaryScore", 0) for r in rounds])
+                for r in rounds:
+                    r_sec = int(r.get("secondaryScore") or 0)
+                    if r_sec == 0 and isinstance(r.get("secondaries"), list):
+                        r_sec = sum(int(s.get("score") or s.get("points") or 0) for s in r["secondaries"] if isinstance(s, dict))
+                    sec_total += r_sec
+            if sec_total == 0 and int(p_obj.get("secondaryScore") or 0) > 0 and (not hand or state.get("imported_source")):
+                sec_total = int(p_obj.get("secondaryScore") or 0)
             
             sec_total = min(sec_cap, sec_total)
             if p_ed in ("8th_itc", "8th", "8e", "itc"):
                 paint = int(p_obj.get("paintScore") or 0)
+            elif isinstance(p_obj.get("paintScore"), (int, float)):
+                paint = int(p_obj["paintScore"])
             else:
                 paint = 10 if p_obj.get("battleReady", True) is not False else 0
-            return min(max_tot, pri_total + sec_total + paint)
+            tot_val = min(max_tot, pri_total + sec_total + paint)
+            p_obj["primaryScore"] = pri_total
+            p_obj["secondaryScore"] = sec_total
+            p_obj["score"] = tot_val
+            p_obj["totalScore"] = tot_val
+            return tot_val
 
         p1_score = calc_vp(state.get("p1"))
         p2_score = calc_vp(state.get("p2"))
@@ -9834,6 +9865,10 @@ class PostgresDatabase:
             p1_score = int(state["p1Score"])
         if (p2_score == 0 or state.get("imported_source")) and "p2Score" in state and state["p2Score"] is not None:
             p2_score = int(state["p2Score"])
+        state["p1Score"] = p1_score
+        state["p2Score"] = p2_score
+        state["p1_score"] = p1_score
+        state["p2_score"] = p2_score
 
         is_finished = bool(
             state.get("is_finished")
@@ -10095,15 +10130,18 @@ class PostgresDatabase:
                                     if r_list:
                                         raw_pri = sum(int(r.get("primaryScore") or 0) for r in r_list)
                                         raw_sec = sum(int(r.get("secondaryScore") or 0) for r in r_list)
-                                        if raw_sec == 0 and isinstance(p_side.get("hand"), list):
+                                        if isinstance(p_side.get("hand"), list) and p_side["hand"]:
+                                            hand_sec = 0
                                             for card in p_side["hand"]:
-                                                if not isinstance(card, dict) or card.get("status") == "discarded":
+                                                if not isinstance(card, dict):
                                                     continue
                                                 if card.get("recurring"):
                                                     for rv in (card.get("roundScores") or {}).values():
-                                                        raw_sec += int(rv.get("points") or 0) if isinstance(rv, dict) else int(rv or 0)
+                                                        hand_sec += int(rv.get("points") or rv.get("score") or 0) if isinstance(rv, dict) else int(rv or 0)
                                                 elif card.get("scoredRound") is not None:
-                                                    raw_sec += int(card.get("points") or 0)
+                                                    hand_sec += int(card.get("points") or card.get("score") or 0)
+                                            if hand_sec > raw_sec:
+                                                raw_sec = hand_sec
                                         p_side["primaryScore"] = min(45, raw_pri)
                                         p_side["secondaryScore"] = min(45, raw_sec)
                                         pnt = int(p_side["paintScore"]) if isinstance(p_side.get("paintScore"), (int, float)) else (10 if p_side.get("battleReady", True) is not False else 0)
@@ -10114,6 +10152,7 @@ class PostgresDatabase:
                                             p_side["score"] = tot_s
                                             p_side["totalScore"] = tot_s
                                             st_obj[score_k] = tot_s
+                                            st_obj[top_k] = tot_s
                                             d[top_k] = tot_s
                             d["state_json"] = st_obj
                             if needs_db_repair and d.get("match_id"):
