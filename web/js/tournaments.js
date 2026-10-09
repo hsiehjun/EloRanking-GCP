@@ -284,11 +284,11 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
         if (tabEloCount) tabEloCount.innerText = eventPlayersCache.length;
         if (tabMatchesCount) tabMatchesCount.innerText = eventMatchesCache.length;
 
-        const isTeamEventFresh = Boolean(fresh.is_team_event || (fresh.teams && fresh.teams.length > 0));
-        const isDoublesFresh = Boolean(fresh.is_doubles_event);
         const teamsListFresh = (fresh.teams && fresh.teams.length > 0) ? fresh.teams : (fresh.team_standings || []);
+        const isTeamEventFresh = teamsListFresh.length > 0;
+        const isDoublesFresh = Boolean(fresh.is_doubles_event);
 
-        if (isTeamEventFresh || teamsListFresh.length > 0) {
+        if (teamsListFresh.length > 0) {
           if (subtabTeams) subtabTeams.style.setProperty('display', 'inline-flex', 'important');
           const hasFreshTeamPlacings = teamsListFresh.some(t => t.placing && t.placing > 0);
           const labelSpan = document.getElementById('event-subtab-teams-label') || (subtabTeams && subtabTeams.querySelector('span:first-child'));
@@ -534,7 +534,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     if (typeof isTournamentOngoing === 'function') guessedOngoing = isTournamentOngoing(currentEventData);
     else guessedOngoing = Boolean(!currentEventData.ended && (currentEventData.matches || []).length > 0);
   }
-  const guessedIsTeam = Boolean(currentEventData && String(currentEventData.id) === String(eventId) && (currentEventData.is_team_event || (currentEventData.teams && currentEventData.teams.length > 0)));
+  const guessedIsTeam = Boolean(currentEventData && String(currentEventData.id) === String(eventId) && ((currentEventData.teams && currentEventData.teams.length > 0) || (currentEventData.team_standings && currentEventData.team_standings.length > 0)));
   const guessedIsRegistered = Boolean(currentEventRegistration && currentEventRegistration.is_registered);
   let immediateTab = 'results';
   if (guessedIsRegistered) immediateTab = 'player';
@@ -867,9 +867,9 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     const metaEl = document.getElementById('modal-event-meta');
     if (metaEl) metaEl.innerText = `📅 ${dStr} • 📍 ${loc}${roundsPart}`;
 
-    const isTeamEvent = Boolean(ev.is_team_event || (ev.teams && ev.teams.length > 0));
-    const isDoublesEvent = Boolean(ev.is_doubles_event);
     const teamsList = (ev.teams && ev.teams.length > 0) ? ev.teams : (ev.team_standings || []);
+    const isTeamEvent = teamsList.length > 0;
+    const isDoublesEvent = Boolean(isTeamEvent && ev.is_doubles_event);
 
     const elPlayers = document.getElementById('event-modal-players');
     if (elPlayers) {
@@ -900,7 +900,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
 
     const hasTeamPlacings = teamsList.some(t => t.placing && t.placing > 0);
 
-    if (isTeamEvent || teamsList.length > 0) {
+    if (teamsList.length > 0) {
       if (subtabTeams) subtabTeams.style.setProperty('display', 'inline-flex', 'important');
       const labelSpan = document.getElementById('event-subtab-teams-label') || (subtabTeams && subtabTeams.querySelector('span:first-child'));
       if (labelSpan) {
@@ -1017,13 +1017,13 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       ? isTournamentOngoing(ev)
       : (!isEnded && eventMatchesCache.length > 0);
 
-    if (initialTab && initialTab !== 'elo' && (initialTab !== 'player' || shouldShowPlayerTab) && (initialTab !== 'to-hub' || canAccessToHub)) {
+    if (initialTab && initialTab !== 'elo' && (initialTab !== 'teams' || teamsList.length > 0) && (initialTab !== 'player' || shouldShowPlayerTab) && (initialTab !== 'to-hub' || canAccessToHub)) {
       switchEventModalTab(initialTab);
     } else if (shouldShowPlayerTab) {
       switchEventModalTab('player');
     } else if (isOngoing && eventMatchesCache.length > 0) {
       switchEventModalTab('matches');
-    } else if (isTeamEvent || teamsList.length > 0) {
+    } else if (teamsList.length > 0) {
       switchEventModalTab('teams');
     } else {
       switchEventModalTab('results');
@@ -1424,11 +1424,11 @@ function getEventModalCrossTabSuggestions(currentTab) {
   const q = eventModalSearchQuery;
   const teams = (currentEventData && currentEventData.teams) || [];
   const standings = (currentEventData && currentEventData.team_standings) || [];
-  const isDoubles = Boolean(currentEventData && currentEventData.is_doubles_event);
-  const isTeam = Boolean(currentEventData && (currentEventData.is_team_event || teams.length > 0));
+  const activeTeamsSource = teams.length > 0 ? teams : standings;
+  const isTeam = activeTeamsSource.length > 0;
+  const isDoubles = Boolean(isTeam && currentEventData && currentEventData.is_doubles_event);
 
   let teamsMatchCount = 0;
-  const activeTeamsSource = teams.length > 0 ? teams : standings;
   for (let i = 0; i < activeTeamsSource.length; i++) {
     const t = activeTeamsSource[i];
     if (t && t._searchText && t._searchText.includes(q)) teamsMatchCount++;
@@ -1556,9 +1556,12 @@ function switchEventModalTab(tabKey) {
     currentEventRegistration?.status?.ended === true
   );
   const isRegistered = Boolean(currentEventRegistration && currentEventRegistration.is_registered);
+  const hasTeams = Boolean(currentEventData && ((currentEventData.teams && currentEventData.teams.length > 0) || (currentEventData.team_standings && currentEventData.team_standings.length > 0)));
   if (tabKey === 'player' && !isRegistered) {
-    const isTeam = Boolean(currentEventData && (currentEventData.is_team_event || (currentEventData.teams && currentEventData.teams.length > 0)));
-    tabKey = isTeam ? 'teams' : 'results';
+    tabKey = hasTeams ? 'teams' : 'results';
+  }
+  if (tabKey === 'teams' && !hasTeams) {
+    tabKey = 'results';
   }
   currentEventModalTab = tabKey || 'results';
   window.currentEventModalTab = currentEventModalTab;
@@ -4101,8 +4104,8 @@ function getEventKpiSummary(ev) {
   ) {
     return ev._cachedKpiSummary;
   }
-  const isTeamEvent = Boolean(ev?.is_team_event || teams.length > 0);
-  const isDoublesEvent = Boolean(ev?.is_doubles_event);
+  const isTeamEvent = Boolean(teams.length > 0);
+  const isDoublesEvent = Boolean(isTeamEvent && ev?.is_doubles_event);
   const totalPlayers = ev?.total_players || players.length || 0;
   const totalTeams = ev?.total_teams || teams.length || 0;
   const numRounds = getEventNumRounds(ev, matches) || 5;
@@ -4489,7 +4492,7 @@ function openEventHubFromModal(explicitTab = null) {
   const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k').toLowerCase();
   const ended = isEventEnded(currentEventData, currentEventRegistration);
   const isRegistered = Boolean(currentEventRegistration && currentEventRegistration.is_registered);
-  const isTeam = Boolean(currentEventData && (currentEventData.is_team_event || (currentEventData.teams && currentEventData.teams.length > 0)));
+  const isTeam = Boolean(currentEventData && ((currentEventData.teams && currentEventData.teams.length > 0) || (currentEventData.team_standings && currentEventData.team_standings.length > 0)));
 
   let targetTab = explicitTab;
   if (!targetTab) {
@@ -4616,9 +4619,9 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
     renderPersonalEventScorecard(ev, userRegData);
     renderEventMetaAndHighlights(ev);
 
-    const isTeamEvent = Boolean(ev.is_team_event || (ev.teams && ev.teams.length > 0));
-    const isDoublesEvent = Boolean(ev.is_doubles_event);
     const teamsList = (ev.teams && ev.teams.length > 0) ? ev.teams : (ev.team_standings || []);
+    const isTeamEvent = teamsList.length > 0;
+    const isDoublesEvent = Boolean(isTeamEvent && ev.is_doubles_event);
     const subtabTeams = document.getElementById('event-subtab-teams');
     const tabTeamsCount = document.getElementById('event-tab-teams-count');
     const tabResultsCount = document.getElementById('event-tab-results-count');
@@ -4630,7 +4633,7 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
 
     const hasTeamPlacings = teamsList.some(t => t.placing && t.placing > 0);
 
-    if (isTeamEvent || teamsList.length > 0) {
+    if (teamsList.length > 0) {
       if (subtabTeams) subtabTeams.style.setProperty('display', 'inline-flex', 'important');
       const labelSpan = document.getElementById('event-subtab-teams-label') || (subtabTeams && subtabTeams.querySelector('span:first-child'));
       if (labelSpan) {
@@ -4686,11 +4689,11 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
     if (targetTab === 'to-hub' && !canAccessToHub) {
       targetTab = 'results';
     }
-    if (targetTab === 'teams' && !isTeamEvent && teamsList.length === 0) {
+    if (targetTab === 'teams' && teamsList.length === 0) {
       targetTab = 'results';
     }
     if (targetTab === 'player' && !shouldShowPlayerTab) {
-      targetTab = (isTeamEvent || teamsList.length > 0) ? 'teams' : 'results';
+      targetTab = teamsList.length > 0 ? 'teams' : 'results';
     }
     if (!targetTab) {
       const isOngoing = (typeof isTournamentOngoing === 'function')
@@ -4700,7 +4703,7 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
         targetTab = 'player';
       } else if (isOngoing && eventMatchesCache.length > 0) {
         targetTab = 'matches';
-      } else if (isTeamEvent || teamsList.length > 0) {
+      } else if (teamsList.length > 0) {
         targetTab = 'teams';
       } else {
         targetTab = 'results';

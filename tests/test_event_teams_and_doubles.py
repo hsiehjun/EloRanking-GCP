@@ -447,6 +447,69 @@ def test_completed_team_event_fast_path_and_placings():
     print(f"✅ Completed team event fast-path & placings verified in {elapsed_ms:.2f}ms!")
 
 
+def test_singles_event_with_club_team_id_not_classified_as_team_event():
+    """Verify a Singles tournament where players have personal club teamId is NOT marked as a team event."""
+    mock_db = MagicMock()
+    mock_cursor = MagicMock()
+    mock_db.get_connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = mock_cursor
+    mock_cursor.fetchall.return_value = []
+
+    mock_db.get_event_details.return_value = {
+        "id": "jjK8zh9OXkCI",
+        "name": "BFS GT 2026 Super Major 3 Days",
+        "event_date": "2026-10-16T08:00:00Z",
+        "total_players": 0,
+        "matches": [],
+        "players": [],
+        "raw_json": {
+            "teamEvent": False,
+            "doublesEvent": False,
+            "totalTeamPlayers": 0,
+            "totalPlayers": 131
+        }
+    }
+
+    # In BCP Singles events, players often have `teamId` and `team` for their personal gaming club,
+    # but `teamPlayerId` is None and `/events/{id}/teams` returns [].
+    mock_players = [
+        {
+            "id": "p_1",
+            "userId": "u_1",
+            "teamId": "club_nemesis",
+            "team": {"id": "club_nemesis", "name": "Nemesis"},
+            "teamPlayerId": None,
+            "user": {"id": "u_1", "firstName": "Kieran", "lastName": "Staniforth"},
+            "army": {"name": "Chaos Knights"},
+            "checkedIn": True
+        },
+        {
+            "id": "p_2",
+            "userId": "u_2",
+            "teamId": "club_ignite",
+            "team": {"id": "club_ignite", "name": "Team Ignite"},
+            "teamPlayerId": None,
+            "user": {"id": "u_2", "firstName": "Alex", "lastName": "Sabine"},
+            "army": {"name": "World Eaters"},
+            "checkedIn": False
+        }
+    ]
+
+    from routers import leaderboard as lb_mod
+    lb_mod._event_details_cache.pop("jjK8zh9OXkCI", None)
+
+    with patch("scraper.BestCoastPairingsScraper.fetch_event_players", return_value=mock_players), \
+         patch("scraper.BestCoastPairingsScraper.fetch_event_teams", return_value=[]), \
+         patch("routers.leaderboard.get_database", return_value=mock_db):
+        details = asyncio.run(api_event_details("jjK8zh9OXkCI"))
+
+    assert details["is_team_event"] is False, f"Expected is_team_event=False for Singles event, got {details['is_team_event']}"
+    assert details["is_doubles_event"] is False
+    assert not details.get("teams")
+    assert len(details["players"]) == 2
+    assert details["players"][0]["team"] == "Nemesis"
+    print("✅ Singles event with personal gaming club teamId verified as is_team_event=False!")
+
+
 if __name__ == "__main__":
     test_scraper_team_pairings_fallback()
     test_format_bcp_roster_preserves_team_linking_fields()
@@ -454,5 +517,6 @@ if __name__ == "__main__":
     test_doubles_event_detection_and_grouping()
     test_frontend_team_and_doubles_markup_and_bundle()
     test_completed_team_event_fast_path_and_placings()
+    test_singles_event_with_club_team_id_not_classified_as_team_event()
     print("\n🎉 ALL TEAM TOURNAMENT AND DOUBLES TESTS PASSED!")
 

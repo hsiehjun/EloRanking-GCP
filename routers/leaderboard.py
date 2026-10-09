@@ -2144,7 +2144,7 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
         )
 
         bcp_players = prefetched_bcp_players if prefetched_bcp_players is not None else scraper.fetch_event_players(event_id_str)
-        if not is_team_event and bcp_players and any(isinstance(p, dict) and (p.get("teamPlayerId") or p.get("teamId")) for p in bcp_players):
+        if not is_team_event and bcp_players and any(isinstance(p, dict) and p.get("teamPlayerId") for p in bcp_players):
             is_team_event = True
         bcp_teams = []
         if is_team_event or not bcp_players:
@@ -2227,11 +2227,18 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                 event_details["avg_field_elo"] = round(sum(elos) / len(elos), 1)
                 event_details["top_seed_elo"] = max(elos)
 
-        event_details["is_team_event"] = is_team_event
-        event_details["is_doubles_event"] = is_doubles_event
-
         if is_team_event:
             _populate_event_teams(event_details, bcp_teams)
+            if (
+                not raw_ev.get("teamEvent")
+                and int(raw_ev.get("totalTeamPlayers") or 0) <= 0
+                and len(event_details.get("teams") or []) == 0
+            ):
+                is_team_event = False
+                is_doubles_event = False
+
+        event_details["is_team_event"] = is_team_event
+        event_details["is_doubles_event"] = is_doubles_event
     except Exception as e:
         logger.warning(f"BCP placings fetch notice for {event_id_str}: {e}")
 
