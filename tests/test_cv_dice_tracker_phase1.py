@@ -906,6 +906,40 @@ eval(fs.readFileSync('web/dice_tracker/app.js', 'utf8') + '\nglobal.DiceTrackerA
   const historyAfterRoll2 = app.history.length;
   const totalCumulativeDice = app.distribution.slice(1).reduce((a, b) => a + b, 0);
 
+  // 6. Single-die roll test: 1 single 36x36px die moving inside 540x400 ROI triggers >0.018 localized patch motion
+  //    and is never suppressed by Scoop Guard even when landing near a previous die of the same value!
+  const frameA = new Uint8ClampedArray(640 * 480 * 4);
+  const frameB = new Uint8ClampedArray(640 * 480 * 4);
+  for (let i = 0; i < frameA.length; i += 4) {
+    frameA[i] = 35; frameA[i + 1] = 40; frameA[i + 2] = 48; frameA[i + 3] = 255;
+    frameB[i] = 35; frameB[i + 1] = 40; frameB[i + 2] = 48; frameB[i + 3] = 255;
+  }
+  // Draw 1 single 32x32 bone-white die in frameB at (220, 200)
+  for (let y = 200; y < 232; y++) {
+    for (let x = 220; x < 252; x++) {
+      const idx = (y * 640 + x) * 4;
+      frameB[idx] = 240; frameB[idx + 1] = 240; frameB[idx + 2] = 240;
+    }
+  }
+  app.lastRoiGray = null;
+  const seedMotion = app.computeFastRoiMotionRgba(frameA, 640, 50, 40, 540, 400);
+  const singleDieMotion = app.computeFastRoiMotionRgba(frameB, 640, 50, 40, 540, 400);
+
+  // Trigger Roll #3 with 1 single die that has value=5 (same as one of Roll #2's dice) -> Scoop Guard must NOT suppress 1 die!
+  nextMockDice = [
+    { x: 182, y: 222, w: 36, h: 36, value: 5, owner: 1 }
+  ];
+  for (let i = 0; i < 4; i++) {
+    app.stepCameraOnnxRollLifecycle(singleDieMotion, frameB, 640, 480, 50, 40, 540, 400);
+  }
+  const stateDuringSingleDieRoll = app.rollState;
+  for (let i = 0; i < 10; i++) {
+    app.stepCameraOnnxRollLifecycle(0.0, frameB, 640, 480, 50, 40, 540, 400);
+  }
+  await new Promise(r => setTimeout(r, 10));
+  const historyAfterSingleDieRoll = app.history.length;
+  const postOnnxLastRoiGrayIsNull = app.lastRoiGray === null;
+
   console.log(JSON.stringify({
     callsAfterIdle,
     callsDuringRolling,
@@ -914,7 +948,12 @@ eval(fs.readFileSync('web/dice_tracker/app.js', 'utf8') + '\nglobal.DiceTrackerA
     callsDuringLockedWait,
     callsAfterRoll2Lock,
     historyAfterRoll2,
-    totalCumulativeDice
+    totalCumulativeDice,
+    seedMotion,
+    singleDieMotion,
+    stateDuringSingleDieRoll,
+    historyAfterSingleDieRoll,
+    postOnnxLastRoiGrayIsNull
   }));
 })();
 """
@@ -934,9 +973,15 @@ eval(fs.readFileSync('web/dice_tracker/app.js', 'utf8') + '\nglobal.DiceTrackerA
         self.assertEqual(res["callsAfterRoll2Lock"], 2)
         self.assertEqual(res["historyAfterRoll2"], 2)
         self.assertEqual(res["totalCumulativeDice"], 5)
+        self.assertEqual(res["seedMotion"], 0)
+        self.assertGreater(res["singleDieMotion"], 0.018, "Single die moving in tray must exceed MOTION_ENTER (0.018)")
+        self.assertEqual(res["stateDuringSingleDieRoll"], "ROLLING")
+        self.assertEqual(res["historyAfterSingleDieRoll"], 3, "Single-die roll must lock and append to Roll History")
+        self.assertTrue(res["postOnnxLastRoiGrayIsNull"], "lastRoiGray must reset after ONNX pass to prevent frame-gap spike")
 
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

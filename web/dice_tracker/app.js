@@ -58,6 +58,7 @@ class DiceTrackerApp {
     // Hands-Free Auto-Roll State Machine: 'IDLE' | 'ROLLING' | 'SETTLING' | 'LOCKED'
     this.rollState = "IDLE";
     this.cameraMotionTriggered = false;
+    this.postLockWarmupFrames = 0;
     this.lastRoiGray = null;
     this.settledFrameCounter = 0;
     this.settlingBuffer = [];
@@ -285,13 +286,14 @@ class DiceTrackerApp {
           ry,
           rw,
           rh,
-          0.52
+          0.45
         );
         this.onnxLatencyMs = performance.now() - t0;
       }
     } catch (err) {
       console.warn("ONNX frame inference error:", err);
     } finally {
+      this.lastRoiGray = null;
       this.onnxBusy = false;
     }
   }
@@ -1190,7 +1192,11 @@ class DiceTrackerApp {
       this.canvas.height = 480;
       this.ensureCvBuffers(640, 480);
       this.lastRoiGray = null;
-      this.rollState = "IDLE";
+      this.rollState = "SETTLING";
+      this.cameraMotionTriggered = true;
+      this.settledFrameCounter = 0;
+      this.motionFramesCount = 0;
+      this.postLockWarmupFrames = 0;
 
       this.requestFrameProcessing();
     } catch (err) {
@@ -1324,6 +1330,7 @@ class DiceTrackerApp {
   }
 
   // Ultra-fast subsampled ROI motion check directly from RGBA (< 0.1ms per frame, zero SAT)
+  // Includes 48x48px (12x12 sample) localized patch motion so rolling even 1 single die triggers reliably!
   computeFastRoiMotionRgba(data, width, rx, ry, rw, rh) {
     const sampleStep = 4;
     const cols = Math.floor(rw / sampleStep);
@@ -1344,22 +1351,42 @@ class DiceTrackerApp {
       return 0;
     }
 
+    const patchSide = 12; // 12 * 4px = 48x48px patch (~1.3x physical die size)
+    const pCols = Math.max(1, Math.ceil(cols / patchSide));
+    const pRows = Math.max(1, Math.ceil(rows / patchSide));
+    const numPatches = pCols * pRows;
+    if (!this._patchCounts || this._patchCounts.length < numPatches) {
+      this._patchCounts = new Uint16Array(numPatches);
+    } else {
+      this._patchCounts.fill(0, 0, numPatches);
+    }
+
     let changedPixels = 0;
+    let maxPatchChanged = 0;
     let k = 0;
     for (let r = 0; r < rows; r++) {
       const rowOff = (ry + r * sampleStep) * width;
+      const prOff = Math.floor(r / patchSide) * pCols;
       for (let c = 0; c < cols; c++) {
         const idx = (rowOff + rx + c * sampleStep) * 4;
         const currVal = (77 * data[idx] + 150 * data[idx + 1] + 29 * data[idx + 2]) >> 8;
         const prevVal = this.lastRoiGray[k];
-        if (Math.abs(currVal - prevVal) > 26) {
+        if (Math.abs(currVal - prevVal) > 30) {
           changedPixels++;
+          const pIdx = prOff + Math.floor(c / patchSide);
+          const pc = ++this._patchCounts[pIdx];
+          if (pc > maxPatchChanged) maxPatchChanged = pc;
         }
         this.lastRoiGray[k] = (prevVal + currVal) >> 1;
         k++;
       }
     }
-    return changedPixels / sampleLen;
+
+    const globalMotion = changedPixels / sampleLen;
+    // A single rolling die changes 10..45 samples inside a 12x12 (144-sample) patch;
+    // stationary camera noise changes at most 0..4 samples per patch.
+    const localSingleDieMotion = maxPatchChanged >= 10 ? (maxPatchChanged / 144) * 0.18 : 0;
+    return Math.max(globalMotion, localSingleDieMotion);
   }
 
   processCurrentCanvasFrame() {
@@ -1379,24 +1406,43 @@ class DiceTrackerApp {
       return;
     }
 
+    // While ONNX is actively analyzing the settled frame, do NOT run motion checks or state transitions!
+    // This prevents the 150-250ms inference frame gap from causing a self-induced motion spike.
+    if (this.isCameraRunning && this.onnxReady && this.onnxBusy) {
+      this.drawDetectionsOverlay(this.currentDetectedDice, rx, ry, rw, rh);
+      return;
+    }
+
     const frameData = this.ctx.getImageData(0, 0, width, height);
     const data = frameData.data;
 
     // 2. Live Camera + YOLOv8n ONNX Mode:
     //    Run lightweight motion tracking at 60fps (< 0.2ms) and ONLY invoke ONNX once when a roll stops!
     if (this.isCameraRunning && this.onnxReady) {
-      const roiMotion = this.computeFastRoiMotionRgba(data, width, rx, ry, rw, rh);
-
       if (this.forceManualCaptureNextFrame && !this.onnxBusy) {
         this.forceManualCaptureNextFrame = false;
+        this.cameraMotionTriggered = false;
+        this.settledFrameCounter = 0;
         const snapshotCopy = new Uint8ClampedArray(data);
         this.runLiveOnnxPass(snapshotCopy, width, height, rx, ry, rw, rh).then(() => {
+          this.lastRoiGray = null;
+          this.motionFramesCount = 0;
+          this.postLockWarmupFrames = 2;
+          this.rollState = "LOCKED";
           this.currentDetectedDice = this.latestOnnxDice || [];
           this.lockedRollDice = this.currentDetectedDice.map(d => ({ ...d }));
+          this.lastLockedSpatialDice = this.lockedRollDice.map(d => ({
+            cx: d.x + d.w * 0.5,
+            cy: d.y + d.h * 0.5,
+            value: d.value,
+            w: d.w
+          }));
+          this.hadLockedRollBeforeMotion = this.lockedRollDice.length > 0;
           this.captureCurrentRoll("Manual");
           this.updateLiveHudCounts(this.currentDetectedDice);
         });
       } else {
+        const roiMotion = this.computeFastRoiMotionRgba(data, width, rx, ry, rw, rh);
         this.stepCameraOnnxRollLifecycle(roiMotion, data, width, height, rx, ry, rw, rh);
       }
     } else {
@@ -1421,19 +1467,27 @@ class DiceTrackerApp {
   }
 
   stepCameraOnnxRollLifecycle(roiMotion, data, width, height, rx, ry, rw, rh) {
-    const settleFramesRequired = parseInt(this.bgFilterSlider.value, 10) || 10;
+    // Post-ONNX lock warmup absorbs 1-2 frames of post-inference autofocus/exposure jitter
+    if (this.postLockWarmupFrames > 0) {
+      this.postLockWarmupFrames--;
+      if (roiMotion < 0.042) {
+        this.motionFramesCount = 0;
+        return;
+      }
+    }
+
+    const settleFramesRequired = Math.max(6, Math.min(12, parseInt(this.bgFilterSlider.value, 10) || 8));
     const MOTION_ENTER = 0.018;
-    const MOTION_SETTLE = 0.011;
 
     if (roiMotion > MOTION_ENTER) {
       this.motionFramesCount++;
-    } else if (roiMotion <= MOTION_SETTLE) {
+    } else {
       this.motionFramesCount = 0;
     }
 
     const isGenuineMotion =
-      roiMotion >= 0.028 ||
-      (roiMotion > MOTION_ENTER && (this.motionFramesCount >= 2 || this.rollState === "ROLLING"));
+      roiMotion >= 0.042 ||
+      (roiMotion > MOTION_ENTER && this.motionFramesCount >= 2);
 
     // 1. Motion inside the green box -> Dice are rolling!
     if (isGenuineMotion) {
@@ -1463,14 +1517,14 @@ class DiceTrackerApp {
       return;
     }
 
-    // 4. Motion occurred and has now stopped -> wait for settleFramesRequired still frames, then run 1 ONNX pass
-    if (roiMotion <= MOTION_SETTLE) {
+    // 4. Motion occurred and has now stopped -> no dead-zone! Count still frames and run 1 ONNX pass
+    if (roiMotion <= MOTION_ENTER) {
       this.rollState = "SETTLING";
       this.settledFrameCounter++;
       const progressPct = Math.min(100, Math.round((this.settledFrameCounter / settleFramesRequired) * 100));
 
       if (this.settledFrameCounter < settleFramesRequired) {
-        if (this.settledFrameCounter === 1 || this.settledFrameCounter % 3 === 0) {
+        if (this.settledFrameCounter === 1 || this.settledFrameCounter % 2 === 0) {
           this.updateStateMachineUI(
             "SETTLING",
             `🔵 Dice stopped — locking roll (${this.settledFrameCounter}/${settleFramesRequired})...`,
@@ -1484,21 +1538,38 @@ class DiceTrackerApp {
 
       if (!this.onnxBusy) {
         this.cameraMotionTriggered = false;
+        this.settledFrameCounter = 0;
         this.updateStateMachineUI("SETTLING", "🔵 Capturing settled dice roll...", 100);
         const snapshotCopy = new Uint8ClampedArray(data);
         this.runLiveOnnxPass(snapshotCopy, width, height, rx, ry, rw, rh).then(() => {
-          if (this.rollState === "ROLLING" || this.cameraMotionTriggered) return;
+          this.lastRoiGray = null;
+          this.motionFramesCount = 0;
+          this.settledFrameCounter = 0;
+          this.postLockWarmupFrames = 2;
 
           const detected = this.latestOnnxDice || [];
           if (detected.length === 0) {
             this.rollState = "IDLE";
-            this.settledFrameCounter = 0;
             this.currentDetectedDice = [];
             this.lockedRollDice = [];
             this.lastLockedSpatialDice = [];
             this.hadLockedRollBeforeMotion = false;
             this.updateStateMachineUI("IDLE", "🟢 Tray Empty — Ready for next roll!", 0);
             this.updateLiveHudCounts([]);
+            return;
+          }
+
+          // If a minor camera bump re-analyzed the exact same unmoved dice in the same positions, stay LOCKED silently
+          if (this.isSameStationaryRoll(detected)) {
+            this.rollState = "LOCKED";
+            this.lockedRollDice = detected.map(d => ({ ...d }));
+            this.currentDetectedDice = this.lockedRollDice;
+            this.updateStateMachineUI(
+              "LOCKED",
+              `✅ Locked ${detected.length} Dice — Ready for next roll`,
+              100
+            );
+            this.updateLiveHudCounts(this.currentDetectedDice);
             return;
           }
 
@@ -1537,6 +1608,41 @@ class DiceTrackerApp {
         });
       }
     }
+  }
+
+  // Returns true if every newly detected die is in the exact same position and has the same value as the already locked roll
+  isSameStationaryRoll(newDice) {
+    if (!this.hadLockedRollBeforeMotion || !this.lastLockedSpatialDice) return false;
+    if (newDice.length === 0 || newDice.length !== this.lastLockedSpatialDice.length) return false;
+
+    const usedPrev = new Uint8Array(this.lastLockedSpatialDice.length);
+    let exactMatches = 0;
+
+    for (let i = 0; i < newDice.length; i++) {
+      const nd = newDice[i];
+      const ncx = nd.x + nd.w * 0.5;
+      const ncy = nd.y + nd.h * 0.5;
+      const tol = Math.max(12, (nd.w || 32) * 0.35);
+
+      let matchedIdx = -1;
+      let bestDist = Infinity;
+      for (let j = 0; j < this.lastLockedSpatialDice.length; j++) {
+        if (usedPrev[j]) continue;
+        const prev = this.lastLockedSpatialDice[j];
+        if (prev.value !== nd.value) continue;
+        const dist = Math.hypot(ncx - prev.cx, ncy - prev.cy);
+        if (dist <= tol && dist < bestDist) {
+          bestDist = dist;
+          matchedIdx = j;
+        }
+      }
+      if (matchedIdx !== -1) {
+        usedPrev[matchedIdx] = 1;
+        exactMatches++;
+      }
+    }
+
+    return exactMatches === newDice.length;
   }
 
   computeRoiMotion(gray, width, rx, ry, rw, rh) {
@@ -1578,13 +1684,14 @@ class DiceTrackerApp {
 
   // Stationary-subset "Scoop Guard": returns true if the newly settled dice are simply a stationary
   // subset of the previously locked dice (i.e. player scooped out failed dice without rolling the rest).
+  // Never suppresses 1 or 2 dice rolls so single-die rolls are always captured cleanly.
   isStationaryScoopSubset(newDice) {
     if (!this.chkScoopGuard || !this.chkScoopGuard.checked) return false;
     if (this.isChainedSimRoll) return false;
     if (!this.hadLockedRollBeforeMotion || !this.lastLockedSpatialDice || this.lastLockedSpatialDice.length === 0) {
       return false;
     }
-    if (newDice.length === 0 || newDice.length >= this.lastLockedSpatialDice.length) {
+    if (newDice.length <= 2 || newDice.length >= this.lastLockedSpatialDice.length) {
       return false;
     }
 
