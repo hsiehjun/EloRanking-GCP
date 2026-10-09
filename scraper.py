@@ -36,6 +36,7 @@ class BestCoastPairingsScraper:
             except Exception:
                 self.db = None
         self.headers = DEFAULT_HEADERS.copy()
+        self.headers["Accept-Encoding"] = "gzip"
         self.request_delay = request_delay
         self._reg_id_cache: Dict[str, Optional[Dict[str, str]]] = {}
         self._user_id_cache: Dict[str, Optional[Dict[str, str]]] = {}

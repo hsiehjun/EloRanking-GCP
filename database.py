@@ -13026,7 +13026,11 @@ class PostgresDatabase:
             try:
                 req = urllib.request.Request(url, headers=headers)
                 with urllib.request.urlopen(req, timeout=3.0) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
+                    raw_bytes = resp.read()
+                    if isinstance(raw_bytes, (bytes, bytearray)) and len(raw_bytes) >= 2 and raw_bytes[:2] == b"\x1f\x8b":
+                        import gzip
+                        raw_bytes = gzip.decompress(raw_bytes)
+                    data = json.loads(raw_bytes.decode("utf-8") if isinstance(raw_bytes, (bytes, bytearray)) else str(raw_bytes))
                     evs = data.get("data", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
                     if not evs:
                         break

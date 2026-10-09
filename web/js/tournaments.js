@@ -611,12 +611,13 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   } else if (typeof eventsData !== 'undefined' && Array.isArray(eventsData)) {
     previewEv = eventsData.find(e => e && String(e.id) === String(eventId)) || null;
   }
-  if (!previewEv && typeof communityState !== 'undefined' && communityState?.overview) {
+  if (!previewEv && typeof communityState !== 'undefined' && communityState) {
     const allEvents = [
-      ...(communityState.overview.events_upcoming || []),
-      ...(communityState.overview.events_recent || []),
-      ...(communityState.overview.upcoming_events || []),
-      ...(communityState.overview.recent_events || [])
+      ...(communityState.majorsList || []),
+      ...(communityState.overview?.events_upcoming || []),
+      ...(communityState.overview?.events_recent || []),
+      ...(communityState.overview?.upcoming_events || []),
+      ...(communityState.overview?.recent_events || [])
     ];
     previewEv = allEvents.find(e => e && String(e.id) === String(eventId)) || null;
   }
@@ -629,22 +630,70 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     previewEv = allHubEvents.find(e => e && String(e.bcp_event_id || e.id) === String(eventId)) || null;
   }
 
-  // If preview metadata exists, populate the Quick-View Modal header & KPI shell immediately at 0ms!
-  if (!isTopEventModal && !hasWarmCache && previewEv) {
+  // Always clear stale modal DOM when switching to a different eventId so a previous tournament never shows through
+  if (!hasWarmCache && (!currentEventData || String(currentEventData.id) !== String(eventId))) {
+    currentEventData = null;
+    eventPlayersCache = [];
+    eventMatchesCache = [];
     const nameEl = document.getElementById('modal-event-name');
-    if (nameEl) nameEl.textContent = previewEv.name || previewEv.event_name || 'Tournament Details';
+    if (nameEl) nameEl.textContent = (previewEv && (previewEv.name || previewEv.event_name)) || 'Loading Tournament...';
     const metaEl = document.getElementById('modal-event-meta');
     if (metaEl) {
-      const loc = [previewEv.city, previewEv.state, previewEv.country].filter(Boolean).join(', ') || 'Online / Unspecified';
-      const dStr = (previewEv.event_date || previewEv.start_date || '').slice(0, 10);
-      const rdsNum = Number(previewEv.num_rounds || previewEv.numberOfRounds || 0);
-      const rds = rdsNum > 0 ? ` • 🔄 ${rdsNum} Rounds` : '';
-      metaEl.innerHTML = `<span>📅 ${escapeHtml(dStr || 'Date TBD')}</span><span> • 📍 ${escapeHtml(loc)}</span><span>${rds}</span>`;
+      if (previewEv) {
+        const loc = [previewEv.city, previewEv.state, previewEv.country].filter(Boolean).join(', ') || 'Online / Unspecified';
+        const dStr = (previewEv.event_date || previewEv.start_date || '').slice(0, 10);
+        const rdsNum = Number(previewEv.num_rounds || previewEv.numberOfRounds || 0);
+        const rds = rdsNum > 0 ? ` • 🔄 ${rdsNum} Rounds` : '';
+        metaEl.innerHTML = `<span>📅 ${escapeHtml(dStr || 'Date TBD')}</span><span> • 📍 ${escapeHtml(loc)}</span><span>${rds}</span>`;
+      } else {
+        metaEl.textContent = 'Syncing tournament metadata from Best Coast Pairings...';
+      }
+    }
+    const badgesEl = document.getElementById('modal-event-badges');
+    if (badgesEl) {
+      if (previewEv && typeof getEventTierBadgeHtml === 'function') {
+        const pCount = Number(previewEv.total_players || 0);
+        const rCount = Number(previewEv.num_rounds || previewEv.numberOfRounds || 0);
+        badgesEl.innerHTML = getEventTierBadgeHtml(pCount, previewEv.name || previewEv.event_name || '', rCount);
+      } else {
+        badgesEl.innerHTML = '';
+      }
+    }
+    const kpisEl = document.getElementById('modal-quick-kpis');
+    if (kpisEl) {
+      const pCount = previewEv ? Number(previewEv.total_players || 0) : '—';
+      const rCount = previewEv ? (Number(previewEv.num_rounds || previewEv.numberOfRounds || 0) || '—') : '—';
+      kpisEl.innerHTML = `
+        <div class="card" style="padding:0.7rem 0.85rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+          <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">👥 Competitors</div>
+          <div style="font-size:1.05rem; font-weight:800; color:#fff; font-family:var(--font-mono);">${escapeHtml(String(pCount))} Players</div>
+          <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem;">Syncing roster...</div>
+        </div>
+        <div class="card" style="padding:0.7rem 0.85rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+          <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">🎲 Format & Rounds</div>
+          <div style="font-size:1.05rem; font-weight:800; color:#38bdf8; font-family:var(--font-mono);">${escapeHtml(String(rCount))} Rounds</div>
+          <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem;">Loading pairings...</div>
+        </div>
+        <div class="card" style="padding:0.7rem 0.85rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+          <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">⚡ Field Strength</div>
+          <div style="font-size:1.05rem; font-weight:800; color:#facc15; font-family:var(--font-mono);">Computing...</div>
+          <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem;">Calculating Elo...</div>
+        </div>
+        <div class="card" style="padding:0.7rem 0.85rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+          <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">⭐ Top Seed</div>
+          <div style="font-size:0.98rem; font-weight:800; color:#4ade80;">Loading...</div>
+          <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem;">—</div>
+        </div>
+      `;
     }
     const qTbody = document.getElementById('modal-quick-tbody');
-    if (qTbody && (!Array.isArray(previewEv.players) || previewEv.players.length === 0)) {
+    if (qTbody) {
       qTbody.innerHTML = '<tr><td colspan="6" class="empty-state" style="padding:2rem;"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading tournament standings & rosters...</div></td></tr>';
     }
+  }
+
+  // If preview metadata exists, populate the Quick-View Modal header & KPI shell immediately at 0ms!
+  if (!isTopEventModal && !hasWarmCache && previewEv) {
     if (typeof bringModalToFront === 'function') {
       bringModalToFront(modal);
     } else {
@@ -1096,6 +1145,10 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       bringModalToFront(modal);
     } else {
       modal.classList.add('active');
+    }
+    const qTbody = document.getElementById('modal-quick-tbody');
+    if (qTbody) {
+      qTbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss); padding:2rem;">Error loading tournament (${escapeHtml(String(eventId))}): ${escapeHtml(err.message)}</td></tr>`;
     }
     if (rbody) {
       rbody.style.opacity = '1';

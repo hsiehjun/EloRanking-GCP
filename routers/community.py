@@ -356,7 +356,7 @@ def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 
         return cached[1]
 
     now_utc = datetime.now(timezone.utc)
-    start_iso = now_utc.strftime("%Y-%m-%dT00:00:00.000Z")
+    start_iso = (now_utc - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00.000Z")
     end_iso = (now_utc + timedelta(days=days_ahead)).strftime("%Y-%m-%dT23:59:59.999Z")
 
     params = {
@@ -375,7 +375,11 @@ def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 
 
     try:
         with urllib.request.urlopen(req, timeout=5.0) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+            raw_bytes = resp.read()
+            if isinstance(raw_bytes, (bytes, bytearray)) and len(raw_bytes) >= 2 and raw_bytes[:2] == b"\x1f\x8b":
+                import gzip
+                raw_bytes = gzip.decompress(raw_bytes)
+            data = json.loads(raw_bytes.decode("utf-8") if isinstance(raw_bytes, (bytes, bytearray)) else str(raw_bytes))
             raw_events = data.get("data", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
     except Exception as e:
         logger.warning(f"Notice during live BCP majors query ({target_sys}): {e}")
@@ -462,8 +466,10 @@ def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 
             "external_url": ev.get("externalUrl") or ev.get("external_url") or f"https://www.bestcoastpairings.com/event/{eid}"
         })
 
-    # If BCP returned fewer than 3 events (or network failed), provide graceful mock fallback
+    # If BCP returned fewer than 3 events (or network failed in offline tests), provide graceful mock fallback
+    used_fallback = False
     if len(normalized) < 3:
+        used_fallback = True
         fallback_events = get_fallback_majors(target_sys)
         for fb in fallback_events:
             if fb["id"] not in seen_ids:
@@ -472,7 +478,9 @@ def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 
     # Sort primarily by tier weight descending, then player count, then date
     normalized.sort(key=lambda x: (-x.get("tier_weight", 0), -x.get("total_players", 0), x.get("event_date", "9999")))
 
-    _bcp_majors_cache[target_sys] = (now_ts, normalized)
+    # If fallback was used due to transient error, expire cache in 15s instead of 2h so next request retries live BCP
+    cache_ts = (now_ts - 7185) if used_fallback else now_ts
+    _bcp_majors_cache[target_sys] = (cache_ts, normalized)
     return normalized
 
 @router.get("/api/community/bcp_majors", summary="Fetch live premier circuit & major tournaments (read-only RAM cache)")
