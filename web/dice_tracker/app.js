@@ -57,6 +57,7 @@ class DiceTrackerApp {
 
     // Hands-Free Auto-Roll State Machine: 'IDLE' | 'ROLLING' | 'SETTLING' | 'LOCKED'
     this.rollState = "IDLE";
+    this.cameraMotionTriggered = false;
     this.lastRoiGray = null;
     this.settledFrameCounter = 0;
     this.settlingBuffer = [];
@@ -98,21 +99,15 @@ class DiceTrackerApp {
     this.simDistractorDice = [];
     this.simFramesRemaining = 0;
 
-    // WebAudio context for crisp lock chime
-    this.audioCtx = null;
-
     this.initDOM();
-    if (window.innerWidth <= 768) {
-      const tuningDetails = document.querySelector(".tuning-panel");
-      if (tuningDetails) tuningDetails.removeAttribute("open");
-    }
     this.ensureCvBuffers(this.canvas.width, this.canvas.height);
     this.initChart();
     this.bindEvents();
     this.requestWakeLock();
     this.initOnnxModel();
     this.updateStatsUI();
-    this.updateStateMachineUI("IDLE", "Ready — Throw dice into tray or click '🎲 Roll 40 Dice (Live CV)'", 0);
+    this.drawIdlePreviewCanvas();
+    this.updateStateMachineUI("IDLE", "Drag green corners or edges to fit your dice tray.", 0);
   }
 
   ensureCvBuffers(width, height) {
@@ -403,10 +398,10 @@ class DiceTrackerApp {
     this.btnStartGame.addEventListener("click", () => this.startGame());
     this.btnEndGame.addEventListener("click", () => this.endGame());
     this.btnToggleCam.addEventListener("click", () => this.toggleCamera());
-    this.btnCaptureRoll.addEventListener("click", () => this.captureCurrentRoll("Manual Lock"));
+    this.btnCaptureRoll.addEventListener("click", () => this.triggerManualCapture());
 
     this.btnSimulateRoll.addEventListener("click", () => {
-      const poolSize = parseInt(this.simDiceCountSelect.value, 10) || 40;
+      const poolSize = parseInt(this.simDiceCountSelect.value, 10) || 20;
       this.currentRollPhase = "Hit Roll";
       this.rollPhaseBadge.innerText = "Phase: Hit Roll";
       this.isChainedSimRoll = true;
@@ -491,7 +486,7 @@ class DiceTrackerApp {
     if (this.btnTestCalibratedRoll) {
       this.btnTestCalibratedRoll.addEventListener("click", () => {
         this.savePlayerDiceProfile(true);
-        const poolSize = parseInt(this.simDiceCountSelect.value, 10) || 40;
+        const poolSize = parseInt(this.simDiceCountSelect.value, 10) || 20;
         this.isChainedSimRoll = true;
         this.startPhysicsSimRoll(poolSize);
       });
@@ -509,6 +504,9 @@ class DiceTrackerApp {
     this.btnResetRoi.addEventListener("click", () => {
       this.roiBox = { x: 0.08, y: 0.08, w: 0.84, h: 0.84 };
       this.lastRoiGray = null;
+      if (!this.isCameraRunning && !this.isSimulationMode) {
+        this.drawIdlePreviewCanvas();
+      }
     });
 
     document.getElementById("btnClearStats").addEventListener("click", () => this.resetStats());
@@ -519,7 +517,7 @@ class DiceTrackerApp {
 
     this.chkSimulation.addEventListener("change", (e) => {
       if (e.target.checked) {
-        const poolSize = parseInt(this.simDiceCountSelect.value, 10) || 40;
+        const poolSize = parseInt(this.simDiceCountSelect.value, 10) || 20;
         this.startPhysicsSimRoll(poolSize);
       } else {
         this.stopSimulationStream();
@@ -554,14 +552,29 @@ class DiceTrackerApp {
     });
   }
 
+  drawIdlePreviewCanvas() {
+    if (!this.ctx || !this.canvas) return;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    this.ctx.fillStyle = "#0b111e";
+    this.ctx.fillRect(0, 0, w, h);
+    const rx = Math.max(8, Math.floor(w * this.roiBox.x));
+    const ry = Math.max(8, Math.floor(h * this.roiBox.y));
+    const rw = Math.min(w - rx - 8, Math.floor(w * this.roiBox.w));
+    const rh = Math.min(h - ry - 8, Math.floor(h * this.roiBox.h));
+    this.ctx.fillStyle = "#131c2e";
+    this.ctx.fillRect(rx, ry, rw, rh);
+    this.drawDetectionsOverlay(this.currentDetectedDice, rx, ry, rw, rh);
+  }
+
   bindCanvasInteractions() {
     const getCanvasCoords = (evt) => {
       const rect = this.canvas.getBoundingClientRect();
       const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
       const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
       return {
-        x: ((clientX - rect.left) / rect.width) * this.canvas.width,
-        y: ((clientY - rect.top) / rect.height) * this.canvas.height
+        x: ((clientX - rect.left) / (rect.width || 640)) * this.canvas.width,
+        y: ((clientY - rect.top) / (rect.height || 480)) * this.canvas.height
       };
     };
 
@@ -571,16 +584,25 @@ class DiceTrackerApp {
       const ry1 = this.roiBox.y * this.canvas.height;
       const rx2 = (this.roiBox.x + this.roiBox.w) * this.canvas.width;
       const ry2 = (this.roiBox.y + this.roiBox.h) * this.canvas.height;
-      const handleRadius = 24;
+      const cornerRadius = 38;
+      const edgeRadius = 26;
 
-      if (Math.hypot(pt.x - rx1, pt.y - ry1) < handleRadius) {
+      if (Math.hypot(pt.x - rx1, pt.y - ry1) < cornerRadius) {
         this.draggingRoiCorner = "TL";
-      } else if (Math.hypot(pt.x - rx2, pt.y - ry1) < handleRadius) {
+      } else if (Math.hypot(pt.x - rx2, pt.y - ry1) < cornerRadius) {
         this.draggingRoiCorner = "TR";
-      } else if (Math.hypot(pt.x - rx1, pt.y - ry2) < handleRadius) {
+      } else if (Math.hypot(pt.x - rx1, pt.y - ry2) < cornerRadius) {
         this.draggingRoiCorner = "BL";
-      } else if (Math.hypot(pt.x - rx2, pt.y - ry2) < handleRadius) {
+      } else if (Math.hypot(pt.x - rx2, pt.y - ry2) < cornerRadius) {
         this.draggingRoiCorner = "BR";
+      } else if (Math.abs(pt.y - ry1) < edgeRadius && pt.x >= rx1 && pt.x <= rx2) {
+        this.draggingRoiCorner = "T";
+      } else if (Math.abs(pt.y - ry2) < edgeRadius && pt.x >= rx1 && pt.x <= rx2) {
+        this.draggingRoiCorner = "B";
+      } else if (Math.abs(pt.x - rx1) < edgeRadius && pt.y >= ry1 && pt.y <= ry2) {
+        this.draggingRoiCorner = "L";
+      } else if (Math.abs(pt.x - rx2) < edgeRadius && pt.y >= ry1 && pt.y <= ry2) {
+        this.draggingRoiCorner = "R";
       } else {
         const hitDie = this.currentDetectedDice.find(
           d => pt.x >= d.x && pt.x <= d.x + d.w && pt.y >= d.y && pt.y <= d.y + d.h
@@ -611,29 +633,46 @@ class DiceTrackerApp {
 
       const x2 = this.roiBox.x + this.roiBox.w;
       const y2 = this.roiBox.y + this.roiBox.h;
+      const minDim = 0.15;
 
       if (this.draggingRoiCorner === "TL") {
-        this.roiBox.x = Math.min(nx, x2 - 0.2);
-        this.roiBox.y = Math.min(ny, y2 - 0.2);
+        this.roiBox.x = Math.min(nx, x2 - minDim);
+        this.roiBox.y = Math.min(ny, y2 - minDim);
         this.roiBox.w = x2 - this.roiBox.x;
         this.roiBox.h = y2 - this.roiBox.y;
       } else if (this.draggingRoiCorner === "TR") {
-        this.roiBox.y = Math.min(ny, y2 - 0.2);
-        this.roiBox.w = Math.max(0.2, nx - this.roiBox.x);
+        this.roiBox.y = Math.min(ny, y2 - minDim);
+        this.roiBox.w = Math.max(minDim, nx - this.roiBox.x);
         this.roiBox.h = y2 - this.roiBox.y;
       } else if (this.draggingRoiCorner === "BL") {
-        this.roiBox.x = Math.min(nx, x2 - 0.2);
+        this.roiBox.x = Math.min(nx, x2 - minDim);
         this.roiBox.w = x2 - this.roiBox.x;
-        this.roiBox.h = Math.max(0.2, ny - this.roiBox.y);
+        this.roiBox.h = Math.max(minDim, ny - this.roiBox.y);
       } else if (this.draggingRoiCorner === "BR") {
-        this.roiBox.w = Math.max(0.2, nx - this.roiBox.x);
-        this.roiBox.h = Math.max(0.2, ny - this.roiBox.y);
+        this.roiBox.w = Math.max(minDim, nx - this.roiBox.x);
+        this.roiBox.h = Math.max(minDim, ny - this.roiBox.y);
+      } else if (this.draggingRoiCorner === "T") {
+        this.roiBox.y = Math.min(ny, y2 - minDim);
+        this.roiBox.h = y2 - this.roiBox.y;
+      } else if (this.draggingRoiCorner === "B") {
+        this.roiBox.h = Math.max(minDim, ny - this.roiBox.y);
+      } else if (this.draggingRoiCorner === "L") {
+        this.roiBox.x = Math.min(nx, x2 - minDim);
+        this.roiBox.w = x2 - this.roiBox.x;
+      } else if (this.draggingRoiCorner === "R") {
+        this.roiBox.w = Math.max(minDim, nx - this.roiBox.x);
       }
       this.lastRoiGray = null;
+      if (!this.isCameraRunning && !this.isSimulationMode) {
+        this.drawIdlePreviewCanvas();
+      }
     };
 
     const onPointerUp = () => {
-      this.draggingRoiCorner = null;
+      if (this.draggingRoiCorner) {
+        this.draggingRoiCorner = null;
+        this.lastRoiGray = null;
+      }
     };
 
     this.canvas.addEventListener("mousedown", onPointerDown);
@@ -1201,8 +1240,18 @@ class DiceTrackerApp {
     this.torchEnabled = false;
     if (this.btnTorchToggle) this.btnTorchToggle.classList.add("hidden");
     this.btnToggleCam.innerText = "📷 Start Camera";
-    this.btnToggleCam.className = "btn btn-secondary";
-    this.btnCaptureRoll.disabled = !this.isSimulationMode;
+    this.btnToggleCam.className = "btn btn-primary";
+    if (!this.isSimulationMode) {
+      this.drawIdlePreviewCanvas();
+    }
+  }
+
+  triggerManualCapture() {
+    if (this.isCameraRunning && this.onnxReady) {
+      this.forceManualCaptureNextFrame = true;
+      return;
+    }
+    this.captureCurrentRoll("Manual Lock");
   }
 
   requestFrameProcessing() {
@@ -1274,13 +1323,49 @@ class DiceTrackerApp {
     return gray;
   }
 
+  // Ultra-fast subsampled ROI motion check directly from RGBA (< 0.1ms per frame, zero SAT)
+  computeFastRoiMotionRgba(data, width, rx, ry, rw, rh) {
+    const sampleStep = 4;
+    const cols = Math.floor(rw / sampleStep);
+    const rows = Math.floor(rh / sampleStep);
+    const sampleLen = cols * rows;
+    if (sampleLen <= 0) return 0;
+
+    if (!this.lastRoiGray || this.lastRoiGray.length !== sampleLen) {
+      this.lastRoiGray = new Uint8Array(sampleLen);
+      let k = 0;
+      for (let r = 0; r < rows; r++) {
+        const rowOff = (ry + r * sampleStep) * width;
+        for (let c = 0; c < cols; c++) {
+          const idx = (rowOff + rx + c * sampleStep) * 4;
+          this.lastRoiGray[k++] = (77 * data[idx] + 150 * data[idx + 1] + 29 * data[idx + 2]) >> 8;
+        }
+      }
+      return 0;
+    }
+
+    let changedPixels = 0;
+    let k = 0;
+    for (let r = 0; r < rows; r++) {
+      const rowOff = (ry + r * sampleStep) * width;
+      for (let c = 0; c < cols; c++) {
+        const idx = (rowOff + rx + c * sampleStep) * 4;
+        const currVal = (77 * data[idx] + 150 * data[idx + 1] + 29 * data[idx + 2]) >> 8;
+        const prevVal = this.lastRoiGray[k];
+        if (Math.abs(currVal - prevVal) > 26) {
+          changedPixels++;
+        }
+        this.lastRoiGray[k] = (prevVal + currVal) >> 1;
+        k++;
+      }
+    }
+    return changedPixels / sampleLen;
+  }
+
   processCurrentCanvasFrame() {
     const t0 = performance.now();
     const width = this.canvas.width;
     const height = this.canvas.height;
-
-    const frameData = this.ctx.getImageData(0, 0, width, height);
-    const data = frameData.data;
 
     // 1. Compute ROI bounds (strictly inside the green Dice Tray Box)
     const rx = Math.max(8, Math.floor(width * this.roiBox.x));
@@ -1288,41 +1373,170 @@ class DiceTrackerApp {
     const rw = Math.min(width - rx - 8, Math.floor(width * this.roiBox.w));
     const rh = Math.min(height - ry - 8, Math.floor(height * this.roiBox.h));
 
-    // 2. Single-pass Fused RGB->Grayscale + Integral Image (SAT) over ROI
-    const gray = this.computeRoiGrayAndSat(data, width, height, rx, ry, rw, rh);
-
-    // 3. Measure motion ONLY inside the Dice Tray ROI (ignores outside table movement)
-    const roiMotion = this.computeRoiMotion(gray, width, rx, ry, rw, rh);
-
-    // 4. Hybrid Detection:
-    // - On live camera with YOLOv8n ONNX loaded: run neural network pass & use authoritative ONNX detections
-    // - On physics simulator or while ONNX is loading: use fast 2-stage adaptive detector
-    let rawDetections;
-    if (this.isCameraRunning && this.onnxReady) {
-      this.runLiveOnnxPass(data, width, height, rx, ry, rw, rh);
-      rawDetections = this.latestOnnxDice;
-    } else {
-      rawDetections = this.detectDiceTwoStageAdaptive(gray, data, width, height, rx, ry, rw, rh, true);
+    // Fast path: While user is actively dragging the green box, skip getImageData/CV for instant 60fps response
+    if (this.draggingRoiCorner) {
+      this.drawDetectionsOverlay(this.currentDetectedDice, rx, ry, rw, rh);
+      return;
     }
 
-    // 5. Update Hands-Free Roll Lifecycle State Machine
-    this.stepRollStateMachine(roiMotion, rawDetections, data, width, height);
+    const frameData = this.ctx.getImageData(0, 0, width, height);
+    const data = frameData.data;
+
+    // 2. Live Camera + YOLOv8n ONNX Mode:
+    //    Run lightweight motion tracking at 60fps (< 0.2ms) and ONLY invoke ONNX once when a roll stops!
+    if (this.isCameraRunning && this.onnxReady) {
+      const roiMotion = this.computeFastRoiMotionRgba(data, width, rx, ry, rw, rh);
+
+      if (this.forceManualCaptureNextFrame && !this.onnxBusy) {
+        this.forceManualCaptureNextFrame = false;
+        const snapshotCopy = new Uint8ClampedArray(data);
+        this.runLiveOnnxPass(snapshotCopy, width, height, rx, ry, rw, rh).then(() => {
+          this.currentDetectedDice = this.latestOnnxDice || [];
+          this.lockedRollDice = this.currentDetectedDice.map(d => ({ ...d }));
+          this.captureCurrentRoll("Manual");
+          this.updateLiveHudCounts(this.currentDetectedDice);
+        });
+      } else {
+        this.stepCameraOnnxRollLifecycle(roiMotion, data, width, height, rx, ry, rw, rh);
+      }
+    } else {
+      // Simulation / Fallback Mode: Single-pass Fused RGB->Grayscale + SAT + 2-stage detector
+      const gray = this.computeRoiGrayAndSat(data, width, height, rx, ry, rw, rh);
+      const roiMotion = this.computeRoiMotion(gray, width, rx, ry, rw, rh);
+      const rawDetections = this.detectDiceTwoStageAdaptive(gray, data, width, height, rx, ry, rw, rh, true);
+      this.stepRollStateMachine(roiMotion, rawDetections, data, width, height);
+    }
 
     const elapsedMs = performance.now() - t0;
     this.cvLatencyEmaMs = this.cvLatencyEmaMs === 0 ? elapsedMs : this.cvLatencyEmaMs * 0.85 + elapsedMs * 0.15;
     if (this.cvPerfBadge && t0 - this._lastPerfUiUpdateMs >= 400) {
       this._lastPerfUiUpdateMs = t0;
-      if (this.isCameraRunning && this.onnxReady && this.onnxLatencyMs > 0) {
-        this.cvPerfBadge.innerText = `🧠 YOLOv8 ${this.onnxLatencyMs.toFixed(0)}ms | ⚡ ${this.cvLatencyEmaMs.toFixed(1)}ms`;
-      } else {
-        const fpsCap = Math.min(120, Math.round(1000 / Math.max(1, this.cvLatencyEmaMs)));
-        this.cvPerfBadge.innerText = `⚡ ${this.cvLatencyEmaMs.toFixed(1)}ms (${fpsCap}fps)`;
-      }
+      const fpsCap = Math.min(60, Math.round(1000 / Math.max(1, this.cvLatencyEmaMs)));
+      this.cvPerfBadge.innerText = `⚡ ${fpsCap} FPS (${this.cvLatencyEmaMs.toFixed(1)}ms)`;
     }
 
-    // 6. Render tray mask, draggable ROI handles, and per-die bounding boxes
+    // Render tray mask, draggable ROI handles, and per-die bounding boxes
     this.drawDetectionsOverlay(this.currentDetectedDice, rx, ry, rw, rh);
     this.updateLiveHudCounts(this.currentDetectedDice);
+  }
+
+  stepCameraOnnxRollLifecycle(roiMotion, data, width, height, rx, ry, rw, rh) {
+    const settleFramesRequired = parseInt(this.bgFilterSlider.value, 10) || 10;
+    const MOTION_ENTER = 0.018;
+    const MOTION_SETTLE = 0.011;
+
+    if (roiMotion > MOTION_ENTER) {
+      this.motionFramesCount++;
+    } else if (roiMotion <= MOTION_SETTLE) {
+      this.motionFramesCount = 0;
+    }
+
+    const isGenuineMotion =
+      roiMotion >= 0.028 ||
+      (roiMotion > MOTION_ENTER && (this.motionFramesCount >= 2 || this.rollState === "ROLLING"));
+
+    // 1. Motion inside the green box -> Dice are rolling!
+    if (isGenuineMotion) {
+      if (this.rollState === "LOCKED" && this.lockedRollDice.length > 0) {
+        this.hadLockedRollBeforeMotion = true;
+      }
+      this.rollState = "ROLLING";
+      this.cameraMotionTriggered = true;
+      this.settledFrameCounter = 0;
+      this.currentDetectedDice = [];
+      this.updateStateMachineUI(
+        "ROLLING",
+        "🟠 Rolling in tray — waiting for dice to stop...",
+        15
+      );
+      return;
+    }
+
+    // 2. Already LOCKED and no new motion -> keep displaying locked roll at 60fps (zero ONNX calls!)
+    if (this.rollState === "LOCKED" && !this.cameraMotionTriggered) {
+      this.currentDetectedDice = this.lockedRollDice;
+      return;
+    }
+
+    // 3. IDLE and no motion yet -> stay IDLE at 60fps (zero ONNX calls!)
+    if (this.rollState === "IDLE" && !this.cameraMotionTriggered) {
+      return;
+    }
+
+    // 4. Motion occurred and has now stopped -> wait for settleFramesRequired still frames, then run 1 ONNX pass
+    if (roiMotion <= MOTION_SETTLE) {
+      this.rollState = "SETTLING";
+      this.settledFrameCounter++;
+      const progressPct = Math.min(100, Math.round((this.settledFrameCounter / settleFramesRequired) * 100));
+
+      if (this.settledFrameCounter < settleFramesRequired) {
+        if (this.settledFrameCounter === 1 || this.settledFrameCounter % 3 === 0) {
+          this.updateStateMachineUI(
+            "SETTLING",
+            `🔵 Dice stopped — locking roll (${this.settledFrameCounter}/${settleFramesRequired})...`,
+            progressPct
+          );
+        } else if (this.settlingProgressBar) {
+          this.settlingProgressBar.style.width = `${progressPct}%`;
+        }
+        return;
+      }
+
+      if (!this.onnxBusy) {
+        this.cameraMotionTriggered = false;
+        this.updateStateMachineUI("SETTLING", "🔵 Capturing settled dice roll...", 100);
+        const snapshotCopy = new Uint8ClampedArray(data);
+        this.runLiveOnnxPass(snapshotCopy, width, height, rx, ry, rw, rh).then(() => {
+          if (this.rollState === "ROLLING" || this.cameraMotionTriggered) return;
+
+          const detected = this.latestOnnxDice || [];
+          if (detected.length === 0) {
+            this.rollState = "IDLE";
+            this.settledFrameCounter = 0;
+            this.currentDetectedDice = [];
+            this.lockedRollDice = [];
+            this.lastLockedSpatialDice = [];
+            this.hadLockedRollBeforeMotion = false;
+            this.updateStateMachineUI("IDLE", "🟢 Tray Empty — Ready for next roll!", 0);
+            this.updateLiveHudCounts([]);
+            return;
+          }
+
+          if (this.isStationaryScoopSubset(detected)) {
+            this.rollState = "LOCKED";
+            this.lockedRollDice = detected.map(d => ({ ...d }));
+            this.currentDetectedDice = this.lockedRollDice;
+            this.lastLockedSpatialDice = this.lockedRollDice.map(d => ({
+              cx: d.x + d.w * 0.5,
+              cy: d.y + d.h * 0.5,
+              value: d.value,
+              w: d.w
+            }));
+            this.updateStateMachineUI(
+              "LOCKED",
+              `🛡️ ${detected.length} stationary dice left — Waiting for next roll`,
+              100
+            );
+            this.updateLiveHudCounts(this.currentDetectedDice);
+            return;
+          }
+
+          this.rollState = "LOCKED";
+          this.lockedRollDice = detected.map(d => ({ ...d }));
+          this.currentDetectedDice = this.lockedRollDice;
+          this.lockedDiceSignature = this.computePoolSignature(this.lockedRollDice);
+          this.lastLockedSpatialDice = this.lockedRollDice.map(d => ({
+            cx: d.x + d.w * 0.5,
+            cy: d.y + d.h * 0.5,
+            value: d.value,
+            w: d.w
+          }));
+          this.hadLockedRollBeforeMotion = true;
+          this.captureCurrentRoll("Auto-Lock");
+          this.updateLiveHudCounts(this.currentDetectedDice);
+        });
+      }
+    }
   }
 
   computeRoiMotion(gray, width, rx, ry, rw, rh) {
@@ -2135,38 +2349,45 @@ class DiceTrackerApp {
     const w = this.canvas.width;
     const h = this.canvas.height;
 
-    this.ctx.fillStyle = "rgba(5, 8, 13, 0.62)";
+    // Darken exterior outside the green Dice Tray box
+    this.ctx.fillStyle = "rgba(5, 8, 13, 0.58)";
     this.ctx.fillRect(0, 0, w, ry);
     this.ctx.fillRect(0, ry + rh, w, h - (ry + rh));
     this.ctx.fillRect(0, ry, rx, rh);
     this.ctx.fillRect(rx + rw, ry, w - (rx + rw), rh);
 
-    this.ctx.strokeStyle = this.rollState === "LOCKED" ? "#a855f7" : "#10b981";
+    const boxColor = this.rollState === "LOCKED" ? "#a855f7" : "#10b981";
+    const handleColor = this.rollState === "LOCKED" ? "#d8b4fe" : "#34d399";
+
+    this.ctx.strokeStyle = boxColor;
     this.ctx.lineWidth = 2.5;
     this.ctx.setLineDash([8, 5]);
     this.ctx.strokeRect(rx, ry, rw, rh);
     this.ctx.setLineDash([]);
 
+    // 4 Corner Grab Handles (TL, TR, BL, BR)
     const corners = [
       [rx, ry],
       [rx + rw, ry],
       [rx, ry + rh],
       [rx + rw, ry + rh]
     ];
-    this.ctx.fillStyle = this.rollState === "LOCKED" ? "#a855f7" : "#34d399";
+    this.ctx.fillStyle = handleColor;
     corners.forEach(([cx, cy]) => {
       this.ctx.beginPath();
-      this.ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+      this.ctx.arc(cx, cy, 8, 0, Math.PI * 2);
       this.ctx.fill();
     });
 
-    this.ctx.fillStyle = "rgba(13, 17, 23, 0.85)";
-    this.ctx.fillRect(rx + 6, ry + 6, 232, 20);
-    this.ctx.fillStyle = "#34d399";
-    this.ctx.font = "bold 11px Inter, sans-serif";
-    this.ctx.fillText("📦 DICE TRAY ROI (Drag Corners to Resize)", rx + 12, ry + 20);
+    // 4 Edge Midpoint Grab Bars (Top, Bottom, Left, Right)
+    const midX = rx + rw * 0.5;
+    const midY = ry + rh * 0.5;
+    this.ctx.fillRect(midX - 16, ry - 3, 32, 6);
+    this.ctx.fillRect(midX - 16, ry + rh - 3, 32, 6);
+    this.ctx.fillRect(rx - 3, midY - 16, 6, 32);
+    this.ctx.fillRect(rx + rw - 3, midY - 16, 6, 32);
 
-    const targetVal = parseInt(this.targetSuccess.value, 10);
+    const targetVal = parseInt(this.targetSuccess.value, 10) || 4;
     const rerollOnes = this.chkRerollOnes && this.chkRerollOnes.checked;
 
     diceList.forEach(d => {
@@ -2174,7 +2395,7 @@ class DiceTrackerApp {
       const isHit = d.value >= targetVal;
       const isRerollOne = rerollOnes && d.value === 1;
 
-      let strokeColor = "#64748b";
+      let strokeColor = "#38bdf8";
       if (isCrit) strokeColor = "#a855f7";
       else if (isHit) strokeColor = "#10b981";
       else if (isRerollOne) strokeColor = "#f59e0b";
@@ -2198,7 +2419,7 @@ class DiceTrackerApp {
       this.ctx.fillStyle = "#ffffff";
       this.ctx.font = "bold 12px JetBrains Mono, sans-serif";
       const label = d.isCustomSymbol ? "★6" : `${d.value}`;
-      this.ctx.fillText(label, tagX + (d.isCustomSymbol ? 10 : 10), tagY + 13);
+      this.ctx.fillText(label, tagX + 10, tagY + 13);
     });
   }
 
@@ -2484,45 +2705,11 @@ class DiceTrackerApp {
   }
 
   // ============================================================================
-  // AUDIO / VOICE ANNOUNCE & OMNITACTICA-COMPATIBLE ROLL RECORDING
+  // AUTOMATIC ROLL RECORDING & CUMULATIVE HISTORY
   // ============================================================================
-  playLockChime() {
-    try {
-      if (!this.audioCtx) {
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        if (AudioContextClass) this.audioCtx = new AudioContextClass();
-      }
-      if (this.audioCtx && this.audioCtx.state === "suspended") {
-        this.audioCtx.resume();
-      }
-      if (this.audioCtx) {
-        const osc = this.audioCtx.createOscillator();
-        const gain = this.audioCtx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(880, this.audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(1320, this.audioCtx.currentTime + 0.09);
-        gain.gain.setValueAtTime(0.12, this.audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.audioCtx.currentTime + 0.12);
-        osc.connect(gain);
-        gain.connect(this.audioCtx.destination);
-        osc.start();
-        osc.stop(this.audioCtx.currentTime + 0.12);
-      }
-    } catch (_e) {}
-  }
+  playLockChime() {}
 
-  announceRollVoice(count, hits, crits, targetVal) {
-    if (!this.chkVoiceReadout || !this.chkVoiceReadout.checked) return;
-    if (!("speechSynthesis" in window)) return;
-    try {
-      window.speechSynthesis.cancel();
-      const msg = new SpeechSynthesisUtterance(
-        `${count} dice. ${hits} hits on ${targetVal} plus, including ${crits} sixes.`
-      );
-      msg.rate = 1.15;
-      window.speechSynthesis.speak(msg);
-    } catch (_e) {}
-  }
+  announceRollVoice() {}
 
   resolveRollPlayerAttribution(diceList) {
     if (this.rollerAttributionMode === "1") return 1;
@@ -2542,7 +2729,7 @@ class DiceTrackerApp {
     const diceValues = this.currentDetectedDice.map(d => d.value);
     const totalSum = diceValues.reduce((a, b) => a + b, 0);
     const avg = totalSum / diceValues.length;
-    const targetVal = parseInt(this.targetSuccess.value, 10);
+    const targetVal = parseInt(this.targetSuccess.value, 10) || 4;
     const successCount = diceValues.filter(v => v >= targetVal).length;
     const failCount = diceValues.length - successCount;
     const critsCount = diceValues.filter(v => v === 6).length;
@@ -2551,7 +2738,6 @@ class DiceTrackerApp {
     const playerName = playerNum === 2 ? "Player 2" : "Player 1";
     const nowIso = new Date().toISOString();
 
-    // Unified OmniTactica + WarDice CV roll object
     const rollObj = {
       id: Date.now() + Math.floor(Math.random() * 1000),
       rollNum: this.history.length + 1,
@@ -2585,21 +2771,18 @@ class DiceTrackerApp {
     this.rollState = "LOCKED";
     if (this.btnUndoLastRoll) this.btnUndoLastRoll.disabled = false;
 
-    const pTag = playerNum === 2 ? "🔴 P2" : "🔵 P1";
     this.updateStateMachineUI(
       "LOCKED",
-      `✅ Locked Roll #${rollObj.rollNum} [${pTag} • ${triggerSource}]: ${diceValues.length} dice → ${successCount} Hits (${targetVal}+), ${critsCount} Crits (6s). Scoop dice to roll again!`,
+      `✅ Captured Roll #${rollObj.rollNum} (${diceValues.length} dice, Sum ${totalSum}, Avg ${avg.toFixed(2)}) — Waiting for next roll!`,
       100
     );
 
-    this.btnRerollCount.innerText = successCount;
-    this.btnRerollHits.disabled = successCount === 0;
-
-    this.playLockChime();
-    this.announceRollVoice(diceValues.length, successCount, critsCount, targetVal);
+    if (this.btnRerollCount) this.btnRerollCount.innerText = successCount;
+    if (this.btnRerollHits) this.btnRerollHits.disabled = successCount === 0;
 
     this.updateStatsUI();
     this.renderLastRollBadges(diceValues);
+    this.syncToGameTrackerLocalHistory();
   }
 
   // Push recorded CV rolls into OmniTactica's Game Tracker localStorage (`gt-dice-history-v2`)
@@ -2637,12 +2820,6 @@ class DiceTrackerApp {
       });
       const merged = [...toPrepend, ...existing].slice(0, 100);
       localStorage.setItem("gt-dice-history-v2", JSON.stringify(merged));
-      if (this.syncFeedbackText) {
-        this.syncFeedbackText.innerText = `✅ Synced ${addedCount} new CV roll(s) to Game Tracker (${merged.length} total in gt-dice-history-v2)`;
-        setTimeout(() => {
-          if (this.syncFeedbackText) this.syncFeedbackText.innerText = "";
-        }, 4000);
-      }
     } catch (err) {
       console.error("Failed to sync CV rolls to localStorage:", err);
     }
@@ -2689,7 +2866,7 @@ class DiceTrackerApp {
   }
 
   recalculateRollEntry(roll) {
-    const targetVal = parseInt(this.targetSuccess.value, 10);
+    const targetVal = parseInt(this.targetSuccess.value, 10) || 4;
     roll.count = roll.values.length;
     roll.dice_count = roll.values.length;
     roll.results = [...roll.values];
@@ -2722,7 +2899,7 @@ class DiceTrackerApp {
     const totalSum = this.distribution.reduce((acc, count, val) => acc + count * val, 0);
     const grandAvg = totalDice > 0 ? (totalSum / totalDice).toFixed(2) : "0.00";
 
-    const targetVal = parseInt(this.targetSuccess.value, 10);
+    const targetVal = parseInt(this.targetSuccess.value, 10) || 4;
     let totalSuccesses = 0;
     for (let v = targetVal; v <= 6; v++) {
       totalSuccesses += this.distribution[v];
@@ -2742,7 +2919,7 @@ class DiceTrackerApp {
   renderLastRollBadges(values) {
     this.lastRollDiceList.innerHTML = "";
     if (!values || values.length === 0) {
-      this.lastRollDiceList.innerHTML = '<span class="placeholder-text" style="font-size:0.8rem;color:#64748b;">No rolls recorded yet. Throw dice into the tray!</span>';
+      this.lastRollDiceList.innerHTML = '<span class="placeholder-text" style="font-size:0.8rem;color:#64748b;">No rolls captured yet. Roll dice inside the green box!</span>';
       return;
     }
 
@@ -2766,13 +2943,12 @@ class DiceTrackerApp {
     if (filtered.length === 0) {
       this.historyTableBody.innerHTML = `
         <tr>
-          <td colspan="11" class="text-center text-muted">No rolls recorded yet. Roll dice in the tray or click "🎲 Roll 40 Dice (Live CV)"!</td>
+          <td colspan="9" class="text-center text-muted">No rolls captured yet. Roll dice inside the green tray box to record automatically!</td>
         </tr>`;
       return;
     }
 
     this.historyTableBody.innerHTML = "";
-    const targetVal = parseInt(this.targetSuccess.value, 10);
 
     filtered.forEach(r => {
       const tr = document.createElement("tr");
@@ -2781,25 +2957,18 @@ class DiceTrackerApp {
         .map(v => `<span class="dice-badge dice-${v}" style="width:22px;height:22px;font-size:0.72rem">${v}</span>`)
         .join(" ");
 
-      const hitsNow = r.values.filter(v => v >= targetVal).length;
       const critsNow = r.values.filter(v => v === 6).length;
       const onesNow = r.values.filter(v => v === 1).length;
-      const pNum = r.player_num || 1;
-      const playerPill = pNum === 2
-        ? `<span style="color:#fb7185;font-weight:800;font-size:0.74rem;">🔴 P2</span>`
-        : `<span style="color:#38bdf8;font-weight:800;font-size:0.74rem;">🔵 P1</span>`;
 
       tr.className = "history-row";
       tr.innerHTML = `
         <td class="hist-col-num"><strong>#${r.rollNum}</strong></td>
-        <td class="hist-col-player">${playerPill}</td>
-        <td class="hist-col-phase"><span class="badge status-inactive">${r.phase || "Roll"}</span></td>
         <td class="hist-col-time">${r.time}</td>
         <td class="hist-col-pool"><strong>${r.count}d</strong></td>
         <td class="hist-col-badges"><div class="history-badges-cell">${badgesHTML}</div></td>
-        <td class="hist-col-hits"><span class="mobile-stat-lbl">Hits: </span><strong style="color:${hitsNow > 0 ? "#34d399" : "#94a3b8"}">${hitsNow}/${r.count} (${targetVal}+)</strong></td>
         <td class="hist-col-crits"><span class="mobile-stat-lbl">6s: </span><strong style="color:#c084fc">${critsNow}</strong></td>
         <td class="hist-col-ones"><span class="mobile-stat-lbl">1s: </span><strong style="color:#f87171">${onesNow}</strong></td>
+        <td class="hist-col-sum"><span class="mobile-stat-lbl">Sum: </span><strong>${r.sum}</strong></td>
         <td class="hist-col-avg"><span class="mobile-stat-lbl">Avg: </span><strong>${r.avg}</strong></td>
         <td class="hist-col-actions">
           <button class="btn btn-sm btn-secondary" onclick="app.openEditModal(${r.id})">✏️</button>

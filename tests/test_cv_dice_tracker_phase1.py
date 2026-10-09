@@ -794,6 +794,147 @@ console.log(JSON.stringify({
         self.assertIn("const canvasAspect = this.canvas.width / this.canvas.height;", app_js)
         self.assertIn("const videoAspect = vw / vh;", app_js)
 
+    def test_zero_lag_camera_onnx_roll_lifecycle_and_unobstructed_roi_box(self):
+        """
+        Verify:
+        1. #hudBadge is outside #viewfinder and styled position: static so nothing covers the green ROI box.
+        2. Live camera ONNX roll lifecycle runs 0 ONNX passes during IDLE, ROLLING, and LOCKED states,
+           and runs exactly 1 ONNX pass when dice finish settling, automatically accumulating each roll set.
+        """
+        html_text = (ROOT_DIR / "web" / "dice_tracker" / "index.html").read_text(encoding="utf-8")
+        css_text = (ROOT_DIR / "web" / "dice_tracker" / "styles.css").read_text(encoding="utf-8")
+        viewfinder_idx = html_text.index('id="viewfinder"')
+        viewfinder_end = html_text.index("</div>", html_text.index('id="scannerOverlay"')) + 6
+        hud_idx = html_text.index('id="hudBadge"')
+        self.assertGreater(
+            hud_idx,
+            viewfinder_end,
+            "#hudBadge must be placed outside #viewfinder so it never covers the green ROI box!",
+        )
+        self.assertIn("position: static;", css_text)
+
+        node_script = r"""
+const fs = require('fs');
+class DummyCanvas {
+  constructor() { this.width = 640; this.height = 480; }
+  getContext() {
+    return {
+      fillRect(){}, strokeRect(){}, beginPath(){}, arc(){}, fill(){}, stroke(){},
+      setLineDash(){}, fillText(){}, clearRect(){}, save(){}, restore(){}, moveTo(){}, lineTo(){},
+      getImageData() { return { data: new Uint8ClampedArray(640*480*4) }; }
+    };
+  }
+  addEventListener(){}
+  getBoundingClientRect() { return { width: 640, height: 480, left: 0, top: 0 }; }
+}
+function makeEl(id) {
+  if (id === 'outputCanvas' || id === 'distributionChart') return new DummyCanvas();
+  return {
+    id, style: {}, value: id === 'bgFilterSlider' ? '10' : '4', checked: true,
+    innerText: '', innerHTML: '', disabled: false,
+    classList: { add(){}, remove(){}, toggle(){} },
+    addEventListener(){}, appendChild(){}, querySelectorAll(){ return []; }
+  };
+}
+const els = {};
+global.window = { addEventListener(){}, localStorage: { getItem(){ return null; }, setItem(){} } };
+global.localStorage = global.window.localStorage;
+global.navigator = {};
+global.document = {
+  getElementById(id) { if (!els[id]) els[id] = makeEl(id); return els[id]; },
+  createElement(t) { return t === 'canvas' ? new DummyCanvas() : makeEl(t); },
+  addEventListener(){}
+};
+eval(fs.readFileSync('web/dice_tracker/app.js', 'utf8') + '\nglobal.DiceTrackerApp = DiceTrackerApp;');
+
+(async () => {
+  const app = new DiceTrackerApp();
+  app.isCameraRunning = true;
+  app.onnxReady = true;
+  let onnxCalls = 0;
+  let nextMockDice = [];
+  app.runLiveOnnxPass = async () => {
+    onnxCalls++;
+    app.latestOnnxDice = nextMockDice;
+  };
+
+  const dummyData = new Uint8ClampedArray(640 * 480 * 4);
+  // 1. 20 frames of IDLE -> 0 ONNX calls
+  for (let i = 0; i < 20; i++) {
+    app.stepCameraOnnxRollLifecycle(0.0, dummyData, 640, 480, 50, 40, 540, 400);
+  }
+  const callsAfterIdle = onnxCalls;
+
+  // 2. Roll #1: 8 frames of ROLLING (motion=0.06) -> 0 ONNX calls while dice are tumbling
+  for (let i = 0; i < 8; i++) {
+    app.stepCameraOnnxRollLifecycle(0.06, dummyData, 640, 480, 50, 40, 540, 400);
+  }
+  const callsDuringRolling = onnxCalls;
+
+  // 3. Dice stop rolling: 10 frames of stillness -> triggers exactly 1 ONNX pass on frame 10
+  nextMockDice = [
+    { x: 150, y: 150, w: 36, h: 36, value: 6, owner: 1 },
+    { x: 250, y: 150, w: 36, h: 36, value: 4, owner: 1 },
+    { x: 350, y: 150, w: 36, h: 36, value: 2, owner: 1 }
+  ];
+  for (let i = 0; i < 10; i++) {
+    app.stepCameraOnnxRollLifecycle(0.0, dummyData, 640, 480, 50, 40, 540, 400);
+  }
+  await new Promise(r => setTimeout(r, 10));
+  const callsAfterRoll1Lock = onnxCalls;
+  const historyAfterRoll1 = app.history.length;
+
+  // 4. 30 frames of LOCKED waiting for next roll -> 0 extra ONNX calls
+  for (let i = 0; i < 30; i++) {
+    app.stepCameraOnnxRollLifecycle(0.0, dummyData, 640, 480, 50, 40, 540, 400);
+  }
+  const callsDuringLockedWait = onnxCalls;
+
+  // 5. Roll #2: 5 frames of ROLLING -> 10 frames of stillness -> triggers 1 ONNX pass & adds Roll #2
+  nextMockDice = [
+    { x: 180, y: 220, w: 36, h: 36, value: 5, owner: 1 },
+    { x: 280, y: 220, w: 36, h: 36, value: 6, owner: 1 }
+  ];
+  for (let i = 0; i < 5; i++) {
+    app.stepCameraOnnxRollLifecycle(0.06, dummyData, 640, 480, 50, 40, 540, 400);
+  }
+  for (let i = 0; i < 10; i++) {
+    app.stepCameraOnnxRollLifecycle(0.0, dummyData, 640, 480, 50, 40, 540, 400);
+  }
+  await new Promise(r => setTimeout(r, 10));
+  const callsAfterRoll2Lock = onnxCalls;
+  const historyAfterRoll2 = app.history.length;
+  const totalCumulativeDice = app.distribution.slice(1).reduce((a, b) => a + b, 0);
+
+  console.log(JSON.stringify({
+    callsAfterIdle,
+    callsDuringRolling,
+    callsAfterRoll1Lock,
+    historyAfterRoll1,
+    callsDuringLockedWait,
+    callsAfterRoll2Lock,
+    historyAfterRoll2,
+    totalCumulativeDice
+  }));
+})();
+"""
+        proc = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(ROOT_DIR),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        res = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertEqual(res["callsAfterIdle"], 0)
+        self.assertEqual(res["callsDuringRolling"], 0)
+        self.assertEqual(res["callsAfterRoll1Lock"], 1)
+        self.assertEqual(res["historyAfterRoll1"], 1)
+        self.assertEqual(res["callsDuringLockedWait"], 1)
+        self.assertEqual(res["callsAfterRoll2Lock"], 2)
+        self.assertEqual(res["historyAfterRoll2"], 2)
+        self.assertEqual(res["totalCumulativeDice"], 5)
+
 
 if __name__ == "__main__":
     unittest.main()

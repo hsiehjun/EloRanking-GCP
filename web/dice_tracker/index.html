@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#070b14">
-  <title>OmniTactica • WarDice CV Lab (Admin)</title>
+  <title>OmniTactica • WarDice CV Tracker</title>
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="manifest" href="/dice-tracker/manifest.json">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,24 +20,20 @@
     <header class="top-bar">
       <div class="brand">
         <a href="/app" style="text-decoration:none; display:flex; align-items:center;">
-          <img src="/assets/logo.svg" alt="OmniTactica" style="width:32px; height:32px; border-radius:6px;" onerror="this.style.display='none'">
+          <img src="/assets/logo.svg" alt="OmniTactica" style="width:30px; height:30px; border-radius:6px;" onerror="this.style.display='none'">
         </a>
         <div>
           <h1>
             OmniTactica <span class="accent">WarDice CV</span>
-            <span class="admin-pill">🛡️ Admin Sandbox</span>
           </h1>
-          <span class="subtitle-tag" id="engineBadge">Engine: Hybrid YOLOv8n Dice Neural Net (ONNX) + Live Motion Tracker</span>
+          <span class="subtitle-tag" id="engineBadge">Auto Roll Capture • YOLOv8n Dice Neural Net</span>
         </div>
       </div>
       <div class="session-controls">
-        <span id="cvPerfBadge" class="perf-telemetry-pill" title="Real-time CV frame processing latency">⚡ CV: -- ms</span>
-        <span id="wakeLockStatus" class="wake-lock-tag">🔒 Keep Awake</span>
-        <span id="sessionStatus" class="badge status-active">Session Active</span>
-        <button id="btnStartGame" class="btn btn-primary btn-sm">New Session</button>
-        <button id="btnEndGame" class="btn btn-danger btn-sm">Pause</button>
+        <span id="cvPerfBadge" class="perf-telemetry-pill" title="Frame processing latency">⚡ 60 FPS</span>
+        <button id="btnClearStats" class="btn btn-outline btn-sm" title="Clear all recorded rolls and reset stats">🗑️ Reset All</button>
         <a href="/11th/tracker" class="nav-link-btn" title="Open Live Game Tracker">🎲 Tracker</a>
-        <a href="/admin" class="nav-link-btn" title="Open Admin Governance Cockpit">🛡️ Admin</a>
+        <a href="/admin" class="nav-link-btn" title="Open Admin Cockpit">🛡️ Admin</a>
         <a href="/app" class="nav-link-btn" title="Return to Main App">🏠 App</a>
       </div>
     </header>
@@ -45,193 +41,68 @@
     <!-- Main Content Grid -->
     <main class="dashboard-grid">
 
-      <!-- Left Column: Camera Feed & Hands-Free Scanner -->
+      <!-- Left Column: Camera & Adjustable Green Dice Tray Box -->
       <section class="card vision-card">
         <div class="card-header">
-          <h2>📱 Hands-Free Dice Tray Scanner</h2>
-          <div class="mode-toggles">
-            <label class="toggle-label" title="Automatically locks and counts when dice stop moving in the tray, and ignores stationary scoop subsets">
-              <input type="checkbox" id="chkAutoCapture" checked>
-              <span>Auto-Roll Lock</span>
-            </label>
-            <label class="toggle-label" title="Suppresses duplicate locks when a hand scoops failed dice out of the tray without rolling the rest">
-              <input type="checkbox" id="chkScoopGuard" checked>
-              <span>🛡️ Scoop Guard</span>
-            </label>
-            <label class="toggle-label" title="Read roll results out loud via voice synthesis when locked">
-              <input type="checkbox" id="chkVoiceReadout" checked>
-              <span>🔊 Voice</span>
-            </label>
-            <label class="toggle-label" title="Run live physics dice tray stream through the real CV pipeline">
-              <input type="checkbox" id="chkSimulation">
-              <span>Live Sim Feed</span>
-            </label>
-          </div>
-        </div>
-
-        <!-- Camera, Hardware Torch/Zoom & Tray Calibration Row -->
-        <div class="camera-select-row">
-          <div class="camera-lens-group">
-            <label for="cameraSelect" class="lens-label">Lens:</label>
-            <select id="cameraSelect" class="select-input">
-              <option value="environment">Rear Ultra-Wide / Main</option>
+          <h2>📷 Dice Tray Camera</h2>
+          <div class="camera-toolbar">
+            <select id="cameraSelect" class="select-input" title="Select Camera Lens">
+              <option value="environment">Rear Camera</option>
               <option value="user">Front Camera</option>
             </select>
-            <select id="diceColorMode" class="select-input" title="Support both white dice (dark pips) and dark/colored Warhammer dice (light pips)">
-              <option value="auto" selected>🎨 Dice: Auto (Light &amp; Dark)</option>
-              <option value="light">⚪ Light Dice (Dark Pips)</option>
-              <option value="dark">⚫ Dark/Colored Dice (Light Pips)</option>
-            </select>
-            <button id="btnTorchToggle" class="btn btn-sm btn-outline hidden" title="Toggle device camera flashlight/torch for shadow-free tray lighting">🔦 Torch</button>
-            <div class="zoom-control-pill" title="Camera Zoom (1.0x - 3.0x)">
-              <span style="font-size:0.72rem;color:#94a3b8;">🔍 <b id="camZoomVal" style="color:#38bdf8;">1.0x</b></span>
-              <input type="range" id="camZoomSlider" min="1" max="3" step="0.1" value="1" style="width:62px;accent-color:#38bdf8;">
-            </div>
-          </div>
-          <div class="camera-calib-group">
-            <button id="btnSetPlayerDice" class="btn btn-sm btn-accent" title="Pre-game calibration: configure Player 1 &amp; Player 2 dice colors and custom 6 symbols">🎯 Set Your Dice</button>
-            <button id="btnResetRoi" class="btn btn-sm btn-outline" title="Reset draggable green Dice Tray ROI box">📐 Reset Box</button>
+            <button id="btnResetRoi" class="btn btn-sm btn-outline" title="Reset green Dice Tray box to default bounds">📐 Reset Tray Box</button>
           </div>
         </div>
 
-        <!-- Active Roller Attribution Bar (OmniTactica P1 / P2 Integration) -->
-        <div class="player-filter-bar roller-attr-bar">
-          <div class="roller-seg-wrap">
-            <span class="attr-label">Roller:</span>
-            <div class="seg-group" id="rollerAttributionGroup">
-              <button type="button" class="seg-btn active" data-roller="auto" id="btnRollerAuto" title="Auto-detect whether Player 1 or Player 2 rolled based on calibrated dice colors">⚡ Auto (Color)</button>
-              <button type="button" class="seg-btn" data-roller="1" id="btnRollerP1">🔵 P1</button>
-              <button type="button" class="seg-btn" data-roller="2" id="btnRollerP2">🔴 P2</button>
-            </div>
-          </div>
-          <div class="roller-actions-wrap">
-            <button type="button" id="btnUndoLastRoll" class="btn btn-sm btn-outline" disabled title="Remove the most recent locked roll from history and distribution">↩ Undo</button>
-            <button type="button" id="btnSyncToTracker" class="btn btn-sm btn-secondary" title="Push recorded CV rolls to OmniTactica Game Tracker local dice history (gt-dice-history-v2)">📤 Sync to Tracker</button>
-          </div>
-        </div>
-
-        <!-- Live State Machine Status Bar -->
+        <!-- Live Roll Lifecycle Status Bar -->
         <div class="state-machine-bar" id="stateMachineBar">
           <div class="state-pill state-idle" id="statePill">🟢 READY — Waiting for Roll</div>
           <div class="settling-progress-wrap">
             <div class="settling-progress-bar" id="settlingProgressBar" style="width: 0%"></div>
           </div>
-          <span class="state-hint" id="stateHint">Drag green corners to match your dice tray. Outside dice are ignored.</span>
+          <span class="state-hint" id="stateHint">Drag green corners or edges to fit your dice tray.</span>
         </div>
 
+        <!-- Unobstructed Camera Viewfinder (ZERO overlays covering the green box!) -->
         <div class="viewfinder-container" id="viewfinder">
-          <!-- Video Element -->
           <video id="webcam" autoplay playsinline muted class="hidden"></video>
-          <!-- Processing & Interactive ROI Canvas -->
           <canvas id="outputCanvas"></canvas>
-
-          <!-- Status Overlay -->
-          <div id="scannerOverlay" class="scanner-overlay">
-            <span id="scannerText">Tap "📷 Start Camera" to scan your physical dice tray, or tap "🎲 Roll 40 Dice (Live CV)" below to test hands-free auto-detection!</span>
-          </div>
-
-          <!-- Detection HUD Badge -->
-          <div class="hud-badge" id="hudBadge">
-            <div>
-              Tray Dice: <strong id="hudDiceCount">0</strong> |
-              Hits (<span id="hudTargetLabel">4+</span>): <strong id="hudHitsCount" style="color:#34d399">0</strong> |
-              Crits (6s): <strong id="hudCritsCount" style="color:#c084fc">0</strong> |
-              1s: <strong id="hudOnesCount" style="color:#f87171">0</strong> |
-              Sum: <strong id="hudDiceSum">0</strong>
-            </div>
-            <div id="hudOwnerSplit" style="font-size:0.74rem;color:#94a3b8;font-family:var(--font-mono);">
-              🔵P1: 0 | 🔴P2: 0
-            </div>
+          <div id="scannerOverlay" class="scanner-overlay hidden">
+            <span id="scannerText"></span>
           </div>
         </div>
 
-        <!-- Primary Action Bar: Camera + Warhammer Combat Roll Chain -->
+        <!-- Live Tray Readout Bar (Placed cleanly BELOW the camera so it never covers the green box) -->
+        <div class="hud-badge" id="hudBadge">
+          <div>
+            Tray Dice: <strong id="hudDiceCount">0</strong> |
+            6s: <strong id="hudCritsCount" style="color:#c084fc">0</strong> |
+            1s: <strong id="hudOnesCount" style="color:#f87171">0</strong> |
+            4+: <strong id="hudHitsCount" style="color:#34d399">0</strong> |
+            Sum: <strong id="hudDiceSum">0</strong>
+          </div>
+          <span style="font-size:0.72rem;color:#94a3b8;">Drag green box corners/sides to adjust tray</span>
+        </div>
+
+        <!-- Primary Camera & Roll Actions -->
         <div class="camera-actions">
-          <button id="btnToggleCam" class="btn btn-secondary">📷 Start Camera</button>
-          <button id="btnCaptureRoll" class="btn btn-accent" disabled>🎯 Lock Roll Now</button>
-          <button id="btnSimulateRoll" class="btn btn-primary">🎲 Roll 40 Dice (Live CV)</button>
-          <button id="btnRerollHits" class="btn btn-outline" disabled title="Scoop failed dice and roll only the successful hits for Wounds/Saves!">⚔️ Scoop &amp; Roll Hits (<span id="btnRerollCount">0</span>)</button>
+          <button id="btnToggleCam" class="btn btn-primary">📷 Start Camera</button>
+          <button id="btnCaptureRoll" class="btn btn-accent">🎯 Capture Roll Now</button>
+          <button type="button" id="btnUndoLastRoll" class="btn btn-outline" disabled title="Undo the most recent captured roll">↩ Undo Last</button>
+          <button id="btnSimulateRoll" class="btn btn-secondary" title="Run a test roll in the tray">🎲 Test Roll</button>
         </div>
-
-        <!-- Detection Settings & Warhammer Rules Tuning -->
-        <details class="tuning-panel" open>
-          <summary>⚙️ Wargame Combat Rules &amp; CV Calibration</summary>
-          <div class="controls-grid">
-            <div class="control-group">
-              <label for="targetSuccess">Target Threshold (Hit / Wound / Save):</label>
-              <select id="targetSuccess" class="select-input">
-                <option value="2">2+ (BS/WS 2+)</option>
-                <option value="3">3+ (Space Marines)</option>
-                <option value="4" selected>4+ (Standard)</option>
-                <option value="5">5+ (Guard / Orks)</option>
-                <option value="6">6+ (Criticals Only)</option>
-              </select>
-            </div>
-            <div class="control-group">
-              <label for="simDiceCountSelect">Test Pool Size &amp; Style:</label>
-              <div style="display:flex;gap:0.35rem;">
-                <select id="simDiceCountSelect" class="select-input" style="flex:1;">
-                  <option value="10">10 Dice Pool</option>
-                  <option value="20">20 Dice Pool</option>
-                  <option value="30">30 Dice Pool</option>
-                  <option value="40" selected>40 Dice Pool (Horde)</option>
-                </select>
-                <label class="toggle-label" title="Place spare wound/CP dice OUTSIDE the tray to verify ROI masking ignores them">
-                  <input type="checkbox" id="chkOutsideDistractors" checked>
-                  <span>Outside-Tray Dice</span>
-                </label>
-              </div>
-            </div>
-            <div class="control-group">
-              <label for="thresholdSlider">Pip Contrast Sensitivity: <span id="thresholdVal">22</span></label>
-              <input type="range" id="thresholdSlider" min="8" max="60" value="22">
-            </div>
-            <div class="control-group">
-              <label for="bgFilterSlider">Motion Settle Time (frames): <span id="bgFilterVal">12</span></label>
-              <input type="range" id="bgFilterSlider" min="5" max="25" value="12">
-            </div>
-            <div class="control-group">
-              <label for="minDiceSize">Min Die Size (px): <span id="minDiceVal">22</span></label>
-              <input type="range" id="minDiceSize" min="12" max="80" value="22">
-            </div>
-            <div class="control-group">
-              <label class="toggle-label" style="margin-top:0.35rem;" title="Classify dice with custom faction logos/skulls on the 6 face as 6s">
-                <input type="checkbox" id="chkCustomSixSymbol" checked>
-                <span>🎖️ Detect Faction Symbol as 6</span>
-              </label>
-              <label class="toggle-label" title="Auto re-roll 1s highlight">
-                <input type="checkbox" id="chkRerollOnes">
-                <span>♻️ Highlight 1s (Re-roll 1s)</span>
-              </label>
-            </div>
-          </div>
-        </details>
       </section>
 
-      <!-- Right Column: Stats & Analytics (OmniTactica Distribution Parity) -->
+      <!-- Right Column: Cumulative Dice Stats & Latest Roll -->
       <section class="card stats-card">
         <div class="card-header">
-          <h2>📊 Live Combat Tally &amp; Distribution</h2>
-          <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
-            <span class="badge status-inactive" id="rollPhaseBadge">Phase: Hit / General</span>
-            <button id="btnClearStats" class="btn btn-sm btn-outline">Reset Stats</button>
-          </div>
-        </div>
-
-        <!-- Player Distribution View Filter (All / Player 1 / Player 2) -->
-        <div class="player-filter-bar" style="padding:0.35rem 0.55rem;">
-          <span style="font-size:0.73rem;font-weight:700;color:#94a3b8;">View Stats For:</span>
-          <div class="seg-group" id="statsFilterGroup">
-            <button type="button" class="seg-btn active" data-filter="all" id="btnFilterAll">📊 All Rolls</button>
-            <button type="button" class="seg-btn" data-filter="1" id="btnFilterP1">🔵 Player 1</button>
-            <button type="button" class="seg-btn" data-filter="2" id="btnFilterP2">🔴 Player 2</button>
-          </div>
-          <span id="expectedPerFaceBadge" style="font-size:0.72rem;font-family:var(--font-mono);color:#94a3b8;">Expected (N/6): 0.0</span>
+          <h2>📊 Cumulative Roll Stats</h2>
+          <span id="expectedPerFaceBadge" style="font-size:0.74rem;font-family:var(--font-mono);color:#94a3b8;">Expected (N/6): 0.0</span>
         </div>
 
         <div class="metrics-row">
           <div class="metric-box">
-            <span class="metric-title">Total Rolls</span>
+            <span class="metric-title">Rolls Captured</span>
             <span class="metric-value" id="statTotalRolls">0</span>
           </div>
           <div class="metric-box">
@@ -243,12 +114,12 @@
             <span class="metric-value" id="statAvgRoll">0.00</span>
           </div>
           <div class="metric-box highlight">
-            <span class="metric-title">Success Rate</span>
+            <span class="metric-title">4+ Rate</span>
             <span class="metric-value" id="statSuccessPct">0%</span>
           </div>
         </div>
 
-        <!-- Instant Face Counts + Expected Delta (Hot/Cold) Strip -->
+        <!-- Cumulative Face Counts (1-6) -->
         <div class="face-summary-strip" id="faceSummaryStrip">
           <div class="face-pill face-1">
             <span>⚀ 1s</span>
@@ -282,49 +153,47 @@
           </div>
         </div>
 
-        <!-- Distribution Chart (Actual Bars + Expected N/6 Dashed Line) -->
+        <!-- Cumulative Distribution Bar Chart -->
         <div class="chart-container">
           <canvas id="distributionChart"></canvas>
         </div>
 
-        <!-- Last Roll Result -->
+        <!-- Latest Captured Roll Set -->
         <div class="last-roll-box">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;flex-wrap:wrap;gap:4px;">
-            <h3 id="latestRollTitle" style="font-size:0.9rem;">Latest Locked Roll</h3>
-            <span class="text-muted" style="font-size:0.74rem;">Tap any die on video or below to edit</span>
+            <h3 id="latestRollTitle" style="font-size:0.9rem;">Latest Captured Roll</h3>
+            <span class="text-muted" style="font-size:0.74rem;">Tap any die badge to adjust</span>
           </div>
           <div id="lastRollDiceList" class="dice-badge-list">
-            <span class="placeholder-text" style="font-size:0.8rem;color:#64748b;">No rolls recorded yet. Throw dice into the tray!</span>
+            <span class="placeholder-text" style="font-size:0.8rem;color:#64748b;">No rolls captured yet. Roll dice inside the green box!</span>
           </div>
         </div>
       </section>
 
-      <!-- Bottom Full Width: History Log Table -->
+      <!-- Bottom Full Width: Automatic Roll History -->
       <section class="card history-card full-width">
         <div class="card-header">
-          <h2>📜 Roll History Log (OmniTactica Unified Schema)</h2>
+          <h2>📜 Roll History (Auto-Accumulated)</h2>
           <span id="syncFeedbackText" style="font-size:0.75rem;color:#34d399;font-weight:700;"></span>
         </div>
         <div class="table-responsive">
           <table class="history-table">
             <thead>
               <tr>
-                <th>#</th>
-                <th>Player</th>
-                <th>Phase</th>
+                <th>Roll #</th>
                 <th>Time</th>
-                <th>Pool</th>
-                <th>Face Breakdown (1–6)</th>
-                <th>Hits</th>
-                <th>6s (Crits)</th>
+                <th>Dice</th>
+                <th>Rolled Faces (1–6)</th>
+                <th>6s</th>
                 <th>1s</th>
+                <th>Sum</th>
                 <th>Avg</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody id="historyTableBody">
               <tr>
-                <td colspan="11" class="text-center text-muted">No rolls recorded yet. Roll dice in the tray or click "🎲 Roll 40 Dice (Live CV)"!</td>
+                <td colspan="9" class="text-center text-muted">No rolls captured yet. Roll dice inside the green tray box to record automatically!</td>
               </tr>
             </tbody>
           </table>
@@ -334,10 +203,10 @@
     </main>
   </div>
 
-  <!-- Edit Roll Modal -->
+  <!-- Edit Roll Modal (when tapping a captured die to fix a value) -->
   <div id="editModal" class="modal hidden">
     <div class="modal-content">
-      <h3>Edit Recorded Roll</h3>
+      <h3>Edit Captured Roll</h3>
       <p style="font-size:0.82rem;color:#94a3b8;">Tap a die badge to cycle its value (1–6):</p>
       <div id="modalDiceContainer" class="modal-dice-grid"></div>
       <div class="modal-actions">
@@ -347,81 +216,49 @@
     </div>
   </div>
 
-  <!-- Pre-Game "Set Your Dice" Calibration Modal -->
-  <div id="setDiceModal" class="modal hidden">
-    <div class="modal-content" style="max-width: 560px; text-align: left;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
-        <h3 style="margin:0;">🎯 Set Your Dice (Pre-Game Calibration)</h3>
-        <span class="badge status-active" id="calibratedStatusBadge">Multi-Set Active</span>
-      </div>
-      <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.8rem;">
-        Before the game starts, place 1–2 of your dice in the tray (showing a normal pip face and your <strong>6</strong> face) and tap <strong>Auto-Scan from Tray</strong>, or choose your Player 1 &amp; Player 2 dice sets below. Both sets can be rolled and auto-attributed in the same game!
-      </p>
-
-      <div style="display:flex;gap:0.5rem;margin-bottom:0.9rem;flex-wrap:wrap;">
-        <button id="btnAutoScanTrayDice" class="btn btn-primary btn-sm" style="flex:1;">📸 Auto-Scan Dice from Tray Now</button>
-        <button id="btnTestCalibratedRoll" class="btn btn-accent btn-sm" style="flex:1;">🎲 Roll 40 Using Calibrated Sets</button>
-      </div>
-
-      <!-- Player 1 & Player 2 / Accent Dice Set Cards -->
-      <div class="dice-sets-grid">
-        <!-- Set A: Player 1 / Primary Army Dice -->
-        <div style="background:var(--bg-dark);border:1px solid var(--border-color);border-radius:8px;padding:0.65rem;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
-            <strong style="font-size:0.82rem;color:#38bdf8;">🔵 Player 1 / Primary Dice</strong>
-            <span id="p1Swatch" style="display:inline-block;width:18px;height:18px;border-radius:4px;background:#f0f4f8;border:2px solid #11151c;"></span>
-          </div>
-          <label style="font-size:0.74rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">Color &amp; Pip Scheme:</label>
-          <select id="p1SchemeSelect" class="select-input" style="width:100%;margin-bottom:0.45rem;">
-            <option value="bone_black" selected>⚪ Bone White + Black Pips</option>
-            <option value="black_white">⚫ Obsidian Black + White Pips</option>
-            <option value="crimson_gold">🔴 Blood Angels Red + Gold Pips</option>
-            <option value="cobalt_white">🔵 Ultramarines Blue + White Pips</option>
-            <option value="odgreen_bone">🟢 Death Guard Green + Bone Pips</option>
-          </select>
-          <label class="toggle-label" style="font-size:0.76rem;">
-            <input type="checkbox" id="p1CustomSix" checked>
-            <span>🎖️ Custom Faction Icon on 6</span>
-          </label>
-        </div>
-
-        <!-- Set B: Player 2 / Fast-Roll Weapon Accent Dice -->
-        <div style="background:var(--bg-dark);border:1px solid var(--border-color);border-radius:8px;padding:0.65rem;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
-            <strong style="font-size:0.82rem;color:#fb7185;">🔴 Player 2 / Opponent Dice</strong>
-            <span id="p2Swatch" style="display:inline-block;width:18px;height:18px;border-radius:4px;background:#5c161e;border:2px solid #f7d454;"></span>
-          </div>
-          <label style="font-size:0.74rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">Color &amp; Pip Scheme:</label>
-          <select id="p2SchemeSelect" class="select-input" style="width:100%;margin-bottom:0.45rem;">
-            <option value="crimson_gold" selected>🔴 Blood Angels Red + Gold Pips</option>
-            <option value="black_white">⚫ Obsidian Black + White Pips</option>
-            <option value="cobalt_white">🔵 Ultramarines Blue + White Pips</option>
-            <option value="odgreen_bone">🟢 Death Guard Green + Bone Pips</option>
-            <option value="bone_black">⚪ Bone White + Black Pips</option>
-          </select>
-          <label class="toggle-label" style="font-size:0.76rem;">
-            <input type="checkbox" id="p2CustomSix" checked>
-            <span>🎖️ Custom Faction Icon on 6</span>
-          </label>
-        </div>
-      </div>
-
-      <!-- Opponent Dice Similarity & Conflict Detector -->
-      <div id="diceSimilarityAlert" style="font-size:0.78rem;border-radius:6px;padding:0.55rem 0.7rem;margin-bottom:0.65rem;display:flex;justify-content:space-between;align-items:center;gap:0.6rem;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);color:#34d399;">
-        <div id="diceSimilarityText">
-          ✅ <strong>Distinct Opponent Dice (14% Similarity — ΔE: 194):</strong> Player 1 &amp; Player 2 sets have high color &amp; polarity separation.
-        </div>
-        <button id="btnAutoFixDiceConflict" class="btn btn-sm btn-accent hidden" style="white-space:nowrap;">⚡ Auto-Pick Distinct Set</button>
-      </div>
-
-      <div id="scanCalibrationFeedback" style="font-size:0.78rem;color:#34d399;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:6px;padding:0.5rem 0.65rem;margin-bottom:0.85rem;">
-        ✅ Ready: Calibrated for both Light &amp; Dark/Colored faction dice (38px scale, custom 6-emblem enabled).
-      </div>
-
-      <div class="modal-actions" style="justify-content:flex-end;">
-        <button id="btnSaveDiceProfile" class="btn btn-primary">✅ Save &amp; Lock Dice Profile</button>
-        <button id="btnCloseDiceModal" class="btn btn-secondary">Close</button>
-      </div>
+  <!-- Hidden internal defaults for CV engine & test harness compatibility -->
+  <div class="hidden" aria-hidden="true">
+    <span id="wakeLockStatus"></span>
+    <span id="sessionStatus">Session Active</span>
+    <span id="rollPhaseBadge">Roll</span>
+    <span id="hudTargetLabel">4+</span>
+    <div id="hudOwnerSplit"></div>
+    <button id="btnStartGame" type="button"></button>
+    <button id="btnEndGame" type="button"></button>
+    <button id="btnRerollHits" type="button"><span id="btnRerollCount">0</span></button>
+    <button id="btnSyncToTracker" type="button"></button>
+    <button id="btnTorchToggle" type="button"></button>
+    <input type="range" id="camZoomSlider" min="1" max="3" step="0.1" value="1">
+    <span id="camZoomVal">1.0x</span>
+    <input type="checkbox" id="chkAutoCapture" checked>
+    <input type="checkbox" id="chkScoopGuard" checked>
+    <input type="checkbox" id="chkVoiceReadout">
+    <input type="checkbox" id="chkSimulation">
+    <input type="checkbox" id="chkOutsideDistractors" checked>
+    <input type="checkbox" id="chkCustomSixSymbol" checked>
+    <input type="checkbox" id="chkRerollOnes">
+    <select id="diceColorMode"><option value="auto" selected>auto</option></select>
+    <select id="targetSuccess"><option value="4" selected>4+</option></select>
+    <select id="simDiceCountSelect"><option value="20" selected>20</option></select>
+    <input type="range" id="thresholdSlider" min="8" max="60" value="22"><span id="thresholdVal">22</span>
+    <input type="range" id="bgFilterSlider" min="5" max="25" value="10"><span id="bgFilterVal">10</span>
+    <input type="range" id="minDiceSize" min="12" max="80" value="22"><span id="minDiceVal">22</span>
+    <div id="rollerAttributionGroup"><button type="button" class="seg-btn active" data-roller="auto"></button></div>
+    <div id="statsFilterGroup"><button type="button" class="seg-btn active" data-filter="all"></button></div>
+    <button id="btnSetPlayerDice" type="button"></button>
+    <div id="setDiceModal" class="hidden">
+      <button id="btnAutoScanTrayDice" type="button"></button>
+      <button id="btnTestCalibratedRoll" type="button"></button>
+      <select id="p1SchemeSelect"><option value="bone_black" selected>bone_black</option></select>
+      <select id="p2SchemeSelect"><option value="crimson_gold" selected>crimson_gold</option></select>
+      <input type="checkbox" id="p1CustomSix" checked>
+      <input type="checkbox" id="p2CustomSix" checked>
+      <span id="p1Swatch"></span>
+      <span id="p2Swatch"></span>
+      <div id="diceSimilarityAlert"><div id="diceSimilarityText"></div><button id="btnAutoFixDiceConflict" type="button"></button></div>
+      <div id="scanCalibrationFeedback"></div>
+      <button id="btnSaveDiceProfile" type="button"></button>
+      <button id="btnCloseDiceModal" type="button"></button>
     </div>
   </div>
 
