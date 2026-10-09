@@ -949,6 +949,49 @@ async function loadGoogleMapsSdk(callback) {
   return _globalMapsSdkLoadingPromise;
 }
 
+function showToast(message, type = 'info') {
+  if (!message || typeof document === 'undefined') return;
+  let container = document.getElementById('omni-global-toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'omni-global-toast-container';
+    container.style.cssText = 'position:fixed; top:16px; right:16px; z-index:20000; display:flex; flex-direction:column; gap:8px; max-width:min(420px, calc(100vw - 32px)); pointer-events:none;';
+    document.body.appendChild(container);
+  }
+  const lvl = (type === true || type === 'error' || type === 'danger')
+    ? 'error'
+    : (type === 'warning' || type === 'warn' ? 'warning' : (type === 'success' ? 'success' : 'info'));
+  const palette = {
+    success: { bg: 'rgba(6, 78, 59, 0.96)', border: 'rgba(52, 211, 153, 0.65)', text: '#ecfdf5', icon: '✅' },
+    warning: { bg: 'rgba(120, 53, 15, 0.96)', border: 'rgba(251, 191, 36, 0.65)', text: '#fffbeb', icon: '⚠️' },
+    error:   { bg: 'rgba(127, 29, 29, 0.96)', border: 'rgba(248, 113, 113, 0.65)', text: '#fef2f2', icon: '🚨' },
+    info:    { bg: 'rgba(12, 74, 110, 0.96)', border: 'rgba(56, 189, 248, 0.65)', text: '#f0f9ff', icon: '💬' },
+  }[lvl];
+
+  const toast = document.createElement('div');
+  toast.style.cssText = `pointer-events:auto; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px; border-radius:10px; background:${palette.bg}; border:1px solid ${palette.border}; color:${palette.text}; font-size:0.82rem; font-weight:700; box-shadow:0 12px 32px rgba(0,0,0,0.55); backdrop-filter:blur(8px); transition:opacity 0.22s ease, transform 0.22s ease;`;
+  toast.innerHTML = `
+    <span style="display:flex; align-items:center; gap:8px; line-height:1.35;">
+      <span>${palette.icon}</span>
+      <span>${escapeHtml(String(message))}</span>
+    </span>
+    <button type="button" style="background:transparent; border:none; color:${palette.text}; opacity:0.75; cursor:pointer; font-size:0.9rem; padding:0 2px; line-height:1;">✕</button>
+  `;
+  const closeBtn = toast.querySelector('button');
+  const removeToast = () => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(-6px)';
+    setTimeout(() => { try { toast.remove(); } catch (_) {} }, 220);
+  };
+  if (closeBtn) closeBtn.addEventListener('click', removeToast);
+  container.appendChild(toast);
+  setTimeout(removeToast, 4000);
+}
+
+function showNotification(message, type = 'info') {
+  showToast(message, type);
+}
+
 if (typeof window !== 'undefined') {
   window.GLOBAL_CITY_COORDS = GLOBAL_CITY_COORDS;
   window.CITY_COORDS_MAP = GLOBAL_CITY_COORDS;
@@ -963,6 +1006,8 @@ if (typeof window !== 'undefined') {
   window.handlePlayerChatClick = handlePlayerChatClick;
   window.openDatePicker = openDatePicker;
   window.loadGoogleMapsSdk = loadGoogleMapsSdk;
+  window.showToast = showToast;
+  window.showNotification = showNotification;
 
   if (typeof document !== 'undefined') {
     if (document.readyState === 'loading') {
@@ -972,4 +1017,5 @@ if (typeof window !== 'undefined') {
     }
   }
 }
+
 

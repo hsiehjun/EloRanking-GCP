@@ -4335,7 +4335,8 @@ def api_publish_event_to_hub_announcement(event_id: str, payload: ToHubAnnouncem
         "success": True,
         "event_id": event_id,
         "broadcast": res,
-        "active_broadcast": res,
+        "active_broadcast": state.get("active_broadcast"),
+        "targeted_broadcasts": state.get("targeted_broadcasts", []),
         "announcements": state.get("announcements", []),
         "state": state,
     }
@@ -4499,19 +4500,23 @@ def api_send_event_to_hub_direct_chat(event_id: str, payload: ToHubDirectChatPay
     }
 
 
-@router.delete("/api/events/{event_id}/to-hub/announcement", summary="Clear active event announcement banner in Firestore")
-def api_clear_event_to_hub_announcement(event_id: str):
+@router.delete("/api/events/{event_id}/to-hub/announcement", summary="Clear active general or targeted event announcement banner in Firestore")
+def api_clear_event_to_hub_announcement(event_id: str, target_id: Optional[str] = None, broadcast_id: Optional[str] = None):
     fs_engine = get_firestore_engine()
-    fs_engine.clear_tournament_broadcast(event_id)
-    _push_broadcast_to_tracker_rooms(event_id, None)
+    resolved_target = target_id or broadcast_id
+    fs_engine.clear_tournament_broadcast(event_id, target_id=resolved_target)
+    if not resolved_target or resolved_target in ("general", "all"):
+        _push_broadcast_to_tracker_rooms(event_id, None)
     state = fs_engine.get_event_to_hub_state(event_id)
     return {
         "ok": True,
         "success": True,
         "event_id": event_id,
-        "broadcast": None,
-        "active_broadcast": None,
+        "broadcast": state.get("active_broadcast"),
+        "active_broadcast": state.get("active_broadcast"),
+        "targeted_broadcasts": state.get("targeted_broadcasts", []),
         "announcements": state.get("announcements", []),
+        "state": state,
     }
 
 

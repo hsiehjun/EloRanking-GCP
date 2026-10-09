@@ -151,7 +151,8 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
         self.fs._fallback_rooms[room_t1] = {"match_id": room_t1, "eventId": self.test_event_id, "tableNumber": 1}
         self.fs._fallback_rooms[room_t2] = {"match_id": room_t2, "eventId": self.test_event_id, "tableNumber": 2}
 
-        # 1. Targeted Table 1 announcement should push to Table 1 room and NOT Table 2 room
+        # 1. Targeted Table 1 announcement should push to Table 1 room and NOT Table 2 room,
+        # and should live in targeted_broadcasts without polluting general active_broadcast
         pub_targeted = api_publish_event_to_hub_announcement(
             self.test_event_id,
             ToHubAnnouncementPayload(
@@ -164,10 +165,54 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
             ),
         )
         self.assertTrue(pub_targeted["ok"])
-        self.assertEqual(pub_targeted["active_broadcast"]["target_table"], "1")
-        self.assertEqual(pub_targeted["active_broadcast"]["target_player_name"], "Anthony vs John")
+        self.assertEqual(pub_targeted["broadcast"]["target_table"], "1")
+        self.assertEqual(pub_targeted["broadcast"]["target_player_name"], "Anthony vs John")
+        self.assertTrue(pub_targeted["broadcast"]["is_targeted"])
+        self.assertIsNone(pub_targeted["active_broadcast"])
+        self.assertEqual(len(pub_targeted["targeted_broadcasts"]), 1)
+        self.assertEqual(pub_targeted["targeted_broadcasts"][0]["target_table"], "1")
         self.assertIsNotNone(self.fs._fallback_rooms[room_t1].get("broadcast"))
         self.assertIsNone(self.fs._fallback_rooms[room_t2].get("broadcast"))
+
+        # 1b. Publishing a general announcement for EVERYONE must NOT overwrite the targeted Table 1 alert!
+        pub_general = api_publish_event_to_hub_announcement(
+            self.test_event_id,
+            ToHubAnnouncementPayload(
+                message="⏳ 15 Minutes Remaining in Round 1 for all tables!",
+                level="warning",
+                round=1,
+                author_name="Chief TO",
+            ),
+        )
+        self.assertTrue(pub_general["ok"])
+        self.assertIsNotNone(pub_general["active_broadcast"])
+        self.assertEqual(
+            pub_general["active_broadcast"]["message"],
+            "⏳ 15 Minutes Remaining in Round 1 for all tables!",
+        )
+        self.assertEqual(len(pub_general["targeted_broadcasts"]), 1)
+        self.assertEqual(
+            pub_general["targeted_broadcasts"][0]["message"],
+            "🎲 Table 1 (Anthony vs John): Please submit your final score now!",
+        )
+
+        # Active announcements feed must return BOTH the general banner and the targeted Table 1 banner
+        both_active = api_get_active_event_announcements(event_ids=self.test_event_id)
+        ann_msgs = [a["message"] for a in both_active.get("announcements", [])]
+        self.assertIn("⏳ 15 Minutes Remaining in Round 1 for all tables!", ann_msgs)
+        self.assertIn("🎲 Table 1 (Anthony vs John): Please submit your final score now!", ann_msgs)
+
+        # Clearing only the general banner keeps the targeted Table 1 alert active
+        clr_gen = api_clear_event_to_hub_announcement(self.test_event_id, target_id="general")
+        self.assertTrue(clr_gen["ok"])
+        self.assertIsNone(clr_gen["state"]["active_broadcast"])
+        self.assertEqual(len(clr_gen["state"]["targeted_broadcasts"]), 1)
+
+        # Clearing Table 1's targeted alert removes it cleanly
+        t_key = clr_gen["state"]["targeted_broadcasts"][0]["target_key"]
+        clr_t1 = api_clear_event_to_hub_announcement(self.test_event_id, target_id=t_key)
+        self.assertTrue(clr_t1["ok"])
+        self.assertEqual(len(clr_t1["state"]["targeted_broadcasts"]), 0)
 
         # 2. Direct Chat to Table 1 where Player 1 has an OmniChat account and Player 2 does not
         mock_db = MagicMock()

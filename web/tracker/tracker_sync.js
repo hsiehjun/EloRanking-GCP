@@ -3226,8 +3226,8 @@
               applyRemoteMasterClock(clk);
             }
           }
-          if (cData && ('active_broadcast' in cData || 'broadcast' in cData)) {
-            applyRemoteBroadcast(cData.active_broadcast || cData.broadcast || null);
+          if (cData && ('active_broadcast' in cData || 'broadcast' in cData || 'targeted_broadcasts' in cData)) {
+            applyRemoteBroadcastBundle(cData);
           }
           return;
         }
@@ -3268,7 +3268,7 @@
           const data = await resp.json();
           const list = (data && Array.isArray(data.announcements)) ? data.announcements : [];
           if (list.length > 0) {
-            applyRemoteBroadcast(list[0]);
+            applyRemoteBroadcastList(list);
           } else if (!tid) {
             applyRemoteBroadcast(null);
           }
@@ -3293,8 +3293,8 @@
         if (data.masterClock) {
           applyRemoteMasterClock(data.masterClock);
         }
-        if ('broadcast' in data) {
-          applyRemoteBroadcast(data.broadcast);
+        if ('broadcast' in data || 'targeted_broadcasts' in data) {
+          applyRemoteBroadcastBundle(data);
         }
         const calls = data.judge_calls || data.flags;
         if (Array.isArray(calls)) {
@@ -3424,6 +3424,69 @@
   }
 
   let lastReceivedBroadcastId = null;
+  const seenBroadcastIds = new Set();
+
+  function isTargetedBroadcastForThisTable(b) {
+    if (!b || (!b.target_table && !b.target_player_id && !b.target_player_name && !b.is_targeted)) {
+      return false;
+    }
+    const rawState = originalGetItem('gdm-11e-tracker-state');
+    let stObj = {};
+    try { stObj = JSON.parse(rawState) || {}; } catch (e) {}
+    const myTable = String(getTrackerTableNum() || (stObj.settings && stObj.settings.tableNum) || '').trim();
+    if (b.target_table && myTable) {
+      return String(b.target_table).trim() === myTable;
+    }
+    const p1Name = String((stObj.p1 && stObj.p1.name) || '').trim().toLowerCase();
+    const p2Name = String((stObj.p2 && stObj.p2.name) || '').trim().toLowerCase();
+    const targetName = String(b.target_player_name || '').trim().toLowerCase();
+    if (targetName && ((p1Name && targetName.includes(p1Name)) || (p2Name && targetName.includes(p2Name)))) {
+      return true;
+    }
+    // If tracker doesn't have a specific table configured yet, still allow targeted broadcasts for the active tournament
+    return !myTable;
+  }
+
+  function applyRemoteBroadcastBundle(dataObj) {
+    if (!dataObj || typeof dataObj !== 'object') return;
+    const candidates = [];
+    if (Array.isArray(dataObj.targeted_broadcasts)) {
+      for (const tb of dataObj.targeted_broadcasts) {
+        if (tb && tb.active !== false && tb.message && isTargetedBroadcastForThisTable(tb)) {
+          candidates.push(tb);
+        }
+      }
+    }
+    const gen = dataObj.active_broadcast || dataObj.broadcast || null;
+    if (gen && gen.active !== false && gen.message) {
+      if (!gen.target_table && !gen.target_player_id && !gen.target_player_name && !gen.is_targeted) {
+        candidates.push(gen);
+      } else if (isTargetedBroadcastForThisTable(gen)) {
+        candidates.push(gen);
+      }
+    }
+    applyRemoteBroadcastList(candidates);
+  }
+
+  function applyRemoteBroadcastList(list) {
+    const valid = (Array.isArray(list) ? list : []).filter(b => {
+      if (!b || b.active === false || !b.message) return false;
+      const isTargeted = Boolean(b.target_table || b.target_player_id || b.target_player_name || b.is_targeted);
+      if (isTargeted && !isTargetedBroadcastForThisTable(b)) return false;
+      return true;
+    });
+    if (valid.length === 0) {
+      applyRemoteBroadcast(null);
+      return;
+    }
+    // Prefer the newest unseen broadcast so a newly pushed targeted or general alert always pops immediately
+    const unseen = valid.find(b => {
+      const bId = b.id || `${b.event_id || ''}_${b.message}`;
+      return !seenBroadcastIds.has(bId);
+    });
+    applyRemoteBroadcast(unseen || valid[0]);
+  }
+
   function applyRemoteBroadcast(broadcast) {
     if (!broadcast || broadcast.active === false || !broadcast.message) {
       lastReceivedBroadcastId = null;
@@ -3432,8 +3495,9 @@
       return;
     }
     const bId = broadcast.id || `${broadcast.event_id || ''}_${broadcast.message}`;
-    if (bId === lastReceivedBroadcastId) return;
+    if (bId === lastReceivedBroadcastId || seenBroadcastIds.has(bId)) return;
     lastReceivedBroadcastId = bId;
+    seenBroadcastIds.add(bId);
 
     // Play chime sound via synthesized Web Audio
     playBroadcastAudioChime();
@@ -3482,7 +3546,7 @@
       document.body.appendChild(banner);
     }
 
-    const type = broadcast.type || 'info';
+    const type = broadcast.type || broadcast.level || 'info';
     let bg = 'linear-gradient(135deg, #0284c7, #0369a1)';
     let border = '1px solid #38bdf8';
     let icon = '📢';
@@ -3505,13 +3569,18 @@
     banner.style.border = border;
     banner.style.display = 'block';
 
+    const isTargeted = Boolean(broadcast.target_table || broadcast.target_player_name || broadcast.is_targeted);
+    const headerLabel = isTargeted
+      ? `🎯 Targeted TO Alert${broadcast.target_table ? ` • Table ${escapeHtml(String(broadcast.target_table))}` : ''}${broadcast.target_player_name ? ` • ${escapeHtml(String(broadcast.target_player_name))}` : ''}`
+      : 'Tournament Announcement';
+
     banner.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
         <div style="display:flex; align-items:flex-start; gap:10px;">
           <span style="font-size:22px; flex-shrink:0;">${icon}</span>
           <div>
-            <div style="font-size:11px; font-weight:800; color:rgba(255,255,255,0.8); text-transform:uppercase; letter-spacing:0.05em;">
-              Tournament Announcement
+            <div style="font-size:11px; font-weight:800; color:rgba(255,255,255,0.85); text-transform:uppercase; letter-spacing:0.05em;">
+              ${headerLabel}
             </div>
             <div style="font-size:14px; font-weight:700; color:#fff; margin-top:2px; line-height:1.4;">
               ${escapeHtml(broadcast.message || '')}

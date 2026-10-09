@@ -11394,6 +11394,26 @@ function getEventBcpRoundConfig(ev) {
 let _toHubFirestoreUnsub = null;
 let _toHubFirestoreEventId = null;
 
+function isTargetedBroadcastObj(b) {
+  if (!b || typeof b !== 'object') return false;
+  return Boolean(b.is_targeted || b.target_table || b.target_player_id || b.target_player_name);
+}
+
+function computeClientBroadcastTargetKey(b) {
+  if (!isTargetedBroadcastObj(b)) return 'general';
+  if (b.target_key) return String(b.target_key);
+  const pid = String(b.target_player_id || '').trim().toLowerCase();
+  const pname = String(b.target_player_name || '').trim().toLowerCase();
+  const tbl = String(b.target_table || '').trim();
+  if (pid) return `player_${pid}`;
+  if (pname && !pname.includes(' vs ') && !pname.includes(' & ') && !pname.includes(',')) {
+    const cleanP = pname.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return tbl ? `table_${tbl}_player_${cleanP}` : `player_${cleanP}`;
+  }
+  if (tbl) return `table_${tbl}`;
+  return String(b.id || 'targeted');
+}
+
 function ensureEventToHubFirestoreListener(eventId) {
   const eid = String(eventId || '').trim();
   if (!eid) return;
@@ -11421,9 +11441,14 @@ function ensureEventToHubFirestoreListener(eventId) {
               prev.master_clock = data.masterClock;
             }
             if ('broadcast' in data) {
-              const b = (data.broadcast && data.broadcast.active !== false) ? data.broadcast : null;
+              const b = (data.broadcast && data.broadcast.active !== false && !isTargetedBroadcastObj(data.broadcast))
+                ? data.broadcast
+                : null;
               prev.broadcast = b;
               prev.active_broadcast = b;
+            }
+            if (Array.isArray(data.targeted_broadcasts)) {
+              prev.targeted_broadcasts = data.targeted_broadcasts.filter(t => t && t.message && t.active !== false);
             }
             if (Array.isArray(data.announcements) && data.announcements.length > 0) {
               prev.announcements = data.announcements;
@@ -11456,31 +11481,124 @@ function ensureEventToHubFirestoreListener(eventId) {
   } catch (_) {}
 }
 
-async function syncToHubBroadcastToClientFirestore(eventId, broadcastObj) {
+async function syncToHubBroadcastToClientFirestore(eventId, broadcastObj, clearTargetId = null) {
   const eid = String(eventId || '').trim();
   if (!eid) return;
   try {
     if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0 && typeof firebase.firestore === 'function') {
       const db = firebase.firestore();
       const nowMs = Date.now();
-      const activeBroadcast = (broadcastObj && broadcastObj.message && broadcastObj.active !== false)
-        ? { ...broadcastObj, eventId: eid, event_id: eid, active: true, timestamp: broadcastObj.timestamp || nowMs }
-        : null;
       const docIds = [eid];
       if (eid.toUpperCase() !== eid) docIds.push(eid.toUpperCase());
-      for (const did of docIds) {
-        db.collection('tournaments').doc(did).set({
+      const cachedState = _eventToHubStateCache.get(eid) || {};
+
+      if (broadcastObj && broadcastObj.message && broadcastObj.active !== false) {
+        const isTargeted = isTargetedBroadcastObj(broadcastObj);
+        const targetKey = computeClientBroadcastTargetKey(broadcastObj);
+        const activeBroadcast = {
+          ...broadcastObj,
           eventId: eid,
-          broadcast: activeBroadcast,
-          updatedAt: nowMs,
-        }, { merge: true }).catch(() => {});
+          event_id: eid,
+          is_targeted: isTargeted,
+          target_key: targetKey,
+          active: true,
+          timestamp: broadcastObj.timestamp || nowMs,
+        };
+        if (isTargeted) {
+          const prevList = Array.isArray(cachedState.targeted_broadcasts) ? cachedState.targeted_broadcasts : [];
+          const nextList = [
+            activeBroadcast,
+            ...prevList.filter(t => t && t.id !== activeBroadcast.id && computeClientBroadcastTargetKey(t) !== targetKey)
+          ].slice(0, 25);
+          for (const did of docIds) {
+            db.collection('tournaments').doc(did).set({
+              eventId: eid,
+              targeted_broadcasts: nextList,
+              updatedAt: nowMs,
+            }, { merge: true }).catch(() => {});
+          }
+          db.collection('tournaments').doc('_active_broadcasts').set({
+            broadcasts: {
+              [`${eid}__target__${targetKey}`]: activeBroadcast,
+            },
+            updatedAt: nowMs,
+          }, { merge: true }).catch(() => {});
+        } else {
+          for (const did of docIds) {
+            db.collection('tournaments').doc(did).set({
+              eventId: eid,
+              broadcast: activeBroadcast,
+              updatedAt: nowMs,
+            }, { merge: true }).catch(() => {});
+          }
+          db.collection('tournaments').doc('_active_broadcasts').set({
+            broadcasts: {
+              [eid]: activeBroadcast,
+            },
+            updatedAt: nowMs,
+          }, { merge: true }).catch(() => {});
+        }
+      } else {
+        const cleanTarget = String(clearTargetId || '').trim();
+        if (!cleanTarget || cleanTarget === 'general') {
+          for (const did of docIds) {
+            db.collection('tournaments').doc(did).set({
+              eventId: eid,
+              broadcast: null,
+              updatedAt: nowMs,
+            }, { merge: true }).catch(() => {});
+          }
+          db.collection('tournaments').doc('_active_broadcasts').set({
+            broadcasts: {
+              [eid]: null,
+            },
+            updatedAt: nowMs,
+          }, { merge: true }).catch(() => {});
+        } else if (cleanTarget === 'all_targeted') {
+          const prevList = Array.isArray(cachedState.targeted_broadcasts) ? cachedState.targeted_broadcasts : [];
+          const clearMap = {};
+          prevList.forEach(t => {
+            const tk = computeClientBroadcastTargetKey(t);
+            clearMap[`${eid}__target__${tk}`] = null;
+          });
+          for (const did of docIds) {
+            db.collection('tournaments').doc(did).set({
+              eventId: eid,
+              targeted_broadcasts: [],
+              updatedAt: nowMs,
+            }, { merge: true }).catch(() => {});
+          }
+          if (Object.keys(clearMap).length > 0) {
+            db.collection('tournaments').doc('_active_broadcasts').set({
+              broadcasts: clearMap,
+              updatedAt: nowMs,
+            }, { merge: true }).catch(() => {});
+          }
+        } else {
+          const prevList = Array.isArray(cachedState.targeted_broadcasts) ? cachedState.targeted_broadcasts : [];
+          const clearMap = {};
+          const nextList = prevList.filter(t => {
+            const tk = computeClientBroadcastTargetKey(t);
+            if (String(t.id || '') === cleanTarget || tk === cleanTarget) {
+              clearMap[`${eid}__target__${tk}`] = null;
+              return false;
+            }
+            return true;
+          });
+          for (const did of docIds) {
+            db.collection('tournaments').doc(did).set({
+              eventId: eid,
+              targeted_broadcasts: nextList,
+              updatedAt: nowMs,
+            }, { merge: true }).catch(() => {});
+          }
+          clearMap[`${eid}__target__${cleanTarget}`] = null;
+          db.collection('tournaments').doc('_active_broadcasts').set({
+            broadcasts: clearMap,
+            updatedAt: nowMs,
+          }, { merge: true }).catch(() => {});
+        }
       }
-      db.collection('tournaments').doc('_active_broadcasts').set({
-        broadcasts: {
-          [eid]: activeBroadcast,
-        },
-        updatedAt: nowMs,
-      }, { merge: true }).catch(() => {});
     }
   } catch (_) {}
 }
@@ -12539,35 +12657,63 @@ async function publishToHubBannerAnnouncement() {
         } catch (_) {}
       }
     }
+    if (pubRes && pubRes.state) {
+      pubRes.state._fetchedAt = Date.now();
+      _eventToHubStateCache.set(eventId, pubRes.state);
+    }
     if (input) input.value = '';
     await loadEventToHubState(eventId, true);
     if (typeof syncGlobalEventAnnouncementBanner === 'function') {
       await syncGlobalEventAnnouncementBanner(true);
     }
-    if (typeof showToast === 'function') showToast('App-wide event announcement banner published!', 'success');
+    if (typeof showToast === 'function') showToast('📢 App-wide event announcement banner published!', 'success');
   } catch (err) {
     if (typeof showToast === 'function') showToast(err.message || 'Failed to publish announcement', 'error');
   }
 }
 
-async function clearToHubBannerAnnouncement() {
-  const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || '');
+async function clearToHubBannerAnnouncement(targetId = 'general') {
+  const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || (_toHubCommsContext && _toHubCommsContext.eventId) || '');
   if (!eventId) return;
+  const cleanTarget = targetId ? String(targetId).trim() : 'general';
   try {
-    await window.api.clearEventToHubAnnouncement(eventId);
-    await syncToHubBroadcastToClientFirestore(eventId, null);
-    if (_eventToHubStateCache.has(eventId)) {
+    const res = await window.api.clearEventToHubAnnouncement(eventId, cleanTarget);
+    await syncToHubBroadcastToClientFirestore(eventId, null, cleanTarget);
+    if (res && res.state) {
+      res.state._fetchedAt = Date.now();
+      _eventToHubStateCache.set(eventId, res.state);
+    } else if (_eventToHubStateCache.has(eventId)) {
       const c = _eventToHubStateCache.get(eventId);
       if (c) {
-        c.broadcast = null;
-        c.active_broadcast = null;
+        if (!cleanTarget || cleanTarget === 'general' || cleanTarget === 'all') {
+          c.broadcast = null;
+          c.active_broadcast = null;
+        }
+        if (cleanTarget === 'all' || cleanTarget === 'all_targeted') {
+          c.targeted_broadcasts = [];
+        } else if (cleanTarget !== 'general' && Array.isArray(c.targeted_broadcasts)) {
+          c.targeted_broadcasts = c.targeted_broadcasts.filter(
+            b => String(b.id || '') !== cleanTarget && computeClientBroadcastTargetKey(b) !== cleanTarget
+          );
+        }
       }
     }
     await loadEventToHubState(eventId, true);
     if (typeof syncGlobalEventAnnouncementBanner === 'function') {
       await syncGlobalEventAnnouncementBanner(true);
     }
-    if (typeof showToast === 'function') showToast('Active announcement banner cleared', 'info');
+    const resultBox = document.getElementById('to-hub-comms-result-box');
+    if (resultBox && cleanTarget !== 'general') {
+      resultBox.style.display = 'block';
+      resultBox.innerHTML = `
+        <div style="padding:0.55rem 0.75rem; border-radius:8px; background:rgba(148,163,184,0.14); border:1px solid rgba(148,163,184,0.35); color:#cbd5e1; font-size:0.76rem; font-weight:700;">
+          ℹ️ Targeted Live Alert Banner recalled.
+        </div>
+      `;
+    }
+    if (typeof showToast === 'function') {
+      showToast(cleanTarget === 'general' ? 'App-wide announcement banner cleared' : 'Targeted alert banner recalled', 'info');
+    }
   } catch (err) {
     if (typeof showToast === 'function') showToast(err.message || 'Failed to clear banner', 'error');
   }
@@ -12616,7 +12762,11 @@ async function removeToHubNewsPost(postId) {
 }
 
 function renderToHubAnnouncementsSubtab(eventId, ev, state) {
-  const activeBroadcast = (state && state.active_broadcast && state.active_broadcast.message) ? state.active_broadcast : null;
+  const rawActive = (state && state.active_broadcast && state.active_broadcast.message) ? state.active_broadcast : null;
+  const activeBroadcast = (rawActive && !isTargetedBroadcastObj(rawActive)) ? rawActive : null;
+  const targetedBroadcasts = Array.isArray(state?.targeted_broadcasts)
+    ? state.targeted_broadcasts.filter(b => b && b.message && b.active !== false)
+    : [];
   const newsPosts = Array.isArray(state?.news_posts) ? state.news_posts : [];
 
   return `
@@ -12625,15 +12775,55 @@ function renderToHubAnnouncementsSubtab(eventId, ev, state) {
         <div class="card" style="padding:0.75rem 1rem; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.45); border-radius:10px; display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
           <div style="min-width:0; flex:1;">
             <div style="font-size:0.68rem; font-weight:800; color:#fbbf24; text-transform:uppercase; letter-spacing:0.04em;">
-              🟢 ACTIVE LIVE BANNER (${escapeHtml(activeBroadcast.level || 'info')})
+              🟢 ACTIVE APP-WIDE EVENT BANNER (${escapeHtml(activeBroadcast.level || 'info')})
             </div>
             <div style="font-size:0.84rem; font-weight:700; color:#fff; margin-top:0.15rem; word-break:break-word;">
               ${escapeHtml(activeBroadcast.message)}
             </div>
           </div>
-          <button type="button" class="btn btn-outline" onclick="clearToHubBannerAnnouncement()" style="font-size:0.74rem; font-weight:700; padding:0.32rem 0.65rem; color:#f87171; border-color:rgba(239,68,68,0.4); white-space:nowrap; flex-shrink:0;">
-            ✕ Clear Banner
+          <button type="button" class="btn btn-outline" onclick="clearToHubBannerAnnouncement('general')" style="font-size:0.74rem; font-weight:700; padding:0.32rem 0.65rem; color:#f87171; border-color:rgba(239,68,68,0.4); white-space:nowrap; flex-shrink:0;">
+            ✕ Clear App-Wide Banner
           </button>
+        </div>
+      ` : ''}
+
+      ${targetedBroadcasts.length > 0 ? `
+        <div class="card" style="padding:0.75rem 1rem; background:rgba(56,189,248,0.11); border:1px solid rgba(56,189,248,0.4); border-radius:10px; display:flex; flex-direction:column; gap:0.5rem;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap;">
+            <div style="font-size:0.68rem; font-weight:800; color:#38bdf8; text-transform:uppercase; letter-spacing:0.04em;">
+              🎯 ACTIVE TARGETED TABLE / PLAYER ALERTS (${targetedBroadcasts.length}) — Independent from General Banner
+            </div>
+            ${targetedBroadcasts.length > 1 ? `
+              <button type="button" class="btn btn-outline" onclick="clearToHubBannerAnnouncement('all_targeted')" style="font-size:0.68rem; font-weight:700; padding:0.2rem 0.55rem; color:#f87171; border-color:rgba(239,68,68,0.35);">
+                ✕ Clear All Targeted
+              </button>
+            ` : ''}
+          </div>
+          <div style="display:flex; flex-direction:column; gap:0.4rem;">
+            ${targetedBroadcasts.map(tb => {
+              const tKey = computeClientBroadcastTargetKey(tb) || String(tb.id || '');
+              const safeTKey = escapeHtml(tKey.replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+              const tLabel = [
+                tb.target_table ? `🎲 Table ${tb.target_table}` : '',
+                tb.target_player_name ? `👤 ${tb.target_player_name}` : ''
+              ].filter(Boolean).join(' • ') || 'Targeted Alert';
+              return `
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:0.6rem; padding:0.45rem 0.65rem; background:rgba(2,6,23,0.6); border:1px solid rgba(56,189,248,0.25); border-radius:8px; flex-wrap:wrap;">
+                  <div style="min-width:0; flex:1; display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
+                    <span class="badge" style="background:rgba(250,204,21,0.2); color:#fef08a; border:1px solid rgba(250,204,21,0.45); font-size:0.66rem; font-weight:800;">
+                      ${escapeHtml(tLabel)}
+                    </span>
+                    <span style="font-size:0.8rem; font-weight:700; color:#f8fafc; word-break:break-word;">
+                      ${escapeHtml(tb.message)}
+                    </span>
+                  </div>
+                  <button type="button" class="btn btn-outline" onclick="clearToHubBannerAnnouncement('${safeTKey}')" style="font-size:0.68rem; font-weight:700; padding:0.2rem 0.5rem; color:#f87171; border-color:rgba(239,68,68,0.38); flex-shrink:0;">
+                    ✕ Recall
+                  </button>
+                </div>
+              `;
+            }).join('')}
+          </div>
         </div>
       ` : ''}
 
@@ -13215,7 +13405,33 @@ function renderToHubCommsModalDom(preserveMsg = '', preserveLevel = 'warning') {
       </div>
 
       <!-- Delivery Status / Live Chat Result Container -->
-      <div id="to-hub-comms-result-box" style="display:none; margin-bottom:0.85rem;"></div>
+      ${(() => {
+        const cachedSt = _eventToHubStateCache.get(String(ctx.eventId)) || {};
+        const tList = Array.isArray(cachedSt.targeted_broadcasts) ? cachedSt.targeted_broadcasts : [];
+        const curTargetKey = computeClientBroadcastTargetKey({
+          target_table: info.targetTable ? String(info.targetTable) : null,
+          target_player_id: info.targetPlayerId ? String(info.targetPlayerId) : null,
+          target_player_name: info.targetPlayerName ? String(info.targetPlayerName) : null,
+        });
+        const existingTargeted = tList.find(b => b && b.message && b.active !== false && computeClientBroadcastTargetKey(b) === curTargetKey);
+        if (!existingTargeted) {
+          return `<div id="to-hub-comms-result-box" style="display:none; margin-bottom:0.85rem;"></div>`;
+        }
+        const safeTKey = escapeHtml((curTargetKey || String(existingTargeted.id || '')).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+        return `
+          <div id="to-hub-comms-result-box" style="display:block; margin-bottom:0.85rem;">
+            <div style="padding:0.6rem 0.75rem; border-radius:8px; background:rgba(34,197,94,0.14); border:1px solid rgba(34,197,94,0.4); color:#bbf7d0; font-size:0.78rem; display:flex; align-items:center; justify-content:space-between; gap:0.6rem; flex-wrap:wrap;">
+              <div style="min-width:0; flex:1;">
+                <div style="font-weight:800; color:#4ade80;">🟢 Active Targeted Alert for ${escapeHtml(info.label)}:</div>
+                <div style="font-weight:600; color:#f8fafc; margin-top:0.15rem; word-break:break-word;">${escapeHtml(existingTargeted.message)}</div>
+              </div>
+              <button type="button" class="btn btn-outline" onclick="clearToHubBannerAnnouncement('${safeTKey}')" style="font-size:0.7rem; font-weight:800; padding:0.24rem 0.55rem; color:#fca5a5; border-color:rgba(239,68,68,0.45); flex-shrink:0;">
+                ✕ Recall Alert
+              </button>
+            </div>
+          </div>
+        `;
+      })()}
 
       <!-- Action Buttons -->
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0.55rem;">
@@ -13227,7 +13443,7 @@ function renderToHubCommsModalDom(preserveMsg = '', preserveLevel = 'warning') {
         </button>
       </div>
       <div style="font-size:0.7rem; color:var(--text-muted); margin-top:0.55rem; line-height:1.35;">
-        💡 <strong>Direct Chat</strong> messages the player(s) in OmniChat (and automatically falls back to a Targeted Live Banner if they haven't linked an OmniTactica login yet). <strong>Push Targeted Live Banner</strong> flashes across the app &amp; Table ${escapeHtml(String(ctx.tableNum || ''))} Game Tracker immediately.
+        💡 <strong>Direct Chat</strong> messages the player(s) in OmniChat (and automatically falls back to a Targeted Live Banner if they haven't linked an OmniTactica login yet). <strong>Push Targeted Live Banner</strong> flashes across the app &amp; ${ctx.tableNum ? `Table ${escapeHtml(String(ctx.tableNum))} Game Tracker` : 'Event Hub'} without overwriting your general tournament announcement.
       </div>
     </div>
   `;
@@ -13254,7 +13470,8 @@ async function sendToHubCommsBanner() {
     btn.textContent = '⏳ Broadcasting...';
   }
 
-  const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || '';
+  const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || ctx.eventName || '';
+  let pushedOk = false;
   try {
     recordRecentInteractedEventId(ctx.eventId);
     const res = await window.api.publishEventToHubAnnouncement(ctx.eventId, {
@@ -13267,38 +13484,103 @@ async function sendToHubCommsBanner() {
       target_player_name: info.targetPlayerName ? String(info.targetPlayerName) : null,
       also_post_bulletin: false,
     });
-    if (res && res.broadcast) {
-      await syncToHubBroadcastToClientFirestore(ctx.eventId, res.broadcast);
-      if (res.broadcast.id) {
-        try {
-          localStorage.removeItem(`dismissed_event_broadcast_${res.broadcast.id}`);
-        } catch (_) {}
-      }
+    const pushedBroadcast = (res && res.broadcast) ? res.broadcast : {
+      id: `ann_${Date.now()}`,
+      event_id: String(ctx.eventId),
+      event_name: evName,
+      message,
+      level,
+      round: ctx.roundNum || null,
+      target_table: info.targetTable ? String(info.targetTable) : null,
+      target_player_id: info.targetPlayerId ? String(info.targetPlayerId) : null,
+      target_player_name: info.targetPlayerName ? String(info.targetPlayerName) : null,
+      is_targeted: true,
+      published_at: new Date().toISOString(),
+      active: true,
+    };
+    pushedBroadcast.target_key = pushedBroadcast.target_key || computeClientBroadcastTargetKey(pushedBroadcast);
+
+    await syncToHubBroadcastToClientFirestore(ctx.eventId, pushedBroadcast);
+    if (pushedBroadcast.id) {
+      try {
+        localStorage.removeItem(`dismissed_event_broadcast_${pushedBroadcast.id}`);
+      } catch (_) {}
     }
+
     if (res && res.state) {
       res.state._fetchedAt = Date.now();
       _eventToHubStateCache.set(String(ctx.eventId), res.state);
+    } else {
+      const prevState = _eventToHubStateCache.get(String(ctx.eventId)) || {};
+      const prevTargeted = Array.isArray(prevState.targeted_broadcasts) ? prevState.targeted_broadcasts : [];
+      const nextTargeted = [
+        pushedBroadcast,
+        ...prevTargeted.filter(b => computeClientBroadcastTargetKey(b) !== pushedBroadcast.target_key),
+      ];
+      _eventToHubStateCache.set(String(ctx.eventId), {
+        ...prevState,
+        targeted_broadcasts: nextTargeted,
+        _fetchedAt: Date.now(),
+      });
     }
+
     if (currentEventData) {
       renderEventClockAndScheduleWidgets(currentEventData, true);
       renderEventToHub(currentEventData, true);
     }
-    syncGlobalEventAnnouncementBanner(true).catch(() => {});
+    await syncGlobalEventAnnouncementBanner(true);
+    pushedOk = true;
+
     if (typeof showToast === 'function') {
-      showToast(`📢 Targeted Live Banner sent to ${info.label}!`, 'success');
+      showToast(`📢 Targeted Live Banner pushed to ${info.label}!`, 'success');
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '✅ Targeted Banner Pushed!';
+      btn.style.background = 'rgba(34,197,94,0.24)';
+      btn.style.borderColor = 'rgba(34,197,94,0.65)';
+      btn.style.color = '#86efac';
+      setTimeout(() => {
+        const latestBtn = document.getElementById('to-hub-comms-banner-btn');
+        if (latestBtn) {
+          latestBtn.textContent = '📢 Push Targeted Live Banner';
+          latestBtn.style.background = 'rgba(250,204,21,0.1)';
+          latestBtn.style.borderColor = 'rgba(250,204,21,0.45)';
+          latestBtn.style.color = '#fde047';
+        }
+      }, 2400);
     }
     if (resultBox) {
+      const safeTKey = escapeHtml(String(pushedBroadcast.target_key || pushedBroadcast.id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
       resultBox.style.display = 'block';
       resultBox.innerHTML = `
-        <div style="padding:0.6rem 0.75rem; border-radius:8px; background:rgba(34,197,94,0.14); border:1px solid rgba(34,197,94,0.4); color:#bbf7d0; font-size:0.78rem; font-weight:700;">
-          ✅ Targeted Live Alert Banner is now active across the app &amp; ${info.targetTable ? `Table ${escapeHtml(String(info.targetTable))} Game Tracker` : 'Event Hub'}!
+        <div style="padding:0.65rem 0.8rem; border-radius:9px; background:rgba(34,197,94,0.16); border:1px solid rgba(34,197,94,0.45); color:#bbf7d0; font-size:0.78rem; display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap;">
+          <div style="min-width:0; flex:1;">
+            <div style="font-weight:800; color:#4ade80;">
+              ✅ Targeted Live Banner Sent to ${escapeHtml(info.label)}!
+            </div>
+            <div style="font-size:0.74rem; color:#e2e8f0; margin-top:0.18rem; word-break:break-word;">
+              "${escapeHtml(message)}" — Live now on ${info.targetTable ? `Table ${escapeHtml(String(info.targetTable))} Game Tracker &amp; ` : ''}Event Hub (does not overwrite general announcements).
+            </div>
+          </div>
+          <button type="button" class="btn btn-outline" onclick="clearToHubBannerAnnouncement('${safeTKey}')" style="font-size:0.7rem; font-weight:800; padding:0.25rem 0.55rem; color:#fca5a5; border-color:rgba(239,68,68,0.45); flex-shrink:0;">
+            ✕ Recall Alert
+          </button>
         </div>
       `;
     }
   } catch (err) {
     if (typeof showToast === 'function') showToast(err.message || 'Failed to publish targeted banner', 'error');
+    if (resultBox) {
+      resultBox.style.display = 'block';
+      resultBox.innerHTML = `
+        <div style="padding:0.6rem 0.75rem; border-radius:8px; background:rgba(239,68,68,0.16); border:1px solid rgba(239,68,68,0.45); color:#fecaca; font-size:0.78rem; font-weight:700;">
+          ❌ Failed to push targeted banner: ${escapeHtml(err.message || 'Unknown error')}
+        </div>
+      `;
+    }
   } finally {
-    if (btn) {
+    if (btn && !pushedOk) {
       btn.disabled = false;
       btn.textContent = '📢 Push Targeted Live Banner';
     }
@@ -13417,16 +13699,94 @@ function dismissGlobalEventAnnouncement(broadcastId) {
       localStorage.setItem(`dismissed_event_broadcast_${broadcastId}`, '1');
     } catch (_) {}
   }
-  const banner = document.getElementById('global-event-announcement-banner');
-  if (banner) {
-    banner.style.display = 'none';
-    banner.innerHTML = '';
-  }
+  syncGlobalEventAnnouncementBanner(false).catch(() => {});
 }
 
 function openGlobalAnnouncementEvent(eventId, gameSystem = '40k') {
   if (!eventId) return;
   openEventHubPage(eventId, gameSystem || '40k', { initialTab: 'news' });
+}
+
+function isTargetedAnnouncementRelevantToViewer(ann, hostedList, regList) {
+  if (!ann || !isTargetedBroadcastObj(ann)) return true;
+  const evId = String(ann.event_id || ann.eventId || '');
+  // Always show to the user if they have this event open or recently interacted with it
+  if (currentOpenEventId && String(currentOpenEventId) === evId) return true;
+  if (window._recentInteractedEventIds instanceof Set && window._recentInteractedEventIds.has(evId)) return true;
+  if (_eventToHubStateCache.has(evId)) return true;
+  if (Array.isArray(hostedList) && hostedList.some(t => String(t?.event_id || t?.bcp_event_id || t?.id) === evId)) return true;
+  if (Array.isArray(regList) && regList.some(t => String(t?.event_id || t?.bcp_event_id || t?.id) === evId)) return true;
+
+  // Also check if the current logged-in user matches target_player_id or target_player_name
+  const curUser = (typeof window.currentUser === 'object' && window.currentUser) ? window.currentUser : null;
+  if (curUser) {
+    const myPid = String(curUser.player_id || curUser.bcp_user_id || curUser.id || '').trim();
+    if (myPid && String(ann.target_player_id || '').trim() === myPid) return true;
+    const myName = String(curUser.display_name || curUser.username || '').trim().toLowerCase();
+    const targetName = String(ann.target_player_name || '').trim().toLowerCase();
+    if (myName && targetName && (targetName.includes(myName) || myName.includes(targetName))) return true;
+  }
+  return true;
+}
+
+function buildGlobalAnnouncementBannerRowHtml(active, hostedList, regList) {
+  const bid = String(active.id || `${active.event_id}_${active.published_at || ''}`);
+  const evId = String(active.event_id || active.eventId || '');
+  let evName = active.event_name || '';
+  if (!evName) {
+    if (currentEventData && String(currentEventData.id) === evId) {
+      evName = currentEventData.name || currentEventData.event_name || '';
+    }
+    if (!evName && hostedList.length > 0) {
+      const found = hostedList.find(t => String(t.event_id || t.bcp_event_id || t.id) === evId);
+      if (found) evName = found.event_name || found.name || '';
+    }
+    if (!evName && regList.length > 0) {
+      const found = regList.find(t => String(t.event_id || t.bcp_event_id || t.id) === evId);
+      if (found) evName = found.event_name || found.name || '';
+    }
+  }
+
+  const isTargeted = isTargetedBroadcastObj(active);
+  const lvl = String(active.level || 'info').toLowerCase();
+  const bgGrad = lvl === 'urgent'
+    ? 'linear-gradient(90deg, rgba(153,27,27,0.95), rgba(127,29,29,0.92))'
+    : (lvl === 'warning'
+        ? 'linear-gradient(90deg, rgba(146,64,14,0.95), rgba(120,53,15,0.92))'
+        : 'linear-gradient(90deg, rgba(12,74,110,0.95), rgba(30,58,138,0.92))');
+  const borderCol = lvl === 'urgent' ? 'rgba(248,113,113,0.6)' : (lvl === 'warning' ? 'rgba(251,191,36,0.6)' : 'rgba(56,189,248,0.55)');
+  const icon = lvl === 'urgent' ? '🚨' : (lvl === 'warning' ? '⚠️' : '📢');
+
+  const targetBadgeHtml = isTargeted
+    ? `<span class="badge" style="background:rgba(250,204,21,0.22); color:#fef08a; border:1px solid rgba(250,204,21,0.5); font-size:0.68rem; font-weight:800; white-space:nowrap;">
+        🎯 ${active.target_table ? `TABLE ${escapeHtml(String(active.target_table))}` : ''}${active.target_table && active.target_player_name ? ' • ' : ''}${active.target_player_name ? escapeHtml(String(active.target_player_name)) : 'TARGETED ALERT'}
+      </span>`
+    : `<span class="badge" style="background:rgba(34,197,94,0.2); color:#bbf7d0; border:1px solid rgba(34,197,94,0.45); font-size:0.65rem; font-weight:800; white-space:nowrap;">
+        🌐 ALL PLAYERS
+      </span>`;
+
+  return `
+    <div class="global-event-announcement-inner" style="background:${bgGrad}; border-bottom:1px solid ${borderCol}; padding:0.5rem 0.9rem; display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; box-sizing:border-box; max-width:100vw; overflow:hidden;">
+      <div class="global-event-announcement-content" style="display:flex; align-items:center; gap:0.5rem; flex:1; min-width:0; flex-wrap:wrap;">
+        <span style="font-size:1rem; flex-shrink:0;">${icon}</span>
+        <span class="badge global-event-announcement-badge" style="background:rgba(0,0,0,0.35); color:#fde68a; border:1px solid rgba(255,255,255,0.22); font-size:0.68rem; font-weight:800; max-width:min(280px, 62vw); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${escapeHtml(evName || 'LIVE TOURNAMENT')}">
+          ${escapeHtml(evName || 'LIVE TOURNAMENT')}
+        </span>
+        ${targetBadgeHtml}
+        <span class="global-event-announcement-msg" style="font-size:0.82rem; font-weight:700; color:#fff; line-height:1.35; min-width:180px; flex:1;">
+          ${escapeHtml(active.message)}
+        </span>
+      </div>
+      <div class="global-event-announcement-actions" style="display:flex; align-items:center; gap:0.4rem; flex-shrink:0;">
+        <button type="button" class="btn btn-outline" onclick="openGlobalAnnouncementEvent('${escapeHtml(evId)}')" style="font-size:0.71rem; font-weight:700; padding:0.24rem 0.6rem; background:rgba(255,255,255,0.14); color:#fff; border-color:rgba(255,255,255,0.32); white-space:nowrap;">
+          📰 View Bulletin
+        </button>
+        <button type="button" onclick="dismissGlobalEventAnnouncement('${escapeHtml(bid)}')" title="Dismiss Announcement" style="background:transparent; border:none; color:rgba(255,255,255,0.85); font-size:0.95rem; cursor:pointer; padding:0.2rem 0.35rem; line-height:1;">
+          ✕
+        </button>
+      </div>
+    </div>
+  `;
 }
 
 async function syncGlobalEventAnnouncementBanner(force = false) {
@@ -13478,89 +13838,68 @@ async function syncGlobalEventAnnouncementBanner(force = false) {
     const res = await window.api.getActiveEventAnnouncements(queryIds, force);
     const announcements = Array.isArray(res?.announcements) ? [...res.announcements] : [];
 
-    // Merge any active broadcast currently held in client-side _eventToHubStateCache
+    // Merge both general active_broadcast AND targeted_broadcasts from client-side _eventToHubStateCache
     for (const [cEid, cState] of _eventToHubStateCache.entries()) {
       const b = cState && (cState.active_broadcast || cState.broadcast);
-      if (b && b.message && b.active !== false) {
-        const exists = announcements.some(a => String(a.id || '') === String(b.id || '') || String(a.event_id || a.eventId || '') === String(cEid));
+      if (b && b.message && b.active !== false && !isTargetedBroadcastObj(b)) {
+        const exists = announcements.some(a =>
+          !isTargetedBroadcastObj(a) &&
+          (String(a.id || '') === String(b.id || '') || String(a.event_id || a.eventId || '') === String(cEid))
+        );
         if (!exists) {
-          announcements.unshift({ ...b, event_id: b.event_id || b.eventId || cEid });
+          announcements.push({ ...b, event_id: b.event_id || b.eventId || cEid });
+        }
+      }
+      const tArr = Array.isArray(cState?.targeted_broadcasts) ? cState.targeted_broadcasts : [];
+      for (const tb of tArr) {
+        if (tb && tb.message && tb.active !== false) {
+          const tKey = computeClientBroadcastTargetKey(tb);
+          const exists = announcements.some(a =>
+            isTargetedBroadcastObj(a) &&
+            (String(a.id || '') === String(tb.id || '') ||
+              (String(a.event_id || a.eventId || '') === String(cEid) && computeClientBroadcastTargetKey(a) === tKey))
+          );
+          if (!exists) {
+            announcements.unshift({ ...tb, event_id: tb.event_id || tb.eventId || cEid, is_targeted: true });
+          }
         }
       }
     }
 
-    const active = announcements.find(a => {
+    const validAnnouncements = announcements.filter(a => {
       if (!a || !a.message || a.active === false) return false;
       const bid = String(a.id || `${a.event_id}_${a.published_at || ''}`);
       try {
-        if (!force && localStorage.getItem(`dismissed_event_broadcast_${bid}`) === '1') {
+        if (localStorage.getItem(`dismissed_event_broadcast_${bid}`) === '1') {
           return false;
         }
       } catch (_) {}
       return true;
     });
 
-    if (!active) {
+    // Separate General (App-Wide) announcements from Targeted (Table/Player) announcements
+    // so publishing a General announcement NEVER hides or overwrites an active Targeted alert!
+    const activeGeneral = validAnnouncements.find(a => !isTargetedBroadcastObj(a)) || null;
+    const activeTargeted = validAnnouncements.filter(a =>
+      isTargetedBroadcastObj(a) && isTargetedAnnouncementRelevantToViewer(a, hostedList, regList)
+    ).slice(0, 2);
+
+    const rowsToRender = [];
+    if (activeGeneral) rowsToRender.push(activeGeneral);
+    for (const tb of activeTargeted) {
+      if (!rowsToRender.some(r => String(r.id || '') === String(tb.id || ''))) {
+        rowsToRender.push(tb);
+      }
+    }
+
+    if (rowsToRender.length === 0) {
       banner.style.display = 'none';
       banner.innerHTML = '';
       return;
     }
 
-    const bid = String(active.id || `${active.event_id}_${active.published_at || ''}`);
-    const evId = String(active.event_id || active.eventId || '');
-    let evName = active.event_name || '';
-    if (!evName) {
-      if (currentEventData && String(currentEventData.id) === evId) {
-        evName = currentEventData.name || currentEventData.event_name || '';
-      }
-      if (!evName && hostedList.length > 0) {
-        const found = hostedList.find(t => String(t.event_id || t.bcp_event_id || t.id) === evId);
-        if (found) evName = found.event_name || found.name || '';
-      }
-      if (!evName && regList.length > 0) {
-        const found = regList.find(t => String(t.event_id || t.bcp_event_id || t.id) === evId);
-        if (found) evName = found.event_name || found.name || '';
-      }
-    }
-
-    const lvl = String(active.level || 'info').toLowerCase();
-    const bgGrad = lvl === 'urgent'
-      ? 'linear-gradient(90deg, rgba(153,27,27,0.95), rgba(127,29,29,0.92))'
-      : (lvl === 'warning'
-          ? 'linear-gradient(90deg, rgba(146,64,14,0.95), rgba(120,53,15,0.92))'
-          : 'linear-gradient(90deg, rgba(12,74,110,0.95), rgba(30,58,138,0.92))');
-    const borderCol = lvl === 'urgent' ? 'rgba(248,113,113,0.6)' : (lvl === 'warning' ? 'rgba(251,191,36,0.6)' : 'rgba(56,189,248,0.55)');
-    const icon = lvl === 'urgent' ? '🚨' : (lvl === 'warning' ? '⚠️' : '📢');
-
-    const targetBadgeHtml = (active.target_table || active.target_player_name)
-      ? `<span class="badge" style="background:rgba(250,204,21,0.22); color:#fef08a; border:1px solid rgba(250,204,21,0.5); font-size:0.68rem; font-weight:800; white-space:nowrap;">
-          🎯 ${active.target_table ? `TABLE ${escapeHtml(String(active.target_table))}` : ''}${active.target_table && active.target_player_name ? ' • ' : ''}${active.target_player_name ? escapeHtml(String(active.target_player_name)) : ''}
-        </span>`
-      : '';
-
     banner.style.display = 'block';
-    banner.innerHTML = `
-      <div class="global-event-announcement-inner" style="background:${bgGrad}; border-bottom:1px solid ${borderCol}; padding:0.5rem 0.9rem; display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; box-sizing:border-box; max-width:100vw; overflow:hidden;">
-        <div class="global-event-announcement-content" style="display:flex; align-items:center; gap:0.5rem; flex:1; min-width:0; flex-wrap:wrap;">
-          <span style="font-size:1rem; flex-shrink:0;">${icon}</span>
-          <span class="badge global-event-announcement-badge" style="background:rgba(0,0,0,0.35); color:#fde68a; border:1px solid rgba(255,255,255,0.22); font-size:0.68rem; font-weight:800; max-width:min(280px, 62vw); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${escapeHtml(evName || 'LIVE TOURNAMENT')}">
-            ${escapeHtml(evName || 'LIVE TOURNAMENT')}
-          </span>
-          ${targetBadgeHtml}
-          <span class="global-event-announcement-msg" style="font-size:0.82rem; font-weight:700; color:#fff; line-height:1.35; min-width:180px; flex:1;">
-            ${escapeHtml(active.message)}
-          </span>
-        </div>
-        <div class="global-event-announcement-actions" style="display:flex; align-items:center; gap:0.4rem; flex-shrink:0;">
-          <button type="button" class="btn btn-outline" onclick="openGlobalAnnouncementEvent('${escapeHtml(evId)}')" style="font-size:0.71rem; font-weight:700; padding:0.24rem 0.6rem; background:rgba(255,255,255,0.14); color:#fff; border-color:rgba(255,255,255,0.32); white-space:nowrap;">
-            📰 View Bulletin
-          </button>
-          <button type="button" onclick="dismissGlobalEventAnnouncement('${escapeHtml(bid)}')" title="Dismiss Announcement" style="background:transparent; border:none; color:rgba(255,255,255,0.85); font-size:0.95rem; cursor:pointer; padding:0.2rem 0.35rem; line-height:1;">
-            ✕
-          </button>
-        </div>
-      </div>
-    `;
+    banner.innerHTML = rowsToRender.map(item => buildGlobalAnnouncementBannerRowHtml(item, hostedList, regList)).join('');
   } catch (err) {
     // Non-blocking
   }

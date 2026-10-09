@@ -1719,10 +1719,11 @@ window.api = {
     return this.publishEventToHubAnnouncement(eventId, payload);
   },
 
-  // TO Hub: Clear active Event Announcement Banner
-  async clearEventToHubAnnouncement(eventId) {
+  // TO Hub: Clear active Event Announcement Banner (general or specific targetId)
+  async clearEventToHubAnnouncement(eventId, targetId = null) {
     const token = this.getAuthToken();
-    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/to-hub/announcement`, {
+    const qs = targetId ? `?target_id=${encodeURIComponent(String(targetId))}` : '';
+    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/to-hub/announcement${qs}`, {
       method: 'DELETE',
       headers: token ? { 'Authorization': `Bearer ${token}` } : {}
     });
