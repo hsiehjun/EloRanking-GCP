@@ -1524,6 +1524,261 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
     # return immediately (<20ms) when BCP roster/placings metadata is already present,
     # or enrich from BCP within a strict 600ms budget (falling back to async background
     # enrichment + sync_in_progress=True if BCP takes >600ms on a huge cold event).
+    def _populate_event_teams(ev_obj: dict, raw_bcp_teams: Optional[list] = None) -> None:
+        if not isinstance(ev_obj, dict):
+            return
+        raw_ev_meta = ev_obj.get("raw_json") if isinstance(ev_obj.get("raw_json"), dict) else {}
+        source_teams = raw_bcp_teams
+        if not source_teams:
+            source_teams = ev_obj.get("teams") or ev_obj.get("team_standings") or raw_ev_meta.get("team_standings") or []
+        if not isinstance(source_teams, list) or len(source_teams) == 0:
+            return
+
+        team_map = {}
+        team_by_name_low = {}
+        ordered_tids = []
+        for idx, t in enumerate(source_teams):
+            if not isinstance(t, dict):
+                continue
+            tid = str(t.get("id") or t.get("_id") or t.get("team_id") or t.get("teamId") or f"team_{idx}").strip()
+            t_name = str(t.get("name") or t.get("teamName") or "Unnamed Team").strip()
+            cap = t.get("captain") if isinstance(t.get("captain"), dict) else {}
+            cap_first = str(cap.get("firstName") or "").strip()
+            cap_last = str(cap.get("lastName") or "").strip()
+            cap_name = (
+                f"{cap_first} {cap_last}".strip()
+                or str(t.get("captain_name") or t.get("captainName") or (t.get("captain") if isinstance(t.get("captain"), str) else "") or "").strip()
+            )
+            cap_id = str(t.get("captain_id") or t.get("captainId") or t.get("captainUserId") or cap.get("id") or "").strip()
+
+            raw_m_list = t.get("metrics") or t.get("total_metrics") or []
+            metrics = {m.get("name"): m.get("value") for m in raw_m_list if isinstance(m, dict) and m.get("name")}
+            raw_om = t.get("overall_metrics") or t.get("overallMetrics")
+            overall_metrics = {}
+            if isinstance(raw_om, list):
+                overall_metrics = {m.get("name"): m.get("value") for m in raw_om if isinstance(m, dict) and m.get("name")}
+            elif isinstance(raw_om, dict):
+                overall_metrics = raw_om
+
+            om_games = overall_metrics.get("games") if isinstance(overall_metrics.get("games"), list) else []
+            raw_games = (
+                t.get("total_games")
+                if (isinstance(t.get("total_games"), list) and len(t.get("total_games")) > len(t.get("games") or []))
+                else (t.get("games") or om_games or [])
+            )
+
+            placing_num = None
+            for pk in ("manualPlacing", "placing", "place", "rank", "placement", "overallPlacing"):
+                v = t.get(pk)
+                if v is not None and not isinstance(v, bool):
+                    try:
+                        pv = int(v)
+                        if pv > 0:
+                            placing_num = pv
+                            break
+                    except (ValueError, TypeError):
+                        pass
+
+            formatted_games = []
+            t_wins_cnt = 0
+            t_losses_cnt = 0
+            t_draws_cnt = 0
+            for g in raw_games:
+                if isinstance(g, dict):
+                    r_num = g.get("gameNum") if g.get("gameNum") is not None else g.get("round")
+                    g_pts = g.get("gamePoints") if g.get("gamePoints") is not None else g.get("points")
+                    g_res = g.get("gameResult") if g.get("gameResult") is not None else g.get("result")
+                    if g_res == 2:
+                        t_wins_cnt += 1
+                    elif g_res == 0 and g_pts is not None:
+                        t_losses_cnt += 1
+                    elif g_res == 1:
+                        t_draws_cnt += 1
+                    formatted_games.append({
+                        "round": r_num,
+                        "points": g_pts,
+                        "result": g_res,
+                        "differential": g.get("differentialPoints") if g.get("differentialPoints") is not None else g.get("differential"),
+                    })
+
+            if overall_metrics.get("numWins") is not None and t_wins_cnt == 0:
+                t_wins_cnt = int(overall_metrics.get("numWins") or 0)
+            if overall_metrics.get("numLosses") is not None and t_losses_cnt == 0:
+                t_losses_cnt = int(overall_metrics.get("numLosses") or 0)
+            if overall_metrics.get("numDraws") is not None and t_draws_cnt == 0:
+                t_draws_cnt = int(overall_metrics.get("numDraws") or 0)
+
+            match_points = (
+                metrics.get("Match Points")
+                if metrics.get("Match Points") is not None
+                else (
+                    t.get("match_points")
+                    if t.get("match_points") is not None
+                    else overall_metrics.get("points")
+                )
+            )
+            game_wins = (
+                metrics.get("Game Wins")
+                if metrics.get("Game Wins") is not None
+                else (t.get("game_wins") if t.get("game_wins") is not None else overall_metrics.get("gameWins"))
+            )
+            battle_points = (
+                metrics.get("Battle Points")
+                if metrics.get("Battle Points") is not None
+                else (
+                    overall_metrics.get("Overall Score")
+                    or overall_metrics.get("FFG")
+                    or t.get("battle_points")
+                    or t.get("battlePoints")
+                    or t.get("points")
+                )
+            )
+            path_to_victory = (
+                metrics.get("Path to Victory")
+                if metrics.get("Path to Victory") is not None
+                else (
+                    metrics.get("FFG SoS")
+                    if metrics.get("FFG SoS") is not None
+                    else (
+                        t.get("path_to_victory")
+                        if t.get("path_to_victory") is not None
+                        else overall_metrics.get("pathToVictory")
+                    )
+                )
+            )
+            wins_val = (
+                metrics.get("Wins")
+                if metrics.get("Wins") is not None
+                else (
+                    overall_metrics.get("Wins")
+                    if overall_metrics.get("Wins") is not None
+                    else (
+                        overall_metrics.get("numWins")
+                        if overall_metrics.get("numWins") is not None
+                        else (t.get("wins") if t.get("wins") is not None else (t_wins_cnt if formatted_games else None))
+                    )
+                )
+            )
+
+            t_entry = {
+                "id": tid,
+                "team_id": tid,
+                "name": t_name,
+                "captain_id": cap_id,
+                "captain_name": cap_name,
+                "captain": cap_name,
+                "checked_in": bool(t.get("checkedIn") if t.get("checkedIn") is not None else t.get("checked_in", True)),
+                "dropped": bool(t.get("dropped", False)),
+                "placing": placing_num,
+                "points": battle_points if battle_points is not None else (match_points if match_points is not None else 0),
+                "match_points": match_points,
+                "game_wins": game_wins,
+                "battle_points": battle_points,
+                "path_to_victory": path_to_victory,
+                "wins": wins_val,
+                "team_wins": t.get("team_wins") if t.get("team_wins") is not None else t_wins_cnt,
+                "team_losses": t.get("team_losses") if t.get("team_losses") is not None else t_losses_cnt,
+                "team_draws": t.get("team_draws") if t.get("team_draws") is not None else t_draws_cnt,
+                "games": formatted_games,
+                "member_ids": list(t.get("member_ids") or []),
+                "member_names": list(t.get("member_names") or []),
+                "members": [],
+            }
+            team_map[tid] = t_entry
+            ordered_tids.append(tid)
+            if t_name:
+                team_by_name_low[t_name.lower()] = t_entry
+
+        tid_by_member_id = {}
+        tid_by_member_name = {}
+        for tid, tm in team_map.items():
+            for mid in (tm.get("member_ids") or []):
+                if mid:
+                    tid_by_member_id[str(mid).strip()] = tid
+            if tm.get("captain_id"):
+                tid_by_member_id.setdefault(str(tm["captain_id"]).strip(), tid)
+            for mnm in (tm.get("member_names") or []):
+                if mnm:
+                    tid_by_member_name[str(mnm).strip().lower()] = tid
+            if tm.get("captain_name"):
+                tid_by_member_name.setdefault(str(tm["captain_name"]).strip().lower(), tid)
+
+        unassigned = []
+        ev_players = ev_obj.get("players") or []
+        for p in ev_players:
+            if not isinstance(p, dict):
+                continue
+            target_team = None
+            tpid = str(p.get("team_player_id") or p.get("teamPlayerId") or "").strip()
+            if tpid and tpid in team_map:
+                target_team = team_map[tpid]
+            if target_team is None:
+                for pk in ("player_id", "user_id", "id", "bcp_event_player_id", "bcp_player_id"):
+                    pv = str(p.get(pk) or "").strip()
+                    if pv and pv in tid_by_member_id:
+                        target_team = team_map.get(tid_by_member_id[pv])
+                        if target_team is not None:
+                            break
+            if target_team is None:
+                p_nm_low = str(p.get("full_name") or p.get("name") or "").strip().lower()
+                if p_nm_low and p_nm_low in tid_by_member_name:
+                    target_team = team_map.get(tid_by_member_name[p_nm_low])
+            if target_team is None:
+                p_tm_low = str(p.get("team") or "").strip().lower()
+                if p_tm_low and p_tm_low in team_by_name_low:
+                    target_team = team_by_name_low[p_tm_low]
+
+            if target_team is not None:
+                if target_team.get("name"):
+                    p["team"] = target_team["name"]
+                if target_team.get("id") and not p.get("team_player_id"):
+                    p["team_player_id"] = target_team["id"]
+                p_nm_str = str(p.get("full_name") or p.get("name") or "").strip().lower()
+                is_cap = bool(
+                    (target_team.get("captain_id") and target_team["captain_id"] in (str(p.get("user_id") or ""), str(p.get("player_id") or ""), str(p.get("id") or "")))
+                    or (target_team.get("captain_name") and target_team["captain_name"].lower() == p_nm_str)
+                )
+                p["is_captain"] = is_cap
+                target_team["members"].append(p)
+            else:
+                unassigned.append(p)
+
+        formatted_teams = [team_map[tid] for tid in ordered_tids if tid in team_map]
+        for tm in formatted_teams:
+            m_elos = []
+            for m in tm["members"]:
+                ev_elo = m.get("current_elo") if m.get("current_elo") is not None else m.get("elo")
+                if ev_elo is not None:
+                    try:
+                        m_elos.append(float(ev_elo))
+                    except (ValueError, TypeError):
+                        pass
+            tm["avg_elo"] = round(sum(m_elos) / len(m_elos), 1) if m_elos else 1500.0
+            tm["member_count"] = len(tm["members"])
+            tm["members"].sort(key=lambda m: (not m.get("is_captain"), -float(m.get("current_elo") or m.get("elo") or 1500.0)))
+
+        has_team_placings = any(tm.get("placing") for tm in formatted_teams)
+        if has_team_placings:
+            formatted_teams.sort(key=lambda tm: (tm.get("placing") or 999999, str(tm.get("name") or "").lower()))
+        else:
+            formatted_teams.sort(key=lambda tm: str(tm.get("name") or "").lower())
+
+        ev_obj["teams"] = formatted_teams
+        ev_obj["team_standings"] = formatted_teams
+        ev_obj["total_teams"] = len(formatted_teams)
+        ev_obj["is_team_event"] = True
+        raw_doubles = raw_ev_meta.get("doublesEvent")
+        if raw_doubles is True or ("double" in str(ev_obj.get("name") or "").lower()):
+            ev_obj["is_doubles_event"] = True
+        elif raw_doubles is False:
+            ev_obj["is_doubles_event"] = False
+        elif round(len(ev_players) / max(1, len(formatted_teams))) == 2:
+            ev_obj["is_doubles_event"] = True
+        else:
+            ev_obj["is_doubles_event"] = bool(ev_obj.get("is_doubles_event"))
+        if unassigned:
+            ev_obj["unassigned_players"] = unassigned
+
     if (
         not is_mock_env
         and not force_sync
@@ -1596,6 +1851,23 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
         plc_cached = PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, event_id_str, ttl=3600)
         if isinstance(plc_cached, dict) and plc_cached.get("raw_players"):
             _apply_bcp_raw_players_to_ev(event_details, plc_cached["raw_players"])
+        _populate_event_teams(event_details, plc_cached.get("raw_teams") if isinstance(plc_cached, dict) else None)
+
+        raw_ev_fast = event_details.get("raw_json") if isinstance(event_details.get("raw_json"), dict) else {}
+        total_tp_fast = 0
+        try:
+            total_tp_fast = int(raw_ev_fast.get("totalTeamPlayers") or 0)
+        except (ValueError, TypeError):
+            total_tp_fast = 0
+        is_team_ev_fast = bool(
+            event_details.get("is_team_event")
+            or raw_ev_fast.get("teamEvent")
+            or total_tp_fast > 0
+            or event_details.get("teams")
+            or event_details.get("team_standings")
+        )
+        if is_team_ev_fast:
+            event_details["is_team_event"] = True
 
         players_arr = event_details.get("players") or []
         has_bcp_roster_meta = (
@@ -1608,20 +1880,46 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                 for p in players_arr
             )
         )
-        already_checked_bcp = bool(isinstance(plc_cached, dict) and plc_cached.get("fetched_ok"))
+        teams_arr_fast = event_details.get("teams") or []
+        has_team_rosters = (
+            not is_team_ev_fast
+            or (
+                len(teams_arr_fast) > 0
+                and sum(len(t.get("members") or []) for t in teams_arr_fast if isinstance(t, dict)) > 0
+            )
+        )
+        already_checked_bcp = bool(
+            isinstance(plc_cached, dict)
+            and plc_cached.get("fetched_ok")
+            and (not is_team_ev_fast or plc_cached.get("teams_checked"))
+        )
 
-        if not has_bcp_roster_meta and not already_checked_bcp and hasattr(db, "fetch_and_cache_bcp_event_placings"):
-            holder = {"res": None, "done": False}
+        if (not has_bcp_roster_meta or not has_team_rosters) and not already_checked_bcp and hasattr(db, "fetch_and_cache_bcp_event_placings"):
+            holder = {"res": None, "raw_teams": None, "done": False}
+
+            def _on_fast_teams(rt_list):
+                holder["raw_teams"] = rt_list
 
             def _bg_fetch_bcp_for_completed():
                 try:
-                    res = db.fetch_and_cache_bcp_event_placings(event_id_str, timeout=4.0, persist_async=True)
+                    try:
+                        res = db.fetch_and_cache_bcp_event_placings(
+                            event_id_str,
+                            timeout=4.0,
+                            persist_async=True,
+                            is_team_event=is_team_ev_fast,
+                            fast_teams_callback=_on_fast_teams,
+                        )
+                    except TypeError:
+                        res = db.fetch_and_cache_bcp_event_placings(event_id_str, timeout=4.0, persist_async=True)
                     holder["res"] = res
                     holder["done"] = True
-                    if isinstance(res, dict) and res.get("raw_players"):
+                    if isinstance(res, dict) and (res.get("raw_players") or res.get("raw_teams")):
                         import copy
                         ev_copy = copy.deepcopy(event_details)
-                        _apply_bcp_raw_players_to_ev(ev_copy, res["raw_players"])
+                        if res.get("raw_players"):
+                            _apply_bcp_raw_players_to_ev(ev_copy, res["raw_players"])
+                        _populate_event_teams(ev_copy, res.get("raw_teams") or holder.get("raw_teams"))
                         ev_copy["sync_in_progress"] = False
                         _event_details_cache[event_id_str] = {
                             "timestamp": time.time(),
@@ -1634,11 +1932,15 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
 
             t_enrich = threading.Thread(target=_bg_fetch_bcp_for_completed, daemon=True)
             t_enrich.start()
-            t_enrich.join(timeout=0.58)
+            t_enrich.join(timeout=0.68)
             if holder["done"]:
                 res_obj = holder["res"]
                 if isinstance(res_obj, dict) and res_obj.get("raw_players"):
                     _apply_bcp_raw_players_to_ev(event_details, res_obj["raw_players"])
+                _populate_event_teams(
+                    event_details,
+                    (res_obj.get("raw_teams") if isinstance(res_obj, dict) else None) or holder.get("raw_teams"),
+                )
                 event_details["sync_in_progress"] = False
                 _event_details_cache[event_id_str] = {
                     "timestamp": time.time(),
@@ -1647,7 +1949,9 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                 }
                 return event_details
             else:
-                # Return fast (<600ms) with sync_in_progress=True so frontend re-polls in 2s once cached
+                if holder.get("raw_teams"):
+                    _populate_event_teams(event_details, holder["raw_teams"])
+                # Return fast (<750ms) with sync_in_progress=True so frontend re-polls in 2s once cached
                 event_details["sync_in_progress"] = True
                 return event_details
 
@@ -1665,6 +1969,13 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
     scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
     bcp_ev_data = None
     prefetched_bcp_players = None
+    prefetched_bcp_teams = None
+    raw_ev_hint = (event_details.get("raw_json") or {}) if isinstance(event_details, dict) and isinstance(event_details.get("raw_json"), dict) else {}
+    hint_is_team = bool(
+        (isinstance(event_details, dict) and event_details.get("is_team_event"))
+        or raw_ev_hint.get("teamEvent")
+        or (int(raw_ev_hint.get("totalTeamPlayers") or 0) > 0 if str(raw_ev_hint.get("totalTeamPlayers") or "").isdigit() else False)
+    )
     can_parallel_bcp = (
         not is_mock_env
         and not hasattr(scraper, "assert_called")
@@ -1674,9 +1985,10 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
     )
     if can_parallel_bcp:
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        with ThreadPoolExecutor(max_workers=3 if hint_is_team else 2) as pool:
             f_ev = pool.submit(scraper.fetch_event_details, event_id_str)
             f_pl = pool.submit(scraper.fetch_event_players, event_id_str)
+            f_tm = pool.submit(scraper.fetch_event_teams, event_id_str) if hint_is_team else None
             try:
                 bcp_ev_data = f_ev.result()
             except Exception as e:
@@ -1685,6 +1997,11 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                 prefetched_bcp_players = f_pl.result()
             except Exception as e:
                 logger.warning(f"Notice prefetching live BCP players for event {event_id_str}: {e}")
+            if f_tm is not None:
+                try:
+                    prefetched_bcp_teams = f_tm.result()
+                except Exception as e:
+                    logger.warning(f"Notice prefetching live BCP teams for event {event_id_str}: {e}")
     else:
         try:
             bcp_ev_data = scraper.fetch_event_details(event_id_str)
@@ -1827,9 +2144,11 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
         )
 
         bcp_players = prefetched_bcp_players if prefetched_bcp_players is not None else scraper.fetch_event_players(event_id_str)
+        if not is_team_event and bcp_players and any(isinstance(p, dict) and (p.get("teamPlayerId") or p.get("teamId")) for p in bcp_players):
+            is_team_event = True
         bcp_teams = []
         if is_team_event or not bcp_players:
-            bcp_teams = scraper.fetch_event_teams(event_id_str)
+            bcp_teams = prefetched_bcp_teams if prefetched_bcp_teams is not None else scraper.fetch_event_teams(event_id_str)
             if bcp_teams and not is_team_event:
                 is_team_event = True
                 if round(len(bcp_players or []) / max(1, len(bcp_teams))) == 2 or ("double" in (event_details.get("name") or "").lower()):
@@ -1843,6 +2162,8 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
             ev_gs = event_details.get("game_system") or "40k"
             formatted_players = format_bcp_roster_to_players(bcp_players, existing_players, db=db, game_system=ev_gs, is_ended=is_ended)
             event_details["players"] = formatted_players
+            if is_team_event:
+                _populate_event_teams(event_details, bcp_teams)
             if formatted_players:
                 event_details["total_players"] = len(formatted_players)
                 try:
@@ -1864,6 +2185,7 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                             "detachment": fp.get("detachment") or "",
                             "faction": fp.get("faction") or "",
                             "team": fp.get("team") or "",
+                            "team_player_id": fp.get("team_player_id"),
                             "dropped": bool(fp.get("dropped")),
                         }
                         for kid in (fp.get("player_id"), fp.get("user_id"), fp.get("bcp_event_player_id"), fp.get("id")):
@@ -1886,13 +2208,18 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                             "meta_by_id": meta_by_id_cache,
                             "meta_by_name": meta_by_name_cache,
                             "raw_players": bcp_players,
+                            "raw_teams": bcp_teams,
+                            "teams_checked": True,
                             "active_count": len(formatted_players),
                             "fetched_ok": True,
                         },
                         max_size=2000
                     )
                     if not is_mock_env and hasattr(db, "_persist_bcp_event_players_to_db_async"):
-                        db._persist_bcp_event_players_to_db_async(event_id_str, bcp_players)
+                        try:
+                            db._persist_bcp_event_players_to_db_async(event_id_str, bcp_players, raw_teams=bcp_teams)
+                        except TypeError:
+                            db._persist_bcp_event_players_to_db_async(event_id_str, bcp_players)
                 except Exception:
                     pass
             elos = [float(p["current_elo"]) for p in formatted_players if p.get("current_elo") is not None]
@@ -1903,98 +2230,8 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
         event_details["is_team_event"] = is_team_event
         event_details["is_doubles_event"] = is_doubles_event
 
-        if is_team_event and bcp_teams:
-            # Group competitors under their respective registered teams
-            team_map = {}
-            for t in bcp_teams:
-                tid = str(t.get("id") or "").strip()
-                if not tid:
-                    continue
-                cap = t.get("captain") if isinstance(t.get("captain"), dict) else {}
-                cap_first = cap.get("firstName") or ""
-                cap_last = cap.get("lastName") or ""
-                cap_name = f"{cap_first} {cap_last}".strip() or t.get("captainName") or ""
-
-                metrics = {m.get("name"): m.get("value") for m in (t.get("metrics") or t.get("total_metrics") or []) if isinstance(m, dict)}
-                overall_metrics = {m.get("name"): m.get("value") for m in t.get("overall_metrics", []) if isinstance(m, dict)}
-                games = t.get("games") or t.get("total_games") or []
-
-                placing_num = None
-                for pk in ("placing", "overallPlacing", "rank", "place"):
-                    v = t.get(pk)
-                    if v is not None and not isinstance(v, bool):
-                        try:
-                            pv = int(v)
-                            if pv > 0:
-                                placing_num = pv
-                                break
-                        except (ValueError, TypeError):
-                            pass
-
-                match_points = metrics.get("Match Points")
-                game_wins = metrics.get("Game Wins")
-                battle_points = metrics.get("Battle Points") or overall_metrics.get("Overall Score") or t.get("battlePoints") or t.get("battle_points") or t.get("points")
-                wins = overall_metrics.get("Wins")
-
-                formatted_games = []
-                for g in games:
-                    if isinstance(g, dict):
-                        formatted_games.append({
-                            "round": g.get("gameNum"),
-                            "points": g.get("gamePoints"),
-                            "result": g.get("gameResult")  # 2 = win, 0 = loss, 1 = draw
-                        })
-
-                team_map[tid] = {
-                    "id": tid,
-                    "team_id": tid,
-                    "name": t.get("name") or "Unnamed Team",
-                    "captain_id": str(t.get("captainId") or cap.get("id") or ""),
-                    "captain_name": cap_name,
-                    "checked_in": bool(t.get("checkedIn") or t.get("checked_in")),
-                    "dropped": bool(t.get("dropped")),
-                    "placing": placing_num,
-                    "points": battle_points if battle_points is not None else 0,
-                    "match_points": match_points,
-                    "game_wins": game_wins,
-                    "battle_points": battle_points,
-                    "wins": wins,
-                    "games": formatted_games,
-                    "members": []
-                }
-
-            unassigned = []
-            for p in event_details.get("players", []):
-                tpid = str(p.get("team_player_id") or p.get("teamPlayerId") or "").strip()
-                if tpid and tpid in team_map:
-                    target_team = team_map[tpid]
-                    is_cap = bool(
-                        (target_team.get("captain_id") and target_team["captain_id"] in (p.get("user_id"), p.get("player_id"))) or
-                        (target_team.get("captain_name") and target_team["captain_name"].lower() == p.get("full_name", "").lower())
-                    )
-                    p["is_captain"] = is_cap
-                    target_team["members"].append(p)
-                else:
-                    unassigned.append(p)
-
-            formatted_teams = list(team_map.values())
-            for tm in formatted_teams:
-                m_elos = [float(m["current_elo"]) for m in tm["members"] if m.get("current_elo") is not None]
-                tm["avg_elo"] = round(sum(m_elos) / len(m_elos), 1) if m_elos else 1500.0
-                tm["member_count"] = len(tm["members"])
-                tm["members"].sort(key=lambda m: (not m.get("is_captain"), -float(m.get("current_elo") or 1500.0)))
-
-            has_team_placings = any(tm.get("placing") for tm in formatted_teams)
-            if has_team_placings:
-                formatted_teams.sort(key=lambda tm: tm.get("placing") or 999999)
-            else:
-                formatted_teams.sort(key=lambda tm: tm.get("name", "").lower())
-
-            event_details["teams"] = formatted_teams
-            event_details["team_standings"] = formatted_teams
-            event_details["total_teams"] = len(formatted_teams)
-            if unassigned:
-                event_details["unassigned_players"] = unassigned
+        if is_team_event:
+            _populate_event_teams(event_details, bcp_teams)
     except Exception as e:
         logger.warning(f"BCP placings fetch notice for {event_id_str}: {e}")
 

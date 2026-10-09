@@ -4177,6 +4177,7 @@ class PostgresDatabase:
                            WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json) = 'object' THEN
                                jsonb_build_object(
                                    'placingMetrics', COALESCE(raw_json->'placingMetrics', '[]'::jsonb),
+                                   'team_standings', COALESCE(raw_json->'team_standings', '[]'::jsonb),
                                    'numberOfRounds', raw_json->'numberOfRounds',
                                    'numRounds', raw_json->'numRounds',
                                    'currentRound', raw_json->'currentRound',
@@ -4736,7 +4737,13 @@ class PostgresDatabase:
                         else:
                             val = p.get(k, 0)
                         key_tuple.append(-val if neg else val)
-                    key_tuple.append(p["current_elo"])
+                    key_tuple.extend([
+                        p["event_wins"] + 0.5 * p["event_draws"],
+                        p["ptv"],
+                        round(p["sos"], 4),
+                        p["event_battle_points"],
+                        p["current_elo"],
+                    ])
                     return tuple(key_tuple)
 
                 sorted_roster = sorted(player_stats.values(), key=get_standings_sort_key, reverse=True)
@@ -4898,8 +4905,88 @@ class PostgresDatabase:
                     res_status["isEnded"] = computed_is_ended
                     res_status["started"] = bool(res.get("started") or computed_is_ended or res_status.get("started"))
                     res["status"] = res_status
-                    res["team_standings"] = raw_meta.get("team_standings", [])
-                    res["is_team_event"] = bool(raw_meta.get("teamEvent") or raw_meta.get("team_standings"))
+                    raw_team_standings = raw_meta.get("team_standings") if isinstance(raw_meta.get("team_standings"), list) else []
+                    total_team_players_val = 0
+                    try:
+                        total_team_players_val = int(raw_meta.get("totalTeamPlayers") or 0)
+                    except (ValueError, TypeError):
+                        total_team_players_val = 0
+                    res["is_team_event"] = bool(raw_meta.get("teamEvent") or total_team_players_val > 0 or len(raw_team_standings) > 0)
+                    res["is_doubles_event"] = bool(raw_meta.get("doublesEvent"))
+                    if raw_team_standings:
+                        ev_players = res.get("players") or []
+                        players_by_id = {}
+                        players_by_name = {}
+                        players_by_team_name = {}
+                        for p in ev_players:
+                            if not isinstance(p, dict):
+                                continue
+                            for pid_k in ("player_id", "id", "user_id", "bcp_player_id", "bcp_event_player_id"):
+                                pid_v = str(p.get(pid_k) or "").strip()
+                                if pid_v:
+                                    players_by_id[pid_v] = p
+                            pname_v = str(p.get("full_name") or p.get("name") or "").strip().lower()
+                            if pname_v:
+                                players_by_name[pname_v] = p
+                            ptm_v = str(p.get("team") or "").strip().lower()
+                            if ptm_v:
+                                players_by_team_name.setdefault(ptm_v, []).append(p)
+                        reconstructed_teams = []
+                        for ts in raw_team_standings:
+                            if not isinstance(ts, dict):
+                                continue
+                            t_copy = dict(ts)
+                            t_name = str(t_copy.get("name") or "").strip()
+                            t_id = str(t_copy.get("id") or "").strip()
+                            cap_id = str(t_copy.get("captain_id") or "").strip()
+                            cap_name = str(t_copy.get("captain_name") or t_copy.get("captain") or "").strip()
+                            matched_members = []
+                            seen_pids = set()
+                            for mid in (t_copy.get("member_ids") or []):
+                                mp = players_by_id.get(str(mid or "").strip())
+                                if mp:
+                                    mp_key = str(mp.get("player_id") or mp.get("id") or id(mp))
+                                    if mp_key not in seen_pids:
+                                        seen_pids.add(mp_key)
+                                        matched_members.append(mp)
+                            if not matched_members and t_copy.get("member_names"):
+                                for mname in (t_copy.get("member_names") or []):
+                                    mp = players_by_name.get(str(mname or "").strip().lower())
+                                    if mp:
+                                        mp_key = str(mp.get("player_id") or mp.get("id") or id(mp))
+                                        if mp_key not in seen_pids:
+                                            seen_pids.add(mp_key)
+                                            matched_members.append(mp)
+                            if not matched_members and t_name:
+                                for mp in players_by_team_name.get(t_name.lower(), []):
+                                    mp_key = str(mp.get("player_id") or mp.get("id") or id(mp))
+                                    if mp_key not in seen_pids:
+                                        seen_pids.add(mp_key)
+                                        matched_members.append(mp)
+                            for mp in matched_members:
+                                if t_name:
+                                    mp["team"] = t_name
+                                if t_id and not mp.get("team_player_id"):
+                                    mp["team_player_id"] = t_id
+                                mp_id_str = str(mp.get("player_id") or mp.get("id") or "").strip()
+                                mp_bcp_str = str(mp.get("bcp_event_player_id") or mp.get("bcp_player_id") or "").strip()
+                                mp_name_low = str(mp.get("full_name") or mp.get("name") or "").strip().lower()
+                                mp["is_captain"] = bool(
+                                    (cap_id and (mp_id_str == cap_id or mp_bcp_str == cap_id))
+                                    or (cap_name and mp_name_low == cap_name.lower())
+                                )
+                            matched_members.sort(key=lambda m: (not m.get("is_captain", False), -float(m.get("current_elo") or m.get("elo") or 1500.0)))
+                            t_copy["members"] = matched_members
+                            t_copy["member_count"] = len(matched_members)
+                            elos = [float(m.get("current_elo") or m.get("elo")) for m in matched_members if (m.get("current_elo") or m.get("elo")) is not None]
+                            t_copy["avg_elo"] = round(sum(elos) / len(elos), 1) if elos else 1500.0
+                            reconstructed_teams.append(t_copy)
+                        reconstructed_teams.sort(key=lambda x: (x.get("placing") or 999999, -(x.get("avg_elo") or 0), str(x.get("name") or "")))
+                        res["team_standings"] = reconstructed_teams
+                        res["teams"] = reconstructed_teams
+                        res["total_teams"] = len(reconstructed_teams)
+                    else:
+                        res["team_standings"] = []
                 else:
                     res["status"] = {
                         "ended": computed_is_ended,
@@ -4908,6 +4995,7 @@ class PostgresDatabase:
                     }
                     res["team_standings"] = []
                     res["is_team_event"] = False
+                    res["is_doubles_event"] = False
 
                 PostgresDatabase.set_cached(PostgresDatabase._event_details_cache_dict, cache_key, res)
                 return res
@@ -6776,24 +6864,40 @@ class PostgresDatabase:
     _bcp_placings_inflight_locks: Dict[str, threading.Lock] = {}
     _bcp_placings_inflight_guard = threading.Lock()
 
-    def _persist_bcp_event_players_to_db_async(self, eid: str, active: List[Dict[str, Any]]) -> None:
-        """Asynchronously persists BCP official placings and listIds into event_participants in Cloud SQL."""
+    def _persist_bcp_event_players_to_db_async(
+        self,
+        eid: str,
+        active: List[Dict[str, Any]],
+        raw_teams: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        """Asynchronously persists BCP official placings, listIds, and team standings into Cloud SQL."""
         if os.environ.get("ENABLE_BG_BCP_DB_PERSIST", "1") == "0":
             return
-        if not eid or not active:
+        if not eid or (not active and not raw_teams):
             return
         if self._is_mock_instance() or not hasattr(self, "get_connection") or hasattr(self.get_connection, "_mock_name"):
             return
-        if eid in PostgresDatabase._bcp_persisted_eids:
+        persist_key = f"{eid}:teams" if raw_teams else eid
+        if persist_key in PostgresDatabase._bcp_persisted_eids:
             return
-        PostgresDatabase._bcp_persisted_eids.add(eid)
+        PostgresDatabase._bcp_persisted_eids.add(persist_key)
 
         def _bg_persist():
             with PostgresDatabase._bcp_persist_semaphore:
                 try:
+                    team_name_by_id: Dict[str, str] = {}
+                    for t in (raw_teams or []):
+                        if isinstance(t, dict):
+                            tid = str(t.get("id") or t.get("_id") or t.get("teamId") or "").strip()
+                            tname = str(t.get("name") or t.get("teamName") or "").strip()
+                            if tid and tname:
+                                team_name_by_id[tid] = tname
+
                     updates_by_id = []
                     seen_keys = set()
-                    for p in active:
+                    member_ids_by_team_id: Dict[str, List[str]] = {}
+                    member_names_by_team_id: Dict[str, List[str]] = {}
+                    for p in (active or []):
                         if not isinstance(p, dict):
                             continue
                         placing_num = None
@@ -6815,13 +6919,104 @@ class PostgresDatabase:
                         has_list_val = bool(list_id)
                         det_obj = p.get("subFaction") or p.get("detachment") or {}
                         det_name = str((det_obj.get("name") or "") if isinstance(det_obj, dict) else (det_obj or "")).strip() or None
+                        tp_id = str(p.get("teamPlayerId") or p.get("teamId") or p.get("team_id") or "").strip()
+                        resolved_team_name = team_name_by_id.get(tp_id) if tp_id else None
+                        if tp_id:
+                            if user_id:
+                                member_ids_by_team_id.setdefault(tp_id, []).append(user_id)
+                            elif bcp_ep_id:
+                                member_ids_by_team_id.setdefault(tp_id, []).append(bcp_ep_id)
+                            fn = str(u.get("firstName") or p.get("firstName") or "").strip()
+                            ln = str(u.get("lastName") or p.get("lastName") or "").strip()
+                            full_nm = f"{fn} {ln}".strip() or str(p.get("name") or "").strip()
+                            if full_nm:
+                                member_names_by_team_id.setdefault(tp_id, []).append(full_nm)
 
-                        if not placing_num and not list_id and not bcp_ep_id and not det_name:
+                        if not placing_num and not list_id and not bcp_ep_id and not det_name and not resolved_team_name:
                             continue
                         for k_id in (user_id, bcp_ep_id):
                             if k_id and k_id not in seen_keys:
                                 seen_keys.add(k_id)
-                                updates_by_id.append((eid, k_id, placing_num, bcp_ep_id or None, det_name, army_list_val, has_list_val))
+                                updates_by_id.append((eid, k_id, placing_num, bcp_ep_id or None, det_name, army_list_val, has_list_val, resolved_team_name))
+
+                    team_standings_to_persist = []
+                    if raw_teams:
+                        for t in raw_teams:
+                            if not isinstance(t, dict):
+                                continue
+                            t_id = str(t.get("id") or t.get("_id") or t.get("teamId") or "").strip()
+                            t_name = str(t.get("name") or t.get("teamName") or "").strip()
+                            if not t_name:
+                                continue
+                            cap = t.get("captain") if isinstance(t.get("captain"), dict) else {}
+                            cap_id = str(cap.get("id") or t.get("captainUserId") or t.get("captainId") or "").strip()
+                            cap_fn = str(cap.get("firstName") or "").strip()
+                            cap_ln = str(cap.get("lastName") or "").strip()
+                            cap_name = f"{cap_fn} {cap_ln}".strip() or str(cap.get("name") or "").strip()
+                            metrics = {}
+                            for m in (t.get("metrics") or t.get("total_metrics") or []):
+                                if isinstance(m, dict) and m.get("name"):
+                                    metrics[m["name"]] = m.get("value")
+                            t_placing = None
+                            for pk in ("manualPlacing", "placing", "place", "rank", "placement", "overallPlacing"):
+                                pv = t.get(pk)
+                                if pv is not None and not isinstance(pv, bool):
+                                    try:
+                                        p_int = int(pv)
+                                        if p_int > 0:
+                                            t_placing = p_int
+                                            break
+                                    except (ValueError, TypeError):
+                                        pass
+                            raw_t_games = t.get("total_games") if (isinstance(t.get("total_games"), list) and len(t.get("total_games")) > len(t.get("games") or [])) else (t.get("games") or [])
+                            t_games = []
+                            t_wins_cnt = 0
+                            t_losses_cnt = 0
+                            t_draws_cnt = 0
+                            for g in raw_t_games:
+                                if isinstance(g, dict):
+                                    gr = g.get("gameResult")
+                                    gp = g.get("gamePoints")
+                                    if gr == 2:
+                                        t_wins_cnt += 1
+                                    elif gr == 0 and gp is not None:
+                                        t_losses_cnt += 1
+                                    elif gr == 1:
+                                        t_draws_cnt += 1
+                                    t_games.append({
+                                        "round": g.get("gameNum"),
+                                        "result": gr,
+                                        "points": gp,
+                                        "differential": g.get("differentialPoints"),
+                                    })
+                            mp_val = metrics.get("Match Points") if metrics.get("Match Points") is not None else t.get("points")
+                            gw_val = metrics.get("Game Wins") if metrics.get("Game Wins") is not None else metrics.get("Wins")
+                            bp_val = metrics.get("Battle Points") if metrics.get("Battle Points") is not None else (metrics.get("Team Score") or t.get("score"))
+                            ptv_val = metrics.get("Path to Victory") if metrics.get("Path to Victory") is not None else metrics.get("FFG SoS")
+                            w_val = metrics.get("Wins") if metrics.get("Wins") is not None else (t_wins_cnt if t_games else t.get("wins"))
+                            team_standings_to_persist.append({
+                                "id": t_id,
+                                "name": t_name,
+                                "captain_id": cap_id or None,
+                                "captain_name": cap_name or None,
+                                "captain": cap_name or None,
+                                "checked_in": bool(t.get("checkedIn", True)),
+                                "dropped": bool(t.get("dropped", False)),
+                                "placing": t_placing,
+                                "points": mp_val,
+                                "match_points": mp_val,
+                                "game_wins": gw_val,
+                                "battle_points": bp_val,
+                                "path_to_victory": ptv_val,
+                                "wins": w_val,
+                                "team_wins": t_wins_cnt,
+                                "team_losses": t_losses_cnt,
+                                "team_draws": t_draws_cnt,
+                                "games": t_games,
+                                "member_ids": member_ids_by_team_id.get(t_id, []),
+                                "member_names": member_names_by_team_id.get(t_id, []),
+                            })
+                        team_standings_to_persist.sort(key=lambda x: (x.get("placing") or 999999, str(x.get("name") or "")))
 
                     with self.get_connection() as conn:
                         with conn.cursor() as cur:
@@ -6837,15 +7032,16 @@ class PostgresDatabase:
                                         bcp_player_id = COALESCE(v.bcp_ep_id, ep.bcp_player_id),
                                         detachment = COALESCE(v.det_name, NULLIF(ep.detachment, '')),
                                         army_list = COALESCE(v.army_list_val, NULLIF(ep.army_list, '')),
-                                        has_list_submitted = (COALESCE(ep.has_list_submitted, FALSE) OR v.has_list_val)
-                                    FROM (VALUES %s) AS v(event_id, player_id, placement, bcp_ep_id, det_name, army_list_val, has_list_val)
+                                        has_list_submitted = (COALESCE(ep.has_list_submitted, FALSE) OR v.has_list_val),
+                                        team = COALESCE(v.team_name, NULLIF(ep.team, ''))
+                                    FROM (VALUES %s) AS v(event_id, player_id, placement, bcp_ep_id, det_name, army_list_val, has_list_val, team_name)
                                     WHERE ep.event_id = v.event_id AND ep.player_id = v.player_id;
                                     """,
                                     updates_by_id,
-                                    template="(%s::text, %s::text, %s::int, %s::text, %s::text, %s::text, %s::boolean)",
+                                    template="(%s::text, %s::text, %s::int, %s::text, %s::text, %s::text, %s::boolean, %s::text)",
                                     page_size=500,
                                 )
-                            if len(active) > 0:
+                            if active and len(active) > 0:
                                 cur.execute(
                                     """
                                     UPDATE events
@@ -6854,10 +7050,22 @@ class PostgresDatabase:
                                     """,
                                     (len(active), eid, len(active)),
                                 )
+                            if team_standings_to_persist:
+                                cur.execute(
+                                    """
+                                    UPDATE events
+                                    SET raw_json = jsonb_set(
+                                        jsonb_set(COALESCE(raw_json, '{}'::jsonb), '{team_standings}', %s::jsonb, true),
+                                        '{teamEvent}', 'true'::jsonb, true
+                                    )
+                                    WHERE id = %s;
+                                    """,
+                                    (json.dumps(team_standings_to_persist), eid),
+                                )
                         conn.commit()
                     PostgresDatabase._event_details_cache_dict.pop(eid, None)
                 except Exception as e:
-                    PostgresDatabase._bcp_persisted_eids.discard(eid)
+                    PostgresDatabase._bcp_persisted_eids.discard(persist_key)
                     logger.debug(f"Background BCP event_participants persist notice for {eid}: {e}")
 
         threading.Thread(target=_bg_persist, daemon=True).start()
@@ -6867,16 +7075,23 @@ class PostgresDatabase:
         eid: str,
         timeout: float = 1.5,
         persist_async: bool = False,
+        is_team_event: bool = False,
+        fast_teams_callback: Optional[Any] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Fetches official BCP placings & listIds for an event, caches in-memory, and optionally persists to DB in background."""
+        """Fetches official BCP placings, listIds, and team standings for an event, caches in-memory, and optionally persists to DB in background."""
         eid = str(eid or "").strip()
         if not eid:
             return None
         cached = PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, eid, ttl=3600)
         if isinstance(cached, dict):
-            if cached.get("fetched_ok"):
+            if cached.get("fetched_ok") and (not is_team_event or cached.get("teams_checked")):
+                if callable(fast_teams_callback) and cached.get("raw_teams"):
+                    try:
+                        fast_teams_callback(cached.get("raw_teams"))
+                    except Exception:
+                        pass
                 return cached
-            if (time.time() - float(cached.get("failed_ts") or 0.0)) < 300.0:
+            if not cached.get("fetched_ok") and (time.time() - float(cached.get("failed_ts") or 0.0)) < 300.0:
                 return None
 
         with PostgresDatabase._bcp_placings_inflight_guard:
@@ -6890,33 +7105,102 @@ class PostgresDatabase:
         with eid_lock:
             cached = PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, eid, ttl=3600)
             if isinstance(cached, dict):
-                if cached.get("fetched_ok"):
+                if cached.get("fetched_ok") and (not is_team_event or cached.get("teams_checked")):
+                    if callable(fast_teams_callback) and cached.get("raw_teams"):
+                        try:
+                            fast_teams_callback(cached.get("raw_teams"))
+                        except Exception:
+                            pass
                     return cached
-                if (time.time() - float(cached.get("failed_ts") or 0.0)) < 300.0:
+                if not cached.get("fetched_ok") and (time.time() - float(cached.get("failed_ts") or 0.0)) < 300.0:
                     return None
 
+            import gzip
             import urllib.request
             headers = {
                 "Accept": "application/json",
+                "Accept-Encoding": "gzip",
                 "client-id": "web-app",
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                 "Origin": "https://www.bestcoastpairings.com",
                 "Referer": "https://www.bestcoastpairings.com/",
             }
+
+            def _read_bcp_url(target_url: str, req_timeout: float):
+                req = urllib.request.Request(target_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=req_timeout) as resp:
+                    raw_bytes = resp.read()
+                    hdrs = getattr(resp, "headers", None) or {}
+                    enc = str(hdrs.get("Content-Encoding", "") if hasattr(hdrs, "get") else "").lower()
+                    if enc == "gzip" or raw_bytes[:2] == b"\x1f\x8b":
+                        try:
+                            raw_bytes = gzip.decompress(raw_bytes)
+                        except Exception:
+                            pass
+                    return json.loads(raw_bytes.decode("utf-8"))
+
+            def _extract_bcp_list(raw_obj, keys=("active", "data", "players", "teams", "teamplayers")):
+                if isinstance(raw_obj, dict):
+                    for k in keys:
+                        if isinstance(raw_obj.get(k), list):
+                            return raw_obj[k]
+                elif isinstance(raw_obj, list):
+                    return raw_obj
+                return []
+
             url = f"https://newprod-api.bestcoastpairings.com/v1/events/{eid}/players?limit=2500&placings=true"
+            teams_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{eid}/teamplayers?limit=2500&placings=true"
             try:
+                raw_teams: List[Dict[str, Any]] = []
+                teams_checked = False
+                teams_thread = None
+
+                if is_team_event:
+                    def _fetch_teams_worker():
+                        nonlocal raw_teams, teams_checked
+                        try:
+                            t_data = _read_bcp_url(teams_url, min(timeout, 1.5))
+                            raw_teams = _extract_bcp_list(t_data)
+                            teams_checked = True
+                            if callable(fast_teams_callback) and raw_teams:
+                                try:
+                                    fast_teams_callback(raw_teams)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            teams_checked = True
+
+                    teams_thread = threading.Thread(target=_fetch_teams_worker, daemon=True)
+                    teams_thread.start()
+
                 with PostgresDatabase._bcp_fetch_semaphore:
-                    req = urllib.request.Request(url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=timeout) as resp:
-                        data = json.loads(resp.read().decode("utf-8"))
-                active = []
-                if isinstance(data, dict):
-                    for k in ("active", "data", "players"):
-                        if isinstance(data.get(k), list):
-                            active = data[k]
-                            break
-                elif isinstance(data, list):
-                    active = data
+                    data = _read_bcp_url(url, timeout)
+                active = _extract_bcp_list(data, keys=("active", "data", "players"))
+
+                if teams_thread is not None:
+                    teams_thread.join(timeout=0.8)
+                elif any(isinstance(p, dict) and (p.get("teamPlayerId") or p.get("teamId")) for p in active):
+                    try:
+                        t_data = _read_bcp_url(teams_url, min(timeout, 1.2))
+                        raw_teams = _extract_bcp_list(t_data)
+                        teams_checked = True
+                        if callable(fast_teams_callback) and raw_teams:
+                            try:
+                                fast_teams_callback(raw_teams)
+                            except Exception:
+                                pass
+                    except Exception:
+                        teams_checked = True
+                else:
+                    teams_checked = True
+
+                team_name_by_id: Dict[str, str] = {}
+                for t in raw_teams:
+                    if isinstance(t, dict):
+                        tid = str(t.get("id") or t.get("_id") or t.get("teamId") or "").strip()
+                        tname = str(t.get("name") or t.get("teamName") or "").strip()
+                        if tid and tname:
+                            team_name_by_id[tid] = tname
 
                 by_id: Dict[str, int] = {}
                 by_name: Dict[str, int] = {}
@@ -6951,8 +7235,12 @@ class PostgresDatabase:
                     det_name = str((det_obj.get("name") or "") if isinstance(det_obj, dict) else (det_obj or "")).strip()
                     fac_obj = p.get("army") or p.get("faction") or {}
                     fac_name = str((fac_obj.get("name") or "") if isinstance(fac_obj, dict) else (fac_obj or "")).strip()
+                    tp_id = str(p.get("teamPlayerId") or p.get("teamId") or p.get("team_id") or "").strip()
                     tm_obj = p.get("team") or {}
-                    team_name = str((tm_obj.get("name") or "") if isinstance(tm_obj, dict) else (tm_obj or p.get("teamName") or "")).strip()
+                    team_name = (
+                        team_name_by_id.get(tp_id)
+                        or str((tm_obj.get("name") or "") if isinstance(tm_obj, dict) else (tm_obj or p.get("teamName") or "")).strip()
+                    )
 
                     fn = str(u.get("firstName") or p.get("firstName") or "").strip()
                     ln = str(u.get("lastName") or p.get("lastName") or "").strip()
@@ -6968,6 +7256,7 @@ class PostgresDatabase:
                         "detachment": det_name,
                         "faction": fac_name,
                         "team": team_name,
+                        "team_player_id": tp_id or None,
                         "dropped": bool(p.get("dropped")),
                         "checked_in": bool(p.get("checkedIn") or p.get("checked_in", True)),
                         "games": p.get("games") or p.get("total_games") or [],
@@ -6991,6 +7280,8 @@ class PostgresDatabase:
                     "meta_by_id": meta_by_id,
                     "meta_by_name": meta_by_name,
                     "raw_players": active,
+                    "raw_teams": raw_teams,
+                    "teams_checked": teams_checked,
                     "active_count": len(active),
                     "has_any_list": has_any_list,
                     "fetched_ok": True,
@@ -7005,10 +7296,12 @@ class PostgresDatabase:
                 try:
                     from scraper import BestCoastPairingsScraper
                     BestCoastPairingsScraper._bcp_http_cache[f"ev_players:{eid}"] = (time.time(), active)
+                    if raw_teams:
+                        BestCoastPairingsScraper._bcp_http_cache[f"ev_teams:{eid}"] = (time.time(), raw_teams)
                 except Exception:
                     pass
-                if persist_async and active:
-                    self._persist_bcp_event_players_to_db_async(eid, active)
+                if persist_async and (active or raw_teams):
+                    self._persist_bcp_event_players_to_db_async(eid, active, raw_teams=raw_teams)
                 return payload
             except Exception:
                 PostgresDatabase.set_cached(

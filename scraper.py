@@ -52,7 +52,16 @@ class BestCoastPairingsScraper:
                 req = urllib.request.Request(url, headers=self.headers)
                 with urllib.request.urlopen(req, timeout=10) as response:
                     self.last_http_code = response.status
-                    content = response.read().decode("utf-8")
+                    raw_bytes = response.read()
+                    if isinstance(raw_bytes, (bytes, bytearray)):
+                        hdrs = getattr(response, "headers", None) or {}
+                        enc = hdrs.get("Content-Encoding", "") if hasattr(hdrs, "get") else ""
+                        if enc == "gzip" or (len(raw_bytes) >= 2 and raw_bytes[:2] == b"\x1f\x8b"):
+                            import gzip
+                            raw_bytes = gzip.decompress(raw_bytes)
+                        content = raw_bytes.decode("utf-8")
+                    else:
+                        content = str(raw_bytes)
                     return json.loads(content)
             except urllib.error.HTTPError as e:
                 self.last_http_code = e.code
@@ -491,9 +500,9 @@ class BestCoastPairingsScraper:
                 team_name = team_name.get("name") or team_name.get("teamName") or ""
             team_name = str(team_name).strip()
 
-            # Resolve team name from teamPlayerId mapping if not directly present on player
+            # Resolve team name from teamPlayerId mapping (prioritize tournament team over personal club)
             team_player_id = str(p.get("teamPlayerId") or "").strip()
-            if not team_name and team_player_id and team_player_id in team_name_by_id:
+            if team_player_id and team_player_id in team_name_by_id:
                 team_name = team_name_by_id[team_player_id]
 
             # Priority:

@@ -236,7 +236,7 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
   eventSyncPollTimer = setTimeout(async () => {
     if (currentOpenEventId !== eventId) return;
     try {
-      const fresh = await window.api.getTournamentDetails(eventId, false);
+      const fresh = await window.api.getTournamentDetails(eventId, false, true);
       if (currentOpenEventId !== eventId) return;
       if (fresh && !fresh.error) {
         currentEventData = fresh;
@@ -246,6 +246,7 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
           computeEventPlayerEloStats(eventPlayersCache, eventMatchesCache);
         }
         invalidateEventSearchIndex();
+        ensureEventSearchIndex();
         if (typeof synthesizeClientUserEventRegistration === 'function') {
           const synthReg = synthesizeClientUserEventRegistration(fresh, currentEventRegistration);
           if (synthReg && synthReg.is_registered) {
@@ -378,17 +379,25 @@ window.closeEventDetailsLoadingModal = closeEventDetailsLoadingModal;
 function getWarmEventModalCache(eventId) {
   if (!eventId) return null;
   const key = String(eventId).trim();
+  const isEntryValid = (entry) => {
+    if (!entry || !entry.ev || (Date.now() - (entry.ts || 0)) >= 600000) return false;
+    if (entry.ev.sync_in_progress) return false;
+    if ((entry.ev.is_team_event || Number(entry.ev.total_teams || 0) > 0) && (!Array.isArray(entry.ev.teams) || entry.ev.teams.length === 0)) {
+      return false;
+    }
+    return true;
+  };
   if (window._eventModalMemCache && window._eventModalMemCache.has(key)) {
     const entry = window._eventModalMemCache.get(key);
-    if (entry && (Date.now() - (entry.ts || 0)) < 600000) {
+    if (isEntryValid(entry)) {
       return entry;
     }
   }
   try {
-    const raw = sessionStorage.getItem(`omni_ev_modal_v2_${key}`);
+    const raw = sessionStorage.getItem(`omni_ev_modal_v3_${key}`);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.ev && (Date.now() - (parsed.ts || 0)) < 600000) {
+      if (isEntryValid(parsed)) {
         if (!window._eventModalMemCache) window._eventModalMemCache = new Map();
         window._eventModalMemCache.set(key, parsed);
         return parsed;
@@ -399,13 +408,13 @@ function getWarmEventModalCache(eventId) {
 }
 
 function saveEventModalCache(eventId, ev, userRegData) {
-  if (!eventId || !ev) return;
+  if (!eventId || !ev || ev.sync_in_progress) return;
   const key = String(eventId).trim();
   const entry = { ev, userRegData: userRegData || null, ts: Date.now() };
   if (!window._eventModalMemCache) window._eventModalMemCache = new Map();
   window._eventModalMemCache.set(key, entry);
   try {
-    sessionStorage.setItem(`omni_ev_modal_v2_${key}`, JSON.stringify(entry));
+    sessionStorage.setItem(`omni_ev_modal_v3_${key}`, JSON.stringify(entry));
   } catch (e) {}
 }
 window.getWarmEventModalCache = getWarmEventModalCache;
@@ -501,6 +510,9 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   eventDetailsLoadingCancelledId = null;
   eventModalSearchQuery = '';
   selectedEventRound = 'all';
+  if (typeof currentSort !== 'undefined') {
+    currentSort['event-results'] = { field: 'placement', asc: true };
+  }
   const searchInput = document.getElementById('event-modal-search');
   if (searchInput) searchInput.value = '';
   const clearBtn = document.getElementById('event-modal-search-clear');
@@ -1246,7 +1258,9 @@ function ensureEventSearchIndex() {
   for (let i = 0; i < rawStandings.length; i++) {
     const t = rawStandings[i];
     if (!t) continue;
-    t._searchText = `${t.name || ''}\n${t.captain || t.captain_name || ''}`.toLowerCase();
+    if (!t._searchText) {
+      t._searchText = `${t.name || ''}\n${t.captain || t.captain_name || ''}`.toLowerCase();
+    }
   }
 
   const roundCounts = new Map();
@@ -1587,10 +1601,40 @@ function switchEventModalTab(tabKey) {
   updateEventModalTabCountsForSearch();
 }
 
+let eventTeamsViewMode = 'rosters'; // 'rosters' | 'standings'
+
+function setEventTeamsViewMode(mode) {
+  eventTeamsViewMode = (mode === 'standings') ? 'standings' : 'rosters';
+  renderEventTeamsRows();
+}
+window.setEventTeamsViewMode = setEventTeamsViewMode;
+
+function jumpToTeamRosterCard(idx) {
+  eventTeamsViewMode = 'rosters';
+  renderEventTeamsRows();
+  setTimeout(() => {
+    const cardEl = document.getElementById(`team-roster-card-${idx}`);
+    const membersEl = document.getElementById(`team-members-${idx}`);
+    const chevronEl = document.getElementById(`team-chevron-${idx}`);
+    if (membersEl && membersEl.style.display === 'none') {
+      membersEl.style.display = 'flex';
+      if (chevronEl) chevronEl.style.transform = 'rotate(0deg)';
+    }
+    if (cardEl && typeof cardEl.scrollIntoView === 'function') {
+      cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, 30);
+}
+window.jumpToTeamRosterCard = jumpToTeamRosterCard;
+
 function renderEventTeamsRows() {
   const container = document.getElementById('event-teams-container');
   const tableWrap = document.getElementById('event-teams-table-wrap');
   const tbody = document.getElementById('event-teams-body');
+  const btnViewRosters = document.getElementById('btn-teams-view-rosters');
+  const btnViewStandings = document.getElementById('btn-teams-view-standings');
+  const btnToggleAll = document.getElementById('btn-toggle-all-teams');
+  const viewSwitcher = document.getElementById('event-teams-view-switcher');
 
   const idxState = ensureEventSearchIndex();
   const teams = (currentEventData && currentEventData.teams) || [];
@@ -1598,46 +1642,159 @@ function renderEventTeamsRows() {
   const isDoubles = Boolean(currentEventData && currentEventData.is_doubles_event);
   const itemTypeSingular = isDoubles ? 'pair' : 'team';
   const itemTypePlural = isDoubles ? 'pairs' : 'teams';
+  const sourceTeams = teams.length > 0 ? teams : standings;
 
-  if (teams.length === 0 && standings.length === 0) {
+  if (sourceTeams.length === 0) {
     if (container) {
       container.style.display = 'block';
       container.innerHTML = `<div class="empty-state" style="padding:2.5rem 1rem; text-align:center; color:var(--text-muted);">No ${itemTypePlural} or rosters available for this tournament.</div>`;
     }
     if (tableWrap) tableWrap.style.display = 'none';
-    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="empty-state">No ${itemTypePlural} found.</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="empty-state">No ${itemTypePlural} found.</td></tr>`;
     return;
   }
 
+  const anyTeamHasPlacings = sourceTeams.some(t => (t.placing && t.placing > 0) || (t.wins != null && Number(t.wins) > 0) || (t.match_points != null && Number(t.match_points) > 0));
+  if (viewSwitcher) {
+    viewSwitcher.style.display = teams.length > 0 ? 'inline-flex' : 'none';
+  }
+  if (btnViewRosters) {
+    btnViewRosters.innerHTML = isDoubles
+      ? (anyTeamHasPlacings ? '👥 Duo Rosters &amp; Placings' : '👥 Doubles Rosters')
+      : (anyTeamHasPlacings ? '🛡️ Team Rosters &amp; Placings' : '🛡️ Team Rosters');
+    if (eventTeamsViewMode === 'rosters') {
+      btnViewRosters.style.background = 'rgba(56, 189, 248, 0.18)';
+      btnViewRosters.style.color = '#38bdf8';
+      btnViewRosters.style.fontWeight = '700';
+    } else {
+      btnViewRosters.style.background = 'transparent';
+      btnViewRosters.style.color = 'var(--text-secondary, #94a3b8)';
+      btnViewRosters.style.fontWeight = '600';
+    }
+  }
+  if (btnViewStandings) {
+    btnViewStandings.innerHTML = isDoubles ? '🏆 Duo Placings Table' : '🏆 Team Placings Table';
+    if (eventTeamsViewMode === 'standings') {
+      btnViewStandings.style.background = 'rgba(56, 189, 248, 0.18)';
+      btnViewStandings.style.color = '#38bdf8';
+      btnViewStandings.style.fontWeight = '700';
+    } else {
+      btnViewStandings.style.background = 'transparent';
+      btnViewStandings.style.color = 'var(--text-secondary, #94a3b8)';
+      btnViewStandings.style.fontWeight = '600';
+    }
+  }
+
+  const showStandingsTable = (teams.length === 0) || (eventTeamsViewMode === 'standings');
+  if (btnToggleAll) {
+    btnToggleAll.style.display = showStandingsTable ? 'none' : 'inline-flex';
+  }
+
+  const summaryTextEl = document.getElementById('event-teams-summary-text');
+  if (summaryTextEl) {
+    const compCount = (eventPlayersCache && eventPlayersCache.length) || (currentEventData && currentEventData.total_players) || 0;
+    summaryTextEl.innerText = `${sourceTeams.length} ${isDoubles ? 'Pairs' : 'Teams'} ${anyTeamHasPlacings ? 'Ranked' : 'Registered'} (${compCount} Competitors)`;
+  }
+
+  let filtered = sourceTeams;
+  if (eventModalSearchQuery) {
+    const q = eventModalSearchQuery;
+    filtered = sourceTeams.filter(t => t && t._searchText && t._searchText.includes(q));
+  }
+
+  const searchSummary = document.getElementById('event-modal-search-summary');
+  if (searchSummary && currentEventModalTab === 'teams') {
+    if (eventModalSearchQuery) {
+      searchSummary.innerText = `Showing ${filtered.length} of ${sourceTeams.length} ${itemTypePlural}`;
+      searchSummary.style.display = 'block';
+    } else {
+      searchSummary.style.display = 'none';
+    }
+  }
+
+  const buildRoundScoresInline = (t) => {
+    if (!t.games || !Array.isArray(t.games) || t.games.length === 0) return '';
+    return t.games.map(g => {
+      const isWin = g.result === 2;
+      const isLoss = g.result === 0;
+      const bg = isWin ? 'rgba(34,197,94,0.18)' : isLoss ? 'rgba(239,68,68,0.18)' : 'rgba(245,158,11,0.18)';
+      const color = isWin ? '#4ade80' : isLoss ? '#f87171' : '#fbbf24';
+      const border = isWin ? 'rgba(34,197,94,0.3)' : isLoss ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)';
+      return `<span style="padding:1px 6px; border-radius:4px; background:${bg}; color:${color}; border:1px solid ${border}; font-weight:700; font-size:0.74rem;" title="Round ${g.round}: ${g.points} pts (${isWin ? 'Win' : isLoss ? 'Loss' : 'Draw'})">${g.points}</span>`;
+    }).join('<span style="color:rgba(255,255,255,0.2); font-size:0.7rem; margin:0 2px;">/</span>');
+  };
+
+  // Render Standings Table (#event-teams-table-wrap)
+  if (tbody) {
+    if (filtered.length === 0) {
+      const suggestions = getEventModalCrossTabSuggestions('teams');
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="10" class="empty-state" style="padding:2.5rem 1rem;">
+            <div style="font-size:1.05rem; font-weight:600; color:#fff;">🔍 No ${isDoubles ? 'Pairs' : 'Teams'} Found</div>
+            <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
+              No ${itemTypePlural} match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>" in this tournament.
+            </div>
+            ${suggestions}
+          </td>
+        </tr>`;
+    } else {
+      tbody.innerHTML = filtered.map((t, idx) => {
+        const rankNum = (t.placing && t.placing > 0) ? t.placing : (idx + 1);
+        const rankColor = rankNum === 1 ? '#facc15' : rankNum === 2 ? '#e2e8f0' : rankNum === 3 ? '#d97706' : 'var(--text-secondary)';
+        const rankMedal = rankNum === 1 ? '🥇 ' : rankNum === 2 ? '🥈 ' : rankNum === 3 ? '🥉 ' : '#';
+        const members = Array.isArray(t._resolvedMembers) ? t._resolvedMembers : (t.members || []);
+        const memberElos = members.map(m => Number(m.current_elo || m.elo || 1500)).filter(e => !isNaN(e) && e > 0);
+        const computedAvgElo = memberElos.length > 0 ? Math.round(memberElos.reduce((a, b) => a + b, 0) / memberElos.length) : 1500;
+        const avgEloVal = t.avg_elo ? Math.round(t.avg_elo) : computedAvgElo;
+        const w = t.team_wins != null ? t.team_wins : (t.wins != null ? t.wins : null);
+        const l = t.team_losses != null ? t.team_losses : (t.losses != null ? t.losses : 0);
+        const d = t.team_draws != null ? t.team_draws : (t.draws != null ? t.draws : 0);
+        const recDisplay = w != null ? `${w}W - ${l}L${d > 0 ? ' - ' + d + 'D' : ''}` : '-';
+        const ptvVal = t.path_to_victory != null ? t.path_to_victory : null;
+        const gwVal = t.game_wins != null ? t.game_wins : null;
+        const ptvGwDisplay = (ptvVal != null && gwVal != null && ptvVal !== gwVal)
+          ? `${ptvVal} PTV <span style="color:var(--text-muted); font-size:0.74rem;">(${gwVal} GW)</span>`
+          : (ptvVal != null ? `${ptvVal} PTV` : (gwVal != null ? `${gwVal} GW` : '-'));
+        const roundsInline = buildRoundScoresInline(t) || '<span style="color:var(--text-muted);">-</span>';
+        const capDisplay = escapeHtml(t.captain_name || t.captain || '-');
+        const rosterCount = members.length || (Array.isArray(t.member_ids) ? t.member_ids.length : 0);
+
+        return `
+          <tr style="cursor:pointer;" onclick="jumpToTeamRosterCard(${idx})" title="Click to view ${escapeHtml(t.name || 'Team')} full roster">
+            <td class="rank-cell" style="font-weight:800; color:${rankColor}; font-family:var(--font-mono, monospace); white-space:nowrap;">${rankMedal}${rankNum}</td>
+            <td>
+              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                <span style="font-weight:700; color:#38bdf8;">${escapeHtml(t.name || 'Team')}</span>
+                ${rosterCount > 0 ? `<span style="font-size:0.68rem; padding:1px 6px; border-radius:8px; background:rgba(255,255,255,0.06); color:var(--text-secondary); font-weight:600;">${rosterCount}p</span>` : ''}
+              </div>
+            </td>
+            <td style="color:#f1f5f9; font-size:0.84rem;">${capDisplay !== '-' ? `👑 ${capDisplay}` : '-'}</td>
+            <td style="font-family:var(--font-mono, monospace); font-weight:700; color:#4ade80; white-space:nowrap;">${recDisplay}</td>
+            <td style="font-family:var(--font-mono, monospace); font-weight:700; color:#38bdf8; font-size:0.92rem; white-space:nowrap;">${t.match_points != null ? t.match_points + ' MP' : '-'}</td>
+            <td style="font-family:var(--font-mono, monospace); font-weight:600; color:var(--text-secondary); white-space:nowrap;">${ptvGwDisplay}</td>
+            <td style="font-family:var(--font-mono, monospace); font-weight:700; color:#f8fafc; white-space:nowrap;">${t.battle_points != null ? t.battle_points + ' BP' : '-'}</td>
+            <td><div style="display:flex; align-items:center; gap:2px; flex-wrap:nowrap;">${roundsInline}</div></td>
+            <td><span class="elo-badge ${getEloBadgeClass(avgEloVal)}" style="font-size:0.8rem; font-weight:700; padding:2px 7px;">${avgEloVal}</span></td>
+            <td style="text-align:right;">
+              <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); jumpToTeamRosterCard(${idx})" style="font-size:0.72rem; padding:2px 8px; color:#38bdf8; border-color:rgba(56,189,248,0.35); background:rgba(56,189,248,0.08); cursor:pointer; white-space:nowrap;">
+                🛡️ Roster (${rosterCount})
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
   // Branch 1: Modern rich Team/Doubles Roster Cards
-  if (teams.length > 0) {
+  if (teams.length > 0 && !showStandingsTable) {
     if (tableWrap) tableWrap.style.display = 'none';
     if (container) container.style.display = 'flex';
 
-    const summaryTextEl = document.getElementById('event-teams-summary-text');
-    if (summaryTextEl) {
-      summaryTextEl.innerText = `${teams.length} ${isDoubles ? 'Pairs' : 'Teams'} Registered (${(eventPlayersCache && eventPlayersCache.length) || 0} Competitors)`;
-    }
-    const btnToggleAll = document.getElementById('btn-toggle-all-teams');
     if (btnToggleAll) {
       allTeamsCollapsed = false;
       btnToggleAll.innerHTML = '⊟ Collapse All';
-    }
-
-    let filtered = teams;
-    if (eventModalSearchQuery) {
-      const q = eventModalSearchQuery;
-      filtered = teams.filter(t => t && t._searchText && t._searchText.includes(q));
-    }
-
-    const searchSummary = document.getElementById('event-modal-search-summary');
-    if (searchSummary && currentEventModalTab === 'teams') {
-      if (eventModalSearchQuery) {
-        searchSummary.innerText = `Showing ${filtered.length} of ${teams.length} ${itemTypePlural}`;
-        searchSummary.style.display = 'block';
-      } else {
-        searchSummary.style.display = 'none';
-      }
     }
 
     if (filtered.length === 0) {
@@ -1657,7 +1814,7 @@ function renderEventTeamsRows() {
     }
 
     const hasMatches = eventMatchesCache && eventMatchesCache.length > 0;
-    const hasPlacings = idxState.placementsCount > 0;
+    const hasPlacings = idxState.placementsCount > 0 || anyTeamHasPlacings;
     const isStarted = Boolean(hasPlacings || hasMatches);
 
     if (container) {
@@ -1668,35 +1825,34 @@ function renderEventTeamsRows() {
         let rankBadgeHtml = '';
         if (hasTeamPlacings) {
           const rankClass = t.placing === 1 ? 'rank-1' : t.placing === 2 ? 'rank-2' : t.placing === 3 ? 'rank-3' : '';
-          rankBadgeHtml = `<div class="team-rank-badge ${rankClass}" title="Rank #${t.placing}">#${t.placing}</div>`;
+          rankBadgeHtml = `<div class="team-rank-badge ${rankClass}" title="Official Team Placing #${t.placing}">#${t.placing}</div>`;
         } else {
           rankBadgeHtml = `<div class="team-icon">${isDoubles ? '👥' : '🛡️'}</div>`;
         }
 
-        const winsPill = (t.wins != null)
-          ? `<span style="font-size:0.72rem; padding:1px 7px; border-radius:10px; background:rgba(34,197,94,0.16); color:#4ade80; border:1px solid rgba(34,197,94,0.3); font-weight:700;">${t.wins}W</span>`
+        const wVal = t.team_wins != null ? t.team_wins : t.wins;
+        const lVal = t.team_losses != null ? t.team_losses : (t.losses || 0);
+        const dVal = t.team_draws != null ? t.team_draws : (t.draws || 0);
+        const winsPill = (wVal != null)
+          ? `<span style="font-size:0.72rem; padding:1px 7px; border-radius:10px; background:rgba(34,197,94,0.16); color:#4ade80; border:1px solid rgba(34,197,94,0.3); font-weight:700;" title="Team Match Record">${wVal}W - ${lVal}L${dVal > 0 ? ' - ' + dVal + 'D' : ''}</span>`
           : '';
         const matchPtsPill = (t.match_points != null)
-          ? `<span style="font-size:0.72rem; padding:1px 7px; border-radius:10px; background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.28); font-weight:700;">${t.match_points} MP</span>`
+          ? `<span style="font-size:0.72rem; padding:1px 7px; border-radius:10px; background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.28); font-weight:700;" title="Team Match Points">${t.match_points} MP</span>`
+          : '';
+        const ptvPill = (t.path_to_victory != null && Number(t.path_to_victory) > 0)
+          ? `<span style="font-size:0.72rem; padding:1px 7px; border-radius:10px; background:rgba(168,85,247,0.15); color:#c084fc; border:1px solid rgba(168,85,247,0.3); font-weight:700;" title="Path to Victory / Individual Game Score">${t.path_to_victory} PTV</span>`
           : '';
         const battlePtsPill = (t.battle_points != null && Number(t.battle_points) > 0)
-          ? `<span style="font-size:0.72rem; padding:1px 7px; border-radius:10px; background:rgba(255,255,255,0.06); color:#f1f5f9; border:1px solid rgba(255,255,255,0.12); font-weight:700;">${t.battle_points} BP</span>`
+          ? `<span style="font-size:0.72rem; padding:1px 7px; border-radius:10px; background:rgba(255,255,255,0.06); color:#f1f5f9; border:1px solid rgba(255,255,255,0.12); font-weight:700;" title="Total Team Battle Points">${t.battle_points} BP</span>`
           : '';
 
         let roundScoresHtml = '';
-        if (t.games && Array.isArray(t.games) && t.games.length > 0) {
-          const pills = t.games.map(g => {
-            const isWin = g.result === 2;
-            const isLoss = g.result === 0;
-            const bg = isWin ? 'rgba(34,197,94,0.18)' : isLoss ? 'rgba(239,68,68,0.18)' : 'rgba(245,158,11,0.18)';
-            const color = isWin ? '#4ade80' : isLoss ? '#f87171' : '#fbbf24';
-            const border = isWin ? 'rgba(34,197,94,0.3)' : isLoss ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)';
-            return `<span style="padding:1px 6px; border-radius:4px; background:${bg}; color:${color}; border:1px solid ${border}; font-weight:700; font-size:0.74rem;" title="Round ${g.round}: ${g.points} pts (${isWin ? 'Win' : isLoss ? 'Loss' : 'Draw'})">${g.points}</span>`;
-          }).join('<span style="color:rgba(255,255,255,0.2); font-size:0.7rem; margin:0 2px;">/</span>');
+        const inlinePills = buildRoundScoresInline(t);
+        if (inlinePills) {
           roundScoresHtml = `
             <div style="display:flex; align-items:center; gap:3px; margin-top:5px; font-family:var(--font-mono, monospace); flex-wrap:wrap;">
               <span style="color:var(--text-muted, #94a3b8); font-size:0.7rem; font-family:var(--font-sans, sans-serif); margin-right:3px;">Rounds:</span>
-              ${pills}
+              ${inlinePills}
             </div>
           `;
         }
@@ -1728,7 +1884,10 @@ function renderEventTeamsRows() {
 
         const memberRowsHtml = members.map((m, mIdx) => {
           const mName = escapeHtml(m.full_name || m.player_name || m.name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || 'Competitor');
-          const mFac = escapeHtml(m._displayFac || formatEventPlayerFaction(m.faction || m.army_name || 'Unknown'));
+          const rawFacStr = m._displayFac || formatEventPlayerFaction(m.faction || m.army_name || 'Unknown');
+          const rawDetStr = (m.detachment && m.detachment !== 'Unknown' && m.detachment !== '-') ? String(m.detachment).trim() : '';
+          const mFac = escapeHtml(rawFacStr);
+          const mDet = rawDetStr && !rawFacStr.toLowerCase().includes(rawDetStr.toLowerCase()) ? escapeHtml(rawDetStr) : '';
           const mElo = Math.round(Number(m.current_elo || m.elo || 1500));
           const mBadge = getEloBadgeClass(mElo);
           const isCap = Boolean(m.is_captain || String(m.role || '').toLowerCase() === 'captain');
@@ -1752,7 +1911,8 @@ function renderEventTeamsRows() {
           let col3Html = '';
           let col4Html = '';
           if (isStarted) {
-            const recStr = m.event_wins != null ? `${m.event_wins}W - ${m.event_losses || 0}L` : '';
+            const mDraws = Number(m.event_draws || m.draws || 0);
+            const recStr = m.event_wins != null ? `${m.event_wins}W-${m.event_losses || 0}L${mDraws > 0 ? '-' + mDraws + 'D' : ''}` : '';
             const bpStr = m.event_battle_points != null ? `(${m.event_battle_points} pts)` : '';
             col3Html = `
               <div class="team-member-col-record" style="text-align:right; font-family:var(--font-mono, monospace); font-size:0.8rem; font-weight:700; color:var(--win, #22c55e); white-space:nowrap;">
@@ -1792,8 +1952,8 @@ function renderEventTeamsRows() {
               </div>
 
               <div class="team-member-col-faction" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                <span class="badge" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); font-size:0.75rem; color:#cbd5e1; padding:2px 8px; border-radius:4px;" title="${mFac}">
-                  ${mFac}
+                <span class="badge" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); font-size:0.75rem; color:#cbd5e1; padding:2px 8px; border-radius:4px;" title="${mFac}${mDet ? ' • ' + mDet : ''}">
+                  ${mFac}${mDet ? ` <span style="color:#94a3b8; font-weight:500;">(${mDet})</span>` : ''}
                 </span>
               </div>
 
@@ -1804,7 +1964,7 @@ function renderEventTeamsRows() {
         }).join('');
 
         cardsHtml.push(`
-          <div class="team-roster-card">
+          <div id="team-roster-card-${idx}" class="team-roster-card">
             <div class="team-roster-header" onclick="toggleTeamRosterCard('${idx}')">
               <div class="team-header-main">
                 <span id="team-chevron-${idx}" class="team-chevron">▼</span>
@@ -1814,6 +1974,7 @@ function renderEventTeamsRows() {
                     <span class="team-name">${escapeHtml(t.name || 'Team')}</span>
                     ${winsPill}
                     ${matchPtsPill}
+                    ${ptvPill}
                     ${battlePtsPill}
                   </div>
                   <div class="team-meta-row">
@@ -1834,11 +1995,11 @@ function renderEventTeamsRows() {
             <div id="team-members-${idx}" class="team-members-container" style="display:flex; flex-direction:column;">
               <div class="team-member-header">
                 <div>Competitor</div>
-                <div>Faction</div>
+                <div>Faction &amp; Detachment</div>
                 <div style="text-align:right;">${isStarted ? 'Record / Pts' : 'Elo Rating'}</div>
                 <div class="team-col-checkin" style="text-align:right;">${isStarted ? 'Elo Rating' : 'Check-in'}</div>
               </div>
-              ${memberRowsHtml || '<div style="padding:0.75rem 1rem; color:var(--text-muted); font-size:0.8rem;">No members listed for this team yet.</div>'}
+              ${memberRowsHtml || '<div style="padding:0.75rem 1rem; color:var(--text-muted); font-size:0.8rem;">Syncing team member roster...</div>'}
             </div>
           </div>
         `);
@@ -1881,55 +2042,9 @@ function renderEventTeamsRows() {
     return;
   }
 
-  // Branch 2: Fallback for legacy simple team_standings table
+  // Branch 2: Team Placings Table view (or fallback when only team_standings exist)
   if (container) container.style.display = 'none';
   if (tableWrap) tableWrap.style.display = 'block';
-
-  let filtered = standings;
-  if (eventModalSearchQuery) {
-    const q = eventModalSearchQuery;
-    filtered = standings.filter(t => t && t._searchText && t._searchText.includes(q));
-  }
-
-  const searchSummary = document.getElementById('event-modal-search-summary');
-  if (searchSummary && currentEventModalTab === 'teams') {
-    if (eventModalSearchQuery) {
-      searchSummary.innerText = `Showing ${filtered.length} of ${standings.length} teams`;
-      searchSummary.style.display = 'block';
-    } else {
-      searchSummary.style.display = 'none';
-    }
-  }
-
-  if (filtered.length === 0) {
-    const suggestions = getEventModalCrossTabSuggestions('teams');
-    if (tbody) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="6" class="empty-state" style="padding:2.5rem 1rem;">
-            <div style="font-size:1.05rem; font-weight:600; color:#fff;">🔍 No Teams Found</div>
-            <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
-              No teams match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>" in this tournament.
-            </div>
-            ${suggestions}
-          </td>
-        </tr>`;
-    }
-    return;
-  }
-
-  if (tbody) {
-    tbody.innerHTML = filtered.map((t, idx) => `
-      <tr>
-        <td class="rank-cell">#${t.placing && t.placing > 0 ? t.placing : (idx + 1)}</td>
-        <td style="font-weight:700; color:var(--text-primary);">${escapeHtml(t.name || 'Team')}</td>
-        <td style="color:var(--text-muted);">${escapeHtml(t.captain || '-')}</td>
-        <td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">${t.match_points != null ? t.match_points : '-'} pts</td>
-        <td style="font-family:var(--font-mono); font-weight:600; color:var(--text-secondary);">${t.game_wins != null ? t.game_wins : '-'}</td>
-        <td style="font-family:var(--font-mono); font-weight:700; color:var(--accent);">${t.battle_points != null ? t.battle_points : '-'} pts</td>
-      </tr>
-    `).join('');
-  }
 }
 
 let allTeamsCollapsed = false;
@@ -3923,15 +4038,16 @@ function computeEventPlayerEloStats(players, matches) {
 function getEventKpiSummary(ev) {
   const players = Array.isArray(ev?.players) ? ev.players : (Array.isArray(eventPlayersCache) ? eventPlayersCache : []);
   const matches = Array.isArray(ev?.matches) ? ev.matches : (Array.isArray(eventMatchesCache) ? eventMatchesCache : []);
+  const teams = (ev?.teams && ev.teams.length > 0) ? ev.teams : (ev?.team_standings || []);
   if (
     ev &&
     ev._cachedKpiSummary &&
     ev._cachedKpiPlayersLen === players.length &&
-    ev._cachedKpiMatchesLen === matches.length
+    ev._cachedKpiMatchesLen === matches.length &&
+    ev._cachedKpiTeamsLen === teams.length
   ) {
     return ev._cachedKpiSummary;
   }
-  const teams = (ev?.teams && ev.teams.length > 0) ? ev.teams : (ev?.team_standings || []);
   const isTeamEvent = Boolean(ev?.is_team_event || teams.length > 0);
   const isDoublesEvent = Boolean(ev?.is_doubles_event);
   const totalPlayers = ev?.total_players || players.length || 0;
@@ -4018,6 +4134,7 @@ function getEventKpiSummary(ev) {
     ev._cachedKpiSummary = summary;
     ev._cachedKpiPlayersLen = players.length;
     ev._cachedKpiMatchesLen = matches.length;
+    ev._cachedKpiTeamsLen = teams.length;
   }
   return summary;
 }
@@ -4343,6 +4460,9 @@ function openEventHubFromModal(explicitTab = null) {
 async function openEventHubPage(eventId, gameSystem = '', options = {}) {
   if (!eventId) return;
   currentOpenEventId = eventId;
+  if (typeof currentSort !== 'undefined') {
+    currentSort['event-results'] = { field: 'placement', asc: true };
+  }
 
   const targetSys = (gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
   if (typeof currentGameSystem !== 'undefined' && targetSys !== currentGameSystem && typeof applyGameSystem === 'function') {
@@ -4380,12 +4500,14 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
 
   const heroSection = document.getElementById('event-hub-hero-section');
   const clientCached = (window.api && window.api._cache && window.api._cache.get(`/api/event/${encodeURIComponent(eventId)}`))?.data;
-  const hasCached = Boolean(
-    (!options.forceSync && (
-      (currentEventData && String(currentEventData.id) === String(eventId)) ||
-      clientCached
-    ))
+  const candidateCached = (currentEventData && String(currentEventData.id) === String(eventId)) ? currentEventData : clientCached;
+  const isCandidateIncomplete = Boolean(
+    candidateCached && (
+      candidateCached.sync_in_progress ||
+      ((candidateCached.is_team_event || Number(candidateCached.total_teams || 0) > 0) && (!Array.isArray(candidateCached.teams) || candidateCached.teams.length === 0))
+    )
   );
+  const hasCached = Boolean(!options.forceSync && candidateCached && !isCandidateIncomplete);
 
   if (!hasCached && heroSection) {
     heroSection.innerHTML = `
@@ -4399,11 +4521,11 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
   }
 
   try {
-    let ev = (currentEventData && String(currentEventData.id) === String(eventId)) ? currentEventData : clientCached;
+    let ev = hasCached ? candidateCached : null;
     let userRegData = (currentEventRegistration && String(currentEventRegistration.event_id || eventId) === String(eventId)) ? currentEventRegistration : null;
 
     if (!hasCached || !ev) {
-      const detailsPromise = window.api.getTournamentDetails(eventId, Boolean(options.forceSync));
+      const detailsPromise = window.api.getTournamentDetails(eventId, Boolean(options.forceSync), isCandidateIncomplete);
       const regPromise = (typeof window.api?.getCommunityEventRegistration === 'function')
         ? window.api.getCommunityEventRegistration(eventId, Boolean(options.forceSync)).catch(() => null)
         : Promise.resolve(null);
@@ -4442,21 +4564,35 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
     renderEventMetaAndHighlights(ev);
 
     const isTeamEvent = Boolean(ev.is_team_event || (ev.teams && ev.teams.length > 0));
+    const isDoublesEvent = Boolean(ev.is_doubles_event);
     const teamsList = (ev.teams && ev.teams.length > 0) ? ev.teams : (ev.team_standings || []);
     const subtabTeams = document.getElementById('event-subtab-teams');
     const tabTeamsCount = document.getElementById('event-tab-teams-count');
     const tabResultsCount = document.getElementById('event-tab-results-count');
     const tabMatchesCount = document.getElementById('event-tab-matches-count');
 
-    if (tabResultsCount) tabResultsCount.innerText = eventPlayersCache.length;
+    const placementsCount = eventPlayersCache.filter(p => p.placement && p.placement > 0).length;
+    if (tabResultsCount) tabResultsCount.innerText = placementsCount > 0 ? placementsCount : eventPlayersCache.length;
     if (tabMatchesCount) tabMatchesCount.innerText = eventMatchesCache.length;
+
+    const hasTeamPlacings = teamsList.some(t => t.placing && t.placing > 0);
 
     if (isTeamEvent || teamsList.length > 0) {
       if (subtabTeams) subtabTeams.style.setProperty('display', 'inline-flex', 'important');
+      const labelSpan = document.getElementById('event-subtab-teams-label') || (subtabTeams && subtabTeams.querySelector('span:first-child'));
+      if (labelSpan) {
+        labelSpan.innerText = isDoublesEvent ? (hasTeamPlacings ? '🏆 Duo Placings' : '👥 Doubles Rosters') : (hasTeamPlacings ? '🏆 Team Placings' : '🛡️ Team Rosters');
+      }
       if (tabTeamsCount) tabTeamsCount.innerText = teamsList.length;
       renderEventTeamsRows();
     } else {
       if (subtabTeams) subtabTeams.style.setProperty('display', 'none', 'important');
+    }
+
+    const resultsBtn = document.getElementById('event-subtab-results');
+    const resultsSpan = resultsBtn && resultsBtn.querySelector('span:first-child');
+    if (resultsSpan) {
+      resultsSpan.innerText = isTeamEvent ? (placementsCount > 0 ? '👤 Player Placings' : '👤 Competitors') : (placementsCount > 0 ? '🏆 Results & Placings' : '👥 Registered Competitors');
     }
 
     const subtabNews = document.getElementById('event-subtab-news');

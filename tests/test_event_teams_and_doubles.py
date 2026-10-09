@@ -252,12 +252,17 @@ def test_frontend_team_and_doubles_markup_and_bundle():
     assert 'id="event-subtab-teams-label"' in app_html
     assert 'id="event-teams-container"' in app_html
     assert 'id="event-teams-table-wrap"' in app_html
+    assert 'id="btn-teams-view-rosters"' in app_html
+    assert 'id="btn-teams-view-standings"' in app_html
 
     # 2. tournaments.js checks
     assert "isDoublesEvent" in tournaments_js
     assert "team-roster-card" in tournaments_js
     assert "👥 Doubles Rosters" in tournaments_js
     assert "🛡️ Team Rosters" in tournaments_js
+    assert "🏆 Team Placings" in tournaments_js
+    assert "setEventTeamsViewMode" in tournaments_js
+    assert "jumpToTeamRosterCard" in tournaments_js
     assert "Duo Avg Elo" in tournaments_js
     assert "Team Avg Elo" in tournaments_js
     assert "👑 CAPTAIN" in tournaments_js
@@ -265,9 +270,181 @@ def test_frontend_team_and_doubles_markup_and_bundle():
 
     # 3. app.bundle.min.js checks
     assert "team-roster-card" in bundle_js
+    assert "setEventTeamsViewMode" in bundle_js
     assert "Doubles Rosters" in bundle_js or "event-subtab-teams" in bundle_js
 
     print("✅ Frontend team and doubles markup and bundle integrity verified!")
+
+
+def test_completed_team_event_fast_path_and_placings():
+    """Verify completed team tournament fast-path populates team rosters, team placings, and adheres to <1s latency."""
+    import time
+
+    mock_db = MagicMock()
+    mock_db.get_event_details.return_value = {
+        "id": "uC7tqqdPYLtT",
+        "name": "The Challengers Cup 2026",
+        "event_date": "2026-04-04T08:00:00Z",
+        "ended": True,
+        "is_ended": True,
+        "total_players": 4,
+        "players": [
+            {
+                "player_id": "u_cap_2",
+                "full_name": "Will Abeshaus",
+                "faction": "World Eaters",
+                "detachment": "Berzerker Warband",
+                "current_elo": 1680.0,
+                "event_wins": 5,
+                "event_losses": 1,
+                "event_battle_points": 510,
+                "placement": 12,
+                "team_player_id": "team_2",
+            },
+            {
+                "player_id": "u_mem_2",
+                "full_name": "Christianneki",
+                "faction": "T'au Empire",
+                "detachment": "Mont'ka",
+                "current_elo": 1898.0,
+                "event_wins": 4,
+                "event_losses": 2,
+                "event_battle_points": 450,
+                "placement": 45,
+                "team_player_id": "team_2",
+            },
+            {
+                "player_id": "u_cap_1",
+                "full_name": "Jack Harpster",
+                "faction": "Blood Angels",
+                "detachment": "Liberator Assault Group",
+                "current_elo": 1950.0,
+                "event_wins": 6,
+                "event_losses": 0,
+                "event_battle_points": 580,
+                "placement": 1,
+                "team_player_id": "team_1",
+            },
+            {
+                "player_id": "u_mem_1",
+                "full_name": "John Lennon",
+                "faction": "Tyranids",
+                "detachment": "Invasion Fleet",
+                "current_elo": 1970.0,
+                "event_wins": 6,
+                "event_losses": 0,
+                "event_battle_points": 570,
+                "placement": 2,
+                "team_player_id": "team_1",
+            },
+        ],
+        "matches": [{"round": 1, "player1_id": "u_cap_1", "player2_id": "u_cap_2"}],
+        "raw_json": {
+            "teamEvent": True,
+            "doublesEvent": False,
+            "numberOfRounds": 6,
+            "ended": True,
+        },
+    }
+
+    raw_bcp_teams = [
+        {
+            "id": "team_2",
+            "name": "The rejected primates",
+            "placing": 2,
+            "captainUserId": "u_cap_2",
+            "captain": {"id": "u_cap_2", "firstName": "Will", "lastName": "Abeshaus"},
+            "checkedIn": True,
+            "overallMetrics": {
+                "numWins": 5,
+                "numLosses": 1,
+                "numDraws": 0,
+                "points": 10,
+                "pathToVictory": 28,
+                "FFG": 512,
+                "games": [
+                    {"gameNum": 1, "result": 2, "points": 95},
+                    {"gameNum": 2, "result": 2, "points": 88},
+                ],
+            },
+        },
+        {
+            "id": "team_1",
+            "name": "Art of War",
+            "placing": 1,
+            "captainUserId": "u_cap_1",
+            "captain": {"id": "u_cap_1", "firstName": "Jack", "lastName": "Harpster"},
+            "checkedIn": True,
+            "overallMetrics": {
+                "numWins": 6,
+                "numLosses": 0,
+                "numDraws": 0,
+                "points": 12,
+                "pathToVictory": 32,
+                "FFG": 555,
+                "games": [
+                    {"gameNum": 1, "result": 2, "points": 91},
+                    {"gameNum": 2, "result": 2, "points": 104},
+                ],
+            },
+        },
+    ]
+
+    mock_bcp_placings = {
+        "by_id": {},
+        "by_name": {},
+        "raw_teams": raw_bcp_teams,
+    }
+
+    class FastPathFakeDb:
+        def get_event_details(self, eid):
+            return ev_payload
+
+        def fetch_and_cache_bcp_event_placings(self, eid, **kwargs):
+            cb = kwargs.get("fast_teams_callback")
+            if cb:
+                cb(raw_bcp_teams)
+            return mock_bcp_placings
+
+    ev_payload = mock_db.get_event_details.return_value
+    from routers import leaderboard as lb_mod
+    lb_mod._event_details_cache.pop("uC7tqqdPYLtT", None)
+
+    t0 = time.perf_counter()
+    with patch("routers.leaderboard.get_database", return_value=FastPathFakeDb()):
+        ev_obj = asyncio.run(api_event_details("uC7tqqdPYLtT"))
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+    assert elapsed_ms < 250.0, f"api_event_details took too long: {elapsed_ms:.1f}ms"
+
+    assert ev_obj["is_team_event"] is True
+    assert ev_obj["is_doubles_event"] is False
+    assert ev_obj["total_teams"] == 2
+    assert len(ev_obj["teams"]) == 2
+    assert len(ev_obj["team_standings"]) == 2
+
+    # Team #1 must be sorted first by placing
+    t1 = ev_obj["teams"][0]
+    assert t1["name"] == "Art of War"
+    assert t1["placing"] == 1
+    assert t1["match_points"] == 12
+    assert t1["path_to_victory"] == 32
+    assert t1["battle_points"] == 555
+    assert t1["avg_elo"] == 1960.0
+    assert len(t1["members"]) == 2
+    assert t1["members"][0]["full_name"] == "Jack Harpster"
+    assert t1["members"][0]["is_captain"] is True
+
+    # Team #2 must be second
+    t2 = ev_obj["teams"][1]
+    assert t2["name"] == "The rejected primates"
+    assert t2["placing"] == 2
+    assert t2["match_points"] == 10
+    assert t2["path_to_victory"] == 28
+    assert t2["battle_points"] == 512
+    assert len(t2["members"]) == 2
+    assert t2["members"][0]["full_name"] == "Will Abeshaus"
+    assert t2["members"][0]["is_captain"] is True
+    print(f"✅ Completed team event fast-path & placings verified in {elapsed_ms:.2f}ms!")
 
 
 if __name__ == "__main__":
@@ -276,4 +453,6 @@ if __name__ == "__main__":
     test_team_tournament_linking_and_captain_assignment()
     test_doubles_event_detection_and_grouping()
     test_frontend_team_and_doubles_markup_and_bundle()
+    test_completed_team_event_fast_path_and_placings()
     print("\n🎉 ALL TEAM TOURNAMENT AND DOUBLES TESTS PASSED!")
+

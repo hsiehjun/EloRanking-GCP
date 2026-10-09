@@ -38,6 +38,7 @@ DEFAULT_HEADERS = {
     "env": "bcp",
     "User-Agent": BCP_USER_AGENT,
     "Accept": "*/*",
+    "Accept-Encoding": "gzip",
     "Accept-Language": "en-US,en;q=0.9",
     "Origin": "https://www.bestcoastpairings.com",
     "Referer": "https://www.bestcoastpairings.com/",

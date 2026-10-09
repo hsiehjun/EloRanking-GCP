@@ -93,7 +93,7 @@ window.api = {
             return { error: json.detail || json.error || 'Server error' };
           }
 
-          if (canCache && json && !json.error) {
+          if (canCache && json && !json.error && !json.sync_in_progress) {
             let ttl = 30000;
             for (const [prefix, customTtl] of Object.entries(this._cacheTtls)) {
               if (url.startsWith(prefix)) {
@@ -741,9 +741,12 @@ window.api = {
   },
 
   // Single Tournament Details & Pairings
-  async getTournamentDetails(eventId, forceSync = false) {
+  async getTournamentDetails(eventId, forceSync = false, bypassClientCache = false) {
     const query = forceSync ? '?force_sync=true' : '';
-    return this._fetchJson(`/api/event/${encodeURIComponent(eventId)}${query}`);
+    return this._fetchJson(
+      `/api/event/${encodeURIComponent(eventId)}${query}`,
+      (forceSync || bypassClientCache) ? { forceRefresh: true } : {}
+    );
   },
 
   // Quietly persist raw BCP roster into backend DB
