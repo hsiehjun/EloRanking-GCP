@@ -11427,56 +11427,49 @@ function ensureEventToHubFirestoreListener(eventId) {
     if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0 && typeof firebase.firestore === 'function') {
       const db = firebase.firestore();
       _toHubFirestoreEventId = eid;
-      const docIds = [eid];
-      if (eid.toUpperCase() !== eid) docIds.push(eid.toUpperCase());
-      const unsubs = [];
-      docIds.forEach(docId => {
-        try {
-          const u = db.collection('tournaments').doc(docId).onSnapshot(doc => {
-            if (!doc || !doc.exists) return;
-            const data = doc.data() || {};
-            const prev = _eventToHubStateCache.get(eid) || { event_id: eid };
-            if (data.masterClock) {
-              prev.clock = data.masterClock;
-              prev.master_clock = data.masterClock;
-            }
-            if ('broadcast' in data) {
-              const b = (data.broadcast && data.broadcast.active !== false && !isTargetedBroadcastObj(data.broadcast))
-                ? data.broadcast
-                : null;
-              prev.broadcast = b;
-              prev.active_broadcast = b;
-            }
-            if (Array.isArray(data.targeted_broadcasts)) {
-              prev.targeted_broadcasts = data.targeted_broadcasts.filter(t => t && t.message && t.active !== false);
-            }
-            if (Array.isArray(data.announcements) && data.announcements.length > 0) {
-              prev.announcements = data.announcements;
-            }
-            prev._fetchedAt = Date.now();
-            _eventToHubStateCache.set(eid, prev);
-            updateEventNewsTabBadge(eid);
-            if (prev.clock && prev.clock.status === 'running') {
-              startToHubClockTicker(eid);
-            }
-            if (currentOpenEventId && String(currentOpenEventId) === eid && currentEventData) {
-              renderEventClockAndScheduleWidgets(currentEventData, true);
-              if (currentEventModalTab === 'news') {
-                renderEventNewsHub(currentEventData, true);
-              } else if (currentEventModalTab === 'to-hub') {
-                renderEventToHub(currentEventData, true);
-              }
-            }
-            if (typeof syncGlobalEventAnnouncementBanner === 'function') {
-              syncGlobalEventAnnouncementBanner().catch(() => {});
-            }
-          }, () => {});
-          unsubs.push(u);
-        } catch (_) {}
-      });
-      _toHubFirestoreUnsub = () => {
-        unsubs.forEach(fn => { try { fn(); } catch (_) {} });
-      };
+      // Clean up any legacy uppercase duplicate document if eid is mixed-case (e.g. uZ4qxIz8T6a8 vs UZ4QXIZ8T6A8)
+      if (eid.toUpperCase() !== eid) {
+        db.collection('tournaments').doc(eid.toUpperCase()).delete().catch(() => {});
+      }
+      _toHubFirestoreUnsub = db.collection('tournaments').doc(eid).onSnapshot(doc => {
+        if (!doc || !doc.exists) return;
+        const data = doc.data() || {};
+        const prev = _eventToHubStateCache.get(eid) || { event_id: eid };
+        if (data.masterClock) {
+          prev.clock = data.masterClock;
+          prev.master_clock = data.masterClock;
+        }
+        if ('broadcast' in data) {
+          const b = (data.broadcast && data.broadcast.active !== false && !isTargetedBroadcastObj(data.broadcast))
+            ? data.broadcast
+            : null;
+          prev.broadcast = b;
+          prev.active_broadcast = b;
+        }
+        if (Array.isArray(data.targeted_broadcasts)) {
+          prev.targeted_broadcasts = data.targeted_broadcasts.filter(t => t && t.message && t.active !== false);
+        }
+        if (Array.isArray(data.announcements) && data.announcements.length > 0) {
+          prev.announcements = data.announcements;
+        }
+        prev._fetchedAt = Date.now();
+        _eventToHubStateCache.set(eid, prev);
+        updateEventNewsTabBadge(eid);
+        if (prev.clock && prev.clock.status === 'running') {
+          startToHubClockTicker(eid);
+        }
+        if (currentOpenEventId && String(currentOpenEventId) === eid && currentEventData) {
+          renderEventClockAndScheduleWidgets(currentEventData, true);
+          if (currentEventModalTab === 'news') {
+            renderEventNewsHub(currentEventData, true);
+          } else if (currentEventModalTab === 'to-hub') {
+            renderEventToHub(currentEventData, true);
+          }
+        }
+        if (typeof syncGlobalEventAnnouncementBanner === 'function') {
+          syncGlobalEventAnnouncementBanner().catch(() => {});
+        }
+      }, () => {});
     }
   } catch (_) {}
 }
@@ -11488,9 +11481,10 @@ async function syncToHubBroadcastToClientFirestore(eventId, broadcastObj, clearT
     if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0 && typeof firebase.firestore === 'function') {
       const db = firebase.firestore();
       const nowMs = Date.now();
-      const docIds = [eid];
-      if (eid.toUpperCase() !== eid) docIds.push(eid.toUpperCase());
       const cachedState = _eventToHubStateCache.get(eid) || {};
+      if (eid.toUpperCase() !== eid) {
+        db.collection('tournaments').doc(eid.toUpperCase()).delete().catch(() => {});
+      }
 
       if (broadcastObj && broadcastObj.message && broadcastObj.active !== false) {
         const isTargeted = isTargetedBroadcastObj(broadcastObj);
@@ -11510,13 +11504,11 @@ async function syncToHubBroadcastToClientFirestore(eventId, broadcastObj, clearT
             activeBroadcast,
             ...prevList.filter(t => t && t.id !== activeBroadcast.id && computeClientBroadcastTargetKey(t) !== targetKey)
           ].slice(0, 25);
-          for (const did of docIds) {
-            db.collection('tournaments').doc(did).set({
-              eventId: eid,
-              targeted_broadcasts: nextList,
-              updatedAt: nowMs,
-            }, { merge: true }).catch(() => {});
-          }
+          db.collection('tournaments').doc(eid).set({
+            eventId: eid,
+            targeted_broadcasts: nextList,
+            updatedAt: nowMs,
+          }, { merge: true }).catch(() => {});
           db.collection('tournaments').doc('_active_broadcasts').set({
             broadcasts: {
               [`${eid}__target__${targetKey}`]: activeBroadcast,
@@ -11524,13 +11516,11 @@ async function syncToHubBroadcastToClientFirestore(eventId, broadcastObj, clearT
             updatedAt: nowMs,
           }, { merge: true }).catch(() => {});
         } else {
-          for (const did of docIds) {
-            db.collection('tournaments').doc(did).set({
-              eventId: eid,
-              broadcast: activeBroadcast,
-              updatedAt: nowMs,
-            }, { merge: true }).catch(() => {});
-          }
+          db.collection('tournaments').doc(eid).set({
+            eventId: eid,
+            broadcast: activeBroadcast,
+            updatedAt: nowMs,
+          }, { merge: true }).catch(() => {});
           db.collection('tournaments').doc('_active_broadcasts').set({
             broadcasts: {
               [eid]: activeBroadcast,
@@ -11541,13 +11531,11 @@ async function syncToHubBroadcastToClientFirestore(eventId, broadcastObj, clearT
       } else {
         const cleanTarget = String(clearTargetId || '').trim();
         if (!cleanTarget || cleanTarget === 'general') {
-          for (const did of docIds) {
-            db.collection('tournaments').doc(did).set({
-              eventId: eid,
-              broadcast: null,
-              updatedAt: nowMs,
-            }, { merge: true }).catch(() => {});
-          }
+          db.collection('tournaments').doc(eid).set({
+            eventId: eid,
+            broadcast: null,
+            updatedAt: nowMs,
+          }, { merge: true }).catch(() => {});
           db.collection('tournaments').doc('_active_broadcasts').set({
             broadcasts: {
               [eid]: null,
@@ -11561,13 +11549,11 @@ async function syncToHubBroadcastToClientFirestore(eventId, broadcastObj, clearT
             const tk = computeClientBroadcastTargetKey(t);
             clearMap[`${eid}__target__${tk}`] = null;
           });
-          for (const did of docIds) {
-            db.collection('tournaments').doc(did).set({
-              eventId: eid,
-              targeted_broadcasts: [],
-              updatedAt: nowMs,
-            }, { merge: true }).catch(() => {});
-          }
+          db.collection('tournaments').doc(eid).set({
+            eventId: eid,
+            targeted_broadcasts: [],
+            updatedAt: nowMs,
+          }, { merge: true }).catch(() => {});
           if (Object.keys(clearMap).length > 0) {
             db.collection('tournaments').doc('_active_broadcasts').set({
               broadcasts: clearMap,
@@ -11585,13 +11571,11 @@ async function syncToHubBroadcastToClientFirestore(eventId, broadcastObj, clearT
             }
             return true;
           });
-          for (const did of docIds) {
-            db.collection('tournaments').doc(did).set({
-              eventId: eid,
-              targeted_broadcasts: nextList,
-              updatedAt: nowMs,
-            }, { merge: true }).catch(() => {});
-          }
+          db.collection('tournaments').doc(eid).set({
+            eventId: eid,
+            targeted_broadcasts: nextList,
+            updatedAt: nowMs,
+          }, { merge: true }).catch(() => {});
           clearMap[`${eid}__target__${cleanTarget}`] = null;
           db.collection('tournaments').doc('_active_broadcasts').set({
             broadcasts: clearMap,

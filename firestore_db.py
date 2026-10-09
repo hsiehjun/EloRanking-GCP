@@ -795,45 +795,63 @@ class FirestoreRoomEngine:
         return self._client.collection("tournaments").document(str(event_id).strip())
 
     def _read_tournament_doc_dict(self, event_id: str) -> Dict[str, Any]:
-        """Reads tournaments/{event_id} from Firestore, checking both exact case and uppercase and merging fields."""
+        """Reads canonical tournaments/{event_id} from Firestore, migrating and deleting any legacy uppercase duplicate."""
         eid = str(event_id or "").strip()
         if not eid or not self._client:
             return {}
-        candidates = [eid]
-        if eid.upper() != eid:
-            candidates.append(eid.upper())
         merged: Dict[str, Any] = {}
-        for candidate in candidates:
+        try:
+            ref = self._client.collection("tournaments").document(eid)
+            snap = ref.get()
+            if snap.exists:
+                data = snap.to_dict() or {}
+                if isinstance(data, dict):
+                    merged = dict(data)
+        except Exception as e:
+            logger.warning(f"Notice reading tournament doc {eid} from Firestore: {e}")
+
+        # If eid is mixed-case (e.g. uZ4qxIz8T6a8), check if a legacy uppercase duplicate (UZ4QXIZ8T6A8) exists,
+        # merge any missing fields into canonical eid, and delete the legacy uppercase duplicate.
+        if eid.upper() != eid:
+            upper_id = eid.upper()
             try:
-                ref = self._client.collection("tournaments").document(candidate)
-                snap = ref.get()
-                if snap.exists:
-                    data = snap.to_dict() or {}
-                    if isinstance(data, dict) and data:
-                        if not merged:
-                            merged = dict(data)
-                        else:
-                            for k, v in data.items():
-                                if v is not None and (k not in merged or merged.get(k) is None or merged.get(k) == [] or merged.get(k) == {}):
-                                    merged[k] = v
+                upper_ref = self._client.collection("tournaments").document(upper_id)
+                upper_snap = upper_ref.get()
+                if upper_snap.exists:
+                    upper_data = upper_snap.to_dict() or {}
+                    needs_migrate = False
+                    if isinstance(upper_data, dict):
+                        for k, v in upper_data.items():
+                            if v is not None and (k not in merged or merged.get(k) is None or merged.get(k) == [] or merged.get(k) == {}):
+                                merged[k] = v
+                                needs_migrate = True
+                    if needs_migrate:
+                        merged["eventId"] = eid
+                        self._client.collection("tournaments").document(eid).set(merged, merge=True)
+                    upper_ref.delete()
             except Exception as e:
-                logger.warning(f"Notice reading tournament doc {candidate} from Firestore: {e}")
+                logger.debug(f"Notice cleaning up legacy uppercase tournament doc {upper_id}: {e}")
         return merged
 
     def _write_tournament_doc_dict(self, event_id: str, payload: Dict[str, Any]) -> None:
-        """Writes payload to tournaments/{event_id} (and uppercase alias if mixed-case) in Firestore."""
+        """Writes payload ONLY to the single canonical tournaments/{event_id} document in Firestore."""
         eid = str(event_id or "").strip()
         if not eid or not self._client:
             return
-        candidates = [eid]
+        try:
+            ref = self._client.collection("tournaments").document(eid)
+            ref.set(payload, merge=True)
+        except Exception as e:
+            logger.warning(f"Notice writing tournament doc {eid} to Firestore: {e}")
+
+        # Automatically purge any legacy uppercase duplicate document if eid is mixed-case
         if eid.upper() != eid:
-            candidates.append(eid.upper())
-        for candidate in candidates:
             try:
-                ref = self._client.collection("tournaments").document(candidate)
-                ref.set(payload, merge=True)
-            except Exception as e:
-                logger.warning(f"Notice writing tournament doc {candidate} to Firestore: {e}")
+                upper_ref = self._client.collection("tournaments").document(eid.upper())
+                if upper_ref.get().exists:
+                    upper_ref.delete()
+            except Exception:
+                pass
 
     def get_tournament_master_clock(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Fetches tournament round master clock from Firestore tournaments/{event_id}."""

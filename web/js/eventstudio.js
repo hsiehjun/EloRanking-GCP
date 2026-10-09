@@ -2993,7 +2993,9 @@ function subscribeStudioTournament(eventId) {
   if (!db || !eventId) return;
 
   const docIds = [eventId];
-  if (eventId.toUpperCase() !== eventId) docIds.push(eventId.toUpperCase());
+  if (eventId.toUpperCase() !== eventId) {
+    db.collection('tournaments').doc(eventId.toUpperCase()).delete().catch(() => {});
+  }
 
   const unsubs = [];
   docIds.forEach(did => {
@@ -3444,7 +3446,6 @@ function subscribeStudioJudgeCalls(eventId) {
   if (!db || !eventId) return;
 
   const docIds = [eventId];
-  if (eventId.toUpperCase() !== eventId) docIds.push(eventId.toUpperCase());
 
   const unsubs = [];
   docIds.forEach(did => {
@@ -3761,11 +3762,6 @@ async function markJudgeCallEnRoute(callId) {
   const call = (studioState.judgeCalls || []).find(c => c.id === callId);
   const matchId = call ? (call.matchId || call.match_id) : null;
   const targetDocIds = [ev.id];
-  if (ev.id.toUpperCase() !== ev.id) targetDocIds.push(ev.id.toUpperCase());
-  if (call && (call.eventId || call.event_id)) {
-    const cEid = String(call.eventId || call.event_id).trim();
-    if (cEid && !targetDocIds.includes(cEid)) targetDocIds.push(cEid);
-  }
 
   const db = getStudioFirestoreDb();
   if (db) {
@@ -3849,11 +3845,6 @@ async function markJudgeCallResolved(callId) {
   const call = (studioState.judgeCalls || []).find(c => c.id === callId);
   const matchId = call ? (call.matchId || call.match_id) : null;
   const targetDocIds = [ev.id];
-  if (ev.id.toUpperCase() !== ev.id) targetDocIds.push(ev.id.toUpperCase());
-  if (call && (call.eventId || call.event_id)) {
-    const cEid = String(call.eventId || call.event_id).trim();
-    if (cEid && !targetDocIds.includes(cEid)) targetDocIds.push(cEid);
-  }
 
   const db = getStudioFirestoreDb();
   if (db) {
@@ -3924,11 +3915,6 @@ async function dismissJudgeCall(callId) {
   const call = (studioState.judgeCalls || []).find(c => c.id === callId);
   const matchId = call ? (call.matchId || call.match_id) : null;
   const targetDocIds = [ev.id];
-  if (ev.id.toUpperCase() !== ev.id) targetDocIds.push(ev.id.toUpperCase());
-  if (call && (call.eventId || call.event_id)) {
-    const cEid = String(call.eventId || call.event_id).trim();
-    if (cEid && !targetDocIds.includes(cEid)) targetDocIds.push(cEid);
-  }
 
   const db = getStudioFirestoreDb();
   if (db) {

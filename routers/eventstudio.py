@@ -4245,8 +4245,16 @@ def api_get_active_event_announcements(
     return {"ok": True, "success": True, "announcements": active}
 
 
+def _ensure_canonical_case_event_id(event_id: str) -> str:
+    eid = str(event_id or "").strip()
+    if eid and eid == eid.upper() and any(c.isalpha() for c in eid):
+        return _resolve_canonical_event_id(eid)
+    return eid
+
+
 @router.get("/api/events/{event_id}/to-hub", summary="Get unified TO Hub (Firestore) and News (PostgreSQL) state for an event")
 def api_get_event_to_hub_state(event_id: str):
+    event_id = _ensure_canonical_case_event_id(event_id)
     fs_engine = get_firestore_engine()
     state = fs_engine.get_event_to_hub_state(event_id)
 
@@ -4289,6 +4297,7 @@ def api_get_event_to_hub_state(event_id: str):
 
 @router.post("/api/events/{event_id}/to-hub/announcement", summary="Publish or clear an app-wide & Game Tracker pop-up event announcement banner in Firestore")
 def api_publish_event_to_hub_announcement(event_id: str, payload: ToHubAnnouncementPayload):
+    event_id = _ensure_canonical_case_event_id(event_id)
     fs_engine = get_firestore_engine()
     msg = (payload.message or "").strip()
     if payload.active is False or not msg:
@@ -4344,6 +4353,7 @@ def api_publish_event_to_hub_announcement(event_id: str, payload: ToHubAnnouncem
 
 @router.post("/api/events/{event_id}/to-hub/direct-chat", summary="Send a direct OmniChat message from TO Hub to a table or player (with optional live banner fallback)")
 def api_send_event_to_hub_direct_chat(event_id: str, payload: ToHubDirectChatPayload, request: Request):
+    event_id = _ensure_canonical_case_event_id(event_id)
     user = None
     try:
         auth_mgr = get_auth_manager()
@@ -4502,6 +4512,7 @@ def api_send_event_to_hub_direct_chat(event_id: str, payload: ToHubDirectChatPay
 
 @router.delete("/api/events/{event_id}/to-hub/announcement", summary="Clear active general or targeted event announcement banner in Firestore")
 def api_clear_event_to_hub_announcement(event_id: str, target_id: Optional[str] = None, broadcast_id: Optional[str] = None):
+    event_id = _ensure_canonical_case_event_id(event_id)
     fs_engine = get_firestore_engine()
     resolved_target = target_id or broadcast_id
     fs_engine.clear_tournament_broadcast(event_id, target_id=resolved_target)

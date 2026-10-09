@@ -81,6 +81,34 @@ class TestBcpScoreSubmissionAndCanonicalEvent(unittest.TestCase):
         for doc_id in doc_args:
             self.assertEqual(doc_id, event_id, f"Expected document ID '{event_id}', got '{doc_id}'")
 
+    def test_firestore_write_tournament_doc_single_canonical_and_purges_uppercase_duplicate(self):
+        """Verify _write_tournament_doc_dict writes ONLY to canonical mixed-case event_id and deletes any legacy uppercase duplicate."""
+        fs = FirestoreRoomEngine()
+        mock_db = MagicMock()
+        fs._client = mock_db
+
+        docs_by_id = {}
+
+        def get_doc_mock(doc_id):
+            if doc_id not in docs_by_id:
+                m = MagicMock()
+                m.get.return_value.exists = (doc_id == "UZ4QXIZ8T6A8")
+                docs_by_id[doc_id] = m
+            return docs_by_id[doc_id]
+
+        mock_db.collection.return_value.document.side_effect = get_doc_mock
+
+        fs._write_tournament_doc_dict("uZ4qxIz8T6a8", {"eventId": "uZ4qxIz8T6a8", "broadcast": None})
+
+        # Canonical mixed-case doc was written
+        self.assertIn("uZ4qxIz8T6a8", docs_by_id)
+        docs_by_id["uZ4qxIz8T6a8"].set.assert_called_once()
+
+        # Legacy uppercase doc was NEVER written to, and was deleted because it existed
+        self.assertIn("UZ4QXIZ8T6A8", docs_by_id)
+        docs_by_id["UZ4QXIZ8T6A8"].set.assert_not_called()
+        docs_by_id["UZ4QXIZ8T6A8"].delete.assert_called_once()
+
     def test_bcp_adapter_fetch_event_details(self):
         """Verify BcpAdapter has fetch_event_details method and delegates to execute_call."""
         self.assertTrue(hasattr(BcpAdapter, "fetch_event_details"), "BcpAdapter must have fetch_event_details")
