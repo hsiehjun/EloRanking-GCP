@@ -93,6 +93,10 @@ class DiceTrackerApp {
     this.audioCtx = null;
 
     this.initDOM();
+    if (window.innerWidth <= 768) {
+      const tuningDetails = document.querySelector(".tuning-panel");
+      if (tuningDetails) tuningDetails.removeAttribute("open");
+    }
     this.ensureCvBuffers(this.canvas.width, this.canvas.height);
     this.initChart();
     this.bindEvents();
@@ -816,13 +820,18 @@ class DiceTrackerApp {
     this.chartCanvas = document.getElementById("distributionChart");
     this.chart = null;
     this.drawNativeDistributionChart([0, 0, 0, 0, 0, 0]);
+    window.addEventListener("resize", () => {
+      this.drawNativeDistributionChart(this.distribution.slice(1));
+    });
   }
 
   drawNativeDistributionChart(counts6) {
     if (!this.chartCanvas) return;
     const c = this.chartCanvas;
-    c.width = c.clientWidth || 460;
-    c.height = c.clientHeight || 180;
+    const parentW = c.parentElement && c.parentElement.clientWidth ? c.parentElement.clientWidth : (c.clientWidth || 320);
+    const parentH = c.parentElement && c.parentElement.clientHeight ? c.parentElement.clientHeight : (c.clientHeight || 180);
+    c.width = Math.max(220, parentW);
+    c.height = Math.max(140, parentH);
     const ctx = c.getContext("2d");
     const w = c.width;
     const h = c.height;
@@ -2472,18 +2481,19 @@ class DiceTrackerApp {
         ? `<span style="color:#fb7185;font-weight:800;font-size:0.74rem;">🔴 P2</span>`
         : `<span style="color:#38bdf8;font-weight:800;font-size:0.74rem;">🔵 P1</span>`;
 
+      tr.className = "history-row";
       tr.innerHTML = `
-        <td><strong>#${r.rollNum}</strong></td>
-        <td>${playerPill}</td>
-        <td><span class="badge status-inactive">${r.phase || "Roll"}</span></td>
-        <td>${r.time}</td>
-        <td><strong>${r.count}d</strong></td>
-        <td><div style="display:flex;gap:3px;flex-wrap:wrap;max-width:340px;">${badgesHTML}</div></td>
-        <td><strong style="color:${hitsNow > 0 ? "#34d399" : "#94a3b8"}">${hitsNow} / ${r.count} (${targetVal}+)</strong></td>
-        <td><strong style="color:#c084fc">${critsNow}</strong></td>
-        <td><strong style="color:#f87171">${onesNow}</strong></td>
-        <td>${r.avg}</td>
-        <td>
+        <td class="hist-col-num"><strong>#${r.rollNum}</strong></td>
+        <td class="hist-col-player">${playerPill}</td>
+        <td class="hist-col-phase"><span class="badge status-inactive">${r.phase || "Roll"}</span></td>
+        <td class="hist-col-time">${r.time}</td>
+        <td class="hist-col-pool"><strong>${r.count}d</strong></td>
+        <td class="hist-col-badges"><div class="history-badges-cell">${badgesHTML}</div></td>
+        <td class="hist-col-hits"><span class="mobile-stat-lbl">Hits: </span><strong style="color:${hitsNow > 0 ? "#34d399" : "#94a3b8"}">${hitsNow}/${r.count} (${targetVal}+)</strong></td>
+        <td class="hist-col-crits"><span class="mobile-stat-lbl">6s: </span><strong style="color:#c084fc">${critsNow}</strong></td>
+        <td class="hist-col-ones"><span class="mobile-stat-lbl">1s: </span><strong style="color:#f87171">${onesNow}</strong></td>
+        <td class="hist-col-avg"><span class="mobile-stat-lbl">Avg: </span><strong>${r.avg}</strong></td>
+        <td class="hist-col-actions">
           <button class="btn btn-sm btn-secondary" onclick="app.openEditModal(${r.id})">✏️</button>
           <button class="btn btn-sm btn-outline" onclick="app.deleteRoll(${r.id})">🗑️</button>
         </td>

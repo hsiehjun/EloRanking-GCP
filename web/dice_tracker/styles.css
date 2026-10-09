@@ -24,16 +24,24 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-body {
+html, body {
   background-color: var(--bg-color);
   color: var(--text-primary);
   font-family: var(--font-family);
   line-height: 1.5;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body {
   padding: 0.75rem;
 }
 
 .app-container {
+  width: 100%;
   max-width: 1480px;
+  min-width: 0;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -51,12 +59,14 @@ body {
   border-radius: 10px;
   flex-wrap: wrap;
   gap: 0.65rem;
+  min-width: 0;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 0.65rem;
+  min-width: 0;
 }
 
 .brand .logo-icon {
@@ -68,6 +78,10 @@ body {
   font-weight: 800;
   line-height: 1.2;
   letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
 }
 
 .subtitle-tag {
@@ -102,11 +116,13 @@ body {
   align-items: center;
   gap: 0.45rem;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .nav-link-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   padding: 0.35rem 0.68rem;
   border-radius: 6px;
@@ -117,6 +133,7 @@ body {
   border: 1px solid #334155;
   text-decoration: none;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
 .nav-link-btn:hover {
@@ -142,6 +159,7 @@ body {
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .status-inactive {
@@ -163,16 +181,18 @@ body {
   100% { opacity: 0.85; }
 }
 
-/* Dashboard Grid Layout - Mobile Responsive */
+/* Dashboard Grid Layout - Mobile Responsive (minmax(0, 1fr) prevents canvas/table blowout) */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
   gap: 0.9rem;
+  width: 100%;
+  min-width: 0;
 }
 
 @media (max-width: 980px) {
   .dashboard-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -189,6 +209,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .card-header {
@@ -197,6 +220,7 @@ body {
   align-items: center;
   flex-wrap: wrap;
   gap: 0.5rem;
+  min-width: 0;
 }
 
 .card-header h2 {
@@ -206,17 +230,18 @@ body {
 
 .mode-toggles {
   display: flex;
-  gap: 0.7rem;
+  gap: 0.65rem;
   flex-wrap: wrap;
 }
 
 .toggle-label {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 0.3rem;
   font-size: 0.78rem;
   color: var(--text-secondary);
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .camera-select-row {
@@ -227,6 +252,41 @@ body {
   color: var(--text-secondary);
   gap: 0.5rem;
   flex-wrap: wrap;
+  min-width: 0;
+}
+
+.camera-lens-group,
+.camera-calib-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.zoom-control-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #0d1117;
+  border: 1px solid #1e293b;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.roller-seg-wrap,
+.roller-actions-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.attr-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #94a3b8;
 }
 
 .wake-lock-tag {
@@ -237,18 +297,20 @@ body {
   padding: 0.24rem 0.5rem;
   border-radius: 6px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 /* State Machine Status Bar */
 .state-machine-bar {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 0.55rem;
   background: var(--bg-dark);
   border: 1px solid var(--border-color);
   padding: 0.45rem 0.65rem;
   border-radius: 8px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .state-pill {
@@ -606,7 +668,17 @@ body {
 /* Charts */
 .chart-container {
   height: 180px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   position: relative;
+}
+
+#distributionChart {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  display: block;
 }
 
 /* Dice Badges */
@@ -658,11 +730,16 @@ body {
 
 /* Table */
 .table-responsive {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .history-table {
   width: 100%;
+  min-width: 680px;
   border-collapse: collapse;
   text-align: left;
   font-size: 0.8rem;
@@ -671,6 +748,21 @@ body {
 .history-table th, .history-table td {
   padding: 0.5rem 0.65rem;
   border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.history-badges-cell {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+  min-width: 240px;
+  max-width: 340px;
+  white-space: normal;
+}
+
+.mobile-stat-lbl {
+  display: none;
 }
 
 .history-table th {
@@ -695,19 +787,29 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 100;
-  padding: 1rem;
+  padding: 0.85rem;
+  overflow-y: auto;
 }
 
 .modal-content {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  padding: 1.25rem;
+  padding: 1.15rem;
   border-radius: 10px;
   max-width: 480px;
   width: 100%;
+  max-height: 92vh;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.dice-sets-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
 }
 
 .modal-dice-grid {
@@ -725,4 +827,305 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
+
+/* ==========================================================================
+   MOBILE CAMERA-FIRST ERGONOMICS (<= 768px)
+   Places the live camera viewfinder and primary roll actions above the fold,
+   eliminates toolbar clutter, and guarantees zero horizontal overflow.
+   ========================================================================== */
+@media (max-width: 768px) {
+  body {
+    padding: 0.45rem;
+  }
+
+  .app-container {
+    gap: 0.6rem;
+  }
+
+  /* Compact 2-row Top Bar on Mobile */
+  .top-bar {
+    padding: 0.5rem 0.65rem;
+    gap: 0.45rem;
+  }
+
+  .brand h1 {
+    font-size: 1.02rem;
+  }
+
+  .subtitle-tag,
+  #wakeLockStatus,
+  #sessionStatus {
+    display: none !important;
+  }
+
+  .session-controls {
+    width: 100%;
+    justify-content: space-between;
+    gap: 0.32rem;
+  }
+
+  .session-controls .btn-sm,
+  .session-controls .nav-link-btn,
+  .session-controls .perf-telemetry-pill {
+    padding: 0.26rem 0.48rem;
+    font-size: 0.71rem;
+    min-height: 28px;
+    flex: 1 1 auto;
+    justify-content: center;
+    text-align: center;
+  }
+
+  /* Camera-First Reordering inside .vision-card */
+  .vision-card {
+    padding: 0.65rem;
+    gap: 0.55rem;
+  }
+
+  .vision-card > .card-header {
+    order: 1;
+    gap: 0.35rem;
+  }
+
+  .vision-card > .card-header h2 {
+    font-size: 0.92rem;
+  }
+
+  .mode-toggles {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.28rem 0.5rem;
+    background: var(--bg-dark);
+    padding: 0.38rem 0.55rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+  }
+
+  .toggle-label {
+    font-size: 0.73rem;
+  }
+
+  .vision-card > .state-machine-bar {
+    order: 2;
+    padding: 0.35rem 0.5rem;
+    gap: 0.4rem;
+  }
+
+  .state-pill {
+    font-size: 0.7rem;
+    padding: 0.18rem 0.5rem;
+  }
+
+  .settling-progress-wrap {
+    width: 64px;
+    flex: 1;
+  }
+
+  .state-hint {
+    font-size: 0.7rem;
+    min-width: 100%;
+    line-height: 1.3;
+  }
+
+  /* Viewfinder immediately visible above the fold */
+  .vision-card > .viewfinder-container {
+    order: 3;
+  }
+
+  .scanner-overlay {
+    font-size: 0.78rem;
+    padding: 0.75rem 0.85rem 2.8rem;
+    line-height: 1.35;
+  }
+
+  .hud-badge {
+    bottom: 6px;
+    left: 6px;
+    right: 6px;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.69rem;
+    gap: 0.3rem;
+  }
+
+  /* Primary Action Buttons in a thumb-friendly 2x2 Grid right below Viewfinder */
+  .vision-card > .camera-actions {
+    order: 4;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.4rem;
+  }
+
+  .vision-card > .camera-actions .btn {
+    width: 100%;
+    padding: 0.45rem 0.4rem;
+    font-size: 0.75rem;
+    min-height: 38px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Roller Attribution + Undo/Sync cleanly stacked below Primary Actions */
+  .vision-card > .roller-attr-bar {
+    order: 5;
+    padding: 0.4rem 0.5rem;
+    gap: 0.4rem;
+  }
+
+  .roller-seg-wrap {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .roller-seg-wrap .seg-group {
+    flex: 1;
+    display: flex;
+  }
+
+  .roller-seg-wrap .seg-btn {
+    flex: 1;
+    text-align: center;
+    padding: 4px 6px;
+    font-size: 0.71rem;
+  }
+
+  .roller-actions-wrap {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4rem;
+  }
+
+  .roller-actions-wrap .btn {
+    width: 100%;
+  }
+
+  /* Camera Lens & Calibration Controls neatly fitted in 2-col / 3-col grids */
+  .vision-card > .camera-select-row {
+    order: 6;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.45rem 0.5rem;
+    gap: 0.45rem;
+  }
+
+  .lens-label {
+    display: none;
+  }
+
+  .camera-lens-group {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.35rem;
+  }
+
+  .camera-lens-group .select-input {
+    width: 100%;
+    font-size: 0.73rem;
+    padding: 0.3rem 0.4rem;
+    min-width: 0;
+  }
+
+  .zoom-control-pill {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+    padding: 4px 8px;
+  }
+
+  .zoom-control-pill input[type="range"] {
+    flex: 1;
+    max-width: 75%;
+  }
+
+  .camera-calib-group {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+  }
+
+  .camera-calib-group .btn {
+    width: 100%;
+    padding: 0.3rem 0.25rem;
+    font-size: 0.69rem;
+    white-space: nowrap;
+  }
+
+  .vision-card > .tuning-panel {
+    order: 7;
+  }
+
+  /* Stats & History Cards Mobile Polish */
+  .stats-card,
+  .history-card {
+    padding: 0.65rem;
+    gap: 0.55rem;
+  }
+
+  .dice-sets-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Convert 11-column History Table into zero-scroll Mobile Roll Cards */
+  .history-table {
+    min-width: 0;
+    display: block;
+  }
+
+  .history-table thead {
+    display: none;
+  }
+
+  .history-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .history-table tr.history-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.55rem;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.55rem;
+  }
+
+  .history-table tr.history-row td {
+    padding: 0;
+    border: none;
+    font-size: 0.76rem;
+  }
+
+  .mobile-stat-lbl {
+    display: inline;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+  }
+
+  .hist-col-actions {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 0.3rem;
+  }
+
+  .hist-col-badges {
+    order: 10;
+    width: 100%;
+    padding-top: 0.25rem !important;
+    border-top: 1px solid rgba(30, 41, 59, 0.7) !important;
+  }
+
+  .history-badges-cell {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+  }
+}
+

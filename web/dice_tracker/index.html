@@ -71,8 +71,8 @@
 
         <!-- Camera, Hardware Torch/Zoom & Tray Calibration Row -->
         <div class="camera-select-row">
-          <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
-            <label for="cameraSelect">Lens:</label>
+          <div class="camera-lens-group">
+            <label for="cameraSelect" class="lens-label">Lens:</label>
             <select id="cameraSelect" class="select-input">
               <option value="environment">Rear Ultra-Wide / Main</option>
               <option value="user">Front Camera</option>
@@ -83,30 +83,30 @@
               <option value="dark">⚫ Dark/Colored Dice (Light Pips)</option>
             </select>
             <button id="btnTorchToggle" class="btn btn-sm btn-outline hidden" title="Toggle device camera flashlight/torch for shadow-free tray lighting">🔦 Torch</button>
-            <div style="display:inline-flex;align-items:center;gap:4px;background:#0d1117;border:1px solid #1e293b;padding:2px 7px;border-radius:6px;" title="Camera Zoom (1.0x - 3.0x)">
+            <div class="zoom-control-pill" title="Camera Zoom (1.0x - 3.0x)">
               <span style="font-size:0.72rem;color:#94a3b8;">🔍 <b id="camZoomVal" style="color:#38bdf8;">1.0x</b></span>
               <input type="range" id="camZoomSlider" min="1" max="3" step="0.1" value="1" style="width:62px;accent-color:#38bdf8;">
             </div>
           </div>
-          <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+          <div class="camera-calib-group">
             <button id="btnSetPlayerDice" class="btn btn-sm btn-accent" title="Pre-game calibration: scan or configure Player 1 &amp; Player 2 dice colors, pip contrast, and custom 6 symbols">🎯 Set Your Dice</button>
-            <button id="btnCalibrateBg" class="btn btn-sm btn-outline" title="Snapshots the empty dice tray to isolate dice against felt/mat textures">📸 Calibrate Empty Tray</button>
-            <button id="btnResetRoi" class="btn btn-sm btn-outline" title="Reset draggable green Dice Tray ROI box">📐 Reset Tray Box</button>
+            <button id="btnCalibrateBg" class="btn btn-sm btn-outline" title="Snapshots the empty dice tray to isolate dice against felt/mat textures">📸 Calibrate Tray</button>
+            <button id="btnResetRoi" class="btn btn-sm btn-outline" title="Reset draggable green Dice Tray ROI box">📐 Reset Box</button>
           </div>
         </div>
 
         <!-- Active Roller Attribution Bar (OmniTactica P1 / P2 Integration) -->
-        <div class="player-filter-bar">
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-            <span style="font-size:0.74rem;font-weight:700;color:#94a3b8;">Attribution:</span>
+        <div class="player-filter-bar roller-attr-bar">
+          <div class="roller-seg-wrap">
+            <span class="attr-label">Roller:</span>
             <div class="seg-group" id="rollerAttributionGroup">
-              <button type="button" class="seg-btn active" data-roller="auto" id="btnRollerAuto" title="Auto-detect whether Player 1 or Player 2 rolled based on calibrated dice colors">⚡ Auto (By Dice Color)</button>
-              <button type="button" class="seg-btn" data-roller="1" id="btnRollerP1">🔵 Player 1</button>
-              <button type="button" class="seg-btn" data-roller="2" id="btnRollerP2">🔴 Player 2</button>
+              <button type="button" class="seg-btn active" data-roller="auto" id="btnRollerAuto" title="Auto-detect whether Player 1 or Player 2 rolled based on calibrated dice colors">⚡ Auto (Color)</button>
+              <button type="button" class="seg-btn" data-roller="1" id="btnRollerP1">🔵 P1</button>
+              <button type="button" class="seg-btn" data-roller="2" id="btnRollerP2">🔴 P2</button>
             </div>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <button type="button" id="btnUndoLastRoll" class="btn btn-sm btn-outline" disabled title="Remove the most recent locked roll from history and distribution">↩ Undo Last</button>
+          <div class="roller-actions-wrap">
+            <button type="button" id="btnUndoLastRoll" class="btn btn-sm btn-outline" disabled title="Remove the most recent locked roll from history and distribution">↩ Undo</button>
             <button type="button" id="btnSyncToTracker" class="btn btn-sm btn-secondary" title="Push recorded CV rolls to OmniTactica Game Tracker local dice history (gt-dice-history-v2)">📤 Sync to Tracker</button>
           </div>
         </div>
@@ -151,7 +151,7 @@
           <button id="btnToggleCam" class="btn btn-secondary">📷 Start Camera</button>
           <button id="btnCaptureRoll" class="btn btn-accent" disabled>🎯 Lock Roll Now</button>
           <button id="btnSimulateRoll" class="btn btn-primary">🎲 Roll 40 Dice (Live CV)</button>
-          <button id="btnRerollHits" class="btn btn-outline" disabled title="Scoop failed dice and roll only the successful hits for Wounds/Saves!">⚔️ Scoop Fails &amp; Roll Hits (<span id="btnRerollCount">0</span>)</button>
+          <button id="btnRerollHits" class="btn btn-outline" disabled title="Scoop failed dice and roll only the successful hits for Wounds/Saves!">⚔️ Scoop &amp; Roll Hits (<span id="btnRerollCount">0</span>)</button>
         </div>
 
         <!-- Detection Settings & Warhammer Rules Tuning -->
@@ -365,7 +365,7 @@
       </div>
 
       <!-- Player 1 & Player 2 / Accent Dice Set Cards -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.85rem;">
+      <div class="dice-sets-grid">
         <!-- Set A: Player 1 / Primary Army Dice -->
         <div style="background:var(--bg-dark);border:1px solid var(--border-color);border-radius:8px;padding:0.65rem;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">

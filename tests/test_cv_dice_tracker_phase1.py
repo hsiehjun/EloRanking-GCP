@@ -609,6 +609,16 @@ console.log(JSON.stringify({
             f"CV frame detection exceeded 15ms budget: {result['avgFrameMs']:.2f}ms",
         )
 
+    def test_mobile_responsive_layout_and_zero_overflow(self):
+        """Verify styles.css uses minmax(0, 1fr), min-width: 0, camera-first mobile ordering, and mobile history cards."""
+        css_text = (ROOT_DIR / "web" / "dice_tracker" / "styles.css").read_text(encoding="utf-8")
+        self.assertEqual(css_text.count("{"), css_text.count("}"), "Unbalanced braces in web/dice_tracker/styles.css")
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", css_text)
+        self.assertIn("MOBILE CAMERA-FIRST ERGONOMICS", css_text)
+        self.assertIn(".vision-card > .viewfinder-container", css_text)
+        self.assertIn(".history-table tr.history-row", css_text)
+
 
 if __name__ == "__main__":
     unittest.main()
+
