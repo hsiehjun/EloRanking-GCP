@@ -329,7 +329,77 @@ class ToHubAndHostedEventsTest(unittest.TestCase):
             self.assertEqual(res["hosted_tournaments"][0]["event_id"], "7ohG0RuDqC1k")
             self.assertEqual(res["hosted_tournaments"][0]["organizer_role"], "Event Owner")
 
+    def test_to_hub_self_direct_chat_and_merged_tournament_doc(self):
+        from database import Database
+        from firestore_db import FirestoreRoomEngine
+
+        # 1. Verify send_to_hub_direct_chat_message allows TO to message themselves (e.g. when testing or playing in own event)
+        db = Database.__new__(Database)
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        db.get_connection = MagicMock()
+        db.get_connection.return_value.__enter__.return_value = mock_conn
+
+        # Simulate: first query (by player_id) returns None, second query (by player_name via users/players/player_ratings) returns the TO's own user row
+        mock_cursor.fetchone.side_effect = [
+            None,
+            {"id": "usr_john_1", "display_name": "John Hsieh"},
+            None,  # No existing match_request
+            {"id": "msg_test_1", "created_at": None},
+        ]
+
+        res = db.send_to_hub_direct_chat_message(
+            sender_id="usr_john_1",
+            player_id="bcp_roster_entry_99",
+            player_name="John Hsieh",
+            event_name="Try Hard - 40K RTT",
+            message_text="👋 Table 16 • John Hsieh: Test message",
+        )
+        self.assertTrue(res["success"])
+        self.assertTrue(res["delivered_chat"])
+        self.assertEqual(res["receiver_id"], "usr_john_1")
+        self.assertTrue(str(res["request_id"]).startswith("mrq_"))
+
+        # 2. Verify Firestore _read_tournament_doc_dict merges uppercase and mixed-case docs when one has partial fields
+        fs = FirestoreRoomEngine()
+        mock_fs_client = MagicMock()
+        fs._client = mock_fs_client
+
+        doc_mixed = MagicMock()
+        doc_mixed.exists = True
+        doc_mixed.to_dict.return_value = {
+            "id": "7ohG0RuDqC1k",
+            "broadcast": {"id": "msg_1", "message": "Table 16 alert", "active": True},
+        }
+        doc_upper = MagicMock()
+        doc_upper.exists = True
+        doc_upper.to_dict.return_value = {
+            "id": "7OHG0RUDQC1K",
+            "name": "Try Hard - 40K RTT",
+            "masterClock": {"status": "running", "durationMinutes": 180},
+        }
+
+        def _get_doc(doc_id):
+            m = MagicMock()
+            if doc_id == "7ohG0RuDqC1k":
+                m.get.return_value = doc_mixed
+            elif doc_id == "7OHG0RUDQC1K":
+                m.get.return_value = doc_upper
+            else:
+                empty = MagicMock()
+                empty.exists = False
+                m.get.return_value = empty
+            return m
+
+        mock_fs_client.collection.return_value.document.side_effect = _get_doc
+        merged = fs._read_tournament_doc_dict("7ohG0RuDqC1k")
+        self.assertEqual(merged["broadcast"]["message"], "Table 16 alert")
+        self.assertEqual(merged["masterClock"]["status"], "running")
+        self.assertEqual(merged["name"], "Try Hard - 40K RTT")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

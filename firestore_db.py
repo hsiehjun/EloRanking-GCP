@@ -795,21 +795,30 @@ class FirestoreRoomEngine:
         return self._client.collection("tournaments").document(str(event_id).strip())
 
     def _read_tournament_doc_dict(self, event_id: str) -> Dict[str, Any]:
-        """Reads tournaments/{event_id} from Firestore, checking both exact case and uppercase."""
+        """Reads tournaments/{event_id} from Firestore, checking both exact case and uppercase and merging fields."""
         eid = str(event_id or "").strip()
         if not eid or not self._client:
             return {}
-        for candidate in (eid, eid.upper()):
+        candidates = [eid]
+        if eid.upper() != eid:
+            candidates.append(eid.upper())
+        merged: Dict[str, Any] = {}
+        for candidate in candidates:
             try:
                 ref = self._client.collection("tournaments").document(candidate)
                 snap = ref.get()
                 if snap.exists:
                     data = snap.to_dict() or {}
-                    if data:
-                        return data
+                    if isinstance(data, dict) and data:
+                        if not merged:
+                            merged = dict(data)
+                        else:
+                            for k, v in data.items():
+                                if v is not None and (k not in merged or merged.get(k) is None or merged.get(k) == [] or merged.get(k) == {}):
+                                    merged[k] = v
             except Exception as e:
                 logger.warning(f"Notice reading tournament doc {candidate} from Firestore: {e}")
-        return {}
+        return merged
 
     def _write_tournament_doc_dict(self, event_id: str, payload: Dict[str, Any]) -> None:
         """Writes payload to tournaments/{event_id} (and uppercase alias if mixed-case) in Firestore."""

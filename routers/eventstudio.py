@@ -4433,7 +4433,7 @@ def api_send_event_to_hub_direct_chat(event_id: str, payload: ToHubDirectChatPay
                     **res,
                     "request_id": req_id,
                     "receiver_id": recv_id,
-                    "player_name": res.get("player_name") or res.get("recipient_name") or pname or "Player",
+                    "player_name": pname or res.get("receiver_name") or res.get("player_name") or res.get("recipient_name") or "Player",
                 }
                 delivered_chats.append(res_norm)
                 try:

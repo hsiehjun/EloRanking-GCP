@@ -1715,6 +1715,10 @@ window.api = {
     });
   },
 
+  async postEventToHubAnnouncement(eventId, payload) {
+    return this.publishEventToHubAnnouncement(eventId, payload);
+  },
+
   // TO Hub: Clear active Event Announcement Banner
   async clearEventToHubAnnouncement(eventId) {
     const token = this.getAuthToken();

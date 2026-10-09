@@ -12056,10 +12056,16 @@ class PostgresDatabase:
 
                 if not user_match and clean_name:
                     cursor.execute("""
-                        SELECT id, display_name FROM users
-                        WHERE LOWER(TRIM(display_name)) = LOWER(TRIM(%s))
+                        SELECT u.id, u.display_name
+                        FROM users u
+                        LEFT JOIN players p ON (u.player_id = p.id OR u.bcp_user_id = p.id)
+                        LEFT JOIN player_ratings pr ON (u.player_id = pr.player_id OR u.bcp_user_id = pr.player_id)
+                        WHERE LOWER(TRIM(u.display_name)) = LOWER(TRIM(%s))
+                           OR LOWER(TRIM(p.name)) = LOWER(TRIM(%s))
+                           OR LOWER(TRIM(pr.player_name)) = LOWER(TRIM(%s))
+                        ORDER BY (CASE WHEN u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' THEN 0 ELSE 1 END) ASC
                         LIMIT 1;
-                    """, (clean_name,))
+                    """, (clean_name, clean_name, clean_name))
                     user_match = cursor.fetchone()
 
                 if not user_match:
@@ -12071,8 +12077,6 @@ class PostgresDatabase:
 
                 resolved_receiver_id = user_match["id"]
                 resolved_receiver_name = user_match.get("display_name") or clean_name or "Player"
-                if sender_id == resolved_receiver_id:
-                    return {"success": False, "error": "Cannot send a direct chat message to yourself"}
 
                 cursor.execute("""
                     SELECT id, status FROM match_requests

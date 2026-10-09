@@ -11407,40 +11407,80 @@ function ensureEventToHubFirestoreListener(eventId) {
     if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0 && typeof firebase.firestore === 'function') {
       const db = firebase.firestore();
       _toHubFirestoreEventId = eid;
-      _toHubFirestoreUnsub = db.collection('tournaments').doc(eid).onSnapshot(doc => {
-        if (!doc || !doc.exists) return;
-        const data = doc.data() || {};
-        const prev = _eventToHubStateCache.get(eid) || { event_id: eid };
-        if (data.masterClock) {
-          prev.clock = data.masterClock;
-          prev.master_clock = data.masterClock;
-        }
-        if ('broadcast' in data) {
-          const b = (data.broadcast && data.broadcast.active !== false) ? data.broadcast : null;
-          prev.broadcast = b;
-          prev.active_broadcast = b;
-        }
-        if (Array.isArray(data.announcements)) {
-          prev.announcements = data.announcements;
-        }
-        prev._fetchedAt = Date.now();
-        _eventToHubStateCache.set(eid, prev);
-        updateEventNewsTabBadge(eid);
-        if (prev.clock && prev.clock.status === 'running') {
-          startToHubClockTicker(eid);
-        }
-        if (currentOpenEventId && String(currentOpenEventId) === eid && currentEventData) {
-          renderEventClockAndScheduleWidgets(currentEventData, true);
-          if (currentEventModalTab === 'news') {
-            renderEventNewsHub(currentEventData, true);
-          } else if (currentEventModalTab === 'to-hub') {
-            renderEventToHub(currentEventData, true);
-          }
-        }
-        if (typeof syncGlobalEventAnnouncementBanner === 'function') {
-          syncGlobalEventAnnouncementBanner().catch(() => {});
-        }
-      }, () => {});
+      const docIds = [eid];
+      if (eid.toUpperCase() !== eid) docIds.push(eid.toUpperCase());
+      const unsubs = [];
+      docIds.forEach(docId => {
+        try {
+          const u = db.collection('tournaments').doc(docId).onSnapshot(doc => {
+            if (!doc || !doc.exists) return;
+            const data = doc.data() || {};
+            const prev = _eventToHubStateCache.get(eid) || { event_id: eid };
+            if (data.masterClock) {
+              prev.clock = data.masterClock;
+              prev.master_clock = data.masterClock;
+            }
+            if ('broadcast' in data) {
+              const b = (data.broadcast && data.broadcast.active !== false) ? data.broadcast : null;
+              prev.broadcast = b;
+              prev.active_broadcast = b;
+            }
+            if (Array.isArray(data.announcements) && data.announcements.length > 0) {
+              prev.announcements = data.announcements;
+            }
+            prev._fetchedAt = Date.now();
+            _eventToHubStateCache.set(eid, prev);
+            updateEventNewsTabBadge(eid);
+            if (prev.clock && prev.clock.status === 'running') {
+              startToHubClockTicker(eid);
+            }
+            if (currentOpenEventId && String(currentOpenEventId) === eid && currentEventData) {
+              renderEventClockAndScheduleWidgets(currentEventData, true);
+              if (currentEventModalTab === 'news') {
+                renderEventNewsHub(currentEventData, true);
+              } else if (currentEventModalTab === 'to-hub') {
+                renderEventToHub(currentEventData, true);
+              }
+            }
+            if (typeof syncGlobalEventAnnouncementBanner === 'function') {
+              syncGlobalEventAnnouncementBanner().catch(() => {});
+            }
+          }, () => {});
+          unsubs.push(u);
+        } catch (_) {}
+      });
+      _toHubFirestoreUnsub = () => {
+        unsubs.forEach(fn => { try { fn(); } catch (_) {} });
+      };
+    }
+  } catch (_) {}
+}
+
+async function syncToHubBroadcastToClientFirestore(eventId, broadcastObj) {
+  const eid = String(eventId || '').trim();
+  if (!eid) return;
+  try {
+    if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0 && typeof firebase.firestore === 'function') {
+      const db = firebase.firestore();
+      const nowMs = Date.now();
+      const activeBroadcast = (broadcastObj && broadcastObj.message && broadcastObj.active !== false)
+        ? { ...broadcastObj, eventId: eid, event_id: eid, active: true, timestamp: broadcastObj.timestamp || nowMs }
+        : null;
+      const docIds = [eid];
+      if (eid.toUpperCase() !== eid) docIds.push(eid.toUpperCase());
+      for (const did of docIds) {
+        db.collection('tournaments').doc(did).set({
+          eventId: eid,
+          broadcast: activeBroadcast,
+          updatedAt: nowMs,
+        }, { merge: true }).catch(() => {});
+      }
+      db.collection('tournaments').doc('_active_broadcasts').set({
+        broadcasts: {
+          [eid]: activeBroadcast,
+        },
+        updatedAt: nowMs,
+      }, { merge: true }).catch(() => {});
     }
   } catch (_) {}
 }
@@ -11822,7 +11862,7 @@ function switchEventToHubSubtab(subtab) {
 async function renderEventToHub(ev, skipFetch = false) {
   const container = document.getElementById('event-to-hub-container');
   if (!container) return;
-  const eventObj = ev || currentEventData;
+  const eventObj = (ev && typeof ev === 'object') ? ev : currentEventData;
   if (!eventObj) return;
 
   const roleLabel = getUserEventOrganizerRole(eventObj);
@@ -12491,10 +12531,13 @@ async function publishToHubBannerAnnouncement() {
   try {
     recordRecentInteractedEventId(eventId);
     const pubRes = await window.api.publishEventToHubAnnouncement(eventId, { message, level, event_name: evName });
-    if (pubRes && pubRes.broadcast && pubRes.broadcast.id) {
-      try {
-        localStorage.removeItem(`dismissed_event_broadcast_${pubRes.broadcast.id}`);
-      } catch (_) {}
+    if (pubRes && pubRes.broadcast) {
+      await syncToHubBroadcastToClientFirestore(eventId, pubRes.broadcast);
+      if (pubRes.broadcast.id) {
+        try {
+          localStorage.removeItem(`dismissed_event_broadcast_${pubRes.broadcast.id}`);
+        } catch (_) {}
+      }
     }
     if (input) input.value = '';
     await loadEventToHubState(eventId, true);
@@ -12512,6 +12555,7 @@ async function clearToHubBannerAnnouncement() {
   if (!eventId) return;
   try {
     await window.api.clearEventToHubAnnouncement(eventId);
+    await syncToHubBroadcastToClientFirestore(eventId, null);
     if (_eventToHubStateCache.has(eventId)) {
       const c = _eventToHubStateCache.get(eventId);
       if (c) {
@@ -13210,18 +13254,34 @@ async function sendToHubCommsBanner() {
     btn.textContent = '⏳ Broadcasting...';
   }
 
+  const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || '';
   try {
-    const res = await window.api.postEventToHubAnnouncement(ctx.eventId, {
+    recordRecentInteractedEventId(ctx.eventId);
+    const res = await window.api.publishEventToHubAnnouncement(ctx.eventId, {
       message,
       level,
       round: ctx.roundNum || null,
+      event_name: evName,
       target_table: info.targetTable ? String(info.targetTable) : null,
       target_player_id: info.targetPlayerId ? String(info.targetPlayerId) : null,
       target_player_name: info.targetPlayerName ? String(info.targetPlayerName) : null,
       also_post_bulletin: false,
     });
+    if (res && res.broadcast) {
+      await syncToHubBroadcastToClientFirestore(ctx.eventId, res.broadcast);
+      if (res.broadcast.id) {
+        try {
+          localStorage.removeItem(`dismissed_event_broadcast_${res.broadcast.id}`);
+        } catch (_) {}
+      }
+    }
     if (res && res.state) {
+      res.state._fetchedAt = Date.now();
       _eventToHubStateCache.set(String(ctx.eventId), res.state);
+    }
+    if (currentEventData) {
+      renderEventClockAndScheduleWidgets(currentEventData, true);
+      renderEventToHub(currentEventData, true);
     }
     syncGlobalEventAnnouncementBanner(true).catch(() => {});
     if (typeof showToast === 'function') {
@@ -13235,7 +13295,6 @@ async function sendToHubCommsBanner() {
         </div>
       `;
     }
-    renderEventToHub(ctx.eventId);
   } catch (err) {
     if (typeof showToast === 'function') showToast(err.message || 'Failed to publish targeted banner', 'error');
   } finally {
@@ -13267,9 +13326,12 @@ async function sendToHubCommsDirectChat() {
     btn.textContent = '⏳ Sending Chat...';
   }
 
+  const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || '';
   try {
+    recordRecentInteractedEventId(ctx.eventId);
     const res = await window.api.sendEventToHubDirectChat(ctx.eventId, {
       message,
+      event_name: evName,
       table_number: info.targetTable ? String(info.targetTable) : null,
       round: ctx.roundNum || null,
       targets: info.targets,
@@ -13277,7 +13339,11 @@ async function sendToHubCommsDirectChat() {
       level,
     });
 
+    if (res && res.broadcast) {
+      await syncToHubBroadcastToClientFirestore(ctx.eventId, res.broadcast);
+    }
     if (res && res.state) {
+      res.state._fetchedAt = Date.now();
       _eventToHubStateCache.set(String(ctx.eventId), res.state);
     }
     if (res && res.banner_fallback_used) {
@@ -13287,8 +13353,13 @@ async function sendToHubCommsDirectChat() {
     const delivered = Array.isArray(res?.delivered) ? res.delivered : [];
     const unmatched = Array.isArray(res?.unmatched) ? res.unmatched : [];
 
-    if (delivered.length > 0 && typeof showToast === 'function') {
-      showToast(`💬 Direct OmniChat sent to ${delivered.map(d => d.player_name).join(' & ')}!`, 'success');
+    if (delivered.length > 0) {
+      if (typeof window.loadUserRequests === 'function') {
+        window.loadUserRequests().catch(() => {});
+      }
+      if (typeof showToast === 'function') {
+        showToast(`💬 Direct OmniChat sent to ${delivered.map(d => d.player_name).join(' & ')}!`, 'success');
+      }
     } else if (res?.banner_fallback_used && typeof showToast === 'function') {
       showToast(`📢 Player hasn't linked OmniChat yet — delivered via Targeted Live Alert Banner!`, 'info');
     }
@@ -13296,9 +13367,10 @@ async function sendToHubCommsDirectChat() {
     if (resultBox) {
       resultBox.style.display = 'block';
       const chatButtonsHtml = delivered.map(d => {
+        const safeReqId = escapeHtml(String(d.request_id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
         const safePName = escapeHtml(String(d.player_name || 'Player').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
         return `
-          <button type="button" class="btn btn-primary" onclick="closeToHubCommsModal(); if (typeof window.openMatchChat === 'function') window.openMatchChat(${Number(d.request_id)}, '${safePName}');" style="font-size:0.73rem; font-weight:800; padding:0.3rem 0.65rem;">
+          <button type="button" class="btn btn-primary" onclick="closeToHubCommsModal(); if (typeof window.openChatWithRequest === 'function') window.openChatWithRequest('${safeReqId}', '${safePName}'); else if (typeof window.openMatchChat === 'function') window.openMatchChat('${safeReqId}', '${safePName}');" style="font-size:0.73rem; font-weight:800; padding:0.3rem 0.65rem;">
             💬 Open Live Chat with ${escapeHtml(d.player_name || 'Player')}
           </button>
         `;
@@ -13322,7 +13394,10 @@ async function sendToHubCommsDirectChat() {
         </div>
       `;
     }
-    renderEventToHub(ctx.eventId);
+    if (currentEventData) {
+      renderEventClockAndScheduleWidgets(currentEventData, true);
+      renderEventToHub(currentEventData, true);
+    }
   } catch (err) {
     if (typeof showToast === 'function') showToast(err.message || 'Failed to send direct chat', 'error');
   } finally {

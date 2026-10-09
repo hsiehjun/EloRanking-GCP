@@ -1755,16 +1755,23 @@ function backToChatList() {
 }
 window.backToChatList = backToChatList;
 
-function openChatWithRequest(requestId) {
+function openChatWithRequest(requestId, fallbackPlayerName = '') {
+  if (!requestId) return;
+  const reqIdStr = String(requestId);
   if (typeof toggleFloatingChat === 'function') {
     toggleFloatingChat(true);
   } else if (typeof switchTab === 'function') {
     switchTab('chat');
   }
-  selectConversation(requestId);
+  selectConversation(reqIdStr, fallbackPlayerName);
+  if (typeof loadUserRequests === 'function') {
+    loadUserRequests().catch(() => {});
+  }
 }
+window.openChatWithRequest = openChatWithRequest;
+window.openMatchChat = openChatWithRequest;
 
-async function selectConversation(requestId) {
+async function selectConversation(requestId, fallbackPlayerName = '') {
   const layout = document.querySelector('.oc-chat-layout');
   if (layout) {
     layout.classList.add('is-viewing-chat');
@@ -1826,6 +1833,13 @@ async function selectConversation(requestId) {
       if (subEl) subEl.textContent = `Proposed: ${localReq.proposed_points || 2000} pts at ${localReq.proposed_venue || 'Local Store'}`;
       if (inviteBtn) inviteBtn.style.display = 'inline-flex';
     }
+  } else if (fallbackPlayerName) {
+    const nameEl = document.getElementById('chat-active-name');
+    const avatarEl = document.getElementById('chat-active-avatar');
+    const subEl = document.getElementById('chat-active-sub');
+    if (nameEl) nameEl.textContent = fallbackPlayerName;
+    if (avatarEl) avatarEl.textContent = fallbackPlayerName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    if (subEl) subEl.textContent = 'Tournament Direct Chat';
   }
 
   // Render cached group messages immediately if available, or show loading spinner while fetching
