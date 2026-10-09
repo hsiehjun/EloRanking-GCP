@@ -556,6 +556,55 @@ app.stepRollStateMachine(0.02, [], dummyRgba, 640, 480);
 statesDuringEmptyShake.push(app.rollState);
 const antiFlickerStayedIdle = statesDuringEmptyShake.every(s => s === 'IDLE');
 
+// Test Real-World Indoor Camera Physical Dice (6 small 20px dark dice with 95..158 lum optical-blurred pips: [5, 3, 3, 4, 3, 5], sum=23)
+const realCamBuf = new Uint8ClampedArray(640 * 480 * 4);
+for (let i = 0; i < realCamBuf.length; i += 4) {
+  realCamBuf[i] = 10; realCamBuf[i+1] = 12; realCamBuf[i+2] = 14; realCamBuf[i+3] = 255;
+}
+function paintPhysicalDarkDie(buf, cx, cy, val, peakLum) {
+  const half = 10;
+  for (let dy = -half; dy <= half; dy++) {
+    for (let dx = -half; dx <= half; dx++) {
+      const idx = ((cy + dy) * 640 + (cx + dx)) * 4;
+      buf[idx] = 26; buf[idx+1] = 30; buf[idx+2] = 38;
+    }
+  }
+  const offsets = {
+    1: [[0,0]],
+    2: [[-5,-5],[5,5]],
+    3: [[-6,-4],[0,0],[6,4]],
+    4: [[-5,-4],[5,-4],[-5,4],[5,4]],
+    5: [[-5,-5],[5,-5],[0,0],[-5,5],[5,5]],
+    6: [[-5,-5],[5,-5],[-5,0],[5,0],[-5,5],[5,5]]
+  }[val];
+  for (const [ox, oy] of offsets) {
+    const px = cx + ox, py = cy + oy;
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const d2 = dx * dx + dy * dy;
+        if (d2 > 5) continue;
+        const w = d2 === 0 ? 1.0 : (d2 === 1 ? 0.78 : (d2 === 2 ? 0.58 : 0.35));
+        const lum = Math.round(30 + (peakLum - 30) * w);
+        const idx = ((py + dy) * 640 + (px + dx)) * 4;
+        if (lum > buf[idx]) {
+          buf[idx] = lum; buf[idx+1] = lum; buf[idx+2] = lum;
+        }
+      }
+    }
+  }
+}
+paintPhysicalDarkDie(realCamBuf, 398, 94, 5, 138);
+paintPhysicalDarkDie(realCamBuf, 350, 196, 3, 148);
+paintPhysicalDarkDie(realCamBuf, 370, 259, 3, 152);
+paintPhysicalDarkDie(realCamBuf, 253, 265, 4, 158);
+paintPhysicalDarkDie(realCamBuf, 184, 278, 3, 135);
+paintPhysicalDarkDie(realCamBuf, 214, 346, 5, 128);
+
+app.roiBox = { x: 0.08, y: 0.08, w: 0.84, h: 0.84 };
+const realCamDet = app.detectRealDice({ data: realCamBuf, width: 640, height: 480 }, 640, 480);
+const realCamSum = realCamDet.reduce((a, d) => a + d.value, 0);
+const realCamFaces = realCamDet.map(d => d.value).sort((a, b) => a - b).join(',');
+
 console.log(JSON.stringify({
   poolResults,
   avgFrameMs: totalTimingMs / totalTimingFrames,
@@ -571,7 +620,10 @@ console.log(JSON.stringify({
   totalDiceAfterUndo,
   syncedGtCount: syncedGt.length,
   syncedGtFirstSource: syncedGt[0] ? syncedGt[0].source : null,
-  antiFlickerStayedIdle
+  antiFlickerStayedIdle,
+  realCamCount: realCamDet.length,
+  realCamSum,
+  realCamFaces
 }));
 """
         proc = subprocess.run(
@@ -626,7 +678,12 @@ console.log(JSON.stringify({
             "State machine flickered out of IDLE during empty tray shake or 1-2 frame transient noise!",
         )
 
-        # 7. Verify Performance (< 15ms per 640x480 frame)
+        # 7. Verify Real-World Indoor Camera Physical Dice (6 dim/blurred dark dice: [3,3,3,4,5,5], sum=23)
+        self.assertEqual(result["realCamCount"], 6)
+        self.assertEqual(result["realCamSum"], 23)
+        self.assertEqual(result["realCamFaces"], "3,3,3,4,5,5")
+
+        # 8. Verify Performance (< 15ms per 640x480 frame)
         self.assertLess(
             result["avgFrameMs"],
             15.0,
@@ -642,6 +699,10 @@ console.log(JSON.stringify({
         self.assertIn(".vision-card > .viewfinder-container", css_text)
         self.assertIn(".history-table tr.history-row", css_text)
         self.assertIn("height: 54px;", css_text)
+
+        app_js = (ROOT_DIR / "web" / "dice_tracker" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("const canvasAspect = this.canvas.width / this.canvas.height;", app_js)
+        self.assertIn("const videoAspect = vw / vh;", app_js)
 
 
 if __name__ == "__main__":

@@ -1087,9 +1087,20 @@ class DiceTrackerApp {
     if (!this.isCameraRunning) return;
     const vw = this.video.videoWidth || this.canvas.width;
     const vh = this.video.videoHeight || this.canvas.height;
-    if (this.cameraZoom > 1.01 && vw > 0 && vh > 0) {
-      const cropW = vw / this.cameraZoom;
-      const cropH = vh / this.cameraZoom;
+    if (vw > 0 && vh > 0) {
+      // Aspect-preserving object-fit: cover center crop prevents 2.37x portrait mobile squish
+      const canvasAspect = this.canvas.width / this.canvas.height;
+      const videoAspect = vw / vh;
+      let baseW = vw;
+      let baseH = vh;
+      if (videoAspect > canvasAspect) {
+        baseW = vh * canvasAspect;
+      } else if (videoAspect < canvasAspect) {
+        baseH = vw / canvasAspect;
+      }
+      const zoom = Math.max(1.0, this.cameraZoom || 1.0);
+      const cropW = baseW / zoom;
+      const cropH = baseH / zoom;
       const sx = (vw - cropW) * 0.5;
       const sy = (vh - cropH) * 0.5;
       this.ctx.drawImage(this.video, sx, sy, cropW, cropH, 0, 0, this.canvas.width, this.canvas.height);
@@ -1122,7 +1133,7 @@ class DiceTrackerApp {
     const gray = this._grayBuf;
     const sat = this._satBuf;
     const satW = width + 1;
-    const rSurround = 9;
+    const rSurround = 10;
     const xStart = Math.max(rSurround + 1, rx + 6);
     const xEnd = Math.min(width - rSurround - 1, rx + rw - 6);
     const yStart = Math.max(rSurround + 1, ry + 6);
@@ -1492,7 +1503,7 @@ class DiceTrackerApp {
   }
 
   // ============================================================================
-  // 2-STAGE ADAPTIVE DIE-BODY & DUAL-POLARITY PIP DETECTOR (1..40+ DICE)
+  // MULTI-SCALE DoG + SADDLE-VALLEY DECOMPOSITION + ADAPTIVE PIP DETECTOR
   // ============================================================================
   detectDiceTwoStageAdaptive(gray, rgba, width, height, rx, ry, rw, rh, satPrecomputed = false) {
     this.ensureCvBuffers(width, height);
@@ -1510,16 +1521,17 @@ class DiceTrackerApp {
     const bfsY = this._bfsY;
 
     const rSurround = 9;
-    const xStart = Math.max(rSurround + 1, rx + 6);
-    const xEnd = Math.min(width - rSurround - 1, rx + rw - 6);
-    const yStart = Math.max(rSurround + 1, ry + 6);
-    const yEnd = Math.min(height - rSurround - 1, ry + rh - 6);
+    const rBg1B = 10;
+    const xStart = Math.max(rBg1B + 2, rx + 6);
+    const xEnd = Math.min(width - rBg1B - 2, rx + rw - 6);
+    const yStart = Math.max(rBg1B + 2, ry + 6);
+    const yEnd = Math.min(height - rBg1B - 2, ry + rh - 6);
 
     if (!satPrecomputed) {
-      const satY0 = Math.max(1, yStart - rSurround);
-      const satY1 = Math.min(height, yEnd + rSurround + 1);
-      const satX0 = Math.max(1, xStart - rSurround);
-      const satX1 = Math.min(width, xEnd + rSurround + 1);
+      const satY0 = Math.max(1, yStart - rBg1B - 1);
+      const satY1 = Math.min(height, yEnd + rBg1B + 2);
+      const satX0 = Math.max(1, xStart - rBg1B - 1);
+      const satX1 = Math.min(width, xEnd + rBg1B + 2);
       const zeroRowOff = (satY0 - 1) * satW;
       for (let x = satX0 - 1; x <= satX1; x++) sat[zeroRowOff + x] = 0;
       for (let y = satY0; y <= satY1; y++) {
@@ -1535,13 +1547,23 @@ class DiceTrackerApp {
       }
     }
 
-    // Clear visited only inside ROI rows
     visited.fill(0, yStart * width, yEnd * width);
 
     const candidatePips = [];
     const candidateEmblems = [];
     const invWindowArea = 1 / ((2 * rSurround + 1) * (2 * rSurround + 1));
+    const invInnerArea = 1 / 9;
+    const invQuadArea = 1 / 49;
 
+    const boxMean = (cx, cy, r) => {
+      const x0 = Math.max(0, cx - r);
+      const y0 = Math.max(0, cy - r);
+      const x1 = Math.min(width, cx + r + 1);
+      const y1 = Math.min(height, cy + r + 1);
+      return (sat[y1 * satW + x1] - sat[y0 * satW + x1] - sat[y1 * satW + x0] + sat[y0 * satW + x0]) / ((x1 - x0) * (y1 - y0));
+    };
+
+    // Stage 1A: High-Contrast Flood-Fill Connected Components (Clean Pips + Custom 6 Emblems)
     for (let y = yStart; y < yEnd; y++) {
       const rowOff = y * width;
       const satTopRow = (y - rSurround - 1) * satW;
@@ -1570,7 +1592,6 @@ class DiceTrackerApp {
           continue;
         }
 
-        // Unrolled 4-neighbor BFS flood fill (zero per-pixel array allocations)
         let head = 0;
         let tail = 0;
         bfsX[tail] = x;
@@ -1581,6 +1602,7 @@ class DiceTrackerApp {
         let sumX = 0;
         let sumY = 0;
         let sumLum = 0;
+        let peakLum = pix;
         let minBx = x, maxBx = x, minBy = y, maxBy = y;
         const pipThreshLum = isDarkPip
           ? localMean - contrastSensitivity * 0.6
@@ -1591,9 +1613,11 @@ class DiceTrackerApp {
           const py = bfsY[head];
           head++;
 
+          const pLum = gray[py * width + px];
           sumX += px;
           sumY += py;
-          sumLum += gray[py * width + px];
+          sumLum += pLum;
+          if (isDarkPip ? pLum < peakLum : pLum > peakLum) peakLum = pLum;
           if (px < minBx) minBx = px;
           if (px > maxBx) maxBx = px;
           if (py < minBy) minBy = py;
@@ -1637,7 +1661,6 @@ class DiceTrackerApp {
         const cx = sumX / area;
         const cy = sumY / area;
 
-        // Verify 8-point circular surround ring looks like a uniform die face (zero closure allocation)
         const ringR = area > 120
           ? Math.max(10, Math.round(Math.max(bW, bH) * 0.72))
           : Math.max(4, Math.min(6, Math.round(Math.min(bW, bH) * 0.75)));
@@ -1689,7 +1712,8 @@ class DiceTrackerApp {
             size: eqDiam,
             area,
             polarity,
-            bodyLum: validRingLumSum / validRingPts
+            bodyLum: validRingLumSum / validRingPts,
+            peakLum
           });
         } else if (
           detectCustomSix &&
@@ -1714,16 +1738,171 @@ class DiceTrackerApp {
       }
     }
 
+    // Stage 1B: Multi-Scale DoG 3x3 Local-Peak + Saddle-Valley Decomposition for Real-World Camera Dice
+    // Resolves dim/small physical pips (lum 62..185) and splits optical-blurred multi-pip clusters
+    if (allowDarkDice) {
+      const rawPeaks = [];
+      const minProm = Math.max(18, contrastSensitivity);
+      const invBg1BArea = 1 / ((2 * rBg1B + 1) * (2 * rBg1B + 1));
+      const rRing = 10;
+      const dRing = 7;
+      const rxOff = [-rRing, rRing, 0, 0, -dRing, dRing, -dRing, dRing];
+      const ryOff = [0, 0, -rRing, rRing, -dRing, -dRing, dRing, dRing];
+
+      for (let y = yStart + 2; y < yEnd - 2; y++) {
+        const rowOff = y * width;
+        const satTopRow = (y - rBg1B) * satW;
+        const satBotRow = (y + rBg1B + 1) * satW;
+        const satInTop = (y - 1) * satW;
+        const satInBot = (y + 2) * satW;
+
+        for (let x = xStart + 2; x < xEnd - 2; x++) {
+          const idx = rowOff + x;
+          const val = gray[idx];
+          // Fast 1-cycle pre-filter: only inspect real-camera dim/medium pips (62..185);
+          // crisp synthetic pips (val >= 205) are already 100% handled by Stage 1A
+          if (val < 62 || val > 185) continue;
+
+          // 3x3 Non-Maximum Suppression with tie-breaking (executes before SAT math for <1ms speed)
+          const rPrev = rowOff - width;
+          const rNext = rowOff + width;
+          if (
+            gray[rPrev + x - 1] >= val ||
+            gray[rPrev + x] >= val ||
+            gray[rPrev + x + 1] >= val ||
+            gray[rowOff + x - 1] >= val ||
+            gray[rowOff + x + 1] > val ||
+            gray[rNext + x - 1] > val ||
+            gray[rNext + x] > val ||
+            gray[rNext + x + 1] > val
+          ) {
+            continue;
+          }
+
+          const bgMean = (
+            sat[satBotRow + x + rBg1B + 1] -
+            sat[satTopRow + x + rBg1B + 1] -
+            sat[satBotRow + x - rBg1B] +
+            sat[satTopRow + x - rBg1B]
+          ) * invBg1BArea;
+
+          if (bgMean > 120 || val < bgMean * 1.45) continue;
+
+          const innerMean = (
+            sat[satInBot + x + 2] -
+            sat[satInTop + x + 2] -
+            sat[satInBot + x - 1] +
+            sat[satInTop + x - 1]
+          ) * invInnerArea;
+
+          const prom = innerMean - bgMean;
+          if (prom < minProm) continue;
+
+          // Reject corners/edges of bright light-colored dice via 4-quadrant 7x7 SAT means
+          if (
+            boxMean(x - 6, y - 6, 3) > 120 ||
+            boxMean(x + 6, y - 6, 3) > 120 ||
+            boxMean(x - 6, y + 6, 3) > 120 ||
+            boxMean(x + 6, y + 6, 3) > 120
+          ) {
+            continue;
+          }
+
+          let darkPts = 0;
+          let ringSum = 0;
+          for (let k = 0; k < 8; k++) {
+            const rl = gray[(y + ryOff[k]) * width + (x + rxOff[k])];
+            if (val - rl >= minProm && rl < 130) {
+              darkPts++;
+              ringSum += rl;
+            }
+          }
+          if (darkPts < 6) continue;
+
+          rawPeaks.push({
+            x,
+            y,
+            size: 3.8,
+            area: 9,
+            polarity: "light_pip",
+            bodyLum: ringSum / darkPts,
+            peakLum: val,
+            val,
+            bgMean,
+            prom
+          });
+        }
+      }
+
+      if (rawPeaks.length > 0) {
+        // Saddle-Valley Decomposition: merge plateau twin peaks, keep genuine valley-separated pips
+        rawPeaks.sort((a, b) => b.val - a.val);
+        const filteredDogPips = [];
+        for (let i = 0; i < rawPeaks.length; i++) {
+          const p = rawPeaks[i];
+          if (candidateEmblems.some(emb => Math.hypot(emb.x - p.x, emb.y - p.y) <= emb.size * 0.75)) {
+            continue;
+          }
+          let merged = false;
+          for (let j = 0; j < filteredDogPips.length; j++) {
+            const ex = filteredDogPips[j];
+            const d = Math.hypot(ex.x - p.x, ex.y - p.y);
+            if (d < 3.2) {
+              merged = true;
+              break;
+            }
+            if (d < 7.5) {
+              let minLineVal = 255;
+              for (let s = 1; s <= 3; s++) {
+                const t = s * 0.25;
+                const lx = Math.round(ex.x + (p.x - ex.x) * t);
+                const ly = Math.round(ex.y + (p.y - ex.y) * t);
+                const lv = gray[ly * width + lx];
+                if (lv < minLineVal) minLineVal = lv;
+              }
+              if (minLineVal >= Math.min(ex.val, p.val) - 1) {
+                merged = true;
+                break;
+              }
+            }
+          }
+          if (!merged) {
+            filteredDogPips.push(p);
+          }
+        }
+
+        // Replace any low/medium-luminance Stage 1A light_pip blobs (which may have merged blurred pips)
+        // with the saddle-decomposed Stage 1B peaks, while keeping any high-lum Stage 1A pips not in Stage 1B
+        for (let j = candidatePips.length - 1; j >= 0; j--) {
+          const cp = candidatePips[j];
+          if (cp.polarity === "light_pip" && (cp.peakLum || 255) <= 185) {
+            candidatePips.splice(j, 1);
+          }
+        }
+        const highLumStage1A = candidatePips.filter(cp => cp.polarity === "light_pip");
+        for (let i = 0; i < filteredDogPips.length; i++) {
+          const dp = filteredDogPips[i];
+          const coveredByHighLum = highLumStage1A.some(
+            cp => Math.hypot(cp.x - dp.x, cp.y - dp.y) <= Math.max(4.0, cp.size * 0.65)
+          );
+          if (!coveredByHighLum) {
+            candidatePips.push(dp);
+          }
+        }
+      }
+    }
+
     // Stage 2: Scale-Bounded Constellation Clustering + Dynamic Inter-Pip Bridge + 45° Rotation Invariance
     const sortedSizes = candidatePips.map(p => p.size).sort((a, b) => a - b);
     const medianPipSize = sortedSizes.length > 0
       ? sortedSizes[Math.floor(sortedSizes.length / 2)]
       : 6.2;
 
-    const estimatedDieSize = Math.max(minDiePx, Math.min(68, Math.round(medianPipSize * 6.4)));
-    const maxPipPairDist = Math.max(30, Math.round(estimatedDieSize * 0.86));
-    const maxSingleDieAxisSpan = Math.max(29, Math.round(estimatedDieSize * 0.82));
-    const maxSingleDieDiagSpan = Math.max(30, Math.round(estimatedDieSize * 0.88));
+    const rawEstDieSize = Math.round(medianPipSize * 6.4);
+    const estimatedDieSize = Math.max(20, Math.min(68, rawEstDieSize));
+    const maxPipPairDist = Math.max(19, Math.round(estimatedDieSize * 0.86));
+    const maxSingleDieAxisSpan = Math.max(21, Math.round(estimatedDieSize * 0.82));
+    const maxSingleDieDiagSpan = Math.max(23, Math.round(estimatedDieSize * 0.88));
 
     const used = new Uint8Array(candidatePips.length);
     const detectedDice = [];
@@ -1838,6 +2017,7 @@ class DiceTrackerApp {
     const tMin = Math.min(0.45, Math.max(0.36, ((p1.size || 6) * 0.60) / dist));
     const tMax = Math.max(0.55, Math.min(0.64, 1.0 - ((p2.size || 6) * 0.60) / dist));
     const localBodyLum = ((p1.bodyLum || 160) + (p2.bodyLum || 160)) * 0.5;
+    const minBodyLumDarkDie = Math.max(10, localBodyLum - 22);
     let bodyHits = 0;
     let gapCrossings = 0;
     for (let s = 0; s < 5; s++) {
@@ -1849,11 +2029,11 @@ class DiceTrackerApp {
         if (lum >= Math.min(135, localBodyLum - 28)) bodyHits++;
         else if (lum < Math.min(95, localBodyLum - 45)) gapCrossings++;
       } else {
-        if (lum >= 28 && lum <= Math.max(128, localBodyLum + 38)) bodyHits++;
-        else if (lum < 26 || lum > Math.max(155, localBodyLum + 55)) gapCrossings++;
+        if (lum >= minBodyLumDarkDie && lum <= Math.max(168, localBodyLum + 80)) bodyHits++;
+        else if (lum < minBodyLumDarkDie - 2 || lum > Math.max(180, localBodyLum + 95)) gapCrossings++;
       }
     }
-    return (gapCrossings === 0 && bodyHits >= 3) || (dist < 14 && bodyHits >= 4 && gapCrossings <= 1);
+    return (gapCrossings === 0 && bodyHits >= 3) || (dist < 16 && bodyHits >= 3 && gapCrossings <= 1);
   }
 
   // ============================================================================
@@ -2152,7 +2332,7 @@ class DiceTrackerApp {
     const gray = this._grayBuf;
     const sat = this._satBuf;
     const satW = width + 1;
-    const rSurround = 9;
+    const rSurround = 10;
     const xStart = Math.max(rSurround + 1, rx + 6);
     const xEnd = Math.min(width - rSurround - 1, rx + rw - 6);
     const yStart = Math.max(rSurround + 1, ry + 6);
