@@ -176,7 +176,7 @@ async def add_security_cache_and_rate_limit(request: Request, call_next):
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(self)"
+    response.headers["Permissions-Policy"] = "camera=(self), microphone=(self), geolocation=(self)"
 
     # 3. HTTP Caching & Edge Rules
     has_version_tag = bool(request.query_params.get("v"))
@@ -226,6 +226,8 @@ async def add_security_cache_and_rate_limit(request: Request, call_next):
         path.startswith("/js") or
         path.startswith("/tracker") or
         path.startswith("/11th") or
+        path.startswith("/dice-tracker") or
+        path.startswith("/admin/dice-tracker") or
         path.startswith("/scorecard") or
         path.startswith("/aos") or
         path.startswith("/40k") or
@@ -953,6 +955,69 @@ def serve_admin_dashboard(request: Request, token: Optional[str] = Query(None)):
     if adm_file.exists():
         return FileResponse(str(adm_file), media_type="text/html", headers=NO_CACHE_HEADERS)
     raise HTTPException(status_code=404, detail="admin.html not found")
+
+
+@app.get("/admin/dice-tracker", include_in_schema=False)
+@app.get("/admin/dice-tracker.html", include_in_schema=False)
+@app.get("/dice-tracker", include_in_schema=False)
+@app.get("/dice-tracker/", include_in_schema=False)
+def serve_admin_dice_tracker(request: Request, token: Optional[str] = Query(None)):
+    auth_mgr = get_auth_manager()
+    auth_header = request.headers.get("Authorization", "")
+    session_token = (
+        token
+        or request.cookies.get("session_token")
+        or request.cookies.get("elo_auth_token")
+        or request.cookies.get("native_session_token")
+        or (auth_header[7:].strip() if auth_header.startswith("Bearer ") else None)
+    )
+    user = auth_mgr.get_session(session_token) if session_token else None
+    user_email = ((user.get("email") or "") if user else "").strip().lower()
+    user_role = ((user.get("role") or "") if user else "").strip().lower()
+    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
+    is_admin = bool(user) and (
+        user.get("is_admin") is True
+        or user_role in ("admin", "superuser", "developer", "owner")
+        or (bool(superadmin_email) and user_email == superadmin_email)
+    )
+    if not is_admin:
+        if not user:
+            return _clear_stale_auth_cookies(
+                RedirectResponse(url="/login?redirect=/admin/dice-tracker", status_code=303, headers=NO_CACHE_HEADERS)
+            )
+        return RedirectResponse(url="/", status_code=303, headers=NO_CACHE_HEADERS)
+    dt_file = web_dir / "dice_tracker" / "index.html"
+    if dt_file.exists():
+        return FileResponse(str(dt_file), media_type="text/html", headers=NO_CACHE_HEADERS)
+    raise HTTPException(status_code=404, detail="dice_tracker/index.html not found")
+
+
+@app.get("/dice-tracker/styles.css", include_in_schema=False)
+@app.get("/admin/dice-tracker/styles.css", include_in_schema=False)
+def serve_dice_tracker_css():
+    css_file = web_dir / "dice_tracker" / "styles.css"
+    if css_file.exists():
+        return FileResponse(str(css_file), media_type="text/css", headers=NO_CACHE_HEADERS)
+    raise HTTPException(status_code=404, detail="dice_tracker/styles.css not found")
+
+
+@app.get("/dice-tracker/app.js", include_in_schema=False)
+@app.get("/admin/dice-tracker/app.js", include_in_schema=False)
+def serve_dice_tracker_js():
+    js_file = web_dir / "dice_tracker" / "app.js"
+    if js_file.exists():
+        return FileResponse(str(js_file), media_type="application/javascript", headers=NO_CACHE_HEADERS)
+    raise HTTPException(status_code=404, detail="dice_tracker/app.js not found")
+
+
+@app.get("/dice-tracker/manifest.json", include_in_schema=False)
+@app.get("/admin/dice-tracker/manifest.json", include_in_schema=False)
+def serve_dice_tracker_manifest():
+    mf_file = web_dir / "dice_tracker" / "manifest.json"
+    if mf_file.exists():
+        return FileResponse(str(mf_file), media_type="application/manifest+json", headers=NO_CACHE_HEADERS)
+    raise HTTPException(status_code=404, detail="dice_tracker/manifest.json not found")
+
 
 
 

@@ -1233,6 +1233,16 @@ def test_career_match_history_player_links_and_mobile_spacing():
     print("✅ Career Match History player profile links & mobile spacing verified!")
 
 
+def test_dedicated_player_profile_render_execution():
+    """Verify renderDedicatedPlayerProfile executes cleanly without ReferenceError (e.g. tournamentsMetaList)."""
+    player_profile_js = (root_dir / "web" / "js" / "player_profile.js").read_text(encoding="utf-8")
+    bundle_js = (root_dir / "web" / "js" / "app.bundle.min.js").read_text(encoding="utf-8")
+    assert "rawTournaments" not in player_profile_js, "player_profile.js must not reference undefined rawTournaments"
+    assert "rawTournaments" not in bundle_js, "app.bundle.min.js must not contain un-mangled undefined rawTournaments"
+    assert "tournamentsMetaList" in player_profile_js, "player_profile.js must pass tournamentsMetaList to computeProfileFactionMastery/Matrix"
+    print("✅ Dedicated Full Player Profile render execution & variable binding verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -1265,6 +1275,7 @@ if __name__ == "__main__":
     test_registered_tournaments_module()
     test_mobile_chat_keyboard_persistence_back_to_back()
     test_career_match_history_player_links_and_mobile_spacing()
+    test_dedicated_player_profile_render_execution()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 

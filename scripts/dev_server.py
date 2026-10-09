@@ -7500,6 +7500,22 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_html_with_auth(WEB_DIR / "admin_feedback.html", is_head)
             return
 
+        if clean_path in ("admin/dice-tracker", "admin/dice-tracker.html", "dice-tracker", "dice-tracker/index.html"):
+            self._serve_html_with_auth(WEB_DIR / "dice_tracker" / "index.html", is_head)
+            return
+
+        if clean_path in ("dice-tracker/styles.css", "admin/dice-tracker/styles.css"):
+            self._serve_file(WEB_DIR / "dice_tracker" / "styles.css", "text/css; charset=utf-8", is_head)
+            return
+
+        if clean_path in ("dice-tracker/app.js", "admin/dice-tracker/app.js"):
+            self._serve_file(WEB_DIR / "dice_tracker" / "app.js", "application/javascript; charset=utf-8", is_head)
+            return
+
+        if clean_path in ("dice-tracker/manifest.json", "admin/dice-tracker/manifest.json"):
+            self._serve_file(WEB_DIR / "dice_tracker" / "manifest.json", "application/json; charset=utf-8", is_head)
+            return
+
         if clean_path in ("login", "login.html", "tracker/login", "tracker/login.html"):
             self._serve_file(TRACKER_DIR / "login.html", "text/html; charset=utf-8", is_head)
             return

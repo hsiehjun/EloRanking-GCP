@@ -732,6 +732,10 @@
     const hubHref = isAosMode ? '/aos#my-hub' : '/#my-hub';
     const lobbyHref = isAosMode ? '/11th/tracker/aos' : '/11th/tracker';
     const lobbyLabel = isAosMode ? '⚡ AoS Lobby' : '🎲 Lobby';
+    const isAdminUser = Boolean(
+      currentUser &&
+      (currentUser.is_admin || ['admin', 'superuser', 'developer', 'owner'].includes(String(currentUser.role || '').trim().toLowerCase()))
+    );
 
     bar = document.createElement('div');
     bar.id = 'gt-user-status-bar';
@@ -744,6 +748,11 @@
         <a href="${lobbyHref}" style="display:inline-flex; align-items:center; gap:4px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:700; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;">
           ${lobbyLabel}
         </a>
+        ${isAdminUser ? `
+          <a href="/admin/dice-tracker" id="gt-admin-cv-dice-btn" style="display:inline-flex; align-items:center; gap:4px; color:#c084fc; text-decoration:none; font-size:11px; font-weight:700; background:rgba(168,85,247,0.14); border:1px solid rgba(168,85,247,0.35); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;" title="Open Standalone CV Dice Lab (Admin)">
+            📹 CV Dice Lab
+          </a>
+        ` : ''}
       </div>
       <span style="color:#334155;">|</span>
       <span style="display:inline-flex; align-items:center; gap:5px;">
@@ -6404,6 +6413,11 @@ Space Marines - Gladius Task Force (2000 pts)
       return;
     }
 
+    const isAdminForDiceLab = Boolean(
+      currentUser &&
+      (currentUser.is_admin || ['admin', 'superuser', 'developer', 'owner'].includes(String(currentUser.role || '').trim().toLowerCase()))
+    );
+
     modal.classList.remove('is-minimized');
     modal.innerHTML = `
       <div class="gt-dice-header">
@@ -6412,7 +6426,12 @@ Space Marines - Gladius Task Force (2000 pts)
           <span>DUAL TABLETOP DICE ROLLER</span>
           <span style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); font-size:9.5px; padding:2px 6px; border-radius:4px; color:#f59e0b;">LIVE SYNC</span>
         </div>
-        <div style="display:flex; align-items:center; gap:6px;">
+        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+          ${isAdminForDiceLab ? `
+            <a href="/admin/dice-tracker" class="gt-dice-header-btn" style="background:rgba(168,85,247,0.18); border:1px solid rgba(168,85,247,0.45); color:#c084fc; text-decoration:none;" title="Open Standalone Camera CV Dice Lab (Admin)">
+              <span>📹 CV Lab (Admin)</span>
+            </a>
+          ` : ''}
           <button type="button" class="gt-dice-header-btn" onclick="window.gtMinimizeDiceRoller(true)" title="Minimize Dice Roller to enter scores">
             <span>— Minimize</span>
           </button>

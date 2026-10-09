@@ -1103,6 +1103,11 @@ function openMobileMoreSheet() {
       if (esBtn && typeof isUserTO === 'function') {
         esBtn.style.display = (window.ENABLE_EVENT_STUDIO_TAB && isUserTO(currentUser)) ? 'flex' : 'none';
       }
+      const dtBtn = document.getElementById('mobile-sheet-dice-tracker-btn');
+      if (dtBtn) {
+        const isAdmin = currentUser.is_admin === true || currentUser.role === 'admin' || currentUser.role === 'superuser';
+        dtBtn.style.display = isAdmin ? 'flex' : 'none';
+      }
     }
     sheet.style.display = 'flex';
     document.body.classList.add('modal-open');

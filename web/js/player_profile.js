@@ -520,13 +520,13 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
   const profileFactionMastery = computeProfileFactionMastery(
     rawHistory,
     data.faction_mastery || data.factions_breakdown,
-    rawTournaments,
+    tournamentsMetaList,
     data.tracker_history || data.completed_history
   );
   const profileMatchupMatrix = computeProfileMatchupMatrix(
     rawHistory,
     data.matchup_matrix,
-    rawTournaments,
+    tournamentsMetaList,
     data.tracker_history || data.completed_history
   );
   const totalFactionGames = profileFactionMastery.reduce((acc, f) => acc + f.games, 0);

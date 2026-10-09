@@ -225,12 +225,25 @@ function syncMobileNavDropdown() {
 
   // Auth-state options: dynamically add/remove to ensure compatibility with iOS native pickers
   let loginOpt = document.getElementById('mobile-opt-login');
+  let diceTrackerOpt = document.getElementById('mobile-opt-dice-tracker');
   let feedbackOpt = document.getElementById('mobile-opt-feedback');
   let settingsOpt = document.getElementById('mobile-opt-settings');
   let logoutOpt = document.getElementById('mobile-opt-logout');
 
   if (currentUser) {
     if (loginOpt) loginOpt.remove();
+    const isAdminUser = currentUser.role === 'admin' || Boolean(currentUser.is_admin);
+    if (isAdminUser) {
+      if (!diceTrackerOpt) {
+        diceTrackerOpt = document.createElement('option');
+        diceTrackerOpt.value = 'dice-tracker';
+        diceTrackerOpt.id = 'mobile-opt-dice-tracker';
+        diceTrackerOpt.textContent = '📹 CV Dice Lab (Admin)';
+        select.appendChild(diceTrackerOpt);
+      }
+    } else if (diceTrackerOpt) {
+      diceTrackerOpt.remove();
+    }
 
     if (!feedbackOpt) {
       feedbackOpt = document.createElement('option');
@@ -254,6 +267,7 @@ function syncMobileNavDropdown() {
       select.appendChild(logoutOpt);
     }
   } else {
+    if (diceTrackerOpt) diceTrackerOpt.remove();
     if (feedbackOpt) feedbackOpt.remove();
     if (settingsOpt) settingsOpt.remove();
     if (logoutOpt) logoutOpt.remove();
@@ -1022,6 +1036,9 @@ function renderHeaderAuth() {
     const adminLink = isAdmin ? `
       <a href="/admin" style="display:inline-flex; align-items:center; gap:3px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#f87171; font-weight:800; font-size:0.7rem; padding:2px 6px; border-radius:6px; text-decoration:none; white-space:nowrap; flex-shrink:0;" title="Admin Governance Dashboard">
         <span>🛡️</span> Admin
+      </a>
+      <a href="/admin/dice-tracker" id="header-admin-cv-dice-btn" style="display:inline-flex; align-items:center; gap:3px; background:rgba(168,85,247,0.16); border:1px solid rgba(168,85,247,0.45); color:#c084fc; font-weight:800; font-size:0.7rem; padding:2px 6px; border-radius:6px; text-decoration:none; white-space:nowrap; flex-shrink:0;" title="Admin CV Dice Tracker Sandbox">
+        <span>📹</span> CV Dice
       </a>
     ` : '';
     container.innerHTML = `
