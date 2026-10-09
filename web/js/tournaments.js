@@ -2008,7 +2008,37 @@ function renderEventResultsRows() {
       eventPlayersCache.sort((a, b) => {
         const eloA = Number(a.current_elo || 1500);
         const eloB = Number(b.current_elo || 1500);
-        return sortCfg.asc ? (eloA - eloB) : (eloB - eloA);
+        if (eloA !== eloB) return sortCfg.asc ? (eloA - eloB) : (eloB - eloA);
+        return (Number(b.event_net_elo || 0) - Number(a.event_net_elo || 0));
+      });
+    } else if (sortCfg.field === 'event_wins') {
+      eventPlayersCache.sort((a, b) => {
+        const wA = Number(a.event_wins || 0), wB = Number(b.event_wins || 0);
+        const lA = Number(a.event_losses || 0), lB = Number(b.event_losses || 0);
+        const bpA = Number(a.event_battle_points || 0), bpB = Number(b.event_battle_points || 0);
+        const cmp = (wA - wB) || (lB - lA) || (bpA - bpB);
+        return sortCfg.asc ? cmp : -cmp;
+      });
+    } else if (sortCfg.field === 'event_battle_points') {
+      eventPlayersCache.sort((a, b) => {
+        const bpA = Number(a.event_battle_points || 0), bpB = Number(b.event_battle_points || 0);
+        const wA = Number(a.event_wins || 0), wB = Number(b.event_wins || 0);
+        const cmp = (bpA - bpB) || (wA - wB);
+        return sortCfg.asc ? cmp : -cmp;
+      });
+    } else if (sortCfg.field === 'faction') {
+      eventPlayersCache.sort((a, b) => {
+        const fA = String(a._formattedFaction || formatEventPlayerFaction(a.faction || a.army_name) || '').toLowerCase();
+        const fB = String(b._formattedFaction || formatEventPlayerFaction(b.faction || b.army_name) || '').toLowerCase();
+        const cmp = fA.localeCompare(fB);
+        return sortCfg.asc ? cmp : -cmp;
+      });
+    } else if (sortCfg.field === 'has_list') {
+      eventPlayersCache.sort((a, b) => {
+        const lA = hasPlayerSubmittedList(a) ? 1 : 0;
+        const lB = hasPlayerSubmittedList(b) ? 1 : 0;
+        const cmp = (lA - lB) || String(a.full_name || '').localeCompare(String(b.full_name || ''));
+        return sortCfg.asc ? cmp : -cmp;
       });
     } else if (typeof sortClientArray === 'function') {
       eventPlayersCache = sortClientArray(eventPlayersCache, sortCfg.field, sortCfg.asc);
@@ -2156,8 +2186,20 @@ function renderEventEloRows() {
 
   ensureEventSearchIndex();
 
-  // Sort players descending by current Elo
-  const sorted = [...eventPlayersCache].sort((a, b) => (b.current_elo || 1500) - (a.current_elo || 1500));
+  const eloSort = (typeof currentSort !== 'undefined' && currentSort['event-elo']) || { field: 'current_elo', asc: false };
+  const sorted = [...eventPlayersCache].sort((a, b) => {
+    let cmp = 0;
+    if (eloSort.field === 'full_name') {
+      cmp = String(a.full_name || '').localeCompare(String(b.full_name || ''));
+    } else if (eloSort.field === 'faction') {
+      const fA = String(a._formattedFaction || formatEventPlayerFaction(a.faction || a.army_name) || '').toLowerCase();
+      const fB = String(b._formattedFaction || formatEventPlayerFaction(b.faction || b.army_name) || '').toLowerCase();
+      cmp = fA.localeCompare(fB);
+    } else {
+      cmp = (Number(a.current_elo || 1500) - Number(b.current_elo || 1500));
+    }
+    return eloSort.asc ? cmp : -cmp;
+  });
 
   let playersToRender = sorted;
   if (eventModalSearchQuery) {
@@ -5358,14 +5400,45 @@ function renderEventMetaAndHighlights(ev) {
     }
   });
 
-  const facList = Array.from(facMap.values()).sort((a, b) => b.count - a.count || b.wins - a.wins);
   const totalField = Math.max(1, players.length);
+  const facSort = (typeof currentSort !== 'undefined' && currentSort['event-factions']) || { field: 'count', asc: false };
+  const facField = facSort.field || 'count';
+  const facAsc = Boolean(facSort.asc);
+
+  const facList = Array.from(facMap.values()).map(f => {
+    const totalGames = f.wins + f.losses + f.draws;
+    const winRate = totalGames > 0 ? (f.wins / totalGames) * 100 : 0;
+    const avgNet = f.count > 0 ? (f.netElo / f.count) : 0;
+    return Object.assign({}, f, {
+      total_games: totalGames,
+      win_rate: winRate,
+      avg_net_elo: avgNet,
+      best_rank: f.bestRank
+    });
+  }).sort((a, b) => {
+    let cmp = 0;
+    if (facField === 'faction') {
+      cmp = String(a.faction || '').localeCompare(String(b.faction || ''));
+    } else if (facField === 'wins') {
+      cmp = (a.wins - b.wins) || (a.win_rate - b.win_rate) || (b.losses - a.losses);
+    } else if (facField === 'win_rate') {
+      cmp = (a.win_rate - b.win_rate) || (a.wins - b.wins) || (a.count - b.count);
+    } else if (facField === 'avg_net_elo') {
+      cmp = (a.avg_net_elo - b.avg_net_elo) || (a.win_rate - b.win_rate);
+    } else if (facField === 'best_rank') {
+      cmp = (a.best_rank - b.best_rank) || (b.wins - a.wins) || (b.count - a.count);
+    } else {
+      cmp = (a.count - b.count) || (a.wins - b.wins) || (a.win_rate - b.win_rate);
+    }
+    return facAsc ? cmp : -cmp;
+  });
+
+  const facThClass = (col) => `sortable${facField === col ? (facAsc ? ' sorted-asc' : ' sorted-desc') : ''}`;
 
   const facRowsHtml = facList.map(f => {
     const sharePct = ((f.count / totalField) * 100).toFixed(1);
-    const totalGames = f.wins + f.losses + f.draws;
-    const wrPct = totalGames > 0 ? ((f.wins / totalGames) * 100).toFixed(1) : '0.0';
-    const avgNet = f.count > 0 ? (f.netElo / f.count) : 0;
+    const wrPct = f.win_rate.toFixed(1);
+    const avgNet = f.avg_net_elo;
     const avgNetStr = avgNet >= 0 ? `+${avgNet.toFixed(1)}` : avgNet.toFixed(1);
     const avgNetColor = avgNet > 0 ? '#4ade80' : (avgNet < 0 ? '#f87171' : 'var(--text-muted)');
     const bestFinishStr = f.bestRank < 9999 ? `#${f.bestRank} ${escapeHtml(f.bestPlayer)}` : escapeHtml(f.bestPlayer);
@@ -5439,15 +5512,15 @@ function renderEventMetaAndHighlights(ev) {
     <div class="card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border); border-radius: 10px; padding: 1.15rem;">
       <h4 style="margin: 0 0 0.9rem 0; font-size: 1rem; font-weight: 700; color: #fff;">📊 Tournament Faction Breakdown & Performance</h4>
       <div class="table-container">
-        <table>
+        <table id="event-factions-table">
           <thead>
             <tr>
-              <th>Faction</th>
-              <th>Representation</th>
-              <th>Record (W-L-D)</th>
-              <th>Win Rate</th>
-              <th>Avg Net Elo Δ</th>
-              <th>Best Finish</th>
+              <th class="${facThClass('faction')}" onclick="sortTable('event-factions', 'faction')">Faction</th>
+              <th class="${facThClass('count')}" onclick="sortTable('event-factions', 'count')">Representation</th>
+              <th class="${facThClass('wins')}" onclick="sortTable('event-factions', 'wins')">Record (W-L-D)</th>
+              <th class="${facThClass('win_rate')}" onclick="sortTable('event-factions', 'win_rate')">Win Rate</th>
+              <th class="${facThClass('avg_net_elo')}" onclick="sortTable('event-factions', 'avg_net_elo')">Avg Net Elo Δ</th>
+              <th class="${facThClass('best_rank')}" onclick="sortTable('event-factions', 'best_rank')">Best Finish</th>
             </tr>
           </thead>
           <tbody>

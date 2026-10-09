@@ -863,6 +863,21 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn("liveLink.style.display = (isParticipant && !isMatchFinished) ? 'inline-flex' : 'none';", modals_js)
         print("✓ test_ongoing_non_participant_shows_scorecard_not_track passed")
 
+    def test_event_factions_and_hub_tables_sortable(self):
+        """Verify Tournament Faction Breakdown & Performance table and Event Hub tables have clickable sortable headers."""
+        tournaments_js = (ROOT_DIR / "web" / "js" / "tournaments.js").read_text(encoding="utf-8")
+        utils_js = (ROOT_DIR / "web" / "js" / "utils.js").read_text(encoding="utf-8")
+        app_html = (ROOT_DIR / "web" / "app.html").read_text(encoding="utf-8")
+
+        for col in ("faction", "count", "wins", "win_rate", "avg_net_elo", "best_rank"):
+            self.assertIn(f"onclick=\"sortTable('event-factions', '{col}')\"", tournaments_js)
+        self.assertIn("'event-factions': 'event-factions-table'", utils_js)
+        self.assertIn("tableKey === 'event-factions'", utils_js)
+        self.assertIn("onclick=\"sortTable('event-results', 'has_list')\"", app_html)
+        self.assertIn("onclick=\"sortTable('event-pairings', 'outcome')\"", app_html)
+        self.assertIn("onclick=\"sortTable('leaderboard', 'current_elo')\"", app_html)
+        print("✓ test_event_factions_and_hub_tables_sortable passed")
+
 
 if __name__ == "__main__":
     unittest.main()

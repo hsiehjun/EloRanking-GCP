@@ -400,6 +400,7 @@ function sortClientArray(arr, field, asc = true) {
 
 // Global sort states
 const currentSort = {
+  'leaderboard': { field: 'current_elo', asc: false },
   'events': { field: 'event_date', asc: false },
   'teams': { field: 'power_rating', asc: false },
   'lead-teams': { field: 'power_rating', asc: false },
@@ -410,25 +411,34 @@ const currentSort = {
   'event-results': { field: 'placement', asc: true },
   'event-elo': { field: 'current_elo', asc: false },
   'event-pairings': { field: 'round', asc: true },
+  'event-factions': { field: 'count', asc: false },
   'h2h': { field: 'match_date', asc: false },
   'team-roster': { field: 'current_elo', asc: false }
 };
 
 function sortTable(tableKey, field) {
+  const defaultAscFields = new Set([
+    'name', 'player_name', 'full_name', 'team', 'faction',
+    'round', 'table_number', 'placement', 'rank', 'best_rank'
+  ]);
   if (!currentSort[tableKey]) {
-    currentSort[tableKey] = { field: field, asc: (field === 'placement' || field === 'rank' || field === 'round') ? true : false };
+    currentSort[tableKey] = { field: field, asc: defaultAscFields.has(field) };
   }
   const config = currentSort[tableKey];
   if (config.field === field) {
     config.asc = !config.asc;
   } else {
     config.field = field;
-    config.asc = (field === 'name' || field === 'player_name' || field === 'full_name' || field === 'team' || field === 'faction' || field === 'round' || field === 'placement' || field === 'rank') ? true : false;
+    config.asc = defaultAscFields.has(field);
   }
 
   updateHeaderIcons(tableKey, field, config.asc);
 
-  if (tableKey === 'events') {
+  if (tableKey === 'leaderboard') {
+    if (typeof leaderboardSortState !== 'undefined') leaderboardSortState = config;
+    if (typeof leaderboardPagination !== 'undefined') leaderboardPagination.page = 1;
+    if (typeof loadLeaderboard === 'function') loadLeaderboard();
+  } else if (tableKey === 'events') {
     if (typeof eventsSortState !== 'undefined') eventsSortState = config;
     loadEvents();
   } else if (tableKey === 'teams') {
@@ -457,12 +467,15 @@ function sortTable(tableKey, field) {
     }
   } else if (tableKey === 'event-results') {
     if (typeof eventPlayersCache !== 'undefined' && eventPlayersCache) {
-      eventPlayersCache = sortClientArray(eventPlayersCache, config.field, config.asc);
       renderEventResultsRows();
     }
   } else if (tableKey === 'event-elo') {
     if (typeof eventPlayersCache !== 'undefined' && eventPlayersCache) {
       renderEventEloRows();
+    }
+  } else if (tableKey === 'event-factions') {
+    if (typeof renderEventMetaHighlights === 'function') {
+      renderEventMetaHighlights(typeof currentEventData !== 'undefined' ? currentEventData : null);
     }
   } else if (tableKey === 'team-roster') {
     if (typeof currentTeamRoster !== 'undefined' && currentTeamRoster) {
@@ -471,7 +484,15 @@ function sortTable(tableKey, field) {
     }
   } else if (tableKey === 'event-pairings') {
     if (typeof eventMatchesCache !== 'undefined' && eventMatchesCache) {
-      eventMatchesCache = sortClientArray(eventMatchesCache, config.field, config.asc);
+      if (config.field === 'outcome') {
+        eventMatchesCache = [...eventMatchesCache].sort((a, b) => {
+          const getOut = (m) => (m.winner_id && m.winner_id === m.player1_id) ? '1_p1_win' : ((m.winner_id && m.winner_id === m.player2_id) ? '2_p2_win' : (m.is_draw ? '3_draw' : (m.is_bye ? '4_bye' : '0_pending')));
+          const cmp = getOut(a).localeCompare(getOut(b));
+          return config.asc ? cmp : -cmp;
+        });
+      } else {
+        eventMatchesCache = sortClientArray(eventMatchesCache, config.field, config.asc);
+      }
       renderEventPairingsRows();
     }
   }
@@ -479,6 +500,7 @@ function sortTable(tableKey, field) {
 
 function updateHeaderIcons(tableKey, field, asc) {
   const tableMap = {
+    'leaderboard': 'leaderboard-table',
     'team-roster': 'team-roster-table',
     'events': 'events-table',
     'teams': 'teams-table',
@@ -490,6 +512,7 @@ function updateHeaderIcons(tableKey, field, asc) {
     'event-results': 'event-results-table',
     'event-elo': 'event-elo-table',
     'event-pairings': 'event-pairings-table',
+    'event-factions': 'event-factions-table',
   };
   const tableId = tableMap[tableKey];
   if (!tableId) return;

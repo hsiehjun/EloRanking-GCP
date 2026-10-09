@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=c90661f5a6">
+  <link rel="manifest" href="/manifest.json?v=1391b20a95">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=c90661f5a6">
-  <link rel="stylesheet" href="/css/styles.min.css?v=c90661f5a6">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=c90661f5a6">
-  <link rel="preload" href="/js/app.bundle.min.js?v=c90661f5a6" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=1391b20a95">
+  <link rel="stylesheet" href="/css/styles.min.css?v=1391b20a95">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=1391b20a95">
+  <link rel="preload" href="/js/app.bundle.min.js?v=1391b20a95" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "c90661f5a6";</script>
+  <script>window.APP_VERSION = "1391b20a95";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -1060,7 +1060,7 @@
                   <th class="sortable" onclick="sortTable('event-results', 'event_wins')">Record / Status</th>
                   <th class="sortable" onclick="sortTable('event-results', 'event_battle_points')">Battle Points</th>
                   <th class="sortable" onclick="sortTable('event-results', 'current_elo')">Rating & Net Elo Δ</th>
-                  <th style="text-align: right;">Army List</th>
+                  <th class="sortable" style="text-align: right;" onclick="sortTable('event-results', 'has_list')">Army List</th>
                 </tr>
               </thead>
               <tbody id="event-results-body"></tbody>
@@ -1074,7 +1074,7 @@
             <table id="event-elo-table">
               <thead>
                 <tr>
-                  <th style="width: 70px;">Rank</th>
+                  <th class="sortable" style="width: 70px;" onclick="sortTable('event-elo', 'current_elo')">Rank</th>
                   <th class="sortable" onclick="sortTable('event-elo', 'full_name')">Player</th>
                   <th class="sortable" onclick="sortTable('event-elo', 'faction')">Faction</th>
                   <th class="sortable sorted-desc" onclick="sortTable('event-elo', 'current_elo')">Current Elo</th>
@@ -1101,7 +1101,7 @@
                   <th class="sortable" onclick="sortTable('event-pairings', 'player1_score')">P1 Score</th>
                   <th class="sortable" onclick="sortTable('event-pairings', 'player2_score')">P2 Score</th>
                   <th class="sortable" onclick="sortTable('event-pairings', 'player2_name')">Player 2 & Win Prob</th>
-                  <th style="text-align: right;">Outcome & Live Action</th>
+                  <th class="sortable" style="text-align: right;" onclick="sortTable('event-pairings', 'outcome')">Outcome & Live Action</th>
                 </tr>
               </thead>
               <tbody id="event-pairings-body"></tbody>
@@ -1161,14 +1161,14 @@
           <table id="leaderboard-table">
             <thead>
               <tr>
-                <th>Rank</th>
-                <th>Player</th>
-                <th>Current Elo</th>
-                <th class="col-peak">Peak Elo</th>
-                <th>Record (W-L-D)</th>
-                <th>Win Rate</th>
-                <th class="col-faction">Factions</th>
-                <th class="col-last-active">Last Active</th>
+                <th class="sortable" onclick="sortTable('leaderboard', 'rank')">Rank</th>
+                <th class="sortable" onclick="sortTable('leaderboard', 'player_name')">Player</th>
+                <th class="sortable sorted-desc" onclick="sortTable('leaderboard', 'current_elo')">Current Elo</th>
+                <th class="sortable col-peak" onclick="sortTable('leaderboard', 'peak_elo')">Peak Elo</th>
+                <th class="sortable" onclick="sortTable('leaderboard', 'wins')">Record (W-L-D)</th>
+                <th class="sortable" onclick="sortTable('leaderboard', 'win_rate')">Win Rate</th>
+                <th class="sortable col-faction" onclick="sortTable('leaderboard', 'top_faction')">Factions</th>
+                <th class="sortable col-last-active" onclick="sortTable('leaderboard', 'last_active')">Last Active</th>
               </tr>
             </thead>
             <tbody id="leaderboard-body">
@@ -3743,7 +3743,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=c90661f5a6"></script>
+  <script src="/js/app.bundle.min.js?v=1391b20a95"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">
