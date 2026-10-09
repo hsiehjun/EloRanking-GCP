@@ -9238,13 +9238,19 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
     return `
       <div>
         <!-- Round Selector & Completion Progress -->
-        <div class="card" style="padding:0.9rem 1.05rem; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:0.85rem;">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.65rem;">
+        <div class="card" style="padding:0.85rem 1.05rem; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:0.85rem;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.6rem;">
             <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
               ${roundButtonsHtml}
             </div>
-            <div style="font-size:0.84rem; font-weight:800; color:#f8fafc; font-family:var(--font-mono);">
-              Round ${curRound} Progress: <span style="color:#4ade80;">${doneCount}</span> / ${totalTables} Tables Completed (${pct}%)
+            <div style="display:flex; align-items:center; gap:0.45rem; font-size:0.8rem; font-weight:800; font-family:var(--font-mono);">
+              <span style="padding:0.22rem 0.55rem; border-radius:6px; background:rgba(34,197,94,0.14); border:1px solid rgba(34,197,94,0.35); color:#4ade80;">
+                ✅ ${doneCount} Finished
+              </span>
+              <span style="padding:0.22rem 0.55rem; border-radius:6px; background:rgba(245,158,11,0.16); border:1px solid rgba(245,158,11,0.38); color:#fbbf24;">
+                ⏳ ${unfinishedCount} Unfinished
+              </span>
+              <span style="color:var(--text-muted); font-size:0.76rem;">(${pct}%)</span>
             </div>
           </div>
           <div style="width:100%; height:8px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden;">
@@ -12309,6 +12315,7 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
   window._toHubCurrentRoundMatches = Array.isArray(roundMatches) ? roundMatches : [];
   const totalTables = roundMatches.length;
   const doneCount = completedMatches.length;
+  const unfinishedCount = unfinishedMatches.length;
   const pct = totalTables > 0 ? Math.round((doneCount / totalTables) * 100) : 0;
 
   const roundPillsHtml = (roundNums.length > 0 ? roundNums : [1]).map(r => `
@@ -12317,61 +12324,37 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
     </button>
   `).join('');
 
-  const slowTablesBannerHtml = (unfinishedMatches.length > 0 && totalTables > 0) ? (() => {
-    const chips = [];
-    for (let idx = 0; idx < roundMatches.length && chips.length < 18; idx++) {
-      const m = roundMatches[idx];
-      if (!m || isToHubMatchCompleted(m)) continue;
-      const tNum = String(m.table ?? m.table_number ?? (idx + 1));
-      chips.push(`
-        <span onclick="openToHubTableCommsModal(${idx}, 'table')" title="Click to message or ping Table ${escapeHtml(tNum)}" style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.2rem 0.55rem; background:rgba(245,158,11,0.18); border:1px solid rgba(245,158,11,0.4); border-radius:6px; font-size:0.75rem; font-weight:700; color:#fde68a; cursor:pointer;">
-          ⏳ Table ${escapeHtml(tNum)} <span style="font-weight:500; color:#cbd5e1;">(${escapeHtml((m.player1_name || 'P1').split(' ')[0])} vs ${escapeHtml((m.player2_name || 'P2').split(' ')[0])})</span> 💬
-        </span>
-      `);
-    }
-    return `
-      <div class="card" style="padding:0.85rem 1.05rem; background:rgba(120,53,15,0.22); border:1px solid rgba(245,158,11,0.45); border-radius:10px; margin-bottom:0.85rem;">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.5rem;">
-          <div style="font-size:0.84rem; font-weight:800; color:#fbbf24;">
-            ⏳ ${unfinishedMatches.length} Unfinished Table${unfinishedMatches.length === 1 ? '' : 's'} Holding Up Round ${_toHubRadarRound}
-          </div>
-          <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
-            <button type="button" class="btn btn-outline" onclick="copyUnfinishedTablesList('${escapeHtml(eventId)}', ${_toHubRadarRound})" style="font-size:0.74rem; font-weight:700; padding:0.3rem 0.65rem;">
-              📋 Copy Unfinished Tables
-            </button>
-            <button type="button" class="btn btn-primary" onclick="broadcastUnfinishedTablesPing('${escapeHtml(eventId)}', ${_toHubRadarRound})" style="font-size:0.74rem; font-weight:700; padding:0.3rem 0.7rem;">
-              📢 Ping Unfinished Tables
-            </button>
-          </div>
-        </div>
-        <div style="display:flex; flex-wrap:wrap; gap:0.4rem;">
-          ${chips.join('')}
-          ${unfinishedMatches.length > 18 ? `<span style="font-size:0.75rem; color:var(--text-muted); align-self:center;">+${unfinishedMatches.length - 18} more</span>` : ''}
-        </div>
-      </div>
-    `;
-  })() : '';
-
   const tablesGridHtml = buildToHubRadarGridHtml(eventId, roundMatches, openJudgeCalls, activeSessions);
 
   return `
     <div>
-      <!-- Round Selector & Completion Progress -->
-      <div class="card" style="padding:0.9rem 1.05rem; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:0.85rem;">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.65rem;">
+      <!-- Round Selector & High-Level Completion Progress -->
+      <div class="card" style="padding:0.85rem 1.05rem; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:0.85rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.6rem;">
           <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
             ${roundPillsHtml}
           </div>
-          <div style="font-size:0.84rem; font-weight:800; color:#f8fafc; font-family:var(--font-mono);">
-            Round ${_toHubRadarRound} Progress: <span style="color:#4ade80;">${doneCount}</span> / ${totalTables} Tables Completed (${pct}%)
+          <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+            <div style="display:flex; align-items:center; gap:0.45rem; font-size:0.8rem; font-weight:800; font-family:var(--font-mono);">
+              <span style="padding:0.22rem 0.55rem; border-radius:6px; background:rgba(34,197,94,0.14); border:1px solid rgba(34,197,94,0.35); color:#4ade80;">
+                ✅ ${doneCount} Finished
+              </span>
+              <span style="padding:0.22rem 0.55rem; border-radius:6px; background:rgba(245,158,11,0.16); border:1px solid rgba(245,158,11,0.38); color:#fbbf24;">
+                ⏳ ${unfinishedCount} Unfinished
+              </span>
+              <span style="color:var(--text-muted); font-size:0.76rem;">(${pct}%)</span>
+            </div>
+            ${unfinishedCount > 0 ? `
+              <button type="button" class="btn btn-primary" onclick="broadcastUnfinishedTablesPing('${escapeHtml(eventId)}', ${_toHubRadarRound})" style="font-size:0.74rem; font-weight:700; padding:0.3rem 0.7rem;">
+                📢 Ping Unfinished Tables
+              </button>
+            ` : ''}
           </div>
         </div>
         <div style="width:100%; height:8px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden;">
           <div style="width:${pct}%; height:100%; background:linear-gradient(90deg, #38bdf8, #4ade80); transition:width 0.3s ease;"></div>
         </div>
       </div>
-
-      ${slowTablesBannerHtml}
 
       <!-- Filter Pills & Search -->
       <div class="to-hub-radar-toolbar" style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.85rem;">
@@ -12380,7 +12363,7 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
             All (${totalTables})
           </button>
           <button type="button" class="btn ${_toHubRadarFilter === 'unfinished' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRadarFilter('unfinished')" style="font-size:0.74rem; padding:0.3rem 0.65rem;">
-            ⏳ Unfinished (${unfinishedMatches.length})
+            ⏳ Unfinished (${unfinishedCount})
           </button>
           <button type="button" class="btn ${_toHubRadarFilter === 'completed' ? 'btn-primary' : 'btn-outline'}" onclick="setToHubRadarFilter('completed')" style="font-size:0.74rem; padding:0.3rem 0.65rem;">
             ✅ Completed (${doneCount})
