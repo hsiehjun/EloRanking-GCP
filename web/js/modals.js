@@ -2324,7 +2324,10 @@ async function openScorecardModal(matchId) {
 
   if (matchIdEl) matchIdEl.innerText = matchId;
   if (fullPageLink) fullPageLink.href = `/scorecard/${encodeURIComponent(matchId)}`;
-  if (liveLink) liveLink.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}`;
+  if (liveLink) {
+    liveLink.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}`;
+    liveLink.style.display = 'none';
+  }
   if (badgesEl) badgesEl.innerHTML = '';
   if (winnerBannerEl) {
     winnerBannerEl.style.display = 'none';
@@ -2537,6 +2540,32 @@ async function openScorecardModal(matchId) {
     );
     if (liveLink) {
       liveLink.href = `/${isAosModal ? 'aos' : '11th'}/tracker/play?match_id=${encodeURIComponent(resolvedMatchId)}`;
+      const curUser = (typeof authState !== 'undefined' && authState && authState.user) ||
+                      (typeof currentUser !== 'undefined' ? currentUser : null) ||
+                      (typeof window.currentUser !== 'undefined' ? window.currentUser : null);
+      const uNames = curUser ? [curUser.display_name, curUser.competitor_name, curUser.full_name, curUser.name, curUser.username]
+        .filter(Boolean).map(x => String(x).trim().toLowerCase()) : [];
+      const uIds = curUser ? [curUser.player_id, curUser.bcp_user_id, curUser.bcp_id, curUser.id, curUser.userId]
+        .filter(Boolean).map(x => String(x).trim().toLowerCase()) : [];
+      const mP1Id = String(bcpMatchRec?.player1_id || rec.user_id_p1 || st.user_id_p1 || '').trim().toLowerCase();
+      const mP2Id = String(bcpMatchRec?.player2_id || rec.user_id_p2 || st.user_id_p2 || '').trim().toLowerCase();
+      const mP1Name = String(p1Name || '').trim().toLowerCase();
+      const mP2Name = String(p2Name || '').trim().toLowerCase();
+      const isParticipant = Boolean(
+        curUser && (
+          (mP1Id && uIds.includes(mP1Id)) ||
+          (mP2Id && uIds.includes(mP2Id)) ||
+          (mP1Name && uNames.includes(mP1Name)) ||
+          (mP2Name && uNames.includes(mP2Name))
+        )
+      );
+      const isMatchFinished = Boolean(
+        data.is_finished === true ||
+        data.status === 'completed' ||
+        (bcpMatchRec && bcpMatchRec.player1_score !== null && bcpMatchRec.player1_score !== undefined &&
+         bcpMatchRec.player2_score !== null && bcpMatchRec.player2_score !== undefined)
+      );
+      liveLink.style.display = (isParticipant && !isMatchFinished) ? 'inline-flex' : 'none';
     }
 
     const p1Obj = isTrackerScorecard ? (st.p1 || {}) : {};

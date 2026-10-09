@@ -2581,13 +2581,11 @@ function renderEventPairingsRows() {
         );
       }
 
-      const canEdit = Boolean(isP1 || isP2 || isStaff);
+      const isMyTable = Boolean(isP1 || isP2);
 
       let actionBtn = '';
       if (!isBye) {
-        if (isTrackerDone || hasScore) {
-          actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="${isTrackerDone ? 'View turn-by-turn digital scorecard' : 'View official BCP match scorecard'}">📄 Scorecard</button>`;
-        } else if (!hasScore && canEdit) {
+        if (!isTrackerDone && !hasScore && isMyTable) {
           const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
           const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
           const safeP1Id = String(m.player1_id || '').replace(/'/g, "\\'");
@@ -2595,14 +2593,8 @@ function renderEventPairingsRows() {
           const safePairingId = String(m.id || m.pairing_id || m.bcp_pairing_id || '').replace(/'/g, "\\'");
           const btnLabel = hasTrackerGame ? '🎮 Resume' : '🎲 Track';
           actionBtn = `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || m.table || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="1-Click Launch Game Tracker for Table ${m.table_number || m.table || 1}">${btnLabel}</button>`;
-        } else if (!hasScore && !canEdit) {
-          const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
-          const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
-          const safeP1Id = String(m.player1_id || '').replace(/'/g, "\\'");
-          const safeP2Id = String(m.player2_id || '').replace(/'/g, "\\'");
-          const safePairingId = String(m.id || m.pairing_id || m.bcp_pairing_id || '').replace(/'/g, "\\'");
-          const spectateLabel = hasTrackerGame ? '👁️ Spectate Live' : '👁️ Spectate';
-          actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.55rem; display:inline-flex; align-items:center; gap:0.3rem; border-color:#6366f1; color:#a5b4fc; background:rgba(99, 102, 241, 0.12); border-radius:6px; font-weight:600; cursor:pointer;" onclick="event.stopPropagation(); spectateTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || m.table || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${safePairingId}')" title="Spectate Table ${m.table_number || m.table || 1} match in live view-only mode">${spectateLabel}</button>`;
+        } else {
+          actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="${isTrackerDone ? 'View turn-by-turn digital scorecard' : (hasScore ? 'View official BCP match scorecard' : 'View live match scorecard')}">📄 Scorecard</button>`;
         }
       }
 
@@ -2746,49 +2738,10 @@ async function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Na
 
 async function spectateTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Name, p1Id, p2Id, pairingId = '') {
   const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`;
-  
-  let p1Fac = null;
-  let p2Fac = null;
-  let p1Det = null;
-  let p2Det = null;
-  
-  const allPlayers = [
-    ...(Array.isArray(eventPlayersCache) ? eventPlayersCache : []),
-    ...((currentEventData && Array.isArray(currentEventData.players)) ? currentEventData.players : []),
-    ...((currentEventData && Array.isArray(currentEventData.roster)) ? currentEventData.roster : [])
-  ];
-  const p1Record = allPlayers.find(p => p && (p.player_id === p1Id || p.id === p1Id || p.full_name === p1Name || p.name === p1Name || p.player_name === p1Name));
-  if (p1Record) {
-    p1Fac = p1Record.faction || p1Record.army_name;
-    p1Det = p1Record.detachment;
+  if (typeof openScorecardModal === 'function') {
+    openScorecardModal(matchId);
+    return;
   }
-  const p2Record = allPlayers.find(p => p && (p.player_id === p2Id || p.id === p2Id || p.full_name === p2Name || p.name === p2Name || p.player_name === p2Name));
-  if (p2Record) {
-    p2Fac = p2Record.faction || p2Record.army_name;
-    p2Det = p2Record.detachment;
-  }
-
-  try {
-    await window.api.createTournamentTrackerRoom({
-      match_id: matchId,
-      event_id: eventId,
-      round_num: roundNum,
-      table_num: tableNum,
-      pairing_id: pairingId || null,
-      p1_name: p1Name,
-      p2_name: p2Name,
-      p1_id: p1Id || null,
-      p2_id: p2Id || null,
-      p1_faction: p1Fac,
-      p2_faction: p2Fac,
-      p1_detachment: p1Det,
-      p2_detachment: p2Det
-    });
-  } catch (e) {
-    console.warn('Auto room connect notice for spectator:', e);
-  }
-
-  const pParam = pairingId ? `&pairing_id=${encodeURIComponent(pairingId)}` : '';
   window.location.href = `/scorecard/${encodeURIComponent(matchId)}`;
 }
 
@@ -6644,8 +6597,8 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
         ` : (hasScore ? `
           <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 600;">✓ Official BCP Scorecard</span>
         ` : `
-          <button type="button" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 3px 8px; color: #a5b4fc; border-color: #6366f1; background: rgba(99,102,241,0.1); cursor: pointer;" onclick="spectateTournamentTracker('${eventId}', ${curRound}, ${tableNum}, '${escapeHtml(match?.player1_name || 'P1')}', '${escapeHtml(match?.player2_name || 'P2')}', '${match?.player1_id || ''}', '${match?.player2_id || ''}', '${match?.id || ''}')">
-            👁️ Spectate Live Tracker
+          <button type="button" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 3px 8px; cursor: pointer;" onclick="openScorecardModal('${matchId}')">
+            📄 Scorecard
           </button>
         `))}
       </div>

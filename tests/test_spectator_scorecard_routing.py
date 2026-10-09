@@ -846,6 +846,23 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn("if (catalogBySystem[currentGameSystem] && Array.isArray(catalogBySystem[currentGameSystem].items))", armory_js)
         print("✓ test_scorecard_and_armory_fast_hydration_and_indexed_queries passed")
 
+    def test_ongoing_non_participant_shows_scorecard_not_track(self):
+        """Verify ongoing matches where the current user is NOT playing (not P1/P2) show Scorecard instead of Track."""
+        tournaments_js = (ROOT_DIR / "web" / "js" / "tournaments.js").read_text(encoding="utf-8")
+        modals_js = (ROOT_DIR / "web" / "js" / "modals.js").read_text(encoding="utf-8")
+
+        render_fn = tournaments_js.split("function renderEventPairingsRows")[1].split("async function launchTournamentTracker")[0]
+        self.assertIn("const isMyTable = Boolean(isP1 || isP2);", render_fn)
+        self.assertIn("if (!isTrackerDone && !hasScore && isMyTable)", render_fn)
+        self.assertNotIn("const canEdit = Boolean(isP1 || isP2 || isStaff);", render_fn)
+
+        spectate_fn = tournaments_js.split("async function spectateTournamentTracker")[1].split("/* ==========================================================================")[0]
+        self.assertNotIn("createTournamentTrackerRoom", spectate_fn)
+        self.assertIn("openScorecardModal(matchId)", spectate_fn)
+
+        self.assertIn("liveLink.style.display = (isParticipant && !isMatchFinished) ? 'inline-flex' : 'none';", modals_js)
+        print("✓ test_ongoing_non_participant_shows_scorecard_not_track passed")
+
 
 if __name__ == "__main__":
     unittest.main()
