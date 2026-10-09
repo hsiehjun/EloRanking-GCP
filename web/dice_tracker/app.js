@@ -62,6 +62,15 @@ class DiceTrackerApp {
     this.settlingBuffer = [];
     this.lockedDiceSignature = "";
     this.emptyFramesCount = 0;
+    this.motionFramesCount = 0;
+    this.consecutiveDiceFrames = 0;
+
+    // UI DOM mutation deduplication & throttling (prevents mobile layout/paint flicker)
+    this._lastPerfUiUpdateMs = 0;
+    this._lastUiState = "";
+    this._lastUiHint = "";
+    this._lastUiProgress = -1;
+    this._lastHudSig = "";
 
     // Scoop Guard state: remembers spatial coordinates of locked dice before hand enters tray
     this.lastLockedSpatialDice = [];
@@ -1154,10 +1163,11 @@ class DiceTrackerApp {
     this.stepRollStateMachine(roiMotion, rawDetections, data, width, height);
 
     const elapsedMs = performance.now() - t0;
-    this.cvLatencyEmaMs = this.cvLatencyEmaMs === 0 ? elapsedMs : this.cvLatencyEmaMs * 0.8 + elapsedMs * 0.2;
-    if (this.cvPerfBadge) {
+    this.cvLatencyEmaMs = this.cvLatencyEmaMs === 0 ? elapsedMs : this.cvLatencyEmaMs * 0.85 + elapsedMs * 0.15;
+    if (this.cvPerfBadge && t0 - this._lastPerfUiUpdateMs >= 400) {
+      this._lastPerfUiUpdateMs = t0;
       const fpsCap = Math.min(120, Math.round(1000 / Math.max(1, this.cvLatencyEmaMs)));
-      this.cvPerfBadge.innerText = `⚡ CV: ${this.cvLatencyEmaMs.toFixed(1)} ms (${fpsCap} FPS)`;
+      this.cvPerfBadge.innerText = `⚡ ${this.cvLatencyEmaMs.toFixed(1)}ms (${fpsCap}fps)`;
     }
 
     // 6. Render tray mask, draggable ROI handles, and per-die bounding boxes
@@ -1185,14 +1195,16 @@ class DiceTrackerApp {
 
     let changedPixels = 0;
     let k = 0;
+    // Higher per-pixel luminance threshold (28) + EMA background adaptation suppresses mobile camera grain & micro-shake
     for (let r = 0; r < rows; r++) {
       const y = ry + r * sampleStep;
       for (let c = 0; c < cols; c++) {
         const currVal = gray[y * width + (rx + c * sampleStep)];
-        if (Math.abs(currVal - this.lastRoiGray[k]) > 18) {
+        const prevVal = this.lastRoiGray[k];
+        if (Math.abs(currVal - prevVal) > 28) {
           changedPixels++;
         }
-        this.lastRoiGray[k] = currVal;
+        this.lastRoiGray[k] = (prevVal + currVal) >> 1;
         k++;
       }
     }
@@ -1244,37 +1256,77 @@ class DiceTrackerApp {
 
   stepRollStateMachine(roiMotion, rawDetections, rgba, width, height) {
     const settleFramesRequired = parseInt(this.bgFilterSlider.value, 10) || 12;
-    const MOTION_TRIGGER = 0.018;
+    const MOTION_ENTER = 0.032;
+    const MOTION_SETTLE = 0.022;
 
     if (!this.chkAutoCapture.checked) {
       this.currentDetectedDice = rawDetections;
       return;
     }
 
-    // Case 1: Motion detected inside the tray (Dice thrown or hand scooping dice)
-    if (roiMotion > MOTION_TRIGGER) {
+    if (rawDetections.length > 0) {
+      this.consecutiveDiceFrames++;
+      this.emptyFramesCount = 0;
+    } else {
+      this.consecutiveDiceFrames = Math.max(0, this.consecutiveDiceFrames - 1);
+      this.emptyFramesCount++;
+    }
+
+    if (roiMotion > MOTION_ENTER) {
+      this.motionFramesCount++;
+    } else if (roiMotion < MOTION_SETTLE) {
+      this.motionFramesCount = 0;
+    }
+
+    // Case 1: Tray is empty & IDLE — ignore handheld camera motion completely
+    if (this.rollState === "IDLE" && rawDetections.length === 0) {
+      this.settledFrameCounter = 0;
+      this.settlingBuffer = [];
+      this.currentDetectedDice = [];
+      this.updateStateMachineUI("IDLE", "🟢 Ready — Throw dice into tray", 0);
+      return;
+    }
+
+    // Pre-gate: While IDLE, require 3+ consecutive frames with dice before changing the UI pill
+    // (silently accumulate settling frames so genuine rolls still lock in exact settleFramesRequired)
+    if (this.rollState === "IDLE" && this.consecutiveDiceFrames < 3) {
+      if (roiMotion <= MOTION_ENTER && rawDetections.length > 0) {
+        this.settledFrameCounter++;
+        this.settlingBuffer.push(rawDetections);
+      } else {
+        this.settledFrameCounter = 0;
+        this.settlingBuffer = [];
+      }
+      return;
+    }
+
+    // Case 2: Motion detected inside the tray while dice are confirmed present OR unlocking from a LOCKED roll
+    const isGenuineMotion =
+      roiMotion >= 0.042 ||
+      (roiMotion > MOTION_ENTER && (this.motionFramesCount >= 2 || this.rollState === "ROLLING"));
+
+    if (isGenuineMotion && (rawDetections.length > 0 || this.rollState !== "IDLE")) {
       if (this.rollState === "LOCKED" && this.lockedRollDice.length > 0) {
         this.hadLockedRollBeforeMotion = true;
       }
       this.rollState = "ROLLING";
       this.settledFrameCounter = 0;
       this.settlingBuffer = [];
-      this.emptyFramesCount = 0;
       this.currentDetectedDice = rawDetections;
       this.updateStateMachineUI(
         "ROLLING",
-        `🟠 Rolling / Hand in Tray (motion ${(roiMotion * 100).toFixed(1)}%) — Waiting for dice to settle...`,
+        "🟠 Rolling in tray — waiting for dice to stop...",
         15
       );
       return;
     }
 
-    // Case 2: Tray is still, check if tray was cleared (all dice scooped up)
+    // Case 3: Tray is still and all dice were scooped out -> return smoothly to IDLE after 8 quiet frames
     if (rawDetections.length === 0) {
-      this.emptyFramesCount++;
-      if (this.emptyFramesCount >= 4) {
+      if (this.emptyFramesCount >= 8) {
         this.rollState = "IDLE";
         this.settledFrameCounter = 0;
+        this.consecutiveDiceFrames = 0;
         this.settlingBuffer = [];
         this.lockedDiceSignature = "";
         this.lastLockedSpatialDice = [];
@@ -1285,15 +1337,13 @@ class DiceTrackerApp {
       return;
     }
 
-    this.emptyFramesCount = 0;
-
-    // Case 3: Currently LOCKED — stay locked until motion or tray cleared!
+    // Case 4: Currently LOCKED — stay locked until genuine motion or tray cleared!
     if (this.rollState === "LOCKED") {
       this.currentDetectedDice = this.lockedRollDice;
       return;
     }
 
-    // Case 4: Tray was IDLE/ROLLING/SETTLING
+    // Case 5: Tray was IDLE/ROLLING/SETTLING with dice present and motion subsided
     if (this.rollState === "IDLE" || this.rollState === "ROLLING" || this.rollState === "SETTLING") {
       this.rollState = "SETTLING";
       this.settledFrameCounter++;
@@ -1303,11 +1353,16 @@ class DiceTrackerApp {
       this.currentDetectedDice = consensusDice;
 
       const progressPct = Math.min(100, Math.round((this.settledFrameCounter / settleFramesRequired) * 100));
-      this.updateStateMachineUI(
-        "SETTLING",
-        `🔵 Settling ${consensusDice.length} dice... (${this.settledFrameCounter}/${settleFramesRequired} frames)`,
-        progressPct
-      );
+      // Only update hint text on initial settle frame or every 3rd frame to avoid rapid text jitter
+      if (this.settledFrameCounter === 1 || this.settledFrameCounter % 3 === 0 || this.settledFrameCounter === settleFramesRequired) {
+        this.updateStateMachineUI(
+          "SETTLING",
+          `🔵 Locking ${consensusDice.length} dice... (${this.settledFrameCounter}/${settleFramesRequired})`,
+          progressPct
+        );
+      } else if (this.settlingProgressBar) {
+        this.settlingProgressBar.style.width = `${progressPct}%`;
+      }
 
       if (this.settledFrameCounter >= settleFramesRequired && consensusDice.length > 0) {
         // Tag each die with Player 1 / Player 2 owner based on calibrated color profiles
@@ -1332,7 +1387,7 @@ class DiceTrackerApp {
           this.btnRerollHits.disabled = hitsLeft === 0;
           this.updateStateMachineUI(
             "LOCKED",
-            `🛡️ Scoop Guard: ${consensusDice.length} stationary dice left in tray (Failed dice removed — duplicate roll suppressed).`,
+            `🛡️ Scoop Guard: ${consensusDice.length} stationary dice left (duplicate suppressed)`,
             100
           );
           return;
@@ -1884,6 +1939,10 @@ class DiceTrackerApp {
     const p1Count = diceList.filter(d => (d.owner || 1) === 1).length;
     const p2Count = diceList.filter(d => d.owner === 2).length;
 
+    const hudSig = `${diceList.length}:${hits}:${crits}:${ones}:${sum}:${p1Count}:${p2Count}`;
+    if (this._lastHudSig === hudSig) return;
+    this._lastHudSig = hudSig;
+
     this.hudDiceCount.innerText = diceList.length;
     this.hudHitsCount.innerText = hits;
     this.hudCritsCount.innerText = crits;
@@ -1895,8 +1954,19 @@ class DiceTrackerApp {
   }
 
   updateStateMachineUI(state, hintText, progressPct) {
-    this.stateHint.innerText = hintText;
-    this.settlingProgressBar.style.width = `${progressPct}%`;
+    if (this._lastUiHint !== hintText) {
+      this._lastUiHint = hintText;
+      this.stateHint.innerText = hintText;
+    }
+    if (this._lastUiProgress !== progressPct) {
+      this._lastUiProgress = progressPct;
+      this.settlingProgressBar.style.width = `${progressPct}%`;
+    }
+
+    const lockedLabel = state === "LOCKED" ? `🟣 LOCKED ✅ (${this.currentDetectedDice.length} Dice)` : "";
+    const stateKey = state === "LOCKED" ? `${state}:${lockedLabel}` : state;
+    if (this._lastUiState === stateKey) return;
+    this._lastUiState = stateKey;
 
     if (state === "IDLE") {
       this.statePill.className = "state-pill state-idle";
@@ -1909,7 +1979,7 @@ class DiceTrackerApp {
       this.statePill.innerText = "🔵 SETTLING — Locking Count";
     } else if (state === "LOCKED") {
       this.statePill.className = "state-pill state-locked";
-      this.statePill.innerText = `🟣 LOCKED ✅ (${this.currentDetectedDice.length} Dice)`;
+      this.statePill.innerText = lockedLabel;
     }
   }
 
@@ -2556,4 +2626,5 @@ class DiceTrackerApp {
 let app;
 window.addEventListener("DOMContentLoaded", () => {
   app = new DiceTrackerApp();
+  window.app = app;
 });

@@ -539,6 +539,23 @@ app.undoLastRoll();
 const historyAfterUndo = app.history.length;
 const totalDiceAfterUndo = app.distribution.slice(1).reduce((a, b) => a + b, 0);
 
+// Test Anti-Flicker: Empty-tray camera shake + transient 1-2 frame noise specks must stay IDLE
+app.rollState = 'IDLE';
+app.consecutiveDiceFrames = 0;
+const statesDuringEmptyShake = [];
+for (let f = 0; f < 15; f++) {
+  app.stepRollStateMachine(0.06, [], dummyRgba, 640, 480);
+  statesDuringEmptyShake.push(app.rollState);
+}
+// 2 frames of a transient noise blob with motion, followed by empty tray
+app.stepRollStateMachine(0.05, [{ x: 200, y: 200, w: 30, h: 30, value: 1 }], dummyRgba, 640, 480);
+statesDuringEmptyShake.push(app.rollState);
+app.stepRollStateMachine(0.05, [{ x: 200, y: 200, w: 30, h: 30, value: 1 }], dummyRgba, 640, 480);
+statesDuringEmptyShake.push(app.rollState);
+app.stepRollStateMachine(0.02, [], dummyRgba, 640, 480);
+statesDuringEmptyShake.push(app.rollState);
+const antiFlickerStayedIdle = statesDuringEmptyShake.every(s => s === 'IDLE');
+
 console.log(JSON.stringify({
   poolResults,
   avgFrameMs: totalTimingMs / totalTimingFrames,
@@ -553,7 +570,8 @@ console.log(JSON.stringify({
   historyAfterUndo,
   totalDiceAfterUndo,
   syncedGtCount: syncedGt.length,
-  syncedGtFirstSource: syncedGt[0] ? syncedGt[0].source : null
+  syncedGtFirstSource: syncedGt[0] ? syncedGt[0].source : null,
+  antiFlickerStayedIdle
 }));
 """
         proc = subprocess.run(
@@ -602,7 +620,13 @@ console.log(JSON.stringify({
         self.assertEqual(result["syncedGtCount"], 2)
         self.assertEqual(result["syncedGtFirstSource"], "cv_camera")
 
-        # 6. Verify Performance (< 15ms per 640x480 frame)
+        # 6. Verify Anti-Flicker (Empty tray shake + transient 1-2 frame specks stay IDLE)
+        self.assertTrue(
+            result["antiFlickerStayedIdle"],
+            "State machine flickered out of IDLE during empty tray shake or 1-2 frame transient noise!",
+        )
+
+        # 7. Verify Performance (< 15ms per 640x480 frame)
         self.assertLess(
             result["avgFrameMs"],
             15.0,
@@ -610,13 +634,14 @@ console.log(JSON.stringify({
         )
 
     def test_mobile_responsive_layout_and_zero_overflow(self):
-        """Verify styles.css uses minmax(0, 1fr), min-width: 0, camera-first mobile ordering, and mobile history cards."""
+        """Verify styles.css uses minmax(0, 1fr), min-width: 0, fixed-height state-machine-bar, and mobile history cards."""
         css_text = (ROOT_DIR / "web" / "dice_tracker" / "styles.css").read_text(encoding="utf-8")
         self.assertEqual(css_text.count("{"), css_text.count("}"), "Unbalanced braces in web/dice_tracker/styles.css")
         self.assertIn("grid-template-columns: minmax(0, 1fr)", css_text)
         self.assertIn("MOBILE CAMERA-FIRST ERGONOMICS", css_text)
         self.assertIn(".vision-card > .viewfinder-container", css_text)
         self.assertIn(".history-table tr.history-row", css_text)
+        self.assertIn("height: 54px;", css_text)
 
 
 if __name__ == "__main__":
