@@ -8334,7 +8334,7 @@ function renderEventCreatorHub(ev) {
       </button>
       <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'stream' ? 'active' : ''}" onclick="switchCreatorHubMode('stream')">
         <span>📺 Live Stream & OBS</span>
-        <span class="badge" style="background:#ef4444; color:#fff; font-size:0.65rem; padding:1px 5px; border-radius:4px;">LIVE</span>
+        <span class="subtab-count-badge" style="display:inline-flex; align-items:center; background:#ef4444; color:#fff; font-size:0.65rem; font-weight:800; padding:1px 6px; border-radius:4px; border:none; line-height:1.2;">LIVE</span>
       </button>
     </div>
   `;

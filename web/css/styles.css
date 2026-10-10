@@ -11900,18 +11900,18 @@ table.desktop-only,
 }
 
 #event-hub-subtabs-bar .profile-subtab-btn {
-  flex: 1 0 auto !important;
+  flex: 1 1 auto !important;
   min-width: max-content !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 0.45rem !important;
-  padding: 0.52rem 0.85rem !important;
+  gap: 0.38rem !important;
+  padding: 0.48rem 0.72rem !important;
   border-radius: 8px !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   background: rgba(255, 255, 255, 0.03) !important;
   color: var(--text-secondary) !important;
-  font-size: 0.82rem !important;
+  font-size: 0.8rem !important;
   font-weight: 700 !important;
   cursor: pointer !important;
   transition: all 0.15s ease !important;
@@ -12659,7 +12659,7 @@ table.desktop-only,
 
 .creator-mode-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.45rem;
   width: 100%;
   box-sizing: border-box;
@@ -12686,6 +12686,7 @@ table.desktop-only,
   gap: 0.45rem;
   width: 100%;
   box-sizing: border-box;
+  line-height: 1.25;
 }
 
 .creator-mode-btn:hover {
@@ -12702,14 +12703,16 @@ table.desktop-only,
 
 @media (max-width: 768px) {
   .creator-mode-tabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    padding: 0.45rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding: 0.35rem;
+    gap: 0.35rem;
     overflow: visible;
   }
   .creator-mode-btn {
-    padding: 0.55rem 0.65rem;
-    font-size: 0.78rem;
+    padding: 0.5rem 0.45rem;
+    font-size: 0.74rem;
     font-weight: 600;
+    gap: 0.3rem;
     min-width: 0;
   }
 }
