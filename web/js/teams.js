@@ -779,6 +779,36 @@ function renderMobileRosterCards(roster, sys, statusFilter = null) {
   return html;
 }
 
+function normalizeTeamLedgerScores(item) {
+  const isWin = item.result === 'win';
+  const isLoss = item.result === 'loss';
+  const rawScore = String(item.score || '').trim();
+  const parts = rawScore.split('-').map(s => s.trim());
+  if (parts.length === 2) {
+    const n1 = Number(parts[0]);
+    const n2 = Number(parts[1]);
+    if (!isNaN(n1) && !isNaN(n2)) {
+      if ((isWin && n1 < n2) || (isLoss && n1 > n2)) {
+        return {
+          clubScore: String(parts[1]),
+          oppScore: String(parts[0]),
+          formatted: `${parts[1]} - ${parts[0]}`
+        };
+      }
+      return {
+        clubScore: String(parts[0]),
+        oppScore: String(parts[1]),
+        formatted: `${parts[0]} - ${parts[1]}`
+      };
+    }
+  }
+  return {
+    clubScore: parts[0] || '-',
+    oppScore: parts[1] || '-',
+    formatted: rawScore || '-'
+  };
+}
+
 function renderTeamBattleLedger(feed) {
   if (!feed || feed.length === 0) {
     return `
@@ -815,6 +845,7 @@ function renderTeamBattleLedger(feed) {
             const formattedDate = item.date ? new Date(item.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent';
             const delta = item.elo_delta || '';
             const isPositive = delta.startsWith('+');
+            const normScores = normalizeTeamLedgerScores(item);
 
             return `
               <tr>
@@ -837,7 +868,7 @@ function renderTeamBattleLedger(feed) {
                   ${item.opponent_team ? `<div style="margin-top: 2px; overflow: hidden; text-overflow: ellipsis;"><span class="badge" title="${escapeHtml(item.opponent_team)}" style="background: rgba(168,85,247,0.1); color: #c084fc; border: 1px solid rgba(168,85,247,0.25); font-size: 0.64rem; padding: 1px 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle;">🛡️ ${escapeHtml(item.opponent_team)}</span></div>` : ''}
                 </td>
                 <td style="text-align: center; font-family: var(--font-mono); font-weight: 700; color: #fff; font-size: 0.82rem; padding: 0.55rem 0.45rem; white-space: nowrap;">
-                  ${escapeHtml(item.score || '-')}
+                  ${escapeHtml(normScores.formatted)}
                 </td>
                 <td style="text-align: center; padding: 0.55rem 0.45rem; white-space: nowrap;">
                   <span class="badge" style="background: ${isWin ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}; color: ${resultColor}; border: 1px solid ${isWin ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}; font-size: 0.68rem; padding: 0.16rem 0.45rem; font-weight: 800;">
@@ -866,9 +897,9 @@ function renderMobileMatchesCards(feed) {
     const resBadge = isWin ? 'VICTORY' : 'DEFEAT';
     const dateStr = item.date ? new Date(item.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent';
     const delta = item.elo_delta || '';
-    const scoreParts = String(item.score || '').split('-').map(s => s.trim());
-    const clubScore = scoreParts[0] || '-';
-    const oppScore = scoreParts[1] || '-';
+    const normScores = normalizeTeamLedgerScores(item);
+    const clubScore = normScores.clubScore;
+    const oppScore = normScores.oppScore;
 
     return `
       <div class="mobile-match-card ${isWin ? 'match-win' : 'match-loss'}">

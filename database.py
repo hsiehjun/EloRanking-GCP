@@ -6955,7 +6955,10 @@ class PostgresDatabase:
                             WHEN m.player1_id = ANY(%(pids)s) THEN COALESCE(ep2.team, pr2.team, 'Independent')
                             ELSE COALESCE(ep1.team, pr1.team, 'Independent')
                         END as opponent_team,
-                        CONCAT(COALESCE(m.player1_score, 0), ' - ', COALESCE(m.player2_score, 0)) as score,
+                        CASE 
+                            WHEN m.player1_id = ANY(%(pids)s) THEN CONCAT(COALESCE(m.player1_score, 0), ' - ', COALESCE(m.player2_score, 0))
+                            ELSE CONCAT(COALESCE(m.player2_score, 0), ' - ', COALESCE(m.player1_score, 0))
+                        END as score,
                         CASE 
                             WHEN (m.player1_id = ANY(%(pids)s) AND m.winner_id = m.player1_id) 
                               OR (m.player2_id = ANY(%(pids)s) AND m.winner_id = m.player2_id) THEN 'win'
