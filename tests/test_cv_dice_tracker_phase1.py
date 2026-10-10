@@ -979,9 +979,264 @@ eval(fs.readFileSync('web/dice_tracker/app.js', 'utf8') + '\nglobal.DiceTrackerA
         self.assertEqual(res["historyAfterSingleDieRoll"], 3, "Single-die roll must lock and append to Roll History")
         self.assertTrue(res["postOnnxLastRoiGrayIsNull"], "lastRoiGray must reset after ONNX pass to prevent frame-gap spike")
 
+    def test_freeform_angled_polygon_roi_and_fast_settle_and_hud_counts(self):
+        """
+        Verify:
+        1. Freeform 4-corner angled polygon ROI (trapezoid perspective) strictly excludes dice
+           that lie inside the axis-aligned bounding box (roiBox) but outside the angled polygon edges,
+           while accurately detecting all dice inside the angled polygon.
+        2. Post-stop motion has zero EMA ghost-trail lag (motion drops to 0 on the very first static frame)
+           and locks within 4 settling frames.
+        3. HUD badge displays 6s, 5s, 4s, 3s, 2s, 1s and bottom camera-actions bar is removed.
+        """
+        html_text = (ROOT_DIR / "web" / "dice_tracker" / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn('<div class="camera-actions">', html_text)
+        for label in ("6s:", "5s:", "4s:", "3s:", "2s:", "1s:"):
+            self.assertIn(label, html_text)
+        for span_id in (
+            "hudCritsCount",
+            "hudFivesCount",
+            "hudFoursCount",
+            "hudThreesCount",
+            "hudTwosCount",
+            "hudOnesCount",
+        ):
+            self.assertIn(span_id, html_text)
+
+        node_script = r"""
+const fs = require('fs');
+class OffscreenCanvas2D {
+  constructor(width = 640, height = 480) {
+    this.width = width;
+    this.height = height;
+    this.clientWidth = width;
+    this.clientHeight = height;
+    this.buf = new Uint8ClampedArray(width * height * 4);
+    this.style = {};
+    this._ctx = new OffscreenContext2D(this);
+  }
+  getContext() { return this._ctx; }
+  addEventListener() {}
+  getBoundingClientRect() { return { width: this.width, height: this.height, left: 0, top: 0 }; }
+}
+class OffscreenContext2D {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.fillStyle = '#000000';
+    this.strokeStyle = '#000000';
+    this.lineWidth = 1;
+    this._stack = [];
+    this._tx = 0; this._ty = 0; this._rot = 0;
+    this._path = [];
+  }
+  save() { this._stack.push({ fillStyle: this.fillStyle, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth, tx: this._tx, ty: this._ty, rot: this._rot }); }
+  restore() { const s = this._stack.pop(); if (s) { this.fillStyle = s.fillStyle; this.strokeStyle = s.strokeStyle; this.lineWidth = s.lineWidth; this._tx = s.tx; this._ty = s.ty; this._rot = s.rot; } }
+  translate(x, y) { const cos = Math.cos(this._rot), sin = Math.sin(this._rot); this._tx += x * cos - y * sin; this._ty += x * sin + y * cos; }
+  rotate(angle) { this._rot += angle; }
+  clearRect() { this.canvas.buf.fill(0); }
+  createRadialGradient() { return { addColorStop() {} }; }
+  setLineDash() {}
+  fillText() {}
+  strokeRect() {}
+  drawImage(src) { if (src && src.buf) this.canvas.buf.set(src.buf); }
+  parseColor(c) {
+    if (!c || typeof c !== 'string') return [30, 41, 59, 255];
+    c = c.trim();
+    if (c.startsWith('#')) {
+      const hex = c.slice(1);
+      if (hex.length === 3) return [parseInt(hex[0]+hex[0],16), parseInt(hex[1]+hex[1],16), parseInt(hex[2]+hex[2],16), 255];
+      return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16), 255];
+    }
+    if (c.startsWith('rgba')) {
+      const m = c.match(/[\d.]+/g);
+      return m ? [Number(m[0]), Number(m[1]), Number(m[2]), Math.round(Number(m[3])*255)] : [0,0,0,255];
+    }
+    return [30, 41, 59, 255];
+  }
+  _setPixel(px, py, rgba) {
+    const w = this.canvas.width, h = this.canvas.height;
+    if (px < 0 || px >= w || py < 0 || py >= h) return;
+    const idx = (py * w + px) * 4;
+    const a = rgba[3] / 255;
+    if (a >= 0.99) {
+      this.canvas.buf[idx] = rgba[0]; this.canvas.buf[idx+1] = rgba[1]; this.canvas.buf[idx+2] = rgba[2]; this.canvas.buf[idx+3] = 255;
+    } else if (a > 0) {
+      this.canvas.buf[idx] = Math.round(rgba[0]*a + this.canvas.buf[idx]*(1-a));
+      this.canvas.buf[idx+1] = Math.round(rgba[1]*a + this.canvas.buf[idx+1]*(1-a));
+      this.canvas.buf[idx+2] = Math.round(rgba[2]*a + this.canvas.buf[idx+2]*(1-a));
+      this.canvas.buf[idx+3] = 255;
+    }
+  }
+  fillRect(x, y, w, h) {
+    const rgba = this.parseColor(this.fillStyle);
+    if (this._rot === 0 && this._tx === 0 && this._ty === 0) {
+      const x0 = Math.max(0, Math.floor(x)), y0 = Math.max(0, Math.floor(y));
+      const x1 = Math.min(this.canvas.width, Math.ceil(x + w)), y1 = Math.min(this.canvas.height, Math.ceil(y + h));
+      for (let py = y0; py < y1; py++) for (let px = x0; px < x1; px++) this._setPixel(px, py, rgba);
+      return;
+    }
+    this.beginPath(); this.roundRect(x, y, w, h, 0); this.fill();
+  }
+  beginPath() { this._path = []; }
+  roundRect(x, y, w, h, r) { this._path.push({ type: 'rect', x, y, w, h, r: r || 0 }); }
+  arc(x, y, r) { this._path.push({ type: 'arc', x, y, r }); }
+  moveTo(x, y) { this._path.push({ type: 'move', x, y }); }
+  lineTo(x, y) { this._path.push({ type: 'line', x, y }); }
+  closePath() {}
+  fill() {
+    const rgba = this.parseColor(this.fillStyle);
+    const cos = Math.cos(this._rot), sin = Math.sin(this._rot);
+    for (const p of this._path) {
+      if (p.type === 'rect') {
+        for (let ly = p.y; ly <= p.y + p.h; ly += 0.5) {
+          for (let lx = p.x; lx <= p.x + p.w; lx += 0.5) {
+            this._setPixel(Math.round(this._tx + lx * cos - ly * sin), Math.round(this._ty + lx * sin + ly * cos), rgba);
+          }
+        }
+      } else if (p.type === 'arc') {
+        const r2 = p.r * p.r;
+        for (let dy = -p.r; dy <= p.r; dy += 0.5) {
+          for (let dx = -p.r; dx <= p.r; dx += 0.5) {
+            if (dx*dx + dy*dy <= r2) {
+              const lx = p.x + dx, ly = p.y + dy;
+              this._setPixel(Math.round(this._tx + lx * cos - ly * sin), Math.round(this._ty + lx * sin + ly * cos), rgba);
+            }
+          }
+        }
+      }
+    }
+  }
+  stroke() {}
+  getImageData(x, y, w, h) { return { data: new Uint8ClampedArray(this.canvas.buf), width: w, height: h }; }
+}
+const defaultValues = { thresholdSlider: '22', bgFilterSlider: '5', minDiceSize: '22', targetSuccess: '4', diceColorMode: 'auto', p1SchemeSelect: 'bone_black', p2SchemeSelect: 'crimson_gold' };
+const elCache = {};
+function makeEl(id) {
+  if (id === 'outputCanvas' || id === 'distributionChart') return new OffscreenCanvas2D(640, 480);
+  return { id, style: {}, value: defaultValues[id] || '0', checked: true, innerText: '', textContent: '', innerHTML: '', disabled: false, classList: { add(){}, remove(){}, toggle(){} }, addEventListener(){}, appendChild(){}, getBoundingClientRect() { return { width: 640, height: 480, left: 0, top: 0 }; }, querySelectorAll() { return []; } };
+}
+global.window = { location: { search: '' }, addEventListener() {}, requestAnimationFrame() {}, localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} } };
+global.localStorage = global.window.localStorage;
+global.navigator = { vibrate() {} };
+global.document = {
+  getElementById(id) { if (!elCache[id]) elCache[id] = makeEl(id); return elCache[id]; },
+  querySelectorAll() { return []; },
+  createElement(tag) { return tag === 'canvas' ? new OffscreenCanvas2D(640, 480) : makeEl(tag); },
+  addEventListener() {}
+};
+eval(fs.readFileSync('web/dice_tracker/app.js', 'utf8') + '\nglobal.DiceTrackerApp = DiceTrackerApp;');
+(async () => {
+  const app = new DiceTrackerApp();
+  // Configure a tilted perspective trapezoid ROI:
+  // Top edge is narrow (x: 0.30 .. 0.70 at y: 0.10), bottom edge is wide (x: 0.08 .. 0.92 at y: 0.90)
+  // Notice the AABB is x: 0.08..0.92 (51..588px), y: 0.10..0.90 (48..432px).
+  app.setRoiPolygon([
+    { x: 0.30, y: 0.10 },
+    { x: 0.70, y: 0.10 },
+    { x: 0.92, y: 0.90 },
+    { x: 0.08, y: 0.90 }
+  ]);
+
+  const sCtx = app.simCtx;
+  sCtx.fillStyle = '#18202c';
+  sCtx.fillRect(0, 0, 640, 480);
+
+  // Place 1 distractor die at (x=80, y=75) -> INSIDE the AABB (80 > 51, 75 > 48),
+  // but OUTSIDE the angled top-left edge of the trapezoid!
+  app.drawRealisticDieOnCtx(sCtx, 80, 75, 34, 6, 'bone_black', false, 0);
+
+  // Place 6 valid dice (faces 1..6) inside the angled trapezoid
+  const insidePlacements = [
+    { x: 235, y: 110, val: 1 },
+    { x: 355, y: 110, val: 2 },
+    { x: 195, y: 220, val: 3 },
+    { x: 310, y: 220, val: 4 },
+    { x: 425, y: 220, val: 5 },
+    { x: 295, y: 330, val: 6 }
+  ];
+  for (const d of insidePlacements) {
+    app.drawRealisticDieOnCtx(sCtx, d.x, d.y, 34, d.val, 'bone_black', false, 0.18);
+  }
+
+  const frameData = sCtx.getImageData(0, 0, 640, 480);
+  const detected = app.detectRealDice(frameData, 640, 480);
+  const detectedValues = detected.map(d => d.value).sort((a, b) => a - b);
+
+  app.updateLiveHudCounts(detected);
+  const hudCounts = {
+    c6: Number(document.getElementById('hudCritsCount').innerText),
+    c5: Number(document.getElementById('hudFivesCount').innerText),
+    c4: Number(document.getElementById('hudFoursCount').innerText),
+    c3: Number(document.getElementById('hudThreesCount').innerText),
+    c2: Number(document.getElementById('hudTwosCount').innerText),
+    c1: Number(document.getElementById('hudOnesCount').innerText)
+  };
+
+  // Verify zero post-stop EMA lag:
+  // Frame 0: empty tray, Frame 1: dice land in tray (high motion), Frame 2: same static tray -> motion must drop to 0 immediately!
+  const emptyTray = new Uint8ClampedArray(640 * 480 * 4);
+  for (let i = 0; i < emptyTray.length; i += 4) {
+    emptyTray[i] = 24; emptyTray[i + 1] = 32; emptyTray[i + 2] = 44; emptyTray[i + 3] = 255;
+  }
+  app.lastRoiGray = null;
+  const rx = Math.max(8, Math.floor(640 * app.roiBox.x));
+  const ry = Math.max(8, Math.floor(480 * app.roiBox.y));
+  const rw = Math.min(640 - rx - 8, Math.floor(640 * app.roiBox.w));
+  const rh = Math.min(480 - ry - 8, Math.floor(480 * app.roiBox.h));
+
+  app.computeFastRoiMotionRgba(emptyTray, 640, rx, ry, rw, rh);
+  const motionOnArrival = app.computeFastRoiMotionRgba(frameData.data, 640, rx, ry, rw, rh);
+  const motionFirstStaticFrame = app.computeFastRoiMotionRgba(frameData.data, 640, rx, ry, rw, rh);
+
+  // Verify fast lock within 4 frames in stepCameraOnnxRollLifecycle
+  app.isCameraRunning = true;
+  app.onnxReady = true;
+  app.rollState = 'IDLE';
+  app.runLiveOnnxPass = async () => { app.latestOnnxDice = detected; };
+  app.stepCameraOnnxRollLifecycle(motionOnArrival, frameData.data, 640, 480, rx, ry, rw, rh);
+  const stateOnArrival = app.rollState;
+  let framesToLock = 0;
+  for (let f = 1; f <= 6; f++) {
+    app.stepCameraOnnxRollLifecycle(0.0, frameData.data, 640, 480, rx, ry, rw, rh);
+    await new Promise(r => setTimeout(r, 5));
+    if (app.rollState === 'LOCKED') {
+      framesToLock = f;
+      break;
+    }
+  }
+
+  console.log(JSON.stringify({
+    detectedCount: detected.length,
+    detectedValues,
+    hudCounts,
+    motionOnArrival,
+    motionFirstStaticFrame,
+    stateOnArrival,
+    framesToLock
+  }));
+})();
+"""
+        proc = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(ROOT_DIR),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        res = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertEqual(res["detectedCount"], 6, "Distractor inside AABB but outside angled trapezoid must be ignored")
+        self.assertEqual(res["detectedValues"], [1, 2, 3, 4, 5, 6])
+        self.assertEqual(res["hudCounts"], {"c6": 1, "c5": 1, "c4": 1, "c3": 1, "c2": 1, "c1": 1})
+        self.assertGreater(res["motionOnArrival"], 0.02)
+        self.assertEqual(res["motionFirstStaticFrame"], 0.0, "Motion must drop to 0 immediately when dice stop without EMA ghost trail")
+        self.assertEqual(res["stateOnArrival"], "ROLLING")
+        self.assertGreaterEqual(res["framesToLock"], 1)
+        self.assertLessEqual(res["framesToLock"], 4, f"Expected lock within <= 4 frames, got {res['framesToLock']}")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

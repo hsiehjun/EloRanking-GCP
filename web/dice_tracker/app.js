@@ -28,8 +28,16 @@ class DiceTrackerApp {
     this.torchEnabled = false;
     this.cameraZoom = 1.0;
 
-    // Interactive Draggable ROI Box (Dice Tray bounds in normalized 0..1 coordinates)
-    this.roiBox = { x: 0.08, y: 0.08, w: 0.84, h: 0.84 };
+    // Interactive Freeform 4-Corner Polygon ROI (adjusts to any camera/phone tilt angle in normalized 0..1 coords)
+    // Order: [0: Top-Left, 1: Top-Right, 2: Bottom-Right, 3: Bottom-Left]
+    this._roiBox = { x: 0.08, y: 0.08, w: 0.84, h: 0.84 };
+    this.roiPoly = [
+      { x: 0.08, y: 0.08 },
+      { x: 0.92, y: 0.08 },
+      { x: 0.92, y: 0.92 },
+      { x: 0.08, y: 0.92 }
+    ];
+    this._roiSampleMask = null;
     this.draggingRoiCorner = null;
 
     // Pre-Game Player Dice Profiles ("🎯 Set Your Dice")
@@ -109,6 +117,134 @@ class DiceTrackerApp {
     this.updateStatsUI();
     this.drawIdlePreviewCanvas();
     this.updateStateMachineUI("IDLE", "Drag green corners or edges to fit your dice tray.", 0);
+
+    // Auto-start camera when opened in a browser with camera support
+    if (typeof navigator !== "undefined" && navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function") {
+      this.startCamera().catch(() => {});
+    }
+  }
+
+  get roiBox() {
+    return this._roiBox;
+  }
+
+  set roiBox(box) {
+    if (!box || typeof box !== "object") return;
+    const x = Math.max(0.01, Math.min(0.95, Number(box.x) || 0.08));
+    const y = Math.max(0.01, Math.min(0.95, Number(box.y) || 0.08));
+    const w = Math.max(0.05, Math.min(0.99 - x, Number(box.w) || 0.84));
+    const h = Math.max(0.05, Math.min(0.99 - y, Number(box.h) || 0.84));
+    this._roiBox = { x, y, w, h };
+    this.roiPoly = [
+      { x, y },
+      { x: x + w, y },
+      { x: x + w, y: y + h },
+      { x, y: y + h }
+    ];
+    this._roiSampleMask = null;
+  }
+
+  syncRoiBoxFromPoly() {
+    if (!Array.isArray(this.roiPoly) || this.roiPoly.length !== 4) return;
+    let minX = 1, maxX = 0, minY = 1, maxY = 0;
+    for (let i = 0; i < 4; i++) {
+      const p = this.roiPoly[i];
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    this._roiBox = {
+      x: minX,
+      y: minY,
+      w: Math.max(0.05, maxX - minX),
+      h: Math.max(0.05, maxY - minY)
+    };
+    this._roiSampleMask = null;
+  }
+
+  setRoiPolygon(points) {
+    if (!Array.isArray(points) || points.length !== 4) return false;
+    const clamped = points.map(p => ({
+      x: Math.max(0.02, Math.min(0.98, Number(p.x) || 0)),
+      y: Math.max(0.02, Math.min(0.98, Number(p.y) || 0))
+    }));
+    if (!this.isValidRoiPolygon(clamped)) return false;
+    this.roiPoly = clamped;
+    this.syncRoiBoxFromPoly();
+    this.lastRoiGray = null;
+    return true;
+  }
+
+  getRoiPixelPolygon(width = 640, height = 480) {
+    const poly = (Array.isArray(this.roiPoly) && this.roiPoly.length === 4)
+      ? this.roiPoly
+      : [
+          { x: this._roiBox.x, y: this._roiBox.y },
+          { x: this._roiBox.x + this._roiBox.w, y: this._roiBox.y },
+          { x: this._roiBox.x + this._roiBox.w, y: this._roiBox.y + this._roiBox.h },
+          { x: this._roiBox.x, y: this._roiBox.y + this._roiBox.h }
+        ];
+    return poly.map(p => ({
+      x: Math.max(6, Math.min(width - 6, p.x * width)),
+      y: Math.max(6, Math.min(height - 6, p.y * height))
+    }));
+  }
+
+  distToSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    if (len2 <= 1e-6) return Math.hypot(px - x1, py - y1);
+    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / len2));
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+  }
+
+  segmentsIntersect(a, b, c, d) {
+    const ccw = (p1, p2, p3) => (p3.y - p1.y) * (p2.x - p1.x) > (p2.y - p1.y) * (p3.x - p1.x);
+    return (ccw(a, c, d) !== ccw(b, c, d)) && (ccw(a, b, c) !== ccw(a, b, d));
+  }
+
+  isValidRoiPolygon(poly) {
+    if (!Array.isArray(poly) || poly.length !== 4) return false;
+    // Ensure minimum side lengths and no self-intersecting bowtie edges
+    for (let i = 0; i < 4; i++) {
+      const a = poly[i];
+      const b = poly[(i + 1) % 4];
+      if (Math.hypot(b.x - a.x, b.y - a.y) < 0.06) return false;
+    }
+    if (this.segmentsIntersect(poly[0], poly[1], poly[2], poly[3])) return false;
+    if (this.segmentsIntersect(poly[1], poly[2], poly[3], poly[0])) return false;
+    // Signed shoelace area > 0.015 (clockwise in screen space)
+    let area2 = 0;
+    for (let i = 0; i < 4; i++) {
+      const a = poly[i];
+      const b = poly[(i + 1) % 4];
+      area2 += a.x * b.y - b.x * a.y;
+    }
+    return area2 >= 0.03;
+  }
+
+  isPointInRoiPolygon(px, py, polyPts = null, insetPx = 0) {
+    const pts = polyPts || this.getRoiPixelPolygon(this.canvas ? this.canvas.width : 640, this.canvas ? this.canvas.height : 480);
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const xi = pts[i].x, yi = pts[i].y;
+      const xj = pts[j].x, yj = pts[j].y;
+      const intersect = ((yi > py) !== (yj > py)) &&
+        (px < ((xj - xi) * (py - yi)) / ((yj - yi) || 1e-7) + xi);
+      if (intersect) inside = !inside;
+    }
+    if (!inside) return false;
+    if (insetPx > 0) {
+      for (let i = 0; i < pts.length; i++) {
+        const next = pts[(i + 1) % pts.length];
+        if (this.distToSegment(px, py, pts[i].x, pts[i].y, next.x, next.y) < insetPx) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   ensureCvBuffers(width, height) {
@@ -180,11 +316,12 @@ class DiceTrackerApp {
     return tensor;
   }
 
-  decodeYoloOnnxOutput(outputData, rgba, width, height, rx, ry, rw, rh, confThresh = 0.52) {
+  decodeYoloOnnxOutput(outputData, rgba, width, height, rx, ry, rw, rh, confThresh = 0.42) {
     const numAnchors = 8400;
     const numClasses = 6;
     const padTop = Math.floor((640 - height) / 2);
-    const minBoxPx = Math.max(18, Math.round(((this.minDiceSize ? parseInt(this.minDiceSize.value, 10) : 22) || 22) * 0.8));
+    const minBoxPx = Math.max(14, Math.round(((this.minDiceSize ? parseInt(this.minDiceSize.value, 10) : 22) || 22) * 0.68));
+    const polyPts = this.getRoiPixelPolygon(width, height);
     const candidates = [];
 
     for (let i = 0; i < numAnchors; i++) {
@@ -204,11 +341,12 @@ class DiceTrackerApp {
       const bw = outputData[2 * numAnchors + i];
       const bh = outputData[3 * numAnchors + i];
 
-      // Strictly enforce Dice Tray ROI bounds + physical cube die size & aspect ratio
+      // Strictly enforce angled Dice Tray Polygon + bounding box + perspective-tolerant cube aspect ratio
       if (cx < rx || cx > rx + rw || cy < ry || cy > ry + rh) continue;
-      if (bw < minBoxPx || bh < minBoxPx || bw > 140 || bh > 140) continue;
+      if (!this.isPointInRoiPolygon(cx, cy, polyPts, 2)) continue;
+      if (bw < minBoxPx || bh < minBoxPx || bw > 145 || bh > 145) continue;
       const aspect = bw / (bh || 1);
-      if (aspect < 0.65 || aspect > 1.50) continue;
+      if (aspect < 0.52 || aspect > 1.90) continue;
 
       candidates.push({
         x1: cx - bw * 0.5,
@@ -277,7 +415,7 @@ class DiceTrackerApp {
       const results = await this.onnxSession.run(feeds);
       const outputTensor = results.output0 || results[Object.keys(results)[0]];
       if (outputTensor && outputTensor.data) {
-        this.latestOnnxDice = this.decodeYoloOnnxOutput(
+        const onnxDice = this.decodeYoloOnnxOutput(
           outputTensor.data,
           rgba,
           width,
@@ -286,8 +424,28 @@ class DiceTrackerApp {
           ry,
           rw,
           rh,
-          0.45
+          0.42
         );
+        // Cross-verify with local perspective-adaptive CV for custom-6 emblems or steeply angled dice
+        const localCvDice = this.detectRealDice({ data: rgba, width, height }, width, height);
+        if (onnxDice.length === 0 && localCvDice.length > 0) {
+          this.latestOnnxDice = localCvDice;
+        } else {
+          onnxDice.forEach(od => {
+            const ocx = od.x + od.w * 0.5;
+            const ocy = od.y + od.h * 0.5;
+            const matchedLocal = localCvDice.find(
+              cd => Math.hypot((cd.x + cd.w * 0.5) - ocx, (cd.y + cd.h * 0.5) - ocy) <= Math.max(od.w, cd.w) * 0.55
+            );
+            if (matchedLocal && matchedLocal.isCustomSymbol) {
+              od.value = 6;
+              od.isCustomSymbol = true;
+            } else if (matchedLocal && od.conf < 0.52) {
+              od.value = matchedLocal.value;
+            }
+          });
+          this.latestOnnxDice = onnxDice;
+        }
         this.onnxLatencyMs = performance.now() - t0;
       }
     } catch (err) {
@@ -377,6 +535,10 @@ class DiceTrackerApp {
     this.hudDiceCount = document.getElementById("hudDiceCount");
     this.hudHitsCount = document.getElementById("hudHitsCount");
     this.hudCritsCount = document.getElementById("hudCritsCount");
+    this.hudFivesCount = document.getElementById("hudFivesCount");
+    this.hudFoursCount = document.getElementById("hudFoursCount");
+    this.hudThreesCount = document.getElementById("hudThreesCount");
+    this.hudTwosCount = document.getElementById("hudTwosCount");
     this.hudOnesCount = document.getElementById("hudOnesCount");
     this.hudTargetLabel = document.getElementById("hudTargetLabel");
     this.hudDiceSum = document.getElementById("hudDiceSum");
@@ -560,12 +722,20 @@ class DiceTrackerApp {
     const h = this.canvas.height;
     this.ctx.fillStyle = "#0b111e";
     this.ctx.fillRect(0, 0, w, h);
+    const pts = this.getRoiPixelPolygon(w, h);
+    this.ctx.fillStyle = "#131c2e";
+    this.ctx.beginPath();
+    this.ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) {
+      this.ctx.lineTo(pts[i].x, pts[i].y);
+    }
+    this.ctx.lineTo(pts[0].x, pts[0].y);
+    if (typeof this.ctx.closePath === "function") this.ctx.closePath();
+    this.ctx.fill();
     const rx = Math.max(8, Math.floor(w * this.roiBox.x));
     const ry = Math.max(8, Math.floor(h * this.roiBox.y));
     const rw = Math.min(w - rx - 8, Math.floor(w * this.roiBox.w));
     const rh = Math.min(h - ry - 8, Math.floor(h * this.roiBox.h));
-    this.ctx.fillStyle = "#131c2e";
-    this.ctx.fillRect(rx, ry, rw, rh);
     this.drawDetectionsOverlay(this.currentDetectedDice, rx, ry, rw, rh);
   }
 
@@ -582,47 +752,70 @@ class DiceTrackerApp {
 
     const onPointerDown = (evt) => {
       const pt = getCanvasCoords(evt);
-      const rx1 = this.roiBox.x * this.canvas.width;
-      const ry1 = this.roiBox.y * this.canvas.height;
-      const rx2 = (this.roiBox.x + this.roiBox.w) * this.canvas.width;
-      const ry2 = (this.roiBox.y + this.roiBox.h) * this.canvas.height;
-      const cornerRadius = 38;
-      const edgeRadius = 26;
+      const pts = this.getRoiPixelPolygon(this.canvas.width, this.canvas.height);
+      const cornerRadius = 40;
+      const edgeRadius = 28;
 
-      if (Math.hypot(pt.x - rx1, pt.y - ry1) < cornerRadius) {
-        this.draggingRoiCorner = "TL";
-      } else if (Math.hypot(pt.x - rx2, pt.y - ry1) < cornerRadius) {
-        this.draggingRoiCorner = "TR";
-      } else if (Math.hypot(pt.x - rx1, pt.y - ry2) < cornerRadius) {
-        this.draggingRoiCorner = "BL";
-      } else if (Math.hypot(pt.x - rx2, pt.y - ry2) < cornerRadius) {
-        this.draggingRoiCorner = "BR";
-      } else if (Math.abs(pt.y - ry1) < edgeRadius && pt.x >= rx1 && pt.x <= rx2) {
-        this.draggingRoiCorner = "T";
-      } else if (Math.abs(pt.y - ry2) < edgeRadius && pt.x >= rx1 && pt.x <= rx2) {
-        this.draggingRoiCorner = "B";
-      } else if (Math.abs(pt.x - rx1) < edgeRadius && pt.y >= ry1 && pt.y <= ry2) {
-        this.draggingRoiCorner = "L";
-      } else if (Math.abs(pt.x - rx2) < edgeRadius && pt.y >= ry1 && pt.y <= ry2) {
-        this.draggingRoiCorner = "R";
-      } else {
-        const hitDie = this.currentDetectedDice.find(
-          d => pt.x >= d.x && pt.x <= d.x + d.w && pt.y >= d.y && pt.y <= d.y + d.h
-        );
-        if (hitDie) {
-          hitDie.value = (hitDie.value % 6) + 1;
-          hitDie.manualOverride = true;
-          this.updateLiveHudCounts(this.currentDetectedDice);
-          if (this.history.length > 0 && this.rollState === "LOCKED") {
-            const latest = this.history[0];
-            latest.values = this.currentDetectedDice.map(d => d.value);
-            latest.results = [...latest.values];
-            this.recalculateRollEntry(latest);
-            this.rebuildDistributionFromHistory();
-            this.updateStatsUI();
-            this.renderLastRollBadges(latest.values);
-          }
+      // 1. Check 4 independent polygon corners [0: TL, 1: TR, 2: BR, 3: BL]
+      let bestCornerIdx = -1;
+      let bestCornerDist = cornerRadius;
+      for (let i = 0; i < 4; i++) {
+        const d = Math.hypot(pt.x - pts[i].x, pt.y - pts[i].y);
+        if (d < bestCornerDist) {
+          bestCornerDist = d;
+          bestCornerIdx = i;
         }
+      }
+      if (bestCornerIdx !== -1) {
+        this.draggingRoiCorner = { type: "corner", index: bestCornerIdx };
+        return;
+      }
+
+      // 2. Check 4 polygon edges [(0,1), (1,2), (2,3), (3,0)]
+      let bestEdgeIdx = -1;
+      let bestEdgeDist = edgeRadius;
+      for (let i = 0; i < 4; i++) {
+        const nextIdx = (i + 1) % 4;
+        const d = this.distToSegment(pt.x, pt.y, pts[i].x, pts[i].y, pts[nextIdx].x, pts[nextIdx].y);
+        if (d < bestEdgeDist) {
+          bestEdgeDist = d;
+          bestEdgeIdx = i;
+        }
+      }
+      if (bestEdgeIdx !== -1) {
+        const i1 = bestEdgeIdx;
+        const i2 = (bestEdgeIdx + 1) % 4;
+        this.draggingRoiCorner = {
+          type: "edge",
+          i1,
+          i2,
+          startX: pt.x / this.canvas.width,
+          startY: pt.y / this.canvas.height,
+          origV1: { ...this.roiPoly[i1] },
+          origV2: { ...this.roiPoly[i2] }
+        };
+        return;
+      }
+
+      // 3. Check tap on a detected die to cycle its value (1..6)
+      const hitDie = this.currentDetectedDice.find(
+        d => pt.x >= d.x && pt.x <= d.x + d.w && pt.y >= d.y && pt.y <= d.y + d.h
+      );
+      if (hitDie) {
+        hitDie.value = (hitDie.value % 6) + 1;
+        hitDie.manualOverride = true;
+        this.updateLiveHudCounts(this.currentDetectedDice);
+        if (this.history.length > 0 && this.rollState === "LOCKED") {
+          const latest = this.history[0];
+          latest.values = this.currentDetectedDice.map(d => d.value);
+          latest.results = [...latest.values];
+          this.recalculateRollEntry(latest);
+          this.rebuildDistributionFromHistory();
+          this.updateStatsUI();
+          this.renderLastRollBadges(latest.values);
+        }
+      } else if (!this.isCameraRunning && !this.isSimulationMode && typeof navigator !== "undefined" && navigator.mediaDevices) {
+        this.startCamera().catch(() => {});
       }
     };
 
@@ -633,37 +826,32 @@ class DiceTrackerApp {
       const nx = Math.max(0.02, Math.min(0.98, pt.x / this.canvas.width));
       const ny = Math.max(0.02, Math.min(0.98, pt.y / this.canvas.height));
 
-      const x2 = this.roiBox.x + this.roiBox.w;
-      const y2 = this.roiBox.y + this.roiBox.h;
-      const minDim = 0.15;
-
-      if (this.draggingRoiCorner === "TL") {
-        this.roiBox.x = Math.min(nx, x2 - minDim);
-        this.roiBox.y = Math.min(ny, y2 - minDim);
-        this.roiBox.w = x2 - this.roiBox.x;
-        this.roiBox.h = y2 - this.roiBox.y;
-      } else if (this.draggingRoiCorner === "TR") {
-        this.roiBox.y = Math.min(ny, y2 - minDim);
-        this.roiBox.w = Math.max(minDim, nx - this.roiBox.x);
-        this.roiBox.h = y2 - this.roiBox.y;
-      } else if (this.draggingRoiCorner === "BL") {
-        this.roiBox.x = Math.min(nx, x2 - minDim);
-        this.roiBox.w = x2 - this.roiBox.x;
-        this.roiBox.h = Math.max(minDim, ny - this.roiBox.y);
-      } else if (this.draggingRoiCorner === "BR") {
-        this.roiBox.w = Math.max(minDim, nx - this.roiBox.x);
-        this.roiBox.h = Math.max(minDim, ny - this.roiBox.y);
-      } else if (this.draggingRoiCorner === "T") {
-        this.roiBox.y = Math.min(ny, y2 - minDim);
-        this.roiBox.h = y2 - this.roiBox.y;
-      } else if (this.draggingRoiCorner === "B") {
-        this.roiBox.h = Math.max(minDim, ny - this.roiBox.y);
-      } else if (this.draggingRoiCorner === "L") {
-        this.roiBox.x = Math.min(nx, x2 - minDim);
-        this.roiBox.w = x2 - this.roiBox.x;
-      } else if (this.draggingRoiCorner === "R") {
-        this.roiBox.w = Math.max(minDim, nx - this.roiBox.x);
+      if (this.draggingRoiCorner.type === "corner") {
+        const idx = this.draggingRoiCorner.index;
+        const candidate = this.roiPoly.map((p, i) => (i === idx ? { x: nx, y: ny } : { ...p }));
+        if (this.isValidRoiPolygon(candidate)) {
+          this.roiPoly = candidate;
+          this.syncRoiBoxFromPoly();
+        }
+      } else if (this.draggingRoiCorner.type === "edge") {
+        const { i1, i2, startX, startY, origV1, origV2 } = this.draggingRoiCorner;
+        const dx = nx - startX;
+        const dy = ny - startY;
+        const v1 = {
+          x: Math.max(0.02, Math.min(0.98, origV1.x + dx)),
+          y: Math.max(0.02, Math.min(0.98, origV1.y + dy))
+        };
+        const v2 = {
+          x: Math.max(0.02, Math.min(0.98, origV2.x + dx)),
+          y: Math.max(0.02, Math.min(0.98, origV2.y + dy))
+        };
+        const candidate = this.roiPoly.map((p, i) => (i === i1 ? v1 : i === i2 ? v2 : { ...p }));
+        if (this.isValidRoiPolygon(candidate)) {
+          this.roiPoly = candidate;
+          this.syncRoiBoxFromPoly();
+        }
       }
+
       this.lastRoiGray = null;
       if (!this.isCameraRunning && !this.isSimulationMode) {
         this.drawIdlePreviewCanvas();
@@ -1330,13 +1518,31 @@ class DiceTrackerApp {
   }
 
   // Ultra-fast subsampled ROI motion check directly from RGBA (< 0.1ms per frame, zero SAT)
-  // Includes 48x48px (12x12 sample) localized patch motion so rolling even 1 single die triggers reliably!
+  // Strictly masked to the 4-corner polygon ROI + zero post-stop ghost-trail lag!
   computeFastRoiMotionRgba(data, width, rx, ry, rw, rh) {
     const sampleStep = 4;
     const cols = Math.floor(rw / sampleStep);
     const rows = Math.floor(rh / sampleStep);
     const sampleLen = cols * rows;
     if (sampleLen <= 0) return 0;
+
+    const height = this.canvas ? this.canvas.height : 480;
+    if (!this._roiSampleMask || this._roiSampleMask.length !== sampleLen) {
+      this._roiSampleMask = new Uint8Array(sampleLen);
+      const polyPts = this.getRoiPixelPolygon(width, height);
+      let mIdx = 0;
+      let validCount = 0;
+      for (let r = 0; r < rows; r++) {
+        const py = ry + r * sampleStep;
+        for (let c = 0; c < cols; c++) {
+          const px = rx + c * sampleStep;
+          const inside = this.isPointInRoiPolygon(px, py, polyPts, 0) ? 1 : 0;
+          this._roiSampleMask[mIdx++] = inside;
+          validCount += inside;
+        }
+      }
+      this._roiValidSampleCount = Math.max(1, validCount);
+    }
 
     if (!this.lastRoiGray || this.lastRoiGray.length !== sampleLen) {
       this.lastRoiGray = new Uint8Array(sampleLen);
@@ -1361,6 +1567,7 @@ class DiceTrackerApp {
       this._patchCounts.fill(0, 0, numPatches);
     }
 
+    const mask = this._roiSampleMask;
     let changedPixels = 0;
     let maxPatchChanged = 0;
     let k = 0;
@@ -1371,21 +1578,22 @@ class DiceTrackerApp {
         const idx = (rowOff + rx + c * sampleStep) * 4;
         const currVal = (77 * data[idx] + 150 * data[idx + 1] + 29 * data[idx + 2]) >> 8;
         const prevVal = this.lastRoiGray[k];
-        if (Math.abs(currVal - prevVal) > 30) {
+        const diff = Math.abs(currVal - prevVal);
+        if (mask[k] && diff > 28) {
           changedPixels++;
           const pIdx = prOff + Math.floor(c / patchSide);
           const pc = ++this._patchCounts[pIdx];
           if (pc > maxPatchChanged) maxPatchChanged = pc;
         }
-        this.lastRoiGray[k] = (prevVal + currVal) >> 1;
+        // Snap immediately on large changes so stopping dice have zero EMA ghost-trail lag
+        this.lastRoiGray[k] = diff > 28 ? currVal : ((prevVal + 3 * currVal) >> 2);
         k++;
       }
     }
 
-    const globalMotion = changedPixels / sampleLen;
-    // A single rolling die changes 10..45 samples inside a 12x12 (144-sample) patch;
-    // stationary camera noise changes at most 0..4 samples per patch.
-    const localSingleDieMotion = maxPatchChanged >= 10 ? (maxPatchChanged / 144) * 0.18 : 0;
+    const activeSamples = this._roiValidSampleCount || sampleLen;
+    const globalMotion = changedPixels / activeSamples;
+    const localSingleDieMotion = maxPatchChanged >= 9 ? (maxPatchChanged / 144) * 0.19 : 0;
     return Math.max(globalMotion, localSingleDieMotion);
   }
 
@@ -1394,7 +1602,7 @@ class DiceTrackerApp {
     const width = this.canvas.width;
     const height = this.canvas.height;
 
-    // 1. Compute ROI bounds (strictly inside the green Dice Tray Box)
+    // 1. Compute ROI bounds (bounding box of the 4-corner green polygon)
     const rx = Math.max(8, Math.floor(width * this.roiBox.x));
     const ry = Math.max(8, Math.floor(height * this.roiBox.y));
     const rw = Math.min(width - rx - 8, Math.floor(width * this.roiBox.w));
@@ -1427,7 +1635,7 @@ class DiceTrackerApp {
         this.runLiveOnnxPass(snapshotCopy, width, height, rx, ry, rw, rh).then(() => {
           this.lastRoiGray = null;
           this.motionFramesCount = 0;
-          this.postLockWarmupFrames = 2;
+          this.postLockWarmupFrames = 1;
           this.rollState = "LOCKED";
           this.currentDetectedDice = this.latestOnnxDice || [];
           this.lockedRollDice = this.currentDetectedDice.map(d => ({ ...d }));
@@ -1467,7 +1675,7 @@ class DiceTrackerApp {
   }
 
   stepCameraOnnxRollLifecycle(roiMotion, data, width, height, rx, ry, rw, rh) {
-    // Post-ONNX lock warmup absorbs 1-2 frames of post-inference autofocus/exposure jitter
+    // Post-ONNX lock warmup absorbs 1 frame of post-inference autofocus/exposure jitter
     if (this.postLockWarmupFrames > 0) {
       this.postLockWarmupFrames--;
       if (roiMotion < 0.042) {
@@ -1476,7 +1684,8 @@ class DiceTrackerApp {
       }
     }
 
-    const settleFramesRequired = Math.max(6, Math.min(12, parseInt(this.bgFilterSlider.value, 10) || 8));
+    const rawSlider = parseInt(this.bgFilterSlider.value, 10) || 5;
+    const settleFramesRequired = Math.max(3, Math.min(5, Math.round(rawSlider * 0.45)));
     const MOTION_ENTER = 0.018;
 
     if (roiMotion > MOTION_ENTER) {
@@ -1486,10 +1695,10 @@ class DiceTrackerApp {
     }
 
     const isGenuineMotion =
-      roiMotion >= 0.042 ||
+      roiMotion >= 0.032 ||
       (roiMotion > MOTION_ENTER && this.motionFramesCount >= 2);
 
-    // 1. Motion inside the green box -> Dice are rolling!
+    // 1. Motion inside the green polygon -> Dice are rolling!
     if (isGenuineMotion) {
       if (this.rollState === "LOCKED" && this.lockedRollDice.length > 0) {
         this.hadLockedRollBeforeMotion = true;
@@ -1501,51 +1710,53 @@ class DiceTrackerApp {
       this.updateStateMachineUI(
         "ROLLING",
         "🟠 Rolling in tray — waiting for dice to stop...",
-        15
+        20
       );
       return;
     }
 
-    // 2. Already LOCKED and no new motion -> keep displaying locked roll at 60fps (zero ONNX calls!)
-    if (this.rollState === "LOCKED" && !this.cameraMotionTriggered) {
-      this.currentDetectedDice = this.lockedRollDice;
+    // 2. Already LOCKED or IDLE (or awaiting ONNX completion) with no new motion -> zero extra ONNX calls!
+    if (!this.cameraMotionTriggered) {
+      if (this.rollState === "LOCKED") {
+        this.currentDetectedDice = this.lockedRollDice;
+      }
       return;
     }
 
-    // 3. IDLE and no motion yet -> stay IDLE at 60fps (zero ONNX calls!)
-    if (this.rollState === "IDLE" && !this.cameraMotionTriggered) {
-      return;
-    }
-
-    // 4. Motion occurred and has now stopped -> no dead-zone! Count still frames and run 1 ONNX pass
+    // 3. Motion occurred and has now stopped -> fast settle & immediate preview count!
     if (roiMotion <= MOTION_ENTER) {
       this.rollState = "SETTLING";
       this.settledFrameCounter++;
       const progressPct = Math.min(100, Math.round((this.settledFrameCounter / settleFramesRequired) * 100));
 
-      if (this.settledFrameCounter < settleFramesRequired) {
-        if (this.settledFrameCounter === 1 || this.settledFrameCounter % 2 === 0) {
-          this.updateStateMachineUI(
-            "SETTLING",
-            `🔵 Dice stopped — locking roll (${this.settledFrameCounter}/${settleFramesRequired})...`,
-            progressPct
-          );
-        } else if (this.settlingProgressBar) {
-          this.settlingProgressBar.style.width = `${progressPct}%`;
+      // Instant fast-CV preview on Frame 1 of settling so the user sees the dice counted immediately when they stop!
+      if (this.settledFrameCounter === 1) {
+        const previewDice = this.detectRealDice({ data, width, height }, width, height);
+        if (previewDice.length > 0) {
+          this.currentDetectedDice = previewDice;
+          this.updateLiveHudCounts(previewDice);
         }
+      }
+
+      if (this.settledFrameCounter < settleFramesRequired) {
+        this.updateStateMachineUI(
+          "SETTLING",
+          `🔵 Dice stopped — counting (${this.settledFrameCounter}/${settleFramesRequired})...`,
+          progressPct
+        );
         return;
       }
 
       if (!this.onnxBusy) {
         this.cameraMotionTriggered = false;
         this.settledFrameCounter = 0;
-        this.updateStateMachineUI("SETTLING", "🔵 Capturing settled dice roll...", 100);
+        this.updateStateMachineUI("SETTLING", "🔵 Locking dice count...", 100);
         const snapshotCopy = new Uint8ClampedArray(data);
         this.runLiveOnnxPass(snapshotCopy, width, height, rx, ry, rw, rh).then(() => {
           this.lastRoiGray = null;
           this.motionFramesCount = 0;
           this.settledFrameCounter = 0;
-          this.postLockWarmupFrames = 2;
+          this.postLockWarmupFrames = 1;
 
           const detected = this.latestOnnxDice || [];
           if (detected.length === 0) {
@@ -1650,6 +1861,25 @@ class DiceTrackerApp {
     const cols = Math.floor(rw / sampleStep);
     const rows = Math.floor(rh / sampleStep);
     const sampleLen = cols * rows;
+    if (sampleLen <= 0) return 0;
+
+    const height = this.canvas ? this.canvas.height : 480;
+    if (!this._roiSampleMask || this._roiSampleMask.length !== sampleLen) {
+      this._roiSampleMask = new Uint8Array(sampleLen);
+      const polyPts = this.getRoiPixelPolygon(width, height);
+      let mIdx = 0;
+      let validCount = 0;
+      for (let r = 0; r < rows; r++) {
+        const py = ry + r * sampleStep;
+        for (let c = 0; c < cols; c++) {
+          const px = rx + c * sampleStep;
+          const inside = this.isPointInRoiPolygon(px, py, polyPts, 0) ? 1 : 0;
+          this._roiSampleMask[mIdx++] = inside;
+          validCount += inside;
+        }
+      }
+      this._roiValidSampleCount = Math.max(1, validCount);
+    }
 
     if (!this.lastRoiGray || this.lastRoiGray.length !== sampleLen) {
       this.lastRoiGray = new Uint8Array(sampleLen);
@@ -1663,23 +1893,26 @@ class DiceTrackerApp {
       return 0;
     }
 
+    const mask = this._roiSampleMask;
     let changedPixels = 0;
     let k = 0;
-    // Higher per-pixel luminance threshold (28) + EMA background adaptation suppresses mobile camera grain & micro-shake
     for (let r = 0; r < rows; r++) {
       const y = ry + r * sampleStep;
       for (let c = 0; c < cols; c++) {
         const currVal = gray[y * width + (rx + c * sampleStep)];
         const prevVal = this.lastRoiGray[k];
-        if (Math.abs(currVal - prevVal) > 28) {
+        const diff = Math.abs(currVal - prevVal);
+        if (mask[k] && diff > 28) {
           changedPixels++;
         }
-        this.lastRoiGray[k] = (prevVal + currVal) >> 1;
+        // Snap immediately on large changes so stopping dice have zero EMA ghost-trail lag
+        this.lastRoiGray[k] = diff > 28 ? currVal : ((prevVal + 3 * currVal) >> 2);
         k++;
       }
     }
 
-    return sampleLen > 0 ? changedPixels / sampleLen : 0;
+    const activeSamples = this._roiValidSampleCount || sampleLen;
+    return activeSamples > 0 ? changedPixels / activeSamples : 0;
   }
 
   // Stationary-subset "Scoop Guard": returns true if the newly settled dice are simply a stationary
@@ -1726,8 +1959,9 @@ class DiceTrackerApp {
   }
 
   stepRollStateMachine(roiMotion, rawDetections, rgba, width, height) {
-    const settleFramesRequired = parseInt(this.bgFilterSlider.value, 10) || 12;
-    const MOTION_ENTER = 0.032;
+    const rawSlider = parseInt(this.bgFilterSlider.value, 10) || 5;
+    const settleFramesRequired = Math.max(4, Math.min(6, Math.round(rawSlider * 0.5)));
+    const MOTION_ENTER = 0.030;
     const MOTION_SETTLE = 0.022;
 
     if (!this.chkAutoCapture.checked) {
@@ -1773,7 +2007,7 @@ class DiceTrackerApp {
 
     // Case 2: Motion detected inside the tray while dice are confirmed present OR unlocking from a LOCKED roll
     const isGenuineMotion =
-      roiMotion >= 0.042 ||
+      roiMotion >= 0.038 ||
       (roiMotion > MOTION_ENTER && (this.motionFramesCount >= 2 || this.rollState === "ROLLING"));
 
     if (isGenuineMotion && (rawDetections.length > 0 || this.rollState !== "IDLE")) {
@@ -1787,14 +2021,14 @@ class DiceTrackerApp {
       this.updateStateMachineUI(
         "ROLLING",
         "🟠 Rolling in tray — waiting for dice to stop...",
-        15
+        20
       );
       return;
     }
 
-    // Case 3: Tray is still and all dice were scooped out -> return smoothly to IDLE after 8 quiet frames
+    // Case 3: Tray is still and all dice were scooped out -> return smoothly to IDLE after 5 quiet frames
     if (rawDetections.length === 0) {
-      if (this.emptyFramesCount >= 8) {
+      if (this.emptyFramesCount >= 5) {
         this.rollState = "IDLE";
         this.settledFrameCounter = 0;
         this.consecutiveDiceFrames = 0;
@@ -1824,8 +2058,7 @@ class DiceTrackerApp {
       this.currentDetectedDice = consensusDice;
 
       const progressPct = Math.min(100, Math.round((this.settledFrameCounter / settleFramesRequired) * 100));
-      // Only update hint text on initial settle frame or every 3rd frame to avoid rapid text jitter
-      if (this.settledFrameCounter === 1 || this.settledFrameCounter % 3 === 0 || this.settledFrameCounter === settleFramesRequired) {
+      if (this.settledFrameCounter === 1 || this.settledFrameCounter % 2 === 0 || this.settledFrameCounter === settleFramesRequired) {
         this.updateStateMachineUI(
           "SETTLING",
           `🔵 Locking ${consensusDice.length} dice... (${this.settledFrameCounter}/${settleFramesRequired})`,
@@ -1967,6 +2200,7 @@ class DiceTrackerApp {
   // ============================================================================
   detectDiceTwoStageAdaptive(gray, rgba, width, height, rx, ry, rw, rh, satPrecomputed = false) {
     this.ensureCvBuffers(width, height);
+    const polyPts = this.getRoiPixelPolygon(width, height);
     const contrastSensitivity = parseInt(this.thresholdSlider.value, 10) || 22;
     const minDiePx = parseInt(this.minDiceSize.value, 10) || 22;
     const colorMode = this.diceColorMode ? this.diceColorMode.value : "auto";
@@ -2118,6 +2352,7 @@ class DiceTrackerApp {
         const fillRatio = area / (bW * bH);
         const cx = sumX / area;
         const cy = sumY / area;
+        if (!this.isPointInRoiPolygon(cx, cy, polyPts, 4)) continue;
 
         const ringR = area > 120
           ? Math.max(10, Math.round(Math.max(bW, bH) * 0.72))
@@ -2159,9 +2394,9 @@ class DiceTrackerApp {
           bW <= 17 &&
           bH >= 2 &&
           bH <= 17 &&
-          aspect >= 0.62 &&
-          aspect <= 1.65 &&
-          fillRatio >= 0.36 &&
+          aspect >= 0.48 &&
+          aspect <= 2.08 &&
+          fillRatio >= 0.32 &&
           validRingPts >= 6 &&
           (isDarkPip || (peakLum >= 195 && blobMeanLum >= 165))
         ) {
@@ -2182,8 +2417,8 @@ class DiceTrackerApp {
           bW <= 34 &&
           bH >= 12 &&
           bH <= 34 &&
-          aspect >= 0.65 &&
-          aspect <= 1.55 &&
+          aspect >= 0.50 &&
+          aspect <= 1.95 &&
           validRingPts >= 7 &&
           (isDarkPip || (peakLum >= 195 && blobMeanLum >= 165))
         ) {
@@ -2240,6 +2475,7 @@ class DiceTrackerApp {
             }
           }
           if (!isMax5) continue;
+          if (!this.isPointInRoiPolygon(x, y, polyPts, 4)) continue;
 
           const in1 = boxMean(x, y, 1);
           if (in1 < 232) continue;
@@ -2455,13 +2691,28 @@ class DiceTrackerApp {
   drawDetectionsOverlay(diceList, rx, ry, rw, rh) {
     const w = this.canvas.width;
     const h = this.canvas.height;
+    const poly = this.getRoiPixelPolygon(w, h);
 
-    // Darken exterior outside the green Dice Tray box
-    this.ctx.fillStyle = "rgba(5, 8, 13, 0.58)";
-    this.ctx.fillRect(0, 0, w, ry);
-    this.ctx.fillRect(0, ry + rh, w, h - (ry + rh));
-    this.ctx.fillRect(0, ry, rx, rh);
-    this.ctx.fillRect(rx + rw, ry, w - (rx + rw), rh);
+    // Darken exterior outside the green Dice Tray polygon
+    if (typeof this.ctx.rect === "function") {
+      this.ctx.save();
+      this.ctx.fillStyle = "rgba(5, 8, 13, 0.58)";
+      this.ctx.beginPath();
+      this.ctx.rect(0, 0, w, h);
+      this.ctx.moveTo(poly[0].x, poly[0].y);
+      this.ctx.lineTo(poly[1].x, poly[1].y);
+      this.ctx.lineTo(poly[2].x, poly[2].y);
+      this.ctx.lineTo(poly[3].x, poly[3].y);
+      this.ctx.closePath();
+      this.ctx.fill("evenodd");
+      this.ctx.restore();
+    } else {
+      this.ctx.fillStyle = "rgba(5, 8, 13, 0.58)";
+      this.ctx.fillRect(0, 0, w, ry);
+      this.ctx.fillRect(0, ry + rh, w, h - (ry + rh));
+      this.ctx.fillRect(0, ry, rx, rh);
+      this.ctx.fillRect(rx + rw, ry, w - (rx + rw), rh);
+    }
 
     const boxColor = this.rollState === "LOCKED" ? "#a855f7" : "#10b981";
     const handleColor = this.rollState === "LOCKED" ? "#d8b4fe" : "#34d399";
@@ -2469,30 +2720,41 @@ class DiceTrackerApp {
     this.ctx.strokeStyle = boxColor;
     this.ctx.lineWidth = 2.5;
     this.ctx.setLineDash([8, 5]);
-    this.ctx.strokeRect(rx, ry, rw, rh);
+    this.ctx.beginPath();
+    this.ctx.moveTo(poly[0].x, poly[0].y);
+    this.ctx.lineTo(poly[1].x, poly[1].y);
+    this.ctx.lineTo(poly[2].x, poly[2].y);
+    this.ctx.lineTo(poly[3].x, poly[3].y);
+    this.ctx.lineTo(poly[0].x, poly[0].y);
+    if (typeof this.ctx.closePath === "function") this.ctx.closePath();
+    this.ctx.stroke();
     this.ctx.setLineDash([]);
 
-    // 4 Corner Grab Handles (TL, TR, BL, BR)
-    const corners = [
-      [rx, ry],
-      [rx + rw, ry],
-      [rx, ry + rh],
-      [rx + rw, ry + rh]
-    ];
+    // 4 Independent Corner Grab Handles (TL, TR, BR, BL)
     this.ctx.fillStyle = handleColor;
-    corners.forEach(([cx, cy]) => {
+    poly.forEach(pt => {
       this.ctx.beginPath();
-      this.ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+      this.ctx.arc(pt.x, pt.y, 8, 0, Math.PI * 2);
       this.ctx.fill();
     });
 
-    // 4 Edge Midpoint Grab Bars (Top, Bottom, Left, Right)
-    const midX = rx + rw * 0.5;
-    const midY = ry + rh * 0.5;
-    this.ctx.fillRect(midX - 16, ry - 3, 32, 6);
-    this.ctx.fillRect(midX - 16, ry + rh - 3, 32, 6);
-    this.ctx.fillRect(rx - 3, midY - 16, 6, 32);
-    this.ctx.fillRect(rx + rw - 3, midY - 16, 6, 32);
+    // 4 Angled Edge Midpoint Grab Bars (Top, Right, Bottom, Left)
+    for (let i = 0; i < 4; i++) {
+      const a = poly[i];
+      const b = poly[(i + 1) % 4];
+      const mx = (a.x + b.x) * 0.5;
+      const my = (a.y + b.y) * 0.5;
+      if (typeof this.ctx.translate === "function" && typeof this.ctx.rotate === "function") {
+        const angle = Math.atan2(b.y - a.y, b.x - a.x);
+        this.ctx.save();
+        this.ctx.translate(mx, my);
+        this.ctx.rotate(angle);
+        this.ctx.fillRect(-14, -3, 28, 6);
+        this.ctx.restore();
+      } else {
+        this.ctx.fillRect(mx - 14, my - 3, 28, 6);
+      }
+    }
 
     const targetVal = parseInt(this.targetSuccess.value, 10) || 4;
     const rerollOnes = this.chkRerollOnes && this.chkRerollOnes.checked;
@@ -2531,23 +2793,40 @@ class DiceTrackerApp {
   }
 
   updateLiveHudCounts(diceList) {
-    const targetVal = parseInt(this.targetSuccess.value, 10);
-    const sum = diceList.reduce((acc, d) => acc + d.value, 0);
-    const hits = diceList.filter(d => d.value >= targetVal).length;
-    const crits = diceList.filter(d => d.value === 6).length;
-    const ones = diceList.filter(d => d.value === 1).length;
-    const p1Count = diceList.filter(d => (d.owner || 1) === 1).length;
-    const p2Count = diceList.filter(d => d.owner === 2).length;
+    const targetVal = parseInt(this.targetSuccess.value, 10) || 4;
+    let sum = 0;
+    let hits = 0;
+    let c6 = 0, c5 = 0, c4 = 0, c3 = 0, c2 = 0, c1 = 0;
+    let p1Count = 0, p2Count = 0;
 
-    const hudSig = `${diceList.length}:${hits}:${crits}:${ones}:${sum}:${p1Count}:${p2Count}`;
+    for (let i = 0; i < diceList.length; i++) {
+      const d = diceList[i];
+      const v = d.value;
+      sum += v;
+      if (v >= targetVal) hits++;
+      if (v === 6) c6++;
+      else if (v === 5) c5++;
+      else if (v === 4) c4++;
+      else if (v === 3) c3++;
+      else if (v === 2) c2++;
+      else if (v === 1) c1++;
+      if (d.owner === 2) p2Count++;
+      else p1Count++;
+    }
+
+    const hudSig = `${diceList.length}:${hits}:${c6}:${c5}:${c4}:${c3}:${c2}:${c1}:${sum}:${p1Count}:${p2Count}`;
     if (this._lastHudSig === hudSig) return;
     this._lastHudSig = hudSig;
 
-    this.hudDiceCount.innerText = diceList.length;
-    this.hudHitsCount.innerText = hits;
-    this.hudCritsCount.innerText = crits;
-    if (this.hudOnesCount) this.hudOnesCount.innerText = ones;
-    this.hudDiceSum.innerText = sum;
+    if (this.hudDiceCount) this.hudDiceCount.innerText = diceList.length;
+    if (this.hudHitsCount) this.hudHitsCount.innerText = hits;
+    if (this.hudCritsCount) this.hudCritsCount.innerText = c6;
+    if (this.hudFivesCount) this.hudFivesCount.innerText = c5;
+    if (this.hudFoursCount) this.hudFoursCount.innerText = c4;
+    if (this.hudThreesCount) this.hudThreesCount.innerText = c3;
+    if (this.hudTwosCount) this.hudTwosCount.innerText = c2;
+    if (this.hudOnesCount) this.hudOnesCount.innerText = c1;
+    if (this.hudDiceSum) this.hudDiceSum.innerText = sum;
     if (this.hudOwnerSplit) {
       this.hudOwnerSplit.innerText = `🔵P1: ${p1Count} | 🔴P2: ${p2Count}`;
     }
@@ -2676,7 +2955,7 @@ class DiceTrackerApp {
       });
     }
 
-    this.simFramesRemaining = 38;
+    this.simFramesRemaining = 24;
     this.rollState = "IDLE";
     this.settledFrameCounter = 0;
     this.settlingBuffer = [];
@@ -2697,8 +2976,8 @@ class DiceTrackerApp {
   stepPhysicsSimLoop() {
     if (!this.isSimulationMode) return;
 
-    const totalTumbleFrames = 14;
-    const elapsed = 38 - this.simFramesRemaining;
+    const totalTumbleFrames = 10;
+    const elapsed = 24 - this.simFramesRemaining;
     const t = Math.min(1, elapsed / totalTumbleFrames);
     const ease = 1 - Math.pow(1 - t, 3);
 
@@ -2709,7 +2988,7 @@ class DiceTrackerApp {
 
     if (this.simFramesRemaining > 0) {
       this.simFramesRemaining--;
-      this.simAnimationId = setTimeout(() => this.stepPhysicsSimLoop(), 16);
+      this.simAnimationId = setTimeout(() => this.stepPhysicsSimLoop(), 14);
     }
   }
 

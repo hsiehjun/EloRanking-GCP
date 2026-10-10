@@ -74,22 +74,15 @@
 
         <!-- Live Tray Readout Bar (Placed cleanly BELOW the camera so it never covers the green box) -->
         <div class="hud-badge" id="hudBadge">
-          <div>
-            Tray Dice: <strong id="hudDiceCount">0</strong> |
+          <div id="hudFaceCountsLine">
             6s: <strong id="hudCritsCount" style="color:#c084fc">0</strong> |
-            1s: <strong id="hudOnesCount" style="color:#f87171">0</strong> |
-            4+: <strong id="hudHitsCount" style="color:#34d399">0</strong> |
-            Sum: <strong id="hudDiceSum">0</strong>
+            5s: <strong id="hudFivesCount" style="color:#38bdf8">0</strong> |
+            4s: <strong id="hudFoursCount" style="color:#38bdf8">0</strong> |
+            3s: <strong id="hudThreesCount" style="color:#cbd5e1">0</strong> |
+            2s: <strong id="hudTwosCount" style="color:#cbd5e1">0</strong> |
+            1s: <strong id="hudOnesCount" style="color:#f87171">0</strong>
           </div>
-          <span style="font-size:0.72rem;color:#94a3b8;">Drag green box corners/sides to adjust tray</span>
-        </div>
-
-        <!-- Primary Camera & Roll Actions -->
-        <div class="camera-actions">
-          <button id="btnToggleCam" class="btn btn-primary">📷 Start Camera</button>
-          <button id="btnCaptureRoll" class="btn btn-accent">🎯 Capture Roll Now</button>
-          <button type="button" id="btnUndoLastRoll" class="btn btn-outline" disabled title="Undo the most recent captured roll">↩ Undo Last</button>
-          <button id="btnSimulateRoll" class="btn btn-secondary" title="Run a test roll in the tray">🎲 Test Roll</button>
+          <span style="font-size:0.72rem;color:#94a3b8;">Drag green corners or sides to match tray angle</span>
         </div>
       </section>
 
@@ -222,7 +215,14 @@
     <span id="sessionStatus">Session Active</span>
     <span id="rollPhaseBadge">Roll</span>
     <span id="hudTargetLabel">4+</span>
+    <span id="hudDiceCount">0</span>
+    <span id="hudHitsCount">0</span>
+    <span id="hudDiceSum">0</span>
     <div id="hudOwnerSplit"></div>
+    <button id="btnToggleCam" type="button"></button>
+    <button id="btnCaptureRoll" type="button"></button>
+    <button id="btnUndoLastRoll" type="button" disabled></button>
+    <button id="btnSimulateRoll" type="button"></button>
     <button id="btnStartGame" type="button"></button>
     <button id="btnEndGame" type="button"></button>
     <button id="btnRerollHits" type="button"><span id="btnRerollCount">0</span></button>
@@ -241,7 +241,7 @@
     <select id="targetSuccess"><option value="4" selected>4+</option></select>
     <select id="simDiceCountSelect"><option value="20" selected>20</option></select>
     <input type="range" id="thresholdSlider" min="8" max="60" value="22"><span id="thresholdVal">22</span>
-    <input type="range" id="bgFilterSlider" min="5" max="25" value="10"><span id="bgFilterVal">10</span>
+    <input type="range" id="bgFilterSlider" min="3" max="20" value="5"><span id="bgFilterVal">5</span>
     <input type="range" id="minDiceSize" min="12" max="80" value="22"><span id="minDiceVal">22</span>
     <div id="rollerAttributionGroup"><button type="button" class="seg-btn active" data-roller="auto"></button></div>
     <div id="statsFilterGroup"><button type="button" class="seg-btn active" data-filter="all"></button></div>
