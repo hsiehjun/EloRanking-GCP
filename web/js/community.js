@@ -837,10 +837,12 @@ function setTournamentsQuickFilter(filter) {
     }
   });
 
+  renderCommunityEvents();
   if (communityState.tournamentsViewMode === 'calendar') {
+    syncCalendarMonthToFilteredEvents();
+    communityState.calendarSelectedDate = null;
     renderTournamentsCalendar();
-  } else {
-    renderCommunityEvents();
+    openCalendarFilteredDrawer();
   }
 }
 
@@ -1358,6 +1360,159 @@ function getTournamentsOnDate(dateStr) {
   });
 }
 
+function renderCalendarDrawerCardsHtml(events) {
+  if (!events || events.length === 0) {
+    return `
+      <div style="grid-column: 1 / -1; padding: 1.5rem; text-align: center; color: var(--text-muted);">
+        No tournaments matching current filters.
+      </div>
+    `;
+  }
+  let html = '';
+  events.forEach(ev => {
+    const eid = escapeHtml(ev.id);
+    const name = escapeHtml(ev.name || 'Tournament');
+    const locInfo = getCommunityEventLocationInfo(ev);
+    const loc = locInfo.displayLabel || 'Unspecified Location';
+    const players = Number(ev.total_players || 0);
+    const rounds = ev.num_rounds || 0;
+    const tier = ev.tier || 'rtt';
+    const sStr = (ev.event_date || '').slice(0, 10);
+    const eStr = getNormalizedEventEndDateStr(ev, sStr);
+    const dateSpanLabel = (eStr && eStr > sStr) ? `${sStr} – ${eStr}` : sStr;
+    const isEnded = isTournamentEnded(ev);
+    const isOngoing = !isEnded && isTournamentOngoing(ev);
+    const isLocal = Boolean(ev.is_local);
+
+    let tierBadge = `<span class="comm-legend-pill pill-rtt">⚪ RTT</span>`;
+    if (tier === 'super_major') {
+      tierBadge = `<span class="comm-legend-pill pill-super-major">🟣 SUPER MAJOR</span>`;
+    } else if (tier === 'major') {
+      tierBadge = `<span class="comm-legend-pill pill-major">🔵 MAJOR</span>`;
+    } else if (tier === 'gt') {
+      tierBadge = `<span class="comm-legend-pill pill-gt">🟢 GT</span>`;
+    }
+
+    const scopeBadge = isLocal
+      ? `<span class="comm-legend-pill pill-scope-local" title="Within your local search radius">📍 LOCAL${ev.distance_miles != null ? ` • ${Number(ev.distance_miles).toFixed(1)} mi` : ''}</span>`
+      : `<span class="comm-legend-pill pill-scope-global" title="Global Weekend Destination Event">🌐 GLOBAL</span>`;
+
+    let statusPill = '';
+    if (isEnded) {
+      statusPill = `<span class="comm-legend-pill pill-scope-past">✓ COMPLETED</span>`;
+    } else if (isOngoing) {
+      statusPill = `<span class="comm-legend-pill" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border-color: rgba(245, 158, 11, 0.4);">🔥 LIVE NOW</span>`;
+    }
+
+    html += `
+      <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 1rem; display: flex; flex-direction: column;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+            ${scopeBadge}
+            ${tierBadge}
+          </div>
+          ${statusPill}
+        </div>
+        <h4 style="margin: 0 0 0.35rem; color: #fff; font-size: 0.95rem; font-weight: 800; line-height: 1.35;">${name}</h4>
+        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.6rem;" title="${escapeHtml(locInfo.fullAddressLine || loc)}">📍 ${escapeHtml(loc)}</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.72rem; color: #94a3b8; margin-bottom: 0.75rem;">
+          ${dateSpanLabel ? `<span>📅 ${escapeHtml(dateSpanLabel)}</span>` : ''}
+          <span>👥 ${players} Players</span>
+          ${rounds ? `<span>⚔️ ${rounds} Rounds</span>` : ''}
+        </div>
+        <div style="margin-top: auto; display: flex; gap: 0.4rem;">
+          <button type="button" class="btn btn-primary" style="flex: 1; font-size: 0.75rem; padding: 0.4rem; font-weight: 700;" onclick="openEventModal('${eid}')">
+            ${isEnded ? '🏆 View Results & Lists' : '📋 Preview Event'}
+          </button>
+          ${locInfo.hasLocation ? `
+            <button type="button" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.4rem 0.55rem; color: #38bdf8; border-color: rgba(56,189,248,0.35);" onclick="event.stopPropagation(); openEventVenueMapModal('${eid}')" title="View Venue Address & Interactive Map">
+              🗺️
+            </button>
+          ` : ''}
+          <a href="https://www.bestcoastpairings.com/event/${eid}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.4rem 0.6rem; color: #94a3b8;">
+            🔗 BCP
+          </a>
+        </div>
+      </div>
+    `;
+  });
+  return html;
+}
+
+function syncCalendarMonthToFilteredEvents() {
+  const filtered = getAllDiscoveryTournaments().filter(filterCalendarTournamentCandidate);
+  if (filtered.length === 0) return;
+
+  const cur = communityState.calendarDate || new Date();
+  const curPrefix = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`;
+  const hasInCurrentMonth = filtered.some(ev => {
+    const s = (ev.event_date || '').slice(0, 7);
+    const e = getNormalizedEventEndDateStr(ev, (ev.event_date || '').slice(0, 10)).slice(0, 7);
+    return s === curPrefix || e === curPrefix;
+  });
+
+  if (hasInCurrentMonth && communityState.tournamentsQuickFilter !== 'weekend' && communityState.tournamentsQuickFilter !== 'next_weekend') {
+    return;
+  }
+
+  const todayStr = getLocalIsoDateStr(new Date());
+  let targetDateStr = '';
+  if (communityState.eventsFilter === 'recent') {
+    const sortedDesc = [...filtered].sort((a, b) => String(b.event_date || '').localeCompare(String(a.event_date || '')));
+    targetDateStr = (sortedDesc[0]?.event_date || '').slice(0, 10);
+  } else {
+    const upcomingSorted = filtered
+      .filter(ev => (ev.event_date || '').slice(0, 10) >= todayStr)
+      .sort((a, b) => String(a.event_date || '').localeCompare(String(b.event_date || '')));
+    if (upcomingSorted.length > 0) {
+      targetDateStr = (upcomingSorted[0].event_date || '').slice(0, 10);
+    } else {
+      const sortedDesc = [...filtered].sort((a, b) => String(b.event_date || '').localeCompare(String(a.event_date || '')));
+      targetDateStr = (sortedDesc[0]?.event_date || '').slice(0, 10);
+    }
+  }
+
+  if (targetDateStr) {
+    const dt = new Date(targetDateStr + 'T12:00:00');
+    if (!isNaN(dt.getTime())) {
+      communityState.calendarDate = new Date(dt.getFullYear(), dt.getMonth(), 1);
+    }
+  }
+}
+
+function openCalendarFilteredDrawer() {
+  const drawer = document.getElementById('comm-calendar-day-drawer');
+  const title = document.getElementById('comm-day-drawer-title');
+  const body = document.getElementById('comm-day-drawer-body');
+  if (!drawer || !body) return;
+
+  const filtered = getAllDiscoveryTournaments().filter(filterCalendarTournamentCandidate);
+  const sorted = [...filtered].sort((a, b) => {
+    const locDiff = (b.is_local ? 1 : 0) - (a.is_local ? 1 : 0);
+    if (locDiff !== 0) return locDiff;
+    if (communityState.eventsFilter === 'recent') {
+      return String(b.event_date || '').localeCompare(String(a.event_date || ''));
+    }
+    return String(a.event_date || '').localeCompare(String(b.event_date || ''));
+  });
+
+  let labelParts = [];
+  if (communityState.eventsFilter === 'upcoming') labelParts.push('⚡ Upcoming & Ongoing');
+  else if (communityState.eventsFilter === 'recent') labelParts.push('📜 Recent Results');
+  else labelParts.push('All Events');
+
+  if (communityState.tournamentsQuickFilter === 'local') labelParts.push('📍 Local Only');
+  else if (communityState.tournamentsQuickFilter === 'weekend') labelParts.push('⚡ This Weekend');
+  else if (communityState.tournamentsQuickFilter === 'next_weekend') labelParts.push('📅 Next Weekend');
+  else if (communityState.tournamentsQuickFilter === 'majors') labelParts.push('🌟 Majors Only');
+
+  if (title) {
+    title.textContent = `📅 ${labelParts.join(' • ')} (${sorted.length})`;
+  }
+  body.innerHTML = renderCalendarDrawerCardsHtml(sorted.slice(0, 24));
+  drawer.style.display = 'block';
+}
+
 function openCalendarDayDrawer(dateStr) {
   communityState.calendarSelectedDate = dateStr;
   const drawer = document.getElementById('comm-calendar-day-drawer');
@@ -1378,84 +1533,7 @@ function openCalendarDayDrawer(dateStr) {
   });
 
   if (title) title.textContent = `📅 Tournaments on ${prettyDate} (${events.length})`;
-
-  if (events.length === 0) {
-    body.innerHTML = `
-      <div style="grid-column: 1 / -1; padding: 1.5rem; text-align: center; color: var(--text-muted);">
-        No tournaments matching current filters on this date.
-      </div>
-    `;
-  } else {
-    let html = '';
-    events.forEach(ev => {
-      const eid = escapeHtml(ev.id);
-      const name = escapeHtml(ev.name || 'Tournament');
-      const locInfo = getCommunityEventLocationInfo(ev);
-      const loc = locInfo.displayLabel || 'Unspecified Location';
-      const players = Number(ev.total_players || 0);
-      const rounds = ev.num_rounds || 0;
-      const tier = ev.tier || 'rtt';
-      const sStr = (ev.event_date || '').slice(0, 10);
-      const eStr = getNormalizedEventEndDateStr(ev, sStr);
-      const dateSpanLabel = (eStr && eStr > sStr) ? `${sStr} – ${eStr}` : sStr;
-      const isEnded = isTournamentEnded(ev);
-      const isOngoing = !isEnded && isTournamentOngoing(ev);
-      const isLocal = Boolean(ev.is_local);
-
-      let tierBadge = `<span class="comm-legend-pill pill-rtt">⚪ RTT</span>`;
-      if (tier === 'super_major') {
-        tierBadge = `<span class="comm-legend-pill pill-super-major">🟣 SUPER MAJOR</span>`;
-      } else if (tier === 'major') {
-        tierBadge = `<span class="comm-legend-pill pill-major">🔵 MAJOR</span>`;
-      } else if (tier === 'gt') {
-        tierBadge = `<span class="comm-legend-pill pill-gt">🟢 GT</span>`;
-      }
-
-      const scopeBadge = isLocal
-        ? `<span class="comm-legend-pill pill-scope-local" title="Within your local search radius">📍 LOCAL${ev.distance_miles != null ? ` • ${Number(ev.distance_miles).toFixed(1)} mi` : ''}</span>`
-        : `<span class="comm-legend-pill pill-scope-global" title="Global Weekend Destination Event">🌐 GLOBAL</span>`;
-
-      let statusPill = '';
-      if (isEnded) {
-        statusPill = `<span class="comm-legend-pill pill-scope-past">✓ COMPLETED</span>`;
-      } else if (isOngoing) {
-        statusPill = `<span class="comm-legend-pill" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border-color: rgba(245, 158, 11, 0.4);">🔥 LIVE NOW</span>`;
-      }
-
-      html += `
-        <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 1rem; display: flex; flex-direction: column;">
-          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
-            <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
-              ${scopeBadge}
-              ${tierBadge}
-            </div>
-            ${statusPill}
-          </div>
-          <h4 style="margin: 0 0 0.35rem; color: #fff; font-size: 0.95rem; font-weight: 800; line-height: 1.35;">${name}</h4>
-          <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.6rem;" title="${escapeHtml(locInfo.fullAddressLine || loc)}">📍 ${escapeHtml(loc)}</div>
-          <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.72rem; color: #94a3b8; margin-bottom: 0.75rem;">
-            ${dateSpanLabel ? `<span>📅 ${escapeHtml(dateSpanLabel)}</span>` : ''}
-            <span>👥 ${players} Players</span>
-            ${rounds ? `<span>⚔️ ${rounds} Rounds</span>` : ''}
-          </div>
-          <div style="margin-top: auto; display: flex; gap: 0.4rem;">
-            <button class="btn btn-primary" style="flex: 1; font-size: 0.75rem; padding: 0.4rem; font-weight: 700;" onclick="openEventModal('${eid}')">
-              ${isEnded ? '🏆 View Results & Lists' : '📋 Preview Event'}
-            </button>
-            ${locInfo.hasLocation ? `
-              <button type="button" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.4rem 0.55rem; color: #38bdf8; border-color: rgba(56,189,248,0.35);" onclick="event.stopPropagation(); openEventVenueMapModal('${eid}')" title="View Venue Address & Interactive Map">
-                🗺️
-              </button>
-            ` : ''}
-            <a href="https://www.bestcoastpairings.com/event/${eid}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.4rem 0.6rem; color: #94a3b8;">
-              🔗 BCP
-            </a>
-          </div>
-        </div>
-      `;
-    });
-    body.innerHTML = html;
-  }
+  body.innerHTML = renderCalendarDrawerCardsHtml(events);
 
   drawer.style.display = 'block';
   drawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -1688,7 +1766,10 @@ function setCommunityEventsFilter(filter) {
   renderMajorsCarousel();
   renderCommunityEvents();
   if (communityState.tournamentsViewMode === 'calendar') {
+    syncCalendarMonthToFilteredEvents();
+    communityState.calendarSelectedDate = null;
     renderTournamentsCalendar();
+    openCalendarFilteredDrawer();
   }
 }
 
@@ -5058,7 +5139,13 @@ window.changeCommunityRegion = (region) => {
   loadCommunityHub(null, null, communityState.radiusMiles, null);
 };
 window.detectCommunityRegion = detectCommunityGPS;
+window.switchTournamentsViewMode = switchTournamentsViewMode;
+window.setTournamentsQuickFilter = setTournamentsQuickFilter;
+window.changeCalendarMonth = changeCalendarMonth;
+window.setCalendarToday = setCalendarToday;
+window.scrollMajorsCarousel = scrollMajorsCarousel;
 window.openCalendarDayDrawer = openCalendarDayDrawer;
+window.openCalendarFilteredDrawer = openCalendarFilteredDrawer;
 window.closeCalendarDayDrawer = closeCalendarDayDrawer;
 window.renderTournamentsCalendar = renderTournamentsCalendar;
 

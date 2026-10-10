@@ -2757,9 +2757,11 @@ input, select, textarea {
     padding: 0.45rem 0.65rem !important;
     margin-bottom: 0.65rem !important;
     gap: 0.5rem !important;
+    position: relative !important;
+    z-index: 2 !important;
   }
 
-  .comm-tournaments-view-switch-banner > div:first-child span {
+  .comm-tournaments-view-switch-banner .comm-view-switch-label {
     display: none !important;
   }
 
@@ -2790,13 +2792,13 @@ input, select, textarea {
 
   .comm-calendar-legend {
     display: flex !important;
-    overflow-x: auto !important;
-    white-space: nowrap !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-width: none !important;
-    gap: 0.55rem !important;
-    padding: 0.28rem 0.55rem !important;
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+    white-space: normal !important;
+    gap: 0.35rem 0.6rem !important;
+    padding: 0.35rem 0.55rem !important;
     width: 100% !important;
+    box-sizing: border-box !important;
   }
 
   .comm-calendar-legend::-webkit-scrollbar {
@@ -2805,12 +2807,12 @@ input, select, textarea {
 
   .comm-legend-item,
   .comm-legend-label {
-    font-size: 0.66rem !important;
+    font-size: 0.64rem !important;
     flex-shrink: 0 !important;
   }
 
   .comm-legend-divider {
-    flex-shrink: 0 !important;
+    display: none !important;
   }
 
   .comm-legend-pill {
@@ -16078,6 +16080,176 @@ table.desktop-only,
   }
 
   /* =========================================================================
+     COMMUNITY TOURNAMENTS & EVENTS HUB: MOBILE OPTIMIZED TOOLBAR (<= 768px)
+     ========================================================================= */
+  .comm-tournaments-view-switch-banner {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.4rem !important;
+    padding: 0.38rem 0.5rem !important;
+    margin-bottom: 0.5rem !important;
+    border-radius: 10px !important;
+    position: relative !important;
+    z-index: 3 !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+  }
+
+  .comm-tournaments-view-switch-left {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+  }
+
+  .comm-tournaments-view-switch-left .comm-scene-toggles-bar {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 4px !important;
+    margin: 0 !important;
+  }
+
+  .comm-tournaments-view-switch-left .comm-scene-toggles-bar .comm-toggle-btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 30px !important;
+    min-height: 30px !important;
+    padding: 0.2rem 0.35rem !important;
+    font-size: 0.74rem !important;
+    font-weight: 800 !important;
+    justify-content: center !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .comm-tournaments-view-switch-right {
+    flex: 0 0 auto !important;
+    display: flex !important;
+    align-items: center !important;
+  }
+
+  .comm-tournaments-view-switch-right .comm-toolbar-btn {
+    height: 30px !important;
+    min-height: 30px !important;
+    padding: 0.2rem 0.55rem !important;
+    font-size: 0.72rem !important;
+    flex-shrink: 0 !important;
+  }
+
+  .comm-subview-toolbar.comm-tournaments-toolbar {
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.45rem !important;
+    padding: 0.5rem 0.55rem !important;
+    margin-bottom: 0.65rem !important;
+    background: rgba(15, 23, 42, 0.85) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 10px !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+    position: relative !important;
+    z-index: 1 !important;
+    width: 100% !important;
+  }
+
+  #comm-tournaments-filters.comm-toolbar-left {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.4rem !important;
+    flex-wrap: nowrap !important;
+    min-width: 0 !important;
+  }
+
+  /* Row 1 of Filters: 3-Column Segmented Event Status Tabs (All / Upcoming / Recent) */
+  #comm-tournaments-filters .comm-events-base-tabs {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.35rem !important;
+    box-sizing: border-box !important;
+  }
+
+  #comm-tournaments-filters .comm-events-base-tabs .comm-filter-chip {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    padding: 0.25rem 0.25rem !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    border-radius: 8px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Row 2 of Filters: 2x2 Grid for Quick Action & Weekend Filters */
+  #comm-tournaments-filters .comm-quick-filters-group {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.35rem !important;
+    border-left: none !important;
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  #comm-tournaments-filters .comm-quick-filters-group .comm-filter-chip {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 30px !important;
+    min-height: 30px !important;
+    padding: 0.2rem 0.35rem !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    border-radius: 8px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Row 3 of Filters: Full-Width Search Input */
+  #comm-tournaments-filters .comm-tournaments-search-wrap {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  #comm-tournaments-filters #comm-tournaments-search {
+    width: 100% !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    font-size: 0.78rem !important;
+    border-radius: 8px !important;
+    padding-left: 1.85rem !important;
+    box-sizing: border-box !important;
+  }
+
+  /* =========================================================================
      COMMUNITY GAME STORES SEARCH: MOBILE OPTIMIZED TOOLBAR (<= 768px)
      ========================================================================= */
   .comm-subview-toolbar.comm-stores-toolbar {
@@ -16172,31 +16344,30 @@ table.desktop-only,
     border-radius: 6px !important;
   }
 
-  /* Row 3: Swipeable Filter Chips */
+  /* Row 3: Wrapped Filter Chips (Zero Horizontal Scroll) */
   .comm-stores-toolbar .comm-store-filters {
     width: 100% !important;
     order: 2 !important;
     display: flex !important;
     align-items: center !important;
     gap: 0.35rem !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-width: none !important;
+    overflow-x: visible !important;
     padding: 0.1rem 0 !important;
     margin: 0 !important;
-    flex-wrap: nowrap !important;
+    flex-wrap: wrap !important;
   }
   .comm-stores-toolbar .comm-store-filters::-webkit-scrollbar {
     display: none !important;
   }
 
   .comm-stores-toolbar .comm-filter-chip {
-    flex-shrink: 0 !important;
+    flex: 1 1 auto !important;
+    justify-content: center !important;
     white-space: nowrap !important;
     font-size: 0.72rem !important;
     font-weight: 700 !important;
-    padding: 0.28rem 0.65rem !important;
-    border-radius: 16px !important;
+    padding: 0.25rem 0.5rem !important;
+    border-radius: 8px !important;
     height: 28px !important;
     min-height: 28px !important;
     display: inline-flex !important;

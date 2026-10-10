@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=b8001e00df">
+  <link rel="manifest" href="/manifest.json?v=4805ba6f1b">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=b8001e00df">
-  <link rel="stylesheet" href="/css/styles.min.css?v=b8001e00df">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=b8001e00df">
-  <link rel="preload" href="/js/app.bundle.min.js?v=b8001e00df" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=4805ba6f1b">
+  <link rel="stylesheet" href="/css/styles.min.css?v=4805ba6f1b">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=4805ba6f1b">
+  <link rel="preload" href="/js/app.bundle.min.js?v=4805ba6f1b" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "b8001e00df";</script>
+  <script>window.APP_VERSION = "4805ba6f1b";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -590,20 +590,20 @@
         <div id="comm-subview-tournaments" class="comm-subview" style="display: none;">
           <!-- Prominent View Mode Switcher Header -->
           <div class="comm-tournaments-view-switch-banner" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; padding: 0.65rem 1rem;">
-            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-              <span style="font-size: 0.75rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">DISPLAY VIEW:</span>
+            <div class="comm-tournaments-view-switch-left" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+              <span class="comm-view-switch-label" style="font-size: 0.75rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">DISPLAY VIEW:</span>
               <div class="comm-scene-toggles-bar" style="margin: 0;">
-                <button id="btn-tournaments-view-calendar" class="comm-toggle-btn active" onclick="switchTournamentsViewMode('calendar')" title="Interactive Monthly Tournament Calendar" style="padding: 0.42rem 1.15rem; font-size: 0.85rem; font-weight: 800;">
+                <button type="button" id="btn-tournaments-view-calendar" class="comm-toggle-btn active" onclick="switchTournamentsViewMode('calendar')" title="Interactive Monthly Tournament Calendar" style="padding: 0.42rem 1.15rem; font-size: 0.85rem; font-weight: 800;">
                   📅 Calendar View
                 </button>
-                <button id="btn-tournaments-view-feed" class="comm-toggle-btn" onclick="switchTournamentsViewMode('feed')" title="Tournament Cards Feed &amp; Destination Marquee" style="padding: 0.42rem 1.15rem; font-size: 0.85rem; font-weight: 800;">
+                <button type="button" id="btn-tournaments-view-feed" class="comm-toggle-btn" onclick="switchTournamentsViewMode('feed')" title="Tournament Cards Feed &amp; Destination Marquee" style="padding: 0.42rem 1.15rem; font-size: 0.85rem; font-weight: 800;">
                   📋 Cards Feed
                 </button>
               </div>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <div class="comm-tournaments-view-switch-right" style="display: flex; align-items: center; gap: 0.6rem;">
               <span id="comm-tournaments-summary" class="comm-toolbar-meta" style="font-size: 0.76rem; color: #94a3b8;"></span>
-              <button id="comm-btn-refresh-tournaments" onclick="refreshCommunityTournaments(this)" class="btn btn-outline comm-toolbar-btn" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;">
+              <button type="button" id="comm-btn-refresh-tournaments" onclick="refreshCommunityTournaments(this)" class="btn btn-outline comm-toolbar-btn" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;">
                 <span class="refresh-icon">🔄</span> <span>Refresh</span>
               </button>
             </div>
@@ -613,34 +613,36 @@
           <div class="comm-subview-toolbar comm-tournaments-toolbar" style="flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem;">
             <div class="comm-toolbar-left" id="comm-tournaments-filters" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <!-- Base Filter Chips -->
-              <button class="comm-filter-chip active" id="filter-chip-events-all" data-filter="all" onclick="setCommunityEventsFilter('all')">
-                All Events (<span id="count-events-all">0</span>)
-              </button>
-              <button class="comm-filter-chip" id="filter-chip-events-upcoming" data-filter="upcoming" onclick="setCommunityEventsFilter('upcoming')">
-                ⚡ Upcoming &amp; Ongoing (<span id="count-events-upcoming">0</span>)
-              </button>
-              <button class="comm-filter-chip" id="filter-chip-events-recent" data-filter="recent" onclick="setCommunityEventsFilter('recent')">
-                📜 Recent Results (<span id="count-events-recent">0</span>)
-              </button>
+              <div class="comm-events-base-tabs" style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                <button type="button" class="comm-filter-chip active" id="filter-chip-events-all" data-filter="all" onclick="setCommunityEventsFilter('all')">
+                  <span><span class="subtab-desktop-text">All Events</span><span class="subtab-mobile-text">All</span> (<span id="count-events-all">0</span>)</span>
+                </button>
+                <button type="button" class="comm-filter-chip" id="filter-chip-events-upcoming" data-filter="upcoming" onclick="setCommunityEventsFilter('upcoming')">
+                  <span><span class="subtab-desktop-text">⚡ Upcoming &amp; Ongoing</span><span class="subtab-mobile-text">⚡ Upcoming</span> (<span id="count-events-upcoming">0</span>)</span>
+                </button>
+                <button type="button" class="comm-filter-chip" id="filter-chip-events-recent" data-filter="recent" onclick="setCommunityEventsFilter('recent')">
+                  <span><span class="subtab-desktop-text">📜 Recent Results</span><span class="subtab-mobile-text">📜 Recent</span> (<span id="count-events-recent">0</span>)</span>
+                </button>
+              </div>
 
               <!-- Quick Action & Weekend Filters -->
               <div class="comm-quick-filters-group" style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
-                <button class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-local" onclick="setTournamentsQuickFilter('local')" title="Show only local events within your community search radius">
+                <button type="button" class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-local" onclick="setTournamentsQuickFilter('local')" title="Show only local events within your community search radius">
                   📍 Local Only
                 </button>
-                <button class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-weekend" onclick="setTournamentsQuickFilter('weekend')" title="Show tournaments happening this Friday through Sunday">
+                <button type="button" class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-weekend" onclick="setTournamentsQuickFilter('weekend')" title="Show tournaments happening this Friday through Sunday">
                   ⚡ This Weekend
                 </button>
-                <button class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-next-weekend" onclick="setTournamentsQuickFilter('next_weekend')" title="Show tournaments scheduled for next weekend">
+                <button type="button" class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-next-weekend" onclick="setTournamentsQuickFilter('next_weekend')" title="Show tournaments scheduled for next weekend">
                   📅 Next Weekend
                 </button>
-                <button class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-majors" onclick="setTournamentsQuickFilter('majors')" title="Show Premier Majors, Super Majors &amp; GTs">
+                <button type="button" class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-majors" onclick="setTournamentsQuickFilter('majors')" title="Show Premier Majors, Super Majors &amp; GTs">
                   🌟 Majors Only
                 </button>
               </div>
 
               <!-- Search Box -->
-              <div style="position: relative; min-width: 190px; max-width: 280px;">
+              <div class="comm-tournaments-search-wrap" style="position: relative; min-width: 190px; max-width: 280px;">
                 <input type="text" id="comm-tournaments-search" placeholder="Search tournaments, venues, addresses, cities..." oninput="filterCommunityTournaments(this.value)" class="form-input" style="width: 100%; box-sizing: border-box; padding: 0.28rem 0.6rem 0.28rem 1.75rem; font-size: 0.78rem; height: 30px; border-radius: 6px; background: rgba(0,0,0,0.3); border: 1px solid var(--border);" />
                 <span style="position: absolute; left: 7px; top: 50%; transform: translateY(-50%); font-size: 0.72rem; color: #64748b; pointer-events: none;">🔍</span>
               </div>
@@ -738,11 +740,11 @@
           <div class="comm-subview-toolbar comm-stores-toolbar">
             <div class="comm-toolbar-row">
               <div class="comm-toolbar-left comm-store-filters">
-                <button class="comm-filter-chip active" id="filter-chip-store-all" data-filter="all" onclick="setStoresFilter('all')">All (<span id="count-stores-all">0</span>)</button>
-                <button class="comm-filter-chip" id="filter-chip-store-tournaments" data-filter="tournaments" onclick="setStoresFilter('tournaments')">🏆 Tournament Venues (<span id="count-stores-tournaments">0</span>)</button>
-                <button class="comm-filter-chip" id="filter-chip-store-official" data-filter="official" onclick="setStoresFilter('official')">🛡️ Official GW (<span id="count-stores-official">0</span>)</button>
-                <button class="comm-filter-chip" id="filter-chip-store-top" data-filter="top_rated" onclick="setStoresFilter('top_rated')">⭐ 4.5+ (<span id="count-stores-top">0</span>)</button>
-                <button class="comm-filter-chip" id="filter-chip-store-open" data-filter="open_now" onclick="setStoresFilter('open_now')">🟢 Open Now</button>
+                <button type="button" class="comm-filter-chip active" id="filter-chip-store-all" data-filter="all" onclick="setStoresFilter('all')"><span>All (<span id="count-stores-all">0</span>)</span></button>
+                <button type="button" class="comm-filter-chip" id="filter-chip-store-tournaments" data-filter="tournaments" onclick="setStoresFilter('tournaments')"><span><span class="subtab-desktop-text">🏆 Tournament Venues</span><span class="subtab-mobile-text">🏆 Venues</span> (<span id="count-stores-tournaments">0</span>)</span></button>
+                <button type="button" class="comm-filter-chip" id="filter-chip-store-official" data-filter="official" onclick="setStoresFilter('official')"><span><span class="subtab-desktop-text">🛡️ Official GW</span><span class="subtab-mobile-text">🛡️ GW</span> (<span id="count-stores-official">0</span>)</span></button>
+                <button type="button" class="comm-filter-chip" id="filter-chip-store-top" data-filter="top_rated" onclick="setStoresFilter('top_rated')"><span>⭐ 4.5+ (<span id="count-stores-top">0</span>)</span></button>
+                <button type="button" class="comm-filter-chip" id="filter-chip-store-open" data-filter="open_now" onclick="setStoresFilter('open_now')"><span>🟢 Open Now</span></button>
               </div>
 
               <div class="comm-toolbar-right">
@@ -3769,7 +3771,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=b8001e00df"></script>
+  <script src="/js/app.bundle.min.js?v=4805ba6f1b"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">
