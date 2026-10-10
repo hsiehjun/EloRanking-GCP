@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=59f6a67204">
+  <link rel="manifest" href="/manifest.json?v=bd428746dc">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=59f6a67204">
-  <link rel="stylesheet" href="/css/styles.min.css?v=59f6a67204">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=59f6a67204">
-  <link rel="preload" href="/js/app.bundle.min.js?v=59f6a67204" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=bd428746dc">
+  <link rel="stylesheet" href="/css/styles.min.css?v=bd428746dc">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=bd428746dc">
+  <link rel="preload" href="/js/app.bundle.min.js?v=bd428746dc" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "59f6a67204";</script>
+  <script>window.APP_VERSION = "bd428746dc";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -855,7 +855,7 @@
         <!-- Sub-tabs Navigation Bar -->
         <div id="event-hub-subtabs-bar" class="subtabs-bar profile-subtabs-bar event-hub-subtabs-bar" style="margin-bottom: 1rem;">
           <button id="event-subtab-player" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('player')" style="display: none !important;">
-            <span id="event-subtab-player-label">⚔️ Player Station</span>
+            <span id="event-subtab-player-label">⚡ My Station</span>
             <span id="event-tab-player-badge" class="subtab-count-badge" style="display: none; background: #10b981; color: #000; font-size: 0.65rem; font-weight: 800; padding: 1px 5px; border-radius: 4px;">LIVE</span>
           </button>
           <button id="event-subtab-news" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('news')">
@@ -881,11 +881,11 @@
             <span>⭐ Participant Elo</span>
             <span id="event-tab-elo-count" class="subtab-count-badge profile-subtab-count">0</span>
           </button>
-          <button id="event-subtab-to-hub" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('to-hub')" style="display: none;">
+          <button id="event-subtab-to-hub" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('to-hub')" style="display: none !important;">
             <span>🏛️ TO Hub</span>
             <span id="event-tab-to-hub-badge" class="subtab-count-badge" style="background: linear-gradient(135deg, #a855f7, #38bdf8); color: #fff; font-size: 0.65rem; font-weight: 800; padding: 1px 6px; border: none;">HOST</span>
           </button>
-          <button id="event-subtab-creator" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('creator')" style="display: none;">
+          <button id="event-subtab-creator" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('creator')" style="display: none !important;">
             <span>🎙️ Creator Hub</span>
             <span id="event-tab-creator-badge" class="subtab-count-badge" style="background: linear-gradient(135deg, #a855f7, #ec4899); color: #fff; font-size: 0.65rem; font-weight: 700; padding: 1px 6px; border: none;">PRO</span>
           </button>
@@ -906,9 +906,13 @@
           <div id="event-modal-search-summary" style="font-size: 0.78rem; color: var(--text-muted); display: none;"></div>
         </div>
 
-        <!-- View: Player Station (Dynamic Tournament Competitor Hub) -->
+        <!-- View: My Station (Unified Role-Aware Hub for Competitor, TO & Creator) -->
         <div id="event-view-player" style="display: none; margin-bottom: 1.5rem;">
-          <div style="display: flex; flex-direction: column; gap: 1rem;">
+          <!-- Dynamic Role-Aware Sub-Pills inside My Station -->
+          <div id="my-station-subtabs-bar" class="my-station-subtabs-bar" style="display: none; margin-bottom: 1rem;"></div>
+
+          <!-- Panel 1: Registered Competitor Station -->
+          <div id="my-station-panel-player" style="display: flex; flex-direction: column; gap: 1rem;">
             <!-- Dynamic Lifecycle Hero 1: Active Round Match Hero -->
             <div id="player-station-active-match-hero" style="display: none;"></div>
 
@@ -1026,6 +1030,12 @@
               </div>
             </details>
           </div>
+
+          <!-- Panel 2: TO Console (Clock & Judge Calls, Announcements & News, Roster Audit) -->
+          <div id="event-to-hub-container" style="display: none;"></div>
+
+          <!-- Panel 3: Broadcast & Live Stream Studio (Creator / TO / Admin) -->
+          <div id="event-creator-hub-container" style="display: none;"></div>
         </div>
 
         <!-- View 0: Team Rosters & Standings -->
@@ -1105,48 +1115,28 @@
           </div>
         </div>
 
-        <!-- View 3: Match Pairings & Live Spectate -->
+        <!-- View 3: Match Pairings & Live Spectate (Unified Table Cards Grid + Matchup Dossiers + TO Contact) -->
         <div id="event-view-matches" style="display: none;">
           <div id="event-matches-clock-schedule-wrap" style="display: none; margin-bottom: 0.85rem;"></div>
           <div id="event-matches-competitor-banner" style="display: none; background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(16, 185, 129, 0.15)); border: 1px solid rgba(59, 130, 246, 0.4); border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 0.85rem; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;"></div>
           <div id="event-matches-stream-alert" class="stream-alert-bar" style="display: none; background: linear-gradient(90deg, rgba(239, 68, 68, 0.15), rgba(15, 23, 42, 0.7)); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 8px; padding: 0.6rem 0.95rem; margin-bottom: 0.85rem; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;"></div>
-          <div id="event-rounds-filter" class="round-filter-container" style="margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 0.4rem;"></div>
-          <div class="table-container">
+          <div id="event-rounds-filter" class="round-filter-container" style="display: none;"></div>
+          <div id="event-pairings-cards-container"></div>
+          <div class="table-container" style="display: none;">
             <table id="event-pairings-table">
-              <thead>
-                <tr>
-                  <th class="sortable sorted-asc" onclick="sortTable('event-pairings', 'round')">Round</th>
-                  <th class="sortable" onclick="sortTable('event-pairings', 'table_number')">Table</th>
-                  <th class="sortable" onclick="sortTable('event-pairings', 'player1_name')">Player 1 & Win Prob</th>
-                  <th class="sortable" onclick="sortTable('event-pairings', 'player1_score')">P1 Score</th>
-                  <th class="sortable" onclick="sortTable('event-pairings', 'player2_score')">P2 Score</th>
-                  <th class="sortable" onclick="sortTable('event-pairings', 'player2_name')">Player 2 & Win Prob</th>
-                  <th class="sortable" style="text-align: right;" onclick="sortTable('event-pairings', 'outcome')">Outcome & Live Action</th>
-                </tr>
-              </thead>
               <tbody id="event-pairings-body"></tbody>
             </table>
           </div>
         </div>
 
-        <!-- View 4: Field Meta & Highlights -->
+        <!-- View 4: Field Meta & Highlights (Unified Spotlight + Rogue Tech + Faction Breakdown + Detachment Power Grid) -->
         <div id="event-view-meta" style="display: none;">
           <div id="event-meta-highlights-container"></div>
-        </div>
-
-        <!-- View 5: Creator Hub (CC & Admin only) -->
-        <div id="event-view-creator" style="display: none;">
-          <div id="event-creator-hub-container"></div>
         </div>
 
         <!-- View 6: News & Info (Public Event Feed & BCP Details) -->
         <div id="event-view-news" style="display: none;">
           <div id="event-news-hub-container"></div>
-        </div>
-
-        <!-- View 7: TO Hub (Event Host / TO / Judge & Admin only) -->
-        <div id="event-view-to-hub" style="display: none;">
-          <div id="event-to-hub-container"></div>
         </div>
       </div>
     </section>
@@ -3763,7 +3753,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=59f6a67204"></script>
+  <script src="/js/app.bundle.min.js?v=bd428746dc"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

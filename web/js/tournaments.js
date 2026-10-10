@@ -548,7 +548,11 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   const subtabNewsInit = document.getElementById('event-subtab-news');
   const subtabToHubInit = document.getElementById('event-subtab-to-hub');
   const subtabCreatorInit = document.getElementById('event-subtab-creator');
-  if (subtabPlayerInit) subtabPlayerInit.style.setProperty('display', 'none', 'important');
+  const canToInit = Boolean(currentEventData && String(currentEventData.id) === String(eventId) && typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(currentEventData));
+  const isCCInit = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.role === 'creator' || currentUser.can_access_cc || currentUser.is_cc || currentUser.is_admin)));
+  if (subtabPlayerInit) {
+    subtabPlayerInit.style.setProperty('display', (guessedIsRegistered || canToInit || isCCInit) ? 'inline-flex' : 'none', 'important');
+  }
   if (subtabTeamsInit) {
     if (guessedIsTeam) {
       subtabTeamsInit.style.setProperty('display', 'inline-flex', 'important');
@@ -558,14 +562,8 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   }
   if (subtabEloInit) subtabEloInit.style.setProperty('display', 'none', 'important');
   if (subtabNewsInit) subtabNewsInit.style.setProperty('display', 'inline-flex', 'important');
-  if (subtabToHubInit) {
-    const canToInit = Boolean(currentEventData && String(currentEventData.id) === String(eventId) && typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(currentEventData));
-    subtabToHubInit.style.setProperty('display', canToInit ? 'inline-flex' : 'none', 'important');
-  }
-  if (subtabCreatorInit) {
-    const isCCInit = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.is_admin)));
-    subtabCreatorInit.style.setProperty('display', isCCInit ? 'inline-flex' : 'none', 'important');
-  }
+  if (subtabToHubInit) subtabToHubInit.style.setProperty('display', 'none', 'important');
+  if (subtabCreatorInit) subtabCreatorInit.style.setProperty('display', 'none', 'important');
 
   const isTopEventModal = modal.classList.contains('active') &&
                           modal.style.display !== 'none' &&
@@ -929,13 +927,13 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     const canAccessToHub = typeof canUserAccessEventToHub === 'function' ? canUserAccessEventToHub(ev) : false;
     const subtabToHub = document.getElementById('event-subtab-to-hub');
     if (subtabToHub) {
-      subtabToHub.style.setProperty('display', canAccessToHub ? 'inline-flex' : 'none', 'important');
+      subtabToHub.style.setProperty('display', 'none', 'important');
     }
 
     const subtabCreator = document.getElementById('event-subtab-creator');
-    const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.is_admin)));
+    const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.role === 'creator' || currentUser.can_access_cc || currentUser.is_cc || currentUser.is_admin)));
     if (subtabCreator) {
-      subtabCreator.style.setProperty('display', isCC ? 'inline-flex' : 'none', 'important');
+      subtabCreator.style.setProperty('display', 'none', 'important');
     }
 
     // Check if event is concluded based on BCP's status.ended
@@ -952,14 +950,11 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     );
 
     const subtabPlayer = document.getElementById('event-subtab-player');
-    const shouldShowPlayerTab = Boolean(userRegData && userRegData.is_registered);
+    const isRegisteredPlayer = Boolean((userRegData && userRegData.is_registered) || (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor'));
+    const shouldShowMyStation = Boolean(isRegisteredPlayer || canAccessToHub || isCC);
 
     if (userRegData && userRegData.is_registered) {
-      if (subtabPlayer) subtabPlayer.style.setProperty('display', shouldShowPlayerTab ? 'inline-flex' : 'none', 'important');
       currentEventRegistration = userRegData;
-      if (shouldShowPlayerTab && isHubPageVisible) {
-        await renderPlayerStation(ev, userRegData);
-      }
 
       // Harmonize current user player details into eventPlayersCache if present
       const pReg = userRegData.player || userRegData.player_registration;
@@ -1006,10 +1001,15 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       }
     } else {
       currentEventRegistration = null;
-      if (subtabPlayer) subtabPlayer.style.setProperty('display', 'none', 'important');
-      if (currentEventModalTab === 'player') {
-        currentEventModalTab = isTeamEvent ? 'teams' : 'results';
-      }
+    }
+
+    if (subtabPlayer) {
+      subtabPlayer.style.setProperty('display', shouldShowMyStation ? 'inline-flex' : 'none', 'important');
+    }
+    if (shouldShowMyStation && isHubPageVisible) {
+      await renderPlayerStation(ev, userRegData);
+    } else if (!shouldShowMyStation && currentEventModalTab === 'player') {
+      currentEventModalTab = isTeamEvent ? 'teams' : 'results';
     }
 
     // Determine target tab now that all event + registration state is known
@@ -1017,9 +1017,10 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       ? isTournamentOngoing(ev)
       : (!isEnded && eventMatchesCache.length > 0);
 
-    if (initialTab && initialTab !== 'elo' && (initialTab !== 'teams' || teamsList.length > 0) && (initialTab !== 'player' || shouldShowPlayerTab) && (initialTab !== 'to-hub' || canAccessToHub)) {
+    if (initialTab && initialTab !== 'elo' && (initialTab !== 'teams' || teamsList.length > 0) && (initialTab !== 'player' || shouldShowMyStation) && (initialTab !== 'to-hub' || canAccessToHub) && (initialTab !== 'creator' || isCC)) {
       switchEventModalTab(initialTab);
-    } else if (shouldShowPlayerTab) {
+    } else if (isRegisteredPlayer) {
+      _currentMyStationSubtab = 'match';
       switchEventModalTab('player');
     } else if (isOngoing && eventMatchesCache.length > 0) {
       switchEventModalTab('matches');
@@ -1544,20 +1545,36 @@ window.lookupEventPlayerFast = lookupEventPlayerFast;
 function switchEventModalTab(tabKey) {
   if (tabKey === 'elo' || tabKey === 'standings') tabKey = 'results';
   if (tabKey === 'pairings') tabKey = 'matches';
-  const isEnded = Boolean(
-    currentEventData?.ended === true ||
-    currentEventData?.is_ended === true ||
-    currentEventData?.status?.ended === true ||
-    currentEventData?.raw_json?.ended === true ||
-    currentEventData?.raw_json?.isEnded === true ||
-    currentEventData?.raw_json?.status?.ended === true ||
-    currentEventRegistration?.ended === true ||
-    currentEventRegistration?.is_ended === true ||
-    currentEventRegistration?.status?.ended === true
+  const isRegistered = Boolean(
+    (currentEventRegistration && currentEventRegistration.is_registered) ||
+    (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor')
   );
-  const isRegistered = Boolean(currentEventRegistration && currentEventRegistration.is_registered);
+  const canTo = Boolean(typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(currentEventData));
+  const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.role === 'creator' || currentUser.can_access_cc || currentUser.is_cc || currentUser.is_admin)));
+  const canAccessMyStation = Boolean(isRegistered || canTo || isCC);
   const hasTeams = Boolean(currentEventData && ((currentEventData.teams && currentEventData.teams.length > 0) || (currentEventData.team_standings && currentEventData.team_standings.length > 0)));
-  if (tabKey === 'player' && !isRegistered) {
+
+  if (tabKey === 'to-hub') {
+    if (!canTo) {
+      console.warn('Unauthorized TO Hub tab switch blocked for current user');
+      switchEventModalTab('results');
+      return;
+    }
+    _currentMyStationSubtab = (typeof _currentToHubSubtab !== 'undefined' && ['clock', 'announcements', 'roster'].includes(_currentToHubSubtab))
+      ? _currentToHubSubtab
+      : 'clock';
+    tabKey = 'player';
+  } else if (tabKey === 'creator') {
+    if (!isCC) {
+      console.warn('Unauthorized Creator Studio tab switch blocked for current user');
+      switchEventModalTab('results');
+      return;
+    }
+    _currentMyStationSubtab = 'stream';
+    tabKey = 'player';
+  }
+
+  if (tabKey === 'player' && !canAccessMyStation) {
     tabKey = hasTeams ? 'teams' : 'results';
   }
   if (tabKey === 'teams' && !hasTeams) {
@@ -1593,6 +1610,9 @@ function switchEventModalTab(tabKey) {
     if (btnPlayer) btnPlayer.classList.add('active');
     if (viewPlayer) viewPlayer.style.display = 'block';
     if (searchRow) searchRow.style.display = 'none';
+    if (typeof renderPlayerStation === 'function' && currentEventData) {
+      renderPlayerStation(currentEventData, currentEventRegistration);
+    }
     if (typeof renderEventClockAndScheduleWidgets === 'function' && currentEventData) {
       renderEventClockAndScheduleWidgets(currentEventData);
     }
@@ -1609,32 +1629,6 @@ function switchEventModalTab(tabKey) {
     if (searchRow) searchRow.style.display = 'none';
     if (typeof renderEventNewsHub === 'function' && currentEventData) {
       renderEventNewsHub(currentEventData);
-    }
-  } else if (tabKey === 'to-hub') {
-    const canTo = Boolean(typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(currentEventData));
-    if (!canTo) {
-      console.warn('Unauthorized TO Hub tab switch blocked for current user');
-      switchEventModalTab('results');
-      return;
-    }
-    if (btnToHub) btnToHub.classList.add('active');
-    if (viewToHub) viewToHub.style.display = 'block';
-    if (searchRow) searchRow.style.display = 'none';
-    if (typeof renderEventToHub === 'function' && currentEventData) {
-      renderEventToHub(currentEventData);
-    }
-  } else if (tabKey === 'creator') {
-    const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.role === 'creator' || currentUser.can_access_cc || currentUser.is_cc || currentUser.is_admin)));
-    if (!isCC) {
-      console.warn('Unauthorized Creator Studio tab switch blocked for current user');
-      switchEventModalTab('results');
-      return;
-    }
-    if (btnCreator) btnCreator.classList.add('active');
-    if (viewCreator) viewCreator.style.display = 'block';
-    if (searchRow) searchRow.style.display = 'none';
-    if (typeof renderEventCreatorHub === 'function' && currentEventData) {
-      renderEventCreatorHub(currentEventData);
     }
   } else {
     if (searchRow) searchRow.style.display = 'flex';
@@ -2430,61 +2424,105 @@ function renderEventEloRows() {
 }
 
 let selectedEventRound = 'all';
+let _pairingsLastEventId = '';
+let _pairingsStatusFilter = 'all'; // 'all' | 'unfinished' | 'completed' | 'judge'
 
 function setEventRoundFilter(roundVal) {
   selectedEventRound = roundVal;
+  if (roundVal !== 'all') {
+    _toHubRadarRound = Number(roundVal) || 1;
+  }
   renderEventPairingsRows();
 }
 
-function renderEventPairingsRows() {
+function setEventPairingsStatusFilter(filterVal) {
+  _pairingsStatusFilter = filterVal || 'all';
+  _toHubRadarFilter = _pairingsStatusFilter;
+  renderEventPairingsRows();
+}
+window.setEventPairingsStatusFilter = setEventPairingsStatusFilter;
+
+function renderEventPairingsRows(roundArg) {
+  if (roundArg !== undefined && roundArg !== null) {
+    selectedEventRound = roundArg;
+    if (roundArg !== 'all') {
+      _toHubRadarRound = Number(roundArg) || 1;
+    }
+  }
   const tbody = document.getElementById('event-pairings-body');
+  const cardsContainer = document.getElementById('event-pairings-cards-container');
   const roundsContainer = document.getElementById('event-rounds-filter');
   if (typeof renderEventClockAndScheduleWidgets === 'function' && currentEventData) {
     renderEventClockAndScheduleWidgets(currentEventData);
   }
-  if (!tbody) return;
+  if (!tbody && !cardsContainer) return;
 
   if (!eventMatchesCache || eventMatchesCache.length === 0) {
     if (roundsContainer) {
       roundsContainer.innerHTML = '';
       delete roundsContainer.dataset.renderedKey;
     }
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="7" class="empty-state" style="padding:2.5rem 1rem;">
-          <div style="font-size:1.05rem; font-weight:600; color:#fff;">⚔️ No Round Pairings Published Yet</div>
-          <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
-            Round pairings and table matchups will appear here once the tournament organizer draws and posts Round 1.
-          </div>
-        </td>
-      </tr>`;
+    const emptyHtml = `
+      <div class="card empty-state" style="padding:2.5rem 1rem; text-align:center;">
+        <div style="font-size:1.05rem; font-weight:600; color:#fff;">⚔️ No Round Pairings Published Yet</div>
+        <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
+          Round pairings and table matchups will appear here once the tournament organizer draws and posts Round 1.
+        </div>
+      </div>`;
+    if (cardsContainer) cardsContainer.innerHTML = emptyHtml;
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="padding:2.5rem 1rem;">⚔️ No Round Pairings Published Yet</td></tr>`;
+    }
     return;
   }
 
   const idxState = ensureEventSearchIndex();
   const eventId = currentOpenEventId || (currentEventData && currentEventData.id) || '';
 
-  // 1. Extract and render distinct round buttons (All, R1, R2, R3...) using pre-indexed counts
+  // 1. Extract and render distinct round buttons (R1, R2, R3... + All Rounds)
   const distinctRounds = idxState.distinctRounds;
-  if (selectedEventRound !== 'all' && !distinctRounds.includes(Number(selectedEventRound))) {
-    selectedEventRound = 'all';
+  if (_pairingsLastEventId !== String(eventId)) {
+    _pairingsLastEventId = String(eventId);
+    _pairingsStatusFilter = 'all';
+    if (distinctRounds.length > 0) {
+      const curR = Number(currentEventData?.current_round || 0);
+      selectedEventRound = (curR > 0 && distinctRounds.includes(curR)) ? curR : distinctRounds[distinctRounds.length - 1];
+    } else {
+      selectedEventRound = 'all';
+    }
   }
+  if (selectedEventRound !== 'all' && !distinctRounds.includes(Number(selectedEventRound))) {
+    selectedEventRound = distinctRounds.length > 0 ? distinctRounds[distinctRounds.length - 1] : 'all';
+  }
+  if (selectedEventRound !== 'all') {
+    _toHubRadarRound = Number(selectedEventRound) || 1;
+  } else if (distinctRounds.length > 0) {
+    _toHubRadarRound = distinctRounds[distinctRounds.length - 1];
+  }
+
+  const maxR = distinctRounds.length > 0 ? Math.max(...distinctRounds) : 1;
+
   if (roundsContainer) {
     const roundsRenderKey = `${eventId}:${eventMatchesCache.length}:${selectedEventRound}`;
     if (roundsContainer.dataset.renderedKey !== roundsRenderKey) {
-      let pillsHtml = `
+      let pillsHtml = '';
+      distinctRounds.forEach(r => {
+        const rCount = idxState.roundCounts.get(r) || 0;
+        const rMeta = typeof getEventRoundMetadata === 'function'
+          ? getEventRoundMetadata(currentEventData, eventMatchesCache, r, maxR)
+          : { shortLabel: `Round ${r}` };
+        const isAct = Number(selectedEventRound) === Number(r);
+        pillsHtml += `
+          <button class="round-filter-btn ${isAct ? 'active' : ''}" onclick="setEventRoundFilter(${r})">
+            Round ${r} (${rCount})${rMeta.isShadowRound ? ' 🌑' : (rMeta.isTopCut ? ' 🏆' : '')}
+          </button>
+        `;
+      });
+      pillsHtml += `
         <button class="round-filter-btn ${selectedEventRound === 'all' ? 'active' : ''}" onclick="setEventRoundFilter('all')">
           All Rounds (${eventMatchesCache.length})
         </button>
       `;
-      distinctRounds.forEach(r => {
-        const rCount = idxState.roundCounts.get(r) || 0;
-        pillsHtml += `
-          <button class="round-filter-btn ${selectedEventRound === r ? 'active' : ''}" onclick="setEventRoundFilter(${r})">
-            Round ${r} (${rCount})
-          </button>
-        `;
-      });
       roundsContainer.innerHTML = pillsHtml;
       roundsContainer.dataset.renderedKey = roundsRenderKey;
     }
@@ -2572,7 +2610,7 @@ function renderEventPairingsRows() {
                 Round ${rNum} • Table ${tNum}: You vs ${oppName !== 'BYE' ? `<span class="player-link" style="color:#38bdf8; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(safeOppId)}', '${escapeHtml(safeOppName)}');" title="View ${escapeHtml(oppName)}'s Player Profile">${escapeHtml(oppName)}</span>` : `<span style="color:#38bdf8;">BYE</span>`} ${oppFac ? `<span style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">(${escapeHtml(oppFac)})</span>` : ''}
               </div>
               <div style="font-size:0.74rem; color:#94a3b8;">
-                Your active match is ready to play. Track live scores or submit to BCP via your Player Station.
+                Your active match is ready to play. Track live scores or submit to BCP via My Station.
               </div>
             </div>
           </div>
@@ -2582,8 +2620,8 @@ function renderEventPairingsRows() {
                 📋 Opponent Roster
               </button>
             ` : ''}
-            <button type="button" class="btn btn-primary" onclick="switchEventModalTab('player')" style="font-size:0.76rem; font-weight:800; padding:5px 12px; background:#38bdf8; border-color:#0284c7; color:#000; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem; border-radius:6px;">
-              ⚔️ Open My Player Station ➔
+            <button type="button" class="btn btn-primary" onclick="switchEventModalTab('player'); switchMyStationSubtab('match');" style="font-size:0.76rem; font-weight:800; padding:5px 12px; background:#38bdf8; border-color:#0284c7; color:#000; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem; border-radius:6px;">
+              ⚡ Open My Station ➔
             </button>
           </div>
         `;
@@ -2623,53 +2661,132 @@ function renderEventPairingsRows() {
   }
 
   // 2. Filter matches by selected round
-  let matchesToRender = selectedEventRound === 'all' 
-    ? eventMatchesCache 
+  const baseRoundMatches = selectedEventRound === 'all'
+    ? eventMatchesCache
     : eventMatchesCache.filter(m => (m.round || 1) === Number(selectedEventRound));
 
-  // 3. Filter matches by search query (players, teams, factions) using O(1) pre-indexed _searchText
+  // Expose baseRoundMatches on window._toHubCurrentRoundMatches so TO contact modal & floor actions work directly
+  window._toHubCurrentRoundMatches = baseRoundMatches;
+
+  // Compute round completion & judge call metrics for the selected round
+  const toHubState = (typeof _eventToHubStateCache !== 'undefined' && _eventToHubStateCache.get(String(eventId))) || {};
+  const judgeCalls = Array.isArray(toHubState.judge_calls) ? toHubState.judge_calls : [];
+  const openJudgeCalls = judgeCalls.filter(c => String(c.status || 'open').toLowerCase() !== 'resolved');
+  const activeSessions = Array.isArray(toHubState.active_sessions) ? toHubState.active_sessions : [];
+  const judgeTablesSet = new Set(openJudgeCalls.map(c => String(c.table_number || c.table || '')).filter(Boolean));
+  const sessionTablesSet = new Set(activeSessions.map(s => String(s.table_number || s.table || '')).filter(Boolean));
+
+  const totalRoundCount = baseRoundMatches.length;
+  const completedRoundMatches = baseRoundMatches.filter(m => isToHubMatchCompleted(m));
+  const unfinishedRoundMatches = baseRoundMatches.filter(m => !isToHubMatchCompleted(m));
+  const completionPct = totalRoundCount > 0 ? Math.round((completedRoundMatches.length / totalRoundCount) * 100) : 0;
+
+  // 3. Apply status filter & search query
+  let matchesToRender = baseRoundMatches.map((m, idx) => ({ m, idx }));
+  if (_pairingsStatusFilter === 'unfinished') {
+    matchesToRender = matchesToRender.filter(({ m }) => !isToHubMatchCompleted(m));
+  } else if (_pairingsStatusFilter === 'completed') {
+    matchesToRender = matchesToRender.filter(({ m }) => isToHubMatchCompleted(m));
+  } else if (_pairingsStatusFilter === 'judge') {
+    matchesToRender = matchesToRender.filter(({ m, idx }) => {
+      const rawT = Number(m.table_number ?? m.table ?? 0);
+      const tStr = String(rawT > 0 ? rawT : (idx + 1));
+      return judgeTablesSet.has(tStr);
+    });
+  }
+
   if (eventModalSearchQuery) {
     const q = eventModalSearchQuery;
-    matchesToRender = matchesToRender.filter(m => m && m._searchText && m._searchText.includes(q));
+    matchesToRender = matchesToRender.filter(({ m }) => m && m._searchText && m._searchText.includes(q));
   }
 
   const searchSummary = document.getElementById('event-modal-search-summary');
   if (searchSummary && currentEventModalTab === 'matches') {
     if (eventModalSearchQuery) {
-      searchSummary.innerText = `Showing ${matchesToRender.length} of ${eventMatchesCache.length} pairings`;
+      searchSummary.innerText = `Showing ${matchesToRender.length} of ${baseRoundMatches.length} pairings`;
       searchSummary.style.display = 'block';
     } else {
       searchSummary.style.display = 'none';
     }
   }
 
+  const canAccessToHub = Boolean(typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(currentEventData));
+
+  // Build Round Completion & Status Filter Header Bar
+  const roundTitleLabel = selectedEventRound === 'all'
+    ? `⚔️ All Rounds Pairings (${totalRoundCount} Matches)`
+    : `⚔️ Round ${selectedEventRound} Table Grid`;
+
+  const floorHeaderBarHtml = `
+    <div class="card pairings-floor-radar-header" style="padding:0.8rem 1rem; background:rgba(15,23,42,0.78); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:0.85rem;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+        <!-- Left: Round Title & Completion Progress -->
+        <div style="display:flex; align-items:center; gap:0.85rem; flex-wrap:wrap; flex:1; min-width:240px;">
+          <div style="font-size:0.9rem; font-weight:800; color:#fff; white-space:nowrap;">${roundTitleLabel}</div>
+          <div style="flex:1; min-width:160px; max-width:300px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.72rem; margin-bottom:0.22rem;">
+              <span style="color:var(--text-secondary);">Round Completion</span>
+              <span style="font-family:var(--font-mono); font-weight:800; color:${completionPct === 100 ? '#4ade80' : '#38bdf8'};">${completedRoundMatches.length}/${totalRoundCount} (${completionPct}%)</span>
+            </div>
+            <div style="height:6px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden;">
+              <div style="width:${completionPct}%; height:100%; background:${completionPct === 100 ? '#10b981' : 'linear-gradient(90deg, #38bdf8, #818cf8)'};"></div>
+            </div>
+          </div>
+          <span style="font-size:0.73rem; color:var(--text-muted);">💡 Click any table card for Matchup & Player Dossiers</span>
+        </div>
+
+        <!-- Right: Status Filter Pills & TO-Only Floor Actions -->
+        <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+          <button type="button" onclick="setEventPairingsStatusFilter('all')" style="padding:0.3rem 0.62rem; font-size:0.73rem; font-weight:700; border-radius:6px; cursor:pointer; border:1px solid ${_pairingsStatusFilter === 'all' ? '#38bdf8' : 'rgba(255,255,255,0.12)'}; background:${_pairingsStatusFilter === 'all' ? 'rgba(56,189,248,0.18)' : 'rgba(255,255,255,0.04)'}; color:${_pairingsStatusFilter === 'all' ? '#38bdf8' : 'var(--text-secondary)'};">
+            All (${totalRoundCount})
+          </button>
+          <button type="button" onclick="setEventPairingsStatusFilter('unfinished')" style="padding:0.3rem 0.62rem; font-size:0.73rem; font-weight:700; border-radius:6px; cursor:pointer; border:1px solid ${_pairingsStatusFilter === 'unfinished' ? '#f59e0b' : 'rgba(255,255,255,0.12)'}; background:${_pairingsStatusFilter === 'unfinished' ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.04)'}; color:${_pairingsStatusFilter === 'unfinished' ? '#fbbf24' : 'var(--text-secondary)'};">
+            ⏳ Unfinished (${unfinishedRoundMatches.length})
+          </button>
+          <button type="button" onclick="setEventPairingsStatusFilter('completed')" style="padding:0.3rem 0.62rem; font-size:0.73rem; font-weight:700; border-radius:6px; cursor:pointer; border:1px solid ${_pairingsStatusFilter === 'completed' ? '#10b981' : 'rgba(255,255,255,0.12)'}; background:${_pairingsStatusFilter === 'completed' ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.04)'}; color:${_pairingsStatusFilter === 'completed' ? '#34d399' : 'var(--text-secondary)'};">
+            ✅ Completed (${completedRoundMatches.length})
+          </button>
+          ${(openJudgeCalls.length > 0 || canAccessToHub) ? `
+            <button type="button" onclick="setEventPairingsStatusFilter('judge')" style="padding:0.3rem 0.62rem; font-size:0.73rem; font-weight:700; border-radius:6px; cursor:pointer; border:1px solid ${_pairingsStatusFilter === 'judge' ? '#ef4444' : 'rgba(255,255,255,0.12)'}; background:${_pairingsStatusFilter === 'judge' ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.04)'}; color:${_pairingsStatusFilter === 'judge' ? '#fca5a5' : 'var(--text-secondary)'};">
+              🚨 Judge Call (${openJudgeCalls.length})
+            </button>
+          ` : ''}
+          ${canAccessToHub ? `
+            <button type="button" class="btn btn-outline" onclick="copyUnfinishedTablesToClipboard()" style="padding:0.3rem 0.62rem; font-size:0.72rem; font-weight:700;" title="Copy list of unfinished tables to clipboard">
+              📋 Copy Unfinished
+            </button>
+            <button type="button" class="btn btn-primary" onclick="pingAllUnfinishedTables()" style="padding:0.3rem 0.68rem; font-size:0.72rem; font-weight:800; background:rgba(245,158,11,0.2); border:1px solid rgba(245,158,11,0.5); color:#fbbf24;" title="Broadcast score submission reminder to all unfinished tables">
+              📢 Ping Unfinished (${unfinishedRoundMatches.length})
+            </button>
+          ` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+
   if (matchesToRender.length === 0) {
     const suggestions = getEventModalCrossTabSuggestions('matches');
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="7" class="empty-state" style="padding:2.5rem 1rem;">
-          <div style="font-size:1.05rem; font-weight:600; color:#fff;">🔍 No Matching Match Pairings</div>
-          <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
-            No match pairings match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>"${selectedEventRound !== 'all' ? ` in Round ${selectedEventRound}` : ''}.
-          </div>
-          ${suggestions}
-        </td>
-      </tr>`;
+    const noMatchHtml = `
+      ${floorHeaderBarHtml}
+      <div class="card empty-state" style="padding:2.5rem 1rem; text-align:center;">
+        <div style="font-size:1.05rem; font-weight:600; color:#fff;">🔍 No Matching Table Pairings</div>
+        <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
+          ${eventModalSearchQuery
+            ? `No match pairings match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>"${selectedEventRound !== 'all' ? ` in Round ${selectedEventRound}` : ''}.`
+            : `No tables match the selected "${escapeHtml(_pairingsStatusFilter)}" filter.`}
+        </div>
+        ${suggestions}
+      </div>`;
+    if (cardsContainer) cardsContainer.innerHTML = noMatchHtml;
+    if (tbody) tbody.innerHTML = '';
     return;
   }
 
-  // Permission checks: Is current logged-in user Player 1, Player 2, or Staff (Admin/TO/Referee)?
+  // Permission & identity checks
   const u = (typeof authState !== 'undefined' && authState && authState.user) ||
             (typeof currentUser !== 'undefined' ? currentUser : null) ||
             (typeof window !== 'undefined' ? window.currentUser : null);
 
-  const userRole = String(
-    (u && (u.role || u.user_role)) ||
-    (typeof authState !== 'undefined' && authState && (authState.role || (authState.user && authState.user.role))) ||
-    ''
-  ).trim().toLowerCase();
-
-  // Collect all candidate names (u.display_name, u.competitor_name), IDs, and emails for logged-in user
   const userNames = uBannerNames;
   const userIds = uBannerIds;
   const userIdsSet = new Set(userIds);
@@ -2715,23 +2832,6 @@ function renderEventPairingsRows() {
     return false;
   }
 
-  // Strict Tournament Organizer authorization: ONLY the specific TO of this tournament (or platform superadmin) is staff
-  const isGlobalAdmin = Boolean(u && (
-    Boolean(u.is_admin) || userRole === 'admin' || userRole === 'superuser'
-  ));
-  const eventOrganizerIds = [
-    currentEventData?.organizer_id,
-    currentEventData?.organizer_bcp_id,
-    currentEventData?.raw_json?.userId,
-    currentEventData?.raw_json?.organizerId,
-    currentEventData?.raw_json?.ownerId,
-    currentEventData?.created_by
-  ].filter(Boolean).map(x => String(x).trim().toLowerCase());
-  const isEventOrganizer = Boolean(u && eventOrganizerIds.length > 0 && (
-    userIds.some(uid => eventOrganizerIds.includes(uid))
-  ));
-  const isStaff = Boolean(isGlobalAdmin || isEventOrganizer);
-
   // Pre-index live streams by table number
   const streamByTableMap = new Map();
   let defaultStream = null;
@@ -2746,33 +2846,38 @@ function renderEventPairingsRows() {
   }
 
   const safeEventId = String(eventId).replace(/'/g, "\\'");
-  const streamsSig = (typeof eventLiveStreams !== 'undefined' && Array.isArray(eventLiveStreams))
-    ? eventLiveStreams.map(s => `${s.tableNumber}:${s.roundNumber || ''}`).join(',')
-    : '';
-  const rowContextKey = `${safeEventId}:${isStaff ? 1 : 0}:${u ? (u.id || u.email || '') : ''}:${streamsSig}`;
-  const rowsHtml = [];
+  const cardsHtml = [];
 
   for (let i = 0; i < matchesToRender.length; i++) {
-    const m = matchesToRender[i];
-    if (m._cachedRowKey === rowContextKey && m._cachedRowHtml) {
-      rowsHtml.push(m._cachedRowHtml);
-      continue;
-    }
+    const { m, idx } = matchesToRender[i];
     try {
-      const isP1Win = m.winner_id && m.winner_id === m.player1_id;
-      const isP2Win = m.winner_id && m.winner_id === m.player2_id;
-      const outcome = isP1Win ? 'Player 1 Win' : (isP2Win ? 'Player 2 Win' : (m.is_draw ? 'Draw' : (m.is_bye ? 'BYE' : 'Pending')));
-      const matchId = m.tracker_match_id || `BCP-${eventId}-R${m.round || 1}-T${m.table_number || 1}`;
-
       const isBye = Boolean(m.is_bye || m.player2_name === 'BYE' || !m.player2_id);
-      const hasScore = (m.player1_score !== null && m.player2_score !== null);
-      const hasTrackerGame = Boolean(m.has_tracker_game);
-      const isTrackerDone = Boolean(m.tracker_is_done || m.tracker_status === 'completed');
+      const rawTNum = Number(m.table_number ?? m.table ?? 0);
+      const tNumInt = rawTNum > 0 ? rawTNum : (idx + 1);
+      const tNumStr = String(tNumInt);
+      const rNumInt = Number(m.round || m.round_number || 1);
+      const tableBadgeLabel = (rawTNum === 0 && isBye)
+        ? (selectedEventRound === 'all' ? `R${rNumInt} • BYE` : 'BYE')
+        : (selectedEventRound === 'all' ? `R${rNumInt} • Table ${tNumInt}` : `Table ${tNumInt}`);
+
+      const isDone = isToHubMatchCompleted(m);
+      const hasJudgeCall = judgeTablesSet.has(tNumStr);
+      const hasTracker = sessionTablesSet.has(tNumStr) || Boolean(m.has_tracker_game);
+      const matchId = m.tracker_match_id || `BCP-${eventId}-R${rNumInt}-T${tNumInt}`;
 
       const p1Record = m._p1Record !== undefined ? m._p1Record : lookupEventPlayerFast(m.player1_id, m.player1_name);
       const p2Record = m._p2Record !== undefined ? m._p2Record : lookupEventPlayerFast(m.player2_id, m.player2_name);
+      const p1Name = m.player1_name || p1Record?.full_name || 'Player 1';
+      const p2Name = isBye ? 'BYE' : (m.player2_name || p2Record?.full_name || 'Player 2');
       const p1Faction = m._p1Faction !== undefined ? m._p1Faction : (m.player1_faction || p1Record?.faction || '');
       const p2Faction = m._p2Faction !== undefined ? m._p2Faction : (m.player2_faction || p2Record?.faction || '');
+      const p1Detach = p1Record?.detachment || m.player1_detachment || '';
+      const p2Detach = p2Record?.detachment || m.player2_detachment || '';
+
+      const s1 = m.player1_score ?? m.score1 ?? null;
+      const s2 = m.player2_score ?? m.score2 ?? null;
+      const isP1Win = Boolean((m.winner_id && String(m.winner_id) === String(m.player1_id)) || (isDone && s1 !== null && s2 !== null && Number(s1) > Number(s2)));
+      const isP2Win = Boolean(!isBye && ((m.winner_id && String(m.winner_id) === String(m.player2_id)) || (isDone && s1 !== null && s2 !== null && Number(s2) > Number(s1))));
 
       let isP1 = false;
       let isP2 = false;
@@ -2793,112 +2898,163 @@ function renderEventPairingsRows() {
           recordMatchesUser(p2Record)
         );
       }
-
       const isMyTable = Boolean(isP1 || isP2);
 
-      let actionBtn = '';
-      if (!isBye) {
-        if (!isTrackerDone && !hasScore && isMyTable) {
-          const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
-          const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
-          const safeP1Id = String(m.player1_id || '').replace(/'/g, "\\'");
-          const safeP2Id = String(m.player2_id || '').replace(/'/g, "\\'");
-          const safePairingId = String(m.id || m.pairing_id || m.bcp_pairing_id || '').replace(/'/g, "\\'");
-          const btnLabel = hasTrackerGame ? '🎮 Resume' : '🎲 Track';
-          actionBtn = `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || m.table || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="1-Click Launch Game Tracker for Table ${m.table_number || m.table || 1}">${btnLabel}</button>`;
-        } else {
-          actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="${isTrackerDone ? 'View turn-by-turn digital scorecard' : (hasScore ? 'View official BCP match scorecard' : 'View live match scorecard')}">📄 Scorecard</button>`;
-        }
-      }
-
       const targetP1Id = String((p1Record && p1Record.player_id) || m.player1_id || '').replace(/'/g, "\\'");
-      const targetP1Name = String((p1Record && (p1Record.full_name || p1Record.name)) || m.player1_name || '').replace(/'/g, "\\'");
+      const targetP1Name = String((p1Record && (p1Record.full_name || p1Record.name)) || p1Name || '').replace(/'/g, "\\'");
       const targetP2Id = String((p2Record && p2Record.player_id) || m.player2_id || '').replace(/'/g, "\\'");
-      const targetP2Name = String((p2Record && (p2Record.full_name || p2Record.name)) || m.player2_name || '').replace(/'/g, "\\'");
+      const targetP2Name = String((p2Record && (p2Record.full_name || p2Record.name)) || p2Name || '').replace(/'/g, "\\'");
       const p1ListId = String(m.player1_list_id || (p1Record && (p1Record.list_id || p1Record.listId)) || '').replace(/'/g, "\\'");
       const p2ListId = String(m.player2_list_id || (p2Record && (p2Record.list_id || p2Record.listId)) || '').replace(/'/g, "\\'");
       const p1HasList = Boolean((p1Record && hasPlayerSubmittedList(p1Record)) || p1ListId);
       const p2HasList = Boolean(!isBye && ((p2Record && hasPlayerSubmittedList(p2Record)) || p2ListId));
-      const p1RosterBtn = p1HasList
-        ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(targetP1Id || targetP1Name)}', '${escapeHtml(p1ListId)}')" style="font-size:0.68rem; padding:1px 6px; border-radius:4px; color:#38bdf8; border:1px solid rgba(56,189,248,0.38); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:3px; line-height:1.3;" title="View ${escapeHtml(m.player1_name || 'Player 1')}'s Army Roster">📋 Roster</button>`
-        : '';
-      const p2RosterBtn = p2HasList
-        ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(targetP2Id || targetP2Name)}', '${escapeHtml(p2ListId)}')" style="font-size:0.68rem; padding:1px 6px; border-radius:4px; color:#38bdf8; border:1px solid rgba(56,189,248,0.38); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:600; display:inline-flex; align-items:center; gap:3px; line-height:1.3;" title="View ${escapeHtml(m.player2_name || 'Player 2')}'s Army Roster">📋 Roster</button>`
-        : '';
 
       const p1Prob = m._p1_win_prob !== undefined ? m._p1_win_prob : 50;
       const p2Prob = m._p2_win_prob !== undefined ? m._p2_win_prob : 50;
-      const p1ProbPill = !isBye ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.28); font-size:0.68rem; font-family:var(--font-mono); margin-left:6px; padding:1px 5px;" title="Elo Win Probability">${p1Prob}%</span>` : '';
-      const p2ProbPill = !isBye ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.28); font-size:0.68rem; font-family:var(--font-mono); margin-left:6px; padding:1px 5px;" title="Elo Win Probability">${p2Prob}%</span>` : '';
+      const matchStream = streamByTableMap.get(tNumInt) || defaultStream;
 
-      const tableNumVal = Number(m.table_number || m.table || 1);
-      const matchStream = streamByTableMap.get(tableNumVal) || defaultStream;
+      let borderCol = 'rgba(255,255,255,0.09)';
+      let bgCol = 'rgba(15,23,42,0.82)';
+      let statusBadge = `<span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; font-size:0.64rem; padding:1px 6px;">⏳ IN PLAY</span>`;
+      if (hasJudgeCall) {
+        borderCol = 'rgba(239,68,68,0.65)';
+        bgCol = 'rgba(239,68,68,0.09)';
+        statusBadge = `<span class="badge" style="background:rgba(239,68,68,0.28); color:#fca5a5; font-size:0.64rem; padding:1px 6px;">🚨 JUDGE</span>`;
+      } else if (isDone) {
+        borderCol = 'rgba(16,185,129,0.38)';
+        bgCol = 'rgba(16,185,129,0.05)';
+        statusBadge = `<span class="badge" style="background:rgba(16,185,129,0.2); color:#34d399; font-size:0.64rem; padding:1px 6px;">✅ FINAL</span>`;
+      } else if (hasTracker) {
+        borderCol = 'rgba(56,189,248,0.45)';
+        statusBadge = `<span class="badge" style="background:rgba(56,189,248,0.18); color:#38bdf8; font-size:0.64rem; padding:1px 6px;">🟢 TRACKER</span>`;
+      }
+      if (isMyTable) {
+        borderCol = '#38bdf8';
+      }
 
-      const streamBtn = matchStream ? `
-        <button type="button" class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:rgba(239,68,68,0.18); border:1px solid #ef4444; color:#fca5a5; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;" onclick="event.stopPropagation(); openEventStreamModal(${matchStream.tableNumber})" title="Watch ${escapeHtml(matchStream.channel)} Live Stream ${Number(matchStream.tableNumber) === 0 ? '(Main Desk)' : `on Table ${matchStream.tableNumber}`}">
-          <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#ef4444; box-shadow:0 0 6px #ef4444;"></span>
-          🔴 Watch Live
+      const toTableContactBtn = canAccessToHub ? `
+        <button type="button" onclick="event.stopPropagation(); openToHubTableCommsModal(${idx}, 'table')" title="Send targeted announcement or alert to ${escapeHtml(tableBadgeLabel)}" style="padding:2px 7px; font-size:0.66rem; font-weight:800; border-radius:5px; border:1px solid rgba(245,158,11,0.5); background:rgba(245,158,11,0.15); color:#fbbf24; cursor:pointer; display:inline-flex; align-items:center; gap:3px; line-height:1.2;">
+          📢 Contact
         </button>
       ` : '';
 
-      const rowStyle = (isP1 || isP2) ? ' style="background:rgba(59, 130, 246, 0.12); border-left:3px solid #38bdf8;"' : '';
+      const toP1CommsBtn = canAccessToHub ? `
+        <button type="button" onclick="event.stopPropagation(); openToHubTableCommsModal(${idx}, 'p1')" title="Message ${escapeHtml(p1Name)}" style="padding:1px 5px; font-size:0.64rem; border-radius:4px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#cbd5e1; cursor:pointer; flex-shrink:0;">💬</button>
+      ` : '';
 
-      const rowHtml = `
-        <tr${rowStyle}>
-          <td style="font-family:var(--font-mono); font-weight:700;">R${m.round || 1}</td>
-          <td style="font-family:var(--font-mono); color:${matchStream ? '#f87171' : 'var(--text-muted)'}; font-weight:${matchStream ? '800' : 'normal'};">
-            T${tableNumVal}${matchStream ? ' <span title="Live Stream Available - Click to Watch" style="font-size:0.72rem; cursor:pointer;" onclick="event.stopPropagation(); openEventStreamModal(' + tableNumVal + ')">🎥</span>' : ''}
-          </td>
-          <td>
-            <div class="player-name-cell">
-              <div style="display:flex; align-items:center; flex-wrap:wrap; gap:2px;">
-                <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${targetP1Id}', '${escapeHtml(targetP1Name)}');">
-                  ${escapeHtml(m.player1_name || 'Player 1')}
+      const toP2CommsBtn = (canAccessToHub && !isBye) ? `
+        <button type="button" onclick="event.stopPropagation(); openToHubTableCommsModal(${idx}, 'p2')" title="Message ${escapeHtml(p2Name)}" style="padding:1px 5px; font-size:0.64rem; border-radius:4px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#cbd5e1; cursor:pointer; flex-shrink:0;">💬</button>
+      ` : '';
+
+      const p1RosterBtn = p1HasList ? `
+        <button type="button" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(targetP1Id || targetP1Name)}', '${escapeHtml(p1ListId)}')" title="View ${escapeHtml(p1Name)}'s Army Roster" style="padding:1px 5px; font-size:0.64rem; border-radius:4px; border:1px solid rgba(56,189,248,0.35); background:rgba(56,189,248,0.1); color:#38bdf8; cursor:pointer; font-weight:700; flex-shrink:0;">📋</button>
+      ` : '';
+
+      const p2RosterBtn = p2HasList ? `
+        <button type="button" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(targetP2Id || targetP2Name)}', '${escapeHtml(p2ListId)}')" title="View ${escapeHtml(p2Name)}'s Army Roster" style="padding:1px 5px; font-size:0.64rem; border-radius:4px; border:1px solid rgba(56,189,248,0.35); background:rgba(56,189,248,0.1); color:#38bdf8; cursor:pointer; font-weight:700; flex-shrink:0;">📋</button>
+      ` : '';
+
+      const streamBadgeBtn = matchStream ? `
+        <button type="button" onclick="event.stopPropagation(); openEventStreamModal(${matchStream.tableNumber})" title="Watch ${escapeHtml(matchStream.channel)} Live Stream" style="padding:1px 6px; font-size:0.64rem; font-weight:800; border-radius:4px; border:1px solid #ef4444; background:rgba(239,68,68,0.2); color:#fca5a5; cursor:pointer; display:inline-flex; align-items:center; gap:3px;">
+          🔴 LIVE
+        </button>
+      ` : '';
+
+      cardsHtml.push(`
+        <div class="to-hub-radar-card to-hub-table-card" onclick="openCasterDeskTableModal(${tNumInt}, ${rNumInt}, ${idx})" style="padding:0.75rem 0.85rem; border-radius:10px; background:${bgCol}; border:1px solid ${borderCol}; display:flex; flex-direction:column; gap:0.48rem; cursor:pointer; transition:transform 0.12s ease, border-color 0.15s ease, box-shadow 0.15s ease;" title="Click to open ${escapeHtml(tableBadgeLabel)} Matchup & Player Dossiers">
+          <!-- Card Header: Table Number, Stream Badge, Status & TO Contact -->
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.35rem; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:0.4rem; flex-wrap:wrap;">
+            <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+              <span style="font-family:var(--font-mono); font-size:0.76rem; font-weight:900; color:#f8fafc; background:rgba(255,255,255,0.08); padding:2px 7px; border-radius:5px;">
+                ${escapeHtml(tableBadgeLabel)}
+              </span>
+              ${isMyTable ? `<span class="badge" style="background:#0284c7; color:#fff; font-size:0.62rem; font-weight:800; padding:1px 5px; border:none;">YOU</span>` : ''}
+              ${streamBadgeBtn}
+            </div>
+            <div style="display:flex; align-items:center; gap:0.3rem; flex-wrap:wrap;">
+              ${statusBadge}
+              ${toTableContactBtn}
+            </div>
+          </div>
+
+          <!-- Player 1 Row -->
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.4rem;">
+            <div style="min-width:0; flex:1;">
+              <div style="display:flex; align-items:center; gap:0.3rem;">
+                <span style="font-size:0.82rem; font-weight:700; color:${isP1Win ? '#4ade80' : '#f8fafc'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(p1Name)}">
+                  ${escapeHtml(p1Name)}
                 </span>
-                ${isP1 ? '<span class="badge" style="background:#0284c7; color:#fff; font-size:0.65rem; font-weight:800; padding:1px 5px; margin-left:4px; border:none;">YOU</span>' : ''}
-                ${p1ProbPill}
+                ${!isBye ? `<span style="font-family:var(--font-mono); font-size:0.64rem; color:#38bdf8; flex-shrink:0;" title="Elo Win Probability">${p1Prob}%</span>` : ''}
+                ${p1RosterBtn}
+                ${toP1CommsBtn}
               </div>
-              ${(p1Faction || p1RosterBtn) ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:3px; display:flex; align-items:center; flex-wrap:wrap; gap:5px;">${p1Faction ? `<span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p1Faction)}</span>` : ''}${p1RosterBtn}</div>` : ''}
+              <div style="font-size:0.68rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                ${escapeHtml(p1Faction || 'Unassigned')}${p1Detach && p1Detach !== 'Unknown' ? ` • ${escapeHtml(p1Detach)}` : ''}
+              </div>
             </div>
-          </td>
-          <td style="font-family:var(--font-mono); font-weight:700; color:${isP1Win ? 'var(--win)' : 'var(--text-secondary)'};">
-            ${m.player1_score !== null ? m.player1_score : '-'}
-          </td>
-          <td style="font-family:var(--font-mono); font-weight:700; color:${isP2Win ? 'var(--win)' : 'var(--text-secondary)'};">
-            ${m.player2_score !== null ? m.player2_score : '-'}
-          </td>
-          <td>
-            <div class="player-name-cell">
-              ${isBye
-                ? `<span style="color:var(--text-muted); font-weight:600;">BYE</span>`
-                : `<div style="display:flex; align-items:center; flex-wrap:wrap; gap:2px;">
-                     <span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${targetP2Id}', '${escapeHtml(targetP2Name)}');">
-                       ${escapeHtml(m.player2_name || 'Player 2')}
-                     </span>
-                     ${isP2 ? '<span class="badge" style="background:#0284c7; color:#fff; font-size:0.65rem; font-weight:800; padding:1px 5px; margin-left:4px; border:none;">YOU</span>' : ''}
-                     ${p2ProbPill}
-                   </div>`
-              }
-              ${(!isBye && (p2Faction || p2RosterBtn)) ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:3px; display:flex; align-items:center; flex-wrap:wrap; gap:5px;">${p2Faction ? `<span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p2Faction)}</span>` : ''}${p2RosterBtn}</div>` : ''}
+            <span style="font-family:var(--font-mono); font-size:0.9rem; font-weight:800; color:${isP1Win ? '#4ade80' : (s1 !== null ? '#f8fafc' : 'var(--text-muted)')}; flex-shrink:0;">
+              ${s1 !== null && s1 !== undefined ? s1 : '—'}
+            </span>
+          </div>
+
+          <!-- Player 2 Row -->
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.4rem;">
+            <div style="min-width:0; flex:1;">
+              <div style="display:flex; align-items:center; gap:0.3rem;">
+                <span style="font-size:0.82rem; font-weight:700; color:${isBye ? 'var(--text-muted)' : (isP2Win ? '#4ade80' : '#f8fafc')}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(p2Name)}">
+                  ${escapeHtml(p2Name)}
+                </span>
+                ${!isBye ? `<span style="font-family:var(--font-mono); font-size:0.64rem; color:#f43f5e; flex-shrink:0;" title="Elo Win Probability">${p2Prob}%</span>` : ''}
+                ${p2RosterBtn}
+                ${toP2CommsBtn}
+              </div>
+              ${!isBye ? `
+                <div style="font-size:0.68rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                  ${escapeHtml(p2Faction || 'Unassigned')}${p2Detach && p2Detach !== 'Unknown' ? ` • ${escapeHtml(p2Detach)}` : ''}
+                </div>
+              ` : ''}
             </div>
-          </td>
-          <td>
-            <div style="display:flex; align-items:center; gap:0.4rem; justify-content:flex-end; flex-wrap:wrap;">
-              <span class="badge ${isP1Win || isP2Win ? 'badge-win' : (m.is_draw ? 'badge-draw' : 'badge-loss')}">${outcome}</span>
-              ${streamBtn}
-              ${actionBtn}
+            <span style="font-family:var(--font-mono); font-size:0.9rem; font-weight:800; color:${isP2Win ? '#4ade80' : (s2 !== null ? '#f8fafc' : 'var(--text-muted)')}; flex-shrink:0;">
+              ${isBye ? 'BYE' : (s2 !== null && s2 !== undefined ? s2 : '—')}
+            </span>
+          </div>
+
+          <!-- Card Footer: Dossiers Hint + Quick Scorecard / Tracker -->
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:0.4rem; border-top:1px dashed rgba(255,255,255,0.06); padding-top:0.38rem; margin-top:0.05rem;">
+            <span style="font-size:0.67rem; color:#94a3b8; font-weight:600; display:inline-flex; align-items:center; gap:0.25rem;">
+              🔍 Matchup & Dossiers
+            </span>
+            <div style="display:flex; align-items:center; gap:0.3rem;">
+              ${(!isBye && !isDone && isMyTable) ? `
+                <button type="button" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${rNumInt}, ${tNumInt}, '${escapeHtml(targetP1Name)}', '${escapeHtml(targetP2Name)}', '${escapeHtml(targetP1Id)}', '${escapeHtml(targetP2Id)}', '${escapeHtml(String(m.id || m.pairing_id || ''))}')" style="font-size:0.66rem; padding:2px 7px; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:5px; font-weight:700; cursor:pointer;">
+                  🎲 Track
+                </button>
+              ` : ''}
+              ${!isBye ? `
+                <button type="button" onclick="event.stopPropagation(); openScorecardModal('${escapeHtml(matchId)}')" style="font-size:0.66rem; padding:2px 7px; background:rgba(255,255,255,0.04); color:#cbd5e1; border:1px solid rgba(255,255,255,0.14); border-radius:5px; font-weight:600; cursor:pointer;" title="View Game Scorecard">
+                  📄 Scorecard
+                </button>
+              ` : ''}
             </div>
-          </td>
-        </tr>`;
-      m._cachedRowHtml = rowHtml;
-      m._cachedRowKey = rowContextKey;
-      rowsHtml.push(rowHtml);
-    } catch (rowErr) {
-      console.error('Error rendering pairing row:', rowErr, m);
+          </div>
+        </div>
+      `);
+    } catch (cardErr) {
+      console.error('Error rendering pairing table card:', cardErr, m);
     }
   }
 
-  tbody.innerHTML = rowsHtml.join('');
+  if (cardsContainer) {
+    cardsContainer.innerHTML = `
+      ${floorHeaderBarHtml}
+      <div class="to-hub-radar-grid" style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:0.75rem;">
+        ${cardsHtml.join('')}
+      </div>
+    `;
+  }
+  if (tbody) {
+    tbody.innerHTML = '';
+  }
 }
 
 async function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Name, p1Id, p2Id, pairingId = '') {
@@ -4659,22 +4815,23 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
     const canAccessToHub = typeof canUserAccessEventToHub === 'function' ? canUserAccessEventToHub(ev) : false;
     const subtabToHub = document.getElementById('event-subtab-to-hub');
     if (subtabToHub) {
-      subtabToHub.style.setProperty('display', canAccessToHub ? 'inline-flex' : 'none', 'important');
+      subtabToHub.style.setProperty('display', 'none', 'important');
     }
 
-    const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.is_admin)));
+    const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.role === 'creator' || currentUser.can_access_cc || currentUser.is_cc || currentUser.is_admin)));
     const subtabCreator = document.getElementById('event-subtab-creator');
     if (subtabCreator) {
-      subtabCreator.style.setProperty('display', isCC ? 'inline-flex' : 'none', 'important');
+      subtabCreator.style.setProperty('display', 'none', 'important');
     }
 
     const ended = isEventEnded(ev, userRegData);
-    const shouldShowPlayerTab = Boolean(userRegData && userRegData.is_registered);
+    const isRegisteredPlayer = Boolean((userRegData && userRegData.is_registered) || (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor'));
+    const shouldShowMyStation = Boolean(isRegisteredPlayer || canAccessToHub || isCC);
     const subtabPlayer = document.getElementById('event-subtab-player');
     if (subtabPlayer) {
-      subtabPlayer.style.setProperty('display', shouldShowPlayerTab ? 'inline-flex' : 'none', 'important');
+      subtabPlayer.style.setProperty('display', shouldShowMyStation ? 'inline-flex' : 'none', 'important');
     }
-    if (shouldShowPlayerTab) {
+    if (shouldShowMyStation) {
       await renderPlayerStation(ev, userRegData);
     }
 
@@ -4692,14 +4849,14 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
     if (targetTab === 'teams' && teamsList.length === 0) {
       targetTab = 'results';
     }
-    if (targetTab === 'player' && !shouldShowPlayerTab) {
+    if (targetTab === 'player' && !shouldShowMyStation) {
       targetTab = teamsList.length > 0 ? 'teams' : 'results';
     }
     if (!targetTab) {
       const isOngoing = (typeof isTournamentOngoing === 'function')
         ? isTournamentOngoing(ev)
         : (!ended && eventMatchesCache.length > 0);
-      if (shouldShowPlayerTab) {
+      if (isRegisteredPlayer) {
         targetTab = 'player';
       } else if (isOngoing && eventMatchesCache.length > 0) {
         targetTab = 'matches';
@@ -5141,20 +5298,130 @@ function renderPersonalEventScorecard(ev, userRegData) {
   `;
 }
 
+let _currentMyStationSubtab = 'match'; // 'match' | 'clock' | 'announcements' | 'roster' | 'stream'
+
+function getMyStationAvailableSubtabs(ev, userRegData) {
+  const eventObj = ev || currentEventData || {};
+  const isPlayer = Boolean(
+    (userRegData && userRegData.is_registered) ||
+    (currentEventRegistration && currentEventRegistration.is_registered) ||
+    (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor')
+  );
+  const isTO = Boolean(typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(eventObj));
+  const isCC = Boolean(
+    typeof isUserCC === 'function'
+      ? isUserCC(currentUser)
+      : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.role === 'creator' || currentUser.can_access_cc || currentUser.is_cc || currentUser.is_admin))
+  );
+
+  const eventId = String(eventObj.id || eventObj.event_id || currentOpenEventId || '');
+  const state = (typeof _eventToHubStateCache !== 'undefined' && _eventToHubStateCache.get(eventId)) || {};
+  const judgeCalls = Array.isArray(state.judge_calls) ? state.judge_calls : [];
+  const openJudgeCallsCount = judgeCalls.filter(c => String(c.status || 'open').toLowerCase() !== 'resolved').length;
+  const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0
+    ? eventPlayersCache
+    : (Array.isArray(eventObj.players) ? eventObj.players : []);
+  const activeRoster = players.filter(p => !p.dropped);
+  const listsSubmittedCount = activeRoster.filter(p => Boolean(p.list_id || p.army_list || p.list_text || p.has_list || p.has_list_submitted)).length;
+  const missingListCount = Math.max(0, activeRoster.length - listsSubmittedCount);
+
+  const tabs = [];
+  if (isPlayer) {
+    tabs.push({
+      key: 'match',
+      icon: '⚔️',
+      label: 'My Match & Roster',
+      accent: '#38bdf8',
+      accentBg: 'rgba(56,189,248,0.16)',
+      accentBorder: 'rgba(56,189,248,0.48)',
+      badge: '',
+    });
+  }
+  if (isTO) {
+    tabs.push(
+      {
+        key: 'clock',
+        icon: '⏱️',
+        label: 'Clock & Judge Calls',
+        accent: '#fbbf24',
+        accentBg: 'rgba(245,158,11,0.16)',
+        accentBorder: 'rgba(245,158,11,0.48)',
+        badge: openJudgeCallsCount > 0 ? String(openJudgeCallsCount) : '',
+        badgeBg: 'rgba(239,68,68,0.28)',
+        badgeColor: '#fca5a5',
+      },
+      {
+        key: 'announcements',
+        icon: '📢',
+        label: 'Announcements & News',
+        accent: '#fbbf24',
+        accentBg: 'rgba(245,158,11,0.16)',
+        accentBorder: 'rgba(245,158,11,0.48)',
+        badge: '',
+      },
+      {
+        key: 'roster',
+        icon: '📋',
+        label: 'Roster & Audit',
+        accent: '#fbbf24',
+        accentBg: 'rgba(245,158,11,0.16)',
+        accentBorder: 'rgba(245,158,11,0.48)',
+        badge: missingListCount > 0 ? String(missingListCount) : '',
+        badgeBg: 'rgba(239,68,68,0.22)',
+        badgeColor: '#fca5a5',
+      }
+    );
+  }
+  if (isCC) {
+    tabs.push({
+      key: 'stream',
+      icon: '📺',
+      label: 'Live Stream & OBS',
+      accent: '#c084fc',
+      accentBg: 'rgba(168,85,247,0.18)',
+      accentBorder: 'rgba(168,85,247,0.5)',
+      badge: 'LIVE',
+      badgeBg: '#ef4444',
+      badgeColor: '#fff',
+    });
+  }
+  return tabs;
+}
+
+function switchMyStationSubtab(subtabKey) {
+  _currentMyStationSubtab = subtabKey || 'match';
+  if (['clock', 'announcements', 'roster'].includes(_currentMyStationSubtab)) {
+    _currentToHubSubtab = _currentMyStationSubtab;
+  } else if (_currentMyStationSubtab === 'stream') {
+    creatorHubActiveMode = 'stream';
+  }
+  if (currentEventData) {
+    renderPlayerStation(currentEventData, currentEventRegistration);
+  }
+}
+window.switchMyStationSubtab = switchMyStationSubtab;
+
 async function renderPlayerStation(ev, userRegData) {
   const subtabPlayer = document.getElementById('event-subtab-player');
   const subtabLabel = document.getElementById('event-subtab-player-label');
   const subtabBadge = document.getElementById('event-tab-player-badge');
+  const myStationBar = document.getElementById('my-station-subtabs-bar');
+  const playerPanel = document.getElementById('my-station-panel-player');
+  const toHubContainer = document.getElementById('event-to-hub-container');
+  const creatorHubContainer = document.getElementById('event-creator-hub-container');
   const activeHero = document.getElementById('player-station-active-match-hero');
   const waitingHero = document.getElementById('player-station-waiting-hero');
   const concludedHero = document.getElementById('player-station-concluded-hero');
   const rosterAccordion = document.getElementById('player-station-roster-accordion');
   const accordionHint = document.getElementById('player-station-roster-accordion-hint');
 
+  const eventObj = ev || currentEventData || {};
+  let regData = userRegData || currentEventRegistration;
+
   // Fallback check for competitor persona
-  if (!userRegData || !userRegData.is_registered) {
+  if (!regData || !regData.is_registered) {
     if (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor') {
-      userRegData = {
+      regData = {
         is_registered: true,
         player_registration: {
           player_id: "p_innes",
@@ -5176,28 +5443,106 @@ async function renderPlayerStation(ev, userRegData) {
           display_name: "Innes Wilson"
         }
       };
-      currentEventRegistration = userRegData;
+      currentEventRegistration = regData;
     }
   }
 
-  // If user is not registered in this tournament
-  if (!userRegData || !userRegData.is_registered) {
+  const availableTabs = getMyStationAvailableSubtabs(eventObj, regData);
+  const isPlayer = Boolean(regData && regData.is_registered);
+  const isTO = Boolean(typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(eventObj));
+  const isCC = Boolean(
+    typeof isUserCC === 'function'
+      ? isUserCC(currentUser)
+      : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.role === 'creator' || currentUser.can_access_cc || currentUser.is_cc || currentUser.is_admin))
+  );
+
+  // If user has no roles at all (pure spectator), hide ⚡ My Station
+  if (availableTabs.length === 0) {
     if (subtabPlayer) subtabPlayer.style.setProperty('display', 'none', 'important');
+    if (myStationBar) myStationBar.style.display = 'none';
+    if (playerPanel) playerPanel.style.display = 'none';
+    if (toHubContainer) toHubContainer.style.display = 'none';
+    if (creatorHubContainer) creatorHubContainer.style.display = 'none';
     if (activeHero) activeHero.style.display = 'none';
     if (waitingHero) waitingHero.style.display = 'none';
     if (concludedHero) concludedHero.style.display = 'none';
     return;
   }
 
-  // Show player station tab button
+  // Show ⚡ My Station tab button
   if (subtabPlayer) {
     subtabPlayer.style.setProperty('display', 'inline-flex', 'important');
   }
+  if (subtabLabel) {
+    subtabLabel.innerText = '⚡ My Station';
+  }
 
-  const ended = isEventEnded(ev, userRegData);
+  // Ensure active sub-tab is valid for current user's roles
+  if (!availableTabs.some(t => t.key === _currentMyStationSubtab)) {
+    _currentMyStationSubtab = availableTabs[0].key;
+  }
 
-  const eventId = (ev && ev.id) || currentOpenEventId || (currentEventData && currentEventData.id) || '';
-  const preg = userRegData.player_registration || userRegData.player || {};
+  // Render sub-pills bar inside ⚡ My Station (only shown when user has > 1 module)
+  if (myStationBar) {
+    if (availableTabs.length <= 1) {
+      myStationBar.style.display = 'none';
+      myStationBar.innerHTML = '';
+    } else {
+      myStationBar.style.display = 'flex';
+      myStationBar.innerHTML = availableTabs.map(t => {
+        const isAct = _currentMyStationSubtab === t.key;
+        return `
+          <button type="button" class="my-station-subtab-pill my-station-subtab-btn ${isAct ? 'active' : ''}" onclick="switchMyStationSubtab('${t.key}')" style="padding:0.48rem 0.85rem; border-radius:8px; border:1px solid ${isAct ? t.accentBorder : 'rgba(255,255,255,0.08)'}; background:${isAct ? t.accentBg : 'rgba(15,23,42,0.65)'}; color:${isAct ? t.accent : 'var(--text-secondary)'}; font-weight:700; font-size:0.78rem; cursor:pointer; display:inline-flex; align-items:center; gap:0.4rem; white-space:nowrap; transition:all 0.15s ease;">
+            <span>${t.icon} ${escapeHtml(t.label)}</span>
+            ${t.badge ? `<span class="badge" style="background:${t.badgeBg || 'rgba(255,255,255,0.15)'}; color:${t.badgeColor || '#fff'}; font-size:0.64rem; font-weight:800; padding:1px 6px; border:none;">${escapeHtml(t.badge)}</span>` : ''}
+          </button>
+        `;
+      }).join('');
+    }
+  }
+
+  // Toggle active sub-module panel inside ⚡ My Station
+  if (playerPanel) playerPanel.style.display = _currentMyStationSubtab === 'match' ? 'block' : 'none';
+  if (toHubContainer) toHubContainer.style.display = ['clock', 'announcements', 'roster'].includes(_currentMyStationSubtab) ? 'block' : 'none';
+  if (creatorHubContainer) creatorHubContainer.style.display = _currentMyStationSubtab === 'stream' ? 'block' : 'none';
+
+  if (['clock', 'announcements', 'roster'].includes(_currentMyStationSubtab) && typeof renderEventToHub === 'function') {
+    _currentToHubSubtab = _currentMyStationSubtab;
+    renderEventToHub(eventObj, true);
+  } else if (_currentMyStationSubtab === 'stream' && typeof renderEventCreatorHub === 'function') {
+    creatorHubActiveMode = 'stream';
+    renderEventCreatorHub(eventObj);
+  }
+
+  // Update top-level badge for non-player TO/CC
+  if (!isPlayer) {
+    if (subtabBadge) {
+      if (isTO && isCC) {
+        subtabBadge.style.display = 'inline-block';
+        subtabBadge.innerText = 'TO • STUDIO';
+        subtabBadge.style.background = 'rgba(245,158,11,0.22)';
+        subtabBadge.style.color = '#fbbf24';
+      } else if (isTO) {
+        subtabBadge.style.display = 'inline-block';
+        subtabBadge.innerText = 'TO';
+        subtabBadge.style.background = 'rgba(245,158,11,0.22)';
+        subtabBadge.style.color = '#fbbf24';
+      } else if (isCC) {
+        subtabBadge.style.display = 'inline-block';
+        subtabBadge.innerText = 'STUDIO';
+        subtabBadge.style.background = 'rgba(168,85,247,0.22)';
+        subtabBadge.style.color = '#c084fc';
+      } else {
+        subtabBadge.style.display = 'none';
+      }
+    }
+    return;
+  }
+
+  const ended = isEventEnded(eventObj, regData);
+
+  const eventId = (eventObj && eventObj.id) || currentOpenEventId || (currentEventData && currentEventData.id) || '';
+  const preg = regData.player_registration || regData.player || {};
   const myPid = String(preg.player_id || preg.bcp_player_id || '').trim().toLowerCase();
   const myName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
   const myInfo = resolveEventCompetitorRecord(
@@ -5226,9 +5571,8 @@ async function renderPlayerStation(ev, userRegData) {
     return m.player1_score !== null && m.player2_score !== null;
   });
 
-  // 1. Update Subtab Label & Badges based on Lifecycle
+  // 1. Update Subtab Badge based on Lifecycle (keep label as ⚡ My Station)
   if (ended) {
-    if (subtabLabel) subtabLabel.innerText = '🏆 My Results';
     if (subtabBadge) {
       subtabBadge.style.display = 'inline-block';
       subtabBadge.innerText = 'FINAL';
@@ -5236,16 +5580,13 @@ async function renderPlayerStation(ev, userRegData) {
       subtabBadge.style.color = '#000';
     }
   } else if (activeMatch || (eventMatchesCache && eventMatchesCache.length > 0)) {
-    if (subtabLabel) subtabLabel.innerText = '⚔️ Player Station';
     if (subtabBadge) {
       subtabBadge.style.display = 'inline-block';
-      subtabBadge.innerText = activeMatch ? 'ACTIVE' : 'ROUND WAITING';
+      subtabBadge.innerText = activeMatch ? 'ACTIVE' : 'WAITING';
       subtabBadge.style.background = activeMatch ? '#10b981' : '#f59e0b';
       subtabBadge.style.color = '#000';
     }
   } else {
-    // Pre-event
-    if (subtabLabel) subtabLabel.innerText = '📋 My Registration';
     if (subtabBadge) subtabBadge.style.display = 'none';
   }
 
@@ -5513,14 +5854,14 @@ async function renderPlayerStation(ev, userRegData) {
 
   // 2.5. Render Round Clock & Schedule in Player Station
   if (typeof renderEventClockAndScheduleWidgets === 'function') {
-    renderEventClockAndScheduleWidgets(ev || currentEventData);
+    renderEventClockAndScheduleWidgets(eventObj);
   }
 
   // 3. Render Personal Scorecard History
-  renderPersonalEventScorecard(ev, userRegData);
+  renderPersonalEventScorecard(eventObj, regData);
 
   // 4. Fill Roster Form
-  await populateEventPlayerDetails(userRegData);
+  await populateEventPlayerDetails(regData);
 }
 
 function renderEventMetaAndHighlights(ev) {
@@ -5657,9 +5998,13 @@ function renderEventMetaAndHighlights(ev) {
     `;
   }).join('');
 
+  const deepMetaHtml = (typeof renderDeepMetaMode === 'function')
+    ? renderDeepMetaMode(ev || currentEventData, players, matches)
+    : '';
+
   container.innerHTML = `
-    <!-- 3 Tournament Spotlight Cards -->
-    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:1rem; margin-bottom:1.5rem;">
+    <!-- 1. 3 Tournament Spotlight Cards -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:1rem; margin-bottom:1.25rem;">
       <div class="card" style="padding:1.1rem; background:linear-gradient(135deg, rgba(16,185,129,0.12), rgba(15,23,42,0.85)); border:1px solid rgba(16,185,129,0.35); border-radius:10px;">
         <div style="font-size:0.74rem; font-weight:800; text-transform:uppercase; color:#34d399; letter-spacing:0.05em; margin-bottom:0.35rem;">📈 Biggest Elo Overperformer</div>
         <div style="font-size:1.25rem; font-weight:800; color:#fff; font-family:var(--font-mono); margin-bottom:0.2rem;">
@@ -5700,8 +6045,8 @@ function renderEventMetaAndHighlights(ev) {
       </div>
     </div>
 
-    <!-- Faction Representation & Performance Table -->
-    <div class="card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border); border-radius: 10px; padding: 1.15rem;">
+    <!-- 2. Tournament Faction Breakdown & Performance Table -->
+    <div class="card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border); border-radius: 10px; padding: 1.15rem; margin-bottom: 1.25rem;">
       <h4 style="margin: 0 0 0.9rem 0; font-size: 1rem; font-weight: 700; color: #fff;">📊 Tournament Faction Breakdown & Performance</h4>
       <div class="table-container">
         <table id="event-factions-table">
@@ -5721,8 +6066,14 @@ function renderEventMetaAndHighlights(ev) {
         </table>
       </div>
     </div>
+
+    <!-- 3. Deep Meta: Spiciness Index + Interactive Detachment & Force Disposition Power Grid -->
+    <div style="display:flex; flex-direction:column; gap:1.25rem;">
+      ${deepMetaHtml}
+    </div>
   `;
 }
+window.renderEventMetaHighlights = renderEventMetaAndHighlights;
 
 function copyEventHubLink(eventId, sys = '40k') {
   const cleanSys = (sys || '40k').toLowerCase();
@@ -7149,7 +7500,29 @@ window.updateEventStreamModalContent = updateEventStreamModalContent;
 function switchCreatorHubMode(mode) {
   if (mode === 'streams') mode = 'stream';
   if (mode === 'media') mode = 'export';
-  creatorHubActiveMode = mode || 'caster';
+  if (mode === 'meta') {
+    if (typeof switchEventModalTab === 'function') {
+      switchEventModalTab('meta');
+    }
+    return;
+  }
+  if (mode === 'caster') {
+    if (typeof switchEventModalTab === 'function') {
+      switchEventModalTab('matches');
+    }
+    return;
+  }
+  creatorHubActiveMode = 'stream';
+  if (currentEventModalTab !== 'player') {
+    _currentMyStationSubtab = 'stream';
+    if (typeof switchEventModalTab === 'function') {
+      switchEventModalTab('player');
+      return;
+    }
+  } else if (_currentMyStationSubtab !== 'stream' && typeof switchMyStationSubtab === 'function') {
+    switchMyStationSubtab('stream');
+    return;
+  }
   if (currentEventData) {
     renderEventCreatorHub(currentEventData);
   }
@@ -8223,9 +8596,7 @@ function renderEventCreatorHub(ev) {
     return;
   }
 
-  if (creatorHubActiveMode === 'storylines') {
-    creatorHubActiveMode = 'caster';
-  }
+  creatorHubActiveMode = 'stream';
 
   const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0 ? eventPlayersCache : (ev.players || []);
   const matches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0 ? eventMatchesCache : (ev.matches || []);
@@ -8241,13 +8612,6 @@ function renderEventCreatorHub(ev) {
     try { rawJson = JSON.parse(rawJson); } catch (e) { rawJson = {}; }
   }
   const matchRounds = [...new Set(matches.map(m => Number(m.round)).filter(r => r > 0))].sort((a, b) => a - b);
-  const resolvedNumRounds = Number(ev.num_rounds || ev.numberOfRounds || ev.rounds_count || ev.rounds || ev.total_rounds || rawJson.numberOfRounds || rawJson.numRounds || 0);
-  const totalRounds = Math.max(
-    resolvedNumRounds,
-    matchRounds.length > 0 ? Math.max(...matchRounds) : 0,
-    Number(ev.current_round || 0),
-    1
-  );
 
   // Determine selected / current round
   let curRound = selectedCasterRound;
@@ -8267,14 +8631,10 @@ function renderEventCreatorHub(ev) {
   let p2 = null;
   let p1Elo = 1500;
   let p2Elo = 1500;
-  let p1WinProb = 50;
-  let p2WinProb = 50;
 
   if (roundMatches.length > 0) {
     let exactMatch = roundMatches.find(m => Number(m.table_number || m.table) === Number(selectedCasterTable));
     if (!exactMatch && Number(selectedCasterTable) > 0 && !selectedCasterRound) {
-      // If selectedCasterTable (e.g. Table 208) played in an earlier round while default curRound is Top Cut (R10),
-      // automatically resolve to the latest round where selectedCasterTable played
       const tableHist = matches
         .filter(m => Number(m.table_number || m.table) === Number(selectedCasterTable))
         .sort((a, b) => Number(b.round || 0) - Number(a.round || 0));
@@ -8287,12 +8647,11 @@ function renderEventCreatorHub(ev) {
     }
     if (exactMatch) {
       selectedMatch = exactMatch;
-    } else if (creatorHubActiveMode === 'caster') {
-      selectedMatch = roundMatches[0];
-      selectedCasterTable = Number(selectedMatch?.table_number || selectedMatch?.table || 1);
-      syncActiveStreamToCasterDesk(selectedCasterTable, curRound, true);
-    } else if (Number(selectedCasterTable) === 0) {
+    } else {
       selectedMatch = roundMatches[0] || null;
+      if (selectedMatch && !selectedCasterTable) {
+        selectedCasterTable = Number(selectedMatch?.table_number || selectedMatch?.table || 1);
+      }
     }
 
     if (selectedMatch) {
@@ -8316,42 +8675,13 @@ function renderEventCreatorHub(ev) {
 
       p1Elo = Number(selectedMatch?.player1_elo || p1?.current_elo || 1500);
       p2Elo = Number(selectedMatch?.player2_elo || p2?.current_elo || 1500);
-
-      const eloDiff = p2Elo - p1Elo;
-      p1WinProb = Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, eloDiff / 400)))));
-      p2WinProb = 100 - p1WinProb;
     }
   }
 
-  // Mode Navigator (compact tabs only)
-  const headerHtml = `
-    <div class="creator-mode-tabs">
-      <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'caster' ? 'active' : ''}" onclick="switchCreatorHubMode('caster')">
-        <span>🎙️ Caster Desk</span>
-      </button>
-      <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'meta' ? 'active' : ''}" onclick="switchCreatorHubMode('meta')">
-        <span>🧬 Deep Meta & Lists</span>
-      </button>
-      <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'stream' ? 'active' : ''}" onclick="switchCreatorHubMode('stream')">
-        <span>📺 Live Stream & OBS</span>
-        <span class="subtab-count-badge" style="display:inline-flex; align-items:center; background:#ef4444; color:#fff; font-size:0.65rem; font-weight:800; padding:1px 6px; border-radius:4px; border:none; line-height:1.2;">LIVE</span>
-      </button>
-    </div>
-  `;
-
-  // Render specific mode body
-  let bodyHtml = '';
-  if (creatorHubActiveMode === 'stream') {
-    bodyHtml = renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo, curRound);
-  } else if (creatorHubActiveMode === 'meta') {
-    bodyHtml = renderDeepMetaMode(ev, players, matches);
-  } else {
-    bodyHtml = renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, matchRounds, totalRounds);
-  }
+  const bodyHtml = renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo, curRound);
 
   container.innerHTML = `
     <div class="creator-hub-container">
-      ${headerHtml}
       ${bodyHtml}
     </div>
   `;
@@ -8952,11 +9282,14 @@ function buildCasterRadarGridHtml(eventId, roundMatches, curRound, activeSession
   return cardsHtml.join('');
 }
 
-function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, maxR, isModal = true) {
+function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, maxR, isModal = true, matchIdx = null) {
   const eventId = ev?.id || currentOpenEventId || currentEventData?.id || '';
-  const activeTableNum = Number(selectedMatch?.table_number || selectedMatch?.table || selectedCasterTable || 1);
+  const rawTableNum = Number(selectedMatch?.table_number ?? selectedMatch?.table ?? 0);
+  const activeTableNum = rawTableNum > 0 ? rawTableNum : Number(selectedCasterTable || (matchIdx !== null && matchIdx >= 0 ? matchIdx + 1 : 1));
   const activeMatchId = selectedMatch?.tracker_match_id || `BCP-${eventId}-R${curRound}-T${activeTableNum}`;
   const curRoundMeta = getEventRoundMetadata(ev, matches, curRound, maxR);
+  const canTo = Boolean(typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(ev));
+  const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.role === 'creator' || currentUser.can_access_cc || currentUser.is_cc || currentUser.is_admin)));
 
   const p1Info = resolveEventCompetitorRecord(
     selectedMatch?.player1_id || p1?.player_id || p1?.id || '',
@@ -9144,12 +9477,19 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
             </span>
           </div>
           <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+            ${canTo && matchIdx !== null && matchIdx !== undefined && matchIdx >= 0 ? `
+              <button type="button" onclick="closeCasterDeskTableModal(); openToHubTableCommsModal(${matchIdx}, 'table');" class="btn-sm btn-outline" style="font-size: 0.75rem; padding: 4px 10px; border-color: rgba(245, 158, 11, 0.5); color: #fbbf24; background: rgba(245, 158, 11, 0.14); cursor: pointer; font-weight: 700;">
+                📢 Contact Table
+              </button>
+            ` : ''}
             <button type="button" onclick="openScorecardModal('${escapeHtml(activeMatchId)}')" class="btn-sm btn-outline" style="font-size: 0.75rem; padding: 4px 10px; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; background: rgba(56, 189, 248, 0.1); cursor: pointer; font-weight: 700;">
               📄 Game Scorecard
             </button>
-            <button type="button" onclick="copyObsOverlayUrl('lower_third', this)" class="btn-sm btn-outline" style="font-size: 0.75rem; padding: 4px 10px; border-color: rgba(168, 85, 247, 0.4); color: #c084fc; cursor: pointer;">
-              📺 Copy OBS Lower-Third
-            </button>
+            ${isCC ? `
+              <button type="button" onclick="copyObsOverlayUrl('lower_third', this)" class="btn-sm btn-outline" style="font-size: 0.75rem; padding: 4px 10px; border-color: rgba(168, 85, 247, 0.4); color: #c084fc; cursor: pointer;">
+                📺 Copy OBS Lower-Third
+              </button>
+            ` : ''}
             ${isModal ? `
               <button type="button" onclick="closeCasterDeskTableModal()" title="Close Table Details" style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.16); color:#f8fafc; border-radius:8px; width:30px; height:30px; cursor:pointer; font-size:0.9rem; line-height:1; display:inline-flex; align-items:center; justify-content:center;">
                 ✕
@@ -9268,7 +9608,7 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
               Click either player's name for their full Quick Profile, inspect their submitted army list, or open any round's Game Scorecard.
             </div>
           </div>
-          <button type="button" onclick="closeCasterDeskTableModal(); switchCreatorHubMode('meta');" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 4px 10px; cursor: pointer; color: #38bdf8; border-color: rgba(56,189,248,0.35);">
+          <button type="button" onclick="closeCasterDeskTableModal(); switchEventModalTab('meta');" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 4px 10px; cursor: pointer; color: #38bdf8; border-color: rgba(56,189,248,0.35);">
             🧬 Force Disposition Power Grid ➔
           </button>
         </div>
@@ -9293,7 +9633,7 @@ function closeCasterDeskTableModal() {
 }
 window.closeCasterDeskTableModal = closeCasterDeskTableModal;
 
-function openCasterDeskTableModal(tableNum, roundNum) {
+function openCasterDeskTableModal(tableNum, roundNum, matchIdx = null) {
   const ev = currentEventData || {};
   const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0 ? eventPlayersCache : (ev.players || []);
   const matches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0 ? eventMatchesCache : (ev.matches || []);
@@ -9302,10 +9642,23 @@ function openCasterDeskTableModal(tableNum, roundNum) {
 
   selectedCasterTable = tNum;
   selectedCasterRound = curRound;
-  syncActiveStreamToCasterDesk(tNum, curRound, true);
+  const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.role === 'creator' || currentUser.can_access_cc || currentUser.is_cc || currentUser.is_admin)));
+  if (isCC && typeof syncActiveStreamToCasterDesk === 'function') {
+    syncActiveStreamToCasterDesk(tNum, curRound, true);
+  }
 
   const roundMatches = matches.filter(m => Number(m.round || m.round_number || 1) === curRound);
-  const selectedMatch = roundMatches.find(m => Number(m.table_number || m.table) === tNum) || roundMatches[0];
+  const toHubMatches = Array.isArray(window._toHubCurrentRoundMatches) ? window._toHubCurrentRoundMatches : roundMatches;
+  let selectedMatch = null;
+  let resolvedMatchIdx = (matchIdx !== null && matchIdx !== undefined && !isNaN(Number(matchIdx))) ? Number(matchIdx) : -1;
+  if (resolvedMatchIdx >= 0 && toHubMatches[resolvedMatchIdx]) {
+    selectedMatch = toHubMatches[resolvedMatchIdx];
+  } else {
+    selectedMatch = roundMatches.find(m => Number(m.table_number || m.table) === tNum) || roundMatches[0];
+    if (selectedMatch) {
+      resolvedMatchIdx = toHubMatches.indexOf(selectedMatch);
+    }
+  }
   if (!selectedMatch) {
     if (typeof showToast === 'function') showToast('Could not load table details', 'warning');
     return;
@@ -9357,7 +9710,7 @@ function openCasterDeskTableModal(tableNum, roundNum) {
 
   modal.innerHTML = `
     <div class="card" style="width:100%; max-width:1080px; background:linear-gradient(165deg, rgba(15,23,42,0.98), rgba(9,14,28,0.99)); border:1px solid rgba(168,85,247,0.45); border-radius:14px; padding:1.15rem 1.25rem; box-shadow:0 24px 60px rgba(0,0,0,0.8); color:#f8fafc; max-height:92vh; overflow-y:auto;">
-      ${buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, maxR, true)}
+      ${buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, maxR, true, resolvedMatchIdx)}
     </div>
   `;
 
@@ -10563,7 +10916,7 @@ function updatePowerGridControl(key, value) {
       }
       return;
     }
-    renderEventCreatorHub(currentEventData);
+    renderEventMetaAndHighlights(currentEventData);
   }
 }
 window.updatePowerGridControl = updatePowerGridControl;
@@ -11705,8 +12058,12 @@ function ensureEventToHubFirestoreListener(eventId) {
           renderEventClockAndScheduleWidgets(currentEventData, true);
           if (currentEventModalTab === 'news') {
             renderEventNewsHub(currentEventData, true);
-          } else if (currentEventModalTab === 'to-hub') {
-            renderEventToHub(currentEventData, true);
+          } else if (currentEventModalTab === 'to-hub' || currentEventModalTab === 'player') {
+            if (_currentMyStationSubtab && _currentMyStationSubtab.startsWith('to-')) {
+              renderEventToHub(currentEventData, true);
+            }
+          } else if (currentEventModalTab === 'matches') {
+            renderEventPairingsRows(currentEventPairingsRound || 'all');
           }
         }
         if (typeof syncGlobalEventAnnouncementBanner === 'function') {
@@ -11871,8 +12228,12 @@ async function loadEventToHubState(eventId, forceRefresh = false) {
         renderEventClockAndScheduleWidgets(currentEventData, true);
         if (currentEventModalTab === 'news') {
           renderEventNewsHub(currentEventData, true);
-        } else if (currentEventModalTab === 'to-hub') {
-          renderEventToHub(currentEventData, true);
+        } else if (currentEventModalTab === 'to-hub' || currentEventModalTab === 'player') {
+          if (_currentMyStationSubtab && _currentMyStationSubtab.startsWith('to-')) {
+            renderEventToHub(currentEventData, true);
+          }
+        } else if (currentEventModalTab === 'matches') {
+          renderEventPairingsRows(currentEventPairingsRound || 'all');
         }
       }
       if (typeof syncGlobalEventAnnouncementBanner === 'function') {
@@ -12195,10 +12556,21 @@ function isToHubMatchCompleted(m) {
 }
 
 function switchEventToHubSubtab(subtab) {
-  if (!['radar', 'clock', 'announcements', 'roster'].includes(subtab)) {
-    subtab = 'radar';
+  if (subtab === 'radar') {
+    if (typeof switchEventModalTab === 'function') {
+      switchEventModalTab('matches');
+    }
+    return;
+  }
+  if (!['clock', 'announcements', 'roster'].includes(subtab)) {
+    subtab = 'clock';
   }
   _currentToHubSubtab = subtab;
+  _currentMyStationSubtab = `to-${subtab}`;
+  if (currentEventModalTab === 'player' && typeof switchMyStationSubtab === 'function') {
+    switchMyStationSubtab(`to-${subtab}`);
+    return;
+  }
   if (currentEventData) {
     renderEventToHub(currentEventData, true);
   }
@@ -12214,7 +12586,7 @@ async function renderEventToHub(ev, skipFetch = false) {
   if (!roleLabel) {
     container.innerHTML = `
       <div class="card" style="padding:2rem; text-align:center; color:var(--text-muted);">
-        🔒 TO Hub is restricted to verified Event Owners, Tournament Organizers, and Judges for this tournament.
+        🔒 TO tools are restricted to verified Event Owners, Tournament Organizers, and Judges for this tournament.
       </div>
     `;
     return;
@@ -12233,8 +12605,6 @@ async function renderEventToHub(ev, skipFetch = false) {
     ? eventMatchesCache
     : (Array.isArray(eventObj.matches) ? eventObj.matches : []);
   const judgeCalls = Array.isArray(state.judge_calls) ? state.judge_calls : [];
-  const openJudgeCalls = judgeCalls.filter(c => String(c.status || 'open').toLowerCase() !== 'resolved');
-  const activeSessions = Array.isArray(state.active_sessions) ? state.active_sessions : [];
 
   // Rounds calculation
   const roundNums = Array.from(new Set(matches.map(m => Number(m.round || m.round_number || 1)).filter(n => n > 0))).sort((a, b) => a - b);
@@ -12243,15 +12613,9 @@ async function renderEventToHub(ev, skipFetch = false) {
     _toHubRadarRound = maxRound;
   }
 
-  const currentRoundMatches = matches.filter(m => Number(m.round || m.round_number || 1) === Number(_toHubRadarRound));
-  const completedRoundMatches = currentRoundMatches.filter(m => isToHubMatchCompleted(m));
-  const unfinishedRoundMatches = currentRoundMatches.filter(m => !isToHubMatchCompleted(m));
-
-  // Roster compliance KPIs
-  const activeRoster = players.filter(p => !p.dropped);
-  const checkedInCount = activeRoster.filter(p => Boolean(p.checked_in)).length;
-  const listsSubmittedCount = activeRoster.filter(p => Boolean(p.list_id || p.army_list || p.list_text || p.has_list || p.has_list_submitted)).length;
-  const missingListCount = Math.max(0, activeRoster.length - listsSubmittedCount);
+  if (!['clock', 'announcements', 'roster'].includes(_currentToHubSubtab)) {
+    _currentToHubSubtab = 'clock';
+  }
 
   const bcpCfg = getEventBcpRoundConfig(eventObj);
   const clockObj = state.clock || state.master_clock || null;
@@ -12260,9 +12624,7 @@ async function renderEventToHub(ev, skipFetch = false) {
   }
 
   let subtabBodyHtml = '';
-  if (_currentToHubSubtab === 'radar') {
-    subtabBodyHtml = renderToHubFloorRadarSubtab(eventId, eventObj, roundNums, currentRoundMatches, completedRoundMatches, unfinishedRoundMatches, openJudgeCalls, activeSessions);
-  } else if (_currentToHubSubtab === 'clock') {
+  if (_currentToHubSubtab === 'clock') {
     subtabBodyHtml = renderToHubClockAndJudgeSubtab(eventId, eventObj, roundNums, bcpCfg, clockObj, judgeCalls);
   } else if (_currentToHubSubtab === 'announcements') {
     subtabBodyHtml = renderToHubAnnouncementsSubtab(eventId, eventObj, state);
@@ -12272,26 +12634,6 @@ async function renderEventToHub(ev, skipFetch = false) {
 
   container.innerHTML = `
     <div class="to-hub-shell" style="display:flex; flex-direction:column; gap:0.9rem;">
-      <!-- 4 Operational Sub-Tabs Bar -->
-      <div class="to-hub-subtabs-nav" style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:0.45rem; background:rgba(15,23,42,0.75); padding:0.35rem; border-radius:10px; border:1px solid rgba(255,255,255,0.08);">
-        <button type="button" class="to-hub-subtab-btn ${_currentToHubSubtab === 'radar' ? 'active' : ''}" onclick="switchEventToHubSubtab('radar')" style="padding:0.55rem 0.65rem; border-radius:8px; border:1px solid ${_currentToHubSubtab === 'radar' ? 'rgba(245,158,11,0.5)' : 'transparent'}; background:${_currentToHubSubtab === 'radar' ? 'rgba(245,158,11,0.18)' : 'transparent'}; color:${_currentToHubSubtab === 'radar' ? '#fbbf24' : 'var(--text-secondary)'}; font-weight:700; font-size:0.8rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.4rem;">
-          <span>📊 Floor & Table Radar</span>
-          ${unfinishedRoundMatches.length > 0 ? `<span class="badge" style="background:rgba(245,158,11,0.25); color:#fbbf24; font-size:0.68rem;">${unfinishedRoundMatches.length} left</span>` : ''}
-        </button>
-        <button type="button" class="to-hub-subtab-btn ${_currentToHubSubtab === 'clock' ? 'active' : ''}" onclick="switchEventToHubSubtab('clock')" style="padding:0.55rem 0.65rem; border-radius:8px; border:1px solid ${_currentToHubSubtab === 'clock' ? 'rgba(245,158,11,0.5)' : 'transparent'}; background:${_currentToHubSubtab === 'clock' ? 'rgba(245,158,11,0.18)' : 'transparent'}; color:${_currentToHubSubtab === 'clock' ? '#fbbf24' : 'var(--text-secondary)'}; font-weight:700; font-size:0.8rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.4rem;">
-          <span>⏱️ Clock & Judge Calls</span>
-          ${openJudgeCalls.length > 0 ? `<span class="badge" style="background:rgba(239,68,68,0.28); color:#fca5a5; font-size:0.68rem;">${openJudgeCalls.length}</span>` : ''}
-        </button>
-        <button type="button" class="to-hub-subtab-btn ${_currentToHubSubtab === 'announcements' ? 'active' : ''}" onclick="switchEventToHubSubtab('announcements')" style="padding:0.55rem 0.65rem; border-radius:8px; border:1px solid ${_currentToHubSubtab === 'announcements' ? 'rgba(245,158,11,0.5)' : 'transparent'}; background:${_currentToHubSubtab === 'announcements' ? 'rgba(245,158,11,0.18)' : 'transparent'}; color:${_currentToHubSubtab === 'announcements' ? '#fbbf24' : 'var(--text-secondary)'}; font-weight:700; font-size:0.8rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.4rem;">
-          <span>📢 Announcements & News</span>
-        </button>
-        <button type="button" class="to-hub-subtab-btn ${_currentToHubSubtab === 'roster' ? 'active' : ''}" onclick="switchEventToHubSubtab('roster')" style="padding:0.55rem 0.65rem; border-radius:8px; border:1px solid ${_currentToHubSubtab === 'roster' ? 'rgba(245,158,11,0.5)' : 'transparent'}; background:${_currentToHubSubtab === 'roster' ? 'rgba(245,158,11,0.18)' : 'transparent'}; color:${_currentToHubSubtab === 'roster' ? '#fbbf24' : 'var(--text-secondary)'}; font-weight:700; font-size:0.8rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.4rem;">
-          <span>📋 Roster & Audit</span>
-          ${missingListCount > 0 ? `<span class="badge" style="background:rgba(239,68,68,0.22); color:#fca5a5; font-size:0.68rem;">${missingListCount}</span>` : ''}
-        </button>
-      </div>
-
-      <!-- Active Subtab Content -->
       <div class="to-hub-subtab-body">
         ${subtabBodyHtml}
       </div>

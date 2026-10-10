@@ -18232,3 +18232,38 @@ table.desktop-only,
     text-overflow: ellipsis;
   }
 }
+
+/* ==========================================================================
+   UNIFIED PAIRINGS 4-COLUMN TABLE CARDS GRID & MY STATION SUB-PILLS
+   ========================================================================== */
+#event-pairings-cards-container .to-hub-radar-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+@media (max-width: 1180px) {
+  #event-pairings-cards-container .to-hub-radar-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  #event-pairings-cards-container .to-hub-radar-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .my-station-subtabs-bar {
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none;
+  }
+  .my-station-subtabs-bar::-webkit-scrollbar {
+    display: none;
+  }
+  .my-station-subtab-btn {
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+  }
+}
+
