@@ -1605,19 +1605,6 @@ class FirestoreRoomEngine:
         existing = self.get_event_livestreams(event_id)
         
         channel = str(stream_data.get("channel") or "Feature Stream").strip()
-        existing_match = next(
-            (
-                s for s in existing
-                if (stream_data.get("id") and str(s.get("id")) == str(stream_data.get("id")))
-                or str(s.get("channel") or "").strip().lower() == channel.lower()
-            ),
-            None,
-        )
-        stream_id = (
-            stream_data.get("id")
-            or (existing_match.get("id") if existing_match else None)
-            or f"stream_{int(datetime.now(timezone.utc).timestamp())}_{_uuid.uuid4().hex[:6]}"
-        )
         raw_t = stream_data.get("table_number")
         if raw_t is None:
             raw_t = stream_data.get("tableNumber")
@@ -1631,6 +1618,25 @@ class FirestoreRoomEngine:
         url = str(stream_data.get("stream_url") or stream_data.get("streamUrl") or "").strip()
         platform, embed_url = self._parse_stream_embed(url, stream_data.get("platform"))
         now_iso = datetime.now(timezone.utc).isoformat()
+
+        explicit_id = str(stream_data.get("id") or "").strip()
+        existing_match = next(
+            (
+                s for s in existing
+                if (explicit_id and str(s.get("id")) == explicit_id)
+                or (
+                    not explicit_id
+                    and str(s.get("channel") or "").strip().lower() == channel.lower()
+                    and int(s.get("table_number", -1)) == table_num
+                )
+            ),
+            None,
+        )
+        stream_id = (
+            explicit_id
+            or (existing_match.get("id") if existing_match else None)
+            or f"stream_{int(datetime.now(timezone.utc).timestamp())}_{_uuid.uuid4().hex[:6]}"
+        )
         
         record = {
             "id": stream_id,
@@ -1648,14 +1654,10 @@ class FirestoreRoomEngine:
             "updated_at": now_iso,
         }
         
-        # Replace if id, channel, or table_number already exists, and place active stream first
-        updated = [
-            s for s in existing
-            if str(s.get("id")) != str(stream_id)
-            and str(s.get("channel") or "").strip().lower() != channel.lower()
-            and int(s.get("table_number", -1)) != table_num
-        ]
-        updated.insert(0, record)
+        if existing_match:
+            updated = [record if str(s.get("id")) == str(stream_id) else s for s in existing]
+        else:
+            updated = [record] + [s for s in existing if str(s.get("id")) != str(stream_id)]
         
         self.set_event_livestreams(event_id, updated)
         return record

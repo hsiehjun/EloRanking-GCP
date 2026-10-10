@@ -1472,9 +1472,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             }
             if ev_id not in EVENT_LIVESTREAMS_DB:
                 EVENT_LIVESTREAMS_DB[ev_id] = []
-            EVENT_LIVESTREAMS_DB[ev_id] = [s for s in EVENT_LIVESTREAMS_DB[ev_id] if s.get("id") != s_id and int(s.get("table_number", 0)) != t_num]
-            EVENT_LIVESTREAMS_DB[ev_id].append(record)
-            EVENT_LIVESTREAMS_DB[ev_id].sort(key=lambda s: int(s.get("table_number", 1)))
+            EVENT_LIVESTREAMS_DB[ev_id] = [s for s in EVENT_LIVESTREAMS_DB[ev_id] if s.get("id") != s_id]
+            EVENT_LIVESTREAMS_DB[ev_id].insert(0, record)
             
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")

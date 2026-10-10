@@ -7677,12 +7677,17 @@ function hydrateStreamTrackerScoreAsync(eventId, overlayData) {
     .catch(() => {});
 }
 
-function openEventStreamModal(tableNum) {
+function openEventStreamModal(tableNum, streamIdx) {
   const modal = document.getElementById('event-stream-modal');
   if (!modal) return;
 
-  if (tableNum !== undefined && tableNum !== null && !isNaN(Number(tableNum))) {
+  if (streamIdx !== undefined && streamIdx !== null && !isNaN(Number(streamIdx)) && eventLiveStreams[Number(streamIdx)]) {
+    creatorActiveStreamIndex = Number(streamIdx);
+    currentModalStreamTable = Number(eventLiveStreams[creatorActiveStreamIndex].tableNumber ?? 1);
+  } else if (tableNum !== undefined && tableNum !== null && !isNaN(Number(tableNum))) {
     currentModalStreamTable = Number(tableNum);
+    const matchIdx = (eventLiveStreams || []).findIndex(s => Number(s.tableNumber) === Number(tableNum));
+    if (matchIdx >= 0) creatorActiveStreamIndex = matchIdx;
   } else if (selectedCasterTable !== undefined && selectedCasterTable !== null && !isNaN(Number(selectedCasterTable))) {
     currentModalStreamTable = Number(selectedCasterTable);
   } else {
@@ -7710,6 +7715,16 @@ function openEventStreamModal(tableNum) {
 }
 window.openEventStreamModal = openEventStreamModal;
 window.openEventBroadcastTheater = openEventStreamModal;
+
+function switchModalActiveStream(streamIdx) {
+  const idx = Number(streamIdx);
+  if (!eventLiveStreams || !eventLiveStreams[idx]) return;
+  creatorActiveStreamIndex = idx;
+  currentModalStreamTable = Number(eventLiveStreams[idx].tableNumber ?? 1);
+  selectedCasterTable = currentModalStreamTable;
+  updateEventStreamModalContent();
+}
+window.switchModalActiveStream = switchModalActiveStream;
 
 function closeEventStreamModal() {
   const modalStage = document.getElementById('modal-stream-stage-wrap');
@@ -7758,16 +7773,24 @@ function updateEventStreamModalContent() {
   const matches = (eventMatchesCache && eventMatchesCache.length > 0) ? eventMatchesCache : (ev.matches || []);
   const players = (eventPlayersCache && eventPlayersCache.length > 0) ? eventPlayersCache : (ev.players || []);
 
-  // Find active stream (either matching currentModalStreamTable or the active broadcaster stream)
-  const activeStream = (eventLiveStreams && eventLiveStreams.length > 0)
-    ? (eventLiveStreams.find(s => Number(s.tableNumber) === Number(currentModalStreamTable))
-      || eventLiveStreams[creatorActiveStreamIndex]
-      || eventLiveStreams[0])
-    : null;
+  // Find active stream (prefer creatorActiveStreamIndex if matching currentModalStreamTable, otherwise match table or fallback)
+  let activeStream = null;
+  if (eventLiveStreams && eventLiveStreams.length > 0) {
+    const indexedStream = eventLiveStreams[creatorActiveStreamIndex];
+    if (indexedStream && Number(indexedStream.tableNumber) === Number(currentModalStreamTable)) {
+      activeStream = indexedStream;
+    } else {
+      activeStream = eventLiveStreams.find(s => Number(s.tableNumber) === Number(currentModalStreamTable))
+        || indexedStream
+        || eventLiveStreams[0];
+    }
+  }
 
-  const tableNum = (currentModalStreamTable !== undefined && currentModalStreamTable !== null && !isNaN(Number(currentModalStreamTable)))
-    ? Number(currentModalStreamTable)
-    : (activeStream?.tableNumber !== undefined ? Number(activeStream.tableNumber) : 1);
+  const tableNum = activeStream?.tableNumber !== undefined
+    ? Number(activeStream.tableNumber)
+    : ((currentModalStreamTable !== undefined && currentModalStreamTable !== null && !isNaN(Number(currentModalStreamTable)))
+      ? Number(currentModalStreamTable)
+      : 1);
 
   const preferredRound = selectedCasterRound || activeStream?.roundNumber || ev.current_round || 1;
   const overlayData = resolveStreamTableMatchData(ev, players, matches, tableNum, preferredRound);
@@ -7805,8 +7828,18 @@ function updateEventStreamModalContent() {
     const streamTitle = Number(tableNum) === 0
       ? `${activeStream.channel} - Main Desk Coverage`
       : `${activeStream.channel} - Table ${tableNum} Coverage (Round ${curRound})`;
+    const multiStreamPills = eventLiveStreams.length > 1
+      ? `<div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap; margin-top:0.35rem;">
+          ${eventLiveStreams.map((s, sIdx) => {
+            const isSel = s === activeStream;
+            const sTbl = Number(s.tableNumber) === 0 ? 'Main Desk' : `Table ${s.tableNumber}`;
+            return `<button type="button" onclick="switchModalActiveStream(${sIdx})" style="padding:2px 8px; border-radius:6px; font-size:0.7rem; font-weight:700; cursor:pointer; border:1px solid ${isSel ? '#ef4444' : 'rgba(255,255,255,0.14)'}; background:${isSel ? 'rgba(239,68,68,0.22)' : 'rgba(15,23,42,0.75)'}; color:${isSel ? '#fca5a5' : '#cbd5e1'};">🔴 ${escapeHtml(s.channel)} (${sTbl})</button>`;
+          }).join('')}
+        </div>`
+      : '';
     subtitleEl.innerHTML = `
-      <span>${escapeHtml(streamTitle)}</span> • <span style="color:#4ade80;">👁️ ~${(activeStream.viewers || 100).toLocaleString()} watching live</span>
+      <div><span>${escapeHtml(streamTitle)}</span> • <span style="color:#4ade80;">👁️ ~${(activeStream.viewers || 100).toLocaleString()} watching live</span></div>
+      ${multiStreamPills}
     `;
   }
 
@@ -8077,23 +8110,7 @@ function refreshStreamTableSelection(tableVal, sourceId) {
   const evId = ev.id || currentOpenEventId || '';
   hydrateStreamTrackerScoreAsync(evId, overlayData);
 
-  const streamSelect = document.getElementById('new-stream-table');
   const obsSelect = document.getElementById('obs-overlay-table-select');
-  const customEl = document.getElementById('new-stream-custom-table');
-
-  if (sourceId !== 'new-stream-table' && streamSelect) {
-    const hasOpt = Array.from(streamSelect.options).some(o => o.value === String(selectedCasterTable));
-    if (hasOpt) {
-      streamSelect.value = String(selectedCasterTable);
-      if (customEl) customEl.style.display = 'none';
-    } else {
-      streamSelect.value = 'custom';
-      if (customEl) {
-        customEl.style.display = 'inline-block';
-        customEl.value = String(selectedCasterTable);
-      }
-    }
-  }
 
   if (sourceId !== 'obs-overlay-table-select' && obsSelect) {
     const hasOpt = Array.from(obsSelect.options).some(o => o.value === String(selectedCasterTable));
@@ -8143,38 +8160,24 @@ function handleStreamTableSelectChange(val) {
     if (customEl) {
       customEl.style.display = 'inline-block';
       if (!customEl.value) {
-        customEl.value = String(selectedCasterTable || 1);
+        customEl.value = '1';
       }
       customEl.focus();
-      const parsed = parseInt(customEl.value, 10);
-      if (!isNaN(parsed) && parsed >= 0) {
-        refreshStreamTableSelection(parsed, 'new-stream-table');
-      }
     }
   } else {
     if (customEl) {
       customEl.style.display = 'none';
     }
-    refreshStreamTableSelection(val, 'new-stream-table');
   }
 }
 window.handleStreamTableSelectChange = handleStreamTableSelectChange;
 
 function handleObsOverlayTableChange(val) {
-  const customEl = document.getElementById('new-stream-custom-table');
-  const streamSelect = document.getElementById('new-stream-table');
   if (val === 'custom') {
-    if (streamSelect) streamSelect.value = 'custom';
-    if (customEl) {
-      customEl.style.display = 'inline-block';
-      if (!customEl.value) {
-        customEl.value = String(selectedCasterTable || 1);
-      }
-      customEl.focus();
-      const parsed = parseInt(customEl.value, 10);
-      if (!isNaN(parsed) && parsed >= 0) {
-        refreshStreamTableSelection(parsed, 'obs-overlay-table-select');
-      }
+    const raw = window.prompt('Enter Table Number (0 for Main Desk):', String(selectedCasterTable || 1));
+    const parsed = parseInt(raw, 10);
+    if (!isNaN(parsed) && parsed >= 0) {
+      refreshStreamTableSelection(parsed, 'obs-overlay-table-select');
     }
   } else {
     refreshStreamTableSelection(val, 'obs-overlay-table-select');
@@ -8182,16 +8185,17 @@ function handleObsOverlayTableChange(val) {
 }
 window.handleObsOverlayTableChange = handleObsOverlayTableChange;
 
-function handleCustomStreamTableInput(val) {
-  const parsed = parseInt(val, 10);
-  if (!isNaN(parsed) && parsed >= 0) {
-    refreshStreamTableSelection(parsed, 'new-stream-custom-table');
-  }
+function handleCustomStreamTableInput(_val) {
+  // Handled when submitting + Link Stream so typing a custom table for a new stream does not mutate existing streams
 }
 window.handleCustomStreamTableInput = handleCustomStreamTableInput;
 
 async function addCreatorLiveStream(e) {
   if (e) e.preventDefault();
+  if (typeof _syncStreamBackendTimer !== 'undefined' && _syncStreamBackendTimer) {
+    clearTimeout(_syncStreamBackendTimer);
+    _syncStreamBackendTimer = null;
+  }
   const channelEl = document.getElementById('new-stream-channel');
   const urlEl = document.getElementById('new-stream-url');
   const tableEl = document.getElementById('new-stream-table');
@@ -8202,7 +8206,7 @@ async function addCreatorLiveStream(e) {
   const url = (urlEl?.value || '').trim();
   const platform = platformEl?.value || 'youtube';
 
-  let table = selectedCasterTable || 1;
+  let table = 1;
   if (tableEl?.value === 'custom') {
     const parsed = parseInt(customTableEl?.value, 10);
     if (isNaN(parsed) || parsed < 0) {
@@ -8267,6 +8271,10 @@ async function addCreatorLiveStream(e) {
       }));
     }
     creatorActiveStreamIndex = 0;
+    selectedCasterTable = table;
+    currentModalStreamTable = table;
+    if (channelEl) channelEl.value = '';
+    if (urlEl) urlEl.value = '';
     if (typeof showProfileToast === 'function') {
       showProfileToast('✓ Live stream linked successfully!');
     } else {
@@ -10344,14 +10352,15 @@ function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch,
    ========================================================================== */
 function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo, curRound) {
   curRound = curRound || selectedCasterRound || ev.current_round || 1;
-  const curTable = (selectedCasterTable !== undefined && selectedCasterTable !== null && !isNaN(Number(selectedCasterTable))) ? Number(selectedCasterTable) : 1;
+  const activeStream = eventLiveStreams[creatorActiveStreamIndex] || eventLiveStreams[0];
+  const curTable = (activeStream && activeStream.tableNumber !== undefined && activeStream.tableNumber !== null && !isNaN(Number(activeStream.tableNumber)))
+    ? Number(activeStream.tableNumber)
+    : ((selectedCasterTable !== undefined && selectedCasterTable !== null && !isNaN(Number(selectedCasterTable))) ? Number(selectedCasterTable) : 1);
+  selectedCasterTable = curTable;
   const overlayData = resolveStreamTableMatchData(ev, players, matches, curTable, curRound);
   const effectiveRound = overlayData.roundNum || curRound;
 
-  const activeStream = eventLiveStreams[creatorActiveStreamIndex] || eventLiveStreams[0];
   if (activeStream) {
-    activeStream.tableNumber = curTable;
-    activeStream.table_number = curTable;
     activeStream.roundNumber = effectiveRound;
     activeStream.round_number = effectiveRound;
     if (!activeStream.title || /Table\s+\d+\s+Coverage|Main\s+Desk/i.test(activeStream.title)) {
@@ -10374,23 +10383,37 @@ function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1E
   });
 
   const isCustomTable = curTable > totalTables;
-
-  const tableOptions = [];
-  const t1Match = curRoundTableMap.get(1);
-  const t1Desc = t1Match ? ` — ${escapeHtml((t1Match.player1_name || 'P1').split(' ')[0])} vs ${escapeHtml((t1Match.player2_name || 'P2').split(' ')[0])}` : '';
-  tableOptions.push(`<option value="1" ${curTable === 1 ? 'selected' : ''}>Table 1 (Feature Table)${t1Desc}</option>`);
-
-  for (let t = 2; t <= totalTables; t++) {
-    const tm = curRoundTableMap.get(t);
-    const mDesc = tm ? ` — ${escapeHtml((tm.player1_name || 'P1').split(' ')[0])} vs ${escapeHtml((tm.player2_name || 'P2').split(' ')[0])}` : '';
-    tableOptions.push(`<option value="${t}" ${curTable === t ? 'selected' : ''}>Table ${t}${mDesc}</option>`);
+  const occupiedTables = new Set((eventLiveStreams || []).map(s => Number(s.tableNumber)));
+  let defaultNewStreamTable = 1;
+  for (let t = 1; t <= totalTables; t++) {
+    if (!occupiedTables.has(t)) {
+      defaultNewStreamTable = t;
+      break;
+    }
   }
-  tableOptions.push(`<option value="0" ${curTable === 0 ? 'selected' : ''}>All Tables / Main Desk (General Coverage)</option>`);
-  tableOptions.push(`<option value="custom" ${isCustomTable ? 'selected' : ''}>✏️ Enter Custom Table #...</option>`);
+
+  const buildTableOpts = (selectedTbl, isCust) => {
+    const opts = [];
+    const t1Match = curRoundTableMap.get(1);
+    const t1Desc = t1Match ? ` — ${escapeHtml((t1Match.player1_name || 'P1').split(' ')[0])} vs ${escapeHtml((t1Match.player2_name || 'P2').split(' ')[0])}` : '';
+    opts.push(`<option value="1" ${selectedTbl === 1 ? 'selected' : ''}>Table 1 (Feature Table)${t1Desc}</option>`);
+
+    for (let t = 2; t <= totalTables; t++) {
+      const tm = curRoundTableMap.get(t);
+      const mDesc = tm ? ` — ${escapeHtml((tm.player1_name || 'P1').split(' ')[0])} vs ${escapeHtml((tm.player2_name || 'P2').split(' ')[0])}` : '';
+      opts.push(`<option value="${t}" ${selectedTbl === t ? 'selected' : ''}>Table ${t}${mDesc}</option>`);
+    }
+    opts.push(`<option value="0" ${selectedTbl === 0 ? 'selected' : ''}>All Tables / Main Desk (General Coverage)</option>`);
+    opts.push(`<option value="custom" ${isCust ? 'selected' : ''}>✏️ Enter Custom Table #...</option>`);
+    return opts;
+  };
+
+  const tableOptions = buildTableOpts(curTable, isCustomTable);
+  const newStreamTableOptions = buildTableOpts(defaultNewStreamTable, false);
 
   const streamListHtml = eventLiveStreams.map((s, idx) => {
     const isAct = idx === creatorActiveStreamIndex;
-    const sTable = isAct ? curTable : Number(s.tableNumber);
+    const sTable = Number(s.tableNumber);
     const isMainDesk = sTable === 0;
     return `
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.65rem 0.85rem; background: ${isAct ? 'rgba(168, 85, 247, 0.15)' : 'rgba(15, 23, 42, 0.6)'}; border: 1px solid ${isAct ? 'rgba(168, 85, 247, 0.4)' : 'rgba(255,255,255,0.06)'}; border-radius: 8px;">
@@ -10462,9 +10485,9 @@ function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1E
               <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
                 <label style="font-size: 0.72rem; color: var(--text-muted); white-space: nowrap;">Assigned Table:</label>
                 <select id="new-stream-table" onchange="handleStreamTableSelectChange(this.value)" style="height: 32px; max-width: 230px; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.78rem; cursor: pointer;">
-                  ${tableOptions.join('')}
+                  ${newStreamTableOptions.join('')}
                 </select>
-                <input type="number" id="new-stream-custom-table" oninput="handleCustomStreamTableInput(this.value)" value="${isCustomTable ? curTable : ''}" min="0" max="9999" placeholder="Table #" style="display: ${isCustomTable ? 'inline-block' : 'none'}; width: 85px; height: 32px; box-sizing: border-box; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid #a855f7; border-radius: 6px; color: #fff; font-size: 0.78rem;" />
+                <input type="number" id="new-stream-custom-table" oninput="handleCustomStreamTableInput(this.value)" value="" min="0" max="9999" placeholder="Table #" style="display: none; width: 85px; height: 32px; box-sizing: border-box; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid #a855f7; border-radius: 6px; color: #fff; font-size: 0.78rem;" />
               </div>
               <button type="submit" class="btn btn-primary" style="font-size: 0.78rem; font-weight: 700; padding: 0.4rem 1rem; background: #a855f7; border-color: #9333ea; color: #fff; cursor: pointer;">
                 + Link Stream
