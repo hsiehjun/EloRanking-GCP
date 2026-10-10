@@ -2033,9 +2033,9 @@ function switchEventModalTab(tabKey) {
       switchEventModalTab('results');
       return;
     }
-    _currentMyStationSubtab = (typeof _currentToHubSubtab !== 'undefined' && ['clock', 'announcements', 'roster'].includes(_currentToHubSubtab))
+    _currentMyStationSubtab = (typeof _currentToHubSubtab !== 'undefined' && ['roster', 'clock', 'announcements'].includes(_currentToHubSubtab))
       ? _currentToHubSubtab
-      : 'clock';
+      : 'roster';
     tabKey = 'player';
   } else if (tabKey === 'creator') {
     if (!isCC) {
@@ -5823,6 +5823,17 @@ function getMyStationAvailableSubtabs(ev, userRegData) {
   if (isTO) {
     tabs.push(
       {
+        key: 'roster',
+        icon: '📋',
+        label: 'Roster & Audit',
+        accent: '#fbbf24',
+        accentBg: 'rgba(245,158,11,0.16)',
+        accentBorder: 'rgba(245,158,11,0.48)',
+        badge: missingListCount > 0 ? String(missingListCount) : '',
+        badgeBg: 'rgba(239,68,68,0.22)',
+        badgeColor: '#fca5a5',
+      },
+      {
         key: 'clock',
         icon: '⏱️',
         label: 'Clock & Judge Calls',
@@ -5841,17 +5852,6 @@ function getMyStationAvailableSubtabs(ev, userRegData) {
         accentBg: 'rgba(245,158,11,0.16)',
         accentBorder: 'rgba(245,158,11,0.48)',
         badge: '',
-      },
-      {
-        key: 'roster',
-        icon: '📋',
-        label: 'Roster & Audit',
-        accent: '#fbbf24',
-        accentBg: 'rgba(245,158,11,0.16)',
-        accentBorder: 'rgba(245,158,11,0.48)',
-        badge: missingListCount > 0 ? String(missingListCount) : '',
-        badgeBg: 'rgba(239,68,68,0.22)',
-        badgeColor: '#fca5a5',
       }
     );
   }
@@ -12118,93 +12118,10 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
 }
 
 function renderDeepMetaMode(ev, players, matches) {
-  // Dynamic Spiciness Index: Rogue Tech Overperforming
-  const unitCounts = {};
-  const unitPilots = {};
-  players.forEach(p => {
-    const units = extractKeyListUnits(p.army_list, p.faction, p.detachment);
-    units.forEach(u => {
-      unitCounts[u] = (unitCounts[u] || 0) + 1;
-      if (!unitPilots[u]) unitPilots[u] = [];
-      unitPilots[u].push(p);
-    });
-  });
-
-  const rogueCards = [];
-  const maxFieldThreshold = Math.max(1, Math.floor(players.length * 0.25));
-
-  Object.entries(unitCounts).forEach(([unit, count]) => {
-    if (count <= maxFieldThreshold) {
-      const pilots = unitPilots[unit] || [];
-      const winningPilots = pilots.filter(p => Number(p.event_wins || 0) >= 1 && Number(p.event_wins || 0) >= Number(p.event_losses || 0));
-      winningPilots.forEach(p => {
-        const sharePct = ((count / Math.max(1, players.length)) * 100).toFixed(1);
-        rogueCards.push({
-          unitName: unit.toUpperCase(),
-          sharePct,
-          count,
-          pilotName: p.full_name,
-          pilotId: p.player_id || p.id || '',
-          faction: p.faction,
-          detachment: p.detachment || 'Standard',
-          record: `${p.event_wins || 0}-${p.event_losses || 0} Record`,
-          wins: Number(p.event_wins || 0),
-          note: `Selected ${unit} (${count} in field) under ${p.detachment || p.faction}, leveraging uncommon datasheet utility to pilot a winning record.`
-        });
-      });
-    }
-  });
-
-  const CHARACTER_KEYWORDS = /\b(warboss|technomancer|trajann|blade champion|captain|lieutenant|overlord|farseer|autarch|archon|inquisitor|chaplain|librarian|commissar|succubus|canoness)\b/i;
-  rogueCards.sort((a, b) => {
-    const aChar = CHARACTER_KEYWORDS.test(a.unitName);
-    const bChar = CHARACTER_KEYWORDS.test(b.unitName);
-    if (aChar !== bChar) return aChar ? 1 : -1;
-    return (b.wins - a.wins) || (a.count - b.count);
-  });
-  const diverseCards = [];
-  const pilotsSeen = new Set();
-  rogueCards.forEach(rc => {
-    if (diverseCards.length < 4 && !pilotsSeen.has(rc.pilotName)) {
-      diverseCards.push(rc);
-      pilotsSeen.add(rc.pilotName);
-    }
-  });
-  rogueCards.forEach(rc => {
-    if (diverseCards.length < 4 && !diverseCards.includes(rc)) {
-      diverseCards.push(rc);
-    }
-  });
-
   return `
     <!-- Interactive Detachment & Force Disposition Power Grid -->
     <div id="deep-meta-power-grid-mount" style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
       ${buildInteractivePowerGridHtml(ev, players, matches)}
-    </div>
-
-    <!-- Spicy Tech & Rogue Inclusions Spotlight -->
-    <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
-      <h4 style="margin: 0 0 0.85rem 0; font-size: 0.95rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
-        <span>🌶️ The "Spiciness" Index: Rogue Tech & Unique Inclusions</span>
-      </h4>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.85rem;">
-        ${diverseCards.length > 0 ? diverseCards.map((rc, idx) => `
-          <div style="background: rgba(15,23,42,0.85); border: 1px solid ${idx % 2 === 0 ? 'rgba(245, 158, 11, 0.3)' : 'rgba(56, 189, 248, 0.3)'}; border-radius: 8px; padding: 0.85rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-              <span style="font-weight: 800; color: ${idx % 2 === 0 ? '#f59e0b' : '#38bdf8'}; font-size: 0.84rem;">${escapeHtml(rc.unitName)}</span>
-              <span class="badge" style="background: ${idx % 2 === 0 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(56, 189, 248, 0.15)'}; color: ${idx % 2 === 0 ? '#f59e0b' : '#38bdf8'}; font-size: 0.68rem;">${rc.sharePct}% FIELD SHARE</span>
-            </div>
-            <div style="font-size: 0.82rem; color: #fff; font-weight: 600;">${escapeHtml(rc.pilotName)} (${escapeHtml(rc.faction)}) • ${rc.record}</div>
-            <div style="font-size: 0.74rem; color: var(--text-secondary); margin-top: 0.25rem; line-height: 1.4;">
-              ${escapeHtml(rc.note)}
-            </div>
-          </div>
-        `).join('') : `
-          <div style="background: rgba(15,23,42,0.6); border-radius: 8px; padding: 1.25rem; text-align: center; color: var(--text-muted); font-size: 0.82rem; grid-column: 1 / -1;">
-            Meta lists are following standard archetypes. No rogue datasheets (<= 25% field share) currently with winning records.
-          </div>
-        `}
-      </div>
     </div>
   `;
 }
