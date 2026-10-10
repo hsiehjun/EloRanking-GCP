@@ -5852,8 +5852,8 @@ function renderManagedStudioLeagues(leagues) {
           </div>
         </div>
 
-        <div style="overflow-x:auto;max-height:480px;">
-          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;">
+        <div style="overflow-x:hidden;overflow-y:auto;max-height:480px;">
+          <table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:0.78rem;">
             <thead>
               <tr style="background:rgba(15,23,42,0.95);color:#94a3b8;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);position:sticky;top:0;z-index:2;">
                 <th style="padding:0.5rem;">#</th>
@@ -7060,8 +7060,8 @@ function renderStudioLeagueCommandCenterModal() {
         </div>
 
         <!-- Current Pod Pairings Matrix -->
-        <div style="overflow-x:auto;max-height:300px;">
-          <table style="width:100%;border-collapse:collapse;font-size:0.76rem;">
+        <div style="overflow-x:hidden;overflow-y:auto;max-height:300px;">
+          <table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:0.76rem;">
             <thead>
               <tr style="background:rgba(2,6,23,0.9);color:#94a3b8;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);">
                 <th style="padding:0.45rem;">Rank &amp; Player</th>
@@ -7131,8 +7131,8 @@ function renderStudioLeagueCommandCenterModal() {
           </div>
         </div>
 
-        <div style="overflow-x:auto;max-height:330px;">
-          <table style="width:100%;border-collapse:collapse;font-size:0.78rem;">
+        <div style="overflow-x:hidden;overflow-y:auto;max-height:330px;">
+          <table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:0.78rem;">
             <thead>
               <tr style="background:rgba(2,6,23,0.9);color:#94a3b8;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1);">
                 <th style="padding:0.5rem;">Player</th>

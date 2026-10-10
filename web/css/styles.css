@@ -535,7 +535,8 @@ select:focus { border-color: var(--accent); }
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   max-height: calc(100vh - 270px);
   min-height: 380px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.25);
@@ -559,7 +560,7 @@ th {
   text-transform: uppercase;
   font-size: 0.72rem;
   letter-spacing: 0.05em;
-  padding: 0.85rem 1.15rem;
+  padding: 0.72rem 0.75rem;
   border-bottom: 2px solid var(--border);
   white-space: nowrap;
   user-select: none;
@@ -576,7 +577,7 @@ th.sorted-asc::after { content: " ▲"; color: var(--accent); font-size: 0.65rem
 th.sorted-desc::after { content: " ▼"; color: var(--accent); font-size: 0.65rem; }
 
 td {
-  padding: clamp(0.7rem, 0.9vw, 0.95rem) clamp(0.85rem, 1.1vw, 1.15rem);
+  padding: clamp(0.58rem, 0.75vw, 0.78rem) clamp(0.55rem, 0.8vw, 0.8rem);
   border-bottom: 1px solid var(--border-subtle);
   white-space: nowrap;
 }
@@ -18033,4 +18034,143 @@ table.desktop-only,
   background: rgba(56, 189, 248, 0.14);
 }
 
+/* ==========================================================================
+   UNIVERSAL ZERO HORIZONTAL SCROLL ENFORCEMENT FOR DESKTOP TABLES & MODALS
+   ========================================================================== */
+.table-container,
+.comm-table-container,
+.fmodal-table-scroll,
+#modal-quick-table-wrap {
+  overflow-x: hidden !important;
+}
 
+@media (min-width: 769px) {
+  .quick-event-modal-window {
+    max-width: 900px !important;
+    width: 95vw !important;
+  }
+
+  #modal-quick-table,
+  .team-ledger-table,
+  #team-roster-table,
+  #tab-team-profile .table,
+  #faction-modal .fmodal-table-scroll table,
+  .league-standings-table,
+  .league-5col-schedule-table {
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed !important;
+  }
+
+  /* Team Modal Roster Table (7 columns inside 860px modal) */
+  #team-roster-table th:nth-child(1),
+  #team-roster-table td:nth-child(1) { width: 52px; }
+  #team-roster-table th:nth-child(2),
+  #team-roster-table td:nth-child(2) { width: 24%; overflow: hidden; text-overflow: ellipsis; }
+  #team-roster-table th:nth-child(3),
+  #team-roster-table td:nth-child(3) { width: 19%; }
+  #team-roster-table th:nth-child(4),
+  #team-roster-table td:nth-child(4) { width: 82px; }
+  #team-roster-table th:nth-child(5),
+  #team-roster-table td:nth-child(5) { width: 118px; }
+  #team-roster-table th:nth-child(6),
+  #team-roster-table td:nth-child(6) { width: 78px; }
+  #team-roster-table th:nth-child(7),
+  #team-roster-table td:nth-child(7) { width: 18%; overflow: hidden; text-overflow: ellipsis; }
+  #team-roster-table .faction-pill,
+  #team-roster-table .player-link {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: middle;
+  }
+
+  /* Faction Modal Matchups & Recent Games Tables (inside 860px modal) */
+  #faction-modal #faction-tab-matches table th:nth-child(1),
+  #faction-modal #faction-tab-matches table td:nth-child(1) { width: 92px; }
+  #faction-modal #faction-tab-matches table th:nth-child(2),
+  #faction-modal #faction-tab-matches table td:nth-child(2) { width: 28%; overflow: hidden; text-overflow: ellipsis; }
+  #faction-modal #faction-tab-matches table th:nth-child(3),
+  #faction-modal #faction-tab-matches table td:nth-child(3) { width: 18%; overflow: hidden; text-overflow: ellipsis; }
+  #faction-modal #faction-tab-matches table th:nth-child(4),
+  #faction-modal #faction-tab-matches table td:nth-child(4) { width: 98px; }
+  #faction-modal #faction-tab-matches table th:nth-child(5),
+  #faction-modal #faction-tab-matches table td:nth-child(5) { width: 21%; overflow: hidden; text-overflow: ellipsis; }
+  #faction-modal #faction-tab-matches table th:nth-child(6),
+  #faction-modal #faction-tab-matches table td:nth-child(6) { width: 86px; }
+
+  /* Event Hub Tables */
+  #event-results-table,
+  #event-pairings-table,
+  #event-teams-table,
+  #event-factions-table,
+  #personal-scorecard-table {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  #event-results-table td.col-event-competitor,
+  #event-results-table td.col-event-faction {
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #event-teams-table th,
+  #event-teams-table td {
+    padding: 0.5rem 0.45rem !important;
+    font-size: 0.8rem;
+  }
+  #event-teams-table td:nth-child(2),
+  #event-teams-table td:nth-child(3) {
+    max-width: 170px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Faction Meta Table (9 columns) */
+  #faction-meta-table th,
+  #faction-meta-table td {
+    padding: 0.55rem 0.5rem;
+  }
+  #faction-meta-table .meta-td-faction {
+    max-width: 190px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #faction-meta-table .meta-td-wr {
+    min-width: 120px !important;
+  }
+  #faction-meta-table .meta-td-share {
+    min-width: 105px !important;
+  }
+  #faction-meta-table .meta-matchup-pill {
+    max-width: 165px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+  }
+
+  /* Main Leaderboards, Directories & Community Tables */
+  #leaderboard-table td:nth-child(2),
+  #leaderboard-table td.col-faction,
+  #lead-teams-table td:nth-child(2),
+  #lead-teams-table td:nth-child(5),
+  #lead-itc-table td:nth-child(2),
+  #lead-itc-table td.col-faction,
+  #players-table td:nth-child(1),
+  #players-table td.col-faction,
+  #teams-table td:nth-child(1),
+  #teams-table td:nth-child(4),
+  #comm-leaderboard-table td:nth-child(2),
+  #comm-leaderboard-table td:nth-child(7),
+  #comm-teams-leaderboard-table td:nth-child(2),
+  #comm-teams-leaderboard-table td:nth-child(4) {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

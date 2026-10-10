@@ -839,7 +839,7 @@ function renderPodsSubtab(league, currentPod) {
         </div>
       </div>
 
-      <div style="overflow-x: auto;">
+      <div style="overflow-x: hidden;">
         <table class="league-standings-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
           <thead>
             <tr style="background: rgba(0, 0, 0, 0.3); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 0.73rem; text-transform: uppercase;">
@@ -1016,7 +1016,7 @@ function renderPodsSubtab(league, currentPod) {
         });
 
         return `
-          <div style="overflow-x: auto;">
+          <div style="overflow-x: hidden;">
             <table class="league-5col-schedule-table" style="width: 100%; border-collapse: separate; border-spacing: 5px; font-size: 0.82rem;">
               <thead>
                 <tr>
@@ -1285,8 +1285,8 @@ function renderHistoricalSeasonsList(seasons, league = {}) {
           ${seasonsCount} Seasons Documented
         </span>
       </div>
-      <div style="overflow-x: auto;">
-        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+      <div style="overflow-x: hidden;">
+        <table style="width: 100%; border-collapse: collapse; table-layout: fixed; text-align: left; font-size: 0.85rem;">
           <thead>
             <tr style="background: rgba(0, 0, 0, 0.3); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">
               <th style="padding: 0.75rem 1rem;">Season</th>
@@ -1427,8 +1427,8 @@ function renderLeaderboardTable(data, league = {}) {
         </span>
       </div>
 
-      <div style="overflow-x: auto;">
-        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+      <div style="overflow-x: hidden;">
+        <table style="width: 100%; border-collapse: collapse; table-layout: fixed; text-align: left; font-size: 0.85rem;">
           <thead>
             <tr style="background: rgba(0, 0, 0, 0.3); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">
               <th style="padding: 0.75rem 1rem; width: 55px;">Rank</th>

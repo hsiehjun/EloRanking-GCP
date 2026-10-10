@@ -488,17 +488,17 @@ function renderTeamProfilePage(data, sys) {
         </div>
 
         <!-- Desktop View Table (> 768px) -->
-        <div class="table-container desktop-only" style="max-height: 600px; overflow-y: auto;">
-          <table class="table" style="width: 100%;">
+        <div class="table-container desktop-only" style="max-height: 600px; overflow-x: hidden; overflow-y: auto;">
+          <table class="table" style="width: 100%; table-layout: fixed;">
             <thead>
               <tr>
-                <th style="width: 45px; text-align: center;">#</th>
-                <th>Competitor</th>
-                <th>Elo Rating</th>
-                <th>Status</th>
-                <th>Primary Faction</th>
-                <th>Matches</th>
-                <th>Win Rate</th>
+                <th style="width: 48px; text-align: center; padding: 0.65rem 0.5rem;">#</th>
+                <th style="width: 24%; padding: 0.65rem 0.75rem;">Competitor</th>
+                <th style="width: 20%; padding: 0.65rem 0.75rem;">Elo Rating</th>
+                <th style="width: 90px; padding: 0.65rem 0.6rem;">Status</th>
+                <th style="width: 21%; padding: 0.65rem 0.75rem;">Primary Faction</th>
+                <th style="width: 115px; padding: 0.65rem 0.6rem;">Matches</th>
+                <th style="width: 85px; padding: 0.65rem 0.6rem;">Win Rate</th>
               </tr>
             </thead>
             <tbody id="team-profile-roster-tbody">
@@ -612,25 +612,25 @@ function renderTeamProfileRosterRows(roster, sys, statusFilter = null) {
 
     return `
       <tr class="${isInactive ? 'roster-row-inactive' : ''}" style="cursor: pointer; ${isInactive ? 'opacity: 0.72;' : ''}" onclick="openPlayerModal('${escapeHtml(p.player_id || '')}', '${cleanJsName}')" title="Click to scout ${escapeHtml(safeName)}">
-        <td style="text-align: center; font-weight: 700; color: ${isCore ? 'var(--accent)' : 'var(--text-muted)'}; font-family: var(--font-mono); font-size: 0.82rem;">
+        <td style="text-align: center; font-weight: 700; color: ${isCore ? 'var(--accent)' : 'var(--text-muted)'}; font-family: var(--font-mono); font-size: 0.82rem; padding: 0.55rem 0.5rem;">
           #${displayRank}
         </td>
-        <td>
-          <div style="font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
-            <span class="player-link">${escapeHtml(safeName)}</span>
-            ${isAce ? '<span title="Club Top Ace" style="font-size: 0.75rem;">👑</span>' : ''}
+        <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0.55rem 0.75rem;">
+          <div style="font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.4rem; min-width: 0;">
+            <span class="player-link" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(safeName)}">${escapeHtml(safeName)}</span>
+            ${isAce ? '<span title="Club Top Ace" style="font-size: 0.75rem; flex-shrink: 0;">👑</span>' : ''}
           </div>
         </td>
-        <td>${badgeHtml}</td>
-        <td>${statusBadge}</td>
-        <td>
+        <td style="padding: 0.55rem 0.75rem;">${badgeHtml}</td>
+        <td style="padding: 0.55rem 0.6rem;">${statusBadge}</td>
+        <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0.55rem 0.75rem;" title="${escapeHtml(cleanFaction)}">
           <span style="color: var(--text-secondary); font-size: 0.82rem;">🛡️ ${escapeHtml(cleanFaction)}</span>
         </td>
-        <td style="font-family: var(--font-mono); font-size: 0.82rem;">
+        <td style="font-family: var(--font-mono); font-size: 0.82rem; padding: 0.55rem 0.6rem;">
           <span style="color: #fff; font-weight: 600;">${matches}</span>
           <span style="color: var(--text-muted); font-size: 0.75rem;">(${p.wins || 0}W-${p.losses || 0}L)</span>
         </td>
-        <td style="font-family: var(--font-mono); font-weight: 700; font-size: 0.84rem; color: ${winRate >= 55 ? 'var(--win)' : (winRate >= 45 ? 'var(--accent)' : 'var(--text-secondary)')};">
+        <td style="font-family: var(--font-mono); font-weight: 700; font-size: 0.84rem; padding: 0.55rem 0.6rem; color: ${winRate >= 55 ? 'var(--win)' : (winRate >= 45 ? 'var(--accent)' : 'var(--text-secondary)')};">
           ${winRate.toFixed(1)}%
         </td>
       </tr>
@@ -793,18 +793,18 @@ function renderTeamBattleLedger(feed) {
   }
 
   return `
-    <div class="table-container" style="max-height: 600px; overflow-x: auto; overflow-y: auto;">
-      <table class="table team-ledger-table" style="width: 100%; min-width: 820px;">
+    <div class="table-container" style="max-height: 600px; overflow-x: hidden; overflow-y: auto;">
+      <table class="table team-ledger-table" style="width: 100%; table-layout: fixed;">
         <thead>
           <tr>
-            <th style="width: 100px;">Date</th>
-            <th style="min-width: 200px;">Tournament Event</th>
-            <th style="width: 120px;">Round</th>
-            <th style="min-width: 140px;">Club Competitor</th>
-            <th style="min-width: 140px;">Opponent</th>
-            <th style="text-align: center; width: 80px;">Score</th>
-            <th style="text-align: center; width: 90px;">Result</th>
-            <th style="text-align: right; width: 85px;">Delta</th>
+            <th style="width: 90px; padding: 0.6rem 0.65rem;">Date</th>
+            <th style="width: 27%; padding: 0.6rem 0.65rem;">Tournament Event</th>
+            <th style="width: 82px; padding: 0.6rem 0.5rem;">Round</th>
+            <th style="width: 18%; padding: 0.6rem 0.65rem;">Club Competitor</th>
+            <th style="width: 19%; padding: 0.6rem 0.65rem;">Opponent</th>
+            <th style="text-align: center; width: 66px; padding: 0.6rem 0.45rem;">Score</th>
+            <th style="text-align: center; width: 78px; padding: 0.6rem 0.45rem;">Result</th>
+            <th style="text-align: right; width: 64px; padding: 0.6rem 0.65rem;">Delta</th>
           </tr>
         </thead>
         <tbody>
@@ -818,33 +818,33 @@ function renderTeamBattleLedger(feed) {
 
             return `
               <tr>
-                <td style="color: var(--text-muted); font-size: 0.76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${formattedDate}</td>
-                <td style="overflow: hidden; text-overflow: ellipsis;">
-                  <div style="font-weight: 700; color: #fff; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.tournament || '')}">${escapeHtml(item.tournament || 'Tournament Match')}</div>
+                <td style="color: var(--text-muted); font-size: 0.76rem; padding: 0.55rem 0.65rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${formattedDate}</td>
+                <td style="padding: 0.55rem 0.65rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <div style="font-weight: 700; color: #fff; font-size: 0.84rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.tournament || '')}">${escapeHtml(item.tournament || 'Tournament Match')}</div>
                   ${item.notes ? `<div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.notes)}">${escapeHtml(item.notes)}</div>` : ''}
                 </td>
-                <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  <span class="badge" style="font-size: 0.68rem; background: rgba(255,255,255,0.06); color: var(--text-secondary); border: 1px solid rgba(255,255,255,0.1); white-space: nowrap;">
+                <td style="padding: 0.55rem 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <span class="badge" style="font-size: 0.66rem; padding: 0.16rem 0.45rem; background: rgba(255,255,255,0.06); color: var(--text-secondary); border: 1px solid rgba(255,255,255,0.1); white-space: nowrap;">
                     ${escapeHtml(item.round || 'Sanctioned')}
                   </span>
                 </td>
-                <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  <strong style="color: #fff; font-size: 0.84rem;">${escapeHtml(item.player_name || 'Club Member')}</strong>
-                  ${item.faction ? `<div style="color: var(--text-secondary); font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(item.faction)}</div>` : ''}
+                <td style="padding: 0.55rem 0.65rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <div style="font-weight: 700; color: #fff; font-size: 0.83rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.player_name || 'Club Member')}">${escapeHtml(item.player_name || 'Club Member')}</div>
+                  ${item.faction ? `<div style="color: var(--text-secondary); font-size: 0.73rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.faction)}">${escapeHtml(item.faction)}</div>` : ''}
                 </td>
-                <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  <span style="color: var(--text-secondary); font-size: 0.84rem;">${escapeHtml(item.opponent_name || 'Opponent')}</span>
-                  ${item.opponent_team ? `<div style="margin-top: 2px;"><span class="badge" style="background: rgba(168,85,247,0.1); color: #c084fc; border: 1px solid rgba(168,85,247,0.25); font-size: 0.65rem;">🛡️ ${escapeHtml(item.opponent_team)}</span></div>` : ''}
+                <td style="padding: 0.55rem 0.65rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <div style="color: var(--text-secondary); font-size: 0.83rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.opponent_name || 'Opponent')}">${escapeHtml(item.opponent_name || 'Opponent')}</div>
+                  ${item.opponent_team ? `<div style="margin-top: 2px; overflow: hidden; text-overflow: ellipsis;"><span class="badge" title="${escapeHtml(item.opponent_team)}" style="background: rgba(168,85,247,0.1); color: #c084fc; border: 1px solid rgba(168,85,247,0.25); font-size: 0.64rem; padding: 1px 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle;">🛡️ ${escapeHtml(item.opponent_team)}</span></div>` : ''}
                 </td>
-                <td style="text-align: center; font-family: var(--font-mono); font-weight: 700; color: #fff; font-size: 0.84rem; white-space: nowrap;">
+                <td style="text-align: center; font-family: var(--font-mono); font-weight: 700; color: #fff; font-size: 0.82rem; padding: 0.55rem 0.45rem; white-space: nowrap;">
                   ${escapeHtml(item.score || '-')}
                 </td>
-                <td style="text-align: center; white-space: nowrap;">
-                  <span class="badge" style="background: ${isWin ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}; color: ${resultColor}; border: 1px solid ${isWin ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}; font-size: 0.72rem; font-weight: 800;">
+                <td style="text-align: center; padding: 0.55rem 0.45rem; white-space: nowrap;">
+                  <span class="badge" style="background: ${isWin ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}; color: ${resultColor}; border: 1px solid ${isWin ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}; font-size: 0.68rem; padding: 0.16rem 0.45rem; font-weight: 800;">
                     ${resultLabel}
                   </span>
                 </td>
-                <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; font-size: 0.84rem; color: ${isPositive ? 'var(--win)' : 'var(--loss)'}; white-space: nowrap;">
+                <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; font-size: 0.82rem; padding: 0.55rem 0.65rem; color: ${isPositive ? 'var(--win)' : 'var(--loss)'}; white-space: nowrap;">
                   ${escapeHtml(delta || '-')}
                 </td>
               </tr>

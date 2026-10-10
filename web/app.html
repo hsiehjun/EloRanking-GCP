@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=532679c39b">
+  <link rel="manifest" href="/manifest.json?v=6f6da43d20">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=532679c39b">
-  <link rel="stylesheet" href="/css/styles.min.css?v=532679c39b">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=532679c39b">
-  <link rel="preload" href="/js/app.bundle.min.js?v=532679c39b" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=6f6da43d20">
+  <link rel="stylesheet" href="/css/styles.min.css?v=6f6da43d20">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=6f6da43d20">
+  <link rel="preload" href="/js/app.bundle.min.js?v=6f6da43d20" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "532679c39b";</script>
+  <script>window.APP_VERSION = "6f6da43d20";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -1478,7 +1478,7 @@
               <button type="button" id="quadrant-metric-margin" class="faction-quick-btn" onclick="setQuadrantMetric('margin')">Avg VP Margin (+/-)</button>
             </div>
           </div>
-          <div style="overflow-x: auto; position: relative;">
+          <div style="overflow-x: hidden; position: relative;">
             <svg id="faction-quadrant-svg" style="width: 100%; height: 440px; display: block;"></svg>
             <div id="faction-quadrant-tooltip" class="meta-floating-tooltip" style="display: none;"></div>
           </div>
@@ -1500,7 +1500,7 @@
               <button type="button" id="matrix-size-16" class="faction-quick-btn" onclick="setMatchupMatrixSize(16)">Top 16</button>
             </div>
           </div>
-          <div id="faction-matrix-grid-wrap" style="overflow-x: auto; position: relative;"></div>
+          <div id="faction-matrix-grid-wrap" style="overflow-x: hidden; position: relative;"></div>
         </div>
 
         <!-- Faction View 4: Chart Timeline -->
@@ -1527,7 +1527,7 @@
           <!-- Interactive Faction Toggle Chips -->
           <div id="faction-toggle-chips" class="faction-chip-container"></div>
 
-          <div style="overflow-x: auto; position: relative;">
+          <div style="overflow-x: hidden; position: relative;">
             <svg id="faction-trend-svg" style="width: 100%; height: 310px;"></svg>
             <div id="faction-chart-tooltip" style="position: absolute; display: none; background: #0f172a; border: 1px solid var(--accent); padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.78rem; pointer-events: none; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></div>
           </div>
@@ -2109,8 +2109,8 @@
               <h4 style="margin: 0; color: #fff; font-size: 1.05rem;">Swiss Leaderboard & Placings</h4>
               <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.38rem 0.8rem;" onclick="exportStandingsCsv()">📥 Export CSV</button>
             </div>
-            <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow-x: auto;">
-              <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+            <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow-x: hidden;">
+              <table style="width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.85rem; text-align: left;">
                 <thead>
                   <tr style="background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">
                     <th style="padding: 0.75rem 0.85rem;">Rank</th>
@@ -2893,7 +2893,7 @@
 
   <!-- Tournament Quick-View Modal (Tier 1) -->
   <div id="event-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
-    <div class="modal-window quick-event-modal-window" style="max-width: 840px;">
+    <div class="modal-window quick-event-modal-window" style="max-width: 900px; width: 95vw;">
       <div class="modal-header event-modal-header" style="padding: 0.85rem 1.15rem 0.75rem;">
         <div class="event-modal-top-row" style="align-items: flex-start; justify-content: space-between; gap: 0.65rem;">
           <div style="flex: 1; min-width: 0;">
@@ -2935,8 +2935,8 @@
         </div>
 
         <!-- Quick Standings / Roster Table -->
-        <div id="modal-quick-table-wrap" class="table-container" style="max-height: 330px; overflow-y: auto; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px;">
-          <table id="modal-quick-table" style="width: 100%; border-collapse: collapse; min-width: 580px;">
+        <div id="modal-quick-table-wrap" class="table-container" style="max-height: 330px; overflow-y: auto; overflow-x: hidden; border: 1px solid var(--border); border-radius: 8px;">
+          <table id="modal-quick-table" style="width: 100%; border-collapse: collapse; table-layout: fixed;">
             <thead id="modal-quick-thead"></thead>
             <tbody id="modal-quick-tbody"></tbody>
           </table>
@@ -3523,7 +3523,7 @@
         <div style="font-size: 0.76rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.35rem;">
           📊 Turn-by-Turn Breakdown
         </div>
-        <div class="scorecard-matrix-wrap" style="margin-bottom: 0.65rem; overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: rgba(9, 15, 30, 0.65);">
+        <div class="scorecard-matrix-wrap" style="margin-bottom: 0.65rem; overflow-x: hidden; border: 1px solid var(--border); border-radius: 10px; background: rgba(9, 15, 30, 0.65);">
           <table id="modal-scorecard-matrix-table" class="scorecard-matrix-table" style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
             <thead>
               <tr>
@@ -3757,7 +3757,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=532679c39b"></script>
+  <script src="/js/app.bundle.min.js?v=6f6da43d20"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

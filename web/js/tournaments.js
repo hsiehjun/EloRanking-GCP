@@ -4348,11 +4348,11 @@ function renderQuickModalTable() {
   if (quickModalViewMode === 'teams' && kpi.teams.length > 0) {
     thead.innerHTML = `
       <tr>
-        <th style="width:65px; padding:0.55rem 0.75rem;">Rank</th>
-        <th style="padding:0.55rem 0.75rem;">Team</th>
-        <th style="padding:0.55rem 0.75rem;">Captain / Members</th>
-        <th style="padding:0.55rem 0.75rem;">Match Points</th>
-        <th style="padding:0.55rem 0.75rem;">Battle Points</th>
+        <th style="width:56px; padding:0.55rem 0.6rem;">Rank</th>
+        <th style="width:32%; padding:0.55rem 0.65rem;">Team</th>
+        <th style="width:30%; padding:0.55rem 0.65rem;">Captain / Members</th>
+        <th style="width:16%; padding:0.55rem 0.6rem;">Match Points</th>
+        <th style="width:16%; padding:0.55rem 0.6rem;">Battle Points</th>
       </tr>
     `;
     let filteredTeams = kpi.teams;
@@ -4370,11 +4370,11 @@ function renderQuickModalTable() {
       const memberCount = Array.isArray(t.members) ? ` (${t.members.length} players)` : '';
       return `
         <tr style="cursor:pointer;" onclick="openEventHubFromModal('teams')">
-          <td class="rank-cell" style="padding:0.5rem 0.75rem;">${rank}</td>
-          <td style="padding:0.5rem 0.75rem; font-weight:700; color:#fff;">🛡️ ${escapeHtml(t.name || 'Team')}</td>
-          <td style="padding:0.5rem 0.75rem; color:var(--text-secondary); font-size:0.82rem;">${escapeHtml(cap)}${memberCount}</td>
-          <td style="padding:0.5rem 0.75rem; font-family:var(--font-mono); font-weight:700; color:var(--win);">${t.match_points ?? t.wins ?? '-'} pts</td>
-          <td style="padding:0.5rem 0.75rem; font-family:var(--font-mono); font-weight:700; color:var(--accent);">${t.battle_points ?? '-'} BP</td>
+          <td class="rank-cell" style="padding:0.5rem 0.6rem;">${rank}</td>
+          <td style="padding:0.5rem 0.65rem; font-weight:700; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(t.name || 'Team')}">🛡️ ${escapeHtml(t.name || 'Team')}</td>
+          <td style="padding:0.5rem 0.65rem; color:var(--text-secondary); font-size:0.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(cap)}${memberCount}">${escapeHtml(cap)}${memberCount}</td>
+          <td style="padding:0.5rem 0.6rem; font-family:var(--font-mono); font-weight:700; color:var(--win);">${t.match_points ?? t.wins ?? '-'} pts</td>
+          <td style="padding:0.5rem 0.6rem; font-family:var(--font-mono); font-weight:700; color:var(--accent);">${t.battle_points ?? '-'} BP</td>
         </tr>
       `;
     }).join('');
@@ -4384,12 +4384,12 @@ function renderQuickModalTable() {
   // Default: Players Standings / Roster view
   thead.innerHTML = `
     <tr>
-      <th style="width:55px; text-align:center; padding:0.55rem 0.6rem;">Rank</th>
-      <th style="min-width:130px; padding:0.55rem 0.65rem;">Competitor</th>
-      <th style="min-width:110px; max-width:160px; padding:0.55rem 0.65rem;">Faction</th>
-      <th style="width:105px; text-align:center; padding:0.55rem 0.65rem;">Record / Status</th>
-      <th style="width:95px; text-align:center; padding:0.55rem 0.65rem;">Elo & Net Δ</th>
-      <th style="width:60px; text-align:right; padding:0.55rem 0.65rem;">List</th>
+      <th style="width:50px; text-align:center; padding:0.55rem 0.5rem;">Rank</th>
+      <th style="width:28%; padding:0.55rem 0.6rem;">Competitor</th>
+      <th style="width:22%; padding:0.55rem 0.6rem;">Faction</th>
+      <th style="width:110px; text-align:center; padding:0.55rem 0.5rem;">Record / Status</th>
+      <th style="width:130px; text-align:center; padding:0.55rem 0.5rem;">Elo & Net Δ</th>
+      <th style="width:74px; text-align:right; padding:0.55rem 0.6rem;">List</th>
     </tr>
   `;
 
@@ -4439,31 +4439,31 @@ function renderQuickModalTable() {
     const netEloStr = netElo > 0 ? `+${netElo.toFixed(1)}` : netElo.toFixed(1);
     const netEloColor = netElo > 0 ? '#4ade80' : (netElo < 0 ? '#f87171' : 'var(--text-muted)');
     const netPill = kpi.hasMatchesPlayed
-      ? `<span style="font-family:var(--font-mono); font-size:0.72rem; font-weight:700; color:${netEloColor}; margin-left:5px;">(${netEloStr})</span>`
+      ? `<span style="font-family:var(--font-mono); font-size:0.72rem; font-weight:700; color:${netEloColor}; margin-left:4px;">(${netEloStr})</span>`
       : '';
 
     return `
       <tr style="cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${safePid}', '${escapeHtml(safeName)}');">
-        <td class="rank-cell" style="width:55px; text-align:center; padding:0.5rem 0.6rem;">${rankStr}</td>
-        <td class="modal-quick-competitor-col" style="min-width:130px; padding:0.5rem 0.65rem;">
-          <div class="modal-quick-competitor-name" style="font-weight:600; color:#38bdf8;" title="${escapeHtml(safeName)}">${escapeHtml(safeName)}</div>
-          ${p.team ? `<div class="modal-quick-competitor-team" style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;" title="${escapeHtml(p.team)}">🛡️ ${escapeHtml(p.team)}</div>` : ''}
+        <td class="rank-cell" style="width:50px; text-align:center; padding:0.5rem 0.5rem;">${rankStr}</td>
+        <td class="modal-quick-competitor-col" style="padding:0.5rem 0.6rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+          <div class="modal-quick-competitor-name" style="font-weight:600; color:#38bdf8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(safeName)}">${escapeHtml(safeName)}</div>
+          ${p.team ? `<div class="modal-quick-competitor-team" style="font-size:0.72rem; color:var(--text-muted); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(p.team)}">🛡️ ${escapeHtml(p.team)}</div>` : ''}
         </td>
-        <td style="min-width:110px; max-width:160px; padding:0.5rem 0.65rem;">
+        <td style="padding:0.5rem 0.6rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
           ${displayFac && displayFac !== '-' ? `
-            <span class="badge" title="${escapeHtml(displayFac)}${p.detachment ? ` (${escapeHtml(p.detachment)})` : ''}" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.74rem; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle;">
+            <span class="badge" title="${escapeHtml(displayFac)}${p.detachment ? ` (${escapeHtml(p.detachment)})` : ''}" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.73rem; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle;">
               ${escapeHtml(displayFac)}
             </span>
           ` : `<span style="color:var(--text-muted); font-size:0.85rem; font-weight:500;">-</span>`}
         </td>
-        <td style="width:105px; text-align:center; padding:0.5rem 0.65rem; white-space:nowrap;">${recordHtml}</td>
-        <td style="width:95px; text-align:center; padding:0.5rem 0.65rem; white-space:nowrap;">
-          <span class="elo-badge ${getEloBadgeClass(p.current_elo)}" style="font-size:0.78rem;">${Number(p.current_elo || 1500).toFixed(1)}</span>
+        <td style="width:110px; text-align:center; padding:0.5rem 0.5rem; white-space:nowrap;">${recordHtml}</td>
+        <td style="width:130px; text-align:center; padding:0.5rem 0.5rem; white-space:nowrap;">
+          <span class="elo-badge ${getEloBadgeClass(p.current_elo)}" style="font-size:0.76rem;">${Number(p.current_elo || 1500).toFixed(1)}</span>
           ${netPill}
         </td>
-        <td style="width:60px; padding:0.5rem 0.65rem; text-align:right;">
+        <td style="width:74px; padding:0.5rem 0.6rem; text-align:right; white-space:nowrap;">
           ${hasPlayerSubmittedList(p) ? `
-            <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.72rem; padding:2px 8px; cursor:pointer;" title="View competitor army roster">
+            <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.72rem; padding:2px 7px; cursor:pointer;" title="View competitor army roster">
               📋 List
             </button>
           ` : `<span style="color:var(--text-muted); font-size:0.85rem; padding-right:0.4rem;">—</span>`}
@@ -6697,8 +6697,8 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
     const secRowLabel = isAosStream ? 'Battle Tactics' : 'Secondary Objectives';
 
     tableBodyHtml = `
-      <div style="overflow-x: auto;">
-        <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.78rem;">
+      <div style="overflow-x: hidden;">
+        <table class="data-table" style="width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.78rem;">
           <thead>
             <tr style="background: rgba(15, 23, 42, 0.85); border-bottom: 1px solid rgba(255,255,255,0.1);">
               <th style="text-align: left; padding: 0.45rem 0.65rem;">Player / Scoring Category</th>
@@ -6800,8 +6800,8 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
           : '<span class="badge" style="background:rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.3); font-size:0.66rem;">DEFEAT</span>'));
 
     tableBodyHtml = `
-      <div style="overflow-x: auto;">
-        <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+      <div style="overflow-x: hidden;">
+        <table class="data-table" style="width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.8rem;">
           <thead>
             <tr style="background: rgba(15, 23, 42, 0.85); border-bottom: 1px solid rgba(255,255,255,0.08);">
               <th style="text-align: left; padding: 0.45rem 0.75rem;">Player</th>
