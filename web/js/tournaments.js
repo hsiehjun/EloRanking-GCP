@@ -7747,7 +7747,6 @@ function onModalStreamTableChange(tableNum) {
 window.onModalStreamTableChange = onModalStreamTableChange;
 
 function updateEventStreamModalContent() {
-  const select = document.getElementById('modal-stream-table-select');
   const iframe = document.getElementById('modal-stream-iframe');
   const titleEl = document.getElementById('modal-stream-title');
   const subtitleEl = document.getElementById('modal-stream-subtitle');
@@ -7784,38 +7783,6 @@ function updateEventStreamModalContent() {
       matchupContainer.innerHTML = '<div style="color:var(--text-muted); padding:1rem; text-align:center;">No active broadcasts linked for this event.</div>';
     }
     return;
-  }
-
-  // Build table switcher options: include all configured streams + tables from current/selected round
-  if (select) {
-    const optionTables = new Map();
-    eventLiveStreams.forEach(s => {
-      const t = Number(s.tableNumber);
-      const isMain = t === 0;
-      const lbl = isMain ? 'Main Desk / All Tables' : `Table ${t}`;
-      optionTables.set(t, `${lbl}: ${s.channel} (${s.platform === 'twitch' ? 'Twitch' : 'YouTube'})`);
-    });
-    if (!optionTables.has(tableNum)) {
-      const isMain = tableNum === 0;
-      const lbl = isMain ? 'Main Desk / All Tables' : `Table ${tableNum} (Caster Desk)`;
-      optionTables.set(tableNum, `${lbl}: ${activeStream?.channel || 'Live'}`);
-    }
-    // Also add active round tables so viewers/casters can switch to any table
-    const roundMatchesForSelect = matches.filter(m => Number(m.round) === Number(curRound));
-    roundMatchesForSelect.slice(0, 25).forEach(m => {
-      const t = Number(m.table_number || m.table);
-      if (t && !optionTables.has(t)) {
-        const p1Short = (m.player1_name || 'P1').split(' ')[0];
-        const p2Short = (m.player2_name || 'P2').split(' ')[0];
-        optionTables.set(t, `Table ${t}: ${p1Short} vs ${p2Short} (R${curRound})`);
-      }
-    });
-
-    select.innerHTML = Array.from(optionTables.entries()).map(([tVal, labelText]) => `
-      <option value="${tVal}" ${Number(tVal) === Number(tableNum) ? 'selected' : ''}>
-        ${escapeHtml(labelText)}
-      </option>
-    `).join('');
   }
 
   if (iframe && activeStream) {
