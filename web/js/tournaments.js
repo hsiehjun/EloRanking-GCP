@@ -8593,7 +8593,7 @@ function buildCasterPastH2hCardHtml(pastMatches, p1Pid, p2Pid, p1Name, p2Name, i
   }).join('');
 
   return `
-    <div style="background: rgba(15, 23, 42, 0.72); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 0.95rem 1.1rem;">
+    <div class="caster-table-section-card" style="background: rgba(15, 23, 42, 0.72); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 0.95rem 1.1rem;">
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: ${cardsHtml ? '0.7rem' : '0.45rem'}; flex-wrap: wrap;">
         <h4 style="margin: 0; font-size: 0.92rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
           <span>📜 Past Head-to-Head Encounters</span>
@@ -8763,7 +8763,7 @@ function buildCasterFaction3MoMatchupCardHtml(fac1Raw, fac2Raw, matches, sys = '
   }
 
   return `
-    <div style="background: rgba(15, 23, 42, 0.72); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 0.95rem 1.1rem;">
+    <div class="caster-table-section-card" style="background: rgba(15, 23, 42, 0.72); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 0.95rem 1.1rem;">
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.7rem; flex-wrap: wrap;">
         <div>
           <h4 style="margin: 0; font-size: 0.92rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
@@ -8781,9 +8781,9 @@ function buildCasterFaction3MoMatchupCardHtml(fac1Raw, fac2Raw, matches, sys = '
       ${(!isMirror && activeTotal > 0) ? `
         <!-- Head-to-Head Faction Tug-of-War Box -->
         <div style="background: rgba(9, 14, 26, 0.78); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 0.75rem 0.9rem; margin-bottom: 0.65rem;">
-          <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+          <div class="caster-factions-tug-grid" style="display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
             <!-- Faction 1 -->
-            <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+            <div class="caster-factions-tug-f1" style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
               <div style="font-size: 0.8rem; font-weight: 800; color: #38bdf8; overflow-wrap: break-word;">
                 🛡️ ${escapeHtml(fac1)}
               </div>
@@ -8793,12 +8793,12 @@ function buildCasterFaction3MoMatchupCardHtml(fac1Raw, fac2Raw, matches, sys = '
             </div>
 
             <!-- Center Sample Pill -->
-            <div style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.22rem 0.55rem; font-family: var(--font-mono); font-size: 0.7rem; font-weight: 800; color: #cbd5e1; text-align: center; white-space: nowrap;">
+            <div class="caster-factions-tug-sample" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 0.22rem 0.55rem; font-family: var(--font-mono); font-size: 0.7rem; font-weight: 800; color: #cbd5e1; text-align: center; white-space: nowrap;">
               ${activeTotal} ${activeTotal === 1 ? 'Game' : 'Games'} (${useGlobalH2h ? 'Past 3 Mo' : 'This Event'})
             </div>
 
             <!-- Faction 2 -->
-            <div style="display: flex; flex-direction: column; align-items: flex-end; text-align: right; gap: 2px; min-width: 0;">
+            <div class="caster-factions-tug-f2" style="display: flex; flex-direction: column; align-items: flex-end; text-align: right; gap: 2px; min-width: 0;">
               <div style="font-size: 0.8rem; font-weight: 800; color: #f43f5e; overflow-wrap: break-word;">
                 🛡️ ${escapeHtml(fac2)}
               </div>
@@ -9772,15 +9772,19 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
         else resPill = `<span class="badge badge-draw" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">D ${mySc}-${opSc}</span>`;
       }
       return `
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.35rem 0.5rem; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; font-size: 0.75rem;">
+        <div class="caster-path-row" style="display: flex; align-items: center; justify-content: space-between; gap: 0.45rem; padding: 0.4rem 0.55rem; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; font-size: 0.75rem;">
           <div style="display: flex; align-items: center; gap: 0.4rem; min-width: 0; flex: 1;">
-            <span style="font-family: var(--font-mono); font-weight: 800; color: ${rMeta.isShadowRound || rMeta.isTopCut ? rMeta.badgeColor : '#94a3b8'}; min-width: 28px;" title="${escapeHtml(rMeta.fullLabel)}">R${rNum}${rMeta.isShadowRound ? '🌑' : (rMeta.isTopCut ? '🏆' : '')}</span>
+            <span style="font-family: var(--font-mono); font-weight: 800; color: ${rMeta.isShadowRound || rMeta.isTopCut ? rMeta.badgeColor : '#94a3b8'}; min-width: 28px; flex-shrink: 0;" title="${escapeHtml(rMeta.fullLabel)}">R${rNum}${rMeta.isShadowRound ? '🌑' : (rMeta.isTopCut ? '🏆' : '')}</span>
             ${resPill}
-            <span style="color: var(--text-muted); font-size: 0.7rem;">vs</span>
-            ${(!m.is_bye && opName !== 'BYE') ? `
-              <span class="player-link" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(safeOpPid)}', '${escapeHtml(safeOpName)}')" style="font-weight: 700; color: #e2e8f0; cursor: pointer; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="View ${escapeHtml(opName)} Quick Profile">${escapeHtml(opName)}</span>
-            ` : `<span style="color: var(--text-muted);">BYE</span>`}
-            ${opFac ? `<span style="color: var(--text-muted); font-size: 0.68rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">(${escapeHtml(opFac)})</span>` : ''}
+            <div style="min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px;">
+              <div style="display: flex; align-items: center; gap: 0.3rem; min-width: 0;">
+                <span style="color: var(--text-muted); font-size: 0.68rem; flex-shrink: 0;">vs</span>
+                ${(!m.is_bye && opName !== 'BYE') ? `
+                  <span class="player-link" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(safeOpPid)}', '${escapeHtml(safeOpName)}')" style="font-weight: 700; color: #e2e8f0; cursor: pointer; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="View ${escapeHtml(opName)} Quick Profile">${escapeHtml(opName)}</span>
+                ` : `<span style="color: var(--text-muted);">BYE</span>`}
+              </div>
+              ${opFac ? `<div style="color: var(--text-muted); font-size: 0.66rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">🛡️ ${escapeHtml(opFac)}</div>` : ''}
+            </div>
           </div>
           <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openScorecardModal('${escapeHtml(mId)}')" style="font-size: 0.68rem; padding: 2px 6px; border-radius: 4px; color: #38bdf8; border-color: rgba(56,189,248,0.3); background: rgba(56,189,248,0.06); cursor: pointer; flex-shrink: 0;" title="View Round ${rNum} Table ${tNum} Game Scorecard">
             📄 Scorecard
@@ -9790,10 +9794,10 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
     }).join('');
 
     return `
-      <div style="background: rgba(15, 23, 42, 0.78); border: 1px solid ${borderAccent}; border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0;">
+      <div class="caster-dossier-player-card" style="background: rgba(15, 23, 42, 0.78); border: 1px solid ${borderAccent}; border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0;">
         <!-- Dossier Header -->
         <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem; flex-wrap: wrap;">
-          <div>
+          <div style="min-width: 0; flex: 1;">
             <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
               <span class="player-link" onclick="openPlayerModal('${escapeHtml(safePid)}', '${escapeHtml(safeName)}')" style="font-size: 1.05rem; font-weight: 800; color: #fff; cursor: pointer; text-decoration: underline; text-decoration-color: ${accentColor}; text-underline-offset: 3px;" title="Click to open ${escapeHtml(pname)}'s Quick Profile">
                 👤 ${escapeHtml(pname)}
@@ -9828,7 +9832,7 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
             </span>
             <span style="font-size: 0.7rem; font-family: var(--font-mono); color: #4ade80;">Win Stakes: +${gainOnWin} Elo</span>
           </div>
-          <div style="display: flex; flex-direction: column; gap: 0.3rem; max-height: 210px; overflow-y: auto;">
+          <div style="display: flex; flex-direction: column; gap: 0.3rem; max-height: 220px; overflow-y: auto;">
             ${pathRowsHtml || '<div style="font-size:0.75rem; color:var(--text-muted);">No matches recorded yet.</div>'}
           </div>
         </div>
@@ -9837,60 +9841,45 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
   };
 
   return `
-    <div style="display: flex; flex-direction: column; gap: 1rem;">
+    <div class="caster-table-details-stack" style="display: flex; flex-direction: column; gap: 1rem;">
       <!-- TALE OF THE TAPE FIGHTER CARD -->
-      <div style="background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(168, 85, 247, 0.38); border-radius: 12px; padding: 1.2rem; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
-          <div style="font-size: 0.95rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+      <div class="caster-table-section-card" style="background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(168, 85, 247, 0.38); border-radius: 12px; padding: 1.2rem; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem; gap: 0.5rem;">
+          <div style="font-size: 0.95rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; min-width: 0; flex: 1;">
             <span>⚔️ Table ${activeTableNum} Headline Clash</span>
-            <span class="badge" style="background: ${curRoundMeta.badgeBg}; color: ${curRoundMeta.badgeColor}; border: 1px solid ${curRoundMeta.badgeBorder}; font-size: 0.72rem; padding: 2px 8px;">
+            <span class="badge" style="background: ${curRoundMeta.badgeBg}; color: ${curRoundMeta.badgeColor}; border: 1px solid ${curRoundMeta.badgeBorder}; font-size: 0.7rem; padding: 2px 8px;">
               ${escapeHtml(curRoundMeta.badgeText)}
             </span>
           </div>
-          <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-            ${canTo && matchIdx !== null && matchIdx !== undefined && matchIdx >= 0 ? `
-              <button type="button" onclick="closeCasterDeskTableModal(); openToHubTableCommsModal(${matchIdx}, 'table');" class="btn-sm btn-outline" style="font-size: 0.75rem; padding: 4px 10px; border-color: rgba(245, 158, 11, 0.5); color: #fbbf24; background: rgba(245, 158, 11, 0.14); cursor: pointer; font-weight: 700;">
-                📢 Contact Table
-              </button>
-            ` : ''}
-            <button type="button" onclick="openScorecardModal('${escapeHtml(activeMatchId)}')" class="btn-sm btn-outline" style="font-size: 0.75rem; padding: 4px 10px; border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; background: rgba(56, 189, 248, 0.1); cursor: pointer; font-weight: 700;">
-              📄 Game Scorecard
+          ${isModal ? `
+            <button type="button" onclick="closeCasterDeskTableModal()" title="Close Table Details" style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.16); color:#f8fafc; border-radius:8px; width:30px; height:30px; cursor:pointer; font-size:0.9rem; line-height:1; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;">
+              ✕
             </button>
-            ${isCC ? `
-              <button type="button" onclick="copyObsOverlayUrl('lower_third', this)" class="btn-sm btn-outline" style="font-size: 0.75rem; padding: 4px 10px; border-color: rgba(168, 85, 247, 0.4); color: #c084fc; cursor: pointer;">
-                📺 Copy OBS Lower-Third
-              </button>
-            ` : ''}
-            ${isModal ? `
-              <button type="button" onclick="closeCasterDeskTableModal()" title="Close Table Details" style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.16); color:#f8fafc; border-radius:8px; width:30px; height:30px; cursor:pointer; font-size:0.9rem; line-height:1; display:inline-flex; align-items:center; justify-content:center;">
-                ✕
-              </button>
-            ` : ''}
-          </div>
+          ` : ''}
         </div>
 
         <div class="tale-of-tape-grid">
           <!-- Player 1 Card (Blue/Cyan) -->
           <div class="fighter-card p1">
-            <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div class="fighter-top-row">
               <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 0.72rem; font-weight: 700;">PLAYER 1</span>
               <span style="font-family: var(--font-mono); font-size: 0.85rem; font-weight: 800; color: #38bdf8;">${p1Elo.toFixed(1)} Elo</span>
             </div>
-            <div style="font-size: 1.2rem; font-weight: 800; color: #fff;">
+            <div class="fighter-name">
               <span class="player-link" onclick="openPlayerModal('${escapeHtml(p1SafePid)}', '${escapeHtml(p1SafeName)}')" style="cursor: pointer; color: #fff; text-decoration: underline; text-decoration-color: rgba(56,189,248,0.6); text-underline-offset: 3px;" title="Click to view ${escapeHtml(p1Name)}'s Quick Profile">
                 ${escapeHtml(p1Name)}
               </span>
             </div>
-            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+            <div class="fighter-badges">
               <span class="badge" style="background: rgba(255,255,255,0.06); color: #e2e8f0; font-size: 0.74rem;">🛡️ ${escapeHtml(p1?.faction || 'Faction')}</span>
               <span class="badge" style="background: rgba(56,189,248,0.1); color: #7dd3fc; font-size: 0.74rem;">${escapeHtml(p1?.detachment || 'Standard Detachment')}</span>
               ${p1?.team ? `<span class="badge" style="background: rgba(255,255,255,0.04); color: var(--text-muted); font-size: 0.72rem;">👥 ${escapeHtml(p1.team)}</span>` : ''}
             </div>
-            <div style="background: rgba(0,0,0,0.25); border-radius: 6px; padding: 0.5rem 0.65rem; font-size: 0.78rem; display: flex; flex-direction: column; gap: 0.25rem;">
+            <div class="fighter-stats-box">
               <div><strong>Event Record:</strong> ${p1?.event_wins || 0}W - ${p1?.event_losses || 0}L (${p1?.event_battle_points || 0} pts)</div>
               <div id="caster-fighter-units-row-p1" style="display: ${p1Units.length > 0 ? 'block' : 'none'};"><strong>Core Units:</strong> <span id="caster-fighter-units-p1">${escapeHtml(p1Units.slice(0, 4).join(', '))}</span></div>
             </div>
-            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.25rem;">
+            <div class="fighter-actions">
               <button type="button" class="btn-xs btn-outline" onclick="openPlayerModal('${escapeHtml(p1SafePid)}', '${escapeHtml(p1SafeName)}')" style="font-size: 0.72rem; padding: 3px 9px; border-radius: 5px; color: #38bdf8; border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.08); cursor: pointer; font-weight: 700;">
                 👤 Quick Profile
               </button>
@@ -9902,58 +9891,60 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
 
           <!-- Center Win Prob Meter -->
           <div class="win-prob-container">
-            <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Win Probability</div>
-            <div style="display: flex; justify-content: space-between; width: 100%; font-family: var(--font-mono); font-weight: 800; font-size: 1.15rem;">
-              <span style="color: #38bdf8;">${p1WinProb}%</span>
-              <span style="color: #f43f5e;">${p2WinProb}%</span>
+            <div class="win-prob-header-row">
+              <span class="win-prob-pct p1" style="color: #38bdf8;">${p1WinProb}%</span>
+              <span class="win-prob-label">Win Probability</span>
+              <span class="win-prob-pct p2" style="color: #f43f5e;">${p2WinProb}%</span>
             </div>
             <div class="win-prob-track">
               <div class="win-prob-fill-p1" style="width: ${p1WinProb}%;"></div>
             </div>
-            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;">
-              ${Math.abs(p1Elo - p2Elo).toFixed(1)} Elo Delta
+            <div class="win-prob-footer-row">
+              <span style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">
+                ${Math.abs(p1Elo - p2Elo).toFixed(1)} Elo Delta
+              </span>
+              <button type="button" class="btn-xs btn-outline" onclick="openScorecardModal('${escapeHtml(activeMatchId)}')" style="font-size: 0.71rem; padding: 3px 9px; border-radius: 5px; color: #fbbf24; border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.1); cursor: pointer; font-weight: 700;">
+                📄 View Scorecard
+              </button>
             </div>
-            <button type="button" class="btn-xs btn-outline" onclick="openScorecardModal('${escapeHtml(activeMatchId)}')" style="margin-top: 0.45rem; font-size: 0.71rem; padding: 3px 9px; border-radius: 5px; color: #fbbf24; border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.1); cursor: pointer; font-weight: 700;">
-              📄 View Scorecard
-            </button>
           </div>
 
           <!-- Player 2 Card (Pink/Red) -->
           <div class="fighter-card p2">
-            <div style="display: flex; align-items: center; justify-content: space-between;">
-              <span style="font-family: var(--font-mono); font-size: 0.85rem; font-weight: 800; color: #f43f5e;">${p2Elo.toFixed(1)} Elo</span>
+            <div class="fighter-top-row">
               <span class="badge" style="background: rgba(244, 63, 94, 0.15); color: #f43f5e; font-size: 0.72rem; font-weight: 700;">PLAYER 2</span>
+              <span style="font-family: var(--font-mono); font-size: 0.85rem; font-weight: 800; color: #f43f5e;">${p2Elo.toFixed(1)} Elo</span>
             </div>
-            <div style="font-size: 1.2rem; font-weight: 800; color: #fff; text-align: right;">
+            <div class="fighter-name">
               <span class="player-link" onclick="openPlayerModal('${escapeHtml(p2SafePid)}', '${escapeHtml(p2SafeName)}')" style="cursor: pointer; color: #fff; text-decoration: underline; text-decoration-color: rgba(244,63,94,0.6); text-underline-offset: 3px;" title="Click to view ${escapeHtml(p2Name)}'s Quick Profile">
                 ${escapeHtml(p2Name)}
               </span>
             </div>
-            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end;">
-              ${p2?.team ? `<span class="badge" style="background: rgba(255,255,255,0.04); color: var(--text-muted); font-size: 0.72rem;">👥 ${escapeHtml(p2.team)}</span>` : ''}
-              <span class="badge" style="background: rgba(244,63,94,0.1); color: #fda4af; font-size: 0.74rem;">${escapeHtml(p2?.detachment || 'Standard Detachment')}</span>
+            <div class="fighter-badges">
               <span class="badge" style="background: rgba(255,255,255,0.06); color: #e2e8f0; font-size: 0.74rem;">🛡️ ${escapeHtml(p2?.faction || 'Faction')}</span>
+              <span class="badge" style="background: rgba(244,63,94,0.1); color: #fda4af; font-size: 0.74rem;">${escapeHtml(p2?.detachment || 'Standard Detachment')}</span>
+              ${p2?.team ? `<span class="badge" style="background: rgba(255,255,255,0.04); color: var(--text-muted); font-size: 0.72rem;">👥 ${escapeHtml(p2.team)}</span>` : ''}
             </div>
-            <div style="background: rgba(0,0,0,0.25); border-radius: 6px; padding: 0.5rem 0.65rem; font-size: 0.78rem; display: flex; flex-direction: column; gap: 0.25rem;">
-              <div style="text-align: right;"><strong>Event Record:</strong> ${p2?.event_wins || 0}W - ${p2?.event_losses || 0}L (${p2?.event_battle_points || 0} pts)</div>
-              <div id="caster-fighter-units-row-p2" style="text-align: right; display: ${p2Units.length > 0 ? 'block' : 'none'};"><strong>Core Units:</strong> <span id="caster-fighter-units-p2">${escapeHtml(p2Units.slice(0, 4).join(', '))}</span></div>
+            <div class="fighter-stats-box">
+              <div><strong>Event Record:</strong> ${p2?.event_wins || 0}W - ${p2?.event_losses || 0}L (${p2?.event_battle_points || 0} pts)</div>
+              <div id="caster-fighter-units-row-p2" style="display: ${p2Units.length > 0 ? 'block' : 'none'};"><strong>Core Units:</strong> <span id="caster-fighter-units-p2">${escapeHtml(p2Units.slice(0, 4).join(', '))}</span></div>
             </div>
-            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; margin-top: 0.25rem;">
-              <button type="button" class="btn-xs btn-outline" onclick="openEventPlayerListModal('${escapeHtml(p2SafePid || p2SafeName)}', '${escapeHtml(p2SafeListId)}')" style="font-size: 0.72rem; padding: 3px 9px; border-radius: 5px; color: #e2e8f0; border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.06); cursor: pointer; font-weight: 700;">
-                📋 View Roster
-              </button>
+            <div class="fighter-actions">
               <button type="button" class="btn-xs btn-outline" onclick="openPlayerModal('${escapeHtml(p2SafePid)}', '${escapeHtml(p2SafeName)}')" style="font-size: 0.72rem; padding: 3px 9px; border-radius: 5px; color: #f43f5e; border-color: rgba(244,63,94,0.35); background: rgba(244,63,94,0.08); cursor: pointer; font-weight: 700;">
                 👤 Quick Profile
+              </button>
+              <button type="button" class="btn-xs btn-outline" onclick="openEventPlayerListModal('${escapeHtml(p2SafePid || p2SafeName)}', '${escapeHtml(p2SafeListId)}')" style="font-size: 0.72rem; padding: 3px 9px; border-radius: 5px; color: #e2e8f0; border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.06); cursor: pointer; font-weight: 700;">
+                📋 View Roster
               </button>
             </div>
           </div>
         </div>
 
         <!-- Matchup Context & History Sub-strip -->
-        <div style="margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8rem; color: var(--text-secondary);">
-          <div id="caster-h2h-summary">⚔️ <strong>Past Head-to-Head:</strong> ${h2hText}</div>
-          <div id="caster-fac-matchup-summary">📊 <strong>Faction Matchup:</strong> ${facMatchupText}</div>
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div class="caster-matchup-context-strip" style="margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8rem; color: var(--text-secondary);">
+          <div id="caster-h2h-summary" class="caster-context-item">⚔️ <strong>Past Head-to-Head:</strong> ${h2hText}</div>
+          <div id="caster-fac-matchup-summary" class="caster-context-item">📊 <strong>Faction Matchup:</strong> ${facMatchupText}</div>
+          <div class="caster-context-item caster-context-score-row" style="display: flex; align-items: center; gap: 0.5rem;">
             <span>🏆 <strong>Table Score:</strong> <span style="font-family:var(--font-mono); font-weight:800; color:#fff;">${scoreDisplay}</span></span>
             <button type="button" class="btn-xs btn-outline" onclick="openScorecardModal('${escapeHtml(activeMatchId)}')" style="font-size: 0.7rem; padding: 2px 7px; border-radius: 4px; color: #38bdf8; border-color: rgba(56,189,248,0.35); cursor: pointer;">
               📄 Scorecard
@@ -9969,7 +9960,7 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
       <div id="caster-faction-3mo-container">${buildCasterFaction3MoMatchupCardHtml(fac1, fac2, matches, sysH2h, isFac3MoLoading)}</div>
 
       <!-- SIDE-BY-SIDE COMMANDER DOSSIERS: FACTION MASTERY, ROSTERS & TOURNAMENT PATH -->
-      <div style="background: rgba(15, 23, 42, 0.78); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 1.15rem;">
+      <div class="caster-table-section-card" style="background: rgba(15, 23, 42, 0.78); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 1.15rem;">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
           <div>
             <h4 style="margin: 0; font-size: 0.98rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.45rem;">
@@ -10071,7 +10062,7 @@ function openCasterDeskTableModal(tableNum, roundNum, matchIdx = null) {
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'caster-desk-table-modal';
-    modal.className = 'modal-backdrop';
+    modal.className = 'modal-backdrop caster-desk-table-modal-backdrop';
     modal.style.cssText = 'position:fixed; inset:0; background:rgba(2,6,23,0.84); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; padding:1rem; box-sizing:border-box;';
     modal.addEventListener('click', (e) => {
       if (e.target === modal) closeCasterDeskTableModal();
@@ -10080,7 +10071,7 @@ function openCasterDeskTableModal(tableNum, roundNum, matchIdx = null) {
   }
 
   modal.innerHTML = `
-    <div class="card" style="width:100%; max-width:1080px; background:linear-gradient(165deg, rgba(15,23,42,0.98), rgba(9,14,28,0.99)); border:1px solid rgba(168,85,247,0.45); border-radius:14px; padding:1.15rem 1.25rem; box-shadow:0 24px 60px rgba(0,0,0,0.8); color:#f8fafc; max-height:92vh; overflow-y:auto;">
+    <div class="card caster-desk-table-modal-card" style="width:100%; max-width:1080px; background:linear-gradient(165deg, rgba(15,23,42,0.98), rgba(9,14,28,0.99)); border:1px solid rgba(168,85,247,0.45); border-radius:14px; padding:1.15rem 1.25rem; box-shadow:0 24px 60px rgba(0,0,0,0.8); color:#f8fafc; max-height:92vh; overflow-y:auto;">
       ${buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb, curRound, maxR, true, resolvedMatchIdx)}
     </div>
   `;

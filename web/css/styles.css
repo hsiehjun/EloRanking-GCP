@@ -12856,20 +12856,21 @@ table.desktop-only,
 /* Tale of the Tape */
 .tale-of-tape-grid {
   display: grid;
-  grid-template-columns: 1fr 140px 1fr;
+  grid-template-columns: 1fr 160px 1fr;
   gap: 1rem;
-  align-items: center;
+  align-items: stretch;
 }
 
 .fighter-card {
   background: rgba(15, 23, 42, 0.65);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
-  padding: 1.15rem;
+  padding: 1.05rem;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.55rem;
   transition: border-color 0.2s ease;
+  min-width: 0;
 }
 
 .fighter-card.p1 {
@@ -12880,6 +12881,64 @@ table.desktop-only,
   border-right: 3px solid #f43f5e;
 }
 
+.fighter-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.fighter-card.p2 .fighter-top-row {
+  flex-direction: row-reverse;
+}
+
+.fighter-name {
+  font-size: 1.18rem;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.25;
+}
+
+.fighter-card.p2 .fighter-name {
+  text-align: right;
+}
+
+.fighter-badges {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.fighter-card.p2 .fighter-badges {
+  justify-content: flex-end;
+}
+
+.fighter-stats-box {
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.78rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.fighter-card.p2 .fighter-stats-box {
+  text-align: right;
+}
+
+.fighter-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: auto;
+  padding-top: 0.15rem;
+}
+
+.fighter-card.p2 .fighter-actions {
+  justify-content: flex-end;
+}
+
 .win-prob-container {
   display: flex;
   flex-direction: column;
@@ -12887,6 +12946,37 @@ table.desktop-only,
   justify-content: center;
   gap: 0.45rem;
   text-align: center;
+}
+
+.win-prob-header-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  width: 100%;
+  gap: 0.35rem;
+}
+
+.win-prob-label {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.win-prob-pct {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+
+.win-prob-footer-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
 }
 
 .win-prob-track {
@@ -12935,11 +13025,90 @@ table.desktop-only,
 @media (max-width: 900px) {
   .tale-of-tape-grid {
     grid-template-columns: 1fr;
-    gap: 0.85rem;
+    gap: 0.65rem;
   }
   .fighter-card.p2 {
     border-right: 1px solid rgba(255, 255, 255, 0.08);
     border-left: 3px solid #f43f5e;
+  }
+  .fighter-card.p2 .fighter-top-row {
+    flex-direction: row;
+  }
+  .fighter-card.p2 .fighter-name,
+  .fighter-card.p2 .fighter-stats-box {
+    text-align: left;
+  }
+  .fighter-card.p2 .fighter-badges,
+  .fighter-card.p2 .fighter-actions {
+    justify-content: flex-start;
+  }
+  .win-prob-container {
+    background: rgba(9, 14, 26, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 0.55rem 0.75rem;
+    gap: 0.35rem;
+  }
+  .win-prob-footer-row {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.1rem;
+  }
+}
+
+@media (max-width: 680px) {
+  #caster-desk-table-modal.caster-desk-table-modal-backdrop {
+    padding: 0.45rem !important;
+  }
+  .caster-desk-table-modal-card {
+    padding: 0.75rem !important;
+    border-radius: 12px !important;
+    max-height: 94vh !important;
+  }
+  .caster-table-details-stack {
+    gap: 0.75rem !important;
+  }
+  .caster-table-section-card {
+    padding: 0.8rem 0.85rem !important;
+    border-radius: 10px !important;
+  }
+  .fighter-card {
+    padding: 0.8rem 0.85rem !important;
+    gap: 0.45rem !important;
+  }
+  .fighter-name {
+    font-size: 1.05rem;
+  }
+  .caster-matchup-context-strip {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    gap: 0.4rem !important;
+    margin-top: 0.75rem !important;
+    padding-top: 0.7rem !important;
+    font-size: 0.76rem !important;
+  }
+  .caster-matchup-context-strip .caster-context-item {
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    padding: 0.38rem 0.55rem;
+  }
+  .caster-matchup-context-strip .caster-context-score-row {
+    justify-content: space-between;
+  }
+  .caster-factions-tug-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    row-gap: 0.35rem !important;
+  }
+  .caster-factions-tug-sample {
+    grid-column: 1 / -1;
+    order: 3;
+    justify-self: center;
+  }
+  .caster-dossier-player-card {
+    padding: 0.8rem !important;
   }
 }
 

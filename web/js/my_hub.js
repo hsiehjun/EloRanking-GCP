@@ -1547,11 +1547,7 @@ async function syncBcpRegisteredTournaments() {
       if (previewContainer) {
         previewContainer.outerHTML = renderNextEventOverviewPreview(tournaments, true);
       }
-      const activeSubtabCountEl = document.querySelector('#hub-subtabs-bar .profile-subtab-btn[data-tab="active"] .profile-subtab-count');
-      if (activeSubtabCountEl) {
-        const actLen = (myHubData && myHubData.active_sessions && myHubData.active_sessions.length) || 0;
-        activeSubtabCountEl.textContent = String(actLen + tournaments.length + hosted.length);
-      }
+      updateHubActiveRostersTabCount();
       if (typeof window.syncGlobalEventAnnouncementBanner === 'function') {
         window.syncGlobalEventAnnouncementBanner();
       }
@@ -2098,7 +2094,7 @@ function renderMyHub(data) {
     <div class="profile-subtabs-bar" id="hub-subtabs-bar">
       <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'active' ? 'active' : ''}" data-tab="active" onclick="switchHubSubtab('active')">
         <span>⚡ Active & Rosters</span>
-        <span class="profile-subtab-count">${(activeMatches.length || 0) + (registeredTournaments.length || 0) + ((data.hosted_tournaments && data.hosted_tournaments.length) || 0)}</span>
+        <span class="profile-subtab-count">${computeHubActiveRostersCount(data)}</span>
       </button>
       <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'journey' ? 'active' : ''}" data-tab="journey" onclick="switchHubSubtab('journey')">
         <span>🏆 <span class="tab-label-full">Tournament </span>Journey</span>
@@ -3803,12 +3799,34 @@ function resolveHubEffectiveListPoints(l) {
 }
 window.resolveHubEffectiveListPoints = resolveHubEffectiveListPoints;
 
+function computeHubActiveRostersCount(dataOverride = null, listsOverride = null) {
+  const d = dataOverride || window.currentHubData || (typeof myHubData !== 'undefined' && myHubData) || {};
+  const regTournaments = (d.registered_tournaments || []).filter(isValidRegisteredTournament);
+  const rawHosted = Array.isArray(d.hosted_tournaments) ? d.hosted_tournaments : [];
+  const hostedLen = rawHosted.filter(h => h && (h.id || h.bcp_event_id)).length;
+  const activeSys = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? 'aos' : '40k';
+  const rawLists = Array.isArray(listsOverride) ? listsOverride : (Array.isArray(hubSavedLists) ? hubSavedLists : []);
+  const rosterLen = rawLists.filter(l => resolveHubListGameSystemAndEdition(l).gameSystem === activeSys).length;
+  return (regTournaments.length || 0) + hostedLen + rosterLen;
+}
+window.computeHubActiveRostersCount = computeHubActiveRostersCount;
+
+function updateHubActiveRostersTabCount(listsOverride = null) {
+  const activeSubtabCountEl = document.querySelector('#hub-subtabs-bar .profile-subtab-btn[data-tab="active"] .profile-subtab-count');
+  if (activeSubtabCountEl) {
+    activeSubtabCountEl.textContent = String(computeHubActiveRostersCount(null, listsOverride));
+  }
+}
+window.updateHubActiveRostersTabCount = updateHubActiveRostersTabCount;
+
 function renderHubArmyLists(lists) {
+  const allLists = Array.isArray(lists) ? lists : [];
+  updateHubActiveRostersTabCount(allLists);
+
   const container = document.getElementById('hub-armylists-list-container');
   if (!container) return;
 
   const activeSys = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? 'aos' : '40k';
-  const allLists = Array.isArray(lists) ? lists : [];
   const filteredLists = allLists.filter(l => resolveHubListGameSystemAndEdition(l).gameSystem === activeSys);
   const otherSysCount = allLists.length - filteredLists.length;
 
