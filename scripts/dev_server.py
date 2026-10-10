@@ -68,7 +68,14 @@ EVENT_LIVESTREAMS_DB = {
     ]
 }
 
-DEV_EVENT_CACHE = {}
+DEV_EVENT_CACHE_PATH = Path("/tmp/omnitactica_dev_event_cache.json")
+try:
+    if DEV_EVENT_CACHE_PATH.exists():
+        DEV_EVENT_CACHE = json.loads(DEV_EVENT_CACHE_PATH.read_text(encoding="utf-8"))
+    else:
+        DEV_EVENT_CACHE = {}
+except Exception:
+    DEV_EVENT_CACHE = {}
 
 DEV_USERS_LIST = [
     {
@@ -4632,8 +4639,13 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 try:
                     from scraper import BestCoastPairingsScraper
                     from routers.leaderboard import format_bcp_roster_to_players
+                    from concurrent.futures import ThreadPoolExecutor
                     scraper = BestCoastPairingsScraper(request_delay=0.0)
-                    b_json = scraper.fetch_event_details(ev_param)
+                    with ThreadPoolExecutor(max_workers=2) as init_ex:
+                        f_ev = init_ex.submit(scraper.fetch_event_details, ev_param)
+                        f_pl = init_ex.submit(scraper.fetch_event_players, ev_param)
+                        b_json = f_ev.result()
+                        raw_bcp_players = f_pl.result() or []
                     if b_json and isinstance(b_json, dict):
                         loc = b_json.get("location") if isinstance(b_json.get("location"), dict) else {}
                         tot_p = int(b_json.get("totalPlayers") or len(b_json.get("players") or []) or 0)
@@ -4659,7 +4671,6 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             elif raw_start_str and raw_start_str[:10] < (now_utc - timedelta(hours=36)).strftime("%Y-%m-%d"):
                                 computed_ended = True
 
-                        raw_bcp_players = scraper.fetch_event_players(ev_param) or []
                         formatted_players = format_bcp_roster_to_players(raw_bcp_players, [], db=None, game_system="40k", is_ended=computed_ended) if raw_bcp_players else []
                         if formatted_players:
                             tot_p = len(formatted_players)
@@ -4679,8 +4690,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         )
                         max_r = max(1, cur_rd, max_player_games, resolved_rds if computed_ended else 0)
                         live_matches = []
-                        for r in range(1, max_r + 1):
-                            raw_pairings = scraper.fetch_event_pairings_for_round(ev_param, r)
+                        def _fetch_rd_pairs(r_num):
+                            return r_num, (scraper.fetch_event_pairings_for_round(ev_param, r_num) or [])
+                        with ThreadPoolExecutor(max_workers=min(10, max_r)) as ex:
+                            rd_results = list(ex.map(_fetch_rd_pairs, range(1, max_r + 1)))
+                        for r, raw_pairings in rd_results:
                             for idx, p in enumerate(raw_pairings or []):
                                 if not isinstance(p, dict):
                                     continue
@@ -4785,6 +4799,15 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                                     "pod_num": p.get("podNum"),
                                 })
 
+                        v_name = b_json.get("locationName") or b_json.get("venueName") or loc.get("venueName") or loc.get("name") or ""
+                        s_num = str(b_json.get("streetNum") or loc.get("streetNum") or "").strip()
+                        s_name = str(b_json.get("streetName") or loc.get("streetName") or "").strip()
+                        s_addr = f"{s_num} {s_name}".strip() if (s_num or s_name) else str(loc.get("address") or "").strip()
+                        f_addr = str(b_json.get("formatted_address") or b_json.get("formattedAddress") or b_json.get("address") or loc.get("formatted_address") or s_addr or "").strip()
+                        cp_obj = b_json.get("coordinate_point")
+                        coords = b_json.get("coordinate") or loc.get("coordinate") or (cp_obj.get("coordinates") if isinstance(cp_obj, dict) else None)
+                        ev_lng = float(coords[0]) if isinstance(coords, (list, tuple)) and len(coords) >= 2 else None
+                        ev_lat = float(coords[1]) if isinstance(coords, (list, tuple)) and len(coords) >= 2 else None
                         res = {
                             "id": ev_param,
                             "name": ev_name,
@@ -4793,7 +4816,14 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             "city": b_json.get("city") or loc.get("city") or "",
                             "state": b_json.get("state") or loc.get("state") or "",
                             "country": b_json.get("country") or loc.get("country") or "United States",
-                            "venue": b_json.get("venueName") or loc.get("venueName") or loc.get("name") or "",
+                            "venue": v_name,
+                            "venue_name": v_name,
+                            "address": f_addr,
+                            "formatted_address": f_addr,
+                            "street_address": s_addr,
+                            "postal_code": str(b_json.get("zip") or b_json.get("postalCode") or loc.get("zip") or loc.get("postalCode") or "").strip(),
+                            "latitude": ev_lat,
+                            "longitude": ev_lng,
                             "total_players": tot_p,
                             "num_rounds": resolved_rds or max_r,
                             "numberOfRounds": resolved_rds or max_r,
@@ -4810,6 +4840,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             "team_standings": []
                         }
                         DEV_EVENT_CACHE[ev_param] = res
+                        try:
+                            DEV_EVENT_CACHE_PATH.write_text(json.dumps(DEV_EVENT_CACHE), encoding="utf-8")
+                        except Exception:
+                            pass
                         self.send_response(200)
                         self.send_header("Content-Type", "application/json; charset=utf-8")
                         self.end_headers()

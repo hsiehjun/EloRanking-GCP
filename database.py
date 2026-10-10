@@ -4243,7 +4243,8 @@ class PostgresDatabase:
                                    'rounds', raw_json->'rounds',
                                    'roundTimers', COALESCE(raw_json->'roundTimers', '{}'::jsonb),
                                    'defaultRoundLength', raw_json->'defaultRoundLength',
-                                   'points', raw_json->'points',
+                                   'points', raw_json->'points'
+                               ) || jsonb_build_object(
                                    'pointsValue', raw_json->'pointsValue',
                                    'ownerId', raw_json->'ownerId',
                                    'owner_Id', raw_json->'owner_Id',
@@ -14155,25 +14156,9 @@ class PostgresDatabase:
                     WITH events_filtered AS (
                         SELECT 
                             e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
-                            COALESCE(
-                                NULLIF(TRIM(e.venue_name), ''),
-                                NULLIF(TRIM(e.venue), ''),
-                                NULLIF(TRIM(e.raw_json->>'locationName'), ''),
-                                NULLIF(TRIM(e.raw_json->>'venueName'), ''),
-                                NULLIF(TRIM(e.raw_json->'location'->>'name'), '')
-                            ) as venue,
-                            COALESCE(
-                                NULLIF(TRIM(e.address), ''),
-                                NULLIF(TRIM(e.raw_json->>'formatted_address'), ''),
-                                NULLIF(TRIM(e.raw_json->>'formattedAddress'), ''),
-                                NULLIF(TRIM(e.raw_json->'location'->>'address'), ''),
-                                NULLIF(TRIM(CONCAT_WS(' ', e.raw_json->>'streetNum', e.raw_json->>'streetName')), '')
-                            ) as address,
-                            COALESCE(
-                                NULLIF(TRIM(e.postal_code), ''),
-                                NULLIF(TRIM(e.raw_json->>'zip'), ''),
-                                NULLIF(TRIM(e.raw_json->>'postalCode'), '')
-                            ) as postal_code,
+                            COALESCE(NULLIF(TRIM(e.venue_name), ''), NULLIF(TRIM(e.venue), ''), e.city) as venue,
+                            NULLIF(TRIM(e.address), '') as address,
+                            NULLIF(TRIM(e.postal_code), '') as postal_code,
                             e.total_players, e.num_rounds, e.current_round, e.is_ended, e.circuits,
                             CASE WHEN e.event_date >= CURRENT_DATE - INTERVAL '1 day' THEN e.raw_json ELSE NULL END AS raw_json, -- e.raw_json,
                             COALESCE(

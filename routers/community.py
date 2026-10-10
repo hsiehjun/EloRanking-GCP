@@ -472,7 +472,8 @@ def _refresh_bcp_majors_sync(target_sys: str, days_ahead: int = 180, min_players
         lat_val = ev.get("latitude")
         lng_val = ev.get("longitude")
         if lat_val is None or lng_val is None:
-            coords = ev.get("coordinate") or loc.get("coordinate") or (ev.get("coordinate_point") or {}).get("coordinates")
+            cp_obj = ev.get("coordinate_point")
+            coords = ev.get("coordinate") or loc.get("coordinate") or (cp_obj.get("coordinates") if isinstance(cp_obj, dict) else None)
             if isinstance(coords, (list, tuple)) and len(coords) >= 2:
                 try:
                     lng_val = float(coords[0])

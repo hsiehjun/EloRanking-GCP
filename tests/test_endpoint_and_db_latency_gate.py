@@ -186,6 +186,40 @@ class TestEndpointAndDbLatencyGate(unittest.TestCase):
         self.assertIn("GET /api/health", api_names)
         self.assertIn("PostgresDatabase.get_summary_stats", db_names)
 
+    def test_postgres_jsonb_build_object_arg_limit_and_event_details_resilience(self):
+        """Ensure no jsonb_build_object() call exceeds PostgreSQL's 100-argument limit and event details stays <1s."""
+        import re
+        db_src = (ROOT_DIR / "database.py").read_text(encoding="utf-8")
+        for m in re.finditer(r"jsonb_build_object\s*\(", db_src):
+            start = m.end()
+            depth = 1
+            i = start
+            in_str = False
+            commas = 0
+            while i < len(db_src) and depth > 0:
+                ch = db_src[i]
+                if ch == "'":
+                    in_str = not in_str
+                elif not in_str:
+                    if ch == "(":
+                        depth += 1
+                    elif ch == ")":
+                        depth -= 1
+                    elif ch == "," and depth == 1:
+                        commas += 1
+                i += 1
+            arg_count = (commas + 1) if commas > 0 else 0
+            line_no = db_src[: m.start()].count("\n") + 1
+            self.assertLessEqual(
+                arg_count,
+                80,
+                f"database.py:{line_no} jsonb_build_object has {arg_count} args (PostgreSQL limit is 100)",
+            )
+
+        lb_src = (ROOT_DIR / "routers" / "leaderboard.py").read_text(encoding="utf-8")
+        self.assertIn("get_event_details DB lookup warning", lb_src)
+        self.assertIn("t_enrich.join(timeout=0.38)", lb_src)
+
 
 if __name__ == "__main__":
     unittest.main()

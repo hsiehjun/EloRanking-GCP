@@ -1533,12 +1533,19 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
             return entry["data"]
 
     # Check existing data in DB
-    event_details = db.get_event_details(event_id_str)
+    try:
+        event_details = db.get_event_details(event_id_str)
+    except Exception as db_ev_err:
+        logger.warning(f"get_event_details DB lookup warning for {event_id_str}: {db_ev_err}")
+        event_details = None
     is_native_studio = event_id_str.startswith("ES-")
     if not event_details and is_native_studio:
-        studio_ev = db.get_studio_event(event_id_str)
-        if studio_ev:
-            event_details = studio_ev
+        try:
+            studio_ev = db.get_studio_event(event_id_str)
+            if studio_ev:
+                event_details = studio_ev
+        except Exception as studio_err:
+            logger.warning(f"get_studio_event lookup warning for {event_id_str}: {studio_err}")
 
     if is_native_studio:
         if not event_details:
@@ -1986,7 +1993,7 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
 
             t_enrich = threading.Thread(target=_bg_fetch_bcp_for_completed, daemon=True)
             t_enrich.start()
-            t_enrich.join(timeout=0.68)
+            t_enrich.join(timeout=0.38)
             if holder["done"]:
                 res_obj = holder["res"]
                 if isinstance(res_obj, dict) and res_obj.get("raw_players"):
@@ -2176,7 +2183,8 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
         if _postal:
             event_details["postal_code"] = _postal
         if event_details.get("latitude") is None or event_details.get("longitude") is None:
-            _coords = raw_ev.get("coordinate") or loc.get("coordinate") or (raw_ev.get("coordinate_point") or {}).get("coordinates")
+            _cp = raw_ev.get("coordinate_point")
+            _coords = raw_ev.get("coordinate") or loc.get("coordinate") or (_cp.get("coordinates") if isinstance(_cp, dict) else None)
             if isinstance(_coords, (list, tuple)) and len(_coords) >= 2:
                 try:
                     event_details["longitude"] = float(_coords[0])

@@ -250,7 +250,7 @@ function extractEventLocationDetails(ev) {
   });
   const cityStateCountry = cscParts.join(', ');
 
-  let formattedAddress = rawFormatted;
+  let formattedAddress = rawFormatted.replace(/\b(\d{5}(?:-\d{4})?)\s+\1\b/g, '$1');
   if (!formattedAddress) {
     formattedAddress = [streetAddress, city, state ? `${state} ${postalCode}`.trim() : postalCode, country].filter(Boolean).join(', ');
   } else if (country) {
@@ -2933,6 +2933,7 @@ function renderEventPairingsRows(roundArg) {
   if (!eventMatchesCache || eventMatchesCache.length === 0) {
     if (roundsContainer) {
       roundsContainer.innerHTML = '';
+      roundsContainer.style.display = 'none';
       delete roundsContainer.dataset.renderedKey;
     }
     const emptyHtml = `
@@ -2976,6 +2977,7 @@ function renderEventPairingsRows(roundArg) {
   const maxR = distinctRounds.length > 0 ? Math.max(...distinctRounds) : 1;
 
   if (roundsContainer) {
+    roundsContainer.style.display = 'flex';
     const roundsRenderKey = `${eventId}:${eventMatchesCache.length}:${selectedEventRound}`;
     if (roundsContainer.dataset.renderedKey !== roundsRenderKey) {
       let pillsHtml = '';
@@ -6526,29 +6528,7 @@ function renderEventMetaAndHighlights(ev) {
       </div>
     </div>
 
-    <!-- 2. Tournament Faction Breakdown & Performance Table -->
-    <div class="card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border); border-radius: 10px; padding: 1.15rem; margin-bottom: 1.25rem;">
-      <h4 style="margin: 0 0 0.9rem 0; font-size: 1rem; font-weight: 700; color: #fff;">📊 Tournament Faction Breakdown & Performance</h4>
-      <div class="table-container">
-        <table id="event-factions-table">
-          <thead>
-            <tr>
-              <th class="${facThClass('faction')}" onclick="sortTable('event-factions', 'faction')">Faction</th>
-              <th class="${facThClass('count')}" onclick="sortTable('event-factions', 'count')">Representation</th>
-              <th class="${facThClass('wins')}" onclick="sortTable('event-factions', 'wins')">Record (W-L-D)</th>
-              <th class="${facThClass('win_rate')}" onclick="sortTable('event-factions', 'win_rate')">Win Rate</th>
-              <th class="${facThClass('avg_net_elo')}" onclick="sortTable('event-factions', 'avg_net_elo')">Avg Net Elo Δ</th>
-              <th class="${facThClass('best_rank')}" onclick="sortTable('event-factions', 'best_rank')">Best Finish</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${facRowsHtml}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- 3. Deep Meta: Spiciness Index + Interactive Detachment & Force Disposition Power Grid -->
+    <!-- 2. Deep Meta: Spiciness Index + Interactive Detachment & Force Disposition Power Grid -->
     <div style="display:flex; flex-direction:column; gap:1.25rem;">
       ${deepMetaHtml}
     </div>
@@ -10966,11 +10946,13 @@ function renderStorylinesMode(ev, players, matches) {
 }
 
 var powerGridState = {
-  groupBy: 'disposition', // 'disposition' | 'faction' | 'combo'
+  groupBy: 'combo', // 'combo' | 'faction' | 'disposition'
   dispositionFilter: 'All',
   factionFilter: 'All',
   minReps: 1,
-  sortBy: 'win_rate_desc', // 'win_rate_desc' | 'win_rate_asc' | 'reps_desc' | 'wins_desc' | 'avg_pts_desc'
+  sortField: 'win_rate', // 'faction' | 'disposition' | 'reps' | 'wins' | 'win_rate' | 'avg_pts' | 'top_pilot'
+  sortDir: 'desc', // 'asc' | 'desc'
+  sortBy: 'win_rate_desc',
   search: '',
   expandedKeys: new Set(),
   expandAll: false
@@ -11354,10 +11336,40 @@ function updatePowerGridControl(key, value) {
     powerGridState.dispositionFilter = value;
   } else if (key === 'factionFilter') {
     powerGridState.factionFilter = value;
-  } else if (key === 'minReps') {
-    powerGridState.minReps = Number(value) || 1;
+  } else if (key === 'sortCol') {
+    const col = String(value || 'win_rate');
+    if (powerGridState.sortField === col) {
+      powerGridState.sortDir = powerGridState.sortDir === 'desc' ? 'asc' : 'desc';
+    } else {
+      powerGridState.sortField = col;
+      const isTextCol = (col === 'faction' || col === 'disposition' || col === 'top_pilot');
+      powerGridState.sortDir = isTextCol ? 'asc' : 'desc';
+    }
+    powerGridState.sortBy = `${powerGridState.sortField}_${powerGridState.sortDir}`;
   } else if (key === 'sortBy') {
     powerGridState.sortBy = value;
+    if (value === 'win_rate_asc') {
+      powerGridState.sortField = 'win_rate';
+      powerGridState.sortDir = 'asc';
+    } else if (value === 'reps_desc') {
+      powerGridState.sortField = 'reps';
+      powerGridState.sortDir = 'desc';
+    } else if (value === 'wins_desc') {
+      powerGridState.sortField = 'wins';
+      powerGridState.sortDir = 'desc';
+    } else if (value === 'avg_pts_desc') {
+      powerGridState.sortField = 'avg_pts';
+      powerGridState.sortDir = 'desc';
+    } else if (value === 'faction_asc') {
+      powerGridState.sortField = 'faction';
+      powerGridState.sortDir = 'asc';
+    } else if (value === 'disposition_asc') {
+      powerGridState.sortField = 'disposition';
+      powerGridState.sortDir = 'asc';
+    } else {
+      powerGridState.sortField = 'win_rate';
+      powerGridState.sortDir = 'desc';
+    }
   } else if (key === 'search') {
     powerGridState.search = String(value || '');
   } else if (key === 'toggleRow') {
@@ -11372,9 +11384,12 @@ function updatePowerGridControl(key, value) {
       powerGridState.expandedKeys.clear();
     }
   } else if (key === 'reset') {
+    powerGridState.groupBy = 'combo';
     powerGridState.dispositionFilter = 'All';
     powerGridState.factionFilter = 'All';
     powerGridState.minReps = 1;
+    powerGridState.sortField = 'win_rate';
+    powerGridState.sortDir = 'desc';
     powerGridState.sortBy = 'win_rate_desc';
     powerGridState.search = '';
     powerGridState.expandedKeys.clear();
@@ -11403,6 +11418,9 @@ function updatePowerGridControl(key, value) {
 window.updatePowerGridControl = updatePowerGridControl;
 
 function sortPowerGridRecords(list, sortBy) {
+  const field = powerGridState.sortField || 'win_rate';
+  const dirMul = powerGridState.sortDir === 'asc' ? 1 : -1;
+
   return list.slice().sort((a, b) => {
     const isUnassignedA = (a.disposition === 'Unassigned' || a.label === 'Unassigned');
     const isUnassignedB = (b.disposition === 'Unassigned' || b.label === 'Unassigned');
@@ -11415,24 +11433,44 @@ function sortPowerGridRecords(list, sortBy) {
     const avgA = a.count > 0 ? (a.points / a.count) : 0;
     const avgB = b.count > 0 ? (b.points / b.count) : 0;
 
-    if (sortBy === 'win_rate_asc') {
-      if (wrA !== wrB) return wrA - wrB;
-      return b.count - a.count;
-    }
-    if (sortBy === 'reps_desc') {
-      if (b.count !== a.count) return b.count - a.count;
+    if (field === 'faction') {
+      const fA = String(a.faction || a.disposition || '').toLowerCase();
+      const fB = String(b.faction || b.disposition || '').toLowerCase();
+      if (fA !== fB) return fA.localeCompare(fB) * dirMul;
+      const dA = String(a.disposition || a.detachment || '').toLowerCase();
+      const dB = String(b.disposition || b.detachment || '').toLowerCase();
+      if (dA !== dB) return dA.localeCompare(dB) * dirMul;
       return wrB - wrA;
     }
-    if (sortBy === 'wins_desc') {
-      if (b.wins !== a.wins) return b.wins - a.wins;
+    if (field === 'disposition') {
+      const dA = String(a.disposition || a.label || a.faction || '').toLowerCase();
+      const dB = String(b.disposition || b.label || b.faction || '').toLowerCase();
+      if (dA !== dB) return dA.localeCompare(dB) * dirMul;
+      const detA = String(a.detachment || '').toLowerCase();
+      const detB = String(b.detachment || '').toLowerCase();
+      if (detA !== detB) return detA.localeCompare(detB) * dirMul;
       return wrB - wrA;
     }
-    if (sortBy === 'avg_pts_desc') {
-      if (avgB !== avgA) return avgB - avgA;
+    if (field === 'reps') {
+      if (a.count !== b.count) return (a.count - b.count) * dirMul;
       return wrB - wrA;
     }
-    // default: win_rate_desc
-    if (wrB !== wrA) return wrB - wrA;
+    if (field === 'wins') {
+      if (a.wins !== b.wins) return (a.wins - b.wins) * dirMul;
+      return wrB - wrA;
+    }
+    if (field === 'avg_pts') {
+      if (avgA !== avgB) return (avgA - avgB) * dirMul;
+      return wrB - wrA;
+    }
+    if (field === 'top_pilot') {
+      const pA = String(a.topPlayer || '').toLowerCase();
+      const pB = String(b.topPlayer || '').toLowerCase();
+      if (pA !== pB) return pA.localeCompare(pB) * dirMul;
+      return wrB - wrA;
+    }
+    // default: win_rate
+    if (wrA !== wrB) return (wrA - wrB) * dirMul;
     return b.count - a.count;
   });
 }
@@ -11544,6 +11582,8 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
   let tableBodyHtml = '';
   let totalGroupsShown = 0;
 
+  const pgThClass = (col) => `sortable${powerGridState.sortField === col ? (powerGridState.sortDir === 'asc' ? ' sorted-asc' : ' sorted-desc') : ''}`;
+
   const updateTopPilot = (target, ep) => {
     if (ep.wins > target.topWins || (ep.wins === target.topWins && ep.points > target.topPoints)) {
       target.topWins = ep.wins;
@@ -11610,20 +11650,20 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
     });
 
     const sortedGroups = sortPowerGridRecords(
-      Array.from(dispGroups.values()).filter(g => g.count >= powerGridState.minReps),
+      Array.from(dispGroups.values()),
       powerGridState.sortBy
     );
     totalGroupsShown = sortedGroups.length;
 
     tableHeaderHtml = `
       <tr style="border-bottom: 1px solid rgba(255,255,255,0.12); color: var(--text-muted); text-align: left; font-size: 0.76rem; text-transform: uppercase;">
-        <th style="padding: 0.6rem 0.5rem;">Force Disposition</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: center;">Reps</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: center;">Record (W-L)</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: center;">Win Rate</th>
+        <th class="${pgThClass('disposition')}" onclick="updatePowerGridControl('sortCol', 'disposition')" style="padding: 0.6rem 0.5rem; cursor: pointer;">Force Disposition</th>
+        <th class="${pgThClass('reps')}" onclick="updatePowerGridControl('sortCol', 'reps')" style="padding: 0.6rem 0.5rem; text-align: center; cursor: pointer;">Reps</th>
+        <th class="${pgThClass('wins')}" onclick="updatePowerGridControl('sortCol', 'wins')" style="padding: 0.6rem 0.5rem; text-align: center; cursor: pointer;">Record (W-L)</th>
+        <th class="${pgThClass('win_rate')}" onclick="updatePowerGridControl('sortCol', 'win_rate')" style="padding: 0.6rem 0.5rem; text-align: center; cursor: pointer;">Win Rate</th>
         <th style="padding: 0.6rem 0.5rem;">Factions in Disposition (Click to Filter / Expand)</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: right;">Avg Pts</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: right;">Top Pilot</th>
+        <th class="${pgThClass('avg_pts')}" onclick="updatePowerGridControl('sortCol', 'avg_pts')" style="padding: 0.6rem 0.5rem; text-align: right; cursor: pointer;">Avg Pts</th>
+        <th class="${pgThClass('top_pilot')}" onclick="updatePowerGridControl('sortCol', 'top_pilot')" style="padding: 0.6rem 0.5rem; text-align: right; cursor: pointer;">Top Pilot</th>
       </tr>
     `;
 
@@ -11638,7 +11678,7 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
       const isExpanded = powerGridState.expandAll || powerGridState.expandedKeys.has(rowKey) || powerGridState.dispositionFilter === g.key;
 
       const sortedSubFactions = sortPowerGridRecords(
-        Array.from(g.subMap.values()).filter(sf => sf.count >= Math.min(powerGridState.minReps, sf.count)),
+        Array.from(g.subMap.values()),
         powerGridState.sortBy
       );
 
@@ -11794,20 +11834,20 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
     });
 
     const sortedGroups = sortPowerGridRecords(
-      Array.from(facGroups.values()).filter(g => g.count >= powerGridState.minReps),
+      Array.from(facGroups.values()),
       powerGridState.sortBy
     );
     totalGroupsShown = sortedGroups.length;
 
     tableHeaderHtml = `
       <tr style="border-bottom: 1px solid rgba(255,255,255,0.12); color: var(--text-muted); text-align: left; font-size: 0.76rem; text-transform: uppercase;">
-        <th style="padding: 0.6rem 0.5rem;">Faction</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: center;">Reps</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: center;">Record (W-L)</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: center;">Win Rate</th>
+        <th class="${pgThClass('faction')}" onclick="updatePowerGridControl('sortCol', 'faction')" style="padding: 0.6rem 0.5rem; cursor: pointer;">Faction</th>
+        <th class="${pgThClass('reps')}" onclick="updatePowerGridControl('sortCol', 'reps')" style="padding: 0.6rem 0.5rem; text-align: center; cursor: pointer;">Reps</th>
+        <th class="${pgThClass('wins')}" onclick="updatePowerGridControl('sortCol', 'wins')" style="padding: 0.6rem 0.5rem; text-align: center; cursor: pointer;">Record (W-L)</th>
+        <th class="${pgThClass('win_rate')}" onclick="updatePowerGridControl('sortCol', 'win_rate')" style="padding: 0.6rem 0.5rem; text-align: center; cursor: pointer;">Win Rate</th>
         <th style="padding: 0.6rem 0.5rem;">Force Dispositions / Detachments Breakdown</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: right;">Avg Pts</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: right;">Top Pilot</th>
+        <th class="${pgThClass('avg_pts')}" onclick="updatePowerGridControl('sortCol', 'avg_pts')" style="padding: 0.6rem 0.5rem; text-align: right; cursor: pointer;">Avg Pts</th>
+        <th class="${pgThClass('top_pilot')}" onclick="updatePowerGridControl('sortCol', 'top_pilot')" style="padding: 0.6rem 0.5rem; text-align: right; cursor: pointer;">Top Pilot</th>
       </tr>
     `;
 
@@ -11911,10 +11951,10 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
     }).join('');
 
   } else {
-    // GROUP BY DISPOSITION × FACTION GRID (All Combos)
+    // GROUP BY FACTION × DISPOSITION GRID (Default: Faction 1st column -> Force Disposition / Detachment 2nd column)
     const comboMap = new Map();
     filteredPlayers.forEach(ep => {
-      const key = `${ep.disposition}__${ep.faction}__${ep.detachment}`;
+      const key = `${ep.faction}__${ep.disposition}__${ep.detachment}`;
       if (!comboMap.has(key)) {
         comboMap.set(key, {
           key,
@@ -11944,20 +11984,20 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
     });
 
     const sortedCombos = sortPowerGridRecords(
-      Array.from(comboMap.values()).filter(c => c.count >= powerGridState.minReps),
+      Array.from(comboMap.values()),
       powerGridState.sortBy
     );
     totalGroupsShown = sortedCombos.length;
 
     tableHeaderHtml = `
       <tr style="border-bottom: 1px solid rgba(255,255,255,0.12); color: var(--text-muted); text-align: left; font-size: 0.76rem; text-transform: uppercase;">
-        <th style="padding: 0.6rem 0.5rem;">Force Disposition / Detachment</th>
-        <th style="padding: 0.6rem 0.5rem;">Faction</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: center;">Reps</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: center;">Record (W-L)</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: center;">Win Rate</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: right;">Avg Battle Pts</th>
-        <th style="padding: 0.6rem 0.5rem; text-align: right;">Top Pilot</th>
+        <th class="${pgThClass('faction')}" onclick="updatePowerGridControl('sortCol', 'faction')" style="padding: 0.6rem 0.5rem; cursor: pointer;">Faction</th>
+        <th class="${pgThClass('disposition')}" onclick="updatePowerGridControl('sortCol', 'disposition')" style="padding: 0.6rem 0.5rem; cursor: pointer;">Force Disposition / Detachment</th>
+        <th class="${pgThClass('reps')}" onclick="updatePowerGridControl('sortCol', 'reps')" style="padding: 0.6rem 0.5rem; text-align: center; cursor: pointer;">Reps</th>
+        <th class="${pgThClass('wins')}" onclick="updatePowerGridControl('sortCol', 'wins')" style="padding: 0.6rem 0.5rem; text-align: center; cursor: pointer;">Record (W-L)</th>
+        <th class="${pgThClass('win_rate')}" onclick="updatePowerGridControl('sortCol', 'win_rate')" style="padding: 0.6rem 0.5rem; text-align: center; cursor: pointer;">Win Rate</th>
+        <th class="${pgThClass('avg_pts')}" onclick="updatePowerGridControl('sortCol', 'avg_pts')" style="padding: 0.6rem 0.5rem; text-align: right; cursor: pointer;">Avg Battle Pts</th>
+        <th class="${pgThClass('top_pilot')}" onclick="updatePowerGridControl('sortCol', 'top_pilot')" style="padding: 0.6rem 0.5rem; text-align: right; cursor: pointer;">Top Pilot</th>
       </tr>
     `;
 
@@ -11972,13 +12012,13 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
 
       return `
         <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+          <td style="padding: 0.55rem 0.5rem; font-weight: 700; color: #fff;">🛡️ ${escapeHtml(c.faction)}</td>
           <td style="padding: 0.55rem 0.5rem;">
             <span class="badge" style="background: ${c.dispMeta.bg}; color: ${c.dispMeta.color}; border: 1px solid ${c.dispMeta.border}; font-size: 0.72rem; font-weight: 700;">
               ${c.dispMeta.icon} ${escapeHtml(c.disposition)}
             </span>
             ${c.detachment && c.detachment !== c.disposition ? `<div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px;">${escapeHtml(c.detachment)}</div>` : ''}
           </td>
-          <td style="padding: 0.55rem 0.5rem; font-weight: 700; color: #fff;">🛡️ ${escapeHtml(c.faction)}</td>
           <td style="padding: 0.55rem 0.5rem; text-align: center; font-family: var(--font-mono); font-weight: 700;">${c.count}</td>
           <td style="padding: 0.55rem 0.5rem; text-align: center; font-family: var(--font-mono);">${c.wins}W - ${c.losses}L${c.draws ? ` - ${c.draws}D` : ''}</td>
           <td style="padding: 0.55rem 0.5rem; text-align: center; font-family: var(--font-mono); font-weight: 800; color: ${wrCol};">${wr}%</td>
@@ -11992,10 +12032,10 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
     }).join('');
   }
 
-  const hasActiveFilters = powerGridState.dispositionFilter !== 'All' || powerGridState.factionFilter !== 'All' || powerGridState.minReps > 1 || powerGridState.search.trim().length > 0;
+  const hasActiveFilters = powerGridState.dispositionFilter !== 'All' || powerGridState.factionFilter !== 'All' || powerGridState.groupBy !== 'combo' || powerGridState.search.trim().length > 0;
 
   return `
-    <!-- Header & Group By Mode Switcher -->
+    <!-- Header -->
     <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.9rem; flex-wrap: wrap;">
       <div>
         <h4 style="margin: 0; font-size: 1rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.45rem;">
@@ -12003,21 +12043,8 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
           <span class="badge" style="background: rgba(56,189,248,0.14); color: #38bdf8; font-size: 0.7rem;">${filteredPlayers.length} / ${enrichedPlayers.length} Pilots</span>
         </h4>
         <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 2px;">
-          Dynamically group by Force Disposition (to see win rates & faction breakdowns) or by Faction (to see which dispositions they run).
+          Tap any column header below to sort ascending or descending, or filter by Faction and Force Disposition.
         </div>
-      </div>
-
-      <!-- Group By Segmented Buttons -->
-      <div style="display: inline-flex; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 3px; gap: 3px; flex-wrap: wrap;">
-        <button type="button" onclick="updatePowerGridControl('groupBy', 'disposition')" style="padding: 5px 11px; border-radius: 6px; font-size: 0.74rem; font-weight: 700; border: none; cursor: pointer; background: ${powerGridState.groupBy === 'disposition' ? '#0284c7' : 'transparent'}; color: ${powerGridState.groupBy === 'disposition' ? '#fff' : 'var(--text-secondary)'};">
-          🎯 By Force Disposition (→ Factions)
-        </button>
-        <button type="button" onclick="updatePowerGridControl('groupBy', 'faction')" style="padding: 5px 11px; border-radius: 6px; font-size: 0.74rem; font-weight: 700; border: none; cursor: pointer; background: ${powerGridState.groupBy === 'faction' ? '#0284c7' : 'transparent'}; color: ${powerGridState.groupBy === 'faction' ? '#fff' : 'var(--text-secondary)'};">
-          🛡️ By Faction (→ Dispositions)
-        </button>
-        <button type="button" onclick="updatePowerGridControl('groupBy', 'combo')" style="padding: 5px 11px; border-radius: 6px; font-size: 0.74rem; font-weight: 700; border: none; cursor: pointer; background: ${powerGridState.groupBy === 'combo' ? '#0284c7' : 'transparent'}; color: ${powerGridState.groupBy === 'combo' ? '#fff' : 'var(--text-secondary)'};">
-          🧬 Disposition × Faction Grid
-        </button>
       </div>
     </div>
 
@@ -12028,41 +12055,28 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
 
     <!-- Interactive Filter Toolbar -->
     <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 0.6rem 0.75rem; margin-bottom: 0.85rem;">
-      <div style="display: flex; align-items: center; gap: 0.35rem;">
-        <label style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700;">Disposition:</label>
-        <select onchange="updatePowerGridControl('dispositionSelect', this.value)" style="height: 30px; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.76rem; cursor: pointer;">
-          <option value="All" ${powerGridState.dispositionFilter === 'All' ? 'selected' : ''}>All Dispositions</option>
-          ${CANONICAL_FORCE_DISPOSITIONS.map(d => `<option value="${escapeHtml(d.key)}" ${powerGridState.dispositionFilter === d.key ? 'selected' : ''}>${d.icon} ${escapeHtml(d.label)}</option>`).join('')}
-        </select>
-      </div>
-
-      <div style="display: flex; align-items: center; gap: 0.35rem;">
-        <label style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700;">Faction:</label>
-        <select onchange="updatePowerGridControl('factionFilter', this.value)" style="height: 30px; max-width: 185px; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.76rem; cursor: pointer;">
+      <div style="display: flex; align-items: center; gap: 0.35rem; max-width: 100%;">
+        <label style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700; flex-shrink: 0;">Faction:</label>
+        <select id="power-grid-faction-select" onchange="updatePowerGridControl('factionFilter', this.value)" style="height: 30px; max-width: 195px; min-width: 0; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.76rem; cursor: pointer;">
           <option value="All" ${powerGridState.factionFilter === 'All' ? 'selected' : ''}>All Factions (${allFactions.length})</option>
           ${allFactions.map(f => `<option value="${escapeHtml(f)}" ${powerGridState.factionFilter === f ? 'selected' : ''}>${escapeHtml(f)}</option>`).join('')}
         </select>
       </div>
 
-      <div style="display: flex; align-items: center; gap: 0.35rem;">
-        <label style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700;">Min Reps:</label>
-        <select onchange="updatePowerGridControl('minReps', this.value)" style="height: 30px; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.76rem; cursor: pointer;">
-          <option value="1" ${powerGridState.minReps === 1 ? 'selected' : ''}>1+ Pilots</option>
-          <option value="2" ${powerGridState.minReps === 2 ? 'selected' : ''}>2+ Pilots</option>
-          <option value="3" ${powerGridState.minReps === 3 ? 'selected' : ''}>3+ Pilots</option>
-          <option value="5" ${powerGridState.minReps === 5 ? 'selected' : ''}>5+ Pilots</option>
-          <option value="10" ${powerGridState.minReps === 10 ? 'selected' : ''}>10+ Pilots</option>
+      <div style="display: flex; align-items: center; gap: 0.35rem; max-width: 100%;">
+        <label style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700; flex-shrink: 0;">Disposition:</label>
+        <select id="power-grid-disposition-select" onchange="updatePowerGridControl('dispositionSelect', this.value)" style="height: 30px; max-width: 195px; min-width: 0; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.76rem; cursor: pointer;">
+          <option value="All" ${powerGridState.dispositionFilter === 'All' ? 'selected' : ''}>All Dispositions</option>
+          ${CANONICAL_FORCE_DISPOSITIONS.map(d => `<option value="${escapeHtml(d.key)}" ${powerGridState.dispositionFilter === d.key ? 'selected' : ''}>${d.icon} ${escapeHtml(d.label)}</option>`).join('')}
         </select>
       </div>
 
-      <div style="display: flex; align-items: center; gap: 0.35rem;">
-        <label style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700;">Sort By:</label>
-        <select onchange="updatePowerGridControl('sortBy', this.value)" style="height: 30px; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.76rem; cursor: pointer;">
-          <option value="win_rate_desc" ${powerGridState.sortBy === 'win_rate_desc' ? 'selected' : ''}>Win Rate (High → Low)</option>
-          <option value="win_rate_asc" ${powerGridState.sortBy === 'win_rate_asc' ? 'selected' : ''}>Win Rate (Low → High)</option>
-          <option value="reps_desc" ${powerGridState.sortBy === 'reps_desc' ? 'selected' : ''}>Most Played (Reps)</option>
-          <option value="wins_desc" ${powerGridState.sortBy === 'wins_desc' ? 'selected' : ''}>Total Wins</option>
-          <option value="avg_pts_desc" ${powerGridState.sortBy === 'avg_pts_desc' ? 'selected' : ''}>Avg Battle Points</option>
+      <div style="display: flex; align-items: center; gap: 0.35rem; max-width: 100%;">
+        <label style="font-size: 0.72rem; color: var(--text-muted); font-weight: 700; flex-shrink: 0;">View:</label>
+        <select id="power-grid-groupby-select" onchange="updatePowerGridControl('groupBy', this.value)" style="height: 30px; max-width: 225px; min-width: 0; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.76rem; cursor: pointer;">
+          <option value="combo" ${powerGridState.groupBy === 'combo' ? 'selected' : ''}>🧬 Faction × Disposition Grid</option>
+          <option value="faction" ${powerGridState.groupBy === 'faction' ? 'selected' : ''}>🛡️ By Faction (→ Dispositions)</option>
+          <option value="disposition" ${powerGridState.groupBy === 'disposition' ? 'selected' : ''}>🎯 By Force Disposition (→ Factions)</option>
         </select>
       </div>
 
@@ -12085,7 +12099,7 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
 
     <!-- Dynamic Power Grid Table -->
     <div class="table-container">
-      <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+      <table id="power-grid-table" style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
         <thead>
           ${tableHeaderHtml}
         </thead>
@@ -12093,7 +12107,7 @@ function buildInteractivePowerGridHtml(ev, players, matches) {
           ${tableBodyHtml || `
             <tr>
               <td colspan="7" style="padding: 2rem; text-align: center; color: var(--text-muted);">
-                No entries match the current filter criteria. Try lowering Min Reps or resetting filters.
+                No entries match the current filter criteria. Try resetting filters.
               </td>
             </tr>
           `}
