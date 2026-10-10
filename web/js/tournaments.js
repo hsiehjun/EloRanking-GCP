@@ -3156,19 +3156,8 @@ function renderEventPairingsRows(roundArg) {
   const unfinishedRoundMatches = baseRoundMatches.filter(m => !isToHubMatchCompleted(m));
   const completionPct = totalRoundCount > 0 ? Math.round((completedRoundMatches.length / totalRoundCount) * 100) : 0;
 
-  // 3. Apply status filter & search query
+  // 3. Apply search query
   let matchesToRender = baseRoundMatches.map((m, idx) => ({ m, idx }));
-  if (_pairingsStatusFilter === 'unfinished') {
-    matchesToRender = matchesToRender.filter(({ m }) => !isToHubMatchCompleted(m));
-  } else if (_pairingsStatusFilter === 'completed') {
-    matchesToRender = matchesToRender.filter(({ m }) => isToHubMatchCompleted(m));
-  } else if (_pairingsStatusFilter === 'judge') {
-    matchesToRender = matchesToRender.filter(({ m, idx }) => {
-      const rawT = Number(m.table_number ?? m.table ?? 0);
-      const tStr = String(rawT > 0 ? rawT : (idx + 1));
-      return judgeTablesSet.has(tStr);
-    });
-  }
 
   if (eventModalSearchQuery) {
     const q = eventModalSearchQuery;
@@ -3187,68 +3176,15 @@ function renderEventPairingsRows(roundArg) {
 
   const canAccessToHub = Boolean(typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(currentEventData));
 
-  // Build Round Completion & Status Filter Header Bar
-  const roundTitleLabel = selectedEventRound === 'all'
-    ? `⚔️ All Rounds Pairings (${totalRoundCount} Matches)`
-    : `⚔️ Round ${selectedEventRound} Table Grid`;
-
-  const floorHeaderBarHtml = `
-    <div class="card pairings-floor-radar-header" style="padding:0.8rem 1rem; background:rgba(15,23,42,0.78); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:0.85rem;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
-        <!-- Left: Round Title & Completion Progress -->
-        <div style="display:flex; align-items:center; gap:0.85rem; flex-wrap:wrap; flex:1; min-width:240px;">
-          <div style="font-size:0.9rem; font-weight:800; color:#fff; white-space:nowrap;">${roundTitleLabel}</div>
-          <div style="flex:1; min-width:160px; max-width:300px;">
-            <div style="display:flex; justify-content:space-between; font-size:0.72rem; margin-bottom:0.22rem;">
-              <span style="color:var(--text-secondary);">Round Completion</span>
-              <span style="font-family:var(--font-mono); font-weight:800; color:${completionPct === 100 ? '#4ade80' : '#38bdf8'};">${completedRoundMatches.length}/${totalRoundCount} (${completionPct}%)</span>
-            </div>
-            <div style="height:6px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden;">
-              <div style="width:${completionPct}%; height:100%; background:${completionPct === 100 ? '#10b981' : 'linear-gradient(90deg, #38bdf8, #818cf8)'};"></div>
-            </div>
-          </div>
-          <span style="font-size:0.73rem; color:var(--text-muted);">💡 Click any table card for Matchup & Player Dossiers</span>
-        </div>
-
-        <!-- Right: Status Filter Pills & TO-Only Floor Actions -->
-        <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
-          <button type="button" onclick="setEventPairingsStatusFilter('all')" style="padding:0.3rem 0.62rem; font-size:0.73rem; font-weight:700; border-radius:6px; cursor:pointer; border:1px solid ${_pairingsStatusFilter === 'all' ? '#38bdf8' : 'rgba(255,255,255,0.12)'}; background:${_pairingsStatusFilter === 'all' ? 'rgba(56,189,248,0.18)' : 'rgba(255,255,255,0.04)'}; color:${_pairingsStatusFilter === 'all' ? '#38bdf8' : 'var(--text-secondary)'};">
-            All (${totalRoundCount})
-          </button>
-          <button type="button" onclick="setEventPairingsStatusFilter('unfinished')" style="padding:0.3rem 0.62rem; font-size:0.73rem; font-weight:700; border-radius:6px; cursor:pointer; border:1px solid ${_pairingsStatusFilter === 'unfinished' ? '#f59e0b' : 'rgba(255,255,255,0.12)'}; background:${_pairingsStatusFilter === 'unfinished' ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.04)'}; color:${_pairingsStatusFilter === 'unfinished' ? '#fbbf24' : 'var(--text-secondary)'};">
-            ⏳ Unfinished (${unfinishedRoundMatches.length})
-          </button>
-          <button type="button" onclick="setEventPairingsStatusFilter('completed')" style="padding:0.3rem 0.62rem; font-size:0.73rem; font-weight:700; border-radius:6px; cursor:pointer; border:1px solid ${_pairingsStatusFilter === 'completed' ? '#10b981' : 'rgba(255,255,255,0.12)'}; background:${_pairingsStatusFilter === 'completed' ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.04)'}; color:${_pairingsStatusFilter === 'completed' ? '#34d399' : 'var(--text-secondary)'};">
-            ✅ Completed (${completedRoundMatches.length})
-          </button>
-          ${(openJudgeCalls.length > 0 || canAccessToHub) ? `
-            <button type="button" onclick="setEventPairingsStatusFilter('judge')" style="padding:0.3rem 0.62rem; font-size:0.73rem; font-weight:700; border-radius:6px; cursor:pointer; border:1px solid ${_pairingsStatusFilter === 'judge' ? '#ef4444' : 'rgba(255,255,255,0.12)'}; background:${_pairingsStatusFilter === 'judge' ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.04)'}; color:${_pairingsStatusFilter === 'judge' ? '#fca5a5' : 'var(--text-secondary)'};">
-              🚨 Judge Call (${openJudgeCalls.length})
-            </button>
-          ` : ''}
-          ${canAccessToHub ? `
-            <button type="button" class="btn btn-outline" onclick="copyUnfinishedTablesToClipboard()" style="padding:0.3rem 0.62rem; font-size:0.72rem; font-weight:700;" title="Copy list of unfinished tables to clipboard">
-              📋 Copy Unfinished
-            </button>
-            <button type="button" class="btn btn-primary" onclick="pingAllUnfinishedTables()" style="padding:0.3rem 0.68rem; font-size:0.72rem; font-weight:800; background:rgba(245,158,11,0.2); border:1px solid rgba(245,158,11,0.5); color:#fbbf24;" title="Broadcast score submission reminder to all unfinished tables">
-              📢 Ping Unfinished (${unfinishedRoundMatches.length})
-            </button>
-          ` : ''}
-        </div>
-      </div>
-    </div>
-  `;
-
   if (matchesToRender.length === 0) {
     const suggestions = getEventModalCrossTabSuggestions('matches');
     const noMatchHtml = `
-      ${floorHeaderBarHtml}
       <div class="card empty-state" style="padding:2.5rem 1rem; text-align:center;">
         <div style="font-size:1.05rem; font-weight:600; color:#fff;">🔍 No Matching Table Pairings</div>
         <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
           ${eventModalSearchQuery
             ? `No match pairings match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>"${selectedEventRound !== 'all' ? ` in Round ${selectedEventRound}` : ''}.`
-            : `No tables match the selected "${escapeHtml(_pairingsStatusFilter)}" filter.`}
+            : `No pairings found for this round.`}
         </div>
         ${suggestions}
       </div>`;
@@ -3521,7 +3457,6 @@ function renderEventPairingsRows(roundArg) {
 
   if (cardsContainer) {
     cardsContainer.innerHTML = `
-      ${floorHeaderBarHtml}
       <div class="to-hub-radar-grid" style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:0.75rem;">
         ${cardsHtml.join('')}
       </div>
@@ -13271,33 +13206,52 @@ function buildToHubRadarGridHtml(eventId, roundMatches, openJudgeCalls, activeSe
 }
 
 function copyUnfinishedTablesList(eventId, roundNum) {
-  const matches = (eventMatchesCache || []).filter(m => Number(m.round || m.round_number || 1) === Number(roundNum) && !isToHubMatchCompleted(m));
+  const eId = String(eventId || currentOpenEventId || (currentEventData && currentEventData.id) || '');
+  const allMatches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0
+    ? eventMatchesCache
+    : (Array.isArray(currentEventData?.matches) ? currentEventData.matches : []);
+  const roundNums = Array.from(new Set(allMatches.map(m => Number(m.round || m.round_number || 1)).filter(n => n > 0))).sort((a, b) => a - b);
+  const rNum = Number(roundNum) || Number(_toHubRadarRound) || (selectedEventRound !== 'all' ? Number(selectedEventRound) : 0) || (roundNums.length > 0 ? roundNums[roundNums.length - 1] : 1);
+  const matches = allMatches.filter(m => Number(m.round || m.round_number || 1) === Number(rNum) && !isToHubMatchCompleted(m));
   if (matches.length === 0) {
-    if (typeof showToast === 'function') showToast('All tables in this round are completed!', 'info');
+    if (typeof showToast === 'function') showToast(`All tables in Round ${rNum} are completed!`, 'info');
     return;
   }
   const lines = matches.map((m, idx) => {
     const tNum = m.table || m.table_number || (idx + 1);
     return `Table ${tNum}: ${m.player1_name || 'Player 1'} vs ${m.player2_name || 'Player 2'}`;
   });
-  const text = `⏳ Round ${roundNum} Unfinished Tables (${matches.length}):\n` + lines.join('\n');
+  const text = `⏳ Round ${rNum} Unfinished Tables (${matches.length}):\n` + lines.join('\n');
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(() => {
       if (typeof showToast === 'function') showToast(`Copied ${matches.length} unfinished table(s) to clipboard!`, 'success');
     }).catch(() => {});
   }
 }
+function copyUnfinishedTablesToClipboard(eventId, roundNum) {
+  return copyUnfinishedTablesList(eventId, roundNum);
+}
+window.copyUnfinishedTablesToClipboard = copyUnfinishedTablesToClipboard;
 
 async function broadcastUnfinishedTablesPing(eventId, roundNum) {
-  const matches = (eventMatchesCache || []).filter(m => Number(m.round || m.round_number || 1) === Number(roundNum) && !isToHubMatchCompleted(m));
-  if (matches.length === 0) return;
+  const eId = String(eventId || currentOpenEventId || (currentEventData && currentEventData.id) || '');
+  const allMatches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0
+    ? eventMatchesCache
+    : (Array.isArray(currentEventData?.matches) ? currentEventData.matches : []);
+  const roundNums = Array.from(new Set(allMatches.map(m => Number(m.round || m.round_number || 1)).filter(n => n > 0))).sort((a, b) => a - b);
+  const rNum = Number(roundNum) || Number(_toHubRadarRound) || (selectedEventRound !== 'all' ? Number(selectedEventRound) : 0) || (roundNums.length > 0 ? roundNums[roundNums.length - 1] : 1);
+  const matches = allMatches.filter(m => Number(m.round || m.round_number || 1) === Number(rNum) && !isToHubMatchCompleted(m));
+  if (matches.length === 0) {
+    if (typeof showToast === 'function') showToast(`All tables in Round ${rNum} are already completed!`, 'info');
+    return;
+  }
   const tableNums = matches.map((m, idx) => `Table ${m.table || m.table_number || (idx + 1)}`).slice(0, 12).join(', ');
-  const msg = `⏳ Round ${roundNum} Score Submission Reminder: Waiting on ${matches.length} table(s) (${tableNums}${matches.length > 12 ? '...' : ''}). Please submit final scores now!`;
+  const msg = `⏳ Round ${rNum} Score Submission Reminder: Waiting on ${matches.length} table(s) (${tableNums}${matches.length > 12 ? '...' : ''}). Please submit final scores now!`;
   const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || '';
   try {
-    recordRecentInteractedEventId(eventId);
-    await window.api.publishEventToHubAnnouncement(eventId, { message: msg, level: 'warning', event_name: evName });
-    await loadEventToHubState(eventId, true);
+    recordRecentInteractedEventId(eId);
+    await window.api.publishEventToHubAnnouncement(eId, { message: msg, level: 'warning', event_name: evName });
+    await loadEventToHubState(eId, true);
     if (typeof syncGlobalEventAnnouncementBanner === 'function') {
       await syncGlobalEventAnnouncementBanner(true);
     }
@@ -13306,6 +13260,10 @@ async function broadcastUnfinishedTablesPing(eventId, roundNum) {
     if (typeof showToast === 'function') showToast(err.message || 'Failed to publish reminder', 'error');
   }
 }
+function pingAllUnfinishedTables(eventId, roundNum) {
+  return broadcastUnfinishedTablesPing(eventId, roundNum);
+}
+window.pingAllUnfinishedTables = pingAllUnfinishedTables;
 
 function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, completedMatches, unfinishedMatches, openJudgeCalls, activeSessions) {
   window._toHubCurrentRoundMatches = Array.isArray(roundMatches) ? roundMatches : [];
@@ -13847,6 +13805,16 @@ function renderToHubAnnouncementsSubtab(eventId, ev, state) {
     : [];
   const newsPosts = Array.isArray(state?.news_posts) ? state.news_posts : [];
 
+  const allMatches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0
+    ? eventMatchesCache
+    : (Array.isArray(ev?.matches) ? ev.matches : []);
+  const roundNums = Array.from(new Set(allMatches.map(m => Number(m.round || m.round_number || 1)).filter(n => n > 0))).sort((a, b) => a - b);
+  const targetRound = (_toHubRadarRound && roundNums.includes(Number(_toHubRadarRound)))
+    ? Number(_toHubRadarRound)
+    : (roundNums.length > 0 ? roundNums[roundNums.length - 1] : 1);
+  const roundMatches = allMatches.filter(m => Number(m.round || m.round_number || 1) === targetRound);
+  const unfinishedRoundMatches = roundMatches.filter(m => !isToHubMatchCompleted(m));
+
   return `
     <div style="display:flex; flex-direction:column; gap:0.85rem;">
       ${activeBroadcast ? `
@@ -13908,9 +13876,19 @@ function renderToHubAnnouncementsSubtab(eventId, ev, state) {
       <div class="to-hub-two-col-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:1rem; align-items:stretch;">
         <!-- App-Wide Live Banner Broadcast -->
         <div class="card to-hub-symmetric-card" style="padding:1.05rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px; display:flex; flex-direction:column; gap:0.65rem;">
-          <div>
-            <h4 style="margin:0 0 0.2rem 0; font-size:0.95rem; font-weight:800; color:#fbbf24;">📢 App-Wide Event Banner Broadcast</h4>
-            <div style="font-size:0.76rem; color:var(--text-secondary); line-height:1.35;">Displays a high-visibility alert banner across the app for all players in this tournament.</div>
+          <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:0.6rem; flex-wrap:wrap;">
+            <div style="min-width:180px; flex:1;">
+              <h4 style="margin:0 0 0.2rem 0; font-size:0.95rem; font-weight:800; color:#fbbf24;">📢 App-Wide Event Banner Broadcast</h4>
+              <div style="font-size:0.76rem; color:var(--text-secondary); line-height:1.35;">Displays a high-visibility alert banner across the app for all players in this tournament.</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap; flex-shrink:0;">
+              <button type="button" class="btn btn-outline" onclick="copyUnfinishedTablesList('${escapeHtml(eventId)}', ${targetRound})" style="padding:0.3rem 0.62rem; font-size:0.72rem; font-weight:700;" title="Copy list of unfinished tables in Round ${targetRound} to clipboard">
+                📋 Copy Unfinished
+              </button>
+              <button type="button" class="btn btn-primary" onclick="broadcastUnfinishedTablesPing('${escapeHtml(eventId)}', ${targetRound})" style="padding:0.3rem 0.68rem; font-size:0.72rem; font-weight:800; background:rgba(245,158,11,0.2); border:1px solid rgba(245,158,11,0.5); color:#fbbf24;" title="Broadcast score submission reminder to all unfinished tables in Round ${targetRound}">
+                📢 Ping Unfinished (${unfinishedRoundMatches.length})
+              </button>
+            </div>
           </div>
 
           <div class="to-hub-preset-pills-row" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:0.35rem;">
@@ -14059,6 +14037,63 @@ function renderToHubRosterAuditSubtab(eventId, ev, players) {
     return !f || f === 'Unknown' || f === 'Unassigned';
   }).length;
 
+  // Build Round Completion Metadata Header (per-round metadata only, no pairing tables)
+  const allMatches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0
+    ? eventMatchesCache
+    : (Array.isArray(ev?.matches) ? ev.matches : []);
+  const roundNums = Array.from(new Set(allMatches.map(m => Number(m.round || m.round_number || 1)).filter(n => n > 0))).sort((a, b) => a - b);
+  const toHubState = (typeof _eventToHubStateCache !== 'undefined' && _eventToHubStateCache.get(String(eventId))) || {};
+  const judgeCalls = Array.isArray(toHubState.judge_calls) ? toHubState.judge_calls : [];
+  const openJudgeCallsCount = judgeCalls.filter(c => String(c.status || 'open').toLowerCase() !== 'resolved').length;
+
+  const totalMatchesAll = allMatches.length;
+  const totalCompletedAll = allMatches.filter(m => isToHubMatchCompleted(m)).length;
+  const totalUnfinishedAll = Math.max(0, totalMatchesAll - totalCompletedAll);
+  const overallPct = totalMatchesAll > 0 ? Math.round((totalCompletedAll / totalMatchesAll) * 100) : 0;
+
+  const roundCompletionHeaderHtml = roundNums.length > 0 ? `
+    <div class="card to-hub-round-completion-header" style="padding:0.85rem 1.05rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px; margin-bottom:0.85rem;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.65rem;">
+        <div style="display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap;">
+          <h4 style="margin:0; font-size:0.9rem; font-weight:800; color:#fff;">⚔️ Round Completion</h4>
+          <span class="badge" style="background:rgba(56,189,248,0.14); color:${overallPct === 100 ? '#4ade80' : '#38bdf8'}; border:1px solid ${overallPct === 100 ? 'rgba(16,185,129,0.35)' : 'rgba(56,189,248,0.35)'}; font-family:var(--font-mono); font-size:0.72rem; font-weight:800;">
+            ${totalCompletedAll}/${totalMatchesAll} (${overallPct}%)
+          </span>
+        </div>
+        <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap; font-size:0.72rem; font-weight:700;">
+          <span style="padding:0.22rem 0.55rem; border-radius:6px; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.28); color:#38bdf8;">All (${totalMatchesAll})</span>
+          <span style="padding:0.22rem 0.55rem; border-radius:6px; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.32); color:#fbbf24;">⏳ Unfinished (${totalUnfinishedAll})</span>
+          <span style="padding:0.22rem 0.55rem; border-radius:6px; background:rgba(16,185,129,0.14); border:1px solid rgba(16,185,129,0.32); color:#34d399;">✅ Completed (${totalCompletedAll})</span>
+          <span style="padding:0.22rem 0.55rem; border-radius:6px; background:rgba(239,68,68,0.14); border:1px solid rgba(239,68,68,0.32); color:#fca5a5;">🚨 Judge Call (${openJudgeCallsCount})</span>
+        </div>
+      </div>
+      <div class="to-hub-round-completion-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(165px, 1fr)); gap:0.5rem;">
+        ${roundNums.map(r => {
+          const rMatches = allMatches.filter(m => Number(m.round || m.round_number || 1) === r);
+          const rTotal = rMatches.length;
+          const rDone = rMatches.filter(m => isToHubMatchCompleted(m)).length;
+          const rUnfinished = Math.max(0, rTotal - rDone);
+          const rPct = rTotal > 0 ? Math.round((rDone / rTotal) * 100) : 0;
+          return `
+            <div style="padding:0.48rem 0.68rem; background:rgba(2,6,23,0.58); border:1px solid ${rPct === 100 ? 'rgba(16,185,129,0.28)' : 'rgba(56,189,248,0.28)'}; border-radius:8px;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:0.35rem; font-size:0.74rem; margin-bottom:0.22rem;">
+                <span style="font-weight:800; color:#f8fafc;">Round ${r}</span>
+                <span style="font-family:var(--font-mono); font-weight:800; font-size:0.72rem; color:${rPct === 100 ? '#4ade80' : '#38bdf8'};">${rDone}/${rTotal} (${rPct}%)</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:0.66rem; color:var(--text-secondary); margin-bottom:0.2rem;">
+                <span>Round Completion</span>
+                <span style="color:${rUnfinished > 0 ? '#fbbf24' : '#34d399'}; font-weight:700;">${rUnfinished > 0 ? `⏳ ${rUnfinished}` : '✅ Done'}</span>
+              </div>
+              <div style="height:5px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden;">
+                <div style="width:${rPct}%; height:100%; background:${rPct === 100 ? '#10b981' : 'linear-gradient(90deg, #38bdf8, #818cf8)'};"></div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  ` : '';
+
   const filtered = getFilteredToHubRoster(allPlayers);
 
   const rowsHtml = filtered.length > 0
@@ -14111,6 +14146,7 @@ function renderToHubRosterAuditSubtab(eventId, ev, players) {
     : `<tr><td colspan="5" style="padding:1.5rem; text-align:center; color:var(--text-muted);">No players match this compliance filter.</td></tr>`;
 
   return `
+    ${roundCompletionHeaderHtml}
     <div class="card to-hub-roster-card" style="padding:1rem 1.15rem; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.09); border-radius:10px;">
       <!-- Compliance Filter Pills -->
       <div class="to-hub-roster-toolbar" style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.85rem;">
