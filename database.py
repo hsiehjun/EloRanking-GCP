@@ -13545,7 +13545,7 @@ class PostgresDatabase:
                         WHERE distance_miles <= %s
                           AND event_date < CURRENT_DATE - INTERVAL '1 day'
                         ORDER BY event_date DESC, distance_miles ASC
-                        LIMIT 25
+                        LIMIT 50
                     );
                 """
                 cursor.execute(
@@ -13560,7 +13560,7 @@ class PostgresDatabase:
                 all_event_rows = cursor.fetchall()
                 events_upcoming_db = [dict(r) for r in all_event_rows if r.get("event_group") == "upcoming"]
                 events_recent_all = [dict(r) for r in all_event_rows if r.get("event_group") == "recent"]
-                events_recent = events_recent_all[:25]
+                events_recent = events_recent_all[:50]
 
                 now_utc_ov = datetime.now(timezone.utc)
                 today_utc_ov_str = now_utc_ov.strftime("%Y-%m-%d")
@@ -13709,6 +13709,7 @@ class PostgresDatabase:
                 for u_ev in merged_upcoming:
                     u_id = str(u_ev.get("id") or "").strip()
                     u_ev["is_registered"] = bool(u_id and u_id in user_registered_eids)
+                    u_ev["is_local"] = True
 
                 def upcoming_sort_key(ev):
                     d_raw = ev.get("event_date") or "9999-12-31"
@@ -13719,6 +13720,10 @@ class PostgresDatabase:
 
                 merged_upcoming.sort(key=upcoming_sort_key)
                 events_upcoming = merged_upcoming[:35]
+
+                for r_ev in events_recent:
+                    r_ev["is_local"] = True
+                    r_ev["is_ended"] = True
 
                 # Collect event IDs for field stats and player discovery
                 all_event_ids = list({e["id"] for e in (events_upcoming + events_recent_all) if e.get("id")})

@@ -340,58 +340,118 @@ def get_fallback_majors(game_system: str) -> List[Dict[str, Any]]:
         }
     ]
 
-def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 180, min_players: int = 30) -> List[Dict[str, Any]]:
+_bcp_majors_refreshing: set = set()
+
+
+def _is_non_local_league_or_multiweek(name: str, start_date_str: str, end_date_str: str) -> bool:
     """
-    Fetches premier Super Majors and Majors without spatial radius boundaries from BCP API.
-    Uses an in-memory Python RAM cache (2-hour TTL).
-    STRICT POLICY: Zero SQL writes / Zero database mutations.
+    Returns True if an event stretches over multiple weeks (> 5 calendar days / > 4 days diff)
+    or is an escalation/seasonal/narrative/online league rather than a weekend tournament.
     """
-    clean_sys = (game_system or "40k").strip().lower()
-    target_sys = "aos" if clean_sys in ("aos", "warhammer_aos") else "40k"
-    bcp_game_sys = AOS_GAME_SYSTEM_ID if target_sys == "aos" else DEFAULT_GAME_SYSTEM_ID
+    s_prefix = str(start_date_str or "").strip()[:10]
+    e_prefix = str(end_date_str or "").strip()[:10]
+    duration_days = 0
+    if s_prefix and e_prefix and len(s_prefix) == 10 and len(e_prefix) == 10:
+        try:
+            s_dt = datetime.strptime(s_prefix, "%Y-%m-%d").date()
+            e_dt = datetime.strptime(e_prefix, "%Y-%m-%d").date()
+            duration_days = (e_dt - s_dt).days
+            if duration_days > 4:
+                return True
+        except Exception:
+            pass
 
-    now_ts = time.time()
-    cached = _bcp_majors_cache.get(target_sys)
-    if cached and (now_ts - cached[0]) < 7200:
-        return cached[1]
+    n_lower = f" {(name or '').lower()} "
+    league_keywords = (
+        "escalation",
+        "slow grow",
+        "slow-grow",
+        "crusade league",
+        "narrative league",
+        "monthly league",
+        "weekly league",
+        "seasonal league",
+        "summer league",
+        "winter league",
+        "spring league",
+        "fall league",
+        "autumn league",
+        "league season",
+        "pod league",
+        "store league",
+        "ladder league",
+        "combat patrol league",
+        "spearhead league",
+        "tabletop simulator",
+        " tts ",
+        " online ",
+    )
+    if any(kw in n_lower for kw in league_keywords):
+        return True
 
-    now_utc = datetime.now(timezone.utc)
-    start_iso = (now_utc - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00.000Z")
-    end_iso = (now_utc + timedelta(days=days_ahead)).strftime("%Y-%m-%dT23:59:59.999Z")
+    if re.search(r"\bleagues?\b", n_lower):
+        weekend_tourney_terms = ("gt", "grand tournament", "major", "super major", "open", "championship", "invitational", "cup")
+        if not any(wt in n_lower for wt in weekend_tourney_terms) or duration_days > 3:
+            return True
 
+    return False
+
+
+def _fetch_bcp_events_window(bcp_game_sys: str, start_iso: str, end_iso: str, limit: int = 45, timeout: float = 2.5) -> List[Dict[str, Any]]:
     params = {
-        "limit": 35,
+        "limit": limit,
         "gameSystemId": bcp_game_sys,
         "startDate": start_iso,
         "endDate": end_iso,
         "sortKey": "totalPlayers",
         "sortAscending": "false",
-        "excludeOnline": "true"
+        "excludeOnline": "true",
     }
-
     url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers=DEFAULT_HEADERS)
-    raw_events = []
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw_bytes = resp.read()
+        if isinstance(raw_bytes, (bytes, bytearray)) and len(raw_bytes) >= 2 and raw_bytes[:2] == b"\x1f\x8b":
+            import gzip
+            raw_bytes = gzip.decompress(raw_bytes)
+        data = json.loads(raw_bytes.decode("utf-8") if isinstance(raw_bytes, (bytes, bytearray)) else str(raw_bytes))
+        return data.get("data", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
 
+
+def _refresh_bcp_majors_sync(target_sys: str, days_ahead: int = 180, min_players: int = 28) -> List[Dict[str, Any]]:
+    bcp_game_sys = AOS_GAME_SYSTEM_ID if target_sys == "aos" else DEFAULT_GAME_SYSTEM_ID
+    now_ts = time.time()
+    now_utc = datetime.now(timezone.utc)
+    today_utc_str = now_utc.strftime("%Y-%m-%d")
+
+    upcoming_start_iso = (now_utc - timedelta(days=2)).strftime("%Y-%m-%dT00:00:00.000Z")
+    upcoming_end_iso = (now_utc + timedelta(days=days_ahead)).strftime("%Y-%m-%dT23:59:59.999Z")
+
+    past_start_iso = (now_utc - timedelta(days=90)).strftime("%Y-%m-%dT00:00:00.000Z")
+    past_end_iso = (now_utc - timedelta(days=2)).strftime("%Y-%m-%dT23:59:59.999Z")
+
+    raw_events: List[Dict[str, Any]] = []
     try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
-            raw_bytes = resp.read()
-            if isinstance(raw_bytes, (bytes, bytearray)) and len(raw_bytes) >= 2 and raw_bytes[:2] == b"\x1f\x8b":
-                import gzip
-                raw_bytes = gzip.decompress(raw_bytes)
-            data = json.loads(raw_bytes.decode("utf-8") if isinstance(raw_bytes, (bytes, bytearray)) else str(raw_bytes))
-            raw_events = data.get("data", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            fut_up = pool.submit(_fetch_bcp_events_window, bcp_game_sys, upcoming_start_iso, upcoming_end_iso, 50, 2.5)
+            fut_past = pool.submit(_fetch_bcp_events_window, bcp_game_sys, past_start_iso, past_end_iso, 45, 2.5)
+            for fut in (fut_up, fut_past):
+                try:
+                    res_list = fut.result(timeout=2.8)
+                    if isinstance(res_list, list):
+                        raw_events.extend(res_list)
+                except Exception as sub_err:
+                    logger.debug(f"Notice during parallel BCP majors window fetch ({target_sys}): {sub_err}")
     except Exception as e:
         logger.warning(f"Notice during live BCP majors query ({target_sys}): {e}")
 
-    normalized = []
+    normalized: List[Dict[str, Any]] = []
     seen_ids = set()
 
     for ev in raw_events:
         eid = str(ev.get("id") or ev.get("objectId") or "").strip()
         if not eid or eid in seen_ids:
             continue
-        seen_ids.add(eid)
 
         loc = ev.get("location") if isinstance(ev.get("location"), dict) else {}
         city = ev.get("city") or loc.get("city") or ""
@@ -436,14 +496,38 @@ def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 
             num_rounds = int(ev.get("numberOfRounds") or ev.get("numRounds") or ev.get("num_rounds") or ev.get("rounds") or 0)
         except Exception:
             num_rounds = 0
+
+        # Strictly exclude multi-week events / escalation leagues / online events from Global Majors
+        if _is_non_local_league_or_multiweek(name, str(event_date or ""), str(end_date or "")):
+            continue
+
         tier_info = classify_tournament_tier(name, total_players, num_tickets, circuits, num_rounds=num_rounds)
+
+        # Global events must only be weekend large tournaments (GT, Major, Super Major), never RTTs
+        if tier_info["tier"] not in ("super_major", "major", "gt"):
+            continue
+        if total_players < min_players and num_tickets < 48:
+            continue
+
+        seen_ids.add(eid)
+
+        ev_date_prefix = str(event_date or "")[:10]
+        end_date_prefix = str(end_date or "")[:10] or ev_date_prefix
+        status_obj = ev.get("status") if isinstance(ev.get("status"), dict) else {}
+        is_ended = bool(
+            ev.get("isEnded") or ev.get("is_ended") or ev.get("ended") or
+            status_obj.get("ended") or status_obj.get("isEnded") or
+            (end_date_prefix and end_date_prefix < today_utc_str)
+        )
 
         # Compute countdown
         countdown_label = ""
         try:
             ev_dt = datetime.fromisoformat(str(event_date).replace("Z", "+00:00"))
             delta_days = (ev_dt.date() - now_utc.date()).days
-            if delta_days == 0:
+            if is_ended:
+                countdown_label = "Completed"
+            elif delta_days == 0:
                 countdown_label = "Today"
             elif delta_days == 1:
                 countdown_label = "Tomorrow"
@@ -452,7 +536,7 @@ def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 
             else:
                 countdown_label = "Live Now"
         except Exception:
-            countdown_label = ""
+            countdown_label = "Completed" if is_ended else ""
 
         normalized.append({
             "id": eid,
@@ -465,6 +549,7 @@ def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 
             "venue": venue,
             "total_players": total_players,
             "num_tickets": num_tickets,
+            "num_rounds": num_rounds,
             "circuits": circuits,
             "tier": tier_info["tier"],
             "tier_badge": tier_info["badge"],
@@ -472,27 +557,66 @@ def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 
             "tier_weight": tier_info["weight"],
             "countdown_label": countdown_label,
             "game_system": target_sys,
-            "is_started": bool(ev.get("isStarted") or ev.get("started")),
-            "is_ended": bool(ev.get("isEnded") or ev.get("ended")),
+            "is_local": False,
+            "is_started": bool(is_ended or ev.get("isStarted") or ev.get("started")),
+            "is_ended": is_ended,
             "external_url": ev.get("externalUrl") or ev.get("external_url") or f"https://www.bestcoastpairings.com/event/{eid}"
         })
 
-    # If BCP returned fewer than 3 events (or network failed in offline tests), provide graceful mock fallback
+    # If BCP returned fewer than 3 upcoming events (or network failed in offline tests), provide graceful mock fallback
     used_fallback = False
-    if len(normalized) < 3:
+    upcoming_cnt = sum(1 for x in normalized if not x.get("is_ended"))
+    if upcoming_cnt < 3:
         used_fallback = True
         fallback_events = get_fallback_majors(target_sys)
         for fb in fallback_events:
             if fb["id"] not in seen_ids:
                 normalized.append(fb)
 
-    # Sort primarily by tier weight descending, then player count, then date
-    normalized.sort(key=lambda x: (-x.get("tier_weight", 0), -x.get("total_players", 0), x.get("event_date", "9999")))
+    # Sort upcoming events before ended events, then by tier weight descending, player count descending, and date
+    normalized.sort(
+        key=lambda x: (
+            1 if x.get("is_ended") else 0,
+            -x.get("tier_weight", 0),
+            -x.get("total_players", 0),
+            x.get("event_date", "9999"),
+        )
+    )
 
-    # If fallback was used due to transient error, expire cache in 15s instead of 2h so next request retries live BCP
     cache_ts = (now_ts - 7185) if used_fallback else now_ts
     _bcp_majors_cache[target_sys] = (cache_ts, normalized)
     return normalized
+
+
+def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 180, min_players: int = 28) -> List[Dict[str, Any]]:
+    """
+    Fetches premier Super Majors, Majors, and GTs (both upcoming and past 90d) without spatial radius boundaries from BCP API.
+    Uses an in-memory Python RAM cache (2-hour TTL) with stale-while-revalidate for <5ms response latency.
+    STRICT POLICY: Zero SQL writes / Zero database mutations.
+    """
+    clean_sys = (game_system or "40k").strip().lower()
+    target_sys = "aos" if clean_sys in ("aos", "warhammer_aos") else "40k"
+
+    now_ts = time.time()
+    cached = _bcp_majors_cache.get(target_sys)
+    if cached:
+        age = now_ts - cached[0]
+        if age < 7200:
+            return cached[1]
+        # Stale-while-revalidate: return warm cache immediately (<1ms) and refresh asynchronously
+        if target_sys not in _bcp_majors_refreshing:
+            _bcp_majors_refreshing.add(target_sys)
+            def _bg_refresh():
+                try:
+                    _refresh_bcp_majors_sync(target_sys, days_ahead=days_ahead, min_players=min_players)
+                finally:
+                    _bcp_majors_refreshing.discard(target_sys)
+            import threading
+            threading.Thread(target=_bg_refresh, daemon=True).start()
+        return cached[1]
+
+    return _refresh_bcp_majors_sync(target_sys, days_ahead=days_ahead, min_players=min_players)
+
 
 @router.get("/api/community/bcp_majors", summary="Fetch live premier circuit & major tournaments (read-only RAM cache)")
 def api_community_bcp_majors(
@@ -500,7 +624,7 @@ def api_community_bcp_majors(
     days_ahead: int = Query(180)
 ):
     """
-    Returns upcoming premier Super Majors and Majors without spatial radius boundaries.
+    Returns upcoming and recent past premier Super Majors, Majors, and GTs without spatial radius boundaries.
     100% read-only, backed by 2-hour Python RAM cache. Zero DB mutations.
     """
     majors = fetch_live_bcp_majors(game_system=game_system, days_ahead=days_ahead)

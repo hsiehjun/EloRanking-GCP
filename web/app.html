@@ -6,7 +6,7 @@
   <title>OmniTactica • Warhammer 40k Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=6f6da43d20">
+  <link rel="manifest" href="/manifest.json?v=bc487a98d9">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=6f6da43d20">
-  <link rel="stylesheet" href="/css/styles.min.css?v=6f6da43d20">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=6f6da43d20">
-  <link rel="preload" href="/js/app.bundle.min.js?v=6f6da43d20" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=bc487a98d9">
+  <link rel="stylesheet" href="/css/styles.min.css?v=bc487a98d9">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=bc487a98d9">
+  <link rel="preload" href="/js/app.bundle.min.js?v=bc487a98d9" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "6f6da43d20";</script>
+  <script>window.APP_VERSION = "bc487a98d9";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -625,13 +625,16 @@
 
               <!-- Quick Action & Weekend Filters -->
               <div class="comm-quick-filters-group" style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                <button class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-local" onclick="setTournamentsQuickFilter('local')" title="Show only local events within your community search radius">
+                  📍 Local Only
+                </button>
                 <button class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-weekend" onclick="setTournamentsQuickFilter('weekend')" title="Show tournaments happening this Friday through Sunday">
                   ⚡ This Weekend
                 </button>
                 <button class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-next-weekend" onclick="setTournamentsQuickFilter('next_weekend')" title="Show tournaments scheduled for next weekend">
                   📅 Next Weekend
                 </button>
-                <button class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-majors" onclick="setTournamentsQuickFilter('majors')" title="Show Premier Majors and Super Majors (50+ players)">
+                <button class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-majors" onclick="setTournamentsQuickFilter('majors')" title="Show Premier Majors, Super Majors &amp; GTs">
                   🌟 Majors Only
                 </button>
               </div>
@@ -656,10 +659,13 @@
                   <button class="btn btn-outline comm-calendar-today-btn" onclick="setCalendarToday()">Today</button>
                 </div>
                 <div class="comm-calendar-legend">
-                  <span class="comm-legend-pill pill-super-major">🟣 Super Major (100+)</span>
-                  <span class="comm-legend-pill pill-major">🔵 Major (50+)</span>
+                  <span class="comm-legend-pill pill-scope-local" title="Local community event within your search radius">📍 Local (In Radius)</span>
+                  <span class="comm-legend-pill pill-scope-global" title="Global weekend Major, Super Major, or GT">🌐 Global Major/GT</span>
+                  <span class="comm-legend-pill pill-scope-past" title="Completed event — click to view results &amp; army lists">✓ Past Results</span>
+                  <span class="comm-legend-pill pill-super-major">🟣 Super Major</span>
+                  <span class="comm-legend-pill pill-major">🔵 Major</span>
                   <span class="comm-legend-pill pill-gt">🟢 GT (30+)</span>
-                  <span class="comm-legend-pill pill-rtt">⚪ RTT / Local</span>
+                  <span class="comm-legend-pill pill-rtt">⚪ Local RTT</span>
                 </div>
               </div>
 
@@ -3757,7 +3763,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=6f6da43d20"></script>
+  <script src="/js/app.bundle.min.js?v=bc487a98d9"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

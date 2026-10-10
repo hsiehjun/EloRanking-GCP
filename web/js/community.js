@@ -758,10 +758,9 @@ function renderCurrentSubtab() {
   if (communityState.activeSubtab === 'radar') {
     if (typeof loadNearbyPlayers === 'function') loadNearbyPlayers();
   } else if (communityState.activeSubtab === 'tournaments') {
+    renderCommunityEvents();
     if (communityState.tournamentsViewMode === 'calendar') {
       renderTournamentsCalendar();
-    } else {
-      renderCommunityEvents();
     }
     loadBcpMajors();
   } else if (communityState.activeSubtab === 'stores') {
@@ -785,6 +784,9 @@ async function refreshCommunityTournaments(btnElement = null) {
     await loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName, true);
     if (communityState.overview) {
       renderCommunityEvents();
+      if (communityState.tournamentsViewMode === 'calendar') {
+        renderTournamentsCalendar();
+      }
       fetchAndMergeBcpUpcoming(communityState.lat, communityState.lng, communityState.radiusMiles);
     }
     loadBcpMajors(true);
@@ -828,7 +830,7 @@ function setTournamentsQuickFilter(filter) {
   } else {
     communityState.tournamentsQuickFilter = filter;
   }
-  ['weekend', 'next_weekend', 'majors'].forEach(k => {
+  ['local', 'weekend', 'next_weekend', 'majors'].forEach(k => {
     const el = document.getElementById(`filter-chip-quick-${k.replace('_', '-')}`);
     if (el) {
       el.classList.toggle('active', communityState.tournamentsQuickFilter === k);
@@ -907,7 +909,15 @@ function renderMajorsCarousel() {
   const carousel = document.getElementById('comm-majors-carousel');
   if (!carousel) return;
 
-  const events = communityState.majorsList || [];
+  const rawEvents = communityState.majorsList || [];
+  const events = rawEvents.filter(ev => {
+    if (!ev || isLeagueOrMultiWeekEvent(ev)) return false;
+    if (communityState.eventsFilter === 'recent') {
+      return isTournamentEnded(ev);
+    }
+    return !isTournamentEnded(ev);
+  });
+
   if (events.length === 0) {
     if (communityState.majorsLoading) {
       carousel.innerHTML = `
@@ -939,21 +949,26 @@ function renderMajorsCarousel() {
     const players = Number(ev.total_players || 0);
     const capacity = ev.num_tickets ? Number(ev.num_tickets) : null;
     const tier = ev.tier || 'major';
-    const isOngoing = isTournamentOngoing(ev);
+    const isEnded = isTournamentEnded(ev);
+    const isOngoing = !isEnded && isTournamentOngoing(ev);
 
     // Tier badge
     let tierBadgeHtml = '';
     if (tier === 'super_major') {
       tierBadgeHtml = `<span class="comm-legend-pill pill-super-major" style="font-size: 0.68rem; padding: 2px 7px;">🟣 SUPER MAJOR</span>`;
-    } else if (ev.circuits || name.toLowerCase().includes('open') || name.toLowerCase().includes('gw')) {
+    } else if (ev.circuits && ev.circuits.length > 0 && (name.toLowerCase().includes('open') || name.toLowerCase().includes('gw'))) {
       tierBadgeHtml = `<span class="comm-legend-pill" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border-color: rgba(245, 158, 11, 0.35); font-size: 0.68rem; padding: 2px 7px;">🛡️ CIRCUIT</span>`;
+    } else if (tier === 'gt') {
+      tierBadgeHtml = `<span class="comm-legend-pill pill-gt" style="font-size: 0.68rem; padding: 2px 7px;">🟢 GT</span>`;
     } else {
       tierBadgeHtml = `<span class="comm-legend-pill pill-major" style="font-size: 0.68rem; padding: 2px 7px;">🔵 MAJOR</span>`;
     }
 
     // Countdown / status badge
     let timingBadge = '';
-    if (isOngoing) {
+    if (isEnded) {
+      timingBadge = `<span class="badge" style="background: rgba(168,85,247,0.18); color: #c084fc; border: 1px solid rgba(168,85,247,0.35); font-size: 0.68rem; font-weight: 800;">✓ Completed</span>`;
+    } else if (isOngoing) {
       timingBadge = `<span class="badge" style="background: rgba(245,158,11,0.2); color: #f59e0b; border: 1px solid rgba(245,158,11,0.4); font-size: 0.68rem; font-weight: 800;">🔥 LIVE NOW</span>`;
     } else if (ev.event_date) {
       const daysUntil = Math.ceil((new Date(ev.event_date) - new Date()) / (1000 * 60 * 60 * 24));
@@ -985,7 +1000,7 @@ function renderMajorsCarousel() {
         </div>
         <div style="margin-top: auto; display: flex; gap: 0.4rem;">
           <button class="btn btn-primary" style="flex: 1; font-size: 0.75rem; padding: 0.38rem 0.5rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${eid}')">
-            📋 Preview Event
+            ${isEnded ? '🏆 View Results' : '📋 Preview Event'}
           </button>
           <a href="https://www.bestcoastpairings.com/event/${eid}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.38rem 0.55rem; color: #94a3b8;" title="View on Best Coast Pairings">
             🔗 BCP
@@ -1062,6 +1077,93 @@ function getNormalizedEventEndDateStr(ev, startStr = '') {
 }
 window.getNormalizedEventEndDateStr = getNormalizedEventEndDateStr;
 
+function getEventDurationDays(ev) {
+  if (!ev) return 0;
+  const sStr = (ev.event_date || ev.eventDate || ev.start_date || '').slice(0, 10);
+  if (!sStr) return 0;
+  const eStr = getNormalizedEventEndDateStr(ev, sStr);
+  if (!eStr || eStr <= sStr) return 0;
+  const sDt = new Date(sStr + 'T12:00:00');
+  const eDt = new Date(eStr + 'T12:00:00');
+  if (isNaN(sDt.getTime()) || isNaN(eDt.getTime())) return 0;
+  return Math.max(0, Math.round((eDt.getTime() - sDt.getTime()) / 86400000));
+}
+
+function isLeagueOrMultiWeekEvent(ev) {
+  if (!ev) return false;
+  const durationDays = getEventDurationDays(ev);
+  if (durationDays > 4) return true;
+  const nLower = ` ${String(ev.name || ev.event_name || '').toLowerCase()} `;
+  const leagueTerms = [
+    'escalation',
+    'slow grow',
+    'slow-grow',
+    'crusade league',
+    'narrative league',
+    'monthly league',
+    'weekly league',
+    'seasonal league',
+    'summer league',
+    'winter league',
+    'spring league',
+    'fall league',
+    'autumn league',
+    'league season',
+    'pod league',
+    'store league',
+    'ladder league',
+    'combat patrol league',
+    'spearhead league',
+    'tabletop simulator',
+    ' tts ',
+    ' online '
+  ];
+  if (leagueTerms.some(kw => nLower.includes(kw))) return true;
+  if (/\bleagues?\b/.test(nLower)) {
+    const weekendTerms = ['gt', 'grand tournament', 'major', 'super major', 'open', 'championship', 'invitational', 'cup'];
+    if (!weekendTerms.some(wt => nLower.includes(wt)) || durationDays > 3) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function ensureEventTierMetadata(ev) {
+  if (!ev) return ev;
+  if (ev.tier && ev.tier_weight) return ev;
+  const nLower = ` ${String(ev.name || ev.event_name || '').toLowerCase()} `;
+  const totP = Number(ev.total_players || ev.totalPlayers || 0);
+  const numT = Number(ev.num_tickets || ev.numTickets || ev.capacity || 0);
+  const rounds = Number(ev.num_rounds || ev.numberOfRounds || 0);
+
+  if ((rounds > 0 && rounds <= 3) || (rounds <= 3 && (nLower.includes(' rtt ') || nLower.includes(' rtt')))) {
+    ev.tier = 'rtt';
+    ev.tier_weight = 1;
+    return ev;
+  }
+  const superTerms = ['lvo', 'las vegas open', 'adepticon', 'nova open', 'super major', 'london grand tournament', 'lgt', 'world championship', 'wtc', 'world team championship'];
+  if (totP >= 200 || numT >= 350 || superTerms.some(k => nLower.includes(k))) {
+    ev.tier = 'super_major';
+    ev.tier_weight = 4;
+    return ev;
+  }
+  const majorTerms = ['us open', ' open ', 'major', 'armadillo cup', 'championship', 'california cup', 'bfs gt', 'trials gx'];
+  if (totP >= 70 || numT >= 90 || rounds >= 6 || majorTerms.some(k => nLower.includes(k))) {
+    ev.tier = 'major';
+    ev.tier_weight = 3;
+    return ev;
+  }
+  const gtTerms = [' gt ', 'grand tournament', 'cup', 'brawl', 'clash'];
+  if (rounds > 3 || totP >= 28 || numT >= 32 || gtTerms.some(k => nLower.includes(k))) {
+    ev.tier = 'gt';
+    ev.tier_weight = 2;
+    return ev;
+  }
+  ev.tier = 'rtt';
+  ev.tier_weight = 1;
+  return ev;
+}
+
 function formatEventDateRangeLabel(ev) {
   if (!ev) return '';
   const sStr = (ev.event_date || ev.eventDate || ev.start_date || '').slice(0, 10);
@@ -1076,16 +1178,31 @@ window.formatEventDateRangeLabel = formatEventDateRangeLabel;
 
 function getAllDiscoveryTournaments() {
   const map = new Map();
+  const radiusLimit = Number(communityState.radiusMiles || 50) * 1.25;
+
+  // 1. Local Upcoming & Ongoing Events (all local events show regardless of format/duration)
   const rawUpcoming = communityState.overview?.events_upcoming || [];
   rawUpcoming.forEach(ev => {
-    if (ev && ev.id) map.set(ev.id, { ...ev });
+    if (ev && ev.id) {
+      const copy = ensureEventTierMetadata({ ...ev, is_local: true });
+      map.set(ev.id, copy);
+    }
   });
+
+  // 2. Local Recent / Past Events (for inspecting past tournament results on Calendar & Cards)
+  const rawRecent = communityState.overview?.events_recent || [];
+  rawRecent.forEach(ev => {
+    if (ev && ev.id && !map.has(ev.id)) {
+      const copy = ensureEventTierMetadata({ ...ev, is_local: true, is_ended: true });
+      map.set(ev.id, copy);
+    }
+  });
+
+  // 3. Global Weekend Large Events (Super Majors, Majors, GTs — strictly excluding non-local multi-week leagues & RTTs)
   const majors = communityState.majorsList || [];
   majors.forEach(ev => {
     if (!ev || !ev.id) return;
-    if (!map.has(ev.id)) {
-      map.set(ev.id, { ...ev });
-    } else {
+    if (map.has(ev.id)) {
       const existing = map.get(ev.id);
       const exStart = (existing.event_date || '').slice(0, 10);
       const exEnd = getNormalizedEventEndDateStr(existing, exStart);
@@ -1093,19 +1210,79 @@ function getAllDiscoveryTournaments() {
       if (majEnd && (!exEnd || majEnd > exEnd)) {
         existing.end_date = ev.end_date || ev.eventEndDate || ev.endDate || majEnd;
       }
-      if (!existing.tier && ev.tier) existing.tier = ev.tier;
-      if (!existing.tier_weight && ev.tier_weight) existing.tier_weight = ev.tier_weight;
+      if ((!existing.tier || existing.tier === 'rtt') && ev.tier) existing.tier = ev.tier;
+      if ((!existing.tier_weight || existing.tier_weight <= 1) && ev.tier_weight) existing.tier_weight = ev.tier_weight;
+      return;
     }
+
+    const isWithinLocalRadius = ev.distance_miles != null && Number(ev.distance_miles) <= radiusLimit;
+    const isLocal = Boolean(ev.is_local === true || isWithinLocalRadius);
+    const enriched = ensureEventTierMetadata({ ...ev, is_local: isLocal });
+
+    if (!isLocal) {
+      // Non-local events must strictly be weekend large tournaments (GT, Major, Super Major) and NEVER multi-week leagues
+      if (isLeagueOrMultiWeekEvent(enriched)) return;
+      if (!['super_major', 'major', 'gt'].includes(enriched.tier)) return;
+      const totPlayers = Number(enriched.total_players || 0);
+      const numTickets = Number(enriched.num_tickets || 0);
+      if (totPlayers < 28 && numTickets < 48) return;
+    }
+
+    map.set(enriched.id, enriched);
   });
+
   return Array.from(map.values());
 }
 
+function filterCalendarTournamentCandidate(ev) {
+  if (!ev || !ev.event_date) return false;
+  const startStr = ev.event_date.slice(0, 10);
+  const endStr = getNormalizedEventEndDateStr(ev, startStr);
+  const isEnded = isTournamentEnded(ev);
+
+  // Base filter: 'all' (both upcoming & past), 'upcoming', or 'recent' (past results)
+  if (communityState.eventsFilter === 'upcoming' && isEnded) return false;
+  if (communityState.eventsFilter === 'recent' && !isEnded) return false;
+
+  // Quick filters: 'local', 'majors', 'weekend', 'next_weekend'
+  if (communityState.tournamentsQuickFilter === 'local') {
+    if (!ev.is_local) return false;
+  } else if (communityState.tournamentsQuickFilter === 'majors') {
+    const isMaj = ev.is_major || ev.tier === 'super_major' || ev.tier === 'major' || ev.tier === 'gt' || (Number(ev.total_players || 0) >= 50);
+    if (!isMaj) return false;
+  } else if (communityState.tournamentsQuickFilter === 'weekend') {
+    if (!isDateInWeekend(startStr, 0) && !isDateInWeekend(endStr, 0)) return false;
+  } else if (communityState.tournamentsQuickFilter === 'next_weekend') {
+    if (!isDateInWeekend(startStr, 1) && !isDateInWeekend(endStr, 1)) return false;
+  }
+
+  // Venue filter if active
+  if (communityState.tournamentsVenueFilter) {
+    const vf = communityState.tournamentsVenueFilter.toLowerCase();
+    const vName = `${ev.venue || ''} ${ev.venue_name || ''} ${ev.city || ''} ${ev.location || ''} ${ev.name || ''}`.toLowerCase();
+    if (!vName.includes(vf) && !vf.includes(vName)) return false;
+  }
+
+  // Text search query filter if active
+  if (communityState.tournamentsSearchQuery) {
+    const q = communityState.tournamentsSearchQuery.trim().toLowerCase();
+    if (q) {
+      const hay = `${ev.name || ''} ${ev.venue || ''} ${ev.venue_name || ''} ${ev.city || ''} ${ev.state || ''} ${ev.country || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+  }
+
+  return true;
+}
+
 function getTournamentsOnDate(dateStr) {
-  const all = getAllDiscoveryTournaments();
+  const all = getAllDiscoveryTournaments().filter(filterCalendarTournamentCandidate);
   return all.filter(ev => {
-    if (!ev.event_date) return false;
     const evDate = ev.event_date.slice(0, 10);
     if (evDate === dateStr) return true;
+    const durationDays = getEventDurationDays(ev);
+    // Multi-week local leagues show on their start date rather than spanning every day for months
+    if (durationDays > 4) return false;
     const evEnd = getNormalizedEventEndDateStr(ev, evDate);
     if (evEnd && evEnd > evDate) {
       return dateStr >= evDate && dateStr <= evEnd;
@@ -1138,7 +1315,7 @@ function openCalendarDayDrawer(dateStr) {
   if (events.length === 0) {
     body.innerHTML = `
       <div style="grid-column: 1 / -1; padding: 1.5rem; text-align: center; color: var(--text-muted);">
-        No tournaments scheduled on this date.
+        No tournaments matching current filters on this date.
       </div>
     `;
   } else {
@@ -1146,30 +1323,50 @@ function openCalendarDayDrawer(dateStr) {
     events.forEach(ev => {
       const eid = escapeHtml(ev.id);
       const name = escapeHtml(ev.name || 'Tournament');
-      const loc = [ev.venue || ev.venue_name, ev.city, ev.state].filter(Boolean).join(', ') || 'Unspecified Location';
+      const loc = [ev.venue || ev.venue_name, ev.city, ev.state, (!ev.state && ev.country) ? ev.country : ''].filter(Boolean).join(', ') || 'Unspecified Location';
       const players = Number(ev.total_players || 0);
       const rounds = ev.num_rounds || 0;
       const tier = ev.tier || 'rtt';
       const sStr = (ev.event_date || '').slice(0, 10);
       const eStr = getNormalizedEventEndDateStr(ev, sStr);
       const dateSpanLabel = (eStr && eStr > sStr) ? `${sStr} – ${eStr}` : sStr;
+      const isEnded = isTournamentEnded(ev);
+      const isOngoing = !isEnded && isTournamentOngoing(ev);
+      const isLocal = Boolean(ev.is_local);
 
-      let tierBadge = `<span class="comm-legend-pill pill-rtt">RTT / Local</span>`;
+      let tierBadge = `<span class="comm-legend-pill pill-rtt">⚪ RTT</span>`;
       if (tier === 'super_major') {
         tierBadge = `<span class="comm-legend-pill pill-super-major">🟣 SUPER MAJOR</span>`;
       } else if (tier === 'major') {
         tierBadge = `<span class="comm-legend-pill pill-major">🔵 MAJOR</span>`;
       } else if (tier === 'gt') {
-        tierBadge = `<span class="comm-legend-pill pill-gt">🟢 GRAND TOURNAMENT</span>`;
+        tierBadge = `<span class="comm-legend-pill pill-gt">🟢 GT</span>`;
       }
 
+      const scopeBadge = isLocal
+        ? `<span class="comm-legend-pill pill-scope-local" title="Within your local search radius">📍 LOCAL${ev.distance_miles != null ? ` • ${Number(ev.distance_miles).toFixed(1)} mi` : ''}</span>`
+        : `<span class="comm-legend-pill pill-scope-global" title="Global Weekend Destination Event">🌐 GLOBAL</span>`;
+
+      let statusPill = '';
+      if (isEnded) {
+        statusPill = `<span class="comm-legend-pill pill-scope-past">✓ COMPLETED</span>`;
+      } else if (isOngoing) {
+        statusPill = `<span class="comm-legend-pill" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border-color: rgba(245, 158, 11, 0.4);">🔥 LIVE NOW</span>`;
+      }
+
+      const cardBorder = isLocal ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)';
+      const cardAccent = isLocal ? 'border-left: 4px solid #10b981;' : 'border-left: 4px solid #38bdf8;';
+
       html += `
-        <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 1rem; display: flex; flex-direction: column;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-            ${tierBadge}
-            ${ev.distance_miles != null ? `<span style="font-size: 0.7rem; color: #38bdf8; font-weight: 700;">🚗 ${Number(ev.distance_miles).toFixed(1)} mi</span>` : '<span style="font-size: 0.7rem; color: #a855f7; font-weight: 700;">🌟 Worldwide</span>'}
+        <div style="background: rgba(15, 23, 42, 0.9); border: ${cardBorder}; ${cardAccent} border-radius: 10px; padding: 1rem; display: flex; flex-direction: column;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+              ${scopeBadge}
+              ${tierBadge}
+            </div>
+            ${statusPill}
           </div>
-          <h4 style="margin: 0 0 0.35rem; color: #fff; font-size: 0.95rem; font-weight: 800;">${name}</h4>
+          <h4 style="margin: 0 0 0.35rem; color: #fff; font-size: 0.95rem; font-weight: 800; line-height: 1.35;">${name}</h4>
           <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.6rem;">📍 ${escapeHtml(loc)}</div>
           <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.72rem; color: #94a3b8; margin-bottom: 0.75rem;">
             ${dateSpanLabel ? `<span>📅 ${escapeHtml(dateSpanLabel)}</span>` : ''}
@@ -1177,10 +1374,10 @@ function openCalendarDayDrawer(dateStr) {
             ${rounds ? `<span>⚔️ ${rounds} Rounds</span>` : ''}
           </div>
           <div style="margin-top: auto; display: flex; gap: 0.4rem;">
-            <button class="btn btn-primary" style="flex: 1; font-size: 0.75rem; padding: 0.38rem;" onclick="openEventModal('${eid}')">
-              📋 Preview Event
+            <button class="btn btn-primary" style="flex: 1; font-size: 0.75rem; padding: 0.4rem; font-weight: 700;" onclick="openEventModal('${eid}')">
+              ${isEnded ? '🏆 View Results & Lists' : '📋 Preview Event'}
             </button>
-            <a href="https://www.bestcoastpairings.com/event/${eid}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.38rem 0.6rem; color: #94a3b8;">
+            <a href="https://www.bestcoastpairings.com/event/${eid}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.4rem 0.6rem; color: #94a3b8;">
               🔗 BCP
             </a>
           </div>
@@ -1216,35 +1413,25 @@ function renderTournamentsCalendar() {
   const todayStr = getLocalIsoDateStr(new Date());
 
   const allEvents = getAllDiscoveryTournaments();
+  const filteredEvents = allEvents.filter(filterCalendarTournamentCandidate);
   const eventsByDate = new Map();
 
-  allEvents.forEach(ev => {
-    if (!ev.event_date) return;
+  filteredEvents.forEach(ev => {
     const startStr = ev.event_date.slice(0, 10);
     const endStr = getNormalizedEventEndDateStr(ev, startStr);
+    const durationDays = getEventDurationDays(ev);
 
-    // Apply quick filter if set
-    if (communityState.tournamentsQuickFilter === 'majors') {
-      const isMaj = ev.is_major || ev.tier === 'super_major' || ev.tier === 'major' || (ev.total_players >= 50);
-      if (!isMaj) return;
-    } else if (communityState.tournamentsQuickFilter === 'weekend') {
-      if (!isDateInWeekend(startStr, 0) && !isDateInWeekend(endStr, 0)) return;
-    } else if (communityState.tournamentsQuickFilter === 'next_weekend') {
-      if (!isDateInWeekend(startStr, 1) && !isDateInWeekend(endStr, 1)) return;
-    }
-
-    // Apply text search query filter if set
-    if (communityState.tournamentsSearchQuery) {
-      const q = communityState.tournamentsSearchQuery.toLowerCase();
-      const name = (ev.name || '').toLowerCase();
-      const loc = [ev.venue, ev.venue_name, ev.city, ev.state].filter(Boolean).join(' ').toLowerCase();
-      if (!name.includes(q) && !loc.includes(q)) return;
+    // Local multi-week leagues (> 5 calendar days) display on their start date so they don't flood 42 cells
+    if (durationDays > 4) {
+      if (!eventsByDate.has(startStr)) eventsByDate.set(startStr, []);
+      eventsByDate.get(startStr).push(ev);
+      return;
     }
 
     let d = new Date(startStr + 'T12:00:00');
     const endDate = new Date(endStr + 'T12:00:00');
     let safety = 0;
-    while (d <= endDate && safety < 7) {
+    while (d <= endDate && safety < 5) {
       const dStr = getLocalIsoDateStr(d);
       if (!eventsByDate.has(dStr)) eventsByDate.set(dStr, []);
       eventsByDate.get(dStr).push(ev);
@@ -1253,7 +1440,7 @@ function renderTournamentsCalendar() {
     }
   });
 
-  // Sort each day's events so continuing multi-day tournaments of the same tier keep a consistent horizontal track across spanned days
+  // Sort each day's events: Local events first so users never miss nearby events, then by tier weight, start date, and player count
   const tierWeightOf = (ev) => {
     if (ev.tier_weight) return Number(ev.tier_weight);
     if (ev.tier === 'super_major') return 4;
@@ -1263,6 +1450,8 @@ function renderTournamentsCalendar() {
   };
   eventsByDate.forEach((list) => {
     list.sort((a, b) => {
+      const locDiff = (b.is_local ? 1 : 0) - (a.is_local ? 1 : 0);
+      if (locDiff !== 0) return locDiff;
       const twDiff = tierWeightOf(b) - tierWeightOf(a);
       if (twDiff !== 0) return twDiff;
       const sa = (a.event_date || '').slice(0, 10);
@@ -1307,41 +1496,49 @@ function renderTournamentsCalendar() {
     const isSelected = (cellDateStr === communityState.calendarSelectedDate);
 
     const dayEvents = eventsByDate.get(cellDateStr) || [];
+    const localCount = dayEvents.filter(e => e.is_local).length;
 
     let classes = ['comm-calendar-day'];
     if (isOtherMonth) classes.push('other-month');
     if (isWeekend) classes.push('weekend');
     if (isToday) classes.push('today');
     if (isSelected) classes.push('selected');
+    if (localCount > 0) classes.push('has-local-event');
 
     let chipsHtml = '';
     const maxChips = 2;
     dayEvents.slice(0, maxChips).forEach(ev => {
       const tier = ev.tier || 'rtt';
       let tierClass = 'rtt';
-      let tierIcon = '⚪';
       if (tier === 'super_major') {
         tierClass = 'super-major';
-        tierIcon = '🟣';
       } else if (tier === 'major') {
         tierClass = 'major';
-        tierIcon = '🔵';
       } else if (tier === 'gt') {
         tierClass = 'gt';
-        tierIcon = '🟢';
       }
+
+      const isLocal = Boolean(ev.is_local);
+      const isEnded = isTournamentEnded(ev);
+      const scopeClass = isLocal ? 'chip-local' : 'chip-global';
+      const endedClass = isEnded ? 'chip-ended' : '';
+      const scopeIcon = isLocal ? '📍' : '🌐';
+      const scopeTip = isLocal
+        ? `LOCAL${ev.distance_miles != null ? ` (${Number(ev.distance_miles).toFixed(1)} mi)` : ''}`
+        : `GLOBAL ${tier.replace('_', ' ').toUpperCase()}`;
 
       const evStartStr = (ev.event_date || '').slice(0, 10);
       const evEndStr = getNormalizedEventEndDateStr(ev, evStartStr);
       const isMultiDay = Boolean(evStartStr && evEndStr && evEndStr > evStartStr);
       const dateRangeTip = isMultiDay ? ` • ${evStartStr} to ${evEndStr}` : '';
+      const statusTip = isEnded ? ' • Completed (Click for Results)' : '';
 
-      const truncatedName = escapeHtml(ev.name || 'Event').slice(0, 18);
+      const truncatedName = escapeHtml(ev.name || 'Event').slice(0, 17);
       chipsHtml += `
-        <div class="comm-calendar-chip ${tierClass}" onclick="event.stopPropagation(); openEventModal('${escapeHtml(ev.id)}')" title="${escapeHtml(ev.name)}${dateRangeTip} (${ev.total_players || 0} players)">
-          <span class="comm-chip-icon">${tierIcon}</span>
-          <span class="comm-chip-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;">${truncatedName}</span>
-          ${ev.total_players ? `<span class="comm-chip-count" style="opacity: 0.8; font-size: 0.62rem; margin-left: auto;">(${ev.total_players})</span>` : ''}
+        <div class="comm-calendar-chip ${tierClass} ${scopeClass} ${endedClass}" onclick="event.stopPropagation(); openEventModal('${escapeHtml(ev.id)}')" title="[${scopeTip}] ${escapeHtml(ev.name)}${dateRangeTip} (${ev.total_players || 0} players)${statusTip}">
+          <span class="comm-chip-scope ${isLocal ? 'local' : 'global'}">${scopeIcon}</span>
+          <span class="comm-chip-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;">${truncatedName}</span>
+          ${isEnded ? `<span class="comm-chip-done" title="Completed — Click for Results">✓</span>` : (ev.total_players ? `<span class="comm-chip-count" style="opacity: 0.85; font-size: 0.6rem; margin-left: auto;">(${ev.total_players})</span>` : '')}
         </div>
       `;
     });
@@ -1363,7 +1560,9 @@ function renderTournamentsCalendar() {
         if (tier === 'super_major') dotClass = 'super-major';
         else if (tier === 'major') dotClass = 'major';
         else if (tier === 'gt') dotClass = 'gt';
-        dotsHtml += `<span class="comm-cal-dot ${dotClass}" title="${escapeHtml(ev.name)}"></span>`;
+        if (ev.is_local) dotClass += ' dot-local';
+        if (isTournamentEnded(ev)) dotClass += ' dot-ended';
+        dotsHtml += `<span class="comm-cal-dot ${dotClass}" title="${ev.is_local ? '📍 Local: ' : '🌐 Global: '}${escapeHtml(ev.name)}"></span>`;
       });
       if (dayEvents.length > maxDots) {
         dotsHtml += `<span class="comm-cal-dot-more">+${dayEvents.length - maxDots}</span>`;
@@ -1374,7 +1573,10 @@ function renderTournamentsCalendar() {
       <div class="${classes.join(' ')}" data-date="${cellDateStr}" onclick="openCalendarDayDrawer('${cellDateStr}')">
         <div class="comm-calendar-day-header">
           <span class="comm-calendar-day-num">${dayNum}</span>
-          ${isToday ? `<span class="comm-calendar-day-badge" style="background: #38bdf8; color: #070b14;">TODAY</span>` : ''}
+          <div style="display: inline-flex; align-items: center; gap: 3px;">
+            ${localCount > 0 ? `<span class="comm-cal-local-pin" title="${localCount} Local Event(s) within ${communityState.radiusMiles || 50} mi">📍${localCount > 1 ? localCount : ''}</span>` : ''}
+            ${isToday ? `<span class="comm-calendar-day-badge" style="background: #38bdf8; color: #070b14;">TODAY</span>` : ''}
+          </div>
         </div>
         <div class="comm-calendar-events-list">
           <div class="comm-calendar-desktop-events">
@@ -1389,6 +1591,10 @@ function renderTournamentsCalendar() {
   }
 
   grid.innerHTML = html;
+
+  if (communityState.calendarSelectedDate) {
+    openCalendarDayDrawer(communityState.calendarSelectedDate);
+  }
 }
 
 /**
@@ -1398,10 +1604,22 @@ function renderTournamentsCalendar() {
  */
 function setCommunityEventsFilter(filter) {
   communityState.eventsFilter = filter;
-  document.querySelectorAll('#comm-subview-tournaments .comm-filter-chip').forEach(c => {
+  document.querySelectorAll('#comm-subview-tournaments .comm-filter-chip[data-filter]').forEach(c => {
     c.classList.toggle('active', c.dataset.filter === filter);
   });
+  if (filter === 'recent' && communityState.calendarDate) {
+    const now = new Date();
+    const curY = communityState.calendarDate.getFullYear();
+    const curM = communityState.calendarDate.getMonth();
+    if (curY > now.getFullYear() || (curY === now.getFullYear() && curM > now.getMonth())) {
+      communityState.calendarDate = new Date();
+    }
+  }
+  renderMajorsCarousel();
   renderCommunityEvents();
+  if (communityState.tournamentsViewMode === 'calendar') {
+    renderTournamentsCalendar();
+  }
 }
 
 function renderCommunityEvents() {
@@ -1486,7 +1704,17 @@ function renderCommunityEvents() {
 
   // Apply quick action / weekend filters
   let activeQuickFilterNotice = '';
-  if (communityState.tournamentsQuickFilter === 'weekend') {
+  if (communityState.tournamentsQuickFilter === 'local') {
+    activeQuickFilterNotice = `
+      <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 8px; padding: 0.65rem 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="font-size: 0.85rem; color: #d1fae5; display: flex; align-items: center; gap: 8px;">
+          <span>📍</span>
+          <span>Showing <strong>Local Community Events</strong> within ${communityState.radiusMiles} miles (${displayedUpcoming.length} upcoming, ${displayedRecent.length} recent)</span>
+        </div>
+        <button onclick="setTournamentsQuickFilter('all')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.25rem 0.65rem; color: #34d399;">✕ Show All</button>
+      </div>
+    `;
+  } else if (communityState.tournamentsQuickFilter === 'weekend') {
     displayedUpcoming = displayedUpcoming.filter(ev => isDateInWeekend(ev.event_date, 0));
     activeQuickFilterNotice = `
       <div style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 0.65rem 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -1509,20 +1737,31 @@ function renderCommunityEvents() {
       </div>
     `;
   } else if (communityState.tournamentsQuickFilter === 'majors') {
-    displayedUpcoming = displayedUpcoming.filter(ev => ev.is_major || ev.tier === 'super_major' || ev.tier === 'major' || (ev.total_players >= 50));
-    const existingIds = new Set(displayedUpcoming.map(e => e.id));
+    displayedUpcoming = displayedUpcoming.filter(ev => ev.is_major || ev.tier === 'super_major' || ev.tier === 'major' || ev.tier === 'gt' || (ev.total_players >= 50));
+    displayedRecent = displayedRecent.filter(ev => ev.is_major || ev.tier === 'super_major' || ev.tier === 'major' || ev.tier === 'gt' || (ev.total_players >= 50));
+    const existingUpIds = new Set(displayedUpcoming.map(e => e.id));
+    const existingRecIds = new Set(displayedRecent.map(e => e.id));
     (communityState.majorsList || []).forEach(m => {
-      if (m && m.id && !existingIds.has(m.id)) {
-        existingIds.add(m.id);
-        displayedUpcoming.push(m);
+      if (!m || !m.id || isLeagueOrMultiWeekEvent(m)) return;
+      if (isTournamentEnded(m)) {
+        if (!existingRecIds.has(m.id)) {
+          existingRecIds.add(m.id);
+          displayedRecent.push(m);
+        }
+      } else {
+        if (!existingUpIds.has(m.id)) {
+          existingUpIds.add(m.id);
+          displayedUpcoming.push(m);
+        }
       }
     });
     displayedUpcoming.sort((a, b) => (a.event_date || '9999').localeCompare(b.event_date || '9999'));
+    displayedRecent.sort((a, b) => (b.event_date || '').localeCompare(a.event_date || ''));
     activeQuickFilterNotice = `
       <div style="background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 8px; padding: 0.65rem 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
         <div style="font-size: 0.85rem; color: #f3e8ff; display: flex; align-items: center; gap: 8px;">
           <span>🌟</span>
-          <span>Showing <strong>Premier Majors &amp; Super Majors Worldwide</strong> (${displayedUpcoming.length} premier destination events)</span>
+          <span>Showing <strong>Premier Majors, Super Majors &amp; GTs Worldwide</strong> (${displayedUpcoming.length} upcoming, ${displayedRecent.length} past)</span>
         </div>
         <button onclick="setTournamentsQuickFilter('all')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.25rem 0.65rem; color: #c084fc;">✕ Clear Majors Filter</button>
       </div>
@@ -1551,7 +1790,7 @@ function renderCommunityEvents() {
     c.classList.toggle('active', c.dataset.filter === (communityState.eventsFilter || 'all'));
   });
 
-  ['weekend', 'next_weekend', 'majors'].forEach(k => {
+  ['local', 'weekend', 'next_weekend', 'majors'].forEach(k => {
     const el = document.getElementById(`filter-chip-quick-${k.replace('_', '-')}`);
     if (el) {
       el.classList.toggle('active', communityState.tournamentsQuickFilter === k);
@@ -1568,6 +1807,10 @@ function renderCommunityEvents() {
     displayedRecent = [];
   } else if (communityState.eventsFilter === 'recent') {
     displayedUpcoming = [];
+  }
+
+  if (communityState.tournamentsViewMode === 'calendar') {
+    renderTournamentsCalendar();
   }
 
   const userElo = (typeof currentUser !== 'undefined' && currentUser && currentUser.current_elo)
@@ -2088,6 +2331,7 @@ async function fetchAndMergeBcpUpcoming(lat, lng, radiusMiles) {
           }
           if (updated) hasNewOrUpdated = true;
         } else {
+          bEv.is_local = true;
           merged.push(bEv);
           existingMap.set(eid, bEv);
           hasNewOrUpdated = true;
@@ -2106,6 +2350,9 @@ async function fetchAndMergeBcpUpcoming(lat, lng, radiusMiles) {
         // Re-render if currently on tournaments subtab
         if (communityState.activeSubtab === 'tournaments') {
           renderCommunityEvents();
+          if (communityState.tournamentsViewMode === 'calendar') {
+            renderTournamentsCalendar();
+          }
         }
 
         // Hydrate field stats for any new upcoming events that lack them
@@ -3654,6 +3901,9 @@ function filterTournamentsByVenue(venueName) {
 function clearTournamentsVenueFilter() {
   communityState.tournamentsVenueFilter = null;
   renderCommunityEvents();
+  if (communityState.tournamentsViewMode === 'calendar') {
+    renderTournamentsCalendar();
+  }
 }
 
 /**
@@ -3661,10 +3911,9 @@ function clearTournamentsVenueFilter() {
  */
 function filterCommunityTournaments(query) {
   communityState.tournamentsSearchQuery = (query || '').trim();
+  renderCommunityEvents();
   if (communityState.tournamentsViewMode === 'calendar') {
     renderTournamentsCalendar();
-  } else {
-    renderCommunityEvents();
   }
 }
 
