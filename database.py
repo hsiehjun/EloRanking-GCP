@@ -7436,17 +7436,17 @@ class PostgresDatabase:
         if self._is_mock_instance() or not hasattr(self, "get_connection") or hasattr(self.get_connection, "_mock_name"):
             return results
 
-        # Process in chunks of up to 75 events so even players with 150+ tournaments complete in ~25-50ms total
-        batch_size = 75
-        for idx in range(0, len(missing_eids), batch_size):
-            batch_eids = missing_eids[idx:idx + batch_size]
-            if not batch_eids:
-                continue
-            try:
-                with self.get_connection() as conn:
-                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                        if not type(cur).__module__.startswith("unittest.mock"):
-                            cur.execute(f"SET LOCAL statement_timeout = '{int(max(250, timeout_ms))}ms';")
+        # Process in chunks of up to 150 events on a single connection so even players with 120+ tournaments complete in 1 SQL round-trip (~40-90ms)
+        batch_size = 150
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    if not type(cur).__module__.startswith("unittest.mock"):
+                        cur.execute(f"SET LOCAL statement_timeout = '{int(max(250, timeout_ms))}ms';")
+                    for idx in range(0, len(missing_eids), batch_size):
+                        batch_eids = missing_eids[idx:idx + batch_size]
+                        if not batch_eids:
+                            continue
                         cur.execute(
                             """
                             WITH target_events AS MATERIALIZED (
@@ -7457,15 +7457,13 @@ class PostgresDatabase:
                                 FROM UNNEST(%(eids)s::text[]) AS eid
                                 LEFT JOIN events e ON e.id = eid
                             ),
-                            raw_matches AS MATERIALIZED (
+                            raw_matches AS (
                                 SELECT
                                     m.event_id,
                                     COALESCE(m.round, 1) AS round_num,
                                     m.player1_id,
-                                    NULLIF(TRIM(m.player1_name), '') AS player1_name,
                                     COALESCE(m.player1_score, 0) AS p1_score,
                                     m.player2_id,
-                                    NULLIF(TRIM(m.player2_name), '') AS player2_name,
                                     COALESCE(m.player2_score, 0) AS p2_score,
                                     NULLIF(m.winner_id, '') AS winner_id,
                                     NULLIF(m.loser_id, '') AS loser_id,
@@ -7485,7 +7483,6 @@ class PostgresDatabase:
                                 SELECT
                                     rm.event_id,
                                     v.pid,
-                                    v.match_name,
                                     rm.round_num,
                                     v.is_win,
                                     v.is_loss,
@@ -7496,7 +7493,6 @@ class PostgresDatabase:
                                     VALUES
                                         (
                                             rm.player1_id,
-                                            rm.player1_name,
                                             CASE WHEN rm.winner_id = rm.player1_id OR (rm.winner_id IS NULL AND NOT rm.is_draw AND rm.has_scores AND rm.p1_score > rm.p2_score) THEN 1 ELSE 0 END,
                                             CASE WHEN rm.loser_id = rm.player1_id OR (rm.winner_id IS NOT NULL AND rm.winner_id != rm.player1_id) OR (rm.winner_id IS NULL AND NOT rm.is_draw AND rm.has_scores AND rm.p1_score < rm.p2_score) THEN 1 ELSE 0 END,
                                             CASE WHEN rm.is_draw OR (rm.winner_id IS NULL AND rm.has_scores AND rm.p1_score = rm.p2_score AND (rm.p1_score > 0 OR rm.is_done)) THEN 1 ELSE 0 END,
@@ -7504,23 +7500,18 @@ class PostgresDatabase:
                                         ),
                                         (
                                             CASE WHEN NOT rm.is_bye THEN rm.player2_id ELSE NULL END,
-                                            rm.player2_name,
                                             CASE WHEN rm.winner_id = rm.player2_id OR (rm.winner_id IS NULL AND NOT rm.is_draw AND rm.has_scores AND rm.p2_score > rm.p1_score) THEN 1 ELSE 0 END,
                                             CASE WHEN rm.loser_id = rm.player2_id OR (rm.winner_id IS NOT NULL AND rm.winner_id != rm.player2_id) OR (rm.winner_id IS NULL AND NOT rm.is_draw AND rm.has_scores AND rm.p2_score < rm.p1_score) THEN 1 ELSE 0 END,
                                             CASE WHEN rm.is_draw OR (rm.winner_id IS NULL AND rm.has_scores AND rm.p1_score = rm.p2_score AND (rm.p2_score > 0 OR rm.is_done)) THEN 1 ELSE 0 END,
                                             rm.p2_score
                                         )
-                                ) AS v(pid, match_name, is_win, is_loss, is_draw, match_bp)
+                                ) AS v(pid, is_win, is_loss, is_draw, match_bp)
                                 WHERE v.pid IS NOT NULL AND v.pid != ''
                             ),
                             agg_match_players AS (
                                 SELECT
                                     emo.event_id,
                                     emo.pid,
-                                    LOWER(TRIM(COALESCE(
-                                        MAX(CASE WHEN emo.match_name IS NOT NULL AND LOWER(emo.match_name) NOT IN ('player', 'player 1', 'player 2', 'unknown', 'unknown player', 'bye') THEN emo.match_name END),
-                                        ''
-                                    ))) AS norm_name,
                                     COUNT(*)::int AS matches_played,
                                     SUM(emo.is_win)::int AS wins,
                                     SUM(emo.is_loss)::int AS losses,
@@ -7535,10 +7526,6 @@ class PostgresDatabase:
                                 SELECT
                                     ep.event_id,
                                     ep.player_id AS pid,
-                                    LOWER(TRIM(COALESCE(
-                                        MAX(CASE WHEN ep.full_name IS NOT NULL AND LOWER(TRIM(ep.full_name)) NOT IN ('', 'player', 'player 1', 'player 2', 'unknown', 'unknown player', 'bye') THEN ep.full_name END),
-                                        ''
-                                    ))) AS norm_name,
                                     MIN(NULLIF(ep.placement, 0)) AS ep_placement,
                                     MIN(NULLIF(ep.pod_num, 0)) AS ep_pod_num,
                                     MAX(ep.battle_points) AS ep_bp,
@@ -7552,7 +7539,6 @@ class PostgresDatabase:
                                 SELECT
                                     COALESCE(amp.event_id, aep.event_id) AS event_id,
                                     COALESCE(amp.pid, aep.pid) AS pid,
-                                    COALESCE(NULLIF(amp.norm_name, ''), NULLIF(aep.norm_name, ''), '') AS norm_name,
                                     COALESCE(amp.matches_played, 0) AS matches_played,
                                     COALESCE(amp.wins, 0) AS wins,
                                     COALESCE(amp.losses, 0) AS losses,
@@ -7569,7 +7555,6 @@ class PostgresDatabase:
                                 SELECT
                                     cc.event_id,
                                     cc.pid,
-                                    cc.norm_name,
                                     cc.wins,
                                     cc.losses,
                                     cc.draws,
@@ -7609,7 +7594,6 @@ class PostgresDatabase:
                                 rc.event_id,
                                 MAX(GREATEST(COALESCE(te.ev_total_players, 0), rc.computed_total_players, rc.computed_rank))::int AS total_players,
                                 jsonb_object_agg(rc.pid, rc.computed_rank) FILTER (WHERE rc.pid IS NOT NULL AND rc.pid != '') AS by_id,
-                                jsonb_object_agg(rc.norm_name, rc.computed_rank) FILTER (WHERE rc.norm_name IS NOT NULL AND rc.norm_name != '') AS by_name,
                                 COALESCE(MAX(erm.by_record::text)::jsonb, '{}'::jsonb) AS by_record
                             FROM ranked_competitors rc
                             JOIN target_events te ON te.event_id = rc.event_id
@@ -7625,16 +7609,14 @@ class PostgresDatabase:
                             if not eid:
                                 continue
                             raw_by_id = r.get("by_id")
-                            raw_by_name = r.get("by_name")
                             raw_by_rec = r.get("by_record")
                             by_id = {str(k): int(v) for k, v in (raw_by_id or {}).items() if v is not None} if isinstance(raw_by_id, dict) else {}
-                            by_name = {str(k).lower(): int(v) for k, v in (raw_by_name or {}).items() if v is not None} if isinstance(raw_by_name, dict) else {}
                             by_record = {str(k): int(v) for k, v in (raw_by_rec or {}).items() if v is not None} if isinstance(raw_by_rec, dict) else {}
                             max_tot = int(r.get("total_players") or 0)
-                            if by_id or by_name or by_record:
+                            if by_id or by_record:
                                 payload = {
                                     "by_id": by_id,
-                                    "by_name": by_name,
+                                    "by_name": {},
                                     "by_record": by_record,
                                     "active_count": max_tot,
                                     "fetched_ok": True,
@@ -7646,8 +7628,8 @@ class PostgresDatabase:
                                     max_size=4000,
                                 )
                                 results[eid] = payload
-            except Exception as e:
-                logger.debug(f"_resolve_db_swiss_placings_for_events notice: {e}")
+        except Exception as e:
+            logger.debug(f"_resolve_db_swiss_placings_for_events notice: {e}")
 
         return results
 
@@ -7988,9 +7970,11 @@ class PostgresDatabase:
                 plc_payload = self.fetch_and_cache_bcp_event_placings(eid, timeout=req_timeout, persist_async=is_mock)
                 return eid, plc_payload
 
-            bg_eids = list(missing_eids) if is_mock else list(missing_eids[:6])
+            bg_eids = list(missing_eids) if is_mock else list(missing_eids[:3])
             if bg_eids or rem_unplaced:
                 def _bg_warm_bcp_placings(eids_to_warm: List[str], extra_unplaced: List[str], p_id: str, p_norm: str, target_list: List[Dict[str, Any]]):
+                    if not is_mock:
+                        time.sleep(2.0)
                     def _apply_to_list(t_list: List[Dict[str, Any]]):
                         for t_item in t_list:
                             if not isinstance(t_item, dict):
@@ -8079,9 +8063,9 @@ class PostgresDatabase:
                             pass
 
                     if eids_to_warm:
-                        bg_pool = ThreadPoolExecutor(max_workers=min(3, max(1, len(eids_to_warm))))
+                        bg_pool = ThreadPoolExecutor(max_workers=1)
                         try:
-                            futs_bg = [bg_pool.submit(_fetch_one_bcp_placing, b_eid, 1.8) for b_eid in eids_to_warm]
+                            futs_bg = [bg_pool.submit(_fetch_one_bcp_placing, b_eid, 1.5) for b_eid in eids_to_warm]
                             completed_cnt = 0
                             try:
                                 for fut_b in as_completed(futs_bg, timeout=15.0):
@@ -9566,41 +9550,33 @@ class PostgresDatabase:
                           AND TRIM(ep.faction) != ''
                         GROUP BY ep.event_id
                     ),
-                    raw_hist AS MATERIALIZED (
+                    player_hist AS MATERIALIZED (
                         SELECT h.*,
-                               m.player1_id AS m_p1_id,
-                               m.player2_id AS m_p2_id,
-                               m.player1_faction AS m_p1_fac,
-                               m.player2_faction AS m_p2_fac,
+                               COALESCE(
+                                   NULLIF(NULLIF(TRIM(h.player_faction), ''), 'Unknown'),
+                                   CASE WHEN m.player1_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player1_faction), ''), 'Unknown')
+                                        WHEN m.player2_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player2_faction), ''), 'Unknown')
+                                        ELSE NULL END,
+                                   pep.ep_faction,
+                                   h.player_faction
+                               ) AS enriched_player_faction,
+                               COALESCE(
+                                   NULLIF(NULLIF(TRIM(h.opponent_faction), ''), 'Unknown'),
+                                   CASE WHEN m.player1_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player2_faction), ''), 'Unknown')
+                                        WHEN m.player2_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player1_faction), ''), 'Unknown')
+                                        ELSE NULL END,
+                                   h.opponent_faction
+                               ) AS enriched_opponent_faction,
+                               e.name AS event_name,
                                m.table_number,
                                m.event_id AS m_event_id,
                                m.round AS m_round,
                                COALESCE(h.event_id, m.event_id) AS eff_event_id
                         FROM rating_history h
                         LEFT JOIN matches m ON h.match_id = m.id
+                        LEFT JOIN events e ON e.id = COALESCE(h.event_id, m.event_id)
+                        LEFT JOIN player_ep pep ON pep.event_id = COALESCE(h.event_id, m.event_id)
                         {where_sql}
-                    ),
-                    player_hist AS MATERIALIZED (
-                        SELECT rh.*,
-                               COALESCE(
-                                   NULLIF(NULLIF(TRIM(rh.player_faction), ''), 'Unknown'),
-                                   CASE WHEN rh.m_p1_id = rh.player_id THEN NULLIF(NULLIF(TRIM(rh.m_p1_fac), ''), 'Unknown')
-                                        WHEN rh.m_p2_id = rh.player_id THEN NULLIF(NULLIF(TRIM(rh.m_p2_fac), ''), 'Unknown')
-                                        ELSE NULL END,
-                                   pep.ep_faction,
-                                   rh.player_faction
-                               ) AS enriched_player_faction,
-                               COALESCE(
-                                   NULLIF(NULLIF(TRIM(rh.opponent_faction), ''), 'Unknown'),
-                                   CASE WHEN rh.m_p1_id = rh.player_id THEN NULLIF(NULLIF(TRIM(rh.m_p2_fac), ''), 'Unknown')
-                                        WHEN rh.m_p2_id = rh.player_id THEN NULLIF(NULLIF(TRIM(rh.m_p1_fac), ''), 'Unknown')
-                                        ELSE NULL END,
-                                   rh.opponent_faction
-                               ) AS enriched_opponent_faction,
-                               e.name AS event_name
-                        FROM raw_hist rh
-                        LEFT JOIN events e ON e.id = rh.eff_event_id
-                        LEFT JOIN player_ep pep ON pep.event_id = rh.eff_event_id
                     ),
                     player_tg AS MATERIALIZED (
                         SELECT DISTINCT ON (LOWER(event_id), round_num, table_num)
@@ -9610,9 +9586,10 @@ class PostgresDatabase:
                                match_id,
                                is_finished
                         FROM tracker_games
-                        WHERE event_id IN (
-                            SELECT DISTINCT eff_event_id FROM raw_hist WHERE eff_event_id IS NOT NULL
-                        )
+                        WHERE event_id IS NOT NULL
+                          AND LOWER(event_id) IN (
+                              SELECT DISTINCT LOWER(eff_event_id) FROM player_hist WHERE eff_event_id IS NOT NULL
+                          )
                         ORDER BY
                                LOWER(event_id),
                                round_num,
@@ -9634,8 +9611,7 @@ class PostgresDatabase:
                     """, tuple([player_id] + params))
                     rows = [dict(r) for r in cursor.fetchall()]
                     for r in rows:
-                        for tmp_k in ("m_p1_id", "m_p2_id", "m_p1_fac", "m_p2_fac", "eff_event_id"):
-                            r.pop(tmp_k, None)
+                        r.pop("eff_event_id", None)
                         if not r.get("event_id") and r.get("m_event_id"):
                             r["event_id"] = r["m_event_id"]
                         epf = r.pop("enriched_player_faction", None)
