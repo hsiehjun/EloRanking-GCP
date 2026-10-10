@@ -2719,15 +2719,50 @@ class PostgresDatabase:
 
         with self.get_connection() as conn:
             loc_obj = event_data.get("location") if isinstance(event_data.get("location"), dict) else {}
-            venue_val = event_data.get("venue_name") or event_data.get("venue") or loc_obj.get("name") or loc_obj.get("venue")
-            addr_val = event_data.get("address") or loc_obj.get("address")
-            zip_val = event_data.get("postal_code") or event_data.get("postalCode") or loc_obj.get("postalCode")
-            place_id_val = event_data.get("place_id") or loc_obj.get("placeId") or loc_obj.get("place_id")
+            venue_val = (
+                event_data.get("venue_name")
+                or event_data.get("venue")
+                or event_data.get("venueName")
+                or event_data.get("locationName")
+                or loc_obj.get("venueName")
+                or loc_obj.get("name")
+                or loc_obj.get("venue")
+            )
+            street_combined = f"{event_data.get('streetNum') or loc_obj.get('streetNum') or ''} {event_data.get('streetName') or loc_obj.get('streetName') or ''}".strip()
+            addr_val = (
+                event_data.get("address")
+                or event_data.get("formatted_address")
+                or event_data.get("formattedAddress")
+                or loc_obj.get("address")
+                or loc_obj.get("formatted_address")
+                or loc_obj.get("formattedAddress")
+                or street_combined
+                or None
+            )
+            zip_val = (
+                event_data.get("postal_code")
+                or event_data.get("postalCode")
+                or event_data.get("zip")
+                or loc_obj.get("postalCode")
+                or loc_obj.get("zip")
+            )
+            place_id_val = (
+                event_data.get("place_id")
+                or event_data.get("locationId")
+                or event_data.get("location_Id")
+                or loc_obj.get("placeId")
+                or loc_obj.get("place_id")
+            )
             lat_val = event_data.get("latitude") if event_data.get("latitude") is not None else event_data.get("lat")
             lng_val = event_data.get("longitude") if event_data.get("longitude") is not None else event_data.get("lng")
-            if (lat_val is None or lng_val is None) and isinstance(loc_obj.get("coordinate"), list) and len(loc_obj["coordinate"]) >= 2:
-                lng_val = loc_obj["coordinate"][0]
-                lat_val = loc_obj["coordinate"][1]
+            coord_arr = (
+                event_data.get("coordinate")
+                or ((event_data.get("coordinate_point") or {}).get("coordinates") if isinstance(event_data.get("coordinate_point"), dict) else None)
+                or loc_obj.get("coordinate")
+            )
+            if (lat_val is None or lng_val is None) and isinstance(coord_arr, list) and len(coord_arr) >= 2:
+                lng_val = coord_arr[0]
+                lat_val = coord_arr[1]
 
             game_sys_id = event_data.get("gameSystemId", event_data.get("game_system_id"))
             raw_gs = (event_data.get("game_system") or "").strip().lower()
@@ -4173,6 +4208,7 @@ class PostgresDatabase:
                 # 1. Event metadata (project lightweight keys from raw_json to avoid multi-MB TOAST decompression)
                 cursor.execute("""
                 SELECT id, name, event_date, end_date, city, state, country,
+                       venue, venue_name, address, postal_code, latitude, longitude, place_id,
                        total_players, num_rounds, current_round, is_ended,
                        COALESCE(game_system, '40k') as game_system,
                        CASE
@@ -4218,7 +4254,21 @@ class PostgresDatabase:
                                    'eventDescription', raw_json->'eventDescription',
                                    'eventDescriptionMarkup', raw_json->'eventDescriptionMarkup',
                                    'venueName', raw_json->'venueName',
+                                   'locationName', raw_json->'locationName',
                                    'location', raw_json->'location',
+                                   'formatted_address', raw_json->'formatted_address',
+                                   'formattedAddress', raw_json->'formattedAddress',
+                                   'address', raw_json->'address',
+                                   'streetNum', raw_json->'streetNum',
+                                   'streetName', raw_json->'streetName',
+                                   'city', raw_json->'city',
+                                   'state', raw_json->'state',
+                                   'country', raw_json->'country',
+                                   'zip', raw_json->'zip',
+                                   'postalCode', raw_json->'postalCode',
+                                   'coordinate', raw_json->'coordinate',
+                                   'coordinate_point', raw_json->'coordinate_point',
+                                   'locationId', raw_json->'locationId',
                                    'eventDate', raw_json->'eventDate',
                                    'startDate', raw_json->'startDate',
                                    'endDate', raw_json->'endDate',
@@ -4238,6 +4288,57 @@ class PostgresDatabase:
                 if not event_row:
                     return None
                 res = dict(event_row)
+                raw_meta = res.get("raw_json") if isinstance(res.get("raw_json"), dict) else {}
+                raw_loc = raw_meta.get("location") if isinstance(raw_meta.get("location"), dict) else {}
+                if not res.get("city"):
+                    res["city"] = raw_meta.get("city") or raw_loc.get("city") or ""
+                if not res.get("state"):
+                    res["state"] = raw_meta.get("state") or raw_loc.get("state") or ""
+                if not res.get("country"):
+                    res["country"] = raw_meta.get("country") or raw_loc.get("country") or ""
+                venue_resolved = (
+                    res.get("venue_name")
+                    or res.get("venue")
+                    or raw_meta.get("venueName")
+                    or raw_meta.get("locationName")
+                    or raw_loc.get("venueName")
+                    or raw_loc.get("name")
+                    or raw_loc.get("venue")
+                    or ""
+                )
+                if venue_resolved and str(venue_resolved).strip().lower() != str(res.get("city") or "").strip().lower():
+                    res["venue_name"] = str(venue_resolved).strip()
+                    res["venue"] = str(venue_resolved).strip()
+                street_str = f"{raw_meta.get('streetNum') or raw_loc.get('streetNum') or ''} {raw_meta.get('streetName') or raw_loc.get('streetName') or ''}".strip()
+                if street_str:
+                    res["street_address"] = street_str
+                addr_resolved = (
+                    res.get("address")
+                    or raw_meta.get("formatted_address")
+                    or raw_meta.get("formattedAddress")
+                    or raw_meta.get("address")
+                    or raw_loc.get("formatted_address")
+                    or raw_loc.get("address")
+                    or street_str
+                    or ""
+                )
+                if addr_resolved:
+                    res["address"] = str(addr_resolved).strip()
+                    res["formatted_address"] = str(raw_meta.get("formatted_address") or raw_meta.get("formattedAddress") or addr_resolved).strip()
+                if not res.get("postal_code"):
+                    res["postal_code"] = str(raw_meta.get("zip") or raw_meta.get("postalCode") or raw_loc.get("postalCode") or raw_loc.get("zip") or "").strip() or None
+                if res.get("latitude") is None or res.get("longitude") is None:
+                    coord_arr = (
+                        raw_meta.get("coordinate")
+                        or ((raw_meta.get("coordinate_point") or {}).get("coordinates") if isinstance(raw_meta.get("coordinate_point"), dict) else None)
+                        or raw_loc.get("coordinate")
+                    )
+                    if isinstance(coord_arr, list) and len(coord_arr) >= 2:
+                        try:
+                            res["longitude"] = float(coord_arr[0])
+                            res["latitude"] = float(coord_arr[1])
+                        except (ValueError, TypeError):
+                            pass
                 ev_gs = str(res.get("game_system") or "40k").strip().lower()
 
                 # 2. Match pairings with digital tracker game linkage (single materialized CTE instead of per-row LATERAL)
@@ -5439,6 +5540,9 @@ class PostgresDatabase:
                 sql = f"""
                 WITH page_events AS (
                     SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
+                           COALESCE(NULLIF(TRIM(e.venue_name), ''), NULLIF(TRIM(e.venue), ''), NULLIF(TRIM(e.raw_json->>'locationName'), ''), NULLIF(TRIM(e.raw_json->>'venueName'), '')) as venue_name,
+                           COALESCE(NULLIF(TRIM(e.address), ''), NULLIF(TRIM(e.raw_json->>'formatted_address'), ''), NULLIF(TRIM(e.raw_json->>'formattedAddress'), ''), NULLIF(TRIM(CONCAT_WS(' ', e.raw_json->>'streetNum', e.raw_json->>'streetName')), '')) as address,
+                           e.postal_code, e.latitude, e.longitude,
                            e.total_players, e.num_rounds, e.current_round, e.is_ended
                     FROM events e
                     WHERE {where_sql}
@@ -13661,16 +13765,48 @@ class PostgresDatabase:
 
             loc_obj = ev.get("location") if isinstance(ev.get("location"), dict) else {}
             venue = (
-                ev.get("venue") or ev.get("venue_name") or
-                loc_obj.get("name") or loc_obj.get("venue") or ""
+                ev.get("venue")
+                or ev.get("venue_name")
+                or ev.get("venueName")
+                or ev.get("locationName")
+                or loc_obj.get("venueName")
+                or loc_obj.get("name")
+                or loc_obj.get("venue")
+                or ""
             )
             city = ev.get("city") or loc_obj.get("city") or ""
             state = ev.get("state") or loc_obj.get("state") or ""
             country = ev.get("country") or loc_obj.get("country") or ""
+            if venue and city and str(venue).strip().lower() == str(city).strip().lower():
+                venue = ""
+            street_num = str(ev.get("streetNum") or loc_obj.get("streetNum") or "").strip()
+            street_name = str(ev.get("streetName") or loc_obj.get("streetName") or "").strip()
+            street_address = f"{street_num} {street_name}".strip()
+            formatted_address = str(
+                ev.get("formatted_address")
+                or ev.get("formattedAddress")
+                or ev.get("address")
+                or loc_obj.get("formatted_address")
+                or loc_obj.get("formattedAddress")
+                or loc_obj.get("address")
+                or street_address
+                or ""
+            ).strip()
+            postal_code = str(
+                ev.get("zip")
+                or ev.get("postalCode")
+                or ev.get("postal_code")
+                or loc_obj.get("zip")
+                or loc_obj.get("postalCode")
+                or ""
+            ).strip()
 
             # Coordinates parsing: BCP GeoJSON format is [longitude, latitude]
             ev_lat, ev_lng = None, None
-            coord = ev.get("coordinate")
+            coord = (
+                ev.get("coordinate")
+                or ((ev.get("coordinate_point") or {}).get("coordinates") if isinstance(ev.get("coordinate_point"), dict) else None)
+            )
             if not coord and isinstance(loc_obj.get("coordinate"), list):
                 coord = loc_obj.get("coordinate")
 
@@ -13794,6 +13930,13 @@ class PostgresDatabase:
                 "state": state,
                 "country": country,
                 "venue": venue,
+                "venue_name": venue,
+                "address": formatted_address,
+                "formatted_address": formatted_address,
+                "street_address": street_address,
+                "postal_code": postal_code,
+                "latitude": ev_lat,
+                "longitude": ev_lng,
                 "total_players": total_players,
                 "num_rounds": num_rounds,
                 "current_round": current_round,
@@ -14012,7 +14155,25 @@ class PostgresDatabase:
                     WITH events_filtered AS (
                         SELECT 
                             e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
-                            COALESCE(e.venue, e.venue_name, e.city) as venue,
+                            COALESCE(
+                                NULLIF(TRIM(e.venue_name), ''),
+                                NULLIF(TRIM(e.venue), ''),
+                                NULLIF(TRIM(e.raw_json->>'locationName'), ''),
+                                NULLIF(TRIM(e.raw_json->>'venueName'), ''),
+                                NULLIF(TRIM(e.raw_json->'location'->>'name'), '')
+                            ) as venue,
+                            COALESCE(
+                                NULLIF(TRIM(e.address), ''),
+                                NULLIF(TRIM(e.raw_json->>'formatted_address'), ''),
+                                NULLIF(TRIM(e.raw_json->>'formattedAddress'), ''),
+                                NULLIF(TRIM(e.raw_json->'location'->>'address'), ''),
+                                NULLIF(TRIM(CONCAT_WS(' ', e.raw_json->>'streetNum', e.raw_json->>'streetName')), '')
+                            ) as address,
+                            COALESCE(
+                                NULLIF(TRIM(e.postal_code), ''),
+                                NULLIF(TRIM(e.raw_json->>'zip'), ''),
+                                NULLIF(TRIM(e.raw_json->>'postalCode'), '')
+                            ) as postal_code,
                             e.total_players, e.num_rounds, e.current_round, e.is_ended, e.circuits,
                             CASE WHEN e.event_date >= CURRENT_DATE - INTERVAL '1 day' THEN e.raw_json ELSE NULL END AS raw_json, -- e.raw_json,
                             COALESCE(
@@ -14122,7 +14283,8 @@ class PostgresDatabase:
                     )
                     (
                         SELECT id, name, event_date, end_date, city, state, country,
-                               venue, total_players, num_rounds, current_round, is_ended, circuits, raw_json,
+                               venue, address, postal_code, ev_lat as latitude, ev_lng as longitude,
+                               total_players, num_rounds, current_round, is_ended, circuits, raw_json,
                                ROUND(distance_miles::numeric, 1) as distance_miles,
                                'upcoming' as event_group
                         FROM events_dist
@@ -14135,7 +14297,8 @@ class PostgresDatabase:
                     UNION ALL
                     (
                         SELECT id, name, event_date, end_date, city, state, country,
-                               venue, total_players, num_rounds, current_round, is_ended, circuits, NULL::jsonb as raw_json,
+                               venue, address, postal_code, ev_lat as latitude, ev_lng as longitude,
+                               total_players, num_rounds, current_round, is_ended, circuits, NULL::jsonb as raw_json,
                                ROUND(distance_miles::numeric, 1) as distance_miles,
                                'recent' as event_group
                         FROM events_dist
@@ -14172,6 +14335,26 @@ class PostgresDatabase:
                         rj = raw_val
                     else:
                         rj = {}
+                    rj_loc = rj.get("location") if isinstance(rj.get("location"), dict) else {}
+                    if not db_ev.get("city"):
+                        db_ev["city"] = rj.get("city") or rj_loc.get("city") or ""
+                    if not db_ev.get("state"):
+                        db_ev["state"] = rj.get("state") or rj_loc.get("state") or ""
+                    if not db_ev.get("country"):
+                        db_ev["country"] = rj.get("country") or rj_loc.get("country") or ""
+                    if not db_ev.get("venue"):
+                        db_ev["venue"] = (
+                            rj.get("locationName") or rj.get("venueName") or rj_loc.get("name") or rj_loc.get("venue") or ""
+                        )
+                    if db_ev.get("venue") and db_ev.get("city") and str(db_ev["venue"]).strip().lower() == str(db_ev["city"]).strip().lower():
+                        db_ev["venue"] = ""
+                    db_ev["venue_name"] = db_ev.get("venue") or ""
+                    if not db_ev.get("address"):
+                        st_str = f"{rj.get('streetNum') or rj_loc.get('streetNum') or ''} {rj.get('streetName') or rj_loc.get('streetName') or ''}".strip()
+                        db_ev["address"] = (
+                            rj.get("formatted_address") or rj.get("formattedAddress") or rj.get("address") or rj_loc.get("address") or st_str or ""
+                        )
+                    db_ev["formatted_address"] = db_ev.get("address") or ""
                     status_obj = rj.get("status") if isinstance(rj.get("status"), dict) else {}
                     ev_dt_val = db_ev.get("event_date") or rj.get("eventDate") or rj.get("event_date")
                     rj_end_val = rj.get("eventEndDate") or rj.get("endDate") or rj.get("end_date")
@@ -14282,6 +14465,9 @@ class PostgresDatabase:
                             combined["is_ended"] = b_ev["is_ended"]
                         if combined.get("distance_miles") is None and b_ev.get("distance_miles") is not None:
                             combined["distance_miles"] = b_ev["distance_miles"]
+                        for loc_field in ("venue", "venue_name", "address", "formatted_address", "street_address", "postal_code", "city", "state", "country", "latitude", "longitude"):
+                            if not combined.get(loc_field) and b_ev.get(loc_field):
+                                combined[loc_field] = b_ev.get(loc_field)
                         for reg_field in ("using_online_reg", "ticket_price", "ticket_currency", "num_tickets", "external_url", "private_event"):
                             if b_ev.get(reg_field) is not None:
                                 combined[reg_field] = b_ev.get(reg_field)
@@ -14321,6 +14507,10 @@ class PostgresDatabase:
                 for r_ev in events_recent:
                     r_ev["is_local"] = True
                     r_ev["is_ended"] = True
+                    if r_ev.get("venue") and r_ev.get("city") and str(r_ev["venue"]).strip().lower() == str(r_ev["city"]).strip().lower():
+                        r_ev["venue"] = ""
+                    r_ev.setdefault("venue_name", r_ev.get("venue") or "")
+                    r_ev.setdefault("formatted_address", r_ev.get("address") or "")
 
                 # Collect event IDs for field stats and player discovery
                 all_event_ids = list({e["id"] for e in (events_upcoming + events_recent_all) if e.get("id")})

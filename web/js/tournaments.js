@@ -166,6 +166,482 @@ async function loadEvents() {
   }
 }
 
+function extractEventLocationDetails(ev) {
+  if (!ev || typeof ev !== 'object') {
+    return {
+      venue: '',
+      venueLine: '',
+      streetAddress: '',
+      formattedAddress: '',
+      addressLine: '',
+      fullAddressLine: '',
+      city: '',
+      state: '',
+      country: '',
+      postalCode: '',
+      latitude: null,
+      longitude: null,
+      lat: null,
+      lng: null,
+      hasCoords: false,
+      cityStateCountry: '',
+      shortLabel: 'Online / Unspecified',
+      fullDisplay: 'Online / Unspecified',
+      displayLabel: 'Online / Unspecified',
+      mapQuery: '',
+      mapSearchQuery: '',
+      directionsUrl: '',
+      embedUrl: '',
+      hasMapTarget: false,
+      hasLocation: false
+    };
+  }
+  const rj = (ev.raw_json && typeof ev.raw_json === 'object') ? ev.raw_json : {};
+  const loc = (ev.location && typeof ev.location === 'object') ? ev.location : ((rj.location && typeof rj.location === 'object') ? rj.location : {});
+
+  const city = String(ev.city || rj.city || loc.city || '').trim();
+  const state = String(ev.state || rj.state || loc.state || '').trim();
+  const country = String(ev.country || rj.country || loc.country || '').trim();
+  const postalCode = String(ev.postal_code || ev.zip || rj.zip || rj.postalCode || loc.zip || loc.postalCode || '').trim();
+
+  let rawVenue = String(
+    ev.venue_name || ev.venue || ev.locationName || ev.venueName ||
+    rj.locationName || rj.venueName || rj.venue ||
+    loc.venueName || loc.venue || loc.name || ''
+  ).trim();
+  if (rawVenue && city && rawVenue.toLowerCase() === city.toLowerCase()) {
+    rawVenue = '';
+  }
+
+  const sNum = String(ev.streetNum || rj.streetNum || loc.streetNum || '').trim();
+  const sName = String(ev.streetName || rj.streetName || loc.streetName || '').trim();
+  const streetCombined = (sNum || sName) ? `${sNum} ${sName}`.trim() : '';
+  const rawFormatted = String(
+    ev.formatted_address || ev.formattedAddress || ev.address ||
+    rj.formatted_address || rj.formattedAddress || rj.address ||
+    loc.formatted_address || loc.formattedAddress || ''
+  ).trim();
+
+  let streetAddress = String(ev.street_address || streetCombined || loc.address || loc.streetAddress || '').trim();
+  if (!streetAddress && rawFormatted && rawFormatted.includes(',')) {
+    const firstPart = rawFormatted.split(',')[0].trim();
+    const fpLower = firstPart.toLowerCase();
+    if (
+      firstPart &&
+      fpLower !== city.toLowerCase() &&
+      fpLower !== state.toLowerCase() &&
+      fpLower !== country.toLowerCase() &&
+      fpLower !== rawVenue.toLowerCase()
+    ) {
+      streetAddress = firstPart;
+    }
+  }
+
+  const cscParts = [];
+  const seenCsc = new Set();
+  [city, state, country].forEach(part => {
+    const clean = String(part || '').trim();
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (!seenCsc.has(key)) {
+      seenCsc.add(key);
+      cscParts.push(clean);
+    }
+  });
+  const cityStateCountry = cscParts.join(', ');
+
+  let formattedAddress = rawFormatted;
+  if (!formattedAddress) {
+    formattedAddress = [streetAddress, city, state ? `${state} ${postalCode}`.trim() : postalCode, country].filter(Boolean).join(', ');
+  } else if (country) {
+    const faLower = formattedAddress.toLowerCase();
+    const cLower = country.toLowerCase();
+    const isUsMatch = (cLower === 'united states' || cLower === 'usa' || cLower === 'us') && (faLower.includes('usa') || faLower.includes('united states'));
+    if (!faLower.includes(cLower) && !isUsMatch) {
+      formattedAddress = `${formattedAddress}, ${country}`;
+    }
+  }
+
+  let lat = (ev.latitude !== undefined && ev.latitude !== null && ev.latitude !== '') ? Number(ev.latitude) : null;
+  let lng = (ev.longitude !== undefined && ev.longitude !== null && ev.longitude !== '') ? Number(ev.longitude) : null;
+  if (lat === null || Number.isNaN(lat) || lng === null || Number.isNaN(lng)) {
+    const coords = ev.coordinate || rj.coordinate || loc.coordinate || (rj.coordinate_point && rj.coordinate_point.coordinates);
+    if (Array.isArray(coords) && coords.length >= 2) {
+      const cLng = Number(coords[0]);
+      const cLat = Number(coords[1]);
+      if (!Number.isNaN(cLat) && !Number.isNaN(cLng)) {
+        lat = cLat;
+        lng = cLng;
+      }
+    }
+  }
+  if (lat !== null && (Number.isNaN(lat) || Number.isNaN(lng) || (lat === 0 && lng === 0))) {
+    lat = null;
+    lng = null;
+  }
+  const hasCoords = Boolean(lat !== null && lng !== null);
+
+  const addressLine = formattedAddress || [streetAddress, cityStateCountry].filter(Boolean).join(', ');
+  const fullParts = [];
+  if (rawVenue) fullParts.push(rawVenue);
+  if (addressLine) {
+    if (!rawVenue || !addressLine.toLowerCase().startsWith(rawVenue.toLowerCase())) {
+      fullParts.push(addressLine);
+    } else {
+      fullParts.length = 0;
+      fullParts.push(addressLine);
+    }
+  } else if (cityStateCountry) {
+    fullParts.push(cityStateCountry);
+  }
+  const fullDisplay = fullParts.join(' — ') || cityStateCountry || 'Online / Unspecified';
+  const fullAddressLine = fullParts.join(', ') || addressLine || cityStateCountry || '';
+  const shortLabel = [rawVenue, cityStateCountry].filter(Boolean).join(' • ') || addressLine || 'Online / Unspecified';
+
+  const displayParts = [];
+  if (rawVenue) displayParts.push(rawVenue);
+  if (streetAddress && (!rawVenue || !rawVenue.toLowerCase().includes(streetAddress.toLowerCase()))) {
+    displayParts.push(streetAddress);
+  }
+  if (cityStateCountry && (!streetAddress || !streetAddress.toLowerCase().includes(cityStateCountry.toLowerCase()))) {
+    displayParts.push(cityStateCountry);
+  } else if (!streetAddress && addressLine && (!rawVenue || addressLine.toLowerCase() !== rawVenue.toLowerCase())) {
+    displayParts.push(addressLine);
+  }
+  const displayLabel = displayParts.join(' • ') || fullDisplay || 'Online / Unspecified';
+
+  const mapQuery = [rawVenue, formattedAddress || streetAddress, !formattedAddress ? cityStateCountry : ''].filter(Boolean).join(', ');
+  const hasMapTarget = Boolean(
+    hasCoords ||
+    (mapQuery && !['online / unspecified', 'unspecified', 'online', 'unspecified location'].includes(mapQuery.toLowerCase()))
+  );
+  const embedTarget = mapQuery || (hasCoords ? `${lat},${lng}` : '');
+  const directionsUrl = embedTarget ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(embedTarget)}` : '';
+  const embedUrl = embedTarget ? `https://maps.google.com/maps?q=${encodeURIComponent(embedTarget)}&z=15&output=embed` : '';
+
+  return {
+    venue: rawVenue,
+    venueLine: rawVenue || cityStateCountry,
+    streetAddress,
+    formattedAddress,
+    addressLine,
+    fullAddressLine,
+    city,
+    state,
+    country,
+    postalCode,
+    latitude: lat,
+    longitude: lng,
+    lat,
+    lng,
+    hasCoords,
+    cityStateCountry,
+    shortLabel,
+    fullDisplay,
+    displayLabel,
+    mapQuery,
+    mapSearchQuery: mapQuery,
+    directionsUrl,
+    embedUrl,
+    hasMapTarget,
+    hasLocation: hasMapTarget
+  };
+}
+window.extractEventLocationDetails = extractEventLocationDetails;
+
+function resolveEventObjById(eventIdOrObj) {
+  if (eventIdOrObj && typeof eventIdOrObj === 'object') return eventIdOrObj;
+  const eid = String(eventIdOrObj || currentOpenEventId || '').trim();
+  if (!eid) return currentEventData || null;
+  if (currentEventData && String(currentEventData.id || currentEventData.event_id) === eid) {
+    return currentEventData;
+  }
+  if (typeof getWarmEventModalCache === 'function') {
+    const warm = getWarmEventModalCache(eid);
+    if (warm && warm.ev) return warm.ev;
+  }
+  if (typeof eventsData !== 'undefined' && Array.isArray(eventsData)) {
+    const hit = eventsData.find(e => e && String(e.id) === eid);
+    if (hit) return hit;
+  }
+  if (typeof communityState !== 'undefined' && communityState) {
+    const pools = [
+      communityState.majorsList,
+      communityState.overview?.events_upcoming,
+      communityState.overview?.events_recent,
+      communityState.overview?.upcoming_events,
+      communityState.overview?.recent_events
+    ];
+    for (const arr of pools) {
+      if (Array.isArray(arr)) {
+        const hit = arr.find(e => e && String(e.id || e.event_id) === eid);
+        if (hit) return hit;
+      }
+    }
+  }
+  if (typeof myHubData !== 'undefined' && myHubData) {
+    const hubPools = [myHubData.registered_tournaments, myHubData.upcoming_events, myHubData.events_attended];
+    for (const arr of hubPools) {
+      if (Array.isArray(arr)) {
+        const hit = arr.find(e => e && String(e.bcp_event_id || e.id || e.event_id) === eid);
+        if (hit) return hit;
+      }
+    }
+  }
+  return null;
+}
+window.resolveEventObjById = resolveEventObjById;
+
+function buildEventModalMetaHtml(ev, numRounds = 0) {
+  if (!ev) return '';
+  const locInfo = extractEventLocationDetails(ev);
+  const dStr = (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(ev) : '') || (ev.event_date || ev.start_date || '').slice(0, 10) || 'Date TBD';
+  const rdsNum = Number(numRounds || ev.num_rounds || ev.numberOfRounds || 0);
+  const rdsPart = rdsNum > 0 ? `<span>•</span><span>🔄 ${rdsNum} Rounds</span>` : '';
+  const eidSafe = escapeHtml(String(ev.id || ev.event_id || currentOpenEventId || '').replace(/'/g, "\\'"));
+  const mapBtns = locInfo.hasMapTarget ? `
+    <button type="button" onclick="event.stopPropagation(); openEventVenueMapModal('${eidSafe}')" style="display:inline-flex; align-items:center; gap:3px; font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:6px; background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); cursor:pointer;" title="View venue address & interactive map">
+      🗺️ Map
+    </button>
+    <button type="button" onclick="event.stopPropagation(); openEventInCommunityGameStores('${eidSafe}')" style="display:inline-flex; align-items:center; gap:3px; font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:6px; background:rgba(16,185,129,0.14); color:#34d399; border:1px solid rgba(16,185,129,0.35); cursor:pointer;" title="View venue & nearby stores in Community Hub → Game Stores">
+      🏪 Stores Hub
+    </button>
+  ` : '';
+  return `
+    <span style="display:inline-flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+      <span>📅 ${escapeHtml(dStr)}</span>
+      <span>•</span>
+      <span style="color:#e2e8f0; font-weight:600;" title="${escapeHtml(locInfo.fullDisplay)}">📍 ${escapeHtml(locInfo.fullDisplay)}</span>
+      ${mapBtns}
+      ${rdsPart}
+    </span>
+  `;
+}
+window.buildEventModalMetaHtml = buildEventModalMetaHtml;
+
+function copyEventVenueAddress(addressText) {
+  const txt = String(addressText || '').trim();
+  if (!txt) return;
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(txt).then(() => {
+      if (typeof showProfileToast === 'function') {
+        showProfileToast('✓ Venue address copied to clipboard!');
+      } else if (typeof showToast === 'function') {
+        showToast('Venue address copied to clipboard!', 'success');
+      }
+    }).catch(() => {});
+  }
+}
+window.copyEventVenueAddress = copyEventVenueAddress;
+
+function closeEventVenueMapModal() {
+  const modal = document.getElementById('event-venue-map-modal');
+  if (modal) {
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+  }
+  if (typeof modalStack !== 'undefined' && Array.isArray(modalStack)) {
+    modalStack = modalStack.filter(id => id !== 'event-venue-map-modal');
+  }
+  if (typeof window !== 'undefined' && Array.isArray(window.modalStack)) {
+    window.modalStack = window.modalStack.filter(id => id !== 'event-venue-map-modal');
+  }
+}
+window.closeEventVenueMapModal = closeEventVenueMapModal;
+
+async function openEventVenueMapModal(eventIdOrObj) {
+  let ev = resolveEventObjById(eventIdOrObj);
+  const eid = (ev && (ev.id || ev.event_id)) || (typeof eventIdOrObj === 'string' ? eventIdOrObj : currentOpenEventId) || '';
+  if (!ev && eid && window.api && typeof window.api.getTournamentDetails === 'function') {
+    try {
+      ev = await window.api.getTournamentDetails(eid, false);
+    } catch (_) {}
+  }
+  const locInfo = extractEventLocationDetails(ev || {});
+  const eventName = (ev && (ev.name || ev.event_name || ev.raw_json?.name)) || 'Tournament Venue';
+
+  let modal = document.getElementById('event-venue-map-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'event-venue-map-modal';
+    modal.className = 'modal-backdrop';
+    modal.style.cssText = 'display:none; position:fixed; inset:0; background:rgba(2,6,23,0.82); backdrop-filter:blur(6px); z-index:10050; align-items:center; justify-content:center; padding:1rem;';
+    modal.onclick = (e) => {
+      if (e.target === modal) closeEventVenueMapModal();
+    };
+    document.body.appendChild(modal);
+  }
+
+  const copyTarget = [locInfo.venue, locInfo.addressLine || locInfo.cityStateCountry].filter(Boolean).join(', ');
+  const safeCopyTarget = escapeHtml(copyTarget.replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+  const safeEid = escapeHtml(String(eid).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+
+  modal.innerHTML = `
+    <div class="modal-window" style="max-width:720px; width:100%; background:linear-gradient(165deg, #0f172a, #090d16); border:1px solid rgba(56,189,248,0.35); border-radius:14px; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,0.8);">
+      <div class="modal-header" style="padding:1rem 1.25rem; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; align-items:flex-start; justify-content:space-between; gap:0.75rem;">
+        <div style="min-width:0; flex:1;">
+          <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap; margin-bottom:0.25rem;">
+            <span class="badge" style="background:rgba(56,189,248,0.16); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.7rem; font-weight:800;">📍 VENUE &amp; LOCATION MAP</span>
+            ${locInfo.cityStateCountry ? `<span class="badge" style="background:rgba(16,185,129,0.14); color:#34d399; border:1px solid rgba(16,185,129,0.32); font-size:0.7rem; font-weight:700;">🌎 ${escapeHtml(locInfo.cityStateCountry)}</span>` : ''}
+          </div>
+          <h3 style="margin:0; font-size:1.12rem; font-weight:800; color:#fff; line-height:1.3;">${escapeHtml(locInfo.venue || eventName)}</h3>
+          <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:0.2rem;">${escapeHtml(eventName)}</div>
+        </div>
+        <button type="button" class="modal-close" onclick="closeEventVenueMapModal()" aria-label="Close venue map modal" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; border-radius:8px; width:32px; height:32px; cursor:pointer; font-size:0.95rem;">✕</button>
+      </div>
+
+      <div class="modal-body" style="padding:1.1rem 1.25rem;">
+        <!-- Venue & Street Address Box -->
+        <div style="background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:0.85rem 1rem; margin-bottom:0.95rem; display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+          <div style="min-width:0; flex:1;">
+            ${locInfo.venue ? `<div style="font-weight:800; color:#f8fafc; font-size:0.95rem; margin-bottom:0.2rem;">🏪 ${escapeHtml(locInfo.venue)}</div>` : ''}
+            <div style="font-size:0.85rem; color:#cbd5e1; line-height:1.45; word-break:break-word;">
+              📍 ${escapeHtml(locInfo.addressLine || locInfo.cityStateCountry || 'Address not specified')}
+            </div>
+            ${locInfo.cityStateCountry && locInfo.addressLine && locInfo.addressLine !== locInfo.cityStateCountry ? `
+              <div style="font-size:0.76rem; color:#94a3b8; margin-top:0.2rem;">
+                🌎 ${escapeHtml(locInfo.cityStateCountry)}${locInfo.postalCode && !locInfo.addressLine.includes(locInfo.postalCode) ? ` • ${escapeHtml(locInfo.postalCode)}` : ''}
+              </div>
+            ` : ''}
+          </div>
+          <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
+            <button type="button" class="btn btn-outline" onclick="copyEventVenueAddress('${safeCopyTarget}')" style="font-size:0.76rem; font-weight:700; padding:0.38rem 0.75rem;">
+              📋 Copy Address
+            </button>
+          </div>
+        </div>
+
+        <!-- Embedded Google Map -->
+        ${locInfo.embedUrl ? `
+          <div style="width:100%; height:320px; border-radius:10px; overflow:hidden; border:1px solid rgba(56,189,248,0.28); background:#070b14; margin-bottom:1rem;">
+            <iframe
+              title="Venue Map for ${escapeHtml(locInfo.venue || eventName)}"
+              src="${escapeHtml(locInfo.embedUrl)}"
+              width="100%"
+              height="100%"
+              style="border:0; filter:contrast(1.02);"
+              loading="lazy"
+              referrerpolicy="no-referrer-when-downgrade"
+              allowfullscreen>
+            </iframe>
+          </div>
+        ` : `
+          <div style="padding:2rem 1rem; text-align:center; color:var(--text-muted); background:rgba(15,23,42,0.5); border-radius:10px; border:1px dashed rgba(255,255,255,0.12); margin-bottom:1rem;">
+            Exact map coordinates are not listed for this event.
+          </div>
+        `}
+
+        <!-- Action Buttons: Community Hub Game Stores + External Google Maps Directions -->
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap;">
+          <button type="button" class="btn btn-primary" onclick="openEventInCommunityGameStores('${safeEid}')" style="flex:1; min-width:220px; justify-content:center; font-size:0.82rem; font-weight:800; padding:0.58rem 1rem; background:linear-gradient(135deg, #0284c7, #0369a1); border:1px solid #38bdf8;">
+            🏪 View in Community Hub → Game Stores
+          </button>
+          ${locInfo.directionsUrl ? `
+            <a href="${escapeHtml(locInfo.directionsUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="flex:1; min-width:190px; justify-content:center; font-size:0.82rem; font-weight:700; padding:0.58rem 1rem; text-decoration:none; color:#38bdf8; border-color:rgba(56,189,248,0.4);">
+              🧭 Google Maps Directions ↗
+            </a>
+          ` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+
+  modal.style.display = 'flex';
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
+  } else {
+    modal.classList.add('active');
+  }
+}
+window.openEventVenueMapModal = openEventVenueMapModal;
+
+async function openEventInCommunityGameStores(eventIdOrObj) {
+  let ev = resolveEventObjById(eventIdOrObj);
+  const eid = (ev && (ev.id || ev.event_id)) || (typeof eventIdOrObj === 'string' ? eventIdOrObj : currentOpenEventId) || '';
+  if (!ev && eid && window.api && typeof window.api.getTournamentDetails === 'function') {
+    try {
+      ev = await window.api.getTournamentDetails(eid, false);
+    } catch (_) {}
+  }
+  const locInfo = extractEventLocationDetails(ev || {});
+
+  closeEventVenueMapModal();
+  if (typeof closeAllModals === 'function') {
+    closeAllModals();
+  } else if (typeof closeModal === 'function') {
+    closeModal('event-modal');
+  }
+
+  if (typeof communityState !== 'undefined' && communityState) {
+    if (locInfo.latitude !== null && locInfo.longitude !== null) {
+      communityState.lat = locInfo.latitude;
+      communityState.lng = locInfo.longitude;
+      localStorage.setItem('comm_lat', String(locInfo.latitude));
+      localStorage.setItem('comm_lng', String(locInfo.longitude));
+      localStorage.setItem('comm_manual_override', 'true');
+    }
+    if (locInfo.cityStateCountry || locInfo.venue) {
+      communityState.locationName = locInfo.cityStateCountry || locInfo.venue;
+      localStorage.setItem('comm_loc_name', communityState.locationName);
+    }
+    communityState.activeSubtab = 'stores';
+    communityState.storesFilter = 'all';
+    communityState.storesSearch = locInfo.venue || '';
+    const searchInput = document.getElementById('stores-search-input');
+    if (searchInput) searchInput.value = communityState.storesSearch;
+    const clearBtn = document.getElementById('stores-search-clear');
+    if (clearBtn) clearBtn.style.display = communityState.storesSearch ? 'block' : 'none';
+  }
+
+  if (typeof switchTab === 'function') {
+    await switchTab('community');
+  }
+  if (typeof switchCommunitySubtab === 'function') {
+    switchCommunitySubtab('stores');
+  }
+  if (typeof renderCommunityHeader === 'function' && typeof communityState !== 'undefined') {
+    renderCommunityHeader({
+      radius_miles: communityState.radiusMiles || 50,
+      location_name: communityState.locationName || 'Tournament Venue'
+    });
+  }
+  if (typeof loadLocalGameStores === 'function') {
+    await loadLocalGameStores(true);
+  }
+
+  // Ensure the event venue itself is highlighted/available in the stores list & map
+  if (typeof communityState !== 'undefined' && communityState && (locInfo.venue || locInfo.addressLine)) {
+    const stores = Array.isArray(communityState.stores) ? communityState.stores : [];
+    const vNorm = (locInfo.venue || '').toLowerCase().trim();
+    let matchedStore = stores.find(s => vNorm && (s.name || '').toLowerCase().includes(vNorm));
+    if (!matchedStore && locInfo.latitude !== null && locInfo.longitude !== null) {
+      matchedStore = {
+        id: `venue_${eid || 'event'}`,
+        name: locInfo.venue || (ev && ev.name) || 'Tournament Venue',
+        address: locInfo.addressLine || locInfo.cityStateCountry || '',
+        city: locInfo.city || '',
+        state: locInfo.state || '',
+        latitude: locInfo.latitude,
+        longitude: locInfo.longitude,
+        distance_miles: 0.0,
+        is_tournament_venue: true,
+        tournament_count: 1,
+        last_tournament_date: (ev && ev.event_date) ? String(ev.event_date).slice(0, 10) : null
+      };
+      communityState.stores = [matchedStore, ...stores];
+      if (typeof updateStoresBadgesAndCounts === 'function') updateStoresBadgesAndCounts();
+      if (typeof renderStoresGrid === 'function') renderStoresGrid();
+      if (typeof initStoresGoogleMap === 'function') initStoresGoogleMap(communityState.stores);
+    }
+    if (matchedStore && matchedStore.latitude != null && matchedStore.longitude != null && typeof focusStoreOnMap === 'function') {
+      setTimeout(() => {
+        focusStoreOnMap(matchedStore.latitude, matchedStore.longitude, matchedStore.id);
+      }, 150);
+    }
+  }
+}
+window.openEventInCommunityGameStores = openEventInCommunityGameStores;
+
 function renderEventsRows() {
   const tbody = document.getElementById('events-body');
   if (!tbody) return;
@@ -180,7 +656,11 @@ function renderEventsRows() {
     const tr = document.createElement('tr');
     tr.onclick = () => openEventModal(ev.id, false);
 
-    const location = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Unspecified';
+    const locInfo = extractEventLocationDetails(ev);
+    const primaryLoc = locInfo.cityStateCountry || locInfo.shortLabel || 'Unspecified';
+    const subLoc = locInfo.venue
+      ? (locInfo.streetAddress ? `${locInfo.venue} • ${locInfo.streetAddress}` : locInfo.venue)
+      : (locInfo.streetAddress || '');
     const dateStr = (ev.event_date || '').slice(0, 10) || '-';
 
     tr.innerHTML = `
@@ -190,7 +670,10 @@ function renderEventsRows() {
         </div>
       </td>
       <td style="font-family:var(--font-mono); color:var(--text-secondary); font-size:0.85rem;">${dateStr}</td>
-      <td style="color:var(--text-secondary); font-size:0.85rem;">${escapeHtml(location)}</td>
+      <td style="color:var(--text-secondary); font-size:0.85rem;">
+        <div style="color:#e2e8f0; font-weight:500;">${escapeHtml(primaryLoc)}</div>
+        ${subLoc ? `<div style="font-size:0.74rem; color:var(--text-muted); margin-top:2px;">📍 ${escapeHtml(subLoc)}</div>` : ''}
+      </td>
       <td style="font-family:var(--font-mono); font-weight:600;">${ev.total_players || 0}</td>
       <td style="font-family:var(--font-mono);">${ev.numberOfRounds || ev.num_rounds || (ev.raw_json && ev.raw_json.numberOfRounds) || 0}</td>
       <td style="font-family:var(--font-mono); color:var(--accent); font-weight:600;">${ev.match_count || 0}</td>
@@ -267,10 +750,7 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
 
         const metaEl = document.getElementById('modal-event-meta');
         if (metaEl) {
-          const loc = [fresh.city, fresh.state, fresh.country].filter(Boolean).join(', ') || 'Online / Unspecified';
-          const dStr = (fresh.event_date || '').slice(0, 10);
-          const roundsPart = eventRounds > 0 ? ` • 🔄 ${eventRounds} Rounds` : '';
-          metaEl.innerText = `📅 ${dStr} • 📍 ${loc}${roundsPart}`;
+          metaEl.innerHTML = buildEventModalMetaHtml(fresh, eventRounds);
         }
 
         const tabResultsCount = document.getElementById('event-tab-results-count');
@@ -638,11 +1118,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     const metaEl = document.getElementById('modal-event-meta');
     if (metaEl) {
       if (previewEv) {
-        const loc = [previewEv.city, previewEv.state, previewEv.country].filter(Boolean).join(', ') || 'Online / Unspecified';
-        const dStr = (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(previewEv) : '') || (previewEv.event_date || previewEv.start_date || '').slice(0, 10);
-        const rdsNum = Number(previewEv.num_rounds || previewEv.numberOfRounds || 0);
-        const rds = rdsNum > 0 ? ` • 🔄 ${rdsNum} Rounds` : '';
-        metaEl.innerHTML = `<span>📅 ${escapeHtml(dStr || 'Date TBD')}</span><span> • 📍 ${escapeHtml(loc)}</span><span>${rds}</span>`;
+        metaEl.innerHTML = buildEventModalMetaHtml(previewEv);
       } else {
         metaEl.textContent = 'Syncing tournament metadata from Best Coast Pairings...';
       }
@@ -844,8 +1320,6 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     const nameEl = document.getElementById('modal-event-name');
     if (nameEl) nameEl.innerText = eventName;
 
-    const loc = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
-    const dStr = (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(ev) : '') || (ev.event_date || '').slice(0, 10);
     eventMatchesCache = ev.matches || [];
     eventPlayersCache = ev.players || [];
     if (typeof computeEventPlayerEloStats === 'function') {
@@ -861,9 +1335,8 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     }
 
     const eventRounds = getEventNumRounds(ev, eventMatchesCache);
-    const roundsPart = eventRounds > 0 ? ` • 🔄 ${eventRounds} Rounds` : '';
     const metaEl = document.getElementById('modal-event-meta');
-    if (metaEl) metaEl.innerText = `📅 ${dStr} • 📍 ${loc}${roundsPart}`;
+    if (metaEl) metaEl.innerHTML = buildEventModalMetaHtml(ev, eventRounds);
 
     const teamsList = (ev.teams && ev.teams.length > 0) ? ev.teams : (ev.team_standings || []);
     const isTeamEvent = teamsList.length > 0;
@@ -4366,10 +4839,7 @@ function renderQuickEventModal(ev, userRegData) {
   if (bcpLink && ev.id) bcpLink.href = `https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}`;
   const metaEl = document.getElementById('modal-event-meta');
   if (metaEl) {
-    const loc = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
-    const dStr = (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(ev) : '') || (ev.event_date || ev.start_date || '').slice(0, 10);
-    const rds = kpi.numRounds ? ` • 🔄 ${kpi.numRounds} Rounds` : '';
-    metaEl.innerHTML = `<span>📅 ${escapeHtml(dStr || 'Date TBD')}</span><span> • 📍 ${escapeHtml(loc)}</span><span>${rds}</span>`;
+    metaEl.innerHTML = buildEventModalMetaHtml(ev, kpi.numRounds);
   }
   const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k').toLowerCase();
   const sysBadge = sys === 'aos'
@@ -4894,7 +5364,8 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
   const sys = (gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
   const eventId = ev.id || currentOpenEventId || '';
   const eventName = ev.name || ev.raw_json?.name || ev.event_name || 'Tournament Hub';
-  const loc = [ev.venue, ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
+  const locInfo = extractEventLocationDetails(ev);
+  const loc = locInfo.displayLabel || 'Online / Unspecified';
   const dStr = (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(ev) : '') || (ev.event_date || '').slice(0, 10);
 
   const sysBadge = sys === 'aos'
@@ -4949,6 +5420,15 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
   const topSeedName = kpi.topSeedPlayer ? (kpi.topSeedPlayer.full_name || 'Competitor') : '-';
   const topSeedElo = kpi.topSeedPlayer ? Number(kpi.topSeedPlayer.current_elo || 1500).toFixed(1) : '-';
 
+  const mapButtonsHtml = locInfo.hasLocation ? `
+    <button type="button" class="btn-sm btn-outline event-hero-map-btn" onclick="event.stopPropagation(); openEventVenueMapModal('${escapeHtml(eventId)}')" style="font-size:0.74rem; padding:3px 9px; border-radius:999px; border-color:rgba(56,189,248,0.45); color:#38bdf8; background:rgba(56,189,248,0.12); cursor:pointer; display:inline-flex; align-items:center; gap:4px; font-weight:700;" title="Open interactive venue map pop-up">
+      🗺️ View Map
+    </button>
+    <button type="button" class="btn-sm btn-outline event-hero-stores-btn" onclick="event.stopPropagation(); openEventInCommunityGameStores('${escapeHtml(eventId)}')" style="font-size:0.74rem; padding:3px 9px; border-radius:999px; border-color:rgba(168,85,247,0.45); color:#c084fc; background:rgba(168,85,247,0.12); cursor:pointer; display:inline-flex; align-items:center; gap:4px; font-weight:700;" title="Find this venue & nearby game stores in Community Hub">
+      🏪 Game Stores Hub
+    </button>
+  ` : '';
+
   heroSection.innerHTML = `
     <div class="profile-hero-card event-hub-hero-card" style="margin-bottom: 1.25rem;">
       <div class="profile-hero-top">
@@ -4964,10 +5444,11 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
               ${formatBadge}
             </div>
             <h1 id="event-hub-title" class="profile-name-title" style="font-size: 1.5rem; margin: 0 0 0.3rem 0;">${escapeHtml(eventName)}</h1>
-            <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <div id="event-hub-meta-line" style="font-size: 0.85rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <span>📅 ${escapeHtml(dStr || 'Date TBD')}</span>
               <span>•</span>
-              <span>📍 ${escapeHtml(loc)}</span>
+              <span title="${escapeHtml(locInfo.fullAddressLine || loc)}">📍 ${escapeHtml(loc)}</span>
+              ${mapButtonsHtml}
               <span>•</span>
               <span>🔄 ${kpi.numRounds} Rounds</span>
             </div>
@@ -12490,9 +12971,59 @@ async function renderEventNewsHub(ev, skipFetch = false) {
       </div>
     `;
 
+  const locInfo = extractEventLocationDetails(eventObj);
+  const venueCardHtml = locInfo.hasLocation ? (() => {
+    const mapQuery = locInfo.hasCoords
+      ? `${locInfo.lat},${locInfo.lng}`
+      : (locInfo.mapSearchQuery || locInfo.fullAddressLine || locInfo.venueLine);
+    const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}`;
+    const copyPayload = (locInfo.fullAddressLine || locInfo.displayLabel || '').replace(/'/g, "\\'");
+    return `
+      <!-- Event Venue & Address Card -->
+      <div class="card event-news-venue-card" style="padding:1.05rem 1.25rem; background:linear-gradient(135deg, rgba(15,23,42,0.9), rgba(30,41,59,0.75)); border:1px solid rgba(56,189,248,0.25); border-radius:10px; margin-bottom:1.15rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+        <div style="display:flex; align-items:flex-start; gap:0.85rem; flex:1; min-width:240px;">
+          <div style="width:42px; height:42px; border-radius:10px; background:rgba(56,189,248,0.14); border:1px solid rgba(56,189,248,0.35); display:flex; align-items:center; justify-content:center; font-size:1.3rem; flex-shrink:0;">
+            📍
+          </div>
+          <div style="min-width:0;">
+            <div style="font-size:0.7rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#38bdf8; margin-bottom:0.15rem;">
+              Event Venue & Location
+            </div>
+            <div style="font-size:1.02rem; font-weight:800; color:#f8fafc; line-height:1.35;">
+              ${escapeHtml(locInfo.venueLine || locInfo.cityStateCountry || 'Event Venue')}
+            </div>
+            <div style="font-size:0.84rem; color:#cbd5e1; margin-top:0.2rem; line-height:1.4;">
+              ${escapeHtml(locInfo.addressLine || locInfo.cityStateCountry || locInfo.fullAddressLine)}
+            </div>
+            ${(locInfo.cityStateCountry && locInfo.addressLine && !locInfo.addressLine.toLowerCase().includes(locInfo.cityStateCountry.toLowerCase())) ? `
+              <div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.12rem;">
+                🌍 ${escapeHtml(locInfo.cityStateCountry)}
+              </div>
+            ` : ''}
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+          <button type="button" class="btn btn-primary" onclick="openEventVenueMapModal('${escapeHtml(eventId)}')" style="font-size:0.78rem; font-weight:700; padding:0.44rem 0.85rem; cursor:pointer;">
+            🗺️ Interactive Map Pop-up
+          </button>
+          <button type="button" class="btn btn-outline" onclick="openEventInCommunityGameStores('${escapeHtml(eventId)}')" style="font-size:0.78rem; font-weight:700; padding:0.44rem 0.85rem; border-color:rgba(168,85,247,0.45); color:#c084fc; background:rgba(168,85,247,0.1); cursor:pointer;">
+            🏪 Community Hub → Game Stores
+          </button>
+          <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.78rem; font-weight:600; padding:0.44rem 0.85rem; text-decoration:none;">
+            🧭 Google Maps ↗
+          </a>
+          <button type="button" class="btn btn-outline" onclick="copyEventVenueAddress('${escapeHtml(copyPayload)}')" style="font-size:0.78rem; font-weight:600; padding:0.44rem 0.75rem; cursor:pointer;" title="Copy full venue address">
+            📋 Copy Address
+          </button>
+        </div>
+      </div>
+    `;
+  })() : '';
+
   container.innerHTML = `
     <div class="event-news-hub-wrap" style="padding:0.25rem 0;">
       ${broadcastBannerHtml}
+      ${venueCardHtml}
 
       <!-- Official BCP Event Description & Rules Pack (On Top) -->
       <div class="card" style="padding:1.15rem 1.25rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:1.15rem;">

@@ -1880,6 +1880,34 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
         _populate_event_teams(event_details, plc_cached.get("raw_teams") if isinstance(plc_cached, dict) else None)
 
         raw_ev_fast = event_details.get("raw_json") if isinstance(event_details.get("raw_json"), dict) else {}
+        _loc_fast = raw_ev_fast.get("location") if isinstance(raw_ev_fast.get("location"), dict) else {}
+        if raw_ev_fast.get("city") or _loc_fast.get("city"):
+            event_details["city"] = event_details.get("city") or raw_ev_fast.get("city") or _loc_fast.get("city")
+        if raw_ev_fast.get("state") or _loc_fast.get("state"):
+            event_details["state"] = event_details.get("state") or raw_ev_fast.get("state") or _loc_fast.get("state")
+        if raw_ev_fast.get("country") or _loc_fast.get("country"):
+            event_details["country"] = event_details.get("country") or raw_ev_fast.get("country") or _loc_fast.get("country")
+        _v_fast = (
+            event_details.get("venue_name") or event_details.get("venue")
+            or raw_ev_fast.get("locationName") or raw_ev_fast.get("venueName") or raw_ev_fast.get("venue")
+            or _loc_fast.get("venueName") or _loc_fast.get("venue") or _loc_fast.get("name") or ""
+        )
+        if _v_fast:
+            event_details["venue"] = _v_fast
+            event_details["venue_name"] = _v_fast
+        _snum_f = str(raw_ev_fast.get("streetNum") or _loc_fast.get("streetNum") or "").strip()
+        _sname_f = str(raw_ev_fast.get("streetName") or _loc_fast.get("streetName") or "").strip()
+        _saddr_f = f"{_snum_f} {_sname_f}".strip() if (_snum_f or _sname_f) else str(event_details.get("street_address") or _loc_fast.get("address") or "").strip()
+        _faddr_f = str(
+            event_details.get("formatted_address") or event_details.get("address")
+            or raw_ev_fast.get("formatted_address") or raw_ev_fast.get("formattedAddress") or raw_ev_fast.get("address")
+            or _loc_fast.get("formatted_address") or _loc_fast.get("formattedAddress") or _saddr_f or ""
+        ).strip()
+        if _saddr_f:
+            event_details["street_address"] = _saddr_f
+        if _faddr_f:
+            event_details["address"] = _faddr_f
+            event_details["formatted_address"] = _faddr_f
         total_tp_fast = 0
         try:
             total_tp_fast = int(raw_ev_fast.get("totalTeamPlayers") or 0)
@@ -2045,9 +2073,9 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
             "name": bcp_ev_data.get("name") or "Tournament Details",
             "event_date": bcp_ev_data.get("eventDate") or bcp_ev_data.get("startDate") or "",
             "end_date": bcp_ev_data.get("endDate") or bcp_ev_data.get("eventEndDate") or "",
-            "city": loc.get("city") or "",
-            "state": loc.get("state") or "",
-            "country": loc.get("country") or "United States",
+            "city": bcp_ev_data.get("city") or loc.get("city") or "",
+            "state": bcp_ev_data.get("state") or loc.get("state") or "",
+            "country": bcp_ev_data.get("country") or loc.get("country") or "United States",
             "total_players": bcp_ev_data.get("totalPlayers") or 0,
             "num_rounds": bcp_rds,
             "numberOfRounds": bcp_rds,
@@ -2085,12 +2113,6 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
             event_details["event_date"] = bcp_ev_data["eventDate"]
         if bcp_ev_data.get("endDate") or bcp_ev_data.get("eventEndDate"):
             event_details["end_date"] = bcp_ev_data.get("endDate") or bcp_ev_data.get("eventEndDate")
-        loc = bcp_ev_data.get("location") if isinstance(bcp_ev_data.get("location"), dict) else {}
-        if loc.get("city"): event_details["city"] = loc["city"]
-        if loc.get("state"): event_details["state"] = loc["state"]
-        if loc.get("country"): event_details["country"] = loc["country"]
-        if bcp_ev_data.get("venueName") or loc.get("venueName") or loc.get("name"):
-            event_details["venue_name"] = bcp_ev_data.get("venueName") or loc.get("venueName") or loc.get("name")
         raw_ev = bcp_ev_data
     else:
         raw_ev = event_details.get("raw_json") or {}
@@ -2120,6 +2142,47 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
         )
         if raw_cur_r > 0:
             event_details["current_round"] = max(int(event_details.get("current_round") or 0), raw_cur_r)
+
+    if isinstance(raw_ev, dict):
+        loc = raw_ev.get("location") if isinstance(raw_ev.get("location"), dict) else {}
+        if raw_ev.get("city") or loc.get("city"):
+            event_details["city"] = raw_ev.get("city") or loc.get("city")
+        if raw_ev.get("state") or loc.get("state"):
+            event_details["state"] = raw_ev.get("state") or loc.get("state")
+        if raw_ev.get("country") or loc.get("country"):
+            event_details["country"] = raw_ev.get("country") or loc.get("country")
+        _v_name = (
+            raw_ev.get("locationName") or raw_ev.get("venueName") or raw_ev.get("venue")
+            or loc.get("venueName") or loc.get("venue") or loc.get("name")
+            or event_details.get("venue_name") or event_details.get("venue") or ""
+        )
+        if _v_name:
+            event_details["venue"] = _v_name
+            event_details["venue_name"] = _v_name
+        _s_num = str(raw_ev.get("streetNum") or loc.get("streetNum") or "").strip()
+        _s_name = str(raw_ev.get("streetName") or loc.get("streetName") or "").strip()
+        _s_addr = f"{_s_num} {_s_name}".strip() if (_s_num or _s_name) else str(loc.get("address") or loc.get("streetAddress") or event_details.get("street_address") or "").strip()
+        _f_addr = str(
+            raw_ev.get("formatted_address") or raw_ev.get("formattedAddress") or raw_ev.get("address")
+            or loc.get("formatted_address") or loc.get("formattedAddress")
+            or event_details.get("formatted_address") or event_details.get("address") or _s_addr or ""
+        ).strip()
+        if _s_addr:
+            event_details["street_address"] = _s_addr
+        if _f_addr:
+            event_details["address"] = _f_addr
+            event_details["formatted_address"] = _f_addr
+        _postal = str(raw_ev.get("zip") or raw_ev.get("postalCode") or loc.get("zip") or loc.get("postalCode") or event_details.get("postal_code") or "").strip()
+        if _postal:
+            event_details["postal_code"] = _postal
+        if event_details.get("latitude") is None or event_details.get("longitude") is None:
+            _coords = raw_ev.get("coordinate") or loc.get("coordinate") or (raw_ev.get("coordinate_point") or {}).get("coordinates")
+            if isinstance(_coords, (list, tuple)) and len(_coords) >= 2:
+                try:
+                    event_details["longitude"] = float(_coords[0])
+                    event_details["latitude"] = float(_coords[1])
+                except (ValueError, TypeError):
+                    pass
 
     bcp_explicitly_ended = bool(
         isinstance(raw_ev, dict) and (

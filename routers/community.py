@@ -457,7 +457,28 @@ def _refresh_bcp_majors_sync(target_sys: str, days_ahead: int = 180, min_players
         city = ev.get("city") or loc.get("city") or ""
         state = ev.get("state") or loc.get("state") or ""
         country = ev.get("country") or loc.get("country") or ""
-        venue = ev.get("venue") or ev.get("venue_name") or loc.get("venue") or loc.get("name") or ""
+        venue = (
+            ev.get("locationName") or ev.get("venueName") or ev.get("venue") or ev.get("venue_name")
+            or loc.get("venueName") or loc.get("venue") or loc.get("name") or ""
+        )
+        street_num = str(ev.get("streetNum") or loc.get("streetNum") or "").strip()
+        street_name = str(ev.get("streetName") or loc.get("streetName") or "").strip()
+        street_addr = f"{street_num} {street_name}".strip() if (street_num or street_name) else str(ev.get("street_address") or loc.get("address") or loc.get("streetAddress") or "").strip()
+        fmt_addr = str(
+            ev.get("formatted_address") or ev.get("formattedAddress") or ev.get("address")
+            or loc.get("formatted_address") or loc.get("formattedAddress") or street_addr or ""
+        ).strip()
+        postal_code = str(ev.get("zip") or ev.get("postalCode") or ev.get("postal_code") or loc.get("zip") or loc.get("postalCode") or "").strip()
+        lat_val = ev.get("latitude")
+        lng_val = ev.get("longitude")
+        if lat_val is None or lng_val is None:
+            coords = ev.get("coordinate") or loc.get("coordinate") or (ev.get("coordinate_point") or {}).get("coordinates")
+            if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                try:
+                    lng_val = float(coords[0])
+                    lat_val = float(coords[1])
+                except (ValueError, TypeError):
+                    pass
 
         total_players = 0
         try:
@@ -547,6 +568,13 @@ def _refresh_bcp_majors_sync(target_sys: str, days_ahead: int = 180, min_players
             "state": state,
             "country": country,
             "venue": venue,
+            "venue_name": venue,
+            "address": fmt_addr,
+            "formatted_address": fmt_addr,
+            "street_address": street_addr,
+            "postal_code": postal_code,
+            "latitude": lat_val,
+            "longitude": lng_val,
             "total_players": total_players,
             "num_tickets": num_tickets,
             "num_rounds": num_rounds,
