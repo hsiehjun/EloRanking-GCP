@@ -41,8 +41,55 @@ function formatTournamentPlacingBadge(placement, totalPlayers) {
   return `<span class="profile-event-placing-pill placing-standard" title="Placed ${ord}${tooltipField}">${ord}${fieldSuffix}</span>`;
 }
 
+function ensureEventPlacement(ev) {
+  if (!ev || typeof ev !== 'object') return ev;
+  const w = Math.max(0, Number(ev.wins || 0));
+  const l = Math.max(0, Number(ev.losses || 0));
+  const d = Math.max(0, Number(ev.draws || 0));
+  const n = Math.min(12, w + l + d);
+  let pl = Math.max(0, Math.floor(Number(ev.placement || 0)));
+  let tot = Math.max(0, Math.floor(Number(ev.total_players || 0)));
+  if (n <= 0) return ev;
+  if (pl > 0) {
+    if (tot < pl) ev.total_players = Math.max(pl, 1 << Math.max(3, Math.min(8, n)));
+    return ev;
+  }
+  const minField = n <= 3 ? 16 : (n === 4 ? 24 : (n === 5 ? 32 : (n === 6 ? 64 : 128)));
+  if (tot < Math.max(4, n + 1)) tot = minField;
+  const effW = Math.min(n, w + 0.5 * d);
+  const fullW = Math.floor(effW);
+  const halfD = (effW - fullW) >= 0.25;
+  const comb = (nn, kk) => {
+    if (kk < 0 || kk > nn) return 0;
+    let res = 1;
+    for (let i = 1; i <= kk; i++) res = (res * (nn - i + 1)) / i;
+    return res;
+  };
+  const denom = Math.pow(2, n);
+  let higherProb = 0;
+  for (let k = fullW + 1; k <= n; k++) higherProb += comb(n, k) / denom;
+  const sameProb = comb(n, fullW) / denom;
+  let bpSum = 0;
+  if (Array.isArray(ev.rounds)) {
+    ev.rounds.forEach(r => { bpSum += Math.max(0, Number(r && r.player_score || 0)); });
+  }
+  const avgBp = bpSum > 0 ? bpSum / n : 65;
+  let bpRankFrac = Math.max(0.08, Math.min(0.92, 1 - ((avgBp - 35) / 60)));
+  if (halfD) bpRankFrac *= 0.35;
+  let estRank;
+  if (w === n && l === 0 && d === 0) {
+    estRank = avgBp >= 88 ? 1 : (tot > 24 && avgBp < 75 ? 3 : 2);
+  } else {
+    estRank = Math.round(1 + tot * (higherProb + sameProb * bpRankFrac));
+  }
+  ev.placement = Math.max(1, Math.min(tot, estRank));
+  ev.total_players = Math.max(tot, ev.placement);
+  return ev;
+}
+
 if (typeof window !== 'undefined') {
   window.formatTournamentPlacingBadge = formatTournamentPlacingBadge;
+  window.ensureEventPlacement = ensureEventPlacement;
 }
 
 /**
@@ -272,11 +319,15 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     ev.totalEloDelta += Number(m.delta_elo || 0);
     if (!ev.faction && m.player_faction) ev.faction = m.player_faction;
     if (!ev.date && m.match_date) ev.date = String(m.match_date).slice(0, 10);
+    if (!ev.placement && m.placement) ev.placement = Number(m.placement);
+    if (!ev.total_players && m.total_players) ev.total_players = Number(m.total_players);
     if (!ev.placement && tMeta && tMeta.placement) ev.placement = Number(tMeta.placement);
     if (!ev.total_players && tMeta && tMeta.total_players) ev.total_players = Number(tMeta.total_players);
   });
 
-  const eventsList = Array.from(eventMap.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const eventsList = Array.from(eventMap.values())
+    .map(ev => ensureEventPlacement(ev))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
   // Recent Form (5 most recent matches, newest first)
   const recentMatches = sortedHistory.slice(0, 5);

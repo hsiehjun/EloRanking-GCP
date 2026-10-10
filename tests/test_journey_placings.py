@@ -466,6 +466,36 @@ class TestJourneyPlacings(unittest.TestCase):
         self.assertTrue("window.setHubMappableStatusFilter = setHubMappableStatusFilter;" in my_hub_js)
         self.assertTrue("copy.recommended = Boolean(rel >= 50 && !copy.is_locked);" in my_hub_js)
 
+    def test_all_users_journey_100pct_placements_and_fast_swiss_batch(self):
+        # Verify deterministic Swiss placement estimator covers every W-L-D record
+        for w, l, d, tot, bp in [
+            (5, 0, 0, 64, 460),
+            (4, 1, 0, 50, 390),
+            (3, 2, 0, 32, 340),
+            (2, 1, 2, 64, 355),
+            (1, 4, 0, 28, 220),
+            (0, 3, 0, 0, 120),
+        ]:
+            rk, est_tot = PostgresDatabase._estimate_swiss_placement(w, l, d, tot, bp, "test_ev")
+            self.assertGreater(rk, 0)
+            self.assertGreaterEqual(est_tot, rk)
+
+        # Verify single-scan CROSS JOIN LATERAL and jsonb_object_agg in _resolve_db_swiss_placings_for_events
+        import inspect
+        swiss_src = inspect.getsource(PostgresDatabase._resolve_db_swiss_placings_for_events)
+        self.assertIn("CROSS JOIN LATERAL", swiss_src)
+        self.assertIn("jsonb_object_agg", swiss_src)
+        self.assertIn("by_record", swiss_src)
+
+        enrich_src = inspect.getsource(PostgresDatabase._enrich_tournaments_with_bcp_placings)
+        self.assertNotIn("unplaced_eids[:30]", enrich_src)
+        self.assertIn("_estimate_swiss_placement", enrich_src)
+
+        with open("web/js/player_profile.js", "r", encoding="utf-8") as f:
+            prof_js = f.read()
+        self.assertIn("function ensureEventPlacement(ev)", prof_js)
+        self.assertIn(".map(ev => ensureEventPlacement(ev))", prof_js)
+
 
 if __name__ == "__main__":
     unittest.main()

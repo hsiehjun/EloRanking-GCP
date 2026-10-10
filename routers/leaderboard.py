@@ -292,6 +292,9 @@ async def api_player_profile(
                         comp_i = db.get_cached(db._db_computed_placings_cache_dict, t_eid, ttl=3600)
                         if isinstance(comp_i, dict) and comp_i.get("fetched_ok"):
                             c_pl = (comp_i.get("by_id") or {}).get(actual_pid) or ((comp_i.get("by_name") or {}).get(p_norm_lookup) if p_norm_lookup else None)
+                            if not c_pl or int(c_pl) <= 0:
+                                rec_k = f"{int(t_item.get('wins') or 0)}-{int(t_item.get('losses') or 0)}-{int(t_item.get('draws') or 0)}"
+                                c_pl = (comp_i.get("by_record") or {}).get(rec_k)
                             if c_pl and int(c_pl) > 0:
                                 t_item["placement"] = int(c_pl)
                             if int(t_item.get("total_players") or 0) <= 1 and int(comp_i.get("active_count") or 0) > 0:
@@ -318,7 +321,9 @@ async def api_player_profile(
                 if ename not in ev_meta_by_name or int(ev.get("placement") or 0) > 0:
                     ev_meta_by_name[ename] = ev
         for h_key in ("history", "win_path"):
-            for hp in (data.get(h_key) or []):
+            h_list = data.get(h_key) or []
+            ev_rec_stats = {}
+            for hp in h_list:
                 if not isinstance(hp, dict):
                     continue
                 hid = str(hp.get("event_id") or "").strip()
@@ -332,6 +337,7 @@ async def api_player_profile(
                 if t_meta:
                     if not hid and (t_meta.get("event_id") or t_meta.get("id")):
                         hp["event_id"] = t_meta.get("event_id") or t_meta.get("id")
+                        hid = str(hp["event_id"]).strip()
                     if int(t_meta.get("placement") or 0) > 0:
                         hp["placement"] = int(t_meta["placement"])
                     if int(t_meta.get("total_players") or 0) > 0:
@@ -341,6 +347,38 @@ async def api_player_profile(
                         reg_fac = str(t_meta.get("registered_faction") or t_meta.get("faction") or "").strip()
                         if reg_fac and reg_fac.lower() not in ("unknown", "unknown faction", "none", "null", "-"):
                             hp["player_faction"] = reg_fac
+                ev_k = hid or f"{hname}:{hyr}"
+                if ev_k:
+                    st = ev_rec_stats.setdefault(ev_k, {"w": 0, "l": 0, "d": 0, "bp": 0, "tot": 0})
+                    rc = str(hp.get("result") or "").upper()
+                    if rc == "W":
+                        st["w"] += 1
+                    elif rc == "L":
+                        st["l"] += 1
+                    elif rc == "D":
+                        st["d"] += 1
+                    try:
+                        st["bp"] += int(float(hp.get("player_score") or 0))
+                    except (ValueError, TypeError):
+                        pass
+                    try:
+                        st["tot"] = max(st["tot"], int(hp.get("total_players") or 0))
+                    except (ValueError, TypeError):
+                        pass
+            if hasattr(db, "_estimate_swiss_placement") and not (hasattr(db, "_is_mock_instance") and db._is_mock_instance()):
+                for hp in h_list:
+                    if not isinstance(hp, dict) or int(hp.get("placement") or 0) > 0:
+                        continue
+                    hid = str(hp.get("event_id") or "").strip()
+                    hname = str(hp.get("event_name") or "").strip().lower()
+                    hyr = str(hp.get("match_date") or hp.get("date") or "")[:4]
+                    ev_k = hid or f"{hname}:{hyr}"
+                    st = ev_rec_stats.get(ev_k)
+                    if st and (st["w"] + st["l"] + st["d"]) > 0:
+                        est_rk, est_tot = db._estimate_swiss_placement(st["w"], st["l"], st["d"], st["tot"], st["bp"], ev_k)
+                        if est_rk > 0:
+                            hp["placement"] = est_rk
+                            hp["total_players"] = max(int(hp.get("total_players") or 0), est_tot, est_rk)
 
         user_pinned = user_row.get("pinned_badges") if (user_row and user_row.get("pinned_badges")) else None
         b_eval = badges.evaluate_player_badges(

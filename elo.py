@@ -1619,12 +1619,12 @@ class EloEngine:
         now = time.time()
 
         def _sync_history_from_tournaments(tours: List[Dict[str, Any]], hist_rows: List[Dict[str, Any]]) -> None:
-            if not tours or not hist_rows:
+            if not hist_rows:
                 return
             ev_by_id: Dict[str, Dict[str, Any]] = {}
             ev_by_name_year: Dict[Tuple[str, str], Dict[str, Any]] = {}
             ev_by_name: Dict[str, Dict[str, Any]] = {}
-            for t in tours:
+            for t in (tours or []):
                 if not isinstance(t, dict):
                     continue
                 tid = str(t.get("event_id") or t.get("tournament_id") or t.get("id") or "").strip()
@@ -1637,6 +1637,8 @@ class EloEngine:
                         ev_by_name_year[(tname, tyr)] = t
                     if tname not in ev_by_name or int(t.get("placement") or 0) > 0:
                         ev_by_name[tname] = t
+
+            hist_ev_stats: Dict[str, Dict[str, int]] = {}
             for h in hist_rows:
                 if not isinstance(h, dict):
                     continue
@@ -1651,6 +1653,7 @@ class EloEngine:
                 if t_m:
                     if not h_eid and (t_m.get("event_id") or t_m.get("id")):
                         h["event_id"] = t_m.get("event_id") or t_m.get("id")
+                        h_eid = str(h["event_id"]).strip()
                     if int(t_m.get("placement") or 0) > 0:
                         h["placement"] = int(t_m["placement"])
                     if int(t_m.get("total_players") or 0) > 0:
@@ -1660,6 +1663,42 @@ class EloEngine:
                         reg_fac = str(t_m.get("registered_faction") or t_m.get("faction") or "").strip()
                         if reg_fac and reg_fac.lower() not in ("unknown", "unknown faction", "none", "null", "-"):
                             h["player_faction"] = reg_fac
+                ev_key = h_eid or f"{h_ename}:{h_yr}"
+                if ev_key:
+                    st = hist_ev_stats.setdefault(ev_key, {"w": 0, "l": 0, "d": 0, "bp": 0, "tot": 0})
+                    res_c = str(h.get("result") or "").upper()
+                    if res_c == "W":
+                        st["w"] += 1
+                    elif res_c == "L":
+                        st["l"] += 1
+                    elif res_c == "D":
+                        st["d"] += 1
+                    try:
+                        st["bp"] += int(float(h.get("player_score") or 0))
+                    except (ValueError, TypeError):
+                        pass
+                    try:
+                        st["tot"] = max(st["tot"], int(h.get("total_players") or 0))
+                    except (ValueError, TypeError):
+                        pass
+
+            is_mock_db = hasattr(self.db, "_is_mock_instance") and self.db._is_mock_instance()
+            if not is_mock_db and hasattr(self.db, "_estimate_swiss_placement"):
+                for h in hist_rows:
+                    if not isinstance(h, dict) or int(h.get("placement") or 0) > 0:
+                        continue
+                    h_eid = str(h.get("event_id") or h.get("tournament_id") or "").strip()
+                    h_ename = str(h.get("event_name") or h.get("tournament_name") or "").strip().lower()
+                    h_yr = str(h.get("match_date") or h.get("date") or "")[:4]
+                    ev_key = h_eid or f"{h_ename}:{h_yr}"
+                    st = hist_ev_stats.get(ev_key)
+                    if st and (st["w"] + st["l"] + st["d"]) > 0:
+                        est_rk, est_tot = self.db._estimate_swiss_placement(
+                            st["w"], st["l"], st["d"], st["tot"], st["bp"], ev_key
+                        )
+                        if est_rk > 0:
+                            h["placement"] = est_rk
+                            h["total_players"] = max(int(h.get("total_players") or 0), est_tot, est_rk)
 
         if base_key in self._player_win_path_cache_dict:
             cached_val, cached_ts = self._player_win_path_cache_dict[base_key]
@@ -1680,8 +1719,26 @@ class EloEngine:
                 return cached_val
             self._player_win_path_cache_dict.pop(cache_key, None)
 
-        history = self.db.get_player_history(player_id, game_system=game_system)
-        player_info = self.db.search_players(player_id, game_system=game_system)
+        initial_pid = player_id
+        prefetched_tournaments: Optional[List[Dict[str, Any]]] = None
+        is_real_pg = (
+            include_tournaments
+            and hasattr(self.db, "_is_mock_instance")
+            and not self.db._is_mock_instance()
+            and not hasattr(self.db.get_player_history, "_mock_name")
+        )
+        if is_real_pg and hasattr(self.db, "get_player_tournaments"):
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                f_hist = pool.submit(self.db.get_player_history, player_id, game_system=game_system)
+                f_info = pool.submit(self.db.search_players, player_id, game_system=game_system)
+                f_tours = pool.submit(self.db.get_player_tournaments, player_id, game_system=game_system)
+                history = f_hist.result()
+                player_info = f_info.result()
+                prefetched_tournaments = f_tours.result()
+        else:
+            history = self.db.get_player_history(player_id, game_system=game_system)
+            player_info = self.db.search_players(player_id, game_system=game_system)
         player_meta = player_info[0] if player_info else {}
 
         # If player_id is an event registration ID or temporary ID not directly in player_ratings,
@@ -1845,13 +1902,16 @@ class EloEngine:
                         "is_bye": bool(m.get("is_bye"))
                     })
 
-        tournaments_list = (
-            self.db.get_player_tournaments(player_id, game_system=game_system)
-            if (include_tournaments and hasattr(self.db, "get_player_tournaments"))
-            else []
-        )
+        if prefetched_tournaments is not None and player_id == initial_pid:
+            tournaments_list = prefetched_tournaments
+        else:
+            tournaments_list = (
+                self.db.get_player_tournaments(player_id, game_system=game_system)
+                if (include_tournaments and hasattr(self.db, "get_player_tournaments"))
+                else []
+            )
 
-        if tournaments_list and history:
+        if history:
             _sync_history_from_tournaments(tournaments_list, history)
 
         current_streak = 0

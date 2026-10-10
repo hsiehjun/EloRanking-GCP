@@ -215,7 +215,8 @@ async function loadMyHubDashboard() {
           const hasValidJourneyPlacements = !Array.isArray(parsed.history) || parsed.history.length === 0 || (
             Array.isArray(parsed.events_attended) &&
             parsed.events_attended.length > 0 &&
-            !parsed.events_attended.some(ev => Number(ev && ev.wins || 0) === 0 && Number(ev && ev.losses || 0) >= 2 && Number(ev && ev.placement || 0) === 1)
+            !parsed.events_attended.some(ev => Number(ev && ev.wins || 0) === 0 && Number(ev && ev.losses || 0) >= 2 && Number(ev && ev.placement || 0) === 1) &&
+            !parsed.events_attended.some(ev => Number(ev && ev.matches_played || 0) > 0 && Number(ev && ev.placement || 0) <= 0)
           );
           if (parsed.player && typeof parsed.player === 'object' && parsed._journeySchemaVer === 4 && hasValidJourneyPlacements) {
             cachedData = parsed;
@@ -1794,16 +1795,20 @@ function renderMyHub(data) {
     else if (m.result === 'L') ev.losses++;
     else ev.draws++;
     ev.totalEloDelta += Number(m.delta_elo || 0);
+    if (!ev.placement && m.placement) ev.placement = Number(m.placement);
+    if (!ev.total_players && m.total_players) ev.total_players = Number(m.total_players);
     if (!ev.placement && tMeta && tMeta.placement) ev.placement = Number(tMeta.placement);
     if (!ev.total_players && tMeta && tMeta.total_players) ev.total_players = Number(tMeta.total_players);
     ev.rounds.push(m);
   });
-  const hubEventsList = Array.from(hubEventsMap.values()).sort((a, b) => {
-    const dA = a.date || '';
-    const dB = b.date || '';
-    if (dA !== dB) return dB.localeCompare(dA);
-    return 0;
-  });
+  const hubEventsList = Array.from(hubEventsMap.values())
+    .map(ev => (typeof window.ensureEventPlacement === 'function' ? window.ensureEventPlacement(ev) : ev))
+    .sort((a, b) => {
+      const dA = a.date || '';
+      const dB = b.date || '';
+      if (dA !== dB) return dB.localeCompare(dA);
+      return 0;
+    });
 
   let hubEventsAccordionHtml = '';
   if (hubEventsList.length === 0) {

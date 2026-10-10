@@ -2779,14 +2779,14 @@ class AuthManager:
                         rh.opponent_faction
                     ) AS opponent_faction,
                     rh.player_score, rh.opponent_score,
-                    e.name as event_name, e.city, e.state, e.country, e.id as event_id,
+                    e.name as event_name, e.city, e.state, e.country, COALESCE(rh.event_id, m.event_id, e.id) as event_id,
                     COALESCE(e.total_players, 0) as total_players,
                     m.table_number,
                     tg.match_id AS tracker_match_id,
                     COALESCE(tg.is_finished, FALSE) AS has_tracker_scorecard
                 FROM rating_history rh
-                LEFT JOIN events e ON rh.event_id = e.id
                 LEFT JOIN matches m ON rh.match_id = m.id
+                LEFT JOIN events e ON COALESCE(rh.event_id, m.event_id) = e.id
                 LEFT JOIN LATERAL (
                     SELECT match_id, is_finished
                     FROM tracker_games
@@ -2797,7 +2797,6 @@ class AuthManager:
                       AND round_num = m.round
                       AND table_num = m.table_number
                     ORDER BY
-                      COALESCE((state_json->>'event_match_locked')::boolean, FALSE) DESC,
                       is_finished DESC,
                       updated_at DESC
                     LIMIT 1
@@ -2901,16 +2900,17 @@ class AuthManager:
             if eid:
                 ev_meta_by_id[eid] = ev
             ename = str(ev.get("event_name") or ev.get("name") or "").strip().lower()
-            eyear = str(ev.get("date") or ev.get("start_date") or "")[:4]
+            eyear = str(ev.get("event_date") or ev.get("date") or ev.get("start_date") or "")[:4]
             if ename:
                 if eyear:
                     ev_meta_by_name_year[(ename, eyear)] = ev
                 if ename not in ev_meta_by_name or int(ev.get("placement") or 0) > 0:
                     ev_meta_by_name[ename] = ev
+        ev_rec_stats = {}
         for hp in history_points:
             hid = str(hp.get("event_id") or "").strip()
             hname = str(hp.get("event_name") or "").strip().lower()
-            hyear = str(hp.get("timestamp") or hp.get("date") or "")[:4]
+            hyear = str(hp.get("match_date") or hp.get("timestamp") or hp.get("date") or "")[:4]
             t_meta = (
                 ev_meta_by_id.get(hid)
                 or (ev_meta_by_name_year.get((hname, hyear)) if hname and hyear else None)
@@ -2921,6 +2921,7 @@ class AuthManager:
                     meta_eid = str(t_meta.get("event_id") or t_meta.get("id") or "").strip()
                     if meta_eid:
                         hp["event_id"] = meta_eid
+                        hid = meta_eid
                 if int(t_meta.get("placement") or 0) > 0:
                     hp["placement"] = int(t_meta["placement"])
                 if int(t_meta.get("total_players") or 0) > 0:
@@ -2930,6 +2931,38 @@ class AuthManager:
                     reg_fac = str(t_meta.get("registered_faction") or t_meta.get("faction") or "").strip()
                     if reg_fac and reg_fac.lower() not in ("unknown", "unknown faction", "none", "null", "-"):
                         hp["player_faction"] = reg_fac
+            ev_k = hid or f"{hname}:{hyear}"
+            if ev_k:
+                st = ev_rec_stats.setdefault(ev_k, {"w": 0, "l": 0, "d": 0, "bp": 0, "tot": 0})
+                rc = str(hp.get("result") or "").upper()
+                if rc == "W":
+                    st["w"] += 1
+                elif rc == "L":
+                    st["l"] += 1
+                elif rc == "D":
+                    st["d"] += 1
+                try:
+                    st["bp"] += int(float(hp.get("player_score") or 0))
+                except (ValueError, TypeError):
+                    pass
+                try:
+                    st["tot"] = max(st["tot"], int(hp.get("total_players") or 0))
+                except (ValueError, TypeError):
+                    pass
+        if is_pg_db and hasattr(self.db, "_estimate_swiss_placement") and not (hasattr(self.db, "_is_mock_instance") and self.db._is_mock_instance()):
+            for hp in history_points:
+                if int(hp.get("placement") or 0) > 0:
+                    continue
+                hid = str(hp.get("event_id") or "").strip()
+                hname = str(hp.get("event_name") or "").strip().lower()
+                hyear = str(hp.get("match_date") or hp.get("timestamp") or hp.get("date") or "")[:4]
+                ev_k = hid or f"{hname}:{hyear}"
+                st = ev_rec_stats.get(ev_k)
+                if st and (st["w"] + st["l"] + st["d"]) > 0:
+                    est_rk, est_tot = self.db._estimate_swiss_placement(st["w"], st["l"], st["d"], st["tot"], st["bp"], ev_k)
+                    if est_rk > 0:
+                        hp["placement"] = est_rk
+                        hp["total_players"] = max(int(hp.get("total_players") or 0), est_tot, est_rk)
 
         # Compute Faction Mastery & Matchup Matrix after backfilling event factions and recent matches
         if is_pg_db:
