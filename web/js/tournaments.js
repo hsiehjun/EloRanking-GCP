@@ -12338,6 +12338,42 @@ function computeClientBroadcastTargetKey(b) {
   return String(b.id || 'targeted');
 }
 
+function getCachedToHubState(eventId) {
+  const eid = String(eventId || '').trim();
+  if (!eid) return null;
+  if (_eventToHubStateCache.has(eid)) return _eventToHubStateCache.get(eid);
+  const low = eid.toLowerCase();
+  for (const [k, v] of _eventToHubStateCache.entries()) {
+    if (String(k).toLowerCase() === low) return v;
+  }
+  return null;
+}
+
+function setCachedToHubState(eventId, stateObj) {
+  const eid = String(eventId || '').trim();
+  if (!eid || !stateObj) return;
+  const low = eid.toLowerCase();
+  for (const k of Array.from(_eventToHubStateCache.keys())) {
+    if (String(k).toLowerCase() === low && k !== eid) {
+      _eventToHubStateCache.set(k, stateObj);
+    }
+  }
+  _eventToHubStateCache.set(eid, stateObj);
+  if (currentOpenEventId && String(currentOpenEventId).toLowerCase() === low) {
+    _eventToHubStateCache.set(String(currentOpenEventId), stateObj);
+  }
+  if (currentEventData && currentEventData.id && String(currentEventData.id).toLowerCase() === low) {
+    _eventToHubStateCache.set(String(currentEventData.id), stateObj);
+  }
+}
+
+function isToHubSubtabActiveInStation() {
+  return Boolean(
+    ['clock', 'announcements', 'roster'].includes(_currentMyStationSubtab) ||
+    (_currentMyStationSubtab && _currentMyStationSubtab.startsWith('to-'))
+  );
+}
+
 function ensureEventToHubFirestoreListener(eventId) {
   const eid = String(eventId || '').trim();
   if (!eid) return;
@@ -12358,36 +12394,40 @@ function ensureEventToHubFirestoreListener(eventId) {
       _toHubFirestoreUnsub = db.collection('tournaments').doc(eid).onSnapshot(doc => {
         if (!doc || !doc.exists) return;
         const data = doc.data() || {};
-        const prev = _eventToHubStateCache.get(eid) || { event_id: eid };
+        const prev = { ...(getCachedToHubState(eid) || { event_id: eid }) };
+        const snapTs = Number(data.updatedAt || 0);
+        const authBroadcastTs = Number(prev._authoritativeBroadcastAt || 0);
+        const isBroadcastAuthoritative = authBroadcastTs > 0 && (Date.now() - authBroadcastTs < 8000) && snapTs < authBroadcastTs;
         if (data.masterClock) {
           prev.clock = data.masterClock;
           prev.master_clock = data.masterClock;
         }
-        if ('broadcast' in data) {
+        if ('broadcast' in data && !isBroadcastAuthoritative) {
           const b = (data.broadcast && data.broadcast.active !== false && !isTargetedBroadcastObj(data.broadcast))
             ? data.broadcast
             : null;
           prev.broadcast = b;
           prev.active_broadcast = b;
         }
-        if (Array.isArray(data.targeted_broadcasts)) {
+        if (Array.isArray(data.targeted_broadcasts) && !isBroadcastAuthoritative) {
           prev.targeted_broadcasts = data.targeted_broadcasts.filter(t => t && t.message && t.active !== false);
         }
         if (Array.isArray(data.announcements) && data.announcements.length > 0) {
           prev.announcements = data.announcements;
         }
         prev._fetchedAt = Date.now();
-        _eventToHubStateCache.set(eid, prev);
+        setCachedToHubState(eid, prev);
         updateEventNewsTabBadge(eid);
         if (prev.clock && prev.clock.status === 'running') {
           startToHubClockTicker(eid);
         }
-        if (currentOpenEventId && String(currentOpenEventId) === eid && currentEventData) {
+        const openEid = String(currentOpenEventId || (currentEventData && (currentEventData.id || currentEventData.event_id)) || '');
+        if (openEid && openEid.toLowerCase() === eid.toLowerCase() && currentEventData) {
           renderEventClockAndScheduleWidgets(currentEventData, true);
           if (currentEventModalTab === 'news') {
             renderEventNewsHub(currentEventData, true);
           } else if (currentEventModalTab === 'to-hub' || currentEventModalTab === 'player') {
-            if (_currentMyStationSubtab && _currentMyStationSubtab.startsWith('to-')) {
+            if (isToHubSubtabActiveInStation()) {
               renderEventToHub(currentEventData, true);
             }
           } else if (currentEventModalTab === 'matches') {
@@ -12409,9 +12449,10 @@ async function syncToHubBroadcastToClientFirestore(eventId, broadcastObj, clearT
     if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length > 0 && typeof firebase.firestore === 'function') {
       const db = firebase.firestore();
       const nowMs = Date.now();
-      const cachedState = _eventToHubStateCache.get(eid) || {};
+      const cachedState = getCachedToHubState(eid) || {};
+      const writes = [];
       if (eid.toUpperCase() !== eid) {
-        db.collection('tournaments').doc(eid.toUpperCase()).delete().catch(() => {});
+        writes.push(db.collection('tournaments').doc(eid.toUpperCase()).delete().catch(() => {}));
       }
 
       if (broadcastObj && broadcastObj.message && broadcastObj.active !== false) {
@@ -12432,44 +12473,44 @@ async function syncToHubBroadcastToClientFirestore(eventId, broadcastObj, clearT
             activeBroadcast,
             ...prevList.filter(t => t && t.id !== activeBroadcast.id && computeClientBroadcastTargetKey(t) !== targetKey)
           ].slice(0, 25);
-          db.collection('tournaments').doc(eid).set({
+          writes.push(db.collection('tournaments').doc(eid).set({
             eventId: eid,
             targeted_broadcasts: nextList,
             updatedAt: nowMs,
-          }, { merge: true }).catch(() => {});
-          db.collection('tournaments').doc('_active_broadcasts').set({
+          }, { merge: true }).catch(() => {}));
+          writes.push(db.collection('tournaments').doc('_active_broadcasts').set({
             broadcasts: {
               [`${eid}__target__${targetKey}`]: activeBroadcast,
             },
             updatedAt: nowMs,
-          }, { merge: true }).catch(() => {});
+          }, { merge: true }).catch(() => {}));
         } else {
-          db.collection('tournaments').doc(eid).set({
+          writes.push(db.collection('tournaments').doc(eid).set({
             eventId: eid,
             broadcast: activeBroadcast,
             updatedAt: nowMs,
-          }, { merge: true }).catch(() => {});
-          db.collection('tournaments').doc('_active_broadcasts').set({
+          }, { merge: true }).catch(() => {}));
+          writes.push(db.collection('tournaments').doc('_active_broadcasts').set({
             broadcasts: {
               [eid]: activeBroadcast,
             },
             updatedAt: nowMs,
-          }, { merge: true }).catch(() => {});
+          }, { merge: true }).catch(() => {}));
         }
       } else {
         const cleanTarget = String(clearTargetId || '').trim();
         if (!cleanTarget || cleanTarget === 'general') {
-          db.collection('tournaments').doc(eid).set({
+          const clearBroadcastMap = { [eid]: null };
+          if (eid.toUpperCase() !== eid) clearBroadcastMap[eid.toUpperCase()] = null;
+          writes.push(db.collection('tournaments').doc(eid).set({
             eventId: eid,
             broadcast: null,
             updatedAt: nowMs,
-          }, { merge: true }).catch(() => {});
-          db.collection('tournaments').doc('_active_broadcasts').set({
-            broadcasts: {
-              [eid]: null,
-            },
+          }, { merge: true }).catch(() => {}));
+          writes.push(db.collection('tournaments').doc('_active_broadcasts').set({
+            broadcasts: clearBroadcastMap,
             updatedAt: nowMs,
-          }, { merge: true }).catch(() => {});
+          }, { merge: true }).catch(() => {}));
         } else if (cleanTarget === 'all_targeted') {
           const prevList = Array.isArray(cachedState.targeted_broadcasts) ? cachedState.targeted_broadcasts : [];
           const clearMap = {};
@@ -12477,16 +12518,16 @@ async function syncToHubBroadcastToClientFirestore(eventId, broadcastObj, clearT
             const tk = computeClientBroadcastTargetKey(t);
             clearMap[`${eid}__target__${tk}`] = null;
           });
-          db.collection('tournaments').doc(eid).set({
+          writes.push(db.collection('tournaments').doc(eid).set({
             eventId: eid,
             targeted_broadcasts: [],
             updatedAt: nowMs,
-          }, { merge: true }).catch(() => {});
+          }, { merge: true }).catch(() => {}));
           if (Object.keys(clearMap).length > 0) {
-            db.collection('tournaments').doc('_active_broadcasts').set({
+            writes.push(db.collection('tournaments').doc('_active_broadcasts').set({
               broadcasts: clearMap,
               updatedAt: nowMs,
-            }, { merge: true }).catch(() => {});
+            }, { merge: true }).catch(() => {}));
           }
         } else {
           const prevList = Array.isArray(cachedState.targeted_broadcasts) ? cachedState.targeted_broadcasts : [];
@@ -12499,17 +12540,20 @@ async function syncToHubBroadcastToClientFirestore(eventId, broadcastObj, clearT
             }
             return true;
           });
-          db.collection('tournaments').doc(eid).set({
+          writes.push(db.collection('tournaments').doc(eid).set({
             eventId: eid,
             targeted_broadcasts: nextList,
             updatedAt: nowMs,
-          }, { merge: true }).catch(() => {});
+          }, { merge: true }).catch(() => {}));
           clearMap[`${eid}__target__${cleanTarget}`] = null;
-          db.collection('tournaments').doc('_active_broadcasts').set({
+          writes.push(db.collection('tournaments').doc('_active_broadcasts').set({
             broadcasts: clearMap,
             updatedAt: nowMs,
-          }, { merge: true }).catch(() => {});
+          }, { merge: true }).catch(() => {}));
         }
+      }
+      if (writes.length > 0) {
+        await Promise.all(writes);
       }
     }
   } catch (_) {}
@@ -12533,31 +12577,53 @@ async function loadEventToHubState(eventId, forceRefresh = false) {
   const eid = String(eventId);
   recordRecentInteractedEventId(eid);
   ensureEventToHubFirestoreListener(eid);
-  if (!forceRefresh && _eventToHubStateCache.has(eid)) {
-    const cached = _eventToHubStateCache.get(eid);
-    if (Date.now() - (cached._fetchedAt || 0) < 12000) {
+  const existingCached = getCachedToHubState(eid);
+  if (!forceRefresh && existingCached) {
+    if (Date.now() - (existingCached._fetchedAt || 0) < 12000) {
       updateEventNewsTabBadge(eid);
-      return cached;
+      return existingCached;
     }
   }
   try {
     const res = await window.api.getEventToHubState(eid, forceRefresh);
-    if (res && !res.error) {
-      res._fetchedAt = Date.now();
-      const normClock = res.clock || res.master_clock || res.masterClock || null;
-      res.clock = normClock;
-      res.master_clock = normClock;
-      _eventToHubStateCache.set(eid, res);
+    const hasToHubFields = Boolean(
+      res &&
+      !res.error &&
+      ('active_broadcast' in res || 'broadcast' in res || 'master_clock' in res || 'clock' in res || 'announcements' in res || 'news_posts' in res)
+    );
+    if (hasToHubFields) {
+      const latestCached = getCachedToHubState(eid) || existingCached;
+      const merged = { ...(latestCached || {}), ...res, _fetchedAt: Date.now() };
+      const normClock = res.clock || res.master_clock || res.masterClock || (latestCached && (latestCached.clock || latestCached.master_clock)) || null;
+      merged.clock = normClock;
+      merged.master_clock = normClock;
+
+      const authTs = Number(latestCached && latestCached._authoritativeBroadcastAt ? latestCached._authoritativeBroadcastAt : 0);
+      if (authTs > 0 && (Date.now() - authTs < 8000)) {
+        merged.broadcast = latestCached.broadcast ?? null;
+        merged.active_broadcast = latestCached.active_broadcast ?? null;
+        if (Array.isArray(latestCached.targeted_broadcasts)) {
+          merged.targeted_broadcasts = latestCached.targeted_broadcasts;
+        }
+        merged._authoritativeBroadcastAt = authTs;
+      } else {
+        const normBroadcast = ('active_broadcast' in res) ? res.active_broadcast : (('broadcast' in res) ? res.broadcast : (latestCached ? latestCached.active_broadcast : null));
+        merged.broadcast = normBroadcast;
+        merged.active_broadcast = normBroadcast;
+      }
+
+      setCachedToHubState(eid, merged);
       updateEventNewsTabBadge(eid);
       if (normClock && normClock.status === 'running') {
         startToHubClockTicker(eid);
       }
-      if (currentOpenEventId && String(currentOpenEventId) === eid && currentEventData) {
+      const openEid = String(currentOpenEventId || (currentEventData && (currentEventData.id || currentEventData.event_id)) || '');
+      if (openEid && openEid.toLowerCase() === eid.toLowerCase() && currentEventData) {
         renderEventClockAndScheduleWidgets(currentEventData, true);
         if (currentEventModalTab === 'news') {
           renderEventNewsHub(currentEventData, true);
         } else if (currentEventModalTab === 'to-hub' || currentEventModalTab === 'player') {
-          if (_currentMyStationSubtab && _currentMyStationSubtab.startsWith('to-')) {
+          if (isToHubSubtabActiveInStation()) {
             renderEventToHub(currentEventData, true);
           }
         } else if (currentEventModalTab === 'matches') {
@@ -12567,19 +12633,19 @@ async function loadEventToHubState(eventId, forceRefresh = false) {
       if (typeof syncGlobalEventAnnouncementBanner === 'function') {
         syncGlobalEventAnnouncementBanner().catch(() => {});
       }
-      return res;
+      return merged;
     }
   } catch (err) {
     console.warn('loadEventToHubState warning:', err);
   }
-  return _eventToHubStateCache.get(eid) || null;
+  return getCachedToHubState(eid) || null;
 }
 
 function updateEventNewsTabBadge(eventId) {
   const badge = document.getElementById('event-tab-news-count');
   if (!badge) return;
-  const eid = String(eventId || currentOpenEventId || '');
-  const state = _eventToHubStateCache.get(eid);
+  const eid = String(eventId || currentOpenEventId || (currentEventData && currentEventData.id) || '');
+  const state = getCachedToHubState(eid);
   let count = 0;
   if (state) {
     if (state.active_broadcast && state.active_broadcast.message) count += 1;
@@ -12651,7 +12717,7 @@ function startToHubClockTicker(eventId) {
       _toHubMasterClockInterval = null;
       return;
     }
-    const state = _eventToHubStateCache.get(eid);
+    const state = getCachedToHubState(eid);
     const bcpCfg = getEventBcpRoundConfig(currentEventData);
     const clockObj = (state && (state.clock || state.master_clock)) ? (state.clock || state.master_clock) : null;
     if (!clockObj || clockObj.status !== 'running') return;
@@ -12673,10 +12739,10 @@ function buildEventRoundClockAndScheduleCardHtml(ev, skipFetch = false) {
   const eventObj = ev || currentEventData;
   if (!eventObj) return '';
   const eventId = String(eventObj.id || eventObj.event_id || currentOpenEventId || '');
-  if (!skipFetch && eventId && !_eventToHubStateCache.has(eventId)) {
+  if (!skipFetch && eventId && !getCachedToHubState(eventId)) {
     loadEventToHubState(eventId, false).catch(() => {});
   }
-  const state = _eventToHubStateCache.get(eventId) || {};
+  const state = getCachedToHubState(eventId) || {};
   const bcpCfg = getEventBcpRoundConfig(eventObj);
   const clockObj = state.clock || state.master_clock || null;
   const clockStatus = (clockObj && clockObj.status) ? String(clockObj.status).toLowerCase() : 'stopped';
@@ -12748,11 +12814,11 @@ async function renderEventNewsHub(ev, skipFetch = false) {
   if (!eventObj) return;
 
   const eventId = String(eventObj.id || eventObj.event_id || currentOpenEventId || '');
-  if (!skipFetch && !_eventToHubStateCache.has(eventId)) {
+  if (!skipFetch && !getCachedToHubState(eventId)) {
     loadEventToHubState(eventId, false).catch(() => {});
   }
 
-  const state = _eventToHubStateCache.get(eventId) || {};
+  const state = getCachedToHubState(eventId) || {};
   const raw = (eventObj.raw_json && typeof eventObj.raw_json === 'object') ? eventObj.raw_json : eventObj;
   const canTo = canUserAccessEventToHub(eventObj);
   const activeBroadcast = state.active_broadcast && state.active_broadcast.message ? state.active_broadcast : null;
@@ -12944,9 +13010,9 @@ function switchEventToHubSubtab(subtab) {
     subtab = 'clock';
   }
   _currentToHubSubtab = subtab;
-  _currentMyStationSubtab = `to-${subtab}`;
+  _currentMyStationSubtab = subtab;
   if (currentEventModalTab === 'player' && typeof switchMyStationSubtab === 'function') {
-    switchMyStationSubtab(`to-${subtab}`);
+    switchMyStationSubtab(subtab);
     return;
   }
   if (currentEventData) {
@@ -12971,11 +13037,11 @@ async function renderEventToHub(ev, skipFetch = false) {
   }
 
   const eventId = String(eventObj.id || eventObj.event_id || currentOpenEventId || '');
-  if (!skipFetch && !_eventToHubStateCache.has(eventId)) {
+  if (!skipFetch && !getCachedToHubState(eventId)) {
     loadEventToHubState(eventId, false).catch(() => {});
   }
 
-  const state = _eventToHubStateCache.get(eventId) || {};
+  const state = getCachedToHubState(eventId) || {};
   const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0
     ? eventPlayersCache
     : (Array.isArray(eventObj.players) ? eventObj.players : []);
@@ -13001,6 +13067,31 @@ async function renderEventToHub(ev, skipFetch = false) {
     startToHubClockTicker(eventId);
   }
 
+  // Preserve draft input values across live re-renders so background syncs or banner clears don't wipe out unsent text
+  const preservedIds = [
+    'to-hub-banner-level',
+    'to-hub-banner-message',
+    'to-hub-news-title',
+    'to-hub-news-category',
+    'to-hub-news-pinned',
+    'to-hub-news-body',
+    'to-hub-judge-table',
+    'to-hub-judge-category',
+    'to-hub-judge-staff',
+    'to-hub-judge-notes',
+  ];
+  const draftState = {};
+  const activeId = (document.activeElement && container.contains(document.activeElement)) ? document.activeElement.id : null;
+  preservedIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') {
+      draftState[id] = { type: 'checkbox', checked: el.checked };
+    } else {
+      draftState[id] = { type: 'value', value: el.value, selStart: el.selectionStart, selEnd: el.selectionEnd };
+    }
+  });
+
   let subtabBodyHtml = '';
   if (_currentToHubSubtab === 'clock') {
     subtabBodyHtml = renderToHubClockAndJudgeSubtab(eventId, eventObj, roundNums, bcpCfg, clockObj, judgeCalls);
@@ -13017,6 +13108,28 @@ async function renderEventToHub(ev, skipFetch = false) {
       </div>
     </div>
   `;
+
+  Object.entries(draftState).forEach(([id, st]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (st.type === 'checkbox') {
+      el.checked = Boolean(st.checked);
+    } else if (st.value !== undefined) {
+      el.value = st.value;
+    }
+  });
+  if (activeId) {
+    const focusEl = document.getElementById(activeId);
+    if (focusEl && typeof focusEl.focus === 'function') {
+      try {
+        focusEl.focus({ preventScroll: true });
+        const st = draftState[activeId];
+        if (st && typeof st.selStart === 'number' && typeof focusEl.setSelectionRange === 'function') {
+          focusEl.setSelectionRange(st.selStart, st.selEnd ?? st.selStart);
+        }
+      } catch (_) {}
+    }
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -13231,7 +13344,46 @@ async function broadcastUnfinishedTablesPing(eventId, roundNum) {
   const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || '';
   try {
     recordRecentInteractedEventId(eId);
-    await window.api.publishEventToHubAnnouncement(eId, { message: msg, level: 'warning', event_name: evName });
+    const nowMs = Date.now();
+    const optimisticBroadcast = {
+      id: `msg_${nowMs}`,
+      eventId: eId,
+      event_id: eId,
+      event_name: evName,
+      message: msg,
+      level: 'warning',
+      type: 'warning',
+      active: true,
+      is_targeted: false,
+      published_at: new Date(nowMs).toISOString(),
+      timestamp: nowMs,
+    };
+    const prevState = { ...(getCachedToHubState(eId) || { event_id: eId }) };
+    prevState.broadcast = optimisticBroadcast;
+    prevState.active_broadcast = optimisticBroadcast;
+    prevState._fetchedAt = nowMs;
+    prevState._authoritativeBroadcastAt = nowMs;
+    setCachedToHubState(eId, prevState);
+    updateEventNewsTabBadge(eId);
+    if (currentEventData && isToHubSubtabActiveInStation()) {
+      renderEventToHub(currentEventData, true);
+    }
+
+    const pubRes = await window.api.publishEventToHubAnnouncement(eId, { message: msg, level: 'warning', event_name: evName });
+    const confirmedBroadcast = (pubRes && pubRes.broadcast) ? pubRes.broadcast : optimisticBroadcast;
+    if (pubRes && pubRes.state) {
+      pubRes.state._fetchedAt = Date.now();
+      pubRes.state._authoritativeBroadcastAt = Date.now();
+      if (!pubRes.state.active_broadcast && confirmedBroadcast) {
+        pubRes.state.active_broadcast = confirmedBroadcast;
+        pubRes.state.broadcast = confirmedBroadcast;
+      }
+      setCachedToHubState(eId, pubRes.state);
+    }
+    updateEventNewsTabBadge(eId);
+    if (currentEventData && isToHubSubtabActiveInStation()) {
+      renderEventToHub(currentEventData, true);
+    }
     await loadEventToHubState(eId, true);
     if (typeof syncGlobalEventAnnouncementBanner === 'function') {
       await syncGlobalEventAnnouncementBanner(true);
@@ -13324,7 +13476,7 @@ function renderToHubFloorRadarSubtab(eventId, ev, roundNums, roundMatches, compl
 async function updateToHubMasterClockAction(action, deltaSeconds = 0) {
   const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || '');
   if (!eventId) return;
-  const state = _eventToHubStateCache.get(eventId) || {};
+  const state = getCachedToHubState(eventId) || {};
   const bcpCfg = getEventBcpRoundConfig(currentEventData);
   const currentClock = state.clock || state.master_clock || {};
   const minsInput = document.getElementById('to-hub-clock-mins-input');
@@ -13370,7 +13522,7 @@ async function updateToHubMasterClockAction(action, deltaSeconds = 0) {
 
   // Optimistic local state update so UI and Player Clock visibility update immediately
   const nextState = { ...state, clock: clockPayload, master_clock: clockPayload, _fetchedAt: nowMs };
-  _eventToHubStateCache.set(eventId, nextState);
+  setCachedToHubState(eventId, nextState);
   if (currentEventData) {
     renderEventClockAndScheduleWidgets(currentEventData, true);
     renderEventToHub(currentEventData, true);
@@ -13411,18 +13563,43 @@ async function updateToHubMasterClockAction(action, deltaSeconds = 0) {
 async function broadcastToHubClockStatus() {
   const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || '');
   if (!eventId) return;
-  const state = _eventToHubStateCache.get(eventId) || {};
+  const state = getCachedToHubState(eventId) || {};
   const bcpCfg = getEventBcpRoundConfig(currentEventData);
   const clockObj = state.clock || state.master_clock || {};
   const rem = computeClockRemainingSeconds(clockObj, bcpCfg.defaultLengthMins);
   const minsLeft = Math.ceil(rem / 60);
   const msg = `⏱️ Live Round Time Check: ${minsLeft} minutes remaining (${formatClockDurationHms(rem)} on Master Clock).`;
+  const level = minsLeft <= 20 ? 'urgent' : 'warning';
   const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || '';
   try {
     recordRecentInteractedEventId(eventId);
+    const nowMs = Date.now();
+    const optimisticBroadcast = {
+      id: `msg_${nowMs}`,
+      eventId,
+      event_id: eventId,
+      event_name: evName,
+      message: msg,
+      level,
+      type: level,
+      active: true,
+      is_targeted: false,
+      published_at: new Date(nowMs).toISOString(),
+      timestamp: nowMs,
+    };
+    const prevState = { ...(getCachedToHubState(eventId) || { event_id: eventId }) };
+    prevState.broadcast = optimisticBroadcast;
+    prevState.active_broadcast = optimisticBroadcast;
+    prevState._fetchedAt = nowMs;
+    prevState._authoritativeBroadcastAt = nowMs;
+    setCachedToHubState(eventId, prevState);
+    updateEventNewsTabBadge(eventId);
+    if (currentEventData && isToHubSubtabActiveInStation()) {
+      renderEventToHub(currentEventData, true);
+    }
     await window.api.publishEventToHubAnnouncement(eventId, {
       message: msg,
-      level: minsLeft <= 20 ? 'urgent' : 'warning',
+      level,
       event_name: evName,
     });
     await loadEventToHubState(eventId, true);
@@ -13665,20 +13842,63 @@ async function publishToHubBannerAnnouncement() {
   const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || '';
   try {
     recordRecentInteractedEventId(eventId);
-    const pubRes = await window.api.publishEventToHubAnnouncement(eventId, { message, level, event_name: evName });
-    if (pubRes && pubRes.broadcast) {
-      await syncToHubBroadcastToClientFirestore(eventId, pubRes.broadcast);
-      if (pubRes.broadcast.id) {
-        try {
-          localStorage.removeItem(`dismissed_event_broadcast_${pubRes.broadcast.id}`);
-        } catch (_) {}
-      }
+    if (input) input.value = '';
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const optimisticBroadcast = {
+      id: `msg_${nowMs}`,
+      eventId,
+      event_id: eventId,
+      event_name: evName,
+      message,
+      level,
+      type: level,
+      active: true,
+      is_targeted: false,
+      published_at: nowIso,
+      timestamp: nowMs,
+    };
+    const prevState = { ...(getCachedToHubState(eventId) || { event_id: eventId }) };
+    prevState.broadcast = optimisticBroadcast;
+    prevState.active_broadcast = optimisticBroadcast;
+    prevState._fetchedAt = nowMs;
+    prevState._authoritativeBroadcastAt = nowMs;
+    setCachedToHubState(eventId, prevState);
+    updateEventNewsTabBadge(eventId);
+    if (currentEventData && isToHubSubtabActiveInStation()) {
+      renderEventToHub(currentEventData, true);
     }
+
+    const pubRes = await window.api.publishEventToHubAnnouncement(eventId, { message, level, event_name: evName });
+    const confirmedBroadcast = (pubRes && pubRes.broadcast) ? pubRes.broadcast : optimisticBroadcast;
     if (pubRes && pubRes.state) {
       pubRes.state._fetchedAt = Date.now();
-      _eventToHubStateCache.set(eventId, pubRes.state);
+      pubRes.state._authoritativeBroadcastAt = Date.now();
+      if (!pubRes.state.active_broadcast && confirmedBroadcast) {
+        pubRes.state.active_broadcast = confirmedBroadcast;
+        pubRes.state.broadcast = confirmedBroadcast;
+      }
+      setCachedToHubState(eventId, pubRes.state);
+    } else {
+      const updated = { ...(getCachedToHubState(eventId) || { event_id: eventId }) };
+      updated.broadcast = confirmedBroadcast;
+      updated.active_broadcast = confirmedBroadcast;
+      updated._fetchedAt = Date.now();
+      updated._authoritativeBroadcastAt = Date.now();
+      setCachedToHubState(eventId, updated);
     }
-    if (input) input.value = '';
+    updateEventNewsTabBadge(eventId);
+    if (currentEventData && isToHubSubtabActiveInStation()) {
+      renderEventToHub(currentEventData, true);
+    }
+    if (confirmedBroadcast) {
+      if (confirmedBroadcast.id) {
+        try {
+          localStorage.removeItem(`dismissed_event_broadcast_${confirmedBroadcast.id}`);
+        } catch (_) {}
+      }
+      await syncToHubBroadcastToClientFirestore(eventId, confirmedBroadcast);
+    }
     await loadEventToHubState(eventId, true);
     if (typeof syncGlobalEventAnnouncementBanner === 'function') {
       await syncGlobalEventAnnouncementBanner(true);
@@ -13694,26 +13914,41 @@ async function clearToHubBannerAnnouncement(targetId = 'general') {
   if (!eventId) return;
   const cleanTarget = targetId ? String(targetId).trim() : 'general';
   try {
+    // Optimistically update local cache & UI immediately
+    const nowMs = Date.now();
+    const existing = getCachedToHubState(eventId) || { event_id: eventId };
+    const nextState = { ...existing, _fetchedAt: nowMs, _authoritativeBroadcastAt: nowMs };
+    if (!cleanTarget || cleanTarget === 'general' || cleanTarget === 'all') {
+      nextState.broadcast = null;
+      nextState.active_broadcast = null;
+    }
+    if (cleanTarget === 'all' || cleanTarget === 'all_targeted') {
+      nextState.targeted_broadcasts = [];
+    } else if (cleanTarget !== 'general' && Array.isArray(nextState.targeted_broadcasts)) {
+      nextState.targeted_broadcasts = nextState.targeted_broadcasts.filter(
+        b => String(b.id || '') !== cleanTarget && computeClientBroadcastTargetKey(b) !== cleanTarget
+      );
+    }
+    setCachedToHubState(eventId, nextState);
+    updateEventNewsTabBadge(eventId);
+    if (currentEventData && isToHubSubtabActiveInStation()) {
+      renderEventToHub(currentEventData, true);
+    }
+
     const res = await window.api.clearEventToHubAnnouncement(eventId, cleanTarget);
     await syncToHubBroadcastToClientFirestore(eventId, null, cleanTarget);
     if (res && res.state) {
       res.state._fetchedAt = Date.now();
-      _eventToHubStateCache.set(eventId, res.state);
-    } else if (_eventToHubStateCache.has(eventId)) {
-      const c = _eventToHubStateCache.get(eventId);
-      if (c) {
-        if (!cleanTarget || cleanTarget === 'general' || cleanTarget === 'all') {
-          c.broadcast = null;
-          c.active_broadcast = null;
-        }
-        if (cleanTarget === 'all' || cleanTarget === 'all_targeted') {
-          c.targeted_broadcasts = [];
-        } else if (cleanTarget !== 'general' && Array.isArray(c.targeted_broadcasts)) {
-          c.targeted_broadcasts = c.targeted_broadcasts.filter(
-            b => String(b.id || '') !== cleanTarget && computeClientBroadcastTargetKey(b) !== cleanTarget
-          );
-        }
+      res.state._authoritativeBroadcastAt = Date.now();
+      if (!cleanTarget || cleanTarget === 'general' || cleanTarget === 'all') {
+        res.state.broadcast = null;
+        res.state.active_broadcast = null;
       }
+      setCachedToHubState(eventId, res.state);
+    }
+    updateEventNewsTabBadge(eventId);
+    if (currentEventData && isToHubSubtabActiveInStation()) {
+      renderEventToHub(currentEventData, true);
     }
     await loadEventToHubState(eventId, true);
     if (typeof syncGlobalEventAnnouncementBanner === 'function') {
@@ -13755,10 +13990,18 @@ async function submitToHubNewsPost() {
   }
 
   try {
-    await window.api.saveEventToHubNewsPost(eventId, { title: title || 'Tournament Update', body, category, pinned });
     if (titleEl) titleEl.value = '';
     if (bodyEl) bodyEl.value = '';
     if (pinEl) pinEl.checked = false;
+    const res = await window.api.saveEventToHubNewsPost(eventId, { title: title || 'Tournament Update', body, category, pinned });
+    if (res && Array.isArray(res.news_posts)) {
+      const nextState = { ...(getCachedToHubState(eventId) || { event_id: eventId }), news_posts: res.news_posts, _fetchedAt: Date.now() };
+      setCachedToHubState(eventId, nextState);
+      updateEventNewsTabBadge(eventId);
+      if (currentEventData && isToHubSubtabActiveInStation()) {
+        renderEventToHub(currentEventData, true);
+      }
+    }
     await loadEventToHubState(eventId, true);
     if (typeof showToast === 'function') showToast('Published bulletin to News & Info tab!', 'success');
   } catch (err) {
@@ -13770,7 +14013,28 @@ async function removeToHubNewsPost(postId) {
   const eventId = String(currentOpenEventId || (currentEventData && currentEventData.id) || '');
   if (!eventId || !postId) return;
   try {
-    await window.api.deleteEventToHubNewsPost(eventId, postId);
+    const existing = getCachedToHubState(eventId);
+    if (existing && Array.isArray(existing.news_posts)) {
+      const nextState = {
+        ...existing,
+        news_posts: existing.news_posts.filter(p => String(p.id || '') !== String(postId)),
+        _fetchedAt: Date.now(),
+      };
+      setCachedToHubState(eventId, nextState);
+      updateEventNewsTabBadge(eventId);
+      if (currentEventData && isToHubSubtabActiveInStation()) {
+        renderEventToHub(currentEventData, true);
+      }
+    }
+    const res = await window.api.deleteEventToHubNewsPost(eventId, postId);
+    if (res && Array.isArray(res.news_posts)) {
+      const nextState = { ...(getCachedToHubState(eventId) || { event_id: eventId }), news_posts: res.news_posts, _fetchedAt: Date.now() };
+      setCachedToHubState(eventId, nextState);
+      updateEventNewsTabBadge(eventId);
+      if (currentEventData && isToHubSubtabActiveInStation()) {
+        renderEventToHub(currentEventData, true);
+      }
+    }
     await loadEventToHubState(eventId, true);
     if (typeof showToast === 'function') showToast('Deleted news post', 'info');
   } catch (err) {
@@ -14952,18 +15216,33 @@ async function syncGlobalEventAnnouncementBanner(force = false) {
 
   try {
     const res = await window.api.getActiveEventAnnouncements(queryIds, force);
-    const announcements = Array.isArray(res?.announcements) ? [...res.announcements] : [];
+    let announcements = Array.isArray(res?.announcements) ? [...res.announcements] : [];
 
     // Merge both general active_broadcast AND targeted_broadcasts from client-side _eventToHubStateCache
     for (const [cEid, cState] of _eventToHubStateCache.entries()) {
       const b = cState && (cState.active_broadcast || cState.broadcast);
-      if (b && b.message && b.active !== false && !isTargetedBroadcastObj(b)) {
-        const exists = announcements.some(a =>
-          !isTargetedBroadcastObj(a) &&
-          (String(a.id || '') === String(b.id || '') || String(a.event_id || a.eventId || '') === String(cEid))
+      const authTs = Number(cState && cState._authoritativeBroadcastAt ? cState._authoritativeBroadcastAt : 0);
+      const isAuthoritative = authTs > 0 && (Date.now() - authTs < 8000);
+      if (isAuthoritative && !b) {
+        announcements = announcements.filter(a =>
+          isTargetedBroadcastObj(a) ||
+          String(a.event_id || a.eventId || '').toLowerCase() !== String(cEid).toLowerCase()
         );
-        if (!exists) {
-          announcements.push({ ...b, event_id: b.event_id || b.eventId || cEid });
+      } else if (b && b.message && b.active !== false && !isTargetedBroadcastObj(b)) {
+        if (isAuthoritative) {
+          announcements = announcements.filter(a =>
+            isTargetedBroadcastObj(a) ||
+            String(a.event_id || a.eventId || '').toLowerCase() !== String(cEid).toLowerCase()
+          );
+          announcements.unshift({ ...b, event_id: b.event_id || b.eventId || cEid });
+        } else {
+          const exists = announcements.some(a =>
+            !isTargetedBroadcastObj(a) &&
+            (String(a.id || '') === String(b.id || '') || String(a.event_id || a.eventId || '').toLowerCase() === String(cEid).toLowerCase())
+          );
+          if (!exists) {
+            announcements.push({ ...b, event_id: b.event_id || b.eventId || cEid });
+          }
         }
       }
       const tArr = Array.isArray(cState?.targeted_broadcasts) ? cState.targeted_broadcasts : [];
@@ -14973,7 +15252,7 @@ async function syncGlobalEventAnnouncementBanner(force = false) {
           const exists = announcements.some(a =>
             isTargetedBroadcastObj(a) &&
             (String(a.id || '') === String(tb.id || '') ||
-              (String(a.event_id || a.eventId || '') === String(cEid) && computeClientBroadcastTargetKey(a) === tKey))
+              (String(a.event_id || a.eventId || '').toLowerCase() === String(cEid).toLowerCase() && computeClientBroadcastTargetKey(a) === tKey))
           );
           if (!exists) {
             announcements.unshift({ ...tb, event_id: tb.event_id || tb.eventId || cEid, is_targeted: true });

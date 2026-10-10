@@ -1124,6 +1124,53 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(payload)
             return
+        if clean_path.startswith("api/events/") and clean_path.endswith("/to-hub/announcement"):
+            from firestore_db import get_firestore_engine
+            parts = clean_path.split("/")
+            ev_id = urllib.parse.unquote(parts[2])
+            query_str = self.path.split("?")[1] if "?" in self.path else ""
+            qp = urllib.parse.parse_qs(query_str)
+            target_id = (qp.get("target_id") or qp.get("broadcast_id") or [None])[0]
+            fs_engine = get_firestore_engine()
+            fs_engine.clear_tournament_broadcast(ev_id, target_id=target_id)
+            state = fs_engine.get_event_to_hub_state(ev_id)
+            payload = json.dumps({
+                "ok": True,
+                "success": True,
+                "event_id": ev_id,
+                "broadcast": state.get("active_broadcast"),
+                "active_broadcast": state.get("active_broadcast"),
+                "targeted_broadcasts": state.get("targeted_broadcasts", []),
+                "announcements": state.get("announcements", []),
+                "state": state,
+            }).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        if clean_path.startswith("api/events/") and "/to-hub/news/" in clean_path:
+            from firestore_db import get_firestore_engine
+            parts = clean_path.split("/")
+            ev_id = urllib.parse.unquote(parts[2])
+            post_id = urllib.parse.unquote(parts[5]) if len(parts) > 5 else ""
+            fs_engine = get_firestore_engine()
+            ok = fs_engine.delete_event_news_post(ev_id, post_id)
+            all_posts = fs_engine.get_event_news_posts(ev_id)
+            payload = json.dumps({
+                "ok": ok,
+                "success": ok,
+                "event_id": ev_id,
+                "deleted_id": post_id,
+                "news_posts": all_posts,
+            }).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         self.send_response(404)
         self.send_header("Content-Length", "0")
         self.end_headers()
@@ -1480,6 +1527,96 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"success": True, "event_id": ev_id, "livestream": record, "livestreams": EVENT_LIVESTREAMS_DB[ev_id]}).encode("utf-8"))
             return
+
+        if clean_path.startswith("api/events/") and "/to-hub/" in clean_path:
+            from firestore_db import get_firestore_engine
+            fs_engine = get_firestore_engine()
+            parts = clean_path.split("/")
+            ev_id = urllib.parse.unquote(parts[2])
+            try:
+                p_data = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_data = {}
+
+            if clean_path.endswith("/to-hub/announcement"):
+                msg = str(p_data.get("message") or "").strip()
+                if p_data.get("active") is False or not msg:
+                    fs_engine.clear_tournament_broadcast(ev_id)
+                    state = fs_engine.get_event_to_hub_state(ev_id)
+                    resp_obj = {
+                        "ok": True,
+                        "success": True,
+                        "event_id": ev_id,
+                        "broadcast": None,
+                        "active_broadcast": None,
+                        "announcements": state.get("announcements", []),
+                        "state": state,
+                    }
+                else:
+                    lvl = p_data.get("level") or p_data.get("type") or "info"
+                    auth = p_data.get("author_name") or p_data.get("author") or "Tournament Organizer"
+                    ev_name = str(p_data.get("event_name") or "").strip()
+                    broadcast_data = {
+                        "message": msg,
+                        "type": lvl,
+                        "level": lvl,
+                        "round": p_data.get("round"),
+                        "event_name": ev_name,
+                        "author": auth,
+                        "author_name": auth,
+                        "target_table": str(p_data.get("target_table")).strip() if p_data.get("target_table") is not None and str(p_data.get("target_table")).strip() else None,
+                        "target_player_id": str(p_data.get("target_player_id")).strip() if p_data.get("target_player_id") else None,
+                        "target_player_name": str(p_data.get("target_player_name")).strip() if p_data.get("target_player_name") else None,
+                        "active": True,
+                    }
+                    res = fs_engine.publish_tournament_broadcast(ev_id, broadcast_data)
+                    state = fs_engine.get_event_to_hub_state(ev_id)
+                    resp_obj = {
+                        "ok": True,
+                        "success": True,
+                        "event_id": ev_id,
+                        "broadcast": res,
+                        "active_broadcast": state.get("active_broadcast"),
+                        "targeted_broadcasts": state.get("targeted_broadcasts", []),
+                        "announcements": state.get("announcements", []),
+                        "state": state,
+                    }
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(resp_obj).encode("utf-8"))
+                return
+
+            if clean_path.endswith("/to-hub/news"):
+                saved = fs_engine.save_event_news_post(ev_id, p_data)
+                all_posts = fs_engine.get_event_news_posts(ev_id)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "ok": True,
+                    "success": True,
+                    "event_id": ev_id,
+                    "post": saved,
+                    "news_posts": all_posts,
+                }).encode("utf-8"))
+                return
+
+            if clean_path.endswith("/to-hub/clock"):
+                clock_res = fs_engine.update_tournament_clock(ev_id, p_data)
+                state = fs_engine.get_event_to_hub_state(ev_id)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "ok": True,
+                    "success": True,
+                    "event_id": ev_id,
+                    "clock": clock_res,
+                    "master_clock": clock_res,
+                    "state": state,
+                }).encode("utf-8"))
+                return
 
         if clean_path.startswith("api/admin/users/") and clean_path.endswith("/role"):
             parts = clean_path.split("/")
@@ -7512,6 +7649,42 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 if not is_head:
                     self.wfile.write(json.dumps({"detail": "Forbidden: Cloud Scheduler header or valid CRON_SECRET required."}).encode("utf-8"))
                 return
+
+        if clean_path == "api/events/active-announcements":
+            from firestore_db import get_firestore_engine
+            fs_engine = get_firestore_engine()
+            raw_str = str(query_params.get("event_ids", [""])[0] or "").strip()
+            tokens = [eid.strip() for eid in raw_str.split(",") if eid.strip()] if raw_str else []
+            include_wildcard = (not tokens) or any(t.lower() in ("*", "all") for t in tokens)
+            raw_list = [t for t in tokens if t.lower() not in ("*", "all")][:25]
+            if include_wildcard:
+                raw_list.append("*")
+            active = fs_engine.get_active_broadcasts_for_events(raw_list[:35])
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"ok": True, "success": True, "announcements": active}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/events/") and clean_path.endswith("/to-hub"):
+            from firestore_db import get_firestore_engine
+            parts = clean_path.split("/")
+            ev_id = urllib.parse.unquote(parts[2])
+            fs_engine = get_firestore_engine()
+            state = fs_engine.get_event_to_hub_state(ev_id)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "ok": True,
+                    "success": True,
+                    **state,
+                    "active_tracker_tables": [],
+                    "active_sessions": [],
+                }).encode("utf-8"))
+            return
 
         if clean_path.startswith("api/"):
             self.send_response(200)

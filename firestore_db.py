@@ -1115,7 +1115,13 @@ class FirestoreRoomEngine:
         if not event_id or event_id == "_active_broadcasts":
             return None
         data = self._read_tournament_doc_dict(event_id)
-        b = data.get("broadcast") if "broadcast" in data else self._get_fallback_tournament_dict(event_id).get("broadcast")
+        fb = self._get_fallback_tournament_dict(event_id)
+        doc_ts = int(data.get("updatedAt") or 0)
+        fb_ts = int(fb.get("updatedAt") or 0)
+        if fb_ts > doc_ts and "broadcast" in fb:
+            b = fb.get("broadcast")
+        else:
+            b = data.get("broadcast") if "broadcast" in data else fb.get("broadcast")
         if isinstance(b, dict) and b.get("message") and b.get("active", True) is not False:
             if not self._is_targeted_broadcast(b):
                 self._sync_active_broadcast_index(event_id, b, write_firestore=False)
@@ -1382,9 +1388,14 @@ class FirestoreRoomEngine:
         event_id = str(event_id).strip()
         doc_data = self._read_tournament_doc_dict(event_id)
         fb_data = self._get_fallback_tournament_dict(event_id)
+        doc_ts = int(doc_data.get("updatedAt") or 0)
+        fb_ts = int(fb_data.get("updatedAt") or 0)
 
-        master_clock = doc_data.get("masterClock") or fb_data.get("masterClock")
-        raw_broadcast = doc_data.get("broadcast") if "broadcast" in doc_data else fb_data.get("broadcast")
+        master_clock = (fb_data.get("masterClock") if (fb_ts > doc_ts and "masterClock" in fb_data) else None) or doc_data.get("masterClock") or fb_data.get("masterClock")
+        if fb_ts > doc_ts and "broadcast" in fb_data:
+            raw_broadcast = fb_data.get("broadcast")
+        else:
+            raw_broadcast = doc_data.get("broadcast") if "broadcast" in doc_data else fb_data.get("broadcast")
         if isinstance(raw_broadcast, dict) and raw_broadcast.get("active") is False:
             raw_broadcast = None
 
