@@ -1654,6 +1654,8 @@ class EloEngine:
                     if not h_eid and (t_m.get("event_id") or t_m.get("id")):
                         h["event_id"] = t_m.get("event_id") or t_m.get("id")
                         h_eid = str(h["event_id"]).strip()
+                    if not h.get("event_name") and (t_m.get("event_name") or t_m.get("name")):
+                        h["event_name"] = t_m.get("event_name") or t_m.get("name")
                     if int(t_m.get("placement") or 0) > 0:
                         h["placement"] = int(t_m["placement"])
                     if int(t_m.get("total_players") or 0) > 0:

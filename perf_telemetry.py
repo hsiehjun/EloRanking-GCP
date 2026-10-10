@@ -338,6 +338,24 @@ def instrument_class_methods(
             continue
         if isinstance(attr_val, property):
             continue
+        if isinstance(attr_val, staticmethod):
+            qname = f"{label}.{attr_name}"
+            should_log = attr_name not in quiet
+            wrapped = wrap_db_method(qname, attr_val.__func__, log_call=should_log)
+            setattr(cls, attr_name, staticmethod(wrapped))
+            wrapped_names.append(qname)
+            if qname not in PERF_REGISTRY.registered_db_methods:
+                PERF_REGISTRY.registered_db_methods.append(qname)
+            continue
+        if isinstance(attr_val, classmethod):
+            qname = f"{label}.{attr_name}"
+            should_log = attr_name not in quiet
+            wrapped = wrap_db_method(qname, attr_val.__func__, log_call=should_log)
+            setattr(cls, attr_name, classmethod(wrapped))
+            wrapped_names.append(qname)
+            if qname not in PERF_REGISTRY.registered_db_methods:
+                PERF_REGISTRY.registered_db_methods.append(qname)
+            continue
         if callable(attr_val):
             qname = f"{label}.{attr_name}"
             should_log = attr_name not in quiet

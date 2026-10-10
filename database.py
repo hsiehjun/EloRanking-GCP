@@ -7952,15 +7952,17 @@ class PostgresDatabase:
                     seen_eids.add(eid)
                     missing_eids.append(eid)
 
-        # Synchronously compute fast indexed DB Swiss standings for ALL unplaced events (~30-90ms total)
-        # so the very first API response always includes tournament rankings without waiting on BCP HTTP calls.
+        # Synchronously compute fast indexed DB Swiss standings for up to 12 unplaced events (~40-120ms budget)
+        # while _estimate_swiss_placement guarantees 100% immediate placement coverage for any remaining events.
+        rem_unplaced: List[str] = []
         if unplaced_eids and not self._is_mock_instance():
-            self._resolve_db_swiss_placings_for_events(unplaced_eids, timeout_ms=700)
+            sync_unplaced = unplaced_eids[:12]
+            rem_unplaced = unplaced_eids[12:]
+            self._resolve_db_swiss_placings_for_events(sync_unplaced, timeout_ms=200)
             for t in tournaments:
                 if int(t.get("placement") or 0) <= 0:
                     _apply_cached_placings_to_item(t, pid_clean, norm_name)
 
-        rem_unplaced: List[str] = []
         if missing_eids or rem_unplaced:
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -9570,12 +9572,11 @@ class PostgresDatabase:
                                e.name AS event_name,
                                m.table_number,
                                m.event_id AS m_event_id,
-                               m.round AS m_round,
-                               COALESCE(h.event_id, m.event_id) AS eff_event_id
+                               m.round AS m_round
                         FROM rating_history h
                         LEFT JOIN matches m ON h.match_id = m.id
-                        LEFT JOIN events e ON e.id = COALESCE(h.event_id, m.event_id)
-                        LEFT JOIN player_ep pep ON pep.event_id = COALESCE(h.event_id, m.event_id)
+                        LEFT JOIN events e ON h.event_id = e.id
+                        LEFT JOIN player_ep pep ON h.event_id = pep.event_id
                         {where_sql}
                     ),
                     player_tg AS MATERIALIZED (
@@ -9588,7 +9589,7 @@ class PostgresDatabase:
                         FROM tracker_games
                         WHERE event_id IS NOT NULL
                           AND LOWER(event_id) IN (
-                              SELECT DISTINCT LOWER(eff_event_id) FROM player_hist WHERE eff_event_id IS NOT NULL
+                              SELECT DISTINCT LOWER(event_id) FROM player_hist WHERE event_id IS NOT NULL
                           )
                         ORDER BY
                                LOWER(event_id),
@@ -9602,16 +9603,15 @@ class PostgresDatabase:
                            COALESCE(tg.is_finished, FALSE) AS has_tracker_scorecard
                     FROM player_hist ph
                     LEFT JOIN player_tg tg
-                      ON ph.eff_event_id IS NOT NULL
+                      ON ph.event_id IS NOT NULL
                      AND ph.table_number IS NOT NULL
-                     AND LOWER(ph.eff_event_id) = tg.ev_low
+                     AND LOWER(ph.event_id) = tg.ev_low
                      AND ph.m_round = tg.round_num
                      AND ph.table_number = tg.table_num
                     ORDER BY ph.match_date ASC, ph.round ASC;
                     """, tuple([player_id] + params))
                     rows = [dict(r) for r in cursor.fetchall()]
                     for r in rows:
-                        r.pop("eff_event_id", None)
                         if not r.get("event_id") and r.get("m_event_id"):
                             r["event_id"] = r["m_event_id"]
                         epf = r.pop("enriched_player_faction", None)
@@ -15368,6 +15368,7 @@ try:
             "_remap_registration_ids_batch_cursor",
             "_upsert_match_cursor",
             "is_valid_game_store_name",
+            "_estimate_swiss_placement",
         },
         quiet_methods={"get_cached", "set_cached", "_is_mock_instance"},
     )
