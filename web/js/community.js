@@ -1354,11 +1354,8 @@ function openCalendarDayDrawer(dateStr) {
         statusPill = `<span class="comm-legend-pill" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border-color: rgba(245, 158, 11, 0.4);">🔥 LIVE NOW</span>`;
       }
 
-      const cardBorder = isLocal ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)';
-      const cardAccent = isLocal ? 'border-left: 4px solid #10b981;' : 'border-left: 4px solid #38bdf8;';
-
       html += `
-        <div style="background: rgba(15, 23, 42, 0.9); border: ${cardBorder}; ${cardAccent} border-radius: 10px; padding: 1rem; display: flex; flex-direction: column;">
+        <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 1rem; display: flex; flex-direction: column;">
           <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
             <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
               ${scopeBadge}

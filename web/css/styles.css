@@ -8002,16 +8002,15 @@ body.is-authenticated #floating-chat-widget {
 }
 
 .pill-scope-local {
-  background: rgba(16, 185, 129, 0.18);
-  color: #6ee7b7;
-  border-color: rgba(16, 185, 129, 0.45);
-  border-left: 3px solid #10b981;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .pill-scope-global {
-  background: rgba(56, 189, 248, 0.14);
-  color: #7dd3fc;
-  border: 1px dashed rgba(56, 189, 248, 0.45);
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
 }
 
 .pill-scope-past {
@@ -8071,11 +8070,6 @@ body.is-authenticated #floating-chat-widget {
   background: rgba(15, 23, 42, 0.85);
 }
 
-.comm-calendar-day.has-local-event {
-  border-color: rgba(16, 185, 129, 0.35);
-  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.15);
-}
-
 .comm-calendar-day.today {
   border-color: #38bdf8;
   box-shadow: inset 0 0 0 1px #38bdf8;
@@ -8119,14 +8113,13 @@ body.is-authenticated #floating-chat-widget {
 }
 
 .comm-cal-local-pin {
-  font-size: 0.62rem;
-  font-weight: 800;
-  color: #34d399;
-  background: rgba(16, 185, 129, 0.18);
-  border: 1px solid rgba(16, 185, 129, 0.35);
-  border-radius: 4px;
-  padding: 0px 3px;
-  line-height: 1.25;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  line-height: 1;
 }
 
 .comm-calendar-events-list {
@@ -8177,11 +8170,6 @@ body.is-authenticated #floating-chat-widget {
 .comm-cal-dot.rtt {
   background: #94a3b8;
   box-shadow: 0 0 3px rgba(148, 163, 184, 0.6);
-}
-
-.comm-cal-dot.dot-local {
-  outline: 1.5px solid #10b981;
-  outline-offset: 1px;
 }
 
 .comm-cal-dot.dot-ended {
@@ -8243,11 +8231,6 @@ body.is-authenticated #floating-chat-widget {
   border-color: rgba(148, 163, 184, 0.4);
 }
 
-.comm-calendar-chip.chip-local {
-  border-left: 3px solid #10b981;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.22);
-}
-
 .comm-calendar-chip.chip-global {
   border-style: dashed;
 }
@@ -8265,8 +8248,8 @@ body.is-authenticated #floating-chat-widget {
 .comm-chip-done {
   font-size: 0.6rem;
   font-weight: 900;
-  color: #6ee7b7;
-  background: rgba(16, 185, 129, 0.22);
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.14);
   border-radius: 3px;
   padding: 0 2px;
   line-height: 1.1;
