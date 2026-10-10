@@ -412,11 +412,22 @@ def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 
             num_tickets = 0
 
         event_date = ev.get("eventDate") or ev.get("event_date") or ""
-        end_date = ev.get("endDate") or ev.get("end_date") or ""
+        end_date = ev.get("endDate") or ev.get("eventEndDate") or ev.get("end_date") or ""
         if hasattr(event_date, "isoformat"):
             event_date = event_date.isoformat()
         if hasattr(end_date, "isoformat"):
             end_date = end_date.isoformat()
+        if end_date and isinstance(end_date, str) and "T" in end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+                if 0 <= end_dt.hour < 6:
+                    adj_dt = end_dt - timedelta(hours=6)
+                    start_prefix = str(event_date or "")[:10]
+                    adj_str = adj_dt.strftime("%Y-%m-%d")
+                    if not start_prefix or adj_str >= start_prefix:
+                        end_date = adj_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            except Exception:
+                pass
 
         name = ev.get("name") or "Tournament"
         circuits = ev.get("circuits") or []
@@ -870,7 +881,7 @@ def _check_tournament_started_or_ended(ev: Dict[str, Any], rj: Optional[Dict[str
     today_utc_str = now_utc.strftime("%Y-%m-%d")
 
     ev_date_val = ev.get("event_date") or ev.get("eventDate") or rj.get("eventDate") or rj.get("startDate")
-    end_date_val = ev.get("end_date") or ev.get("endDate") or rj.get("endDate")
+    end_date_val = ev.get("end_date") or ev.get("endDate") or ev.get("eventEndDate") or rj.get("eventEndDate") or rj.get("endDate")
     ev_date_str = (ev_date_val.isoformat() if hasattr(ev_date_val, "isoformat") else str(ev_date_val or ""))[:10]
     end_date_str = (end_date_val.isoformat() if hasattr(end_date_val, "isoformat") else str(end_date_val or ""))[:10]
 
@@ -1002,7 +1013,7 @@ def _sync_api_community_event_registration(
                     "id": clean_eid,
                     "name": bcp_data.get("name", "Tournament"),
                     "event_date": bcp_data.get("eventDate") or bcp_data.get("startDate"),
-                    "end_date": bcp_data.get("endDate"),
+                    "end_date": bcp_data.get("endDate") or bcp_data.get("eventEndDate"),
                     "city": bcp_data.get("city"),
                     "state": bcp_data.get("state"),
                     "country": bcp_data.get("country"),
@@ -1450,7 +1461,7 @@ async def api_community_event_register(
                         "id": clean_eid,
                         "name": bcp_data.get("name", "Tournament"),
                         "event_date": bcp_data.get("eventDate") or bcp_data.get("startDate"),
-                        "end_date": bcp_data.get("endDate"),
+                        "end_date": bcp_data.get("endDate") or bcp_data.get("eventEndDate"),
                         "city": bcp_data.get("city"),
                         "state": bcp_data.get("state"),
                         "country": bcp_data.get("country"),

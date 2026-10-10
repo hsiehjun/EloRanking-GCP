@@ -4841,12 +4841,21 @@ class PostgresDatabase:
 
                 # Dynamically compute whether the event has completed
                 now_utc = datetime.now(timezone.utc)
-                end_dt = (
-                    res.get("end_date") or
-                    (raw_meta.get("endDate") if isinstance(raw_meta, dict) else None) or
+                raw_end_meta = (
                     (raw_meta.get("eventEndDate") if isinstance(raw_meta, dict) else None) or
+                    (raw_meta.get("endDate") if isinstance(raw_meta, dict) else None) or
                     (raw_meta.get("end_date") if isinstance(raw_meta, dict) else None)
                 )
+                db_end_val = res.get("end_date")
+                if raw_end_meta and (
+                    not db_end_val
+                    or str(raw_end_meta)[:10] > str(db_end_val.isoformat() if hasattr(db_end_val, "isoformat") else db_end_val)[:10]
+                ):
+                    end_dt = raw_end_meta
+                else:
+                    end_dt = db_end_val or raw_end_meta
+                if end_dt:
+                    res["end_date"] = end_dt
                 ev_dt = res.get("event_date") or (raw_meta.get("eventDate") if isinstance(raw_meta, dict) else None) or (raw_meta.get("startDate") if isinstance(raw_meta, dict) else None) or (raw_meta.get("event_date") if isinstance(raw_meta, dict) else None)
                 num_rds = int(res.get("num_rounds") or 0)
                 rounds_meta = raw_meta.get("rounds") if isinstance(raw_meta, dict) and isinstance(raw_meta.get("rounds"), dict) else {}
@@ -10922,8 +10931,8 @@ class PostgresDatabase:
         event_id = str(event_data.get("id") or event_data.get("event_id") or f"ES-{uuid.uuid4().hex[:8].upper()}")
         name = event_data.get("name") or "Warhammer 40k Tournament"
         tier = event_data.get("tier") or "Grand Tournament"
-        event_date = event_data.get("event_date") or event_data.get("startDate") or datetime.now(timezone.utc)
-        end_date = event_data.get("end_date") or event_data.get("endDate") or event_date
+        event_date = event_data.get("event_date") or event_data.get("eventDate") or event_data.get("startDate") or datetime.now(timezone.utc)
+        end_date = event_data.get("end_date") or event_data.get("endDate") or event_data.get("eventEndDate") or event_date
         city = event_data.get("city") or ""
         state = event_data.get("state") or ""
         country = event_data.get("country") or "United States"
@@ -13105,11 +13114,22 @@ class PostgresDatabase:
                 continue
 
             event_date = ev.get("eventDate") or ev.get("event_date")
-            end_date = ev.get("endDate") or ev.get("end_date")
+            end_date = ev.get("endDate") or ev.get("eventEndDate") or ev.get("end_date")
             if hasattr(event_date, "isoformat"):
                 event_date = event_date.isoformat()
             if hasattr(end_date, "isoformat"):
                 end_date = end_date.isoformat()
+            if end_date and isinstance(end_date, str) and "T" in end_date:
+                try:
+                    end_dt_parsed = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+                    if 0 <= end_dt_parsed.hour < 6:
+                        adj_dt = end_dt_parsed - timedelta(hours=6)
+                        start_prefix = str(event_date or "")[:10]
+                        adj_str = adj_dt.strftime("%Y-%m-%d")
+                        if not start_prefix or adj_str >= start_prefix:
+                            end_date = adj_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                except Exception:
+                    pass
 
             total_players = 0
             try:
@@ -13557,7 +13577,17 @@ class PostgresDatabase:
                         rj = {}
                     status_obj = rj.get("status") if isinstance(rj.get("status"), dict) else {}
                     ev_dt_val = db_ev.get("event_date") or rj.get("eventDate") or rj.get("event_date")
-                    end_dt_val = db_ev.get("end_date") or rj.get("endDate") or rj.get("end_date")
+                    rj_end_val = rj.get("eventEndDate") or rj.get("endDate") or rj.get("end_date")
+                    db_end_cur = db_ev.get("end_date")
+                    if rj_end_val and (
+                        not db_end_cur
+                        or str(rj_end_val)[:10] > str(db_end_cur.isoformat() if hasattr(db_end_cur, "isoformat") else db_end_cur)[:10]
+                    ):
+                        end_dt_val = rj_end_val
+                    else:
+                        end_dt_val = db_end_cur or rj_end_val
+                    if end_dt_val:
+                        db_ev["end_date"] = end_dt_val
                     ev_dt_str = (ev_dt_val.isoformat() if hasattr(ev_dt_val, "isoformat") else str(ev_dt_val or ""))[:10]
                     end_dt_str = (end_dt_val.isoformat() if hasattr(end_dt_val, "isoformat") else str(end_dt_val or ""))[:10]
                     c_round = int(db_ev.get("current_round") or rj.get("currentRound") or 0)
@@ -13640,6 +13670,11 @@ class PostgresDatabase:
                     if eid in db_upcoming_map:
                         db_ev = db_upcoming_map[eid]
                         combined = dict(db_ev)
+                        if b_ev.get("end_date") and (
+                            not combined.get("end_date")
+                            or str(b_ev["end_date"])[:10] > str(combined["end_date"].isoformat() if hasattr(combined["end_date"], "isoformat") else combined["end_date"])[:10]
+                        ):
+                            combined["end_date"] = b_ev["end_date"]
                         if b_ev.get("total_players") and b_ev["total_players"] > (combined.get("total_players") or 0):
                             combined["total_players"] = b_ev["total_players"]
                         if b_ev.get("current_round"):

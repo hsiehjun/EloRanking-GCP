@@ -933,7 +933,9 @@ function renderMajorsCarousel() {
     const city = escapeHtml(ev.city || '');
     const state = escapeHtml(ev.state || ev.country || '');
     const loc = [city, state].filter(Boolean).join(', ') || 'Premier Destination';
-    const dateStr = ev.event_date ? ev.event_date.slice(0, 10) : 'TBD';
+    const sStr = ev.event_date ? ev.event_date.slice(0, 10) : '';
+    const eStr = getNormalizedEventEndDateStr(ev, sStr);
+    const dateStr = sStr ? (eStr && eStr > sStr ? `${sStr} – ${eStr.slice(5)}` : sStr) : 'TBD';
     const players = Number(ev.total_players || 0);
     const capacity = ev.num_tickets ? Number(ev.num_tickets) : null;
     const tier = ev.tier || 'major';
@@ -1015,16 +1017,84 @@ function closeCalendarDayDrawer() {
   document.querySelectorAll('.comm-calendar-day.selected').forEach(el => el.classList.remove('selected'));
 }
 
+function getNormalizedEventEndDateStr(ev, startStr = '') {
+  if (!ev) return startStr;
+  const sStr = startStr || (ev.event_date || ev.eventDate || ev.start_date || '').slice(0, 10);
+  const rawEnd = ev.end_date || ev.eventEndDate || ev.endDate || ev.raw_json?.eventEndDate || ev.raw_json?.endDate || ev.raw_json?.end_date || '';
+  let endStr = '';
+  if (rawEnd) {
+    const rawStr = String(rawEnd).trim();
+    if (rawStr.includes('T') && (rawStr.endsWith('Z') || rawStr.includes('+00:00'))) {
+      const parsed = new Date(rawStr);
+      if (!isNaN(parsed.getTime())) {
+        const utcHour = parsed.getUTCHours();
+        if (utcHour >= 0 && utcHour < 6) {
+          const adj = new Date(parsed.getTime() - 6 * 3600 * 1000);
+          endStr = adj.toISOString().slice(0, 10);
+        } else {
+          endStr = rawStr.slice(0, 10);
+        }
+      } else {
+        endStr = rawStr.slice(0, 10);
+      }
+    } else {
+      endStr = rawStr.slice(0, 10);
+    }
+  }
+  if ((!endStr || endStr <= sStr) && sStr) {
+    const nameLower = String(ev.name || ev.event_name || '').toLowerCase();
+    let extraDays = 0;
+    if (/\b3[\s-]*days?\b/.test(nameLower)) {
+      extraDays = 2;
+    } else if (/\b2[\s-]*days?\b/.test(nameLower)) {
+      extraDays = 1;
+    }
+    if (extraDays > 0) {
+      const d = new Date(sStr + 'T12:00:00');
+      if (!isNaN(d.getTime())) {
+        d.setDate(d.getDate() + extraDays);
+        endStr = getLocalIsoDateStr(d);
+      }
+    }
+  }
+  if (!endStr || (sStr && endStr < sStr)) return sStr;
+  return endStr;
+}
+window.getNormalizedEventEndDateStr = getNormalizedEventEndDateStr;
+
+function formatEventDateRangeLabel(ev) {
+  if (!ev) return '';
+  const sStr = (ev.event_date || ev.eventDate || ev.start_date || '').slice(0, 10);
+  if (!sStr) return '';
+  const eStr = getNormalizedEventEndDateStr(ev, sStr);
+  if (eStr && eStr > sStr) {
+    return `${sStr} – ${eStr}`;
+  }
+  return sStr;
+}
+window.formatEventDateRangeLabel = formatEventDateRangeLabel;
+
 function getAllDiscoveryTournaments() {
   const map = new Map();
   const rawUpcoming = communityState.overview?.events_upcoming || [];
   rawUpcoming.forEach(ev => {
-    if (ev && ev.id) map.set(ev.id, ev);
+    if (ev && ev.id) map.set(ev.id, { ...ev });
   });
   const majors = communityState.majorsList || [];
   majors.forEach(ev => {
-    if (ev && ev.id && !map.has(ev.id)) {
-      map.set(ev.id, ev);
+    if (!ev || !ev.id) return;
+    if (!map.has(ev.id)) {
+      map.set(ev.id, { ...ev });
+    } else {
+      const existing = map.get(ev.id);
+      const exStart = (existing.event_date || '').slice(0, 10);
+      const exEnd = getNormalizedEventEndDateStr(existing, exStart);
+      const majEnd = getNormalizedEventEndDateStr(ev, exStart);
+      if (majEnd && (!exEnd || majEnd > exEnd)) {
+        existing.end_date = ev.end_date || ev.eventEndDate || ev.endDate || majEnd;
+      }
+      if (!existing.tier && ev.tier) existing.tier = ev.tier;
+      if (!existing.tier_weight && ev.tier_weight) existing.tier_weight = ev.tier_weight;
     }
   });
   return Array.from(map.values());
@@ -1036,8 +1106,8 @@ function getTournamentsOnDate(dateStr) {
     if (!ev.event_date) return false;
     const evDate = ev.event_date.slice(0, 10);
     if (evDate === dateStr) return true;
-    if (ev.end_date) {
-      const evEnd = ev.end_date.slice(0, 10);
+    const evEnd = getNormalizedEventEndDateStr(ev, evDate);
+    if (evEnd && evEnd > evDate) {
       return dateStr >= evDate && dateStr <= evEnd;
     }
     return false;
@@ -1080,6 +1150,9 @@ function openCalendarDayDrawer(dateStr) {
       const players = Number(ev.total_players || 0);
       const rounds = ev.num_rounds || 0;
       const tier = ev.tier || 'rtt';
+      const sStr = (ev.event_date || '').slice(0, 10);
+      const eStr = getNormalizedEventEndDateStr(ev, sStr);
+      const dateSpanLabel = (eStr && eStr > sStr) ? `${sStr} – ${eStr}` : sStr;
 
       let tierBadge = `<span class="comm-legend-pill pill-rtt">RTT / Local</span>`;
       if (tier === 'super_major') {
@@ -1098,7 +1171,8 @@ function openCalendarDayDrawer(dateStr) {
           </div>
           <h4 style="margin: 0 0 0.35rem; color: #fff; font-size: 0.95rem; font-weight: 800;">${name}</h4>
           <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.6rem;">📍 ${escapeHtml(loc)}</div>
-          <div style="display: flex; gap: 0.75rem; font-size: 0.72rem; color: #94a3b8; margin-bottom: 0.75rem;">
+          <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.72rem; color: #94a3b8; margin-bottom: 0.75rem;">
+            ${dateSpanLabel ? `<span>📅 ${escapeHtml(dateSpanLabel)}</span>` : ''}
             <span>👥 ${players} Players</span>
             ${rounds ? `<span>⚔️ ${rounds} Rounds</span>` : ''}
           </div>
@@ -1147,16 +1221,16 @@ function renderTournamentsCalendar() {
   allEvents.forEach(ev => {
     if (!ev.event_date) return;
     const startStr = ev.event_date.slice(0, 10);
-    const endStr = ev.end_date ? ev.end_date.slice(0, 10) : startStr;
+    const endStr = getNormalizedEventEndDateStr(ev, startStr);
 
     // Apply quick filter if set
     if (communityState.tournamentsQuickFilter === 'majors') {
       const isMaj = ev.is_major || ev.tier === 'super_major' || ev.tier === 'major' || (ev.total_players >= 50);
       if (!isMaj) return;
     } else if (communityState.tournamentsQuickFilter === 'weekend') {
-      if (!isDateInWeekend(startStr, 0)) return;
+      if (!isDateInWeekend(startStr, 0) && !isDateInWeekend(endStr, 0)) return;
     } else if (communityState.tournamentsQuickFilter === 'next_weekend') {
-      if (!isDateInWeekend(startStr, 1)) return;
+      if (!isDateInWeekend(startStr, 1) && !isDateInWeekend(endStr, 1)) return;
     }
 
     // Apply text search query filter if set
@@ -1177,6 +1251,25 @@ function renderTournamentsCalendar() {
       d.setDate(d.getDate() + 1);
       safety++;
     }
+  });
+
+  // Sort each day's events so continuing multi-day tournaments of the same tier keep a consistent horizontal track across spanned days
+  const tierWeightOf = (ev) => {
+    if (ev.tier_weight) return Number(ev.tier_weight);
+    if (ev.tier === 'super_major') return 4;
+    if (ev.tier === 'major') return 3;
+    if (ev.tier === 'gt') return 2;
+    return 1;
+  };
+  eventsByDate.forEach((list) => {
+    list.sort((a, b) => {
+      const twDiff = tierWeightOf(b) - tierWeightOf(a);
+      if (twDiff !== 0) return twDiff;
+      const sa = (a.event_date || '').slice(0, 10);
+      const sb = (b.event_date || '').slice(0, 10);
+      if (sa !== sb) return sa.localeCompare(sb);
+      return Number(b.total_players || 0) - Number(a.total_players || 0);
+    });
   });
 
   let html = '';
@@ -1238,9 +1331,14 @@ function renderTournamentsCalendar() {
         tierIcon = '🟢';
       }
 
+      const evStartStr = (ev.event_date || '').slice(0, 10);
+      const evEndStr = getNormalizedEventEndDateStr(ev, evStartStr);
+      const isMultiDay = Boolean(evStartStr && evEndStr && evEndStr > evStartStr);
+      const dateRangeTip = isMultiDay ? ` • ${evStartStr} to ${evEndStr}` : '';
+
       const truncatedName = escapeHtml(ev.name || 'Event').slice(0, 18);
       chipsHtml += `
-        <div class="comm-calendar-chip ${tierClass}" onclick="event.stopPropagation(); openEventModal('${escapeHtml(ev.id)}')" title="${escapeHtml(ev.name)} (${ev.total_players || 0} players)">
+        <div class="comm-calendar-chip ${tierClass}" onclick="event.stopPropagation(); openEventModal('${escapeHtml(ev.id)}')" title="${escapeHtml(ev.name)}${dateRangeTip} (${ev.total_players || 0} players)">
           <span class="comm-chip-icon">${tierIcon}</span>
           <span class="comm-chip-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;">${truncatedName}</span>
           ${ev.total_players ? `<span class="comm-chip-count" style="opacity: 0.8; font-size: 0.62rem; margin-left: auto;">(${ev.total_players})</span>` : ''}

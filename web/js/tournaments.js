@@ -641,7 +641,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     if (metaEl) {
       if (previewEv) {
         const loc = [previewEv.city, previewEv.state, previewEv.country].filter(Boolean).join(', ') || 'Online / Unspecified';
-        const dStr = (previewEv.event_date || previewEv.start_date || '').slice(0, 10);
+        const dStr = (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(previewEv) : '') || (previewEv.event_date || previewEv.start_date || '').slice(0, 10);
         const rdsNum = Number(previewEv.num_rounds || previewEv.numberOfRounds || 0);
         const rds = rdsNum > 0 ? ` • 🔄 ${rdsNum} Rounds` : '';
         metaEl.innerHTML = `<span>📅 ${escapeHtml(dStr || 'Date TBD')}</span><span> • 📍 ${escapeHtml(loc)}</span><span>${rds}</span>`;
@@ -847,7 +847,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     if (nameEl) nameEl.innerText = eventName;
 
     const loc = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
-    const dStr = (ev.event_date || '').slice(0, 10);
+    const dStr = (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(ev) : '') || (ev.event_date || '').slice(0, 10);
     eventMatchesCache = ev.matches || [];
     eventPlayersCache = ev.players || [];
     if (typeof computeEventPlayerEloStats === 'function') {
@@ -4211,7 +4211,7 @@ function renderQuickEventModal(ev, userRegData) {
   const metaEl = document.getElementById('modal-event-meta');
   if (metaEl) {
     const loc = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
-    const dStr = (ev.event_date || ev.start_date || '').slice(0, 10);
+    const dStr = (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(ev) : '') || (ev.event_date || ev.start_date || '').slice(0, 10);
     const rds = kpi.numRounds ? ` • 🔄 ${kpi.numRounds} Rounds` : '';
     metaEl.innerHTML = `<span>📅 ${escapeHtml(dStr || 'Date TBD')}</span><span> • 📍 ${escapeHtml(loc)}</span><span>${rds}</span>`;
   }
@@ -4738,7 +4738,7 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
   const eventId = ev.id || currentOpenEventId || '';
   const eventName = ev.name || ev.raw_json?.name || ev.event_name || 'Tournament Hub';
   const loc = [ev.venue, ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
-  const dStr = (ev.event_date || '').slice(0, 10);
+  const dStr = (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(ev) : '') || (ev.event_date || '').slice(0, 10);
 
   const sysBadge = sys === 'aos'
     ? `<span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-size:0.75rem; font-weight:700;">⚡ Age of Sigmar</span>`
