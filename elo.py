@@ -1617,9 +1617,61 @@ class EloEngine:
         base_key = f"{(game_system or '40k').strip().lower()}:{(player_id or '').strip()}:{(player_name or '').strip().lower()}"
         cache_key = base_key if include_tournaments else f"quick:{base_key}"
         now = time.time()
+
+        def _sync_history_from_tournaments(tours: List[Dict[str, Any]], hist_rows: List[Dict[str, Any]]) -> None:
+            if not tours or not hist_rows:
+                return
+            ev_by_id: Dict[str, Dict[str, Any]] = {}
+            ev_by_name_year: Dict[Tuple[str, str], Dict[str, Any]] = {}
+            ev_by_name: Dict[str, Dict[str, Any]] = {}
+            for t in tours:
+                if not isinstance(t, dict):
+                    continue
+                tid = str(t.get("event_id") or t.get("tournament_id") or t.get("id") or "").strip()
+                if tid:
+                    ev_by_id[tid] = t
+                tname = str(t.get("event_name") or t.get("tournament_name") or t.get("name") or "").strip().lower()
+                tyr = str(t.get("event_date") or t.get("date") or "")[:4]
+                if tname:
+                    if tyr:
+                        ev_by_name_year[(tname, tyr)] = t
+                    if tname not in ev_by_name or int(t.get("placement") or 0) > 0:
+                        ev_by_name[tname] = t
+            for h in hist_rows:
+                if not isinstance(h, dict):
+                    continue
+                h_eid = str(h.get("event_id") or h.get("tournament_id") or "").strip()
+                h_ename = str(h.get("event_name") or h.get("tournament_name") or "").strip().lower()
+                h_yr = str(h.get("match_date") or h.get("date") or "")[:4]
+                t_m = (
+                    (ev_by_id.get(h_eid) if h_eid else None)
+                    or (ev_by_name_year.get((h_ename, h_yr)) if (h_ename and h_yr) else None)
+                    or (ev_by_name.get(h_ename) if h_ename else None)
+                )
+                if t_m:
+                    if not h_eid and (t_m.get("event_id") or t_m.get("id")):
+                        h["event_id"] = t_m.get("event_id") or t_m.get("id")
+                    if int(t_m.get("placement") or 0) > 0:
+                        h["placement"] = int(t_m["placement"])
+                    if int(t_m.get("total_players") or 0) > 0:
+                        h["total_players"] = int(t_m["total_players"])
+                    cur_pf = str(h.get("player_faction") or "").strip()
+                    if not cur_pf or cur_pf.lower() in ("unknown", "unknown faction", "none", "null", "-"):
+                        reg_fac = str(t_m.get("registered_faction") or t_m.get("faction") or "").strip()
+                        if reg_fac and reg_fac.lower() not in ("unknown", "unknown faction", "none", "null", "-"):
+                            h["player_faction"] = reg_fac
+
         if base_key in self._player_win_path_cache_dict:
             cached_val, cached_ts = self._player_win_path_cache_dict[base_key]
             if (now - cached_ts) < 900:
+                if include_tournaments and isinstance(cached_val, dict):
+                    c_tours = cached_val.get("tournaments")
+                    if isinstance(c_tours, list) and hasattr(self.db, "_enrich_tournaments_with_bcp_placings"):
+                        if any(isinstance(t, dict) and int(t.get("placement") or 0) <= 0 and int(t.get("matches_played") or 0) > 0 for t in c_tours):
+                            c_pid = str(cached_val.get("player_id") or player_id or "").strip()
+                            c_pnorm = str(cached_val.get("player_name") or player_name or "").strip().lower()
+                            self.db._enrich_tournaments_with_bcp_placings(c_tours, c_pid, c_pnorm)
+                            _sync_history_from_tournaments(c_tours, cached_val.get("history") or [])
                 return cached_val
             self._player_win_path_cache_dict.pop(base_key, None)
         if not include_tournaments and cache_key in self._player_win_path_cache_dict:
@@ -1800,32 +1852,7 @@ class EloEngine:
         )
 
         if tournaments_list and history:
-            ev_by_id = {
-                str(t.get("event_id") or t.get("tournament_id") or t.get("id") or "").strip(): t
-                for t in tournaments_list
-                if isinstance(t, dict) and (t.get("event_id") or t.get("tournament_id") or t.get("id"))
-            }
-            ev_by_name = {
-                str(t.get("event_name") or t.get("tournament_name") or t.get("name") or "").strip().lower(): t
-                for t in tournaments_list
-                if isinstance(t, dict) and (t.get("event_name") or t.get("tournament_name") or t.get("name"))
-            }
-            for h in history:
-                if not isinstance(h, dict):
-                    continue
-                h_eid = str(h.get("event_id") or h.get("tournament_id") or "").strip()
-                h_ename = str(h.get("event_name") or h.get("tournament_name") or "").strip().lower()
-                t_m = ev_by_id.get(h_eid) or ev_by_name.get(h_ename)
-                if t_m:
-                    if int(t_m.get("placement") or 0) > 0:
-                        h["placement"] = int(t_m["placement"])
-                    if int(t_m.get("total_players") or 0) > 0:
-                        h["total_players"] = int(t_m["total_players"])
-                    cur_pf = str(h.get("player_faction") or "").strip()
-                    if not cur_pf or cur_pf.lower() in ("unknown", "unknown faction", "none", "null", "-"):
-                        reg_fac = str(t_m.get("registered_faction") or t_m.get("faction") or "").strip()
-                        if reg_fac and reg_fac.lower() not in ("unknown", "unknown faction", "none", "null", "-"):
-                            h["player_faction"] = reg_fac
+            _sync_history_from_tournaments(tournaments_list, history)
 
         current_streak = 0
         max_streak = 0

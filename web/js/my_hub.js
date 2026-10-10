@@ -1748,25 +1748,35 @@ function renderMyHub(data) {
     ? data.events_attended
     : (Array.isArray(data.tournaments) ? data.tournaments : []);
   const hubMetaById = new Map();
+  const hubMetaByNameYear = new Map();
   const hubMetaByName = new Map();
   hubTournamentsMeta.forEach(t => {
     if (!t) return;
     const tid = String(t.event_id || t.id || '').trim();
     if (tid) hubMetaById.set(tid, t);
     const tname = String(t.event_name || t.name || '').trim().toLowerCase();
-    if (tname && !hubMetaByName.has(tname)) hubMetaByName.set(tname, t);
+    const tyr = String(t.event_date || t.date || '').slice(0, 4);
+    if (tname) {
+      if (tyr) hubMetaByNameYear.set(`${tname}::${tyr}`, t);
+      if (!hubMetaByName.has(tname) || Number(t.placement || 0) > 0) {
+        hubMetaByName.set(tname, t);
+      }
+    }
   });
 
   const hubEventsMap = new Map();
   sortedHistory.forEach(m => {
-    const evKey = m.event_id || m.event_name || 'Tournament Match';
     const evName = (m.event_name || 'Tournament Match').trim();
+    const matchYr = String(m.match_date || m.event_date || '').slice(0, 4);
     const tMeta = (m.event_id && hubMetaById.get(String(m.event_id).trim()))
+      || (matchYr && hubMetaByNameYear.get(`${evName.toLowerCase()}::${matchYr}`))
       || hubMetaByName.get(evName.toLowerCase())
       || null;
+    const resolvedEid = String(m.event_id || (tMeta && (tMeta.event_id || tMeta.id)) || '').trim();
+    const evKey = resolvedEid || (matchYr ? `${evName}::${matchYr}` : evName);
     if (!hubEventsMap.has(evKey)) {
       hubEventsMap.set(evKey, {
-        event_id: m.event_id || (tMeta && (tMeta.event_id || tMeta.id)) || '',
+        event_id: resolvedEid,
         event_name: m.event_name || 'Tournament Match',
         date: (m.match_date || m.event_date || (tMeta && tMeta.event_date) || '').substring(0, 10),
         faction: m.player_faction || (tMeta && tMeta.registered_faction !== 'Unknown' ? tMeta.registered_faction : '') || p.top_faction || '',

@@ -274,38 +274,64 @@ async def api_player_profile(
             events_attended = db.get_player_tournaments(actual_pid, game_system=game_system)
         if not events_attended and pid != actual_pid:
             events_attended = db.get_player_tournaments(pid, game_system=game_system)
-        if events_attended and hasattr(db, "_bcp_event_placings_cache_dict"):
+        if events_attended:
             p_norm_lookup = str(data.get("player_name") or "").strip().lower()
+            needs_enrich = False
             for t_item in events_attended:
                 if isinstance(t_item, dict) and int(t_item.get("placement") or 0) <= 0:
                     t_eid = str(t_item.get("event_id") or "").strip()
-                    plc_i = db.get_cached(db._bcp_event_placings_cache_dict, t_eid, ttl=3600)
-                    if isinstance(plc_i, dict) and plc_i.get("fetched_ok"):
-                        b_pl = (plc_i.get("by_id") or {}).get(actual_pid) or ((plc_i.get("by_name") or {}).get(p_norm_lookup) if p_norm_lookup else None)
-                        if b_pl and int(b_pl) > 0:
-                            t_item["placement"] = int(b_pl)
-                        if int(t_item.get("total_players") or 0) <= 1 and int(plc_i.get("active_count") or 0) > 0:
-                            t_item["total_players"] = int(plc_i["active_count"])
+                    if hasattr(db, "_bcp_event_placings_cache_dict"):
+                        plc_i = db.get_cached(db._bcp_event_placings_cache_dict, t_eid, ttl=3600)
+                        if isinstance(plc_i, dict) and plc_i.get("fetched_ok"):
+                            b_pl = (plc_i.get("by_id") or {}).get(actual_pid) or ((plc_i.get("by_name") or {}).get(p_norm_lookup) if p_norm_lookup else None)
+                            if b_pl and int(b_pl) > 0:
+                                t_item["placement"] = int(b_pl)
+                            if int(t_item.get("total_players") or 0) <= 1 and int(plc_i.get("active_count") or 0) > 0:
+                                t_item["total_players"] = int(plc_i["active_count"])
+                    if int(t_item.get("placement") or 0) <= 0 and hasattr(db, "_db_computed_placings_cache_dict"):
+                        comp_i = db.get_cached(db._db_computed_placings_cache_dict, t_eid, ttl=3600)
+                        if isinstance(comp_i, dict) and comp_i.get("fetched_ok"):
+                            c_pl = (comp_i.get("by_id") or {}).get(actual_pid) or ((comp_i.get("by_name") or {}).get(p_norm_lookup) if p_norm_lookup else None)
+                            if c_pl and int(c_pl) > 0:
+                                t_item["placement"] = int(c_pl)
+                            if int(t_item.get("total_players") or 0) <= 1 and int(comp_i.get("active_count") or 0) > 0:
+                                t_item["total_players"] = int(comp_i["active_count"])
+                    if int(t_item.get("placement") or 0) <= 0 and int(t_item.get("matches_played") or 0) > 0:
+                        needs_enrich = True
+            if needs_enrich and hasattr(db, "_enrich_tournaments_with_bcp_placings"):
+                db._enrich_tournaments_with_bcp_placings(events_attended, actual_pid, p_norm_lookup)
         data["tournaments"] = events_attended or []
         data["events_attended"] = data["tournaments"]
 
         ev_meta_by_id = {}
+        ev_meta_by_name_year = {}
         ev_meta_by_name = {}
         for ev in data["tournaments"]:
             eid = str(ev.get("event_id") or ev.get("id") or "").strip()
             if eid:
                 ev_meta_by_id[eid] = ev
             ename = str(ev.get("event_name") or ev.get("name") or "").strip().lower()
-            if ename and ename not in ev_meta_by_name:
-                ev_meta_by_name[ename] = ev
+            eyr = str(ev.get("event_date") or ev.get("date") or "")[:4]
+            if ename:
+                if eyr:
+                    ev_meta_by_name_year[(ename, eyr)] = ev
+                if ename not in ev_meta_by_name or int(ev.get("placement") or 0) > 0:
+                    ev_meta_by_name[ename] = ev
         for h_key in ("history", "win_path"):
             for hp in (data.get(h_key) or []):
                 if not isinstance(hp, dict):
                     continue
                 hid = str(hp.get("event_id") or "").strip()
                 hname = str(hp.get("event_name") or "").strip().lower()
-                t_meta = ev_meta_by_id.get(hid) or ev_meta_by_name.get(hname)
+                hyr = str(hp.get("match_date") or hp.get("date") or "")[:4]
+                t_meta = (
+                    (ev_meta_by_id.get(hid) if hid else None)
+                    or (ev_meta_by_name_year.get((hname, hyr)) if (hname and hyr) else None)
+                    or (ev_meta_by_name.get(hname) if hname else None)
+                )
                 if t_meta:
+                    if not hid and (t_meta.get("event_id") or t_meta.get("id")):
+                        hp["event_id"] = t_meta.get("event_id") or t_meta.get("id")
                     if int(t_meta.get("placement") or 0) > 0:
                         hp["placement"] = int(t_meta["placement"])
                     if int(t_meta.get("total_players") or 0) > 0:

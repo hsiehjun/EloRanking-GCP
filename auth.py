@@ -2895,18 +2895,32 @@ class AuthManager:
 
         ev_meta_by_id = {}
         ev_meta_by_name = {}
+        ev_meta_by_name_year = {}
         for ev in (events_attended or []):
             eid = str(ev.get("event_id") or ev.get("id") or "").strip()
             if eid:
                 ev_meta_by_id[eid] = ev
             ename = str(ev.get("event_name") or ev.get("name") or "").strip().lower()
-            if ename and ename not in ev_meta_by_name:
-                ev_meta_by_name[ename] = ev
+            eyear = str(ev.get("date") or ev.get("start_date") or "")[:4]
+            if ename:
+                if eyear:
+                    ev_meta_by_name_year[(ename, eyear)] = ev
+                if ename not in ev_meta_by_name or int(ev.get("placement") or 0) > 0:
+                    ev_meta_by_name[ename] = ev
         for hp in history_points:
             hid = str(hp.get("event_id") or "").strip()
             hname = str(hp.get("event_name") or "").strip().lower()
-            t_meta = ev_meta_by_id.get(hid) or ev_meta_by_name.get(hname)
+            hyear = str(hp.get("timestamp") or hp.get("date") or "")[:4]
+            t_meta = (
+                ev_meta_by_id.get(hid)
+                or (ev_meta_by_name_year.get((hname, hyear)) if hname and hyear else None)
+                or ev_meta_by_name.get(hname)
+            )
             if t_meta:
+                if not hid:
+                    meta_eid = str(t_meta.get("event_id") or t_meta.get("id") or "").strip()
+                    if meta_eid:
+                        hp["event_id"] = meta_eid
                 if int(t_meta.get("placement") or 0) > 0:
                     hp["placement"] = int(t_meta["placement"])
                 if int(t_meta.get("total_players") or 0) > 0:

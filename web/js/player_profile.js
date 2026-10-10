@@ -222,27 +222,37 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     ? data.tournaments
     : (Array.isArray(data.events_attended) ? data.events_attended : []);
   const tournamentMetaById = new Map();
+  const tournamentMetaByNameYear = new Map();
   const tournamentMetaByName = new Map();
   tournamentsMetaList.forEach(t => {
     if (!t) return;
     const tid = String(t.event_id || t.id || '').trim();
     if (tid) tournamentMetaById.set(tid, t);
     const tname = String(t.event_name || t.name || '').trim().toLowerCase();
-    if (tname && !tournamentMetaByName.has(tname)) tournamentMetaByName.set(tname, t);
+    const tyr = String(t.event_date || t.date || '').slice(0, 4);
+    if (tname) {
+      if (tyr) tournamentMetaByNameYear.set(`${tname}::${tyr}`, t);
+      if (!tournamentMetaByName.has(tname) || Number(t.placement || 0) > 0) {
+        tournamentMetaByName.set(tname, t);
+      }
+    }
   });
 
   // Group matches by Event (most recent event first)
   const eventMap = new Map();
   sortedHistory.forEach(m => {
-    const evKey = m.event_id || (m.event_name || 'Tournament Event').trim();
     const evName = (m.event_name || 'Tournament Event').trim();
+    const matchYr = String(m.match_date || m.event_date || '').slice(0, 4);
     const tMeta = (m.event_id && tournamentMetaById.get(String(m.event_id).trim()))
+      || (matchYr && tournamentMetaByNameYear.get(`${evName.toLowerCase()}::${matchYr}`))
       || tournamentMetaByName.get(evName.toLowerCase())
       || null;
+    const resolvedEid = String(m.event_id || (tMeta && (tMeta.event_id || tMeta.id)) || '').trim();
+    const evKey = resolvedEid || (matchYr ? `${evName}::${matchYr}` : evName);
     if (!eventMap.has(evKey)) {
       eventMap.set(evKey, {
         event_name: evName,
-        event_id: m.event_id || (tMeta && (tMeta.event_id || tMeta.id)) || '',
+        event_id: resolvedEid,
         date: m.match_date ? String(m.match_date).slice(0, 10) : (tMeta && tMeta.event_date ? String(tMeta.event_date).slice(0, 10) : ''),
         faction: m.player_faction || (tMeta && tMeta.registered_faction !== 'Unknown' ? tMeta.registered_faction : '') || '',
         placement: Number((tMeta && tMeta.placement) || m.placement || 0),

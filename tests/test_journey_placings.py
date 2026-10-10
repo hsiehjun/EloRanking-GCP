@@ -9,6 +9,7 @@ class TestJourneyPlacings(unittest.TestCase):
     def setUp(self):
         PostgresDatabase._player_tournaments_cache_dict.clear()
         PostgresDatabase._bcp_event_placings_cache_dict.clear()
+        PostgresDatabase._db_computed_placings_cache_dict.clear()
 
     def test_sql_deduplicates_reg_id_and_computes_ptv_sos_tiebreakers(self):
         db = PostgresDatabase.__new__(PostgresDatabase)
@@ -324,7 +325,7 @@ class TestJourneyPlacings(unittest.TestCase):
         self.assertIn("function synthesizeClientUserEventRegistration(ev, existingReg = null)", js_code)
         self.assertIn("userRegData = synthesizeClientUserEventRegistration(ev, userRegData);", js_code)
         self.assertNotIn("You competed in this tournament", js_code)
-        self.assertIn("if (shouldShowPlayerTab) {\n        targetTab = 'player';", js_code)
+        self.assertIn("if (isRegisteredPlayer) {\n        targetTab = 'player';", js_code)
 
     def test_full_field_computed_rank_and_multi_player_cache_isolation(self):
         PostgresDatabase._player_tournaments_cache_dict.clear()
@@ -377,6 +378,64 @@ class TestJourneyPlacings(unittest.TestCase):
         self.assertIn("parsed._journeySchemaVer === 4", my_hub_js)
         self.assertIn("data._journeySchemaVer = 4;", my_hub_js)
 
+    def test_db_swiss_computed_placings_fallback_and_multi_year_name_resolution(self):
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        PostgresDatabase.set_cached(
+            PostgresDatabase._db_computed_placings_cache_dict,
+            "mCFHCyjgeq",
+            {
+                "by_id": {"xcaFfMZt5b": 1},
+                "by_name": {"folger pyles": 1},
+                "active_count": 78,
+                "fetched_ok": True,
+            },
+        )
+        PostgresDatabase.set_cached(
+            PostgresDatabase._db_computed_placings_cache_dict,
+            "SR15ImFKMe",
+            {
+                "by_id": {"xcaFfMZt5b": 5},
+                "by_name": {"folger pyles": 5},
+                "active_count": 65,
+                "fetched_ok": True,
+            },
+        )
+        # Simulate BCP returning empty active list for both Glass City GT events
+        PostgresDatabase.set_cached(
+            PostgresDatabase._bcp_event_placings_cache_dict,
+            "mCFHCyjgeq",
+            {"by_id": {}, "by_name": {}, "active_count": 0, "fetched_ok": True},
+        )
+        PostgresDatabase.set_cached(
+            PostgresDatabase._bcp_event_placings_cache_dict,
+            "SR15ImFKMe",
+            {"by_id": {}, "by_name": {}, "active_count": 0, "fetched_ok": True},
+        )
+
+        tournaments = [
+            {
+                "event_id": "mCFHCyjgeq",
+                "event_name": "Glass City GT",
+                "event_date": "2024-06-15",
+                "placement": 0,
+                "total_players": 78,
+                "matches_played": 5,
+            },
+            {
+                "event_id": "SR15ImFKMe",
+                "event_name": "Glass City GT",
+                "event_date": "2023-06-17",
+                "placement": 0,
+                "total_players": 65,
+                "matches_played": 5,
+            },
+        ]
+        db._enrich_tournaments_with_bcp_placings(tournaments, "xcaFfMZt5b", "folger pyles")
+        self.assertEqual(tournaments[0]["placement"], 1)
+        self.assertEqual(tournaments[0]["total_players"], 78)
+        self.assertEqual(tournaments[1]["placement"], 5)
+        self.assertEqual(tournaments[1]["total_players"], 65)
+
     def test_mappable_event_matches_all_inclusive_and_opponent_only_recommendations(self):
         from routers.tracker import _names_roughly_match
 
@@ -410,5 +469,6 @@ class TestJourneyPlacings(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
