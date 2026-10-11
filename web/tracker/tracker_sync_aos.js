@@ -81,6 +81,39 @@
   let isRemoteUpdating = false;
 
   let role = urlParams.get('role') || 'player1';
+  let isRoomLocked = Boolean(urlParams.get('event_id') || urlParams.get('tournament_id') || (matchId && /^(?:WH40K-|AOS-)?(?:BCP|ES)-/i.test(matchId)));
+  let isRoomOwner = false;
+
+  function isAosRoomTournament() {
+    if (urlParams.get('event_id') || urlParams.get('tournament_id')) return true;
+    return Boolean(matchId && /^(?:WH40K-|AOS-)?(?:BCP|ES)-/i.test(matchId));
+  }
+
+  function canAosUserToggleLock() {
+    if (isRoomOwner === true) return true;
+    if (role === 'referee') return true;
+    if (isAosRoomTournament()) {
+      return (role === 'player1' || role === 'player2') && Boolean(getAuthToken());
+    }
+    return role === 'player1';
+  }
+
+  function handleAosRoomLockChange(newLocked) {
+    if (typeof newLocked !== 'boolean') return;
+    const prev = isRoomLocked;
+    isRoomLocked = newLocked;
+    if (newLocked && !canAosUserToggleLock() && role !== 'referee' && matchId) {
+      updateAosLoadingOverlay('🔒 Room Locked by Owner', 'Opening Live Digital Scorecard...');
+      window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
+      return;
+    }
+    if (prev !== newLocked) {
+      injectAosSyncHUD();
+      if (document.getElementById('gt-share-room-modal') && matchId) {
+        window.__openShareRoomModal(matchId);
+      }
+    }
+  }
 
   const aosListState = {
     p1ArmyList: null,
@@ -285,6 +318,52 @@
     `).join('');
   }
 
+  window.__toggleRoomLock = async function (mid, nextLocked, btnEl) {
+    const activeMid = mid || matchId || '';
+    if (!activeMid) return;
+    const desired = (typeof nextLocked === 'boolean') ? nextLocked : !isRoomLocked;
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.style.opacity = '0.65';
+    }
+    try {
+      const token = getAuthToken();
+      const guestId = getOrCreateGuestId();
+      const resp = await fetch(`/api/tracker/room/${encodeURIComponent(activeMid)}/lock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          ...(guestId ? { 'X-Guest-Id': guestId } : {})
+        },
+        body: JSON.stringify({
+          token: token || undefined,
+          guest_id: guestId || undefined,
+          is_locked: desired
+        })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        alert((data && data.detail) || 'Only the room owner can lock or unlock this room.');
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.style.opacity = '1';
+        }
+        return;
+      }
+      isRoomLocked = Boolean(data.is_locked);
+      injectAosSyncHUD();
+      if (document.getElementById('gt-share-room-modal')) {
+        window.__openShareRoomModal(activeMid);
+      }
+    } catch (e) {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.style.opacity = '1';
+      }
+    }
+  };
+
   window.__openShareRoomModal = async function (mid) {
     const activeMid = mid || matchId || '';
     if (!activeMid) {
@@ -293,6 +372,8 @@
     }
     const shareUrl = getCleanRoomShareUrl(activeMid);
     const scorecardUrl = `${window.location.origin}/scorecard/${encodeURIComponent(activeMid)}`;
+    const isTournRoom = isAosRoomTournament();
+    const canToggleLock = canAosUserToggleLock();
 
     let modal = document.getElementById('gt-share-room-modal');
     if (modal) modal.remove();
@@ -302,6 +383,31 @@
     modal.style.cssText = "position:fixed; inset:0; z-index:1000000; background:rgba(4,7,14,0.92); backdrop-filter:blur(14px); display:flex; align-items:center; justify-content:center; padding:14px; font-family:'Inter',sans-serif; box-sizing:border-box;";
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
 
+    const lockSectionHtml = `
+      <div style="background:#090f1e; border:1px solid ${isRoomLocked ? 'rgba(244,63,94,0.45)' : 'rgba(16,185,129,0.4)'}; border-radius:14px; padding:13px 14px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:210px; text-align:left;">
+          <div style="display:flex; align-items:center; gap:7px; margin-bottom:4px;">
+            <span style="font-size:14px;">${isRoomLocked ? '🔒' : '🔓'}</span>
+            <span style="font-size:11.5px; font-weight:800; color:${isRoomLocked ? '#fb7185' : '#34d399'}; font-family:'JetBrains Mono',monospace; text-transform:uppercase;">
+              ${isRoomLocked ? 'ROOM LOCKED (Owners Only)' : 'ROOM UNLOCKED (Guests & Link Allowed)'}
+            </span>
+          </div>
+          <div style="font-size:11px; color:#94a3b8; line-height:1.4;">
+            ${isRoomLocked
+              ? (isTournRoom
+                  ? 'Only the <b>2 paired tournament table players</b> (and TO) can enter. Guests &amp; other users are routed to the Live Scorecard.'
+                  : 'Only the <b>room creator (1 owner)</b> can enter. Even guests sent the link cannot join while locked.')
+              : 'Anyone with the room link or key (including <b>Guests without an account</b>) can join an open player seat.'}
+          </div>
+        </div>
+        ${canToggleLock ? `
+          <button type="button" id="gt-room-lock-toggle-btn" onclick="window.__toggleRoomLock('${escapeHtml(activeMid)}', ${!isRoomLocked}, this)" style="background:${isRoomLocked ? '#10b981' : '#e11d48'}; color:${isRoomLocked ? '#071318' : '#fff'}; border:none; border-radius:9px; padding:8px 13px; font-size:11px; font-weight:800; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; flex-shrink:0;">
+            ${isRoomLocked ? '🔓 UNLOCK FOR GUESTS' : '🔒 LOCK ROOM'}
+          </button>
+        ` : ''}
+      </div>
+    `;
+
     modal.innerHTML = `
       <div style="background:#0e1526; border:1px solid #1e293b; border-radius:20px; width:100%; max-width:520px; max-height:92vh; display:flex; flex-direction:column; box-shadow:0 25px 70px rgba(0,0,0,0.88); overflow:hidden; color:#f8fafc; box-sizing:border-box;">
         <div style="padding:16px 20px; background:#090f1e; border-bottom:1px solid #1e293b; display:flex; justify-content:space-between; align-items:center; gap:10px;">
@@ -309,20 +415,25 @@
             <span style="font-size:22px;">🔗</span>
             <div style="text-align:left;">
               <h2 style="font-size:16px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; margin:0; letter-spacing:0.03em;">SHARE MATCH ROOM</h2>
-              <div style="font-size:11px; color:#f59e0b; font-family:'JetBrains Mono',monospace;">AoS Room #${escapeHtml(activeMid)} • Guest &amp; Multi-Device Ready</div>
+              <div style="font-size:11px; color:#f59e0b; font-family:'JetBrains Mono',monospace;">AoS Room #${escapeHtml(activeMid)} • ${isRoomLocked ? '🔒 Locked (Owners Only)' : '🔓 Unlocked (Guest Ready)'}</div>
             </div>
           </div>
           <button type="button" onclick="document.getElementById('gt-share-room-modal').remove()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:15px;">✕</button>
         </div>
 
         <div style="padding:18px 20px; overflow-y:auto; display:flex; flex-direction:column; gap:16px;">
+          ${lockSectionHtml}
           <div style="background:#090f1e; border:1px solid rgba(245,158,11,0.35); border-radius:14px; padding:14px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
               <span style="font-size:11.5px; font-weight:800; color:#f59e0b; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">1. Share via Direct Link or Room Key</span>
-              <span style="font-size:10px; font-weight:700; color:#10b981; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.3); padding:2px 7px; border-radius:999px;">✓ No Account Required for P2</span>
+              <span style="font-size:10px; font-weight:700; color:${isRoomLocked ? '#fb7185' : '#10b981'}; background:${isRoomLocked ? 'rgba(244,63,94,0.12)' : 'rgba(16,185,129,0.12)'}; border:1px solid ${isRoomLocked ? 'rgba(244,63,94,0.35)' : 'rgba(16,185,129,0.3)'}; padding:2px 7px; border-radius:999px;">
+                ${isRoomLocked ? '🔒 Locked • Owners Only' : '✓ No Account Required for P2'}
+              </span>
             </div>
             <p style="font-size:11.5px; color:#94a3b8; margin:0 0 10px; line-height:1.45; text-align:left;">
-              Your opponent can open this link in any browser without signing in to join as <b>Player 2 (Guest)</b>. Once both seats are filled, any 3rd+ person opening the link is automatically routed to the <b>Real-Time Spectator Scorecard</b>.
+              ${isRoomLocked
+                ? 'This room is currently <b>Locked</b>. Unlock the room above if you want an unauthenticated <b>Guest</b> to join via this link.'
+                : 'Your opponent can open this link in any browser without signing in to join as <b>Player 2 (Guest)</b>. Once both seats are filled, any 3rd+ person opening the link is automatically routed to the <b>Real-Time Spectator Scorecard</b>.'}
             </p>
             <div style="display:flex; gap:8px; margin-bottom:8px;">
               <input id="gt-share-modal-url-input" readonly value="${shareUrl}" style="flex:1; min-width:0; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 10px; font-size:11px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; outline:none;" onclick="this.select()" />
@@ -504,6 +615,12 @@
           if (!snap || !snap.exists) return;
           const data = snap.data();
           if (data) {
+            const fsLocked = (typeof data.is_locked === 'boolean')
+              ? data.is_locked
+              : (data.state && typeof data.state.is_locked === 'boolean' ? data.state.is_locked : undefined);
+            if (typeof fsLocked === 'boolean') {
+              handleAosRoomLockChange(fsLocked);
+            }
             let hudUpdated = false;
             const p1List = data.p1_army_list || (data.rosters && data.rosters.player1);
             const p2List = data.p2_army_list || (data.rosters && data.rosters.player2);
@@ -542,6 +659,9 @@
       if (resp.ok) {
         const data = await resp.json();
         if (data) {
+          if (typeof data.is_locked === 'boolean') {
+            handleAosRoomLockChange(data.is_locked);
+          }
           let hudUpdated = false;
           if (data.p1_army_list && (!aosListState.p1ArmyList || aosListState.p1ArmyList.list_key !== data.p1_army_list.list_key)) {
             aosListState.p1ArmyList = data.p1_army_list;
@@ -595,6 +715,8 @@
           ) {
             sessionStorage.removeItem('gt_room_handoff');
             role = handoff.role || 'player1';
+            if (typeof handoff.isLocked === 'boolean') isRoomLocked = handoff.isLocked;
+            if (typeof handoff.isOwner === 'boolean') isRoomOwner = handoff.isOwner;
             if (handoff.state) {
               localStorage.setItem(STORAGE_KEY, JSON.stringify(handoff.state));
             }
@@ -624,8 +746,13 @@
         });
         if (chk.ok) {
           const chkData = await chk.json();
+          if (typeof chkData.is_locked === 'boolean') isRoomLocked = chkData.is_locked;
+          if (typeof chkData.is_owner === 'boolean') isRoomOwner = chkData.is_owner;
           if (chkData.is_finished || (!chkData.is_referee && chkData.role !== 'referee' && (chkData.is_spectator || chkData.role === 'spectator' || (chkData.is_full && !chkData.is_open_for_p2)))) {
-            updateAosLoadingOverlay('👀 Spectator Mode Detected', 'Room has 2 active players — redirecting to Live Digital Scorecard...');
+            updateAosLoadingOverlay(
+              chkData.is_locked ? '🔒 Room Locked by Owner' : '👀 Spectator Mode Detected',
+              chkData.is_locked ? 'Only room owners can join while locked — redirecting to Live Digital Scorecard...' : 'Room has 2 active players — redirecting to Live Digital Scorecard...'
+            );
             window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
             return;
           }
@@ -644,8 +771,13 @@
         });
         if (joinResp.ok) {
           const joinData = await joinResp.json();
+          if (typeof joinData.is_locked === 'boolean') isRoomLocked = joinData.is_locked;
+          if (typeof joinData.is_owner === 'boolean') isRoomOwner = joinData.is_owner;
           if (joinData.is_finished || joinData.role === 'spectator') {
-            updateAosLoadingOverlay('👀 Spectator Mode Detected', 'Room has 2 active players — redirecting to Live Digital Scorecard...');
+            updateAosLoadingOverlay(
+              joinData.is_locked ? '🔒 Room Locked by Owner' : '👀 Spectator Mode Detected',
+              joinData.is_locked ? 'Only room owners can join while locked — redirecting to Live Digital Scorecard...' : 'Room has 2 active players — redirecting to Live Digital Scorecard...'
+            );
             window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
             return;
           }
@@ -2206,8 +2338,8 @@ General's Regiment
         <a href="/11th/tracker/aos" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
           🎲 Lobby
         </a>
-        <span onclick="if(window.__openShareRoomModal) window.__openShareRoomModal('${matchId || ''}'); else window.__copyRoomShareLink('${matchId || ''}');" title="Click to Share Room in Chat or Copy Link" style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:11px; background:#070b14; padding:4px 7px; border-radius:6px; border:1px solid #334155; font-weight:800; cursor:pointer;">
-          #${matchId || 'AOS-LOCAL'} 🔗
+        <span onclick="if(window.__openShareRoomModal) window.__openShareRoomModal('${matchId || ''}'); else window.__copyRoomShareLink('${matchId || ''}');" title="Click to Share Room in Chat or Manage Lock" style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:11px; background:#070b14; padding:4px 7px; border-radius:6px; border:1px solid #334155; font-weight:800; cursor:pointer;">
+          #${matchId || 'AOS-LOCAL'} ${isRoomLocked ? '🔒' : '🔓'}
         </span>
         ${isSpectator ? `
           <span style="font-family:'JetBrains Mono',monospace; color:#cbd5e1; font-size:11px; background:rgba(100,116,139,0.25); border:1px solid rgba(148,163,184,0.3); padding:4px 8px; border-radius:6px; font-weight:800; display:inline-flex; align-items:center; gap:4px;">
@@ -2249,6 +2381,11 @@ General's Regiment
         ${!isSpectator ? `
           <button onclick="window.__openCompleteModal()" style="background:#059669; color:#fff; border:1px solid #10b981; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Complete Game">
             🏁 Finish
+          </button>
+        ` : ''}
+        ${matchId && canAosUserToggleLock() ? `
+          <button id="gt-hud-lock-btn" onclick="window.__toggleRoomLock('${escapeHtml(matchId)}', ${!isRoomLocked}, this)" style="background:${isRoomLocked ? 'rgba(244,63,94,0.16)' : 'rgba(16,185,129,0.15)'}; color:${isRoomLocked ? '#fb7185' : '#34d399'}; border:1px solid ${isRoomLocked ? 'rgba(244,63,94,0.4)' : 'rgba(16,185,129,0.35)'}; padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="${isRoomLocked ? 'Room Locked (Owners Only) — Click to Unlock for Guests' : 'Room Unlocked (Guests Allowed) — Click to Lock'}">
+            ${isRoomLocked ? '🔒 Locked' : '🔓 Unlocked'}
           </button>
         ` : ''}
         <button id="gt-hud-share-btn" onclick="if(window.__openShareRoomModal) window.__openShareRoomModal('${matchId || ''}'); else window.__copyRoomShareLink('${matchId || ''}');" style="background:#0284c7; color:#fff; border:none; padding:4px 7px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Share Room in Chat or Copy Link">

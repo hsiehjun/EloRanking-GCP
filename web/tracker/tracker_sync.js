@@ -69,9 +69,51 @@
     hasRealtimeStream: false,
     activeJudgeCall: null,
     tournamentId: null,
-    tableNum: null
+    tableNum: null,
+    isLocked: false,
+    isOwner: false
   };
   window.__gtGetClientState = () => clientState;
+
+  function isCurrentRoomTournament() {
+    if (getTrackerTournamentId()) return true;
+    const mid = String(clientState.matchId || '');
+    return /^(?:WH40K-|AOS-)?(?:BCP|ES)-/i.test(mid);
+  }
+
+  function canCurrentUserToggleRoomLock() {
+    if (clientState.isOwner === true) return true;
+    if (clientState.role === 'referee') return true;
+    if (isCurrentRoomTournament()) {
+      if (clientState.isOwner === false) return false;
+      return (clientState.role === 'player1' || clientState.role === 'player2') && !clientState.isGuest && Boolean(getAuthToken());
+    }
+    return clientState.role === 'player1';
+  }
+
+  function handleRoomLockStateChange(newLocked) {
+    if (typeof newLocked !== 'boolean') return;
+    const prevLocked = clientState.isLocked;
+    clientState.isLocked = newLocked;
+    if (newLocked && !canCurrentUserToggleRoomLock() && clientState.role !== 'referee' && clientState.matchId) {
+      window.__showGtLoadingOverlay(
+        '🔒 Room Locked by Owner',
+        'Opening Live Digital Scorecard...',
+        true
+      );
+      window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
+      return;
+    }
+    if (prevLocked !== newLocked) {
+      injectMultiplayerHUD();
+      const existingWidget = document.getElementById('gt-invite-widget');
+      if (existingWidget) existingWidget.remove();
+      injectPlayer2InviteWidget();
+      if (document.getElementById('gt-share-room-modal') && clientState.matchId) {
+        window.__openShareRoomModal(clientState.matchId);
+      }
+    }
+  }
 
   function getTrackerTournamentId() {
     if (clientState.tournamentId) return clientState.tournamentId;
@@ -1591,6 +1633,64 @@
     `).join('');
   }
 
+  window.__toggleRoomLock = async function (mid, nextLocked, btnEl) {
+    const targetMid = mid || (clientState && clientState.matchId) || getActiveMatchId() || '';
+    if (!targetMid) return;
+    const desired = (typeof nextLocked === 'boolean') ? nextLocked : !clientState.isLocked;
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.style.opacity = '0.65';
+    }
+    try {
+      const guestId = getOrCreateGuestId();
+      const resp = await fetch(`/api/tracker/room/${encodeURIComponent(targetMid)}/lock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getAuthToken()}`,
+          'X-Guest-Id': guestId
+        },
+        body: JSON.stringify({
+          token: getAuthToken(),
+          guest_id: guestId,
+          is_locked: desired
+        })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        alert((data && data.detail) || 'Only the room owner can lock or unlock this room.');
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.style.opacity = '1';
+        }
+        return;
+      }
+      clientState.isLocked = Boolean(data.is_locked);
+      try {
+        const raw = originalGetItem('gdm-11e-tracker-state');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            parsed.is_locked = clientState.isLocked;
+            originalSetItem('gdm-11e-tracker-state', JSON.stringify(parsed));
+          }
+        }
+      } catch (e) {}
+      injectMultiplayerHUD();
+      const existingWidget = document.getElementById('gt-invite-widget');
+      if (existingWidget) existingWidget.remove();
+      injectPlayer2InviteWidget();
+      if (document.getElementById('gt-share-room-modal')) {
+        window.__openShareRoomModal(targetMid);
+      }
+    } catch (e) {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.style.opacity = '1';
+      }
+    }
+  };
+
   window.__openShareRoomModal = async function (mid) {
     const matchId = mid || (clientState && clientState.matchId) || getActiveMatchId() || '';
     if (!matchId) {
@@ -1599,6 +1699,9 @@
     }
     const shareUrl = getCleanRoomShareUrl(matchId);
     const scorecardUrl = `${window.location.origin}/scorecard/${encodeURIComponent(matchId)}`;
+    const isTournRoom = isCurrentRoomTournament();
+    const isRoomLocked = Boolean(clientState.isLocked);
+    const canToggleLock = canCurrentUserToggleRoomLock();
 
     let modal = document.getElementById('gt-share-room-modal');
     if (modal) modal.remove();
@@ -1608,6 +1711,31 @@
     modal.style.cssText = "position:fixed; inset:0; z-index:1000000; background:rgba(4,7,14,0.92); backdrop-filter:blur(14px); display:flex; align-items:center; justify-content:center; padding:14px; font-family:'Inter',sans-serif; box-sizing:border-box;";
     modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
 
+    const lockSectionHtml = `
+      <div style="background:#090f1e; border:1px solid ${isRoomLocked ? 'rgba(244,63,94,0.45)' : 'rgba(16,185,129,0.4)'}; border-radius:14px; padding:13px 14px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:210px; text-align:left;">
+          <div style="display:flex; align-items:center; gap:7px; margin-bottom:4px;">
+            <span style="font-size:14px;">${isRoomLocked ? '🔒' : '🔓'}</span>
+            <span style="font-size:11.5px; font-weight:800; color:${isRoomLocked ? '#fb7185' : '#34d399'}; font-family:'JetBrains Mono',monospace; text-transform:uppercase;">
+              ${isRoomLocked ? 'ROOM LOCKED (Owners Only)' : 'ROOM UNLOCKED (Guests & Link Allowed)'}
+            </span>
+          </div>
+          <div style="font-size:11px; color:#94a3b8; line-height:1.4;">
+            ${isRoomLocked
+              ? (isTournRoom
+                  ? 'Only the <b>2 paired tournament table players</b> (and TO) can enter. Guests &amp; other users are routed to the Live Scorecard.'
+                  : 'Only the <b>room creator (1 owner)</b> can enter. Even guests sent the link cannot join while locked.')
+              : 'Anyone with the room link or key (including <b>Guests without an account</b>) can join an open player seat.'}
+          </div>
+        </div>
+        ${canToggleLock ? `
+          <button type="button" id="gt-room-lock-toggle-btn" onclick="window.__toggleRoomLock('${escapeHtml(matchId)}', ${!isRoomLocked}, this)" style="background:${isRoomLocked ? '#10b981' : '#e11d48'}; color:${isRoomLocked ? '#071318' : '#fff'}; border:none; border-radius:9px; padding:8px 13px; font-size:11px; font-weight:800; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; flex-shrink:0;">
+            ${isRoomLocked ? '🔓 UNLOCK FOR GUESTS' : '🔒 LOCK ROOM'}
+          </button>
+        ` : ''}
+      </div>
+    `;
+
     modal.innerHTML = `
       <div style="background:#0e1526; border:1px solid #1e293b; border-radius:20px; width:100%; max-width:520px; max-height:92vh; display:flex; flex-direction:column; box-shadow:0 25px 70px rgba(0,0,0,0.88); overflow:hidden; color:#f8fafc; box-sizing:border-box;">
         <div style="padding:16px 20px; background:#090f1e; border-bottom:1px solid #1e293b; display:flex; justify-content:space-between; align-items:center; gap:10px;">
@@ -1615,21 +1743,28 @@
             <span style="font-size:22px;">🔗</span>
             <div style="text-align:left;">
               <h2 style="font-size:16px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; margin:0; letter-spacing:0.03em;">SHARE MATCH ROOM</h2>
-              <div style="font-size:11px; color:#38bdf8; font-family:'JetBrains Mono',monospace;">Room #${escapeHtml(matchId)} • Guest &amp; Multi-Device Ready</div>
+              <div style="font-size:11px; color:#38bdf8; font-family:'JetBrains Mono',monospace;">Room #${escapeHtml(matchId)} • ${isRoomLocked ? '🔒 Locked (Owners Only)' : '🔓 Unlocked (Guest Ready)'}</div>
             </div>
           </div>
           <button type="button" onclick="document.getElementById('gt-share-room-modal').remove()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:15px;">✕</button>
         </div>
 
         <div style="padding:18px 20px; overflow-y:auto; display:flex; flex-direction:column; gap:16px;">
+          <!-- Room Lock & Guest Access Control -->
+          ${lockSectionHtml}
+
           <!-- Option 1: Share via Link / Room Key (No Account Needed) -->
           <div style="background:#090f1e; border:1px solid rgba(245,158,11,0.35); border-radius:14px; padding:14px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
               <span style="font-size:11.5px; font-weight:800; color:#f59e0b; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">1. Share via Direct Link or Room Key</span>
-              <span style="font-size:10px; font-weight:700; color:#10b981; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.3); padding:2px 7px; border-radius:999px;">✓ No Account Required for P2</span>
+              <span style="font-size:10px; font-weight:700; color:${isRoomLocked ? '#fb7185' : '#10b981'}; background:${isRoomLocked ? 'rgba(244,63,94,0.12)' : 'rgba(16,185,129,0.12)'}; border:1px solid ${isRoomLocked ? 'rgba(244,63,94,0.35)' : 'rgba(16,185,129,0.3)'}; padding:2px 7px; border-radius:999px;">
+                ${isRoomLocked ? '🔒 Locked • Owners Only' : '✓ No Account Required for P2'}
+              </span>
             </div>
             <p style="font-size:11.5px; color:#94a3b8; margin:0 0 10px; line-height:1.45; text-align:left;">
-              Your opponent can open this link in any browser without signing in to join as <b>Player 2 (Guest)</b>. Once both seats are filled, any 3rd+ person opening the link is automatically routed to the <b>Real-Time Spectator Scorecard</b>.
+              ${isRoomLocked
+                ? 'This room is currently <b>Locked</b>. Unlock the room above if you want an unauthenticated <b>Guest</b> (or a player whose name does not match BCP) to join via this link.'
+                : 'Your opponent can open this link in any browser without signing in to join as <b>Player 2 (Guest)</b>. Once both seats are filled, any 3rd+ person opening the link is automatically routed to the <b>Real-Time Spectator Scorecard</b>.'}
             </p>
             <div style="display:flex; gap:8px; margin-bottom:8px;">
               <input id="gt-share-modal-url-input" readonly value="${shareUrl}" style="flex:1; min-width:0; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 10px; font-size:11px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; outline:none;" onclick="this.select()" />
@@ -1745,6 +1880,8 @@
             const isTournMatch = (urlMid.startsWith('BCP-') || urlMid.startsWith('ES-') || /^(?:WH40K-|AOS-)?(?:BCP|ES)-/i.test(urlMid));
             clientState.matchId = isTournMatch ? urlMid : urlMid.toUpperCase();
             clientState.role = handoff.role || 'player1';
+            if (typeof handoff.isLocked === 'boolean') clientState.isLocked = handoff.isLocked;
+            if (typeof handoff.isOwner === 'boolean') clientState.isOwner = handoff.isOwner;
             saveRoomSeat(clientState.matchId, clientState.role);
             if (typeof diceRollerState !== 'undefined') {
               diceRollerState.history = [];
@@ -1837,6 +1974,8 @@
           chkData = await chk.json();
           if (chkData.user_id_p1) clientState.userIdP1 = chkData.user_id_p1;
           if (chkData.user_id_p2) clientState.userIdP2 = chkData.user_id_p2;
+          if (typeof chkData.is_locked === 'boolean') clientState.isLocked = chkData.is_locked;
+          if (typeof chkData.is_owner === 'boolean') clientState.isOwner = chkData.is_owner;
           if (!chk.ok || !chkData.exists) {
             alert(`❌ Room Key "${matchId}" does not exist or has expired.`);
             window.location.href = clientState.isGuest ? '/' : '/11th/tracker';
@@ -1858,10 +1997,12 @@
           );
           if (wouldBeSpectator) {
             const canAutoReclaimSavedGuestSeat = Boolean(
-              (resolvedClaimRole === 'player2' && chkData.can_reclaim_guest_p2) ||
-              (resolvedClaimRole === 'player1' && chkData.can_reclaim_guest_p1)
+              !chkData.is_locked && (
+                (resolvedClaimRole === 'player2' && chkData.can_reclaim_guest_p2) ||
+                (resolvedClaimRole === 'player1' && chkData.can_reclaim_guest_p1)
+              )
             );
-            if (!canAutoReclaimSavedGuestSeat && (chkData.can_reclaim_guest_p2 || chkData.can_reclaim_guest_p1)) {
+            if (!canAutoReclaimSavedGuestSeat && !chkData.is_locked && (chkData.can_reclaim_guest_p2 || chkData.can_reclaim_guest_p1)) {
               const choice = await promptGuestRejoinOrSpectate(matchId, chkData);
               if (choice === 'spectator') {
                 window.__showGtLoadingOverlay(
@@ -1874,10 +2015,12 @@
               }
               resolvedClaimRole = choice;
             } else if (!canAutoReclaimSavedGuestSeat) {
-              // Both seats are held by registered users -> route 3rd user to Digital Scorecard
+              // Room is locked (owners only) or both seats are held by registered users -> route to Digital Scorecard
               window.__showGtLoadingOverlay(
-                '👀 Spectator Mode Detected',
-                'Room has 2 active players — redirecting to Live Digital Scorecard...',
+                chkData.is_locked ? '🔒 Room Locked by Owner' : '👀 Spectator Mode Detected',
+                chkData.is_locked
+                  ? 'Only room owners can join while locked — redirecting to Live Digital Scorecard...'
+                  : 'Room has 2 active players — redirecting to Live Digital Scorecard...',
                 true
               );
               window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
@@ -1904,6 +2047,8 @@
             matchId = data.match_id;
             clientState.matchId = matchId;
             clientState.role = data.role || 'player1';
+            clientState.isLocked = Boolean(data.is_locked);
+            clientState.isOwner = data.is_owner !== undefined ? Boolean(data.is_owner) : true;
             saveRoomSeat(matchId, clientState.role);
             updateSpectatorModeUI();
             if (clientState.role === 'spectator') return;
@@ -1947,12 +2092,16 @@
         });
         if (resp.ok) {
           const joinData = await resp.json();
+          if (typeof joinData.is_locked === 'boolean') clientState.isLocked = joinData.is_locked;
+          if (typeof joinData.is_owner === 'boolean') clientState.isOwner = joinData.is_owner;
           if (joinData.is_finished || joinData.role === 'spectator') {
             window.__showGtLoadingOverlay(
-              joinData.is_finished ? '🏁 Match Concluded' : '👀 Spectator Mode Detected',
+              joinData.is_finished ? '🏁 Match Concluded' : (joinData.is_locked ? '🔒 Room Locked by Owner' : '👀 Spectator Mode Detected'),
               joinData.is_finished
                 ? 'Opening Verified Final Digital Scorecard...'
-                : 'Room has 2 active players — redirecting to Live Digital Scorecard...',
+                : (joinData.is_locked
+                    ? 'Only room owners can join while locked — redirecting to Live Digital Scorecard...'
+                    : 'Room has 2 active players — redirecting to Live Digital Scorecard...'),
               true
             );
             window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
@@ -2050,6 +2199,8 @@
           sessionStorage.setItem('gt_room_handoff', JSON.stringify({
             matchId: mid,
             role: data.role || 'player1',
+            isLocked: Boolean(data.is_locked),
+            isOwner: data.is_owner !== undefined ? Boolean(data.is_owner) : true,
             gameSystem: isAosMatch ? 'aos' : '40k',
             state: data.state || null,
             user: currentUser || null,
@@ -2133,8 +2284,8 @@
       const targetMid = data.match_id || code;
       let lobbyClaimRole = getSavedRoomSeat(targetMid) || undefined;
 
-      if (data.is_full && !data.is_open_for_p2 && !data.is_referee && data.role !== 'player1' && data.role !== 'player2') {
-        if (!data.is_finished && (data.can_reclaim_guest_p2 || data.can_reclaim_guest_p1)) {
+      if ((data.is_spectator || (data.is_full && !data.is_open_for_p2)) && !data.is_referee && data.role !== 'player1' && data.role !== 'player2') {
+        if (!data.is_finished && !data.is_locked && (data.can_reclaim_guest_p2 || data.can_reclaim_guest_p1)) {
           const choice = await promptGuestRejoinOrSpectate(targetMid, data);
           if (choice === 'spectator') {
             window.location.href = `/scorecard/${encodeURIComponent(targetMid)}`;
@@ -2144,7 +2295,10 @@
           window.__showGtLoadingOverlay(loadingTitle, `Reconnecting to Room #${targetMid} as ${choice === 'player2' ? 'Player 2' : 'Player 1'}...`, true);
         } else {
           window.__hideGtLoadingOverlay(true);
-          const proceed = confirm(`⚠️ Room "${code}" already has 2 active players (${data.p1_name} vs ${data.p2_name}). View Scorecard as Spectator?`);
+          const lockPrompt = data.is_locked
+            ? `🔒 Room "${code}" is currently LOCKED by its owner (only room owners can join). View Live Scorecard as Spectator?`
+            : `⚠️ Room "${code}" already has 2 active players (${data.p1_name} vs ${data.p2_name}). View Scorecard as Spectator?`;
+          const proceed = confirm(lockPrompt);
           if (!proceed) {
             if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
             return;
@@ -2186,6 +2340,8 @@
           sessionStorage.setItem('gt_room_handoff', JSON.stringify({
             matchId: targetMid,
             role: joinData.role || 'player2',
+            isLocked: Boolean(joinData.is_locked),
+            isOwner: Boolean(joinData.is_owner),
             gameSystem: isAosMatch ? 'aos' : '40k',
             state: joinData.state || null,
             user: currentUser || null,
@@ -2455,6 +2611,8 @@
 
         const p2Connected = Boolean(clientState.userIdP2 || stateObj.user_id_p2 || (stateObj.game && stateObj.game.p2Name && stateObj.game.p2Name !== 'Player 2') || clientState.role === 'player2');
         const inviteUrl = getCleanRoomShareUrl(clientState.matchId);
+        const isRoomLocked = Boolean(clientState.isLocked);
+        const canToggleLock = canCurrentUserToggleRoomLock();
 
         const widget = document.createElement('div');
         widget.id = 'gt-invite-widget';
@@ -2464,12 +2622,17 @@
           widget.innerHTML = `
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
               <span style="font-size:12px; font-weight:800; color:#38bdf8; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">⚔️ Room Key: ${clientState.matchId} (1/2 Players)</span>
-              <span style="display:flex; align-items:center; gap:6px; font-size:11px; color:#f59e0b;">
-                <span style="width:6px; height:6px; border-radius:50%; background:#f59e0b; display:inline-block;"></span>
-                Waiting for Player 2...
-              </span>
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span style="font-size:10.5px; font-weight:800; color:${isRoomLocked ? '#fb7185' : '#34d399'}; background:${isRoomLocked ? 'rgba(244,63,94,0.12)' : 'rgba(16,185,129,0.12)'}; border:1px solid ${isRoomLocked ? 'rgba(244,63,94,0.35)' : 'rgba(16,185,129,0.35)'}; padding:2px 7px; border-radius:999px; font-family:'JetBrains Mono',monospace;">
+                  ${isRoomLocked ? '🔒 Locked (Owners Only)' : '🔓 Unlocked (Guests Allowed)'}
+                </span>
+                <span style="display:flex; align-items:center; gap:6px; font-size:11px; color:#f59e0b;">
+                  <span style="width:6px; height:6px; border-radius:50%; background:#f59e0b; display:inline-block;"></span>
+                  Waiting for Player 2...
+                </span>
+              </div>
             </div>
-            <p style="margin:0 0 10px; font-size:12px; color:#94a3b8;">Share this link or invite via OmniTactica Chat (no account needed for Player 2 to join as Guest):</p>
+            <p style="margin:0 0 10px; font-size:12px; color:#94a3b8;">${isRoomLocked ? 'Room is locked (only room owners can join). Unlock to let a Guest join via link:' : 'Share this link or invite via OmniTactica Chat (no account needed for Player 2 to join as Guest):'}</p>
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
               <input readonly value="${inviteUrl}" style="flex:1; min-width:180px; background:#070b14; border:1px solid #334155; border-radius:8px; padding:8px 10px; font-size:11px; color:#cbd5e1; font-family:'JetBrains Mono',monospace; outline:none;" />
               <button onclick="window.__copyRoomShareLink('${escapeHtml(clientState.matchId)}', this);" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:11px; text-transform:uppercase; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; letter-spacing:0.04em; white-space:nowrap;">
@@ -2478,14 +2641,24 @@
               <button onclick="window.__openShareRoomModal('${escapeHtml(clientState.matchId)}');" style="background:#0284c7; color:#fff; font-weight:800; font-size:11px; text-transform:uppercase; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; letter-spacing:0.04em; white-space:nowrap;">
                 💬 SHARE IN CHAT
               </button>
+              ${canToggleLock ? `
+                <button onclick="window.__toggleRoomLock('${escapeHtml(clientState.matchId)}', ${!isRoomLocked}, this);" style="background:${isRoomLocked ? '#10b981' : '#1e293b'}; color:${isRoomLocked ? '#071318' : '#fb7185'}; border:1px solid ${isRoomLocked ? '#10b981' : 'rgba(244,63,94,0.4)'}; font-weight:800; font-size:11px; text-transform:uppercase; padding:8px 12px; border-radius:8px; cursor:pointer; letter-spacing:0.04em; white-space:nowrap;">
+                  ${isRoomLocked ? '🔓 UNLOCK' : '🔒 LOCK'}
+                </button>
+              ` : ''}
             </div>
           `;
         } else {
           widget.innerHTML = `
             <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
               <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${escapeHtml(stateObj.game && stateObj.game.p2Name ? stateObj.game.p2Name : 'Opponent')})</span>
-              <div style="display:flex; align-items:center; gap:8px;">
-                <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">2/2 Players Active (Live Sync)</span>
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">2/2 Players Active • ${isRoomLocked ? '🔒 Locked' : '🔓 Unlocked'}</span>
+                ${canToggleLock ? `
+                  <button onclick="window.__toggleRoomLock('${escapeHtml(clientState.matchId)}', ${!isRoomLocked}, this);" style="background:${isRoomLocked ? 'rgba(16,185,129,0.14)' : 'rgba(244,63,94,0.14)'}; color:${isRoomLocked ? '#34d399' : '#fb7185'}; border:1px solid ${isRoomLocked ? 'rgba(16,185,129,0.35)' : 'rgba(244,63,94,0.35)'}; border-radius:6px; padding:4px 9px; font-size:10.5px; font-weight:800; cursor:pointer; font-family:'JetBrains Mono',monospace;">
+                    ${isRoomLocked ? '🔓 Unlock Room' : '🔒 Lock Room'}
+                  </button>
+                ` : ''}
                 <button onclick="window.__openShareRoomModal('${escapeHtml(clientState.matchId)}');" style="background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); border-radius:6px; padding:4px 9px; font-size:10.5px; font-weight:800; cursor:pointer; font-family:'JetBrains Mono',monospace;">
                   🔗 Share / Spectator Link
                 </button>
@@ -3516,6 +3689,12 @@
             );
             if (data.user_id_p1) clientState.userIdP1 = data.user_id_p1;
             if (data.user_id_p2) clientState.userIdP2 = data.user_id_p2;
+            const fsLocked = (typeof data.is_locked === 'boolean')
+              ? data.is_locked
+              : (data.state && typeof data.state.is_locked === 'boolean' ? data.state.is_locked : undefined);
+            if (typeof fsLocked === 'boolean') {
+              handleRoomLockStateChange(fsLocked);
+            }
             if (data.rosters) {
               if (data.rosters.player1) clientState.p1ArmyList = data.rosters.player1;
               if (data.rosters.player2) clientState.p2ArmyList = data.rosters.player2;
@@ -4052,6 +4231,9 @@
         stateObj.match_id = clientState.matchId;
         if (stateObj.user_id_p1) clientState.userIdP1 = stateObj.user_id_p1;
         if (stateObj.user_id_p2) clientState.userIdP2 = stateObj.user_id_p2;
+        if (typeof stateObj.is_locked === 'boolean') {
+          handleRoomLockStateChange(stateObj.is_locked);
+        }
       }
       const oldState = originalGetItem('gdm-11e-tracker-state');
       const serialized = JSON.stringify(stateObj);
@@ -4131,17 +4313,8 @@
       const widget = document.getElementById('gt-invite-widget');
       const p2ReadyNow = Boolean(clientState.userIdP2 || stateObj.user_id_p2 || (stateObj.game && stateObj.game.p2Name && stateObj.game.p2Name !== 'Player 2') || clientState.role === 'player2');
       if (widget && p2ReadyNow) {
-        widget.innerHTML = `
-          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
-            <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${escapeHtml((stateObj.game && stateObj.game.p2Name) || 'Opponent')})</span>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">2/2 Players Active (Live Sync)</span>
-              <button onclick="window.__openShareRoomModal('${escapeHtml(clientState.matchId)}');" style="background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); border-radius:6px; padding:4px 9px; font-size:10.5px; font-weight:800; cursor:pointer; font-family:'JetBrains Mono',monospace;">
-                🔗 Share / Spectator Link
-              </button>
-            </div>
-          </div>
-        `;
+        widget.remove();
+        injectPlayer2InviteWidget();
       }
       injectMultiplayerHUD();
     } catch (err) {
@@ -4200,6 +4373,9 @@
           const data = await resp.json();
           if (data.user_id_p1) clientState.userIdP1 = data.user_id_p1;
           if (data.user_id_p2) clientState.userIdP2 = data.user_id_p2;
+          if (typeof data.is_locked === 'boolean') {
+            handleRoomLockStateChange(data.is_locked);
+          }
           if (data.online_count !== undefined) {
             clientState.onlineCount = data.online_count;
             injectMultiplayerHUD();
@@ -4269,6 +4445,7 @@
             const data = await resp.json();
             if (data.user_id_p1) clientState.userIdP1 = data.user_id_p1;
             if (data.user_id_p2) clientState.userIdP2 = data.user_id_p2;
+            if (typeof data.is_locked === 'boolean') handleRoomLockStateChange(data.is_locked);
             if (data.chess_clock) applyRemoteChessClock(data.chess_clock);
             if (data.version && data.version > clientState.version && data.state) {
               clientState.version = data.version;
@@ -4310,9 +4487,18 @@
             handleRemoteMatchFinalized();
             return;
           }
+          if (msg.type === 'room_lock_updated') {
+            if (typeof msg.is_locked === 'boolean') {
+              handleRoomLockStateChange(msg.is_locked);
+            }
+            return;
+          }
           if (msg.type === 'state_update') {
             if (msg.user_id_p1) clientState.userIdP1 = msg.user_id_p1;
             if (msg.user_id_p2) clientState.userIdP2 = msg.user_id_p2;
+            if (typeof msg.is_locked === 'boolean') {
+              handleRoomLockStateChange(msg.is_locked);
+            }
             if (msg.sender !== clientState.clientId && msg.state) {
               if (msg.version >= clientState.version) {
                 clientState.version = msg.version;
@@ -4517,11 +4703,13 @@
     const urlParams = new URLSearchParams(window.location.search);
     const tournamentId = getTrackerTournamentId();
     const tableNum = getTrackerTableNum();
+    const isRoomLocked = Boolean(clientState.isLocked);
+    const canToggleLock = canCurrentUserToggleRoomLock();
 
     // Signature memoization to prevent clobbering DOM on active user clicks
     const judgeCallSig = clientState.activeJudgeCall ? (clientState.activeJudgeCall.id || clientState.activeJudgeCall.status || 'pending') : 'none';
     const masterClockSig = `${tournamentMasterClock.status}_${tournamentMasterClock.round}`;
-    const sig = `${clientState.matchId}_${clientState.role}_${p1Display}_${p2Display}_${isP2Ready}_${hasMyList}_${hasOppList}_${tournamentId}_${tableNum}_${judgeCallSig}_${masterClockSig}`;
+    const sig = `${clientState.matchId}_${clientState.role}_${p1Display}_${p2Display}_${isP2Ready}_${hasMyList}_${hasOppList}_${tournamentId}_${tableNum}_${judgeCallSig}_${masterClockSig}_${isRoomLocked}_${canToggleLock}`;
     injectMobileBottomDock();
     if (hud.dataset.sig === sig) {
       updateMasterClockDom();
@@ -4557,8 +4745,8 @@
         <a href="/11th/tracker" onclick="if(window.__showGtLoadingOverlay) window.__showGtLoadingOverlay('🎲 Entering Game Tracker Lobby', 'Loading active tabletop rooms & match history...');" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:4px 7px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
           🎲 Lobby
         </a>
-        <span onclick="window.__openShareRoomModal()" title="Tap to Share Match Room (Link or OmniTactica Chat)" style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:10.5px; background:#070b14; padding:4px 6px; border-radius:6px; border:1px solid #334155; font-weight:800; white-space:nowrap; cursor:pointer;">
-          #${compactMatchId}${tableNum ? ` (T${tableNum})` : ''} 🔗
+        <span onclick="window.__openShareRoomModal()" title="Tap to Share Match Room & Manage Lock" style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:10.5px; background:#070b14; padding:4px 6px; border-radius:6px; border:1px solid #334155; font-weight:800; white-space:nowrap; cursor:pointer;">
+          #${compactMatchId}${tableNum ? ` (T${tableNum})` : ''} ${isRoomLocked ? '🔒' : '🔓'}
         </span>
         ${isSpectator ? `
           <span style="font-family:'JetBrains Mono',monospace; color:#cbd5e1; font-size:11px; background:rgba(100,116,139,0.25); border:1px solid rgba(148,163,184,0.3); padding:4px 8px; border-radius:6px; font-weight:800; display:inline-flex; align-items:center; gap:4px;">
@@ -4631,6 +4819,11 @@
             📄 Scorecard
           </button>
         ` : '')}
+        ${canToggleLock ? `
+          <button id="gt-hud-lock-btn" onclick="window.__toggleRoomLock('${escapeHtml(clientState.matchId || '')}', ${!isRoomLocked}, this)" style="background:${isRoomLocked ? 'rgba(244,63,94,0.16)' : 'rgba(16,185,129,0.15)'}; color:${isRoomLocked ? '#fb7185' : '#34d399'}; border:1px solid ${isRoomLocked ? 'rgba(244,63,94,0.4)' : 'rgba(16,185,129,0.35)'}; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="${isRoomLocked ? 'Room Locked (Owners Only) — Click to Unlock for Guests' : 'Room Unlocked (Guests Allowed) — Click to Lock'}">
+            ${isRoomLocked ? '🔒 Locked' : '🔓 Unlocked'}
+          </button>
+        ` : ''}
         <button id="gt-hud-share-btn" onclick="window.__openShareRoomModal()" style="background:#0284c7; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Share Match Room (Link or OmniTactica Chat)">
           🔗 Share
         </button>

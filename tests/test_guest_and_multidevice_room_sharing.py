@@ -20,6 +20,7 @@ from routers.tracker import (
     TRACKER_ROOMS,
     TrackerCreatePayload,
     TrackerJoinPayload,
+    TrackerLockPayload,
     TrackerShareChatPayload,
     TrackerStatePayload,
     api_get_scorecard,
@@ -27,7 +28,9 @@ from routers.tracker import (
     api_tracker_create_room,
     api_tracker_join_room,
     api_tracker_save_state,
+    api_tracker_set_room_lock,
     api_tracker_share_chat,
+    init_tracker_room_from_tournament,
 )
 
 
@@ -521,6 +524,265 @@ class TestGuestAndMultiDeviceRoomSharing(unittest.TestCase):
             api_tracker_firestore_inspect(match_id, DummyRequest())
 
         print("✓ test_guest_endpoint_security_and_anti_spoofing passed")
+
+    @patch("routers.tracker.get_auth_manager")
+    def test_casual_room_lock_1_owner_blocks_guest_and_sub_1s_latency(
+        self, mock_get_auth
+    ):
+        """Verify Casual room defaults to Unlocked (is_locked=False), has 1 owner (creator),
+        blocks even invited guests when Locked (is_locked=True), and all endpoints run in < 1s.
+        """
+        import time
+        from routers.tracker import HTTPException
+
+        mock_get_auth.return_value = self._make_mock_auth_mgr()
+        req_p1 = DummyRequest(headers={"Authorization": "Bearer token_p1"})
+
+        # 1. Create Casual Room -> defaults to Unlocked (is_locked=False), P1 is owner
+        t0 = time.perf_counter()
+        create_res = asyncio.run(
+            api_tracker_create_room(
+                req_p1,
+                TrackerCreatePayload(
+                    token="token_p1",
+                    p1_name="Commander Alpha",
+                ),
+            )
+        )
+        t_create = time.perf_counter() - t0
+        self.assertLess(t_create, 1.0, f"create_room latency {t_create:.4f}s exceeded 1s")
+        self.assertTrue(create_res["success"])
+        self.assertFalse(create_res["is_locked"])
+        self.assertTrue(create_res["is_owner"])
+        match_id = create_res["match_id"]
+
+        # 2. P1 locks the casual room -> is_locked becomes True (< 1s)
+        t0 = time.perf_counter()
+        lock_res = asyncio.run(
+            api_tracker_set_room_lock(
+                match_id,
+                req_p1,
+                TrackerLockPayload(token="token_p1", is_locked=True),
+            )
+        )
+        t_lock = time.perf_counter() - t0
+        self.assertLess(t_lock, 1.0, f"set_room_lock latency {t_lock:.4f}s exceeded 1s")
+        self.assertTrue(lock_res["success"])
+        self.assertTrue(lock_res["is_locked"])
+
+        # 3. Guest who received the room link tries to check & join -> BLOCKED (role="spectator")
+        guest_id = "guest_blocked_by_lock_111"
+        req_guest = DummyRequest(headers={"X-Guest-Id": guest_id}, query_params={"guest_id": guest_id})
+        t0 = time.perf_counter()
+        check_guest = asyncio.run(
+            api_tracker_check_room(match_id, req_guest)
+        )
+        t_check = time.perf_counter() - t0
+        self.assertLess(t_check, 1.0, f"check_room latency {t_check:.4f}s exceeded 1s")
+        self.assertEqual(check_guest["role"], "spectator")
+        self.assertTrue(check_guest["is_locked"])
+        self.assertFalse(check_guest["is_owner"])
+
+        t0 = time.perf_counter()
+        join_guest_blocked = asyncio.run(
+            api_tracker_join_room(
+                match_id,
+                req_guest,
+                TrackerJoinPayload(guest_id=guest_id),
+            )
+        )
+        t_join = time.perf_counter() - t0
+        self.assertLess(t_join, 1.0, f"join_room latency {t_join:.4f}s exceeded 1s")
+        self.assertEqual(join_guest_blocked["role"], "spectator")
+        self.assertTrue(join_guest_blocked["is_locked"])
+
+        # Guest cannot unlock the room -> 403 Forbidden
+        with self.assertRaises(HTTPException) as ctx_unlock:
+            asyncio.run(
+                api_tracker_set_room_lock(
+                    match_id,
+                    req_guest,
+                    TrackerLockPayload(guest_id=guest_id, is_locked=False),
+                )
+            )
+        self.assertEqual(ctx_unlock.exception.status_code, 403)
+
+        # 4. P1 unlocks the casual room -> Guest can now join as player2
+        unlock_res = asyncio.run(
+            api_tracker_set_room_lock(
+                match_id,
+                req_p1,
+                TrackerLockPayload(token="token_p1", is_locked=False),
+            )
+        )
+        self.assertFalse(unlock_res["is_locked"])
+
+        join_guest_ok = asyncio.run(
+            api_tracker_join_room(
+                match_id,
+                req_guest,
+                TrackerJoinPayload(guest_id=guest_id),
+            )
+        )
+        self.assertEqual(join_guest_ok["role"], "player2")
+        self.assertFalse(join_guest_ok["is_locked"])
+        self.assertFalse(join_guest_ok["is_owner"])  # Casual room has only 1 owner (P1)
+
+        # Guest P2 cannot lock/unlock the casual room (only P1 is owner in casual room)
+        with self.assertRaises(HTTPException) as ctx_p2_lock:
+            asyncio.run(
+                api_tracker_set_room_lock(
+                    match_id,
+                    req_guest,
+                    TrackerLockPayload(guest_id=guest_id, is_locked=True),
+                )
+            )
+        self.assertEqual(ctx_p2_lock.exception.status_code, 403)
+
+        # 5. If P1 locks the casual room again, Guest P2 is blocked from entering/saving
+        asyncio.run(
+            api_tracker_set_room_lock(
+                match_id,
+                req_p1,
+                TrackerLockPayload(token="token_p1", is_locked=True),
+            )
+        )
+        check_guest_after_relock = asyncio.run(
+            api_tracker_check_room(match_id, req_guest)
+        )
+        self.assertEqual(check_guest_after_relock["role"], "spectator")
+        with self.assertRaises(HTTPException) as ctx_save:
+            asyncio.run(
+                api_tracker_save_state(
+                    match_id,
+                    TrackerStatePayload(match_id=match_id, version=10, state={"p2Total": 50}, guest_id=guest_id),
+                    req_guest,
+                )
+            )
+        self.assertEqual(ctx_save.exception.status_code, 403)
+
+        print("✓ test_casual_room_lock_1_owner_blocks_guest_and_sub_1s_latency passed")
+
+    @patch("routers.tracker.get_auth_manager")
+    def test_tournament_room_lock_2_owners_unlock_for_guest_and_relock(
+        self, mock_get_auth
+    ):
+        """Verify Tournament room defaults to Locked (is_locked=True), has 2 owners (the paired players),
+        blocks non-owners/guests when Locked, allows either paired owner to Unlock so anyone with the
+        link (including a Guest) can join, and all endpoints run in < 1s.
+        """
+        import time
+        from routers.tracker import HTTPException
+
+        mock_get_auth.return_value = self._make_mock_auth_mgr()
+        req_p1 = DummyRequest(headers={"Authorization": "Bearer token_p1"})
+        req_p2 = DummyRequest(headers={"Authorization": "Bearer token_p2"})
+        req_out = DummyRequest(headers={"Authorization": "Bearer token_p3"})
+
+        # 1. Initialize Tournament Room -> defaults to Locked (is_locked=True)
+        match_id = "BCP-evt999-R1-T3"
+        mock_db = MagicMock()
+        mock_db.get_event_details.return_value = {
+            "matches": [
+                {
+                    "round": 1,
+                    "table_number": 3,
+                    "player1_name": "Commander Alpha",
+                    "player2_name": "Commander Beta",
+                }
+            ]
+        }
+        room_data = init_tracker_room_from_tournament(match_id, None, mock_db)
+        TRACKER_ROOMS[match_id] = room_data
+        self.assertTrue(TRACKER_ROOMS[match_id]["is_locked"])
+
+        # 2. Both P1 and P2 are recognized as owners (`is_owner == True`) and get player1/player2 roles
+        check_p1 = asyncio.run(api_tracker_check_room(match_id, req_p1))
+        self.assertEqual(check_p1["role"], "player1")
+        self.assertTrue(check_p1["is_locked"])
+        self.assertTrue(check_p1["is_owner"])
+
+        check_p2 = asyncio.run(api_tracker_check_room(match_id, req_p2))
+        self.assertEqual(check_p2["role"], "player2")
+        self.assertTrue(check_p2["is_locked"])
+        self.assertTrue(check_p2["is_owner"])
+
+        # 3. Unpaired user & unauthenticated Guest are blocked while Locked (role="spectator")
+        check_out = asyncio.run(api_tracker_check_room(match_id, req_out))
+        self.assertEqual(check_out["role"], "spectator")
+        self.assertFalse(check_out["is_owner"])
+
+        guest_id = "guest_tourney_sub_888"
+        req_guest = DummyRequest(headers={"X-Guest-Id": guest_id}, query_params={"guest_id": guest_id})
+        join_guest_locked = asyncio.run(
+            api_tracker_join_room(
+                match_id,
+                req_guest,
+                TrackerJoinPayload(guest_id=guest_id),
+            )
+        )
+        self.assertEqual(join_guest_locked["role"], "spectator")
+
+        # Outsider cannot unlock the tournament room -> 403
+        with self.assertRaises(HTTPException) as ctx_out:
+            asyncio.run(
+                api_tracker_set_room_lock(
+                    match_id,
+                    req_out,
+                    TrackerLockPayload(token="token_p3", is_locked=False),
+                )
+            )
+        self.assertEqual(ctx_out.exception.status_code, 403)
+
+        # 4. Suppose P2 isn't signed in on their phone; P1 (or P2) unlocks the tournament room (< 1s)
+        TRACKER_ROOMS[match_id]["user_id_p2"] = None
+        t0 = time.perf_counter()
+        unlock_res = asyncio.run(
+            api_tracker_set_room_lock(
+                match_id,
+                req_p1,
+                TrackerLockPayload(token="token_p1", is_locked=False),
+            )
+        )
+        t_unlock = time.perf_counter() - t0
+        self.assertLess(t_unlock, 1.0, f"tournament unlock latency {t_unlock:.4f}s exceeded 1s")
+        self.assertFalse(unlock_res["is_locked"])
+
+        # 5. Now Guest with the link can join the unlocked tournament room as player2!
+        join_guest_unlocked = asyncio.run(
+            api_tracker_join_room(
+                match_id,
+                req_guest,
+                TrackerJoinPayload(guest_id=guest_id),
+            )
+        )
+        self.assertEqual(join_guest_unlocked["role"], "player2")
+        self.assertFalse(join_guest_unlocked["is_locked"])
+
+        # Guest P2 can save state while unlocked (< 1s)
+        t0 = time.perf_counter()
+        save_res = asyncio.run(
+            api_tracker_save_state(
+                match_id,
+                TrackerStatePayload(match_id=match_id, version=50, state={"p2Total": 42}, guest_id=guest_id),
+                req_guest,
+            )
+        )
+        t_save = time.perf_counter() - t0
+        self.assertLess(t_save, 1.0, f"save_state latency {t_save:.4f}s exceeded 1s")
+        self.assertTrue(save_res["success"])
+
+        # 6. Also verify P2 (the 2nd paired owner, matched by name Commander Beta) can toggle the tournament room lock directly
+        relock_by_p2 = asyncio.run(
+            api_tracker_set_room_lock(
+                match_id,
+                req_p2,
+                TrackerLockPayload(token="token_p2", is_locked=True),
+            )
+        )
+        self.assertTrue(relock_by_p2["is_locked"])
+
+        print("✓ test_tournament_room_lock_2_owners_unlock_for_guest_and_relock passed")
 
 
 if __name__ == "__main__":
