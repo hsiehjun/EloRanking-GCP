@@ -65,7 +65,7 @@ function applyGameSystem(sys, updateUrl = true) {
   // Update branding subtitle
   const subEl = document.getElementById('app-logo-subtitle');
   if (subEl) {
-    subEl.textContent = (currentGameSystem === 'aos') ? 'AoS Tactical Suite' : '40K Tactical Suite';
+    subEl.textContent = 'Tactical Suite';
   }
 
   // Update desktop segmented switcher buttons

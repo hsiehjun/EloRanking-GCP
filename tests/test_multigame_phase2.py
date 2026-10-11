@@ -65,7 +65,7 @@ def test_app_html_elements():
 
     # Logo subtitle with id
     assert 'id="app-logo-subtitle"' in html
-    assert "40K Tactical Suite" in html
+    assert "Tactical Suite" in html
 
     # Desktop segmented switcher
     assert 'id="desktop-game-switcher"' in html

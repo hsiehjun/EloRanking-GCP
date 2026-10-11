@@ -86,7 +86,7 @@
     <polygon points='-165,-25 165,-25 190,16 0,46 -190,16' fill='#070b14' stroke='url(#cyanGrad)' stroke-width='4'/>
     <polygon points='-152,-19 152,-19 174,14 0,40 -174,14' fill='rgba(2,132,199,0.2)'/>
     <text x='0' y='11' font-family='sans-serif' font-size='34' font-weight='900' letter-spacing='9' fill='#ffffff' text-anchor='middle' filter='url(#glow)'>TACTICA</text>
-    <text x='0' y='29' font-family='monospace' font-size='10' font-weight='800' letter-spacing='4' fill='#38bdf8' text-anchor='middle'>40K SUITE</text>
+    <text x='0' y='29' font-family='monospace' font-size='10' font-weight='800' letter-spacing='3.5' fill='#38bdf8' text-anchor='middle'>TACTICAL SUITE</text>
   </g>
 
   </g>

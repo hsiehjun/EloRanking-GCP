@@ -48,7 +48,7 @@ from routers import (
 )
 
 app = FastAPI(
-    title="OmniTactica - Warhammer 40k Suite API",
+    title="OmniTactica - Tactical Suite API",
     version="2.1.0",
     description="High-performance async API for OmniTactica: Warhammer 40,000 Elo rankings, live match tracker, and BCP tournament suite.",
     docs_url="/docs",
@@ -829,7 +829,7 @@ async def serve_pwa_manifest():
     return JSONResponse(
         headers=manifest_headers,
         content={
-            "name": "OmniTactica - 40K Tactical Suite",
+            "name": "OmniTactica - Tactical Suite",
             "short_name": "OmniTactica",
             "description": "OmniTactica Warhammer 40,000 Elo Rankings, Tournament Companion & Live Game Tracker",
             "id": "/",
