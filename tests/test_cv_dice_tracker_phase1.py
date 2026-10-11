@@ -1233,9 +1233,291 @@ eval(fs.readFileSync('web/dice_tracker/app.js', 'utf8') + '\nglobal.DiceTrackerA
         self.assertGreaterEqual(res["framesToLock"], 1)
         self.assertLessEqual(res["framesToLock"], 4, f"Expected lock within <= 4 frames, got {res['framesToLock']}")
 
+    def test_45_degree_camera_angle_compensation_and_back_to_back_rolls(self):
+        """Verify 45° camera mount compensation (homography rectification, 3D side-face suppression) and back-to-back multi-roll succession."""
+        index_html = (ROOT_DIR / "web" / "dice_tracker" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="btnPreset45Roi"', index_html)
+        self.assertIn("45° Mount", index_html)
+
+        node_script = r"""
+const fs = require('fs');
+
+class OffscreenCanvas2D {
+  constructor(w, h) {
+    this.width = w;
+    this.height = h;
+    this.buf = new Uint8ClampedArray(w * h * 4);
+    this.style = {};
+    this.ctx = new MockCtx2D(this);
+  }
+  getContext() { return this.ctx; }
+  addEventListener() {}
+  getBoundingClientRect() { return { width: this.width, height: this.height, left: 0, top: 0 }; }
+}
+
+class MockCtx2D {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.fillStyle = '#000000';
+    this.strokeStyle = '#000000';
+    this.lineWidth = 1;
+    this._stack = [];
+    this._tx = 0;
+    this._ty = 0;
+    this._rot = 0;
+    this._path = [];
+  }
+  save() { this._stack.push({ tx: this._tx, ty: this._ty, rot: this._rot, fill: this.fillStyle, stroke: this.strokeStyle }); }
+  restore() {
+    const s = this._stack.pop();
+    if (s) { this._tx = s.tx; this._ty = s.ty; this._rot = s.rot; this.fillStyle = s.fill; this.strokeStyle = s.stroke; }
+  }
+  translate(x, y) { this._tx += x; this._ty += y; }
+  rotate(a) { this._rot += a; }
+  setLineDash() {}
+  fillText() {}
+  clearRect(x, y, w, h) { this.fillRect(x, y, w, h); }
+  strokeRect() {}
+  drawImage(srcCanvas) { if (srcCanvas && srcCanvas.buf) this.canvas.buf.set(srcCanvas.buf); }
+  parseColor(c) {
+    if (!c || typeof c !== 'string') return [30, 41, 59, 255];
+    c = c.trim();
+    if (c.startsWith('#')) {
+      const hex = c.slice(1);
+      if (hex.length === 3) return [parseInt(hex[0]+hex[0],16), parseInt(hex[1]+hex[1],16), parseInt(hex[2]+hex[2],16), 255];
+      return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16), 255];
+    }
+    return [30, 41, 59, 255];
+  }
+  _setPixel(px, py, rgba) {
+    const w = this.canvas.width, h = this.canvas.height;
+    if (px < 0 || px >= w || py < 0 || py >= h) return;
+    const idx = (py * w + px) * 4;
+    this.canvas.buf[idx] = rgba[0];
+    this.canvas.buf[idx+1] = rgba[1];
+    this.canvas.buf[idx+2] = rgba[2];
+    this.canvas.buf[idx+3] = 255;
+  }
+  fillRect(x, y, w, h) {
+    const rgba = this.parseColor(this.fillStyle);
+    if (this._rot === 0 && this._tx === 0 && this._ty === 0) {
+      const x0 = Math.max(0, Math.floor(x)), y0 = Math.max(0, Math.floor(y));
+      const x1 = Math.min(this.canvas.width, Math.ceil(x + w)), y1 = Math.min(this.canvas.height, Math.ceil(y + h));
+      for (let py = y0; py < y1; py++) {
+        for (let px = x0; px < x1; px++) this._setPixel(px, py, rgba);
+      }
+      return;
+    }
+    this.beginPath();
+    this.roundRect(x, y, w, h, 0);
+    this.fill();
+  }
+  beginPath() { this._path = []; }
+  roundRect(x, y, w, h, r) { this._path.push({ type: 'rect', x, y, w, h, r: r || 0 }); }
+  arc(x, y, r) { this._path.push({ type: 'arc', x, y, r }); }
+  moveTo(x, y) { this._path.push({ type: 'move', x, y }); }
+  lineTo(x, y) { this._path.push({ type: 'line', x, y }); }
+  closePath() {}
+  fill() {
+    const rgba = this.parseColor(this.fillStyle);
+    const cos = Math.cos(this._rot), sin = Math.sin(this._rot);
+    for (const p of this._path) {
+      if (p.type === 'rect') {
+        for (let ly = p.y; ly <= p.y + p.h; ly += 0.5) {
+          for (let lx = p.x; lx <= p.x + p.w; lx += 0.5) {
+            const wx = Math.round(this._tx + lx * cos - ly * sin);
+            const wy = Math.round(this._ty + lx * sin + ly * cos);
+            this._setPixel(wx, wy, rgba);
+          }
+        }
+      } else if (p.type === 'arc') {
+        const r2 = p.r * p.r;
+        for (let dy = -p.r; dy <= p.r; dy += 0.5) {
+          for (let dx = -p.r; dx <= p.r; dx += 0.5) {
+            if (dx*dx + dy*dy <= r2) {
+              const lx = p.x + dx, ly = p.y + dy;
+              const wx = Math.round(this._tx + lx * cos - ly * sin);
+              const wy = Math.round(this._ty + lx * sin + ly * cos);
+              this._setPixel(wx, wy, rgba);
+            }
+          }
+        }
+      }
+    }
+  }
+  stroke() {}
+  getImageData(x, y, w, h) { return { data: new Uint8ClampedArray(this.canvas.buf), width: w, height: h }; }
+}
+
+const defaultValues = { thresholdSlider: '38', bgFilterSlider: '10', minDiceSize: '18', targetSuccess: '4', diceColorMode: 'auto' };
+function makeEl(id) {
+  if (id === 'outputCanvas' || id === 'distributionChart') return new OffscreenCanvas2D(640, 360);
+  return {
+    id, style: {}, value: defaultValues[id] || '0', checked: true, innerText: '', textContent: '', innerHTML: '',
+    disabled: false, classList: { add(){}, remove(){}, toggle(){} }, addEventListener(){}, appendChild(){},
+    getBoundingClientRect() { return { width: 640, height: 360, left: 0, top: 0 }; }, querySelectorAll() { return []; }
+  };
+}
+const elCache = {};
+global.window = { location: { search: '' }, addEventListener() {}, requestAnimationFrame() {}, localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} } };
+global.localStorage = global.window.localStorage;
+global.navigator = { vibrate() {} };
+global.document = {
+  getElementById(id) { if (!elCache[id]) elCache[id] = makeEl(id); return elCache[id]; },
+  querySelectorAll() { return []; },
+  createElement(t) { return t === 'canvas' ? new OffscreenCanvas2D(640, 360) : makeEl(t); },
+  addEventListener() {}
+};
+
+eval(fs.readFileSync('web/dice_tracker/app.js', 'utf8') + '\nglobal.DiceTrackerApp = DiceTrackerApp;');
+const app = new DiceTrackerApp();
+
+// 1. Verify 45° Mount Preset & Homography Round-Trip
+app.applyPreset45Roi();
+const isTrapezoid = app.isPerspectiveTrapezoidRoi();
+const srcPts = app.getRoiPixelPolygon(640, 360);
+const dstPts = [{ x: 16, y: 16 }, { x: 624, y: 16 }, { x: 624, y: 344 }, { x: 16, y: 344 }];
+const H = app.computeHomography4Pt(dstPts, srcPts);
+const invH = app.invertHomography3x3(H);
+let maxRoundTripErr = 0;
+for (let i = 0; i < 4; i++) {
+  const mapped = app.applyHomographyPoint(H, dstPts[i].x, dstPts[i].y);
+  const back = app.applyHomographyPoint(invH, mapped.x, mapped.y);
+  const err = Math.hypot(back.x - dstPts[i].x, back.y - dstPts[i].y);
+  if (err > maxRoundTripErr) maxRoundTripErr = err;
+}
+
+// 2. Verify 3D Cube Side-Face Ghost Suppression in decodeYoloOnnxOutput
+// Construct 4 top-face detections [1, 2, 3, 4] (conf 0.85) + 4 vertical side-face ghost boxes directly underneath (conf 0.42, dy = +22px, IoU < 0.45)
+const numAnchors = 8400;
+const fakeOnnx = new Float32Array(10 * numAnchors);
+const scale = Math.min(640 / 640, 640 / 360); // 1.0
+const padY = Math.round((640 - 360) * 0.5); // 140
+const topBoxes = [
+  { a: 10, x: 180, y: 120, w: 46, h: 42, cls: 0, conf: 0.86 },
+  { a: 20, x: 320, y: 120, w: 46, h: 42, cls: 1, conf: 0.85 },
+  { a: 30, x: 200, y: 240, w: 46, h: 42, cls: 2, conf: 0.84 },
+  { a: 40, x: 420, y: 240, w: 46, h: 42, cls: 3, conf: 0.87 },
+  // 4 vertical side-face ghosts directly below each top face (dy = +22px, IoU ~ 0.31 < 0.45)
+  { a: 11, x: 182, y: 142, w: 44, h: 36, cls: 4, conf: 0.42 },
+  { a: 21, x: 318, y: 142, w: 44, h: 36, cls: 5, conf: 0.41 },
+  { a: 31, x: 201, y: 262, w: 44, h: 36, cls: 0, conf: 0.39 },
+  { a: 41, x: 419, y: 262, w: 44, h: 36, cls: 4, conf: 0.43 }
+];
+for (const b of topBoxes) {
+  fakeOnnx[0 * numAnchors + b.a] = b.x * scale;
+  fakeOnnx[1 * numAnchors + b.a] = b.y * scale + padY;
+  fakeOnnx[2 * numAnchors + b.a] = b.w * scale;
+  fakeOnnx[3 * numAnchors + b.a] = b.h * scale;
+  fakeOnnx[(4 + b.cls) * numAnchors + b.a] = b.conf;
+}
+const dummyRgba = new Uint8ClampedArray(640 * 360 * 4);
+const rx = Math.max(8, Math.floor(640 * app.roiBox.x));
+const ry = Math.max(8, Math.floor(360 * app.roiBox.y));
+const rw = Math.min(640 - rx - 8, Math.floor(640 * app.roiBox.w));
+const rh = Math.min(360 - ry - 8, Math.floor(360 * app.roiBox.h));
+const onnxFiltered = app.decodeYoloOnnxOutput(fakeOnnx, dummyRgba, 640, 360, rx, ry, rw, rh, 0.25);
+const onnxFilteredVals = onnxFiltered.map(d => d.value).sort((a, b) => a - b);
+
+// 3. Verify 3D Cube Top-Face vs. Vertical Side-Face Disambiguation + Back-to-Back Multi-Roll Video Sequence
+app.roiBox = { x: 0.04, y: 0.04, w: 0.92, h: 0.92 };
+const rollSpecs = [
+  [1, 2, 3, 4],
+  [3, 4, 5, 6],
+  [1, 2, 5, 6],
+  [4, 5, 6, 6]
+];
+const placements = [
+  { x: 150, y: 70 },
+  { x: 420, y: 70 },
+  { x: 150, y: 210 },
+  { x: 420, y: 210 }
+];
+
+function render45DegFrame(values, isTumbling, tumbleStep) {
+  const c = new OffscreenCanvas2D(640, 360);
+  const ctx = c.getContext();
+  ctx.fillStyle = '#1b232d';
+  ctx.fillRect(0, 0, 640, 360);
+  for (let i = 0; i < 4; i++) {
+    const px = isTumbling ? placements[i].x + ((tumbleStep * 29 + i * 17) % 70) - 35 : placements[i].x;
+    const py = isTumbling ? placements[i].y + ((tumbleStep * 23 + i * 13) % 50) - 25 : placements[i].y;
+    const val = isTumbling ? ((values[i] + tumbleStep) % 6) + 1 : values[i];
+    // Draw shadowed vertical side face directly underneath (3D cube front face at 45° angle)
+    ctx.fillStyle = '#9499a1';
+    ctx.fillRect(px + 2, py + 34, 34, 16);
+    ctx.fillStyle = '#22262c';
+    ctx.beginPath();
+    ctx.arc(px + 12, py + 42, 3.0, 0, Math.PI * 2);
+    ctx.arc(px + 26, py + 42, 3.0, 0, Math.PI * 2);
+    ctx.fill();
+    // Draw brightly lit upward-facing top face
+    app.drawRealisticDieOnCtx(ctx, px, py, 36, val, 'bone_black', false, 0.08);
+  }
+  return new Uint8ClampedArray(c.buf);
+}
+
+const synthFrames = [];
+for (let r = 0; r < rollSpecs.length; r++) {
+  for (let t = 0; t < 6; t++) synthFrames.push(render45DegFrame(rollSpecs[r], true, t + 1));
+  const settled = render45DegFrame(rollSpecs[r], false, 0);
+  for (let s = 0; s < 10; s++) synthFrames.push(settled);
+}
+app.resetStats();
+const synthSeq = app.runVideoRollSequence(synthFrames, 640, 360);
+
+// 4. If real 45° video frame buffers exist in /tmp/real_dice_videos, verify 100% accuracy on them too
+let realSeq6 = null;
+let realSeq4 = null;
+if (fs.existsSync('/tmp/real_dice_videos/back_to_back_6_rolls_all.rgba') && fs.existsSync('/tmp/real_dice_videos/back_to_back_multi_dice_4rolls_all.rgba')) {
+  const loadRaw = (p) => {
+    const b = fs.readFileSync(p);
+    const fb = 640 * 360 * 4;
+    const n = Math.floor(b.length / fb);
+    const arr = [];
+    for (let i = 0; i < n; i++) arr.push(new Uint8ClampedArray(b.buffer, b.byteOffset + i * fb, fb));
+    return arr;
+  };
+  app.resetStats();
+  realSeq6 = app.runVideoRollSequence(loadRaw('/tmp/real_dice_videos/back_to_back_6_rolls_all.rgba'), 640, 360);
+  app.resetStats();
+  realSeq4 = app.runVideoRollSequence(loadRaw('/tmp/real_dice_videos/back_to_back_multi_dice_4rolls_all.rgba'), 640, 360);
+}
+
+console.log(JSON.stringify({
+  isTrapezoid,
+  maxRoundTripErr,
+  onnxFilteredVals,
+  synthRollsCaptured: synthSeq.rollsCaptured,
+  synthLockedValues: synthSeq.lockEvents.map(e => e.values),
+  synthLockedSums: synthSeq.lockEvents.map(e => e.sum),
+  realSeq6: realSeq6 ? realSeq6.lockEvents.map(e => e.values) : null,
+  realSeq4: realSeq4 ? realSeq4.lockEvents.map(e => e.values) : null
+}));
+"""
+        proc = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(ROOT_DIR),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        res = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertTrue(res["isTrapezoid"], "applyPreset45Roi should configure a 45° perspective trapezoid ROI")
+        self.assertLess(res["maxRoundTripErr"], 0.05, "4-point homography H * invH round-trip error must be < 0.05px")
+        self.assertEqual(res["onnxFilteredVals"], [1, 2, 3, 4], "3D side-face ghost boxes must be suppressed in ONNX NMS")
+        self.assertEqual(res["synthRollsCaptured"], 4, "All 4 back-to-back rolls must be captured in succession")
+        self.assertEqual(res["synthLockedValues"], [[1, 2, 3, 4], [3, 4, 5, 6], [1, 2, 5, 6], [4, 5, 6, 6]])
+        self.assertEqual(res["synthLockedSums"], [10, 18, 14, 21])
+        if res["realSeq6"] is not None:
+            self.assertEqual(res["realSeq6"], [[1], [2], [3], [4], [5], [6]])
+        if res["realSeq4"] is not None:
+            self.assertEqual(res["realSeq4"], [[1, 2, 3, 4], [3, 4, 5, 6], [1, 2, 5, 6], [4, 5, 6, 6]])
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

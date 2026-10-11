@@ -247,6 +247,177 @@ class DiceTrackerApp {
     return true;
   }
 
+  applyPreset45Roi() {
+    this.cameraPitchDeg = 45;
+    this.setRoiPolygon([
+      { x: 0.18, y: 0.12 },
+      { x: 0.82, y: 0.12 },
+      { x: 0.95, y: 0.92 },
+      { x: 0.05, y: 0.92 }
+    ]);
+    if (!this.isCameraRunning && !this.isSimulationMode) {
+      this.drawIdlePreviewCanvas();
+    }
+    this.updateStateMachineUI(
+      this.rollState,
+      "📐 45° Phone-Mount Trapezoid Active — Homography & 3D Top-Face Compensation Enabled",
+      0
+    );
+  }
+
+  isPerspectiveTrapezoidRoi(poly = null) {
+    const pts = poly || this.roiPoly;
+    if (!Array.isArray(pts) || pts.length !== 4) return false;
+    const topW = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+    const botW = Math.hypot(pts[2].x - pts[3].x, pts[2].y - pts[3].y);
+    if (topW <= 1e-5 || botW <= 1e-5) return false;
+    const widthRatio = Math.min(topW, botW) / Math.max(topW, botW);
+    return widthRatio < 0.93 || Math.abs(pts[0].x - pts[3].x) > 0.03 || Math.abs(pts[1].x - pts[2].x) > 0.03;
+  }
+
+  // Computes exact 8-DOF 3x3 Projective Homography Matrix H mapping srcPts[0..3] -> dstPts[0..3]
+  computeHomography4Pt(srcPts, dstPts) {
+    if (!Array.isArray(srcPts) || !Array.isArray(dstPts) || srcPts.length !== 4 || dstPts.length !== 4) {
+      return [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    }
+    const A = new Float64Array(64);
+    const b = new Float64Array(8);
+    for (let i = 0; i < 4; i++) {
+      const sx = srcPts[i].x, sy = srcPts[i].y;
+      const dx = dstPts[i].x, dy = dstPts[i].y;
+      const r0 = (2 * i) * 8;
+      A[r0 + 0] = sx; A[r0 + 1] = sy; A[r0 + 2] = 1;
+      A[r0 + 3] = 0;  A[r0 + 4] = 0;  A[r0 + 5] = 0;
+      A[r0 + 6] = -sx * dx; A[r0 + 7] = -sy * dx;
+      b[2 * i] = dx;
+
+      const r1 = (2 * i + 1) * 8;
+      A[r1 + 0] = 0;  A[r1 + 1] = 0;  A[r1 + 2] = 0;
+      A[r1 + 3] = sx; A[r1 + 4] = sy; A[r1 + 5] = 1;
+      A[r1 + 6] = -sx * dy; A[r1 + 7] = -sy * dy;
+      b[2 * i + 1] = dy;
+    }
+
+    // Gaussian elimination with partial pivoting (8x8)
+    for (let col = 0; col < 8; col++) {
+      let pivotRow = col;
+      let maxVal = Math.abs(A[col * 8 + col]);
+      for (let r = col + 1; r < 8; r++) {
+        const v = Math.abs(A[r * 8 + col]);
+        if (v > maxVal) {
+          maxVal = v;
+          pivotRow = r;
+        }
+      }
+      if (maxVal < 1e-11) return [1, 0, 0, 0, 1, 0, 0, 0, 1];
+      if (pivotRow !== col) {
+        for (let k = col; k < 8; k++) {
+          const tmp = A[col * 8 + k];
+          A[col * 8 + k] = A[pivotRow * 8 + k];
+          A[pivotRow * 8 + k] = tmp;
+        }
+        const tb = b[col];
+        b[col] = b[pivotRow];
+        b[pivotRow] = tb;
+      }
+      const diag = A[col * 8 + col];
+      for (let r = col + 1; r < 8; r++) {
+        const factor = A[r * 8 + col] / diag;
+        if (factor === 0) continue;
+        for (let k = col; k < 8; k++) {
+          A[r * 8 + k] -= factor * A[col * 8 + k];
+        }
+        b[r] -= factor * b[col];
+      }
+    }
+
+    const h = new Float64Array(9);
+    h[8] = 1.0;
+    for (let r = 7; r >= 0; r--) {
+      let sum = b[r];
+      for (let k = r + 1; k < 8; k++) {
+        sum -= A[r * 8 + k] * h[k];
+      }
+      h[r] = sum / A[r * 8 + r];
+    }
+    return Array.from(h);
+  }
+
+  invertHomography3x3(H) {
+    const [h0, h1, h2, h3, h4, h5, h6, h7, h8] = H;
+    const c00 = h4 * h8 - h5 * h7;
+    const c01 = -(h3 * h8 - h5 * h6);
+    const c02 = h3 * h7 - h4 * h6;
+    const det = h0 * c00 + h1 * c01 + h2 * c02;
+    if (Math.abs(det) < 1e-12) return [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    const invDet = 1.0 / det;
+    return [
+      c00 * invDet,
+      -(h1 * h8 - h2 * h7) * invDet,
+      (h1 * h5 - h2 * h4) * invDet,
+      c01 * invDet,
+      (h0 * h8 - h2 * h6) * invDet,
+      -(h0 * h5 - h2 * h3) * invDet,
+      c02 * invDet,
+      -(h0 * h7 - h1 * h6) * invDet,
+      (h0 * h4 - h1 * h3) * invDet
+    ];
+  }
+
+  applyHomographyPoint(H, x, y) {
+    const denom = H[6] * x + H[7] * y + H[8];
+    const invW = Math.abs(denom) > 1e-9 ? 1.0 / denom : 1.0;
+    return {
+      x: (H[0] * x + H[1] * y + H[2]) * invW,
+      y: (H[3] * x + H[4] * y + H[5]) * invW
+    };
+  }
+
+  // Warps the angled 4-corner polygon ROI into a rectified top-down bird's-eye RGBA image
+  warpPerspectiveRoi(rgba, width, height, dstW = 640, dstH = 480) {
+    const srcPts = this.getRoiPixelPolygon(width, height);
+    const pad = 24;
+    const dstPts = [
+      { x: pad, y: pad },
+      { x: dstW - pad, y: pad },
+      { x: dstW - pad, y: dstH - pad },
+      { x: pad, y: dstH - pad }
+    ];
+    const H = this.computeHomography4Pt(srcPts, dstPts);
+    const invH = this.invertHomography3x3(H);
+    if (!this._warpedRgbaBuf || this._warpedRgbaBuf.length !== dstW * dstH * 4) {
+      this._warpedRgbaBuf = new Uint8ClampedArray(dstW * dstH * 4);
+    }
+    const out = this._warpedRgbaBuf;
+    const [i0, i1, i2, i3, i4, i5, i6, i7, i8] = invH;
+
+    let dstIdx = 0;
+    for (let v = 0; v < dstH; v++) {
+      const rowX = i1 * v + i2;
+      const rowY = i4 * v + i5;
+      const rowW = i7 * v + i8;
+      for (let u = 0; u < dstW; u++, dstIdx += 4) {
+        const wDenom = i6 * u + rowW;
+        const invW = wDenom !== 0 ? 1.0 / wDenom : 1.0;
+        const sx = Math.round((i0 * u + rowX) * invW);
+        const sy = Math.round((i3 * u + rowY) * invW);
+        if (sx >= 0 && sx < width && sy >= 0 && sy < height) {
+          const sIdx = (sy * width + sx) * 4;
+          out[dstIdx] = rgba[sIdx];
+          out[dstIdx + 1] = rgba[sIdx + 1];
+          out[dstIdx + 2] = rgba[sIdx + 2];
+          out[dstIdx + 3] = 255;
+        } else {
+          out[dstIdx] = 22;
+          out[dstIdx + 1] = 27;
+          out[dstIdx + 2] = 34;
+          out[dstIdx + 3] = 255;
+        }
+      }
+    }
+    return { warpedRgba: out, H, invH, dstW, dstH };
+  }
+
   ensureCvBuffers(width, height) {
     if (this._bufW === width && this._bufH === height && this._grayBuf) return;
     this._bufW = width;
@@ -300,13 +471,15 @@ class DiceTrackerApp {
       tensor.fill(padVal, cOff + botPadStart, cOff + planeSize);
     }
 
-    // Copy 640x480 RGB pixels into planar CHW [1, 3, 640, 640]
+    // Copy RGB pixels into planar CHW [1, 3, 640, 640]
     const gPlaneOff = planeSize;
     const bPlaneOff = 2 * planeSize;
-    for (let y = 0; y < height; y++) {
+    const copyW = Math.min(modelSize, width);
+    const copyH = Math.min(modelSize - padTop, height);
+    for (let y = 0; y < copyH; y++) {
       const dstRow = (y + padTop) * modelSize;
       let srcIdx = y * width * 4;
-      for (let x = 0; x < width; x++, srcIdx += 4) {
+      for (let x = 0; x < copyW; x++, srcIdx += 4) {
         const dstIdx = dstRow + x;
         tensor[dstIdx] = rgba[srcIdx] * inv255;
         tensor[gPlaneOff + dstIdx] = rgba[srcIdx + 1] * inv255;
@@ -316,7 +489,7 @@ class DiceTrackerApp {
     return tensor;
   }
 
-  decodeYoloOnnxOutput(outputData, rgba, width, height, rx, ry, rw, rh, confThresh = 0.42) {
+  decodeYoloOnnxOutput(outputData, rgba, width, height, rx, ry, rw, rh, confThresh = 0.34, ignorePolygonCheck = false) {
     const numAnchors = 8400;
     const numClasses = 6;
     const padTop = Math.floor((640 - height) / 2);
@@ -341,14 +514,18 @@ class DiceTrackerApp {
       const bw = outputData[2 * numAnchors + i];
       const bh = outputData[3 * numAnchors + i];
 
-      // Strictly enforce angled Dice Tray Polygon + bounding box + perspective-tolerant cube aspect ratio
-      if (cx < rx || cx > rx + rw || cy < ry || cy > ry + rh) continue;
-      if (!this.isPointInRoiPolygon(cx, cy, polyPts, 2)) continue;
-      if (bw < minBoxPx || bh < minBoxPx || bw > 145 || bh > 145) continue;
+      // Strictly enforce angled Dice Tray Polygon + bounding box + 45°-perspective-tolerant cube aspect ratio
+      if (!ignorePolygonCheck) {
+        if (cx < rx || cx > rx + rw || cy < ry || cy > ry + rh) continue;
+        if (!this.isPointInRoiPolygon(cx, cy, polyPts, 2)) continue;
+      }
+      if (bw < minBoxPx || bh < minBoxPx || bw > 195 || bh > 195) continue;
       const aspect = bw / (bh || 1);
-      if (aspect < 0.52 || aspect > 1.90) continue;
+      if (aspect < 0.45 || aspect > 2.15) continue;
 
       candidates.push({
+        cx,
+        cy,
         x1: cx - bw * 0.5,
         y1: cy - bh * 0.5,
         x2: cx + bw * 0.5,
@@ -360,7 +537,7 @@ class DiceTrackerApp {
       });
     }
 
-    // Class-agnostic Greedy NMS (IoU > 0.45)
+    // Class-agnostic Greedy NMS (IoU > 0.45) + 45° 3D Cube Vertical Side-Face Ghost Suppression
     candidates.sort((a, b) => b.conf - a.conf);
     const kept = [];
     for (let i = 0; i < candidates.length; i++) {
@@ -380,6 +557,16 @@ class DiceTrackerApp {
             suppressed = true;
             break;
           }
+        }
+        // 3D Cube Side-Face Ghost Suppression: at a 45° camera mount angle, the vertical front/side face
+        // of a cube hangs directly below (+Y) the top face. Suppress lower-confidence side-face detections!
+        const dx = Math.abs(cand.cx - ex.cx);
+        const dy = cand.cy - ex.cy;
+        const refW = Math.max(cand.w, ex.w);
+        const refH = Math.max(cand.h, ex.h);
+        if (dx <= refW * 0.55 && dy >= -refH * 0.15 && dy <= refH * 0.85) {
+          suppressed = true;
+          break;
         }
       }
       if (!suppressed) {
@@ -415,7 +602,7 @@ class DiceTrackerApp {
       const results = await this.onnxSession.run(feeds);
       const outputTensor = results.output0 || results[Object.keys(results)[0]];
       if (outputTensor && outputTensor.data) {
-        const onnxDice = this.decodeYoloOnnxOutput(
+        let onnxDice = this.decodeYoloOnnxOutput(
           outputTensor.data,
           rgba,
           width,
@@ -424,9 +611,45 @@ class DiceTrackerApp {
           ry,
           rw,
           rh,
-          0.42
+          0.32
         );
-        // Cross-verify with local perspective-adaptive CV for custom-6 emblems or steeply angled dice
+
+        // If 45° perspective trapezoid ROI is active and raw pass missed foreshortened far-edge dice,
+        // run a perspective-rectified pass on the homography-warped bird's-eye tray and map back via invH
+        if (onnxDice.length === 0 && this.isPerspectiveTrapezoidRoi()) {
+          const { warpedRgba, invH, dstW, dstH } = this.warpPerspectiveRoi(rgba, width, height, width, height);
+          const warpedInput = this.preprocessFrameForYoloOnnx(warpedRgba, dstW, dstH);
+          const warpedTensor = new window.ort.Tensor("float32", warpedInput, [1, 3, 640, 640]);
+          const warpedRes = await this.onnxSession.run({ images: warpedTensor });
+          const warpedOut = warpedRes.output0 || warpedRes[Object.keys(warpedRes)[0]];
+          if (warpedOut && warpedOut.data) {
+            const rectDice = this.decodeYoloOnnxOutput(
+              warpedOut.data,
+              warpedRgba,
+              dstW,
+              dstH,
+              16,
+              16,
+              dstW - 32,
+              dstH - 32,
+              0.28,
+              true
+            );
+            const polyPts = this.getRoiPixelPolygon(width, height);
+            onnxDice = rectDice
+              .map(rd => {
+                const mappedCenter = this.applyHomographyPoint(invH, rd.x + rd.w * 0.5, rd.y + rd.h * 0.5);
+                return {
+                  ...rd,
+                  x: Math.round(mappedCenter.x - rd.w * 0.5),
+                  y: Math.round(mappedCenter.y - rd.h * 0.5)
+                };
+              })
+              .filter(d => this.isPointInRoiPolygon(d.x + d.w * 0.5, d.y + d.h * 0.5, polyPts, 2));
+          }
+        }
+
+        // Cross-verify with local 45°-compensated CV for custom-6 emblems or steeply angled dice
         const localCvDice = this.detectRealDice({ data: rgba, width, height }, width, height);
         if (onnxDice.length === 0 && localCvDice.length > 0) {
           this.latestOnnxDice = localCvDice;
@@ -435,12 +658,12 @@ class DiceTrackerApp {
             const ocx = od.x + od.w * 0.5;
             const ocy = od.y + od.h * 0.5;
             const matchedLocal = localCvDice.find(
-              cd => Math.hypot((cd.x + cd.w * 0.5) - ocx, (cd.y + cd.h * 0.5) - ocy) <= Math.max(od.w, cd.w) * 0.55
+              cd => Math.hypot((cd.x + cd.w * 0.5) - ocx, (cd.y + cd.h * 0.5) - ocy) <= Math.max(od.w, cd.w) * 0.60
             );
             if (matchedLocal && matchedLocal.isCustomSymbol) {
               od.value = 6;
               od.isCustomSymbol = true;
-            } else if (matchedLocal && od.conf < 0.52) {
+            } else if (matchedLocal && (od.conf < 0.55 || (matchedLocal.bodyLum && matchedLocal.bodyLum >= 185 && od.conf < 0.72))) {
               od.value = matchedLocal.value;
             }
           });
@@ -474,6 +697,7 @@ class DiceTrackerApp {
     this.btnRerollHits = document.getElementById("btnRerollHits");
     this.btnRerollCount = document.getElementById("btnRerollCount");
     this.btnSetPlayerDice = document.getElementById("btnSetPlayerDice");
+    this.btnPreset45Roi = document.getElementById("btnPreset45Roi");
     this.btnResetRoi = document.getElementById("btnResetRoi");
     this.btnTorchToggle = document.getElementById("btnTorchToggle");
     this.camZoomSlider = document.getElementById("camZoomSlider");
@@ -665,7 +889,12 @@ class DiceTrackerApp {
       this.btnAutoFixDiceConflict.addEventListener("click", () => this.autoFixDiceConflict());
     }
 
+    if (this.btnPreset45Roi) {
+      this.btnPreset45Roi.addEventListener("click", () => this.applyPreset45Roi());
+    }
+
     this.btnResetRoi.addEventListener("click", () => {
+      this.cameraPitchDeg = 0;
       this.roiBox = { x: 0.08, y: 0.08, w: 0.84, h: 0.84 };
       this.lastRoiGray = null;
       if (!this.isCameraRunning && !this.isSimulationMode) {
@@ -1893,17 +2122,32 @@ class DiceTrackerApp {
       return 0;
     }
 
+    const patchSide = 12;
+    const pCols = Math.max(1, Math.ceil(cols / patchSide));
+    const pRows = Math.max(1, Math.ceil(rows / patchSide));
+    const numPatches = pCols * pRows;
+    if (!this._patchCounts || this._patchCounts.length < numPatches) {
+      this._patchCounts = new Uint16Array(numPatches);
+    } else {
+      this._patchCounts.fill(0, 0, numPatches);
+    }
+
     const mask = this._roiSampleMask;
     let changedPixels = 0;
+    let maxPatchChanged = 0;
     let k = 0;
     for (let r = 0; r < rows; r++) {
       const y = ry + r * sampleStep;
+      const prOff = Math.floor(r / patchSide) * pCols;
       for (let c = 0; c < cols; c++) {
         const currVal = gray[y * width + (rx + c * sampleStep)];
         const prevVal = this.lastRoiGray[k];
         const diff = Math.abs(currVal - prevVal);
         if (mask[k] && diff > 28) {
           changedPixels++;
+          const pIdx = prOff + Math.floor(c / patchSide);
+          const pc = ++this._patchCounts[pIdx];
+          if (pc > maxPatchChanged) maxPatchChanged = pc;
         }
         // Snap immediately on large changes so stopping dice have zero EMA ghost-trail lag
         this.lastRoiGray[k] = diff > 28 ? currVal : ((prevVal + 3 * currVal) >> 2);
@@ -1912,7 +2156,9 @@ class DiceTrackerApp {
     }
 
     const activeSamples = this._roiValidSampleCount || sampleLen;
-    return activeSamples > 0 ? changedPixels / activeSamples : 0;
+    const globalMotion = activeSamples > 0 ? changedPixels / activeSamples : 0;
+    const localSingleDieMotion = maxPatchChanged >= 9 ? (maxPatchChanged / 144) * 0.19 : 0;
+    return Math.max(globalMotion, localSingleDieMotion);
   }
 
   // Stationary-subset "Scoop Guard": returns true if the newly settled dice are simply a stationary
@@ -1961,8 +2207,8 @@ class DiceTrackerApp {
   stepRollStateMachine(roiMotion, rawDetections, rgba, width, height) {
     const rawSlider = parseInt(this.bgFilterSlider.value, 10) || 5;
     const settleFramesRequired = Math.max(4, Math.min(6, Math.round(rawSlider * 0.5)));
-    const MOTION_ENTER = 0.030;
-    const MOTION_SETTLE = 0.022;
+    const MOTION_ENTER = 0.018;
+    const MOTION_SETTLE = 0.014;
 
     if (!this.chkAutoCapture.checked) {
       this.currentDetectedDice = rawDetections;
@@ -2007,8 +2253,8 @@ class DiceTrackerApp {
 
     // Case 2: Motion detected inside the tray while dice are confirmed present OR unlocking from a LOCKED roll
     const isGenuineMotion =
-      roiMotion >= 0.038 ||
-      (roiMotion > MOTION_ENTER && (this.motionFramesCount >= 2 || this.rollState === "ROLLING"));
+      roiMotion >= 0.032 ||
+      (roiMotion > MOTION_ENTER && (this.motionFramesCount >= 2 || this.rollState === "ROLLING" || this.rollState === "LOCKED"));
 
     if (isGenuineMotion && (rawDetections.length > 0 || this.rollState !== "IDLE")) {
       if (this.rollState === "LOCKED" && this.lockedRollDice.length > 0) {
@@ -2074,6 +2320,19 @@ class DiceTrackerApp {
           d.owner = this.classifyDieOwner(d, rgba, width, height);
         });
 
+        // If a minor camera bump re-analyzed the exact same unmoved dice in the same positions, stay LOCKED silently
+        if (this.isSameStationaryRoll(consensusDice)) {
+          this.rollState = "LOCKED";
+          this.lockedRollDice = consensusDice.map(d => ({ ...d }));
+          this.currentDetectedDice = this.lockedRollDice;
+          this.updateStateMachineUI(
+            "LOCKED",
+            `✅ Locked ${consensusDice.length} Dice — Ready for next roll`,
+            100
+          );
+          return;
+        }
+
         // Check Scoop Guard before recording a new roll!
         if (this.isStationaryScoopSubset(consensusDice)) {
           this.rollState = "LOCKED";
@@ -2119,6 +2378,63 @@ class DiceTrackerApp {
         this.captureCurrentRoll("Auto-Lock");
       }
     }
+  }
+
+  // Feeds an array of raw RGBA frames (e.g., from a multi-roll video stream) sequentially through
+  // the full motion + CV + roll-completion state machine, returning lock events and roll history.
+  runVideoRollSequence(framesRgbaList, width = 640, height = 360) {
+    this.canvas.width = width;
+    this.canvas.height = height;
+    this.ensureCvBuffers(width, height);
+    this.lastRoiGray = null;
+    this._roiSampleMask = null;
+    this.rollState = "IDLE";
+    this.settledFrameCounter = 0;
+    this.settlingBuffer = [];
+    this.motionFramesCount = 0;
+    this.emptyFramesCount = 0;
+    this.consecutiveDiceFrames = 0;
+
+    const rx = Math.max(8, Math.floor(width * this.roiBox.x));
+    const ry = Math.max(8, Math.floor(height * this.roiBox.y));
+    const rw = Math.min(width - rx - 8, Math.floor(width * this.roiBox.w));
+    const rh = Math.min(height - ry - 8, Math.floor(height * this.roiBox.h));
+
+    const stateTransitions = [];
+    const lockEvents = [];
+    let prevState = this.rollState;
+    let prevHistoryLen = this.history.length;
+
+    for (let f = 0; f < framesRgbaList.length; f++) {
+      const rgba = framesRgbaList[f];
+      const gray = this.computeRoiGrayAndSat(rgba, width, height, rx, ry, rw, rh);
+      const roiMotion = this.computeRoiMotion(gray, width, rx, ry, rw, rh);
+      const rawDetections = this.detectDiceTwoStageAdaptive(gray, rgba, width, height, rx, ry, rw, rh, true);
+      this.stepRollStateMachine(roiMotion, rawDetections, rgba, width, height);
+
+      if (this.rollState !== prevState) {
+        stateTransitions.push({ frame: f, from: prevState, to: this.rollState, motion: Number(roiMotion.toFixed(4)) });
+        prevState = this.rollState;
+      }
+      if (this.history.length > prevHistoryLen) {
+        const latest = this.history[0];
+        lockEvents.push({
+          frame: f,
+          rollNum: latest.rollNum,
+          count: latest.count,
+          values: [...latest.values].sort((a, b) => a - b),
+          sum: latest.sum
+        });
+        prevHistoryLen = this.history.length;
+      }
+    }
+
+    return {
+      totalFrames: framesRgbaList.length,
+      rollsCaptured: lockEvents.length,
+      lockEvents,
+      stateTransitions
+    };
   }
 
   computePoolSignature(diceList) {
@@ -2247,15 +2563,7 @@ class DiceTrackerApp {
     const candidateEmblems = [];
     const invWindowArea = 1 / ((2 * rSurround + 1) * (2 * rSurround + 1));
 
-    const boxMean = (cx, cy, r) => {
-      const x0 = Math.max(0, cx - r);
-      const y0 = Math.max(0, cy - r);
-      const x1 = Math.min(width, cx + r + 1);
-      const y1 = Math.min(height, cy + r + 1);
-      return (sat[y1 * satW + x1] - sat[y0 * satW + x1] - sat[y1 * satW + x0] + sat[y0 * satW + x0]) / ((x1 - x0) * (y1 - y0));
-    };
-
-    // Stage 1A: High-Contrast Flood-Fill Connected Components (Clean Pips + Custom 6 Emblems)
+    // Stage 1A: Multi-Scale High-Contrast Flood-Fill Connected Components (Clean Pips + Custom 6 Emblems + 45° Foreground Pips)
     for (let y = yStart; y < yEnd; y++) {
       const rowOff = y * width;
       const satTopRow = (y - rSurround - 1) * satW;
@@ -2278,7 +2586,7 @@ class DiceTrackerApp {
 
         let isDarkPip = false;
         if (allowLightDice && delta <= -contrastSensitivity && localMean > 105) {
-          if (gray[idx - 2] <= 105 || gray[idx - width * 2] <= 105) continue;
+          if ((gray[idx - 2] <= 105 || gray[idx - width * 2] <= 105) && pix > 72) continue;
           isDarkPip = true;
         } else if (!(allowDarkDice && delta >= contrastSensitivity && pix > 150 && localMean < 140)) {
           continue;
@@ -2348,14 +2656,16 @@ class DiceTrackerApp {
         const area = head;
         const bW = maxBx - minBx + 1;
         const bH = maxBy - minBy + 1;
+        const maxDim = Math.max(bW, bH);
         const aspect = bW / (bH || 1);
         const fillRatio = area / (bW * bH);
         const cx = sumX / area;
         const cy = sumY / area;
         if (!this.isPointInRoiPolygon(cx, cy, polyPts, 4)) continue;
 
-        const ringR = area > 120
-          ? Math.max(10, Math.round(Math.max(bW, bH) * 0.72))
+        // Proportional ring radius ensures ring samples land on the die face outside the pip even for 12..28px foreground pips
+        const ringR = (area > 120 || maxDim >= 12)
+          ? Math.max(7, Math.round(maxDim * 0.78))
           : Math.max(4, Math.min(6, Math.round(Math.min(bW, bH) * 0.75)));
         const diagR = Math.max(3, Math.round(ringR * 0.707));
         const blobMeanLum = sumLum / area;
@@ -2386,17 +2696,18 @@ class DiceTrackerApp {
 
         const polarity = isDarkPip ? "dark_pip" : "light_pip";
         const eqDiam = Math.max(bW, bH, Math.sqrt(area / Math.PI) * 2.15);
+        const bodyLumVal = validRingPts > 0 ? validRingLumSum / validRingPts : 0;
 
         if (
           area >= 4 &&
           area <= (isDarkPip ? 155 : 53) &&
           bW >= 2 &&
-          bW <= 17 &&
+          bW <= (isDarkPip ? 24 : 17) &&
           bH >= 2 &&
-          bH <= 17 &&
-          aspect >= 0.48 &&
-          aspect <= 2.08 &&
-          fillRatio >= 0.32 &&
+          bH <= (isDarkPip ? 24 : 17) &&
+          aspect >= (isDarkPip ? 0.38 : 0.48) &&
+          aspect <= (isDarkPip ? 2.45 : 2.08) &&
+          fillRatio >= (isDarkPip ? 0.28 : 0.32) &&
           validRingPts >= 6 &&
           (isDarkPip || (peakLum >= 195 && blobMeanLum >= 165))
         ) {
@@ -2406,142 +2717,240 @@ class DiceTrackerApp {
             size: eqDiam,
             area,
             polarity,
-            bodyLum: validRingLumSum / validRingPts,
+            bodyLum: bodyLumVal,
             peakLum
           });
         } else if (
-          detectCustomSix &&
           area >= 156 &&
-          area <= 540 &&
+          area <= 620 &&
           bW >= 12 &&
           bW <= 34 &&
           bH >= 12 &&
           bH <= 34 &&
-          aspect >= 0.50 &&
-          aspect <= 1.95 &&
-          validRingPts >= 7 &&
+          aspect >= 0.42 &&
+          aspect <= 2.25 &&
+          validRingPts >= 6 &&
           (isDarkPip || (peakLum >= 195 && blobMeanLum >= 165))
         ) {
-          candidateEmblems.push({
-            x: cx,
-            y: cy,
-            size: Math.max(bW, bH),
-            polarity,
-            bodyLum: validRingLumSum / validRingPts
-          });
-        }
-      }
-    }
-
-    // Stage 1B: Translucent & Colored Physical Dice Crisp White-Pip 5x5 Peak Detector
-    // Detects bright white pips (val >= 225, 3x3 core >= 232) on medium-bright colored or
-    // translucent dice bodies (bg9 in 95..212) and decomposes subsurface-scattered pip clusters.
-    if (allowDarkDice) {
-      const brightPeaks = [];
-      const minBrightProm = Math.max(32, contrastSensitivity * 1.4);
-      const rRing5 = 5;
-      const dRing4 = 4;
-      const rxOff5 = [-rRing5, rRing5, 0, 0, -dRing4, dRing4, -dRing4, dRing4];
-      const ryOff5 = [0, 0, -rRing5, rRing5, -dRing4, -dRing4, dRing4, dRing4];
-
-      for (let y = yStart + 3; y < yEnd - 3; y++) {
-        const rowOff = y * width;
-        for (let x = xStart + 3; x < xEnd - 3; x++) {
-          const idx = rowOff + x;
-          const val = gray[idx];
-          if (val < 225) continue;
-
-          // Fast 4-cardinal neighbor pre-check before 5x5 loop (skips flat white die bodies in O(1))
-          if (
-            gray[idx - 1] >= val ||
-            gray[idx + 1] > val ||
-            gray[idx - width] >= val ||
-            gray[idx + width] > val
-          ) {
-            continue;
-          }
-
-          // 5x5 Non-Maximum Suppression with tie-breaking
-          let isMax5 = true;
-          for (let dy = -2; dy <= 2 && isMax5; dy++) {
-            const rOff = (y + dy) * width;
-            for (let dx = -2; dx <= 2; dx++) {
-              if (dx === 0 && dy === 0) continue;
-              const nv = gray[rOff + x + dx];
-              if (dy < 0 || (dy === 0 && dx < 0) ? nv >= val : nv > val) {
-                isMax5 = false;
-                break;
+          // Disambiguate a large pip on a close-up 45°-mounted foreground die (dieSize >= 85px)
+          // from a Custom-6 Emblem on a standard die (emblem diameter ~0.48 * dieSize -> 1.48x is outside the die!)
+          let isCloseUpForegroundPip = false;
+          if (isDarkPip && bodyLumVal >= 175) {
+            const rOuter = Math.round(maxDim * 1.48);
+            const dOuter = Math.round(rOuter * 0.707);
+            let outerBodyPts = 0;
+            for (let oIdx = 0; oIdx < 8; oIdx++) {
+              const oxPt = rcx + (oIdx === 0 ? -rOuter : oIdx === 1 ? rOuter : oIdx < 4 ? 0 : oIdx < 6 ? -dOuter : dOuter);
+              const oyPt = rcy + (oIdx < 2 ? 0 : oIdx === 2 ? -rOuter : oIdx === 3 ? rOuter : (oIdx & 1) === 0 ? -dOuter : dOuter);
+              if (oxPt >= xStart && oxPt < xEnd && oyPt >= yStart && oyPt < yEnd) {
+                const oLum = gray[oyPt * width + oxPt];
+                if (oLum >= 155 && Math.abs(oLum - bodyLumVal) <= 42) {
+                  outerBodyPts++;
+                }
               }
             }
-          }
-          if (!isMax5) continue;
-          if (!this.isPointInRoiPolygon(x, y, polyPts, 4)) continue;
-
-          const in1 = boxMean(x, y, 1);
-          if (in1 < 232) continue;
-
-          const bg9 = boxMean(x, y, 9);
-          if (bg9 < 95 || bg9 > 212) continue;
-
-          const prom = in1 - bg9;
-          if (prom < minBrightProm) continue;
-
-          let validPts = 0;
-          let ringSum = 0;
-          for (let k = 0; k < 8; k++) {
-            const rl = gray[(y + ryOff5[k]) * width + (x + rxOff5[k])];
-            if (val - rl >= 22 && rl >= 95 && rl <= 228) {
-              validPts++;
-              ringSum += rl;
+            if (outerBodyPts >= 2) {
+              isCloseUpForegroundPip = true;
             }
           }
-          if (validPts < 6) continue;
 
-          brightPeaks.push({
-            x,
-            y,
-            size: 5.5,
-            area: 24,
-            polarity: "light_pip",
-            bodyLum: ringSum / validPts,
-            peakLum: val,
-            val,
-            bgMean: bg9,
-            prom
-          });
-        }
-      }
-
-      if (brightPeaks.length > 0) {
-        brightPeaks.sort((a, b) => b.val - a.val);
-        const dedupedBright = [];
-        for (let i = 0; i < brightPeaks.length; i++) {
-          const p = brightPeaks[i];
-          if (candidateEmblems.some(emb => Math.hypot(emb.x - p.x, emb.y - p.y) <= emb.size * 0.75)) {
-            continue;
+          if (isCloseUpForegroundPip) {
+            candidatePips.push({
+              x: cx,
+              y: cy,
+              size: eqDiam,
+              area,
+              polarity,
+              bodyLum: bodyLumVal,
+              peakLum
+            });
+          } else if (detectCustomSix && area <= 540 && validRingPts >= 7 && aspect >= 0.50 && aspect <= 1.95) {
+            candidateEmblems.push({
+              x: cx,
+              y: cy,
+              size: maxDim,
+              polarity,
+              bodyLum: bodyLumVal
+            });
           }
-          if (!dedupedBright.some(ex => Math.hypot(ex.x - p.x, ex.y - p.y) < 3.8)) {
-            dedupedBright.push(p);
-          }
-        }
-
-        // Remove any Stage 1A light_pip blob that overlaps a Stage 1B peak
-        for (let j = candidatePips.length - 1; j >= 0; j--) {
-          const cp = candidatePips[j];
-          if (
-            cp.polarity === "light_pip" &&
-            dedupedBright.some(bp => Math.hypot(cp.x - bp.x, cp.y - bp.y) <= Math.max(6.0, cp.size * 0.85))
-          ) {
-            candidatePips.splice(j, 1);
-          }
-        }
-        for (let i = 0; i < dedupedBright.length; i++) {
-          candidatePips.push(dedupedBright[i]);
         }
       }
     }
 
-    // Stage 2: Scale-Bounded Constellation Clustering + Dynamic Inter-Pip Bridge + 45° Rotation Invariance
+    if (allowDarkDice) {
+      this.detectCrispWhitePipPeaks(
+        gray,
+        sat,
+        satW,
+        width,
+        height,
+        xStart,
+        xEnd,
+        yStart,
+        yEnd,
+        polyPts,
+        contrastSensitivity,
+        candidatePips,
+        candidateEmblems
+      );
+    }
+
+    return this.clusterDetectedPips(candidatePips, candidateEmblems, gray, rgba, width, height, minDiePx);
+  }
+
+  detectCrispWhitePipPeaks(
+    gray,
+    sat,
+    satW,
+    width,
+    height,
+    xStart,
+    xEnd,
+    yStart,
+    yEnd,
+    polyPts,
+    contrastSensitivity,
+    candidatePips,
+    candidateEmblems
+  ) {
+    const boxMean = (cx, cy, r) => {
+      const x0 = Math.max(0, cx - r);
+      const y0 = Math.max(0, cy - r);
+      const x1 = Math.min(width, cx + r + 1);
+      const y1 = Math.min(height, cy + r + 1);
+      return (sat[y1 * satW + x1] - sat[y0 * satW + x1] - sat[y1 * satW + x0] + sat[y0 * satW + x0]) / ((x1 - x0) * (y1 - y0));
+    };
+
+    const brightPeaks = [];
+    const minBrightProm = Math.max(32, contrastSensitivity * 1.4);
+    const rRing5 = 5;
+    const dRing4 = 4;
+    const rxOff5 = [-rRing5, rRing5, 0, 0, -dRing4, dRing4, -dRing4, dRing4];
+    const ryOff5 = [0, 0, -rRing5, rRing5, -dRing4, -dRing4, dRing4, dRing4];
+
+    for (let y = yStart + 3; y < yEnd - 3; y++) {
+      const rowOff = y * width;
+      for (let x = xStart + 3; x < xEnd - 3; x++) {
+        const idx = rowOff + x;
+        const val = gray[idx];
+        if (val < 225) continue;
+
+        if (
+          gray[idx - 1] >= val ||
+          gray[idx + 1] > val ||
+          gray[idx - width] >= val ||
+          gray[idx + width] > val
+        ) {
+          continue;
+        }
+
+        let isMax5 = true;
+        for (let dy = -2; dy <= 2 && isMax5; dy++) {
+          const rOff = (y + dy) * width;
+          for (let dx = -2; dx <= 2; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nv = gray[rOff + x + dx];
+            if (dy < 0 || (dy === 0 && dx < 0) ? nv >= val : nv > val) {
+              isMax5 = false;
+              break;
+            }
+          }
+        }
+        if (!isMax5) continue;
+        if (!this.isPointInRoiPolygon(x, y, polyPts, 4)) continue;
+
+        const in1 = boxMean(x, y, 1);
+        if (in1 < 232) continue;
+
+        const bg9 = boxMean(x, y, 9);
+        if (bg9 < 95 || bg9 > 212) continue;
+
+        const prom = in1 - bg9;
+        if (prom < minBrightProm) continue;
+
+        let validPts = 0;
+        let ringSum = 0;
+        for (let k = 0; k < 8; k++) {
+          const rl = gray[(y + ryOff5[k]) * width + (x + rxOff5[k])];
+          if (val - rl >= 22 && rl >= 95 && rl <= 228) {
+            validPts++;
+            ringSum += rl;
+          }
+        }
+        if (validPts < 6) continue;
+
+        brightPeaks.push({
+          x,
+          y,
+          size: 5.5,
+          area: 24,
+          polarity: "light_pip",
+          bodyLum: ringSum / validPts,
+          peakLum: val,
+          val,
+          bgMean: bg9,
+          prom
+        });
+      }
+    }
+
+    if (brightPeaks.length > 0) {
+      brightPeaks.sort((a, b) => b.val - a.val);
+      const dedupedBright = [];
+      for (let i = 0; i < brightPeaks.length; i++) {
+        const p = brightPeaks[i];
+        if (candidateEmblems.some(emb => Math.hypot(emb.x - p.x, emb.y - p.y) <= emb.size * 0.75)) {
+          continue;
+        }
+        if (!dedupedBright.some(ex => Math.hypot(ex.x - p.x, ex.y - p.y) < 3.8)) {
+          dedupedBright.push(p);
+        }
+      }
+
+      for (let j = candidatePips.length - 1; j >= 0; j--) {
+        const cp = candidatePips[j];
+        if (
+          cp.polarity === "light_pip" &&
+          dedupedBright.some(bp => Math.hypot(cp.x - bp.x, cp.y - bp.y) <= Math.max(6.0, cp.size * 0.85))
+        ) {
+          candidatePips.splice(j, 1);
+        }
+      }
+      for (let i = 0; i < dedupedBright.length; i++) {
+        candidatePips.push(dedupedBright[i]);
+      }
+    }
+  }
+
+  clusterDetectedPips(candidatePips, candidateEmblems, gray, rgba, width, height, minDiePx) {
+    // 45° Camera Angle 3D Top-Face vs. Vertical Side-Face Disambiguation:
+    // When physical dice are viewed at ~45°, the upward-facing top facet is brightly lit (bodyLum >= 175)
+    // while vertical side faces and wood-grain table textures have much lower surround luminance (< 163).
+    const hasBrightTopDarkPips = candidatePips.some(
+      p => p.polarity === "dark_pip" && p.bodyLum >= 175
+    );
+    const hasLarge45DegDarkPips = candidatePips.some(
+      p => p.polarity === "dark_pip" && p.size >= 11.5 && p.bodyLum >= 175
+    );
+    if (hasBrightTopDarkPips) {
+      for (let i = candidatePips.length - 1; i >= 0; i--) {
+        const cp = candidatePips[i];
+        if (
+          cp.polarity === "dark_pip" &&
+          (cp.bodyLum < 163 || (hasLarge45DegDarkPips && cp.bodyLum < 170 && cp.size < 10.0))
+        ) {
+          candidatePips.splice(i, 1);
+        }
+      }
+      for (let i = candidateEmblems.length - 1; i >= 0; i--) {
+        if (candidateEmblems[i].polarity === "dark_pip" && (candidateEmblems[i].bodyLum || 0) < 171) {
+          candidateEmblems.splice(i, 1);
+        }
+      }
+      candidatePips.sort((a, b) => (b.bodyLum || 0) - (a.bodyLum || 0));
+    }
+
+    // Stage 2: Scale-Bounded Constellation Clustering + Dynamic Inter-Pip Bridge + 45° Perspective Invariance
     const sortedSizes = candidatePips.map(p => p.size).sort((a, b) => a - b);
     const medianPipSize = sortedSizes.length > 0
       ? sortedSizes[Math.floor(sortedSizes.length / 2)]
@@ -2562,6 +2971,20 @@ class DiceTrackerApp {
       const cluster = [seed];
       used[i] = 1;
 
+      const isLargeForegroundSeed = hasLarge45DegDarkPips && seed.size >= 10.5;
+      const localEstDieSize = isLargeForegroundSeed
+        ? Math.max(estimatedDieSize, Math.round(seed.size * 5.6))
+        : estimatedDieSize;
+      const localMaxPairDist = isLargeForegroundSeed
+        ? Math.max(maxPipPairDist, Math.round(localEstDieSize * 0.88))
+        : maxPipPairDist;
+      const localMaxAxisSpan = isLargeForegroundSeed
+        ? Math.max(maxSingleDieAxisSpan, Math.round(localEstDieSize * 0.85))
+        : maxSingleDieAxisSpan;
+      const localMaxDiagSpan = isLargeForegroundSeed
+        ? Math.max(maxSingleDieDiagSpan, Math.round(localEstDieSize * 0.92))
+        : maxSingleDieDiagSpan;
+
       let minX = seed.x, maxX = seed.x;
       let minY = seed.y, maxY = seed.y;
 
@@ -2575,6 +2998,11 @@ class DiceTrackerApp {
           if (used[j]) continue;
           const cand = candidatePips[j];
           if (cand.polarity !== seed.polarity) continue;
+
+          if (isLargeForegroundSeed) {
+            if (cand.size < seed.size * 0.75 || cand.size > seed.size * 1.95) continue;
+            if (Math.abs((cand.bodyLum || 0) - (seed.bodyLum || 0)) > 42) continue;
+          }
 
           let minDistToCluster = Infinity;
           let maxDistToCluster = 0;
@@ -2590,14 +3018,21 @@ class DiceTrackerApp {
             }
           }
 
-          if (minDistToCluster <= maxPipPairDist && minDistToCluster < bestDist) {
+          if (
+            (isLargeForegroundSeed || seed.polarity === "dark_pip") &&
+            Math.abs((cand.bodyLum || 0) - (nearestClusterPip.bodyLum || 0)) > 28
+          ) {
+            continue;
+          }
+
+          if (minDistToCluster <= localMaxPairDist && minDistToCluster < bestDist) {
             const newSpanX = Math.max(maxX, cand.x) - Math.min(minX, cand.x);
             const newSpanY = Math.max(maxY, cand.y) - Math.min(minY, cand.y);
 
             if (
-              newSpanX <= maxSingleDieAxisSpan &&
-              newSpanY <= maxSingleDieAxisSpan &&
-              maxDistToCluster <= maxSingleDieDiagSpan &&
+              newSpanX <= localMaxAxisSpan &&
+              newSpanY <= localMaxAxisSpan &&
+              maxDistToCluster <= localMaxDiagSpan &&
               this.isSameDieSegment(nearestClusterPip, cand, gray, width)
             ) {
               bestDist = minDistToCluster;
@@ -2621,7 +3056,8 @@ class DiceTrackerApp {
       const pipCount = cluster.length;
       const centerX = (minX + maxX) * 0.5;
       const centerY = (minY + maxY) * 0.5;
-      const boxSize = Math.max(minDiePx, estimatedDieSize);
+      const boxSize = Math.max(minDiePx, localEstDieSize);
+      const meanBodyLum = cluster.reduce((acc, p) => acc + (p.bodyLum || 0), 0) / pipCount;
       const dieObj = {
         x: Math.round(centerX - boxSize * 0.5),
         y: Math.round(centerY - boxSize * 0.5),
@@ -2629,11 +3065,37 @@ class DiceTrackerApp {
         h: boxSize,
         value: pipCount,
         polarity: seed.polarity,
+        bodyLum: Number(meanBodyLum.toFixed(1)),
         isCustomSymbol: false,
         owner: 1
       };
       dieObj.owner = this.classifyDieOwner(dieObj, rgba, width, height);
       detectedDice.push(dieObj);
+    }
+
+    if (hasBrightTopDarkPips && detectedDice.length > 1) {
+      for (let i = detectedDice.length - 1; i >= 0; i--) {
+        const d2 = detectedDice[i];
+        const cx2 = d2.x + d2.w * 0.5;
+        const cy2 = d2.y + d2.h * 0.5;
+        let isSideFaceGhost = false;
+        for (let j = 0; j < detectedDice.length; j++) {
+          if (i === j) continue;
+          const d1 = detectedDice[j];
+          if ((d1.bodyLum || 0) < (d2.bodyLum || 0) + 12) continue;
+          const cx1 = d1.x + d1.w * 0.5;
+          const cy1 = d1.y + d1.h * 0.5;
+          const refW = Math.max(d1.w, d2.w);
+          const refH = Math.max(d1.h, d2.h);
+          if (Math.abs(cx2 - cx1) <= refW * 0.65 && cy2 - cy1 >= -refH * 0.20 && cy2 - cy1 <= refH * 1.05) {
+            isSideFaceGhost = true;
+            break;
+          }
+        }
+        if (isSideFaceGhost) {
+          detectedDice.splice(i, 1);
+        }
+      }
     }
 
     candidateEmblems.forEach(emb => {
@@ -2649,6 +3111,7 @@ class DiceTrackerApp {
           h: boxSize,
           value: 6,
           polarity: emb.polarity,
+          bodyLum: emb.bodyLum || 0,
           isCustomSymbol: true,
           owner: 1
         };
