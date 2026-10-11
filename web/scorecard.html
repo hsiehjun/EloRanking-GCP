@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=b9a95c2ce6">
+  <link rel="manifest" href="/manifest.json?v=a4d0514002">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "b9a95c2ce6";</script>
+  <script>window.APP_VERSION = "a4d0514002";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -1145,7 +1145,8 @@
         document.getElementById('sc-matrix-body').innerHTML = '<tr><td colspan="7" style="padding:2rem; color:#ef4444;">No Match ID specified.</td></tr>';
         return;
       }
-      document.getElementById('sc-match-id').innerText = matchId;
+      const cleanDisplayMid = String(matchId).replace(/^((?:WH40K-|AOS-)?(?:BCP|ES)-.+?-R\d+-T\d+)-(?:M|P)-.+$/i, '$1');
+      document.getElementById('sc-match-id').innerText = cleanDisplayMid;
 
       try {
         const resp = await fetch(`/api/scorecard/${encodeURIComponent(matchId)}`);

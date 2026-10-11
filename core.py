@@ -253,7 +253,7 @@ def normalize_tracker_match_id(raw: str) -> str:
     if not raw:
         return ""
     clean = str(raw).strip().replace(" ", "")
-    m = re.match(r"^(?:(WH40K-|AOS-))?(BCP|ES)-(.+)-R(\d+)-T(\d+)$", clean, re.IGNORECASE)
+    m = re.match(r"^(?:(WH40K-|AOS-))?(BCP|ES)-(.+?)-R(\d+)-T(\d+)(?:-(?:M|P)-(.+))?$", clean, re.IGNORECASE)
     if m:
         prefix = (m.group(1) or "").upper()
         system = m.group(2).upper()

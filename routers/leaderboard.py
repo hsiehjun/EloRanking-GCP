@@ -2613,7 +2613,14 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
 
                             table_num = int(p.get("table") or idx + 1)
                             r_key = (r, table_num)
-                            local_m = existing_matches_map.get(r_key) or existing_matches_map.get(str(p.get("id") or ""))
+                            local_m = existing_matches_map.get(str(p.get("id") or ""))
+                            if not local_m:
+                                cand_m = existing_matches_map.get(r_key)
+                                if cand_m:
+                                    cm_p1 = str(cand_m.get("player1_id") or "").strip()
+                                    cm_p2 = str(cand_m.get("player2_id") or "").strip()
+                                    if (not cm_p1 and not cm_p2) or (p1_id and p1_id in (cm_p1, cm_p2)) or (p2_id and p2_id in (cm_p1, cm_p2)):
+                                        local_m = cand_m
                             local_tg = tracker_games_map.get(r_key)
 
                             p1_game = p.get("player1Game") or {}

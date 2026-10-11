@@ -2524,8 +2524,9 @@ def _api_get_scorecard_sync(match_id: str):
     # 1. Check PostgreSQL tracker_games first (submitted & finalized scorecards in our backend DB)
     # Note: db.get_tracker_game(match_id) already checks all candidate IDs and (event_id, round_num, table_num) in a single indexed query!
     game_rec = None
-    m_pat = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id.strip(), re.IGNORECASE)
+    m_pat = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+?)-R(\d+)-T(\d+)(?:-(?:M|P)-(.+))?$", match_id.strip(), re.IGNORECASE)
     m_player_pat = None if m_pat else re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-P-(.+)$", match_id.strip(), re.IGNORECASE)
+    m_tok_disambig = urllib.parse.unquote(m_pat.group(4)).strip() if (m_pat and m_pat.group(4)) else None
 
     if db and hasattr(db, "get_tracker_game"):
         try:
@@ -2573,21 +2574,46 @@ def _api_get_scorecard_sync(match_id: str):
                     row = None
                     if m_pat:
                         ev_vars = _event_id_case_variants(m_pat.group(1))
-                        cur.execute("""
-                            SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
-                                   m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                                   m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
-                                   m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
-                                   e.name AS event_name, e.is_ended AS event_is_ended,
-                                   e.event_date, e.end_date, e.raw_json AS event_raw_json
-                            FROM matches m
-                            LEFT JOIN events e ON e.id = m.event_id
-                            WHERE m.event_id = ANY(%s)
-                              AND m.round = %s
-                              AND m.table_number = %s
-                            LIMIT 1;
-                        """, (ev_vars, int(m_pat.group(2)), int(m_pat.group(3))))
-                        row = cur.fetchone()
+                        r_val = int(m_pat.group(2))
+                        t_val = int(m_pat.group(3))
+                        if m_tok_disambig:
+                            cur.execute("""
+                                SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                                       m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                                       m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                                       m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
+                                       e.name AS event_name, e.is_ended AS event_is_ended,
+                                       e.event_date, e.end_date, e.raw_json AS event_raw_json
+                                FROM matches m
+                                LEFT JOIN events e ON e.id = m.event_id
+                                WHERE m.event_id = ANY(%s)
+                                  AND m.round = %s
+                                  AND (
+                                      LOWER(COALESCE(m.id, '')) = LOWER(%s)
+                                      OR LOWER(COALESCE(m.player1_id, '')) = LOWER(%s)
+                                      OR LOWER(COALESCE(m.player2_id, '')) = LOWER(%s)
+                                      OR LOWER(TRIM(COALESCE(m.player1_name, ''))) = LOWER(%s)
+                                      OR LOWER(TRIM(COALESCE(m.player2_name, ''))) = LOWER(%s)
+                                  )
+                                LIMIT 1;
+                            """, (ev_vars, r_val, m_tok_disambig, m_tok_disambig, m_tok_disambig, m_tok_disambig, m_tok_disambig))
+                            row = cur.fetchone()
+                        if not row:
+                            cur.execute("""
+                                SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                                       m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                                       m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                                       m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
+                                       e.name AS event_name, e.is_ended AS event_is_ended,
+                                       e.event_date, e.end_date, e.raw_json AS event_raw_json
+                                FROM matches m
+                                LEFT JOIN events e ON e.id = m.event_id
+                                WHERE m.event_id = ANY(%s)
+                                  AND m.round = %s
+                                  AND m.table_number = %s
+                                LIMIT 1;
+                            """, (ev_vars, r_val, t_val))
+                            row = cur.fetchone()
                     elif m_player_pat:
                         ev_vars = _event_id_case_variants(m_player_pat.group(1))
                         p_tok = urllib.parse.unquote(m_player_pat.group(3)).strip()
@@ -2749,6 +2775,69 @@ def _api_get_scorecard_sync(match_id: str):
                             is_event_completed = True
         except Exception:
             pass
+
+    if ev_id_raw and (m_pat or m_player_pat):
+        need_live_cache_lookup = not bcp_match
+        if bcp_match and m_tok_disambig:
+            tok_l = m_tok_disambig.lower()
+            bm_cands = {
+                str(bcp_match.get("id") or "").strip().lower(),
+                str(bcp_match.get("player1_id") or "").strip().lower(),
+                str(bcp_match.get("player2_id") or "").strip().lower(),
+                str(bcp_match.get("player1_name") or "").strip().lower(),
+                str(bcp_match.get("player2_name") or "").strip().lower(),
+            }
+            if tok_l not in bm_cands:
+                need_live_cache_lookup = True
+        if need_live_cache_lookup:
+            try:
+                from routers.leaderboard import _event_details_cache
+                cached_ev_data = None
+                for ev_cand in _event_id_case_variants(ev_id_raw):
+                    entry = _event_details_cache.get(ev_cand)
+                    if isinstance(entry, dict) and isinstance(entry.get("data"), dict):
+                        cached_ev_data = entry["data"]
+                        break
+                if cached_ev_data and isinstance(cached_ev_data.get("matches"), list):
+                    target_r = int(m_pat.group(2)) if m_pat else int(m_player_pat.group(2))
+                    target_t = int(m_pat.group(3)) if m_pat else None
+                    tok_search = (
+                        m_tok_disambig
+                        if m_pat
+                        else (urllib.parse.unquote(m_player_pat.group(3)).strip() if m_player_pat else None)
+                    )
+                    matched_cm = None
+                    if tok_search:
+                        tok_l = tok_search.lower()
+                        for cm in cached_ev_data["matches"]:
+                            if not isinstance(cm, dict) or int(cm.get("round") or 1) != target_r:
+                                continue
+                            cm_cands = {
+                                str(cm.get("id") or cm.get("pairing_id") or "").strip().lower(),
+                                str(cm.get("player1_id") or "").strip().lower(),
+                                str(cm.get("player2_id") or "").strip().lower(),
+                                str(cm.get("player1_name") or "").strip().lower(),
+                                str(cm.get("player2_name") or "").strip().lower(),
+                            }
+                            if tok_l in cm_cands:
+                                matched_cm = cm
+                                break
+                    if not matched_cm and target_t is not None and not bcp_match:
+                        for cm in cached_ev_data["matches"]:
+                            if not isinstance(cm, dict) or int(cm.get("round") or 1) != target_r:
+                                continue
+                            if int(cm.get("table_number") or cm.get("table") or 0) == target_t:
+                                matched_cm = cm
+                                break
+                    if matched_cm:
+                        bcp_match = dict(matched_cm)
+                        bcp_match.setdefault("event_id", cached_ev_data.get("id") or ev_id_raw)
+                        bcp_match.setdefault("event_name", cached_ev_data.get("name") or "Tournament Match")
+                        bcp_match.setdefault("match_date", cached_ev_data.get("event_date"))
+                        if cached_ev_data.get("is_ended") is True:
+                            is_event_completed = True
+            except Exception:
+                pass
 
     is_rec_finished = bool(
         game_rec and (

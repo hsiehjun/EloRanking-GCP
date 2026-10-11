@@ -2286,7 +2286,10 @@ function openJourneyScorecardModal(matchId, eventId, eventName, roundNum, tableN
     player2_faction: p2Fac || 'Warhammer 40k',
     player2_score: (p2Score !== '' && p2Score !== null && p2Score !== undefined && !isNaN(Number(p2Score))) ? Number(p2Score) : null,
   };
-  const resolvedMatchId = matchId || (eventId ? `BCP-${eventId}-R${roundNum || 1}-T${tableNum || 1}` : `MATCH-R${roundNum || 1}`);
+  let resolvedMatchId = matchId || (eventId ? `BCP-${eventId}-R${roundNum || 1}-T${tableNum || 1}` : `MATCH-R${roundNum || 1}`);
+  if (eventId && /^BCP-.+-R\d+-T\d+$/i.test(String(resolvedMatchId)) && (p1Id || p1Name)) {
+    resolvedMatchId = `${resolvedMatchId}-M-${encodeURIComponent(String(p1Id || p1Name).trim())}`;
+  }
   openScorecardModal(resolvedMatchId, fallbackMatchMeta);
 }
 window.openJourneyScorecardModal = openJourneyScorecardModal;
@@ -2322,10 +2325,26 @@ async function openScorecardModal(matchId) {
   const p1ScoreEl = document.getElementById('msc-p1-score');
   const p2ScoreEl = document.getElementById('msc-p2-score');
 
-  if (matchIdEl) matchIdEl.innerText = matchId;
+  const bcpMatch = String(matchId).match(/^(?:(WH40K-|AOS-))?(BCP|ES)-(.+?)-R(\d+)-T(\d+)(?:-(?:M|P)-(.+))?$/i);
+  const parsedEventId = bcpMatch ? bcpMatch[3] : (fallbackMatchMeta && fallbackMatchMeta.event_id ? String(fallbackMatchMeta.event_id) : null);
+  const parsedRound = bcpMatch ? parseInt(bcpMatch[4], 10) : (fallbackMatchMeta && fallbackMatchMeta.round ? Number(fallbackMatchMeta.round) : null);
+  const parsedTable = bcpMatch ? parseInt(bcpMatch[5], 10) : (fallbackMatchMeta && fallbackMatchMeta.table_number ? Number(fallbackMatchMeta.table_number) : null);
+  let parsedMatchTok = '';
+  if (bcpMatch && bcpMatch[6]) {
+    try {
+      parsedMatchTok = decodeURIComponent(bcpMatch[6]).trim().toLowerCase();
+    } catch (_e) {
+      parsedMatchTok = String(bcpMatch[6]).trim().toLowerCase();
+    }
+  }
+  const displayMatchId = bcpMatch
+    ? `${bcpMatch[1] || ''}${bcpMatch[2].toUpperCase()}-${parsedEventId}-R${parsedRound}-T${parsedTable}`
+    : matchId;
+
+  if (matchIdEl) matchIdEl.innerText = displayMatchId;
   if (fullPageLink) fullPageLink.href = `/scorecard/${encodeURIComponent(matchId)}`;
   if (liveLink) {
-    liveLink.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}`;
+    liveLink.href = `/11th/tracker/play?match_id=${encodeURIComponent(displayMatchId)}`;
     liveLink.style.display = 'none';
   }
   if (badgesEl) badgesEl.innerHTML = '';
@@ -2336,11 +2355,6 @@ async function openScorecardModal(matchId) {
   if (p1SubEl) { p1SubEl.innerHTML = ''; p1SubEl.style.display = 'none'; }
   if (p2SubEl) { p2SubEl.innerHTML = ''; p2SubEl.style.display = 'none'; }
   if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Fetching verified battle records...</div></td></tr>';
-
-  const bcpMatch = String(matchId).match(/^(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$/i);
-  const parsedEventId = bcpMatch ? bcpMatch[1] : (fallbackMatchMeta && fallbackMatchMeta.event_id ? String(fallbackMatchMeta.event_id) : null);
-  const parsedRound = bcpMatch ? parseInt(bcpMatch[2], 10) : (fallbackMatchMeta && fallbackMatchMeta.round ? Number(fallbackMatchMeta.round) : null);
-  const parsedTable = bcpMatch ? parseInt(bcpMatch[3], 10) : (fallbackMatchMeta && fallbackMatchMeta.table_number ? Number(fallbackMatchMeta.table_number) : null);
 
   let evMatch = null;
   let evP1 = null;
@@ -2374,7 +2388,47 @@ async function openScorecardModal(matchId) {
       : []);
 
   if (parsedRound !== null && parsedTable !== null && evMatches.length > 0) {
-    evMatch = evMatches.find(m => Number(m.round || 1) === parsedRound && Number(m.table_number || m.table || 1) === parsedTable) || null;
+    if (parsedMatchTok) {
+      evMatch = evMatches.find(m => {
+        if (Number(m.round || m.round_number || 1) !== parsedRound) return false;
+        const mIdRaw = String(m.id || m.pairing_id || m.bcp_pairing_id || '').trim().toLowerCase();
+        const p1IdRaw = String(m.player1_id || '').trim().toLowerCase();
+        const p2IdRaw = String(m.player2_id || '').trim().toLowerCase();
+        const p1NmRaw = String(m.player1_name || '').trim().toLowerCase();
+        const p2NmRaw = String(m.player2_name || '').trim().toLowerCase();
+        return (
+          (mIdRaw && mIdRaw === parsedMatchTok) ||
+          (p1IdRaw && p1IdRaw === parsedMatchTok) ||
+          (p2IdRaw && p2IdRaw === parsedMatchTok) ||
+          (p1NmRaw && p1NmRaw === parsedMatchTok) ||
+          (p2NmRaw && p2NmRaw === parsedMatchTok)
+        );
+      }) || null;
+    }
+    if (!evMatch && fallbackMatchMeta && typeof fallbackMatchMeta === 'object') {
+      const fbP1Id = String(fallbackMatchMeta.player1_id || '').trim().toLowerCase();
+      const fbP2Id = String(fallbackMatchMeta.player2_id || '').trim().toLowerCase();
+      const fbP1Nm = String(fallbackMatchMeta.player1_name || '').trim().toLowerCase();
+      const fbP2Nm = String(fallbackMatchMeta.player2_name || '').trim().toLowerCase();
+      if (fbP1Id || fbP2Id || fbP1Nm || fbP2Nm) {
+        evMatch = evMatches.find(m => {
+          if (Number(m.round || m.round_number || 1) !== parsedRound) return false;
+          const p1IdRaw = String(m.player1_id || '').trim().toLowerCase();
+          const p2IdRaw = String(m.player2_id || '').trim().toLowerCase();
+          const p1NmRaw = String(m.player1_name || '').trim().toLowerCase();
+          const p2NmRaw = String(m.player2_name || '').trim().toLowerCase();
+          return (
+            (fbP1Id && (p1IdRaw === fbP1Id || p2IdRaw === fbP1Id)) ||
+            (fbP2Id && (p1IdRaw === fbP2Id || p2IdRaw === fbP2Id)) ||
+            (fbP1Nm && fbP1Nm !== 'player 1' && (p1NmRaw === fbP1Nm || p2NmRaw === fbP1Nm)) ||
+            (fbP2Nm && fbP2Nm !== 'player 2' && (p1NmRaw === fbP2Nm || p2NmRaw === fbP2Nm))
+          );
+        }) || null;
+      }
+    }
+    if (!evMatch) {
+      evMatch = evMatches.find(m => Number(m.round || m.round_number || 1) === parsedRound && Number(m.table_number || m.table || 1) === parsedTable) || null;
+    }
   } else if (evMatches.length > 0) {
     evMatch = evMatches.find(m => String(m.tracker_match_id || '') === String(matchId)) || null;
   }
@@ -2515,7 +2569,7 @@ async function openScorecardModal(matchId) {
       (isTrackerScorecard && (data.match_id || rec.match_id || st.match_id)) || matchId
     ).trim();
     activeScorecardMatchId = resolvedMatchId;
-    if (matchIdEl) matchIdEl.innerText = resolvedMatchId;
+    if (matchIdEl) matchIdEl.innerText = isTrackerScorecard ? resolvedMatchId : displayMatchId;
     if (fullPageLink) fullPageLink.href = `/scorecard/${encodeURIComponent(resolvedMatchId)}`;
 
     const p1Name = (isTrackerScorecard && (game.p1Name || rec.p1_name || st.p1?.name)) || bcpMatchRec?.player1_name || 'Player 1';

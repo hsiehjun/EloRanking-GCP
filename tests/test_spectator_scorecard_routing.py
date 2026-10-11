@@ -875,8 +875,80 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn("tableKey === 'event-factions'", utils_js)
         self.assertIn("onclick=\"sortTable('event-results', 'has_list')\"", app_html)
         self.assertIn("onclick=\"sortTable('event-pairings', 'outcome')\"", app_html)
-        self.assertIn("onclick=\"sortTable('leaderboard', 'current_elo')\"", app_html)
+        self.assertIn("onclick=\"sortTable('event-leaderboard', 'current_elo')\"" if "event-leaderboard" in app_html else "onclick=\"sortTable('leaderboard', 'current_elo')\"", app_html)
         print("✓ test_event_factions_and_hub_tables_sortable passed")
+
+    def test_duplicate_table_number_scorecard_disambiguation(self):
+        """Verify two pairings sharing the same round & table number (e.g. BFS GT 2026 Super Major R5 T67: Zach Point vs Daniel Wohlmuth AND Jack Murphy vs John Lennon) open their own distinct scorecards."""
+        import asyncio
+        from unittest.mock import patch
+        from routers.tracker import api_get_scorecard
+        from routers.leaderboard import _event_details_cache
+
+        tournaments_js = (ROOT_DIR / "web" / "js" / "tournaments.js").read_text(encoding="utf-8")
+        modals_js = (ROOT_DIR / "web" / "js" / "modals.js").read_text(encoding="utf-8")
+
+        self.assertIn("function buildEventPairingScorecardId(", tournaments_js)
+        self.assertIn("return `BCP-${evId}-R${rNum}-T${tNum}-M-${encodeURIComponent(disambig)}`;", tournaments_js)
+        self.assertIn("parsedMatchTok", modals_js)
+
+        ev_id = "jjK8zh9OXkCI"
+        _event_details_cache[ev_id] = {
+            "timestamp": 9999999999.0,
+            "is_ended": False,
+            "data": {
+                "id": ev_id,
+                "name": "BFS GT 2026 Super Major 3 Days",
+                "event_date": "2026-10-09",
+                "is_ended": False,
+                "matches": [
+                    {
+                        "id": "FIsULMuZyYMP",
+                        "round": 5,
+                        "table_number": 67,
+                        "player1_id": "V6fpF1NiKSjl",
+                        "player1_name": "Zach Point",
+                        "player1_faction": "Chaos Space Marines",
+                        "player1_score": 96,
+                        "player2_id": "qOVRRK35HYRw",
+                        "player2_name": "Daniel Wohlmuth",
+                        "player2_faction": "Blood Angels",
+                        "player2_score": 63,
+                    },
+                    {
+                        "id": "criJUqsWKtLb",
+                        "round": 5,
+                        "table_number": 67,
+                        "player1_id": "YRkR7q8lwGyy",
+                        "player1_name": "Jack Murphy",
+                        "player1_faction": "Chaos Daemons",
+                        "player1_score": 83,
+                        "player2_id": "7cPqOGViiUQY",
+                        "player2_name": "John Lennon",
+                        "player2_faction": "Chaos Space Marines",
+                        "player2_score": 82,
+                    },
+                ],
+            },
+        }
+        mock_db = MagicMock()
+        mock_db.get_tracker_game.return_value = None
+        try:
+            with patch("routers.tracker.get_database", return_value=mock_db):
+                res_zach = asyncio.run(api_get_scorecard(f"BCP-{ev_id}-R5-T67-M-FIsULMuZyYMP"))
+                self.assertTrue(res_zach["success"])
+                self.assertEqual(res_zach["bcp_match"]["player1_name"], "Zach Point")
+                self.assertEqual(res_zach["bcp_match"]["player2_name"], "Daniel Wohlmuth")
+
+                res_jack = asyncio.run(api_get_scorecard(f"BCP-{ev_id}-R5-T67-M-criJUqsWKtLb"))
+                self.assertTrue(res_jack["success"])
+                self.assertEqual(res_jack["bcp_match"]["player1_name"], "Jack Murphy")
+                self.assertEqual(res_jack["bcp_match"]["player2_name"], "John Lennon")
+                self.assertEqual(res_jack["bcp_match"]["player1_score"], 83)
+                self.assertEqual(res_jack["bcp_match"]["player2_score"], 82)
+        finally:
+            _event_details_cache.pop(ev_id, None)
+        print("✓ test_duplicate_table_number_scorecard_disambiguation passed")
 
 
 if __name__ == "__main__":

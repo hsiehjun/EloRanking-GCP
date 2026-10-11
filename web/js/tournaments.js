@@ -2915,6 +2915,32 @@ function setEventPairingsStatusFilter(filterVal) {
 }
 window.setEventPairingsStatusFilter = setEventPairingsStatusFilter;
 
+function buildEventPairingScorecardId(eventId, roundNum, tableNum, matchObj = null) {
+  if (matchObj && matchObj.tracker_match_id) {
+    return String(matchObj.tracker_match_id);
+  }
+  const evId = String(eventId || '').trim();
+  const rNum = Number(roundNum || 1);
+  const tNum = Number(tableNum || 1);
+  if (!evId) return '';
+  let disambig = '';
+  if (matchObj && typeof matchObj === 'object') {
+    const rawId = String(matchObj.id || matchObj.pairing_id || matchObj.bcp_pairing_id || '').trim();
+    if (rawId && !rawId.startsWith('pair-')) {
+      disambig = rawId;
+    } else {
+      const p1Id = String(matchObj.player1_id || '').trim();
+      const p1Name = String(matchObj.player1_name || '').trim();
+      disambig = p1Id || p1Name;
+    }
+  }
+  if (disambig) {
+    return `BCP-${evId}-R${rNum}-T${tNum}-M-${encodeURIComponent(disambig)}`;
+  }
+  return `BCP-${evId}-R${rNum}-T${tNum}`;
+}
+window.buildEventPairingScorecardId = buildEventPairingScorecardId;
+
 function renderEventPairingsRows(roundArg) {
   if (roundArg !== undefined && roundArg !== null) {
     selectedEventRound = roundArg;
@@ -3274,7 +3300,7 @@ function renderEventPairingsRows(roundArg) {
       const isDone = isToHubMatchCompleted(m);
       const hasJudgeCall = judgeTablesSet.has(tNumStr);
       const hasTracker = sessionTablesSet.has(tNumStr) || Boolean(m.has_tracker_game);
-      const matchId = m.tracker_match_id || `BCP-${eventId}-R${rNumInt}-T${tNumInt}`;
+      const matchId = buildEventPairingScorecardId(eventId, rNumInt, tNumInt, m);
 
       const p1Record = m._p1Record !== undefined ? m._p1Record : lookupEventPlayerFast(m.player1_id, m.player1_name);
       const p2Record = m._p2Record !== undefined ? m._p2Record : lookupEventPlayerFast(m.player2_id, m.player2_name);
@@ -5632,7 +5658,7 @@ function renderPersonalEventScorecard(ev, userRegData) {
 
     const roundNum = m.round || 1;
     const tableNum = m.table_number || m.table || 1;
-    const matchId = m.tracker_match_id || `BCP-${eventId}-R${roundNum}-T${tableNum}`;
+    const matchId = buildEventPairingScorecardId(eventId, roundNum, tableNum, m);
     const safeEventId = String(eventId).replace(/'/g, "\\'");
     const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
     const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
@@ -6112,7 +6138,7 @@ async function renderPlayerStation(ev, userRegData) {
       const safeP1Id = String(activeMatch.player1_id || '').replace(/'/g, "\\'");
       const safeP2Id = String(activeMatch.player2_id || '').replace(/'/g, "\\'");
       const safePairingId = String(activeMatch.id || activeMatch.pairing_id || activeMatch.bcp_pairing_id || '').replace(/'/g, "\\'");
-      const matchId = activeMatch.tracker_match_id || `BCP-${eventId}-R${roundNum}-T${tableNum}`;
+      const matchId = buildEventPairingScorecardId(eventId, roundNum, tableNum, activeMatch);
 
       activeHero.innerHTML = `
         <div class="card" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 58, 138, 0.45)); border: 1.5px solid rgba(56, 189, 248, 0.45); box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5); border-radius: 12px; padding: 1.25rem;">
@@ -8532,7 +8558,7 @@ function buildCasterPastH2hCardHtml(pastMatches, p1Pid, p2Pid, p1Name, p2Name, i
     const safeEventId = eventId.replace(/'/g, "\\'");
     const rNum = Number(m.round || 1);
     const tNum = Number(m.table_number || m.table || 0);
-    const scMatchId = m.tracker_match_id || (eventId && tNum > 0 ? `BCP-${eventId}-R${rNum}-T${tNum}` : '');
+    const scMatchId = m.tracker_match_id || (eventId && tNum > 0 ? buildEventPairingScorecardId(eventId, rNum, tNum, m) : '');
     const dateStr = String(m.match_date || '').slice(0, 10) || '-';
 
     return `
@@ -9572,7 +9598,7 @@ function buildCasterRadarGridHtml(eventId, roundMatches, curRound, activeSession
       continue;
     }
 
-    const matchId = m.tracker_match_id || `BCP-${eventId}-R${roundVal}-T${tNum}`;
+    const matchId = buildEventPairingScorecardId(eventId, roundVal, tNum, m);
     const safeMatchId = String(matchId).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const targetP1Id = String((p1Rec && (p1Rec.player_id || p1Rec.id)) || m.player1_id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const targetP1Name = String((p1Rec && (p1Rec.full_name || p1Rec.name)) || m.player1_name || 'Player 1').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -9600,7 +9626,7 @@ function buildCasterRadarGridHtml(eventId, roundMatches, curRound, activeSession
       : '';
 
     const cardHtml = `
-      <div class="card to-hub-table-card" onclick="openCasterDeskTableModal(${tNumInt}, ${roundVal})" title="Click to open Table ${escapeHtml(tNum)} Caster Desk Matchup & Dossiers" style="padding:0.75rem 0.9rem; background:rgba(15,23,42,0.82); border:1px solid ${borderCol}; border-radius:10px; display:flex; flex-direction:column; gap:0.45rem; cursor:pointer; transition:transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;">
+      <div class="card to-hub-table-card" onclick="openCasterDeskTableModal(${tNumInt}, ${roundVal}, ${idx})" title="Click to open Table ${escapeHtml(tNum)} Caster Desk Matchup & Dossiers" style="padding:0.75rem 0.9rem; background:rgba(15,23,42,0.82); border:1px solid ${borderCol}; border-radius:10px; display:flex; flex-direction:column; gap:0.45rem; cursor:pointer; transition:transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:0.35rem; flex-wrap:wrap;">
           <span style="font-family:var(--font-mono); font-weight:800; font-size:0.84rem; color:#f8fafc; display:inline-flex; align-items:center; gap:0.35rem;">
             Table ${escapeHtml(tNum)}
@@ -9612,7 +9638,7 @@ function buildCasterRadarGridHtml(eventId, roundMatches, curRound, activeSession
             ${statusBadge}
           </div>
         </div>
-        <div class="to-hub-player-click-row" onclick="event.stopPropagation(); openCasterDeskTableModal(${tNumInt}, ${roundVal})" title="Open Table ${escapeHtml(tNum)} Caster Desk Matchup & Dossiers" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding:0.2rem 0.35rem; margin:0 -0.35rem; border-radius:6px;">
+        <div class="to-hub-player-click-row" onclick="event.stopPropagation(); openCasterDeskTableModal(${tNumInt}, ${roundVal}, ${idx})" title="Open Table ${escapeHtml(tNum)} Caster Desk Matchup & Dossiers" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding:0.2rem 0.35rem; margin:0 -0.35rem; border-radius:6px;">
           <div style="min-width:0; flex:1;">
             <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:0.3rem;">
               <span style="overflow:hidden; text-overflow:ellipsis;">${escapeHtml(m.player1_name || 'Player 1')}</span>
@@ -9624,7 +9650,7 @@ function buildCasterRadarGridHtml(eventId, roundMatches, curRound, activeSession
           </div>
           <span onclick="event.stopPropagation(); ${!isByeP2 ? `openScorecardModal('${escapeHtml(safeMatchId)}')` : ''}" title="${!isByeP2 ? `View Table ${escapeHtml(tNum)} Scorecard` : ''}" style="font-family:var(--font-mono); font-weight:800; font-size:0.92rem; color:${isDone ? '#4ade80' : '#94a3b8'}; padding:2px 4px; border-radius:4px;">${escapeHtml(String(s1))}</span>
         </div>
-        <div class="to-hub-player-click-row" onclick="event.stopPropagation(); openCasterDeskTableModal(${tNumInt}, ${roundVal})" title="Open Table ${escapeHtml(tNum)} Caster Desk Matchup & Dossiers" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding:0.3rem 0.35rem 0.2rem; margin:0 -0.35rem; border-top:1px solid rgba(255,255,255,0.06); border-radius:0 0 6px 6px;">
+        <div class="to-hub-player-click-row" onclick="event.stopPropagation(); openCasterDeskTableModal(${tNumInt}, ${roundVal}, ${idx})" title="Open Table ${escapeHtml(tNum)} Caster Desk Matchup & Dossiers" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; font-size:0.82rem; padding:0.3rem 0.35rem 0.2rem; margin:0 -0.35rem; border-top:1px solid rgba(255,255,255,0.06); border-radius:0 0 6px 6px;">
           <div style="min-width:0; flex:1;">
             <div style="font-weight:700; color:#e2e8f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:0.3rem;">
               <span style="overflow:hidden; text-overflow:ellipsis;">${escapeHtml(p2NameRaw)}</span>
@@ -9657,7 +9683,7 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
   const eventId = ev?.id || currentOpenEventId || currentEventData?.id || '';
   const rawTableNum = Number(selectedMatch?.table_number ?? selectedMatch?.table ?? 0);
   const activeTableNum = rawTableNum > 0 ? rawTableNum : Number(selectedCasterTable || (matchIdx !== null && matchIdx >= 0 ? matchIdx + 1 : 1));
-  const activeMatchId = selectedMatch?.tracker_match_id || `BCP-${eventId}-R${curRound}-T${activeTableNum}`;
+  const activeMatchId = buildEventPairingScorecardId(eventId, curRound, activeTableNum, selectedMatch);
   const curRoundMeta = getEventRoundMetadata(ev, matches, curRound, maxR);
   const canTo = Boolean(typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(ev));
   const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.role === 'creator' || currentUser.can_access_cc || currentUser.is_cc || currentUser.is_admin)));
@@ -9761,7 +9787,7 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
       const rNum = Number(m.round || 1);
       const tNum = Number(m.table_number || m.table || 1);
       const rMeta = getEventRoundMetadata(ev, matches, rNum, maxR);
-      const mId = m.tracker_match_id || `BCP-${eventId}-R${rNum}-T${tNum}`;
+      const mId = buildEventPairingScorecardId(eventId, rNum, tNum, m);
       const mHasScore = mySc !== null && mySc !== undefined && opSc !== null && opSc !== undefined;
       let resPill = `<span class="badge" style="background:rgba(148,163,184,0.15); color:#94a3b8; font-size:0.66rem; white-space:nowrap; flex-shrink:0;">LIVE</span>`;
       if (m.is_bye || opName === 'BYE') {
@@ -10013,8 +10039,10 @@ function openCasterDeskTableModal(tableNum, roundNum, matchIdx = null) {
   const toHubMatches = Array.isArray(window._toHubCurrentRoundMatches) ? window._toHubCurrentRoundMatches : roundMatches;
   let selectedMatch = null;
   let resolvedMatchIdx = (matchIdx !== null && matchIdx !== undefined && !isNaN(Number(matchIdx))) ? Number(matchIdx) : -1;
-  if (resolvedMatchIdx >= 0 && toHubMatches[resolvedMatchIdx]) {
+  if (resolvedMatchIdx >= 0 && toHubMatches[resolvedMatchIdx] && Number(toHubMatches[resolvedMatchIdx].round || toHubMatches[resolvedMatchIdx].round_number || 1) === curRound) {
     selectedMatch = toHubMatches[resolvedMatchIdx];
+  } else if (resolvedMatchIdx >= 0 && roundMatches[resolvedMatchIdx]) {
+    selectedMatch = roundMatches[resolvedMatchIdx];
   } else {
     selectedMatch = roundMatches.find(m => Number(m.table_number || m.table) === tNum) || roundMatches[0];
     if (selectedMatch) {
@@ -13212,7 +13240,7 @@ function buildToHubRadarGridHtml(eventId, roundMatches, openJudgeCalls, activeSe
       continue;
     }
 
-    const matchId = m.tracker_match_id || `BCP-${eventId}-R${roundVal}-T${tNum}`;
+    const matchId = buildEventPairingScorecardId(eventId, roundVal, tNum, m);
     const safeMatchId = String(matchId).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const targetP1Id = String((p1Rec && (p1Rec.player_id || p1Rec.id)) || m.player1_id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const targetP1Name = String((p1Rec && (p1Rec.full_name || p1Rec.name)) || m.player1_name || 'Player 1').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -14476,7 +14504,7 @@ function openToHubTableCommsModal(matchIdx, initialTarget = 'table') {
   const evName = (currentEventData && (currentEventData.name || currentEventData.event_name)) || 'Live Tournament';
   const tableNum = m.tableNum || m.table_number || m.table || (matchIdx + 1);
   const roundNum = m.round || m.round_number || _toHubRadarRound || 1;
-  const matchId = m.tracker_match_id || `BCP-${eventId}-R${roundNum}-T${tableNum}`;
+  const matchId = buildEventPairingScorecardId(eventId, roundNum, tableNum, m);
 
   const p1Name = m.player1_name || 'Player 1';
   const p2Name = m.player2_name || (m.is_bye ? 'BYE' : 'Player 2');
