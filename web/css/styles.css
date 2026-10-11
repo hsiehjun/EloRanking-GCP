@@ -12856,8 +12856,8 @@ table.desktop-only,
 /* Tale of the Tape */
 .tale-of-tape-grid {
   display: grid;
-  grid-template-columns: 1fr 160px 1fr;
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) 208px minmax(0, 1fr);
+  gap: 0.9rem;
   align-items: stretch;
 }
 
@@ -12946,51 +12946,104 @@ table.desktop-only,
   justify-content: center;
   gap: 0.45rem;
   text-align: center;
+  background: rgba(9, 14, 26, 0.68);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 0.85rem 0.9rem;
+  box-sizing: border-box;
+}
+
+.win-prob-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
 }
 
 .win-prob-header-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   width: 100%;
-  gap: 0.35rem;
+  gap: 0.4rem;
 }
 
 .win-prob-label {
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   font-weight: 800;
   text-transform: uppercase;
-  color: var(--text-muted);
-  letter-spacing: 0.04em;
+  color: #94a3b8;
+  letter-spacing: 0.08em;
   white-space: nowrap;
+}
+
+.win-prob-vs {
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.06em;
+  line-height: 1.3;
 }
 
 .win-prob-pct {
   font-family: var(--font-mono);
   font-weight: 800;
-  font-size: 1.05rem;
+  font-size: 1.15rem;
+  line-height: 1;
 }
 
 .win-prob-footer-row {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
   width: 100%;
+  margin-top: 0.1rem;
+}
+
+.win-prob-elo-pill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #cbd5e1;
+  font-family: var(--font-mono);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 6px;
+  padding: 3px 8px;
+  width: 100%;
+  text-align: center;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+.win-prob-scorecard-btn {
+  width: 100%;
+  justify-content: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  white-space: nowrap;
 }
 
 .win-prob-track {
   width: 100%;
   height: 10px;
-  background: rgba(244, 63, 94, 0.35);
+  background: linear-gradient(90deg, rgba(244, 63, 94, 0.55), #f43f5e);
   border-radius: 999px;
   overflow: hidden;
   display: flex;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
 .win-prob-fill-p1 {
   height: 100%;
-  background: linear-gradient(90deg, #38bdf8, #818cf8);
+  background: linear-gradient(90deg, #38bdf8, #60a5fa);
+  border-right: 2px solid rgba(9, 14, 26, 0.9);
   transition: width 0.3s ease;
 }
 
@@ -13046,14 +13099,19 @@ table.desktop-only,
     background: rgba(9, 14, 26, 0.72);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
-    padding: 0.55rem 0.75rem;
-    gap: 0.35rem;
+    padding: 0.65rem 0.85rem;
+    gap: 0.4rem;
   }
   .win-prob-footer-row {
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
     margin-top: 0.1rem;
+    gap: 0.5rem;
+  }
+  .win-prob-elo-pill,
+  .win-prob-scorecard-btn {
+    width: auto;
   }
 }
 

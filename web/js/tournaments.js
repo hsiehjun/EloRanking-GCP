@@ -9498,16 +9498,7 @@ async function hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch) {
 }
 
 function updateCasterRosterPreviewDom(side, playerObj, rosterText, listId) {
-  const fighterUnitsRowEl = document.getElementById(`caster-fighter-units-row-${side}`);
-  const fighterUnitsEl = document.getElementById(`caster-fighter-units-${side}`);
-  const units = extractKeyListUnits(rosterText, playerObj?.faction, playerObj?.detachment);
-
-  if (units.length > 0) {
-    if (fighterUnitsRowEl) fighterUnitsRowEl.style.display = '';
-    if (fighterUnitsEl) fighterUnitsEl.innerHTML = escapeHtml(units.slice(0, 4).join(', '));
-  } else {
-    if (fighterUnitsRowEl) fighterUnitsRowEl.style.display = 'none';
-  }
+  // Core Units preview intentionally omitted.
 }
 
 /* ==========================================================================
@@ -9903,7 +9894,6 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
             </div>
             <div class="fighter-stats-box">
               <div><strong>Event Record:</strong> ${p1?.event_wins || 0}W - ${p1?.event_losses || 0}L (${p1?.event_battle_points || 0} pts)</div>
-              <div id="caster-fighter-units-row-p1" style="display: ${p1Units.length > 0 ? 'block' : 'none'};"><strong>Core Units:</strong> <span id="caster-fighter-units-p1">${escapeHtml(p1Units.slice(0, 4).join(', '))}</span></div>
             </div>
             <div class="fighter-actions">
               <button type="button" class="btn-xs btn-outline" onclick="openPlayerModal('${escapeHtml(p1SafePid)}', '${escapeHtml(p1SafeName)}')" style="font-size: 0.72rem; padding: 3px 9px; border-radius: 5px; color: #38bdf8; border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.08); cursor: pointer; font-weight: 700;">
@@ -9917,19 +9907,22 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
 
           <!-- Center Win Prob Meter -->
           <div class="win-prob-container">
+            <div class="win-prob-title-row">
+              <span class="win-prob-label">Win Probability</span>
+            </div>
             <div class="win-prob-header-row">
               <span class="win-prob-pct p1" style="color: #38bdf8;">${p1WinProb}%</span>
-              <span class="win-prob-label">Win Probability</span>
+              <span class="win-prob-vs">VS</span>
               <span class="win-prob-pct p2" style="color: #f43f5e;">${p2WinProb}%</span>
             </div>
             <div class="win-prob-track">
               <div class="win-prob-fill-p1" style="width: ${p1WinProb}%;"></div>
             </div>
             <div class="win-prob-footer-row">
-              <span style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">
-                ${Math.abs(p1Elo - p2Elo).toFixed(1)} Elo Delta
+              <span class="win-prob-elo-pill">
+                ±${Math.abs(p1Elo - p2Elo).toFixed(1)} Elo Delta
               </span>
-              <button type="button" class="btn-xs btn-outline" onclick="openScorecardModal('${escapeHtml(activeMatchId)}')" style="font-size: 0.71rem; padding: 3px 9px; border-radius: 5px; color: #fbbf24; border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.1); cursor: pointer; font-weight: 700;">
+              <button type="button" class="btn-xs btn-outline win-prob-scorecard-btn" onclick="openScorecardModal('${escapeHtml(activeMatchId)}')" style="font-size: 0.71rem; padding: 4px 10px; border-radius: 6px; color: #fbbf24; border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.1); cursor: pointer; font-weight: 700;">
                 📄 View Scorecard
               </button>
             </div>
@@ -9953,7 +9946,6 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
             </div>
             <div class="fighter-stats-box">
               <div><strong>Event Record:</strong> ${p2?.event_wins || 0}W - ${p2?.event_losses || 0}L (${p2?.event_battle_points || 0} pts)</div>
-              <div id="caster-fighter-units-row-p2" style="display: ${p2Units.length > 0 ? 'block' : 'none'};"><strong>Core Units:</strong> <span id="caster-fighter-units-p2">${escapeHtml(p2Units.slice(0, 4).join(', '))}</span></div>
             </div>
             <div class="fighter-actions">
               <button type="button" class="btn-xs btn-outline" onclick="openPlayerModal('${escapeHtml(p2SafePid)}', '${escapeHtml(p2SafeName)}')" style="font-size: 0.72rem; padding: 3px 9px; border-radius: 5px; color: #f43f5e; border-color: rgba(244,63,94,0.35); background: rgba(244,63,94,0.08); cursor: pointer; font-weight: 700;">
