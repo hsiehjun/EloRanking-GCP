@@ -720,6 +720,13 @@ def repair_historical_matches_and_elo(
                         )
                     conn.commit()
 
+        super_faction_repair_summary = None
+        if hasattr(db, "repair_super_factions_in_db"):
+            try:
+                super_faction_repair_summary = db.repair_super_factions_in_db(force=True)
+            except Exception as sf_err:
+                logger.warning(f"[RepairMatchesElo] Super-faction repair notice: {sf_err}")
+
         elo_summary = None
         should_reconstruct = bool(reconstruct and (updates_to_apply or force_reconstruct))
         if should_reconstruct:

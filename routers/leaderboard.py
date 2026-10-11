@@ -343,10 +343,10 @@ async def api_player_profile(
                     if int(t_meta.get("total_players") or 0) > 0:
                         hp["total_players"] = int(t_meta["total_players"])
                     cur_pf = str(hp.get("player_faction") or "").strip()
-                    if not cur_pf or cur_pf.lower() in ("unknown", "unknown faction", "none", "null", "-"):
-                        reg_fac = str(t_meta.get("registered_faction") or t_meta.get("faction") or "").strip()
-                        if reg_fac and reg_fac.lower() not in ("unknown", "unknown faction", "none", "null", "-"):
-                            hp["player_faction"] = reg_fac
+                    reg_fac = str(t_meta.get("registered_faction") or t_meta.get("faction") or "").strip()
+                    best_pf = PostgresDatabase.pick_specific_faction(cur_pf, reg_fac, default="")
+                    if best_pf:
+                        hp["player_faction"] = best_pf
                 ev_k = hid or f"{hname}:{hyr}"
                 if ev_k:
                     st = ev_rec_stats.setdefault(ev_k, {"w": 0, "l": 0, "d": 0, "bp": 0, "tot": 0})
@@ -1233,19 +1233,16 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
                     except (ValueError, TypeError): pass
 
         # Extract faction and army details from BCP competitor entry
-        faction_name = ""
-        fac_cand = p.get("faction")
-        if isinstance(fac_cand, dict):
-            faction_name = str(fac_cand.get("name") or "").strip()
-        elif isinstance(fac_cand, str) and fac_cand.strip() and fac_cand.strip().lower() not in ("unknown", "unassigned", "none", "various", "-"):
-            faction_name = fac_cand.strip()
-
-        if not faction_name or faction_name.lower() in ("unknown", "unassigned", "none", "various", "-"):
-            for fk in ("factionName", "army", "armyName", "army_name", "customFaction"):
-                val = p.get(fk)
-                if val and str(val).strip() and str(val).strip().lower() not in ("unknown", "unassigned", "none", "various", "-"):
-                    faction_name = str(val).strip()
-                    break
+        faction_name = PostgresDatabase.pick_specific_faction(
+            p.get("army"),
+            p.get("armyName"),
+            p.get("army_name"),
+            p.get("faction"),
+            p.get("factionName"),
+            p.get("customFaction"),
+            p.get("parentFaction"),
+            default=""
+        )
 
         # Also extract detachment / subfaction
         detachment_name = ""

@@ -23,6 +23,114 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("BCPScraper")
 
+EMPTY_FACTION_NAMES = {
+    "",
+    "unknown",
+    "unknown faction",
+    "unassigned",
+    "none",
+    "null",
+    "-",
+    "various",
+    "n/a",
+    "tbd",
+    "bye",
+}
+
+SUPER_FACTION_NAMES = {
+    "imperium",
+    "armies of the imperium",
+    "forces of the imperium",
+    "chaos",
+    "armies of chaos",
+    "forces of chaos",
+    "xenos",
+    "xenos armies",
+    "forces of the hive mind",
+    "hive mind",
+    "order",
+    "grand alliance order",
+    "grand alliance: order",
+    "grand alliance chaos",
+    "grand alliance: chaos",
+    "death",
+    "grand alliance death",
+    "grand alliance: death",
+    "destruction",
+    "grand alliance destruction",
+    "grand alliance: destruction",
+    "warhammer 40,000",
+    "warhammer 40k",
+    "age of sigmar",
+    "warhammer age of sigmar",
+}
+
+GENERIC_SM_NAMES = {
+    "space marines (astartes)",
+    "adeptus astartes",
+    "space marines",
+}
+
+
+def is_generic_super_faction(name: Optional[str]) -> bool:
+    """Returns True if name is empty, unknown, or a generic Grand Alliance / super-faction."""
+    norm = str(name or "").strip().lower()
+    return norm in EMPTY_FACTION_NAMES or norm in SUPER_FACTION_NAMES
+
+
+def extract_bcp_specific_faction(
+    p_obj: Optional[Dict[str, Any]],
+    roster_faction: Optional[str] = None,
+) -> str:
+    """Extracts the most specific army/faction name from a BCP player or pairing player object.
+
+    In BCP's `/v1/pairings` endpoint, `player.army` holds the specific army (e.g. 'Adepta Sororitas',
+    'World Eaters', 'Dark Angels') while `player.faction` holds the Grand Alliance / super-faction
+    ('Imperium', 'Chaos', 'Forces of the Hive Mind', 'Space Marines (Astartes)', 'Xenos').
+    In `/v1/events/{id}/players`, `player.faction` holds the specific army and `player.parentFaction`
+    holds the super-faction. This helper always prioritizes the specific army over any super-faction.
+    """
+    candidates: List[str] = []
+    if isinstance(p_obj, dict):
+        raw_fields = (
+            p_obj.get("army"),
+            p_obj.get("armyName"),
+            p_obj.get("army_name"),
+            p_obj.get("faction"),
+            p_obj.get("factionName"),
+            p_obj.get("faction_name"),
+            p_obj.get("customFaction"),
+            roster_faction,
+            p_obj.get("parentFaction"),
+        )
+    else:
+        raw_fields = (roster_faction,)
+
+    for raw in raw_fields:
+        if not raw:
+            continue
+        if isinstance(raw, dict):
+            val = str(raw.get("name") or raw.get("factionName") or raw.get("armyName") or "").strip()
+        else:
+            val = str(raw).strip()
+        if val and val.lower() not in EMPTY_FACTION_NAMES:
+            candidates.append(val)
+
+    # Pass 1: Specific army that is neither a super-faction nor generic Space Marines
+    for cand in candidates:
+        low = cand.lower()
+        if low not in SUPER_FACTION_NAMES and low not in GENERIC_SM_NAMES:
+            return cand
+
+    # Pass 2: Generic Space Marines (better than 'Imperium')
+    for cand in candidates:
+        low = cand.lower()
+        if low not in SUPER_FACTION_NAMES:
+            return cand
+
+    # Pass 3: Fallback to whatever valid string was provided
+    return candidates[0] if candidates else ""
+
 
 class BestCoastPairingsScraper:
     """Scrapes tournaments, player rosters, and round-by-round pairings from Best Coast Pairings."""
@@ -483,12 +591,7 @@ class BestCoastPairingsScraper:
                     first_name = resolved_usr.get("first_name") or first_name
                     last_name = resolved_usr.get("last_name") or last_name
 
-            faction_obj = p.get("faction") or p.get("parentFaction") or ""
-            faction_name = ""
-            if isinstance(faction_obj, dict):
-                faction_name = faction_obj.get("name", "")
-            elif isinstance(faction_obj, str):
-                faction_name = faction_obj
+            faction_name = extract_bcp_specific_faction(p)
 
             team_name = (
                 p.get("team") or p.get("teamName") or 
@@ -759,14 +862,19 @@ class BestCoastPairingsScraper:
                         pass
                     games_list.append(g_copy)
 
+            p_faction = extract_bcp_specific_faction(p)
             for alias_id in (p.get("id"), p.get("playerId"), p.get("userId"), user.get("id")):
                 if alias_id:
                     aid_str = str(alias_id).strip()
                     mapping[aid_str] = canonical_id
                     if games_list:
                         mapping[f"games:{aid_str}"] = games_list
+                    if p_faction:
+                        mapping[f"faction:{aid_str}"] = p_faction
             if games_list:
                 mapping[f"games:{canonical_id}"] = games_list
+            if p_faction:
+                mapping[f"faction:{canonical_id}"] = p_faction
             if full_name and full_name.lower() not in ("player", "player 1", "player 2", "bye"):
                 mapping[f"fullname:{canonical_id}"] = full_name
         return mapping
@@ -896,9 +1004,14 @@ class BestCoastPairingsScraper:
                     p1_first = resolved_usr.get("first_name") or p1_first
                     p1_last = resolved_usr.get("last_name") or p1_last
 
-        p1_faction = p1_obj.get("faction") or p1_obj.get("parentFaction") or ""
-        if isinstance(p1_faction, dict):
-            p1_faction = p1_faction.get("name", "")
+        p1_roster_fac = ""
+        if roster_id_map:
+            p1_roster_fac = str(
+                roster_id_map.get(f"faction:{p1_user_id}")
+                or roster_id_map.get(f"faction:{p1_reg_id}")
+                or ""
+            ).strip()
+        p1_faction = extract_bcp_specific_faction(p1_obj, roster_faction=p1_roster_fac)
 
         # Player 2 details: Always prioritize explicit global userId over registration id
         p2_user = p2_obj.get("user") or {}
@@ -941,9 +1054,14 @@ class BestCoastPairingsScraper:
                     p2_first = resolved_usr.get("first_name") or p2_first
                     p2_last = resolved_usr.get("last_name") or p2_last
 
-        p2_faction = p2_obj.get("faction") or p2_obj.get("parentFaction") or ""
-        if isinstance(p2_faction, dict):
-            p2_faction = p2_faction.get("name", "")
+        p2_roster_fac = ""
+        if roster_id_map:
+            p2_roster_fac = str(
+                roster_id_map.get(f"faction:{p2_user_id}")
+                or roster_id_map.get(f"faction:{p2_reg_id}")
+                or ""
+            ).strip()
+        p2_faction = extract_bcp_specific_faction(p2_obj, roster_faction=p2_roster_fac)
 
         is_bye = bool(
             p2_user_id is None or p2_name == "BYE" or 

@@ -10,6 +10,56 @@ if (typeof window !== 'undefined') {
   window.currentProfileData = null;
 }
 
+const _SUPER_FACTION_SET = new Set([
+  'unknown', 'unknown faction', 'unassigned', 'none', 'null', 'n/a', '-', 'bye', 'various',
+  'imperium', 'armies of the imperium', 'forces of the imperium',
+  'chaos', 'armies of chaos', 'forces of chaos',
+  'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind',
+  'order', 'grand alliance order', 'grand alliance: order',
+  'grand alliance chaos', 'grand alliance: chaos',
+  'death', 'grand alliance death', 'grand alliance: death',
+  'destruction', 'grand alliance destruction', 'grand alliance: destruction',
+  'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar'
+]);
+
+const _GENERIC_SM_SET = new Set([
+  'space marines', 'space marines (astartes)', 'adeptus astartes'
+]);
+
+function isGenericSuperFaction(val, includeGenericSm = false) {
+  const s = String(val || '').trim().toLowerCase();
+  if (!s || _SUPER_FACTION_SET.has(s)) return true;
+  if (includeGenericSm && _GENERIC_SM_SET.has(s)) return true;
+  return false;
+}
+
+function pickSpecificFaction(...candidates) {
+  let genericSmFallback = '';
+  let superFallback = '';
+  for (const cand of candidates) {
+    const s = String(cand || '').trim();
+    if (!s) continue;
+    const low = s.toLowerCase();
+    if (['unknown', 'unknown faction', 'unassigned', 'none', 'null', 'n/a', '-', 'bye', 'various'].includes(low)) {
+      continue;
+    }
+    if (!isGenericSuperFaction(s, true)) {
+      return s;
+    }
+    if (_GENERIC_SM_SET.has(low)) {
+      if (!genericSmFallback) genericSmFallback = s;
+    } else if (_SUPER_FACTION_SET.has(low)) {
+      if (!superFallback) superFallback = s;
+    }
+  }
+  return genericSmFallback || superFallback || '';
+}
+
+if (typeof window !== 'undefined') {
+  window.isGenericSuperFaction = isGenericSuperFaction;
+  window.pickSpecificFaction = pickSpecificFaction;
+}
+
 function formatOrdinalSuffix(n) {
   const num = Number(n);
   if (!Number.isFinite(num) || num <= 0) return '';
@@ -301,7 +351,7 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
         event_name: evName,
         event_id: resolvedEid,
         date: m.match_date ? String(m.match_date).slice(0, 10) : (tMeta && tMeta.event_date ? String(tMeta.event_date).slice(0, 10) : ''),
-        faction: m.player_faction || (tMeta && tMeta.registered_faction !== 'Unknown' ? tMeta.registered_faction : '') || '',
+        faction: pickSpecificFaction(tMeta && tMeta.registered_faction, tMeta && tMeta.faction, m.player_faction),
         placement: Number((tMeta && tMeta.placement) || m.placement || 0),
         total_players: Number((tMeta && tMeta.total_players) || m.total_players || 0),
         rounds: [],
@@ -317,7 +367,9 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     else if (m.result === 'L') ev.losses++;
     else if (m.result === 'D') ev.draws++;
     ev.totalEloDelta += Number(m.delta_elo || 0);
-    if (!ev.faction && m.player_faction) ev.faction = m.player_faction;
+    if (m.player_faction || (tMeta && (tMeta.registered_faction || tMeta.faction))) {
+      ev.faction = pickSpecificFaction(ev.faction, tMeta && tMeta.registered_faction, tMeta && tMeta.faction, m.player_faction);
+    }
     if (!ev.date && m.match_date) ev.date = String(m.match_date).slice(0, 10);
     if (!ev.placement && m.placement) ev.placement = Number(m.placement);
     if (!ev.total_players && m.total_players) ev.total_players = Number(m.total_players);
@@ -2296,11 +2348,15 @@ function _enrichHistoryWithTournamentsAndTracker(history, tournamentsMeta, track
     tournamentsMeta.forEach(t => {
       if (!t) return;
       const rf = String(t.registered_faction || t.faction || '').trim();
-      if (!rf || rf.toLowerCase() === 'unknown' || rf.toLowerCase() === 'none') return;
+      if (!rf || isGenericSuperFaction(rf, false)) return;
       const tid = String(t.tournament_id || t.event_id || t.id || '').trim();
       const tname = String(t.tournament_name || t.event_name || t.name || '').trim().toLowerCase();
-      if (tid && !tFactionById.has(tid)) tFactionById.set(tid, rf);
-      if (tname && !tFactionByName.has(tname)) tFactionByName.set(tname, rf);
+      if (tid) {
+        tFactionById.set(tid, pickSpecificFaction(rf, tFactionById.get(tid)));
+      }
+      if (tname) {
+        tFactionByName.set(tname, pickSpecificFaction(rf, tFactionByName.get(tname)));
+      }
     });
   }
 
@@ -2313,14 +2369,11 @@ function _enrichHistoryWithTournamentsAndTracker(history, tournamentsMeta, track
       if (!m) return;
       const copy = Object.assign({}, m);
       let pf = String(copy.player_faction || '').trim();
-      if (!pf || pf.toLowerCase() === 'unknown' || pf.toLowerCase() === 'none') {
-        const tid = String(copy.tournament_id || copy.event_id || '').trim();
-        const tname = String(copy.tournament_name || copy.event_name || '').trim().toLowerCase();
-        if (tid && tFactionById.has(tid)) {
-          copy.player_faction = tFactionById.get(tid);
-        } else if (tname && tFactionByName.has(tname)) {
-          copy.player_faction = tFactionByName.get(tname);
-        }
+      const tid = String(copy.tournament_id || copy.event_id || '').trim();
+      const tname = String(copy.tournament_name || copy.event_name || '').trim().toLowerCase();
+      const tFac = (tid && tFactionById.get(tid)) || (tname && tFactionByName.get(tname)) || '';
+      if (tFac) {
+        copy.player_faction = pickSpecificFaction(pf, tFac) || pf;
       }
       const mid = String(copy.match_id || copy.id || '').trim();
       if (mid) seenIds.add(mid);
@@ -2381,11 +2434,15 @@ function _enrichHistoryWithTournamentsAndTracker(history, tournamentsMeta, track
 function computeProfileFactionMastery(history, existingBreakdown, tournamentsMeta, trackerHistory) {
   const map = new Map();
   const enrichedHistory = _enrichHistoryWithTournamentsAndTracker(history, tournamentsMeta, trackerHistory);
+  const hasSpecificFac = (
+    (Array.isArray(enrichedHistory) && enrichedHistory.some(m => m && !isGenericSuperFaction(m.player_faction, true)))
+    || (Array.isArray(existingBreakdown) && existingBreakdown.some(eb => eb && !isGenericSuperFaction(eb.faction, true)))
+  );
   if (Array.isArray(enrichedHistory) && enrichedHistory.length > 0) {
     enrichedHistory.forEach(m => {
       if (m.is_bye || (m.opponent_name && m.opponent_name.toUpperCase() === 'BYE')) return;
       const factionName = (m.player_faction || '').trim();
-      if (!factionName || factionName.toLowerCase() === 'unknown' || factionName.toLowerCase() === 'none') return;
+      if (!factionName || isGenericSuperFaction(factionName, hasSpecificFac)) return;
       if (!map.has(factionName)) {
         map.set(factionName, { faction: factionName, games: 0, wins: 0, losses: 0, draws: 0, net_elo: 0, win_rate: 0 });
       }
@@ -2403,7 +2460,7 @@ function computeProfileFactionMastery(history, existingBreakdown, tournamentsMet
     existingBreakdown.forEach(eb => {
       if (!eb) return;
       const fn = (eb.faction || '').trim();
-      if (!fn || fn.toLowerCase() === 'unknown' || fn.toLowerCase() === 'none') return;
+      if (!fn || isGenericSuperFaction(fn, hasSpecificFac)) return;
       const g = Number(eb.games ?? eb.matches ?? 0);
       if (g <= 0) return;
       const hasWl = eb.wins !== undefined || eb.losses !== undefined;
@@ -2456,7 +2513,7 @@ function computeProfileMatchupMatrix(history, existingMatrix, tournamentsMeta, t
     enrichedHistory.forEach(m => {
       if (m.is_bye || (m.opponent_name && m.opponent_name.toUpperCase() === 'BYE')) return;
       const oppFaction = (m.opponent_faction || m.enemy_faction || '').trim();
-      if (!oppFaction || oppFaction.toLowerCase() === 'unknown' || oppFaction.toLowerCase() === 'none') return;
+      if (!oppFaction || isGenericSuperFaction(oppFaction, false)) return;
       if (!map.has(oppFaction)) {
         map.set(oppFaction, { enemy_faction: oppFaction, total_encounters: 0, wins: 0, losses: 0, draws: 0, net_elo: 0, win_rate: 0 });
       }
@@ -2473,7 +2530,7 @@ function computeProfileMatchupMatrix(history, existingMatrix, tournamentsMeta, t
     existingMatrix.forEach(em => {
       if (!em) return;
       const fn = (em.enemy_faction || em.faction || '').trim();
-      if (!fn || fn.toLowerCase() === 'unknown' || fn.toLowerCase() === 'none') return;
+      if (!fn || isGenericSuperFaction(fn, false)) return;
       const g = Number(em.total_encounters ?? em.games ?? 0);
       if (g <= 0) return;
       const hasWl = em.wins !== undefined || em.losses !== undefined;

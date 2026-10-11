@@ -86,14 +86,24 @@ def _sanitize_team(val: Any, max_len: int = 100) -> Optional[str]:
 
 
 def _sanitize_top_factions(player_factions_counter: collections.Counter, max_factions: int = 5, max_len: int = 200) -> Optional[str]:
-    """Formats and bounds top factions string to prevent DB index limit errors."""
+    """Formats and bounds top factions string to prevent DB index limit errors and strips generic super-factions."""
     if not player_factions_counter:
         return None
-    factions_list: List[str] = []
-    for fac, cnt in player_factions_counter.most_common(max_factions):
+    specific_candidates: List[str] = []
+    generic_sm_candidates: List[str] = []
+    for fac, cnt in player_factions_counter.most_common():
         clean_fac = _sanitize_name(fac, max_len=60)
-        if clean_fac and clean_fac.lower() not in ("none", "null", "unknown", "n/a"):
-            factions_list.append(clean_fac)
+        if not clean_fac or Database.is_super_or_empty_faction(clean_fac, include_generic_sm=False):
+            continue
+        if Database.is_super_or_empty_faction(clean_fac, include_generic_sm=True):
+            if clean_fac not in generic_sm_candidates:
+                generic_sm_candidates.append(clean_fac)
+        else:
+            if clean_fac not in specific_candidates:
+                specific_candidates.append(clean_fac)
+    factions_list = list(specific_candidates[:max_factions])
+    if not factions_list and generic_sm_candidates:
+        factions_list = list(generic_sm_candidates[:max_factions])
     if not factions_list:
         return None
     res = ", ".join(factions_list)
@@ -1661,10 +1671,12 @@ class EloEngine:
                     if int(t_m.get("total_players") or 0) > 0:
                         h["total_players"] = int(t_m["total_players"])
                     cur_pf = str(h.get("player_faction") or "").strip()
-                    if not cur_pf or cur_pf.lower() in ("unknown", "unknown faction", "none", "null", "-"):
-                        reg_fac = str(t_m.get("registered_faction") or t_m.get("faction") or "").strip()
-                        if reg_fac and reg_fac.lower() not in ("unknown", "unknown faction", "none", "null", "-"):
-                            h["player_faction"] = reg_fac
+                    reg_fac = str(t_m.get("registered_faction") or t_m.get("faction") or "").strip()
+                    best_pf = Database.pick_specific_faction(cur_pf, reg_fac, default="")
+                    if best_pf:
+                        h["player_faction"] = best_pf
+                        if Database.is_super_or_empty_faction(reg_fac, include_generic_sm=True) and not Database.is_super_or_empty_faction(best_pf, include_generic_sm=True):
+                            t_m["registered_faction"] = best_pf
                 ev_key = h_eid or f"{h_ename}:{h_yr}"
                 if ev_key:
                     st = hist_ev_stats.setdefault(ev_key, {"w": 0, "l": 0, "d": 0, "bp": 0, "tot": 0})
@@ -1945,6 +1957,10 @@ class EloEngine:
             })
 
         # Compute Faction Mastery & Opponent Matchup Matrix from enriched history
+        has_specific_player_fac = any(
+            isinstance(h, dict) and not Database.is_super_or_empty_faction(h.get("player_faction"), include_generic_sm=True)
+            for h in history
+        )
         player_fac_counts = collections.Counter()
         fm_by_fac: Dict[str, Dict[str, float]] = {}
         mm_by_fac: Dict[str, Dict[str, float]] = {}
@@ -1953,7 +1969,7 @@ class EloEngine:
                 continue
             is_bye_match = bool(h.get("is_bye")) or str(h.get("opponent_name") or "").strip().upper() == "BYE"
             fac = str(h.get("player_faction") or "").strip()
-            if fac and fac.lower() not in ("unknown", "unknown faction", "none", "null", "-"):
+            if fac and not Database.is_super_or_empty_faction(fac, include_generic_sm=has_specific_player_fac):
                 player_fac_counts[fac] += 1
                 if not is_bye_match:
                     fb = fm_by_fac.setdefault(fac, {"games": 0, "wins": 0, "losses": 0, "draws": 0, "net_elo": 0.0, "score_sum": 0.0})
@@ -1970,7 +1986,7 @@ class EloEngine:
 
             if not is_bye_match:
                 opp_fac = str(h.get("opponent_faction") or h.get("enemy_faction") or "").strip()
-                if opp_fac and opp_fac.lower() not in ("unknown", "unknown faction", "none", "null", "-", "bye"):
+                if opp_fac and opp_fac.lower() != "bye" and not Database.is_super_or_empty_faction(opp_fac, include_generic_sm=False):
                     mb = mm_by_fac.setdefault(opp_fac, {"total_encounters": 0, "wins": 0, "losses": 0, "draws": 0, "net_elo": 0.0})
                     mb["total_encounters"] += 1
                     res_code = str(h.get("result") or "").upper()
@@ -2017,6 +2033,23 @@ class EloEngine:
             }
             for f, c in player_fac_counts.most_common() if f
         ]
+
+        # Clean top_faction so generic super-factions or redundant Space Marines (Astartes) are removed
+        raw_top_fac = str(player_meta.get("top_faction") or "").strip()
+        if factions_breakdown:
+            cleaned_top_faction = ", ".join(fb["faction"] for fb in factions_breakdown[:5] if fb.get("faction"))
+        elif raw_top_fac:
+            tf_parts = [p.strip() for p in raw_top_fac.split(",") if p.strip()]
+            has_spec_tf = any(not Database.is_super_or_empty_faction(p, include_generic_sm=True) for p in tf_parts)
+            clean_tf_parts = [
+                p for p in tf_parts
+                if not Database.is_super_or_empty_faction(p, include_generic_sm=has_spec_tf)
+            ]
+            cleaned_top_faction = ", ".join(clean_tf_parts) if clean_tf_parts else raw_top_fac
+        else:
+            cleaned_top_faction = player_meta.get("top_faction")
+        if cleaned_top_faction:
+            player_meta["top_faction"] = cleaned_top_faction
 
         matchup_matrix = []
         for ef, b in mm_by_fac.items():

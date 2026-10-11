@@ -345,6 +345,12 @@ async def on_server_startup():
 
     async def _deferred_startup_tasks():
         global SERVER_PREWARM_COMPLETE
+        try:
+            db_for_repair = await asyncio.to_thread(get_database)
+            if hasattr(db_for_repair, "repair_super_factions_in_db"):
+                await asyncio.to_thread(db_for_repair.repair_super_factions_in_db)
+        except Exception as sf_err:
+            logger.warning(f"Notice during startup super-faction self-heal: {sf_err}")
         await _prewarm_meta_intel_cache()
         try:
             db = await asyncio.to_thread(get_database)

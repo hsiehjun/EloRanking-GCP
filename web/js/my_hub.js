@@ -1772,11 +1772,14 @@ function renderMyHub(data) {
     const resolvedEid = String(m.event_id || (tMeta && (tMeta.event_id || tMeta.id)) || '').trim();
     const evKey = resolvedEid || (matchYr ? `${evName}::${matchYr}` : evName);
     if (!hubEventsMap.has(evKey)) {
+      const pickFn = (typeof window.pickSpecificFaction === 'function')
+        ? window.pickSpecificFaction
+        : ((...c) => c.find(v => v && String(v).trim() && String(v).trim() !== 'Unknown') || '');
       hubEventsMap.set(evKey, {
         event_id: resolvedEid,
         event_name: m.event_name || 'Tournament Match',
         date: (m.match_date || m.event_date || (tMeta && tMeta.event_date) || '').substring(0, 10),
-        faction: m.player_faction || (tMeta && tMeta.registered_faction !== 'Unknown' ? tMeta.registered_faction : '') || p.top_faction || '',
+        faction: pickFn(tMeta && tMeta.registered_faction, tMeta && tMeta.faction, m.player_faction, p.top_faction),
         placement: Number((tMeta && tMeta.placement) || m.placement || 0),
         total_players: Number((tMeta && tMeta.total_players) || m.total_players || 0),
         wins: 0,
@@ -1791,6 +1794,9 @@ function renderMyHub(data) {
     else if (m.result === 'L') ev.losses++;
     else ev.draws++;
     ev.totalEloDelta += Number(m.delta_elo || 0);
+    if (typeof window.pickSpecificFaction === 'function' && (m.player_faction || (tMeta && (tMeta.registered_faction || tMeta.faction)))) {
+      ev.faction = window.pickSpecificFaction(ev.faction, tMeta && tMeta.registered_faction, tMeta && tMeta.faction, m.player_faction);
+    }
     if (!ev.placement && m.placement) ev.placement = Number(m.placement);
     if (!ev.total_players && m.total_players) ev.total_players = Number(m.total_players);
     if (!ev.placement && tMeta && tMeta.placement) ev.placement = Number(tMeta.placement);

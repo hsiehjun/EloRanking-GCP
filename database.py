@@ -262,6 +262,90 @@ class PostgresDatabase:
             or not (getattr(self, "pool", None) or getattr(PostgresDatabase, "_pool", None))
         )
 
+    EMPTY_FACTION_SET = frozenset({
+        "",
+        "unknown",
+        "unknown faction",
+        "unassigned",
+        "none",
+        "null",
+        "-",
+        "various",
+        "n/a",
+        "tbd",
+        "bye",
+    })
+
+    SUPER_FACTION_SET = frozenset({
+        "imperium",
+        "armies of the imperium",
+        "forces of the imperium",
+        "chaos",
+        "armies of chaos",
+        "forces of chaos",
+        "xenos",
+        "xenos armies",
+        "forces of the hive mind",
+        "hive mind",
+        "order",
+        "grand alliance order",
+        "grand alliance: order",
+        "grand alliance chaos",
+        "grand alliance: chaos",
+        "death",
+        "grand alliance death",
+        "grand alliance: death",
+        "destruction",
+        "grand alliance destruction",
+        "grand alliance: destruction",
+        "warhammer 40,000",
+        "warhammer 40k",
+        "age of sigmar",
+        "warhammer age of sigmar",
+    })
+
+    GENERIC_SM_SET = frozenset({
+        "space marines (astartes)",
+        "adeptus astartes",
+        "space marines",
+    })
+
+    SUPER_FACTIONS_SQL_TUPLE = tuple(sorted(EMPTY_FACTION_SET | SUPER_FACTION_SET))
+    GENERIC_SM_SQL_TUPLE = tuple(sorted(GENERIC_SM_SET))
+    SUPER_AND_SM_SQL_TUPLE = tuple(sorted(EMPTY_FACTION_SET | SUPER_FACTION_SET | GENERIC_SM_SET))
+
+    @classmethod
+    def is_super_or_empty_faction(cls, name: Optional[str], include_generic_sm: bool = False) -> bool:
+        norm = str(name or "").strip().lower()
+        if norm in cls.EMPTY_FACTION_SET or norm in cls.SUPER_FACTION_SET:
+            return True
+        if include_generic_sm and norm in cls.GENERIC_SM_SET:
+            return True
+        return False
+
+    @classmethod
+    def pick_specific_faction(cls, *candidates: Optional[Any], default: str = "Unknown") -> str:
+        """Returns the most specific faction name from candidates (O(1) per candidate, zero I/O)."""
+        cleaned: List[str] = []
+        for raw in candidates:
+            if not raw:
+                continue
+            if isinstance(raw, dict):
+                val = str(raw.get("name") or raw.get("factionName") or raw.get("armyName") or "").strip()
+            else:
+                val = str(raw).strip()
+            if val and val.lower() not in cls.EMPTY_FACTION_SET:
+                cleaned.append(val)
+        for c in cleaned:
+            low = c.lower()
+            if low not in cls.SUPER_FACTION_SET and low not in cls.GENERIC_SM_SET:
+                return c
+        for c in cleaned:
+            low = c.lower()
+            if low not in cls.SUPER_FACTION_SET:
+                return c
+        return cleaned[0] if cleaned else default
+
     @classmethod
     def purge_l2_computed_caches(cls, db_inst: Optional["PostgresDatabase"] = None) -> None:
         """Purges L2 computed cache snapshots in system_settings so newly ingested matches/events/ratings are never masked by stale L2 rows."""
@@ -283,7 +367,8 @@ class PostgresDatabase:
                         cur.execute(
                             """
                             DELETE FROM system_settings
-                            WHERE key LIKE 'meta_intel_v4_%'
+                            WHERE key LIKE 'meta_intel_v5_%'
+                               OR key LIKE 'meta_intel_v4_%'
                                OR key LIKE 'meta_intel_v2_%'
                                OR key LIKE 'faction_details_v3_%'
                                OR key LIKE 'teams_list_cache_v1_%'
@@ -339,10 +424,416 @@ class PostgresDatabase:
                 rec_fn = getattr(lb_mod, "api_events_recommended", None)
                 if rec_fn is not None and hasattr(rec_fn, "_resp_cache") and isinstance(rec_fn._resp_cache, dict):
                     rec_fn._resp_cache.clear()
+            elo_mod = _sys.modules.get("elo")
+            if elo_mod is not None and hasattr(elo_mod, "EloEngine"):
+                if hasattr(elo_mod.EloEngine, "_player_win_path_cache_dict"):
+                    elo_mod.EloEngine._player_win_path_cache_dict.clear()
+            auth_mod = _sys.modules.get("auth")
+            if auth_mod is not None and hasattr(auth_mod, "AuthManager"):
+                if hasattr(auth_mod.AuthManager, "_HUB_CACHE"):
+                    auth_mod.AuthManager._HUB_CACHE.clear()
         except Exception:
             pass
         if purge_l2:
             cls.purge_l2_computed_caches(db_inst=db_inst)
+
+    def repair_super_factions_in_db(self, force: bool = False) -> Dict[str, Any]:
+        """One-time self-healing SQL repair that replaces generic super-factions ('Imperium', 'Chaos',
+        'Xenos', 'Forces of the Hive Mind', 'Space Marines (Astartes)') in matches, event_participants,
+        rating_history, and player_ratings with the specific army from matches.raw_json->'army' and
+        event_participants.faction.
+        """
+        migration_key = "super_faction_army_repair_v1"
+        if self._is_mock_instance() and not force:
+            return {"status": "skipped_mock"}
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    if hasattr(cur, "_mock_name") and not force:
+                        return {"status": "skipped_mock"}
+                    if not force:
+                        cur.execute("SELECT value FROM system_settings WHERE key = %s;", (migration_key,))
+                        row = cur.fetchone()
+                        val = (row[0] if isinstance(row, (list, tuple)) else row.get("value")) if row else None
+                        if val == "ready":
+                            return {"status": "already_completed"}
+
+                    cur.execute("SELECT pg_try_advisory_lock(840202602);")
+                    lrow = cur.fetchone()
+                    got_lock = bool(lrow[0] if isinstance(lrow, (list, tuple)) else lrow.get("pg_try_advisory_lock", True)) if lrow else True
+                    if not got_lock and not force:
+                        return {"status": "locked_by_other_instance"}
+
+                try:
+                    t0 = time.time()
+                    super_tup = self.SUPER_FACTIONS_SQL_TUPLE
+                    sm_tup = self.GENERIC_SM_SQL_TUPLE
+                    all_gen_tup = self.SUPER_AND_SM_SQL_TUPLE
+
+                    p1_raw_updated = 0
+                    p2_raw_updated = 0
+                    p1_ep_updated = 0
+                    p2_ep_updated = 0
+                    ep_updated = 0
+                    rh_updated = 0
+                    pr_updated = 0
+
+                    with conn.cursor() as cur:
+                        cur.execute("SET LOCAL lock_timeout = '15s';")
+                        cur.execute("SET LOCAL statement_timeout = '60s';")
+
+                        # 1a. Repair matches.player1_faction from matches.raw_json->'player1'->'army'
+                        cur.execute(
+                            """
+                            WITH cand AS (
+                                SELECT
+                                    m.id,
+                                    LOWER(TRIM(COALESCE(m.player1_faction, ''))) AS cur_low,
+                                    COALESCE(
+                                        NULLIF(TRIM(m.raw_json::jsonb->'player1'->'army'->>'name'), ''),
+                                        CASE WHEN jsonb_typeof(m.raw_json::jsonb->'player1'->'army') = 'string'
+                                             THEN NULLIF(TRIM(m.raw_json::jsonb->'player1'->>'army'), '')
+                                             ELSE NULL END,
+                                        NULLIF(TRIM(m.raw_json::jsonb->'player1'->>'armyName'), '')
+                                    ) AS army_name
+                                FROM matches m
+                                WHERE m.raw_json IS NOT NULL
+                                  AND (
+                                      LOWER(m.player1_faction) IN %s
+                                      OR m.player1_faction IS NULL
+                                  )
+                            )
+                            UPDATE matches m
+                            SET player1_faction = c.army_name
+                            FROM cand c
+                            WHERE m.id = c.id
+                              AND c.army_name IS NOT NULL
+                              AND LOWER(c.army_name) NOT IN %s
+                              AND (
+                                  c.cur_low IN %s
+                                  OR (c.cur_low IN %s AND LOWER(c.army_name) NOT IN %s)
+                              );
+                            """,
+                            (all_gen_tup, super_tup, super_tup, sm_tup, all_gen_tup),
+                        )
+                        p1_raw_updated = int(cur.rowcount or 0)
+
+                        # 1b. Repair matches.player2_faction from matches.raw_json->'player2'->'army'
+                        cur.execute(
+                            """
+                            WITH cand AS (
+                                SELECT
+                                    m.id,
+                                    LOWER(TRIM(COALESCE(m.player2_faction, ''))) AS cur_low,
+                                    COALESCE(
+                                        NULLIF(TRIM(m.raw_json::jsonb->'player2'->'army'->>'name'), ''),
+                                        CASE WHEN jsonb_typeof(m.raw_json::jsonb->'player2'->'army') = 'string'
+                                             THEN NULLIF(TRIM(m.raw_json::jsonb->'player2'->>'army'), '')
+                                             ELSE NULL END,
+                                        NULLIF(TRIM(m.raw_json::jsonb->'player2'->>'armyName'), '')
+                                    ) AS army_name
+                                FROM matches m
+                                WHERE m.raw_json IS NOT NULL
+                                  AND COALESCE(m.is_bye, FALSE) = FALSE
+                                  AND (
+                                      LOWER(m.player2_faction) IN %s
+                                      OR m.player2_faction IS NULL
+                                  )
+                            )
+                            UPDATE matches m
+                            SET player2_faction = c.army_name
+                            FROM cand c
+                            WHERE m.id = c.id
+                              AND c.army_name IS NOT NULL
+                              AND LOWER(c.army_name) NOT IN %s
+                              AND (
+                                  c.cur_low IN %s
+                                  OR (c.cur_low IN %s AND LOWER(c.army_name) NOT IN %s)
+                              );
+                            """,
+                            (all_gen_tup, super_tup, super_tup, sm_tup, all_gen_tup),
+                        )
+                        p2_raw_updated = int(cur.rowcount or 0)
+
+                        # 2a. Repair remaining generic matches.player1_faction from event_participants.faction
+                        cur.execute(
+                            """
+                            WITH ep_spec AS (
+                                SELECT
+                                    ep.event_id,
+                                    ep.player_id,
+                                    COALESCE(
+                                        MAX(CASE WHEN LOWER(TRIM(ep.faction)) NOT IN %s THEN TRIM(ep.faction) END),
+                                        MAX(CASE WHEN LOWER(TRIM(ep.faction)) NOT IN %s THEN TRIM(ep.faction) END)
+                                    ) AS spec_fac
+                                FROM event_participants ep
+                                WHERE ep.faction IS NOT NULL
+                                  AND TRIM(ep.faction) != ''
+                                  AND LOWER(TRIM(ep.faction)) NOT IN %s
+                                GROUP BY ep.event_id, ep.player_id
+                            )
+                            UPDATE matches m
+                            SET player1_faction = eps.spec_fac
+                            FROM ep_spec eps
+                            WHERE m.event_id = eps.event_id
+                              AND m.player1_id = eps.player_id
+                              AND eps.spec_fac IS NOT NULL
+                              AND (
+                                  LOWER(m.player1_faction) IN %s
+                                  OR m.player1_faction IS NULL
+                              )
+                              AND (
+                                  LOWER(TRIM(COALESCE(m.player1_faction, ''))) IN %s
+                                  OR (LOWER(TRIM(COALESCE(m.player1_faction, ''))) IN %s AND LOWER(eps.spec_fac) NOT IN %s)
+                              );
+                            """,
+                            (all_gen_tup, super_tup, super_tup, all_gen_tup, super_tup, sm_tup, all_gen_tup),
+                        )
+                        p1_ep_updated = int(cur.rowcount or 0)
+
+                        # 2b. Repair remaining generic matches.player2_faction from event_participants.faction
+                        cur.execute(
+                            """
+                            WITH ep_spec AS (
+                                SELECT
+                                    ep.event_id,
+                                    ep.player_id,
+                                    COALESCE(
+                                        MAX(CASE WHEN LOWER(TRIM(ep.faction)) NOT IN %s THEN TRIM(ep.faction) END),
+                                        MAX(CASE WHEN LOWER(TRIM(ep.faction)) NOT IN %s THEN TRIM(ep.faction) END)
+                                    ) AS spec_fac
+                                FROM event_participants ep
+                                WHERE ep.faction IS NOT NULL
+                                  AND TRIM(ep.faction) != ''
+                                  AND LOWER(TRIM(ep.faction)) NOT IN %s
+                                GROUP BY ep.event_id, ep.player_id
+                            )
+                            UPDATE matches m
+                            SET player2_faction = eps.spec_fac
+                            FROM ep_spec eps
+                            WHERE m.event_id = eps.event_id
+                              AND m.player2_id = eps.player_id
+                              AND COALESCE(m.is_bye, FALSE) = FALSE
+                              AND eps.spec_fac IS NOT NULL
+                              AND (
+                                  LOWER(m.player2_faction) IN %s
+                                  OR m.player2_faction IS NULL
+                              )
+                              AND (
+                                  LOWER(TRIM(COALESCE(m.player2_faction, ''))) IN %s
+                                  OR (LOWER(TRIM(COALESCE(m.player2_faction, ''))) IN %s AND LOWER(eps.spec_fac) NOT IN %s)
+                              );
+                            """,
+                            (all_gen_tup, super_tup, super_tup, all_gen_tup, super_tup, sm_tup, all_gen_tup),
+                        )
+                        p2_ep_updated = int(cur.rowcount or 0)
+
+                        # 3. Backfill event_participants.faction where empty or super-faction from repaired matches
+                        cur.execute(
+                            """
+                            WITH m_spec AS (
+                                SELECT
+                                    event_id,
+                                    player_id,
+                                    MAX(fac) AS spec_fac
+                                FROM (
+                                    SELECT event_id, player1_id AS player_id, TRIM(player1_faction) AS fac
+                                    FROM matches
+                                    WHERE event_id IS NOT NULL AND player1_id IS NOT NULL AND player1_faction IS NOT NULL
+                                      AND LOWER(player1_faction) NOT IN %s
+                                    UNION ALL
+                                    SELECT event_id, player2_id AS player_id, TRIM(player2_faction) AS fac
+                                    FROM matches
+                                    WHERE event_id IS NOT NULL AND player2_id IS NOT NULL AND player2_faction IS NOT NULL
+                                      AND COALESCE(is_bye, FALSE) = FALSE
+                                      AND LOWER(player2_faction) NOT IN %s
+                                ) sub
+                                WHERE LOWER(fac) NOT IN %s
+                                GROUP BY event_id, player_id
+                            )
+                            UPDATE event_participants ep
+                            SET faction = ms.spec_fac
+                            FROM m_spec ms
+                            WHERE ep.event_id = ms.event_id
+                              AND ep.player_id = ms.player_id
+                              AND ms.spec_fac IS NOT NULL
+                              AND (ep.faction IS NULL OR LOWER(TRIM(ep.faction)) IN %s);
+                            """,
+                            (super_tup, super_tup, super_tup, super_tup),
+                        )
+                        ep_updated = int(cur.rowcount or 0)
+
+                        # 4. Sync rating_history.player_faction and opponent_faction from repaired matches & event_participants
+                        cur.execute(
+                            """
+                            UPDATE rating_history rh
+                            SET player_faction = CASE
+                                    WHEN m.player1_id = rh.player_id
+                                     AND m.player1_faction IS NOT NULL
+                                     AND LOWER(TRIM(m.player1_faction)) NOT IN %s
+                                     AND (
+                                         rh.player_faction IS NULL
+                                         OR LOWER(TRIM(rh.player_faction)) IN %s
+                                         OR (LOWER(TRIM(rh.player_faction)) IN %s AND LOWER(TRIM(m.player1_faction)) NOT IN %s)
+                                     )
+                                    THEN TRIM(m.player1_faction)
+                                    WHEN m.player2_id = rh.player_id
+                                     AND m.player2_faction IS NOT NULL
+                                     AND LOWER(TRIM(m.player2_faction)) NOT IN %s
+                                     AND (
+                                         rh.player_faction IS NULL
+                                         OR LOWER(TRIM(rh.player_faction)) IN %s
+                                         OR (LOWER(TRIM(rh.player_faction)) IN %s AND LOWER(TRIM(m.player2_faction)) NOT IN %s)
+                                     )
+                                    THEN TRIM(m.player2_faction)
+                                    ELSE rh.player_faction
+                                END,
+                                opponent_faction = CASE
+                                    WHEN m.player1_id = rh.player_id
+                                     AND m.player2_faction IS NOT NULL
+                                     AND LOWER(TRIM(m.player2_faction)) NOT IN %s
+                                     AND (
+                                         rh.opponent_faction IS NULL
+                                         OR LOWER(TRIM(rh.opponent_faction)) IN %s
+                                         OR (LOWER(TRIM(rh.opponent_faction)) IN %s AND LOWER(TRIM(m.player2_faction)) NOT IN %s)
+                                     )
+                                    THEN TRIM(m.player2_faction)
+                                    WHEN m.player2_id = rh.player_id
+                                     AND m.player1_faction IS NOT NULL
+                                     AND LOWER(TRIM(m.player1_faction)) NOT IN %s
+                                     AND (
+                                         rh.opponent_faction IS NULL
+                                         OR LOWER(TRIM(rh.opponent_faction)) IN %s
+                                         OR (LOWER(TRIM(rh.opponent_faction)) IN %s AND LOWER(TRIM(m.player1_faction)) NOT IN %s)
+                                     )
+                                    THEN TRIM(m.player1_faction)
+                                    ELSE rh.opponent_faction
+                                END
+                            FROM matches m
+                            WHERE rh.match_id = m.id
+                              AND (
+                                  rh.player_faction IS NULL
+                                  OR LOWER(TRIM(rh.player_faction)) IN %s
+                                  OR rh.opponent_faction IS NULL
+                                  OR LOWER(TRIM(rh.opponent_faction)) IN %s
+                              );
+                            """,
+                            (
+                                super_tup, super_tup, sm_tup, all_gen_tup,
+                                super_tup, super_tup, sm_tup, all_gen_tup,
+                                super_tup, super_tup, sm_tup, all_gen_tup,
+                                super_tup, super_tup, sm_tup, all_gen_tup,
+                                all_gen_tup, all_gen_tup,
+                            ),
+                        )
+                        rh_updated = int(cur.rowcount or 0)
+
+                        # 5. Recompute player_ratings.top_faction from rating_history for any player whose top_faction
+                        #    contains a super-faction or generic Space Marines label
+                        cur.execute(
+                            """
+                            WITH target_players AS (
+                                SELECT DISTINCT pr.player_id, COALESCE(pr.game_system, '40k') AS game_system
+                                FROM player_ratings pr
+                                WHERE pr.top_faction IS NULL
+                                   OR TRIM(pr.top_faction) = ''
+                                   OR EXISTS (
+                                       SELECT 1
+                                       FROM UNNEST(STRING_TO_ARRAY(LOWER(pr.top_faction), ',')) AS part
+                                       WHERE TRIM(part) IN %s
+                                   )
+                            ),
+                            fac_counts AS (
+                                SELECT
+                                    rh.player_id,
+                                    COALESCE(rh.game_system, '40k') AS game_system,
+                                    CASE
+                                        WHEN LOWER(TRIM(rh.player_faction)) IN ('space marines (astartes)', 'adeptus astartes') THEN 'Space Marines'
+                                        ELSE TRIM(rh.player_faction)
+                                    END AS fac,
+                                    COUNT(*) AS cnt,
+                                    MAX(rh.match_date) AS last_played
+                                FROM rating_history rh
+                                JOIN target_players tp
+                                  ON tp.player_id = rh.player_id
+                                 AND tp.game_system = COALESCE(rh.game_system, '40k')
+                                WHERE rh.player_faction IS NOT NULL
+                                  AND LOWER(TRIM(rh.player_faction)) NOT IN %s
+                                GROUP BY rh.player_id, COALESCE(rh.game_system, '40k'), 3
+                            ),
+                            ranked_facs AS (
+                                SELECT
+                                    player_id,
+                                    game_system,
+                                    fac,
+                                    ROW_NUMBER() OVER (
+                                        PARTITION BY player_id, game_system
+                                        ORDER BY cnt DESC, last_played DESC NULLS LAST, fac ASC
+                                    ) AS rn
+                                FROM fac_counts
+                            ),
+                            agg_top AS (
+                                SELECT
+                                    player_id,
+                                    game_system,
+                                    STRING_AGG(fac, ', ' ORDER BY rn) AS new_top_faction
+                                FROM ranked_facs
+                                WHERE rn <= 3
+                                GROUP BY player_id, game_system
+                            )
+                            UPDATE player_ratings pr
+                            SET top_faction = agg_top.new_top_faction,
+                                updated_at = NOW()
+                            FROM agg_top
+                            WHERE pr.player_id = agg_top.player_id
+                              AND COALESCE(pr.game_system, '40k') = agg_top.game_system
+                              AND pr.top_faction IS DISTINCT FROM agg_top.new_top_faction;
+                            """,
+                            (all_gen_tup, super_tup),
+                        )
+                        pr_updated = int(cur.rowcount or 0)
+
+                        elapsed_s = round(time.time() - t0, 2)
+                        summary_obj = {
+                            "status": "success",
+                            "p1_raw_updated": p1_raw_updated,
+                            "p2_raw_updated": p2_raw_updated,
+                            "p1_ep_updated": p1_ep_updated,
+                            "p2_ep_updated": p2_ep_updated,
+                            "ep_updated": ep_updated,
+                            "rh_updated": rh_updated,
+                            "pr_updated": pr_updated,
+                            "elapsed_seconds": elapsed_s,
+                        }
+                        cur.execute(
+                            """
+                            INSERT INTO system_settings (key, value, updated_at)
+                            VALUES
+                                (%s, 'ready', NOW()),
+                                (%s, %s, NOW())
+                            ON CONFLICT (key) DO UPDATE SET
+                                value = EXCLUDED.value,
+                                updated_at = NOW();
+                            """,
+                            (migration_key, f"{migration_key}_summary", json.dumps(summary_obj)),
+                        )
+                    conn.commit()
+                    PostgresDatabase.invalidate_all_caches(db_inst=self, purge_l2=True)
+                    logger.info(
+                        f"🛠️ Super-faction army self-heal completed in {elapsed_s}s: "
+                        f"matches=({p1_raw_updated}+{p2_raw_updated} raw, {p1_ep_updated}+{p2_ep_updated} ep), "
+                        f"ep={ep_updated}, rating_history={rh_updated}, player_ratings={pr_updated}"
+                    )
+                    return summary_obj
+                finally:
+                    try:
+                        with conn.cursor() as cur_u:
+                            cur_u.execute("SELECT pg_advisory_unlock(840202602);")
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.warning(f"repair_super_factions_in_db notice: {e}")
+            return {"status": "error", "error": str(e)}
 
     ACTIVE_PUBLIC_TABLES = frozenset({
         # Core Rankings & Tournaments (6)
@@ -7077,8 +7568,12 @@ class PostgresDatabase:
                         has_list_val = bool(list_id)
                         det_obj = p.get("subFaction") or p.get("detachment") or {}
                         det_name = str((det_obj.get("name") or "") if isinstance(det_obj, dict) else (det_obj or "")).strip() or None
-                        fac_obj = p.get("army") or p.get("faction") or {}
-                        fac_name = str((fac_obj.get("name") or "") if isinstance(fac_obj, dict) else (fac_obj or "")).strip() or None
+                        fac_name = PostgresDatabase.pick_specific_faction(
+                            p.get("army"),
+                            p.get("faction"),
+                            p.get("parentFaction"),
+                            default=""
+                        ) or None
                         tp_id = str(p.get("teamPlayerId") or p.get("teamId") or p.get("team_id") or "").strip()
                         resolved_team_name = team_name_by_id.get(tp_id) if tp_id else None
                         fn = str(u.get("firstName") or p.get("firstName") or "").strip()
@@ -7232,7 +7727,15 @@ class PostgresDatabase:
                                     ON CONFLICT (event_id, player_id) DO UPDATE
                                     SET placement = COALESCE(EXCLUDED.placement, event_participants.placement),
                                         full_name = COALESCE(NULLIF(event_participants.full_name, ''), EXCLUDED.full_name),
-                                        faction = COALESCE(NULLIF(event_participants.faction, ''), EXCLUDED.faction),
+                                        faction = CASE
+                                            WHEN EXCLUDED.faction IS NOT NULL AND TRIM(EXCLUDED.faction) != ''
+                                                 AND (
+                                                     event_participants.faction IS NULL OR TRIM(event_participants.faction) = ''
+                                                     OR LOWER(TRIM(event_participants.faction)) IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar')
+                                                 )
+                                            THEN EXCLUDED.faction
+                                            ELSE COALESCE(NULLIF(event_participants.faction, ''), EXCLUDED.faction)
+                                        END,
                                         team = COALESCE(EXCLUDED.team, NULLIF(event_participants.team, '')),
                                         bcp_player_id = COALESCE(EXCLUDED.bcp_player_id, event_participants.bcp_player_id),
                                         detachment = COALESCE(EXCLUDED.detachment, NULLIF(event_participants.detachment, '')),
@@ -7807,8 +8310,12 @@ class PostgresDatabase:
 
                     det_obj = p.get("subFaction") or p.get("detachment") or {}
                     det_name = str((det_obj.get("name") or "") if isinstance(det_obj, dict) else (det_obj or "")).strip()
-                    fac_obj = p.get("army") or p.get("faction") or {}
-                    fac_name = str((fac_obj.get("name") or "") if isinstance(fac_obj, dict) else (fac_obj or "")).strip()
+                    fac_name = PostgresDatabase.pick_specific_faction(
+                        p.get("army"),
+                        p.get("faction"),
+                        p.get("parentFaction"),
+                        default=""
+                    )
                     tp_id = str(p.get("teamPlayerId") or p.get("teamId") or p.get("team_id") or "").strip()
                     tm_obj = p.get("team") or {}
                     team_name = (
@@ -7911,6 +8418,11 @@ class PostgresDatabase:
                 b_pl = (plc_i.get("by_id") or {}).get(p_id) or ((plc_i.get("by_name") or {}).get(p_norm) if p_norm else None)
                 if b_pl and int(b_pl) > 0:
                     t_item["placement"] = int(b_pl)
+                meta_i = (plc_i.get("meta_by_id") or {}).get(p_id) or ((plc_i.get("meta_by_name") or {}).get(p_norm) if p_norm else None)
+                if isinstance(meta_i, dict) and meta_i.get("faction"):
+                    t_item["registered_faction"] = PostgresDatabase.pick_specific_faction(
+                        meta_i.get("faction"), t_item.get("registered_faction")
+                    )
                 act_cnt = int(plc_i.get("active_count") or 0)
                 if act_cnt > 0 or int(t_item.get("placement") or 0) > int(t_item.get("total_players") or 0):
                     t_item["total_players"] = max(int(t_item.get("total_players") or 0), act_cnt, int(t_item.get("placement") or 0))
@@ -8021,6 +8533,10 @@ class PostgresDatabase:
                                     hp["placement"] = int(ev_m["placement"])
                                 if int(ev_m.get("total_players") or 0) > 0:
                                     hp["total_players"] = int(ev_m["total_players"])
+                                if ev_m.get("registered_faction"):
+                                    hp["player_faction"] = PostgresDatabase.pick_specific_faction(
+                                        hp.get("player_faction"), ev_m.get("registered_faction")
+                                    )
 
                     def _sync_all_player_caches():
                         if isinstance(target_list, list):
@@ -8394,6 +8910,8 @@ class PostgresDatabase:
                             mep.ep_placement,
                             mep.ep_pod_num,
                             COALESCE(mep.ep_faction, amp.match_faction, 'Unknown') AS registered_faction,
+                            mep.ep_faction AS _ep_faction,
+                            amp.match_faction AS _match_faction,
                             amp.last_match_date
                         FROM agg_match_players amp
                         LEFT JOIN matched_ep mep ON mep.event_id = amp.event_id AND mep.pid = amp.pid
@@ -8414,6 +8932,8 @@ class PostgresDatabase:
                             uep.ep_placement,
                             uep.ep_pod_num,
                             COALESCE(uep.ep_faction, 'Unknown') AS registered_faction,
+                            uep.ep_faction AS _ep_faction,
+                            NULL::text AS _match_faction,
                             NULL::timestamptz AS last_match_date
                         FROM unmatched_ep uep
                         WHERE uep.ep_placement IS NOT NULL OR COALESCE(uep.dropped, FALSE) = FALSE
@@ -8490,6 +9010,8 @@ class PostgresDatabase:
                         ) AS total_players, 
                         COALESCE(e.num_rounds, 0) AS num_rounds,
                         COALESCE(rc.registered_faction, 'Unknown') AS registered_faction,
+                        rc._ep_faction,
+                        rc._match_faction,
                         COALESCE(
                             rc.ep_placement,
                             te.direct_placement,
@@ -8521,6 +9043,12 @@ class PostgresDatabase:
                         p_norm = row_dict.pop("_player_norm_name", None)
                         if p_norm and not player_norm_name:
                             player_norm_name = str(p_norm)
+                        ep_fac = row_dict.pop("_ep_faction", None)
+                        m_fac = row_dict.pop("_match_faction", None)
+                        if ep_fac or m_fac or row_dict.get("registered_faction"):
+                            row_dict["registered_faction"] = PostgresDatabase.pick_specific_faction(
+                                ep_fac, m_fac, row_dict.get("registered_faction")
+                            )
                         res.append(row_dict)
                 except Exception as e:
                     conn.rollback()
@@ -8949,7 +9477,7 @@ class PostgresDatabase:
             raw_legacy_key = f"{start_date}_{end_date}_{game_system}"
             if raw_legacy_key not in cache_keys:
                 cache_keys.append(raw_legacy_key)
-        l2_setting_key = f"meta_intel_v4_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
+        l2_setting_key = f"meta_intel_v5_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
 
         if not _force_refresh:
             for k in cache_keys:
@@ -9089,7 +9617,7 @@ class PostgresDatabase:
                                    player1_id AS player_id,
                                    p1_fac AS faction,
                                    CASE
-                                       WHEN is_bye = FALSE AND player2_id IS NOT NULL AND p2_fac IS NOT NULL AND p2_fac != '' AND p2_fac != 'Unknown Faction' AND LOWER(p2_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various')
+                                       WHEN is_bye = FALSE AND player2_id IS NOT NULL AND p2_fac IS NOT NULL AND p2_fac != '' AND p2_fac != 'Unknown Faction' AND LOWER(p2_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar')
                                        THEN p2_fac
                                        ELSE NULL
                                    END AS opp_faction,
@@ -9100,13 +9628,13 @@ class PostgresDatabase:
                                    CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END AS is_loss
                             FROM recent_matches
                             WHERE p1_fac IS NOT NULL AND p1_fac != '' AND p1_fac != 'Unknown Faction'
-                              AND LOWER(p1_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various')
+                              AND LOWER(p1_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar')
                             UNION ALL
                             SELECT event_id, match_date,
                                    player2_id AS player_id,
                                    p2_fac AS faction,
                                    CASE
-                                       WHEN p1_fac IS NOT NULL AND p1_fac != '' AND p1_fac != 'Unknown Faction' AND LOWER(p1_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various')
+                                       WHEN p1_fac IS NOT NULL AND p1_fac != '' AND p1_fac != 'Unknown Faction' AND LOWER(p1_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar')
                                        THEN p1_fac
                                        ELSE NULL
                                    END AS opp_faction,
@@ -9117,7 +9645,7 @@ class PostgresDatabase:
                                    CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END AS is_loss
                             FROM recent_matches
                             WHERE p2_fac IS NOT NULL AND p2_fac != '' AND p2_fac != 'Unknown Faction'
-                              AND LOWER(p2_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various')
+                              AND LOWER(p2_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar')
                               AND is_bye = FALSE AND player2_id IS NOT NULL
                         ),
                         sides_enriched AS MATERIALIZED (
@@ -9565,6 +10093,10 @@ class PostgresDatabase:
                                    pep.ep_faction,
                                    h.player_faction
                                ) AS enriched_player_faction,
+                               CASE WHEN m.player1_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player1_faction), ''), 'Unknown')
+                                    WHEN m.player2_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player2_faction), ''), 'Unknown')
+                                    ELSE NULL END AS _m_player_faction,
+                               pep.ep_faction AS _pep_faction,
                                COALESCE(
                                    NULLIF(NULLIF(TRIM(h.opponent_faction), ''), 'Unknown'),
                                    CASE WHEN m.player1_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player2_faction), ''), 'Unknown')
@@ -9572,6 +10104,9 @@ class PostgresDatabase:
                                         ELSE NULL END,
                                    h.opponent_faction
                                ) AS enriched_opponent_faction,
+                               CASE WHEN m.player1_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player2_faction), ''), 'Unknown')
+                                    WHEN m.player2_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player1_faction), ''), 'Unknown')
+                                    ELSE NULL END AS _m_opponent_faction,
                                e.name AS event_name,
                                m.table_number,
                                m.event_id AS m_event_id,
@@ -9618,10 +10153,23 @@ class PostgresDatabase:
                         if not r.get("event_id") and r.get("m_event_id"):
                             r["event_id"] = r["m_event_id"]
                         epf = r.pop("enriched_player_faction", None)
-                        if epf:
+                        m_pf = r.pop("_m_player_faction", None)
+                        pep_f = r.pop("_pep_faction", None)
+                        resolved_pf = PostgresDatabase.pick_specific_faction(
+                            m_pf, pep_f, epf, r.get("player_faction"), default=""
+                        )
+                        if resolved_pf:
+                            r["player_faction"] = resolved_pf
+                        elif epf:
                             r["player_faction"] = epf
                         eof = r.pop("enriched_opponent_faction", None)
-                        if eof:
+                        m_of = r.pop("_m_opponent_faction", None)
+                        resolved_of = PostgresDatabase.pick_specific_faction(
+                            m_of, eof, r.get("opponent_faction"), default=""
+                        )
+                        if resolved_of:
+                            r["opponent_faction"] = resolved_of
+                        elif eof:
                             r["opponent_faction"] = eof
                     if not is_mock_self:
                         PostgresDatabase.set_cached(PostgresDatabase._player_history_cache_dict, cache_key, rows, max_size=500)
@@ -15372,6 +15920,8 @@ try:
             "_upsert_match_cursor",
             "is_valid_game_store_name",
             "_estimate_swiss_placement",
+            "is_super_or_empty_faction",
+            "pick_specific_faction",
         },
         quiet_methods={"get_cached", "set_cached", "_is_mock_instance"},
     )

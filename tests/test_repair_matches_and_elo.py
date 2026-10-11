@@ -195,6 +195,201 @@ class TestRepairMatchesAndElo(unittest.TestCase):
             self.assertFalse(ran)
             mock_repair.assert_not_called()
 
+    def test_bcp_specific_faction_extraction_over_grand_alliance_super_factions(self):
+        """Verify BCP payloads with faction='Imperium'/'Chaos'/'Forces of the Hive Mind' extract specific army."""
+        from scraper import extract_bcp_specific_faction
+        from database import PostgresDatabase
+
+        # Brian Benn at Fabricators Forge: faction='Imperium', army='Adepta Sororitas'
+        brian_p_obj = {
+            "id": "reg_brian",
+            "userId": "user_brian",
+            "firstName": "Brian",
+            "lastName": "Benn",
+            "faction": {"name": "Imperium"},
+            "army": {"name": "Adepta Sororitas"},
+        }
+        self.assertEqual(extract_bcp_specific_faction(brian_p_obj), "Adepta Sororitas")
+
+        # Logan Esler: faction='Chaos', army='World Eaters'
+        logan_p_obj = {
+            "id": "reg_logan",
+            "userId": "user_logan",
+            "firstName": "Logan",
+            "lastName": "Esler",
+            "faction": {"name": "Chaos"},
+            "army": {"name": "World Eaters"},
+        }
+        self.assertEqual(extract_bcp_specific_faction(logan_p_obj), "World Eaters")
+
+        # Forces of the Hive Mind vs Tyranids
+        tyranid_p_obj = {
+            "faction": {"name": "Forces of the Hive Mind"},
+            "army": {"name": "Tyranids"},
+        }
+        self.assertEqual(extract_bcp_specific_faction(tyranid_p_obj), "Tyranids")
+
+        # Space Marines (Astartes) vs Blood Angels
+        ba_p_obj = {
+            "faction": {"name": "Space Marines (Astartes)"},
+            "army": {"name": "Blood Angels"},
+        }
+        self.assertEqual(extract_bcp_specific_faction(ba_p_obj), "Blood Angels")
+
+        # format_bcp_roster_to_players also prefers specific army over super-faction
+        formatted = format_bcp_roster_to_players([brian_p_obj, logan_p_obj], is_ended=True)
+        self.assertEqual(formatted[0]["faction"], "Adepta Sororitas")
+        self.assertEqual(formatted[1]["faction"], "World Eaters")
+
+        # PostgresDatabase.pick_specific_faction priority checks
+        self.assertEqual(
+            PostgresDatabase.pick_specific_faction("Imperium", "Adepta Sororitas"),
+            "Adepta Sororitas",
+        )
+        self.assertEqual(
+            PostgresDatabase.pick_specific_faction("Space Marines (Astartes)", "Blood Angels"),
+            "Blood Angels",
+        )
+        self.assertEqual(
+            PostgresDatabase.pick_specific_faction("Imperium", "Space Marines (Astartes)"),
+            "Space Marines (Astartes)",
+        )
+
+    def test_elo_win_path_strips_super_factions_and_maintains_sub_1s_latency(self):
+        """Verify EloEngine.get_player_win_path enriches super-factions from tournaments and completes in <1s."""
+        import time
+        from elo import EloEngine, _sanitize_top_factions
+        import collections
+
+        # 1. Verify _sanitize_top_factions removes super-factions and redundant generic SM when specific chapter exists
+        counts = collections.Counter({
+            "Blood Angels": 12,
+            "Adepta Sororitas": 6,
+            "Necrons": 3,
+            "Imperium": 3,
+            "Space Marines (Astartes)": 2,
+            "Forces of the Hive Mind": 1,
+        })
+        self.assertEqual(
+            _sanitize_top_factions(counts),
+            "Blood Angels, Adepta Sororitas, Necrons",
+        )
+
+        # 2. Verify get_player_win_path upgrades 'Imperium' round history from tournament 'Adepta Sororitas'
+        # and strips 'Imperium'/'Chaos'/'Forces of the Hive Mind' from faction_mastery, matchup_matrix, and top_faction
+        mock_db = MagicMock()
+        mock_db._is_mock_instance.return_value = True
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.return_value = {
+            "player_id": "brian_benn_id",
+            "player_name": "Brian Benn",
+            "current_elo": 1617.0,
+            "peak_elo": 1617.0,
+            "matches_played": 4,
+            "wins": 3,
+            "losses": 1,
+            "draws": 0,
+            "win_rate": 75.0,
+            "top_faction": "Blood Angels, Adepta Sororitas, Necrons, Imperium, Space Marines (Astartes)",
+            "team": "Fabricators Forge",
+        }
+        mock_cur.fetchall.return_value = [("Fabricators Forge", "2026-03-07")]
+
+        mock_db.get_player_history.return_value = [
+            {
+                "event_id": "ev_fab_forge",
+                "event_name": "Fabricators Forge March 40K RTT",
+                "round": 1,
+                "match_date": "2026-03-07",
+                "result": "W",
+                "player_score": 89,
+                "opponent_score": 57,
+                "delta_elo": 16.0,
+                "new_elo": 1590.0,
+                "opponent_id": "opp_logan",
+                "opponent_name": "Logan Esler",
+                "opponent_elo": 1500.0,
+                "player_faction": "Imperium",
+                "opponent_faction": "World Eaters",
+            },
+            {
+                "event_id": "ev_fab_forge",
+                "event_name": "Fabricators Forge March 40K RTT",
+                "round": 2,
+                "match_date": "2026-03-07",
+                "result": "W",
+                "player_score": 80,
+                "opponent_score": 73,
+                "delta_elo": 14.2,
+                "new_elo": 1604.2,
+                "opponent_id": "opp_connor",
+                "opponent_name": "Connor Riley",
+                "opponent_elo": 1510.0,
+                "player_faction": "Imperium",
+                "opponent_faction": "Imperium",
+            },
+            {
+                "event_id": "ev_gt",
+                "event_name": "Mid-Winter GT",
+                "round": 1,
+                "match_date": "2026-02-14",
+                "result": "W",
+                "player_score": 95,
+                "opponent_score": 45,
+                "delta_elo": 15.0,
+                "new_elo": 1617.0,
+                "opponent_id": "opp_tyr",
+                "opponent_name": "Hive Player",
+                "opponent_elo": 1500.0,
+                "player_faction": "Blood Angels",
+                "opponent_faction": "Forces of the Hive Mind",
+            },
+        ]
+        mock_db.get_player_tournaments.return_value = [
+            {
+                "event_id": "ev_fab_forge",
+                "event_name": "Fabricators Forge March 40K RTT",
+                "event_date": "2026-03-07",
+                "registered_faction": "Adepta Sororitas",
+                "placement": 1,
+                "total_players": 26,
+                "wins": 3,
+                "losses": 0,
+                "draws": 0,
+            }
+        ]
+
+        engine = EloEngine(db=mock_db)
+        t0 = time.perf_counter()
+        profile = engine.get_player_win_path("brian_benn_id", game_system="40k", include_tournaments=True)
+        elapsed_s = time.perf_counter() - t0
+
+        # Strict latency requirement: < 1.0s
+        self.assertLess(elapsed_s, 1.0)
+
+        # Round 1 & 2 at Fabricators Forge must be upgraded from 'Imperium' to 'Adepta Sororitas'
+        self.assertEqual(profile["history"][0]["player_faction"], "Adepta Sororitas")
+        self.assertEqual(profile["history"][1]["player_faction"], "Adepta Sororitas")
+
+        # Faction Mastery & Factions Breakdown must contain Adepta Sororitas & Blood Angels, NEVER Imperium
+        fm_names = [f["faction"] for f in profile["faction_mastery"]]
+        self.assertIn("Adepta Sororitas", fm_names)
+        self.assertIn("Blood Angels", fm_names)
+        self.assertNotIn("Imperium", fm_names)
+        self.assertNotIn("Space Marines (Astartes)", fm_names)
+
+        # Matchup Matrix must contain World Eaters, NEVER Imperium or Forces of the Hive Mind
+        mm_names = [m["enemy_faction"] for m in profile["matchup_matrix"]]
+        self.assertEqual(mm_names, ["World Eaters"])
+
+        # top_faction must be cleaned of Imperium and Space Marines (Astartes)
+        self.assertNotIn("Imperium", profile["top_faction"])
+        self.assertNotIn("Space Marines (Astartes)", profile["top_faction"])
+
 
 if __name__ == "__main__":
     unittest.main()
+
