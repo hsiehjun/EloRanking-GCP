@@ -2162,15 +2162,78 @@
     }
   }
 
+  // Lobby Game Mode state ('40k' | 'aos' | 'pairings_5v5' | 'pairings_8v8')
+  window.__selectedLobbyGameMode = null;
+  window.__selectLobbyGameMode = function (mode) {
+    window.__selectedLobbyGameMode = mode;
+    const pills = document.querySelectorAll('[data-lobby-mode-pill]');
+    pills.forEach(btn => {
+      const m = btn.getAttribute('data-lobby-mode-pill');
+      const active = (m === mode);
+      if (m && m.startsWith('pairings')) {
+        btn.style.background = active ? 'rgba(168,85,247,0.22)' : 'rgba(15,23,42,0.65)';
+        btn.style.borderColor = active ? '#c084fc' : 'rgba(148,163,184,0.25)';
+        btn.style.color = active ? '#e9d5ff' : '#94a3b8';
+      } else {
+        btn.style.background = active ? 'rgba(245,158,11,0.22)' : 'rgba(15,23,42,0.65)';
+        btn.style.borderColor = active ? '#f59e0b' : 'rgba(148,163,184,0.25)';
+        btn.style.color = active ? '#fde68a' : '#94a3b8';
+      }
+    });
+    const mainBtn = document.getElementById('gt-lobby-create-btn');
+    const descEl = document.getElementById('gt-lobby-host-desc');
+    if (mainBtn) {
+      if (mode === 'pairings_5v5' || mode === 'pairings_8v8') {
+        const fmt = mode === 'pairings_8v8' ? '8v8' : '5v5';
+        mainBtn.textContent = `CREATE & ENTER ${fmt} TEAM PAIRINGS ➔`;
+        mainBtn.style.background = 'linear-gradient(135deg, #a855f7, #ec4899)';
+        mainBtn.style.color = '#ffffff';
+        if (descEl) {
+          descEl.textContent = `Launch a live ${fmt} WTC Team Pairings room with Duel Arena, Matchup Matrix, AI/Human Captain links, and Spectator view.`;
+        }
+      } else if (mode === 'aos') {
+        mainBtn.textContent = 'CREATE & ENTER AOS MATCH ➔';
+        mainBtn.style.background = '#f59e0b';
+        mainBtn.style.color = '#0a0c10';
+        if (descEl) {
+          descEl.textContent = 'Create a match room and begin battleplan & army setup with shareable room code.';
+        }
+      } else {
+        mainBtn.textContent = 'CREATE & ENTER 40K MATCH ➔';
+        mainBtn.style.background = '#f59e0b';
+        mainBtn.style.color = '#0a0c10';
+        if (descEl) {
+          descEl.textContent = 'Create a match room and begin army setup with shareable room code.';
+        }
+      }
+    }
+  };
+
   // Global Handlers for Room Creation and Joining
-  window.__handleCreateRoom = async function (gameSystemOverride) {
-    const isAosMode = (gameSystemOverride === 'aos') ||
+  window.__handleCreateRoom = async function (gameSystemOverride, formatSizeOverride) {
+    let targetMode = gameSystemOverride;
+    if (!targetMode || targetMode === 'selected') {
+      targetMode = window.__selectedLobbyGameMode || (
+        (window.location.pathname.includes('/aos') ||
+         window.location.search.includes('game_system=aos') ||
+         window.location.search.includes('system=aos')) ? 'aos' : '40k'
+      );
+    }
+    const isPairingsMode = targetMode === 'pairings' || targetMode === 'pairings_5v5' || targetMode === 'pairings_8v8' || targetMode === 'wtc';
+    const pairingFormatSize = formatSizeOverride || (targetMode === 'pairings_8v8' ? 8 : 5);
+    const isAosMode = !isPairingsMode && (
+      (targetMode === 'aos') ||
       window.location.pathname.includes('/aos') ||
       window.location.search.includes('game_system=aos') ||
-      window.location.search.includes('system=aos');
-    const sysId = isAosMode ? 'aos' : '40k';
-    const loadingTitle = isAosMode ? '⚡ Creating Age of Sigmar Room' : '🎲 Creating Match Room';
-    const loadingSubtitle = 'Allocating tabletop room key & initializing mission setup...';
+      window.location.search.includes('system=aos')
+    );
+    const sysId = isPairingsMode ? 'pairings' : (isAosMode ? 'aos' : '40k');
+    const loadingTitle = isPairingsMode
+      ? `⚔️ Creating ${pairingFormatSize}v${pairingFormatSize} Team Pairings Room`
+      : (isAosMode ? '⚡ Creating Age of Sigmar Room' : '🎲 Creating Match Room');
+    const loadingSubtitle = isPairingsMode
+      ? 'Allocating WTC pairing arena room key & initializing rosters...'
+      : 'Allocating tabletop room key & initializing mission setup...';
     isNavigatingToRoom = true;
     window.__showGtLoadingOverlay(loadingTitle, loadingSubtitle, true);
     try {
@@ -2184,12 +2247,23 @@
         body: JSON.stringify({
           token: getAuthToken(),
           game_system: sysId,
-          p1_name: currentUser ? (currentUser.display_name || 'Player 1') : 'Player 1'
+          game_mode: isPairingsMode ? 'pairings' : 'tracker',
+          format_size: isPairingsMode ? pairingFormatSize : undefined,
+          p1_name: currentUser ? (currentUser.display_name || (isPairingsMode ? 'Art of War' : 'Player 1')) : (isPairingsMode ? 'Art of War' : 'Player 1')
         })
       });
       if (resp.ok) {
         const data = await resp.json();
-        const mid = data.match_id || '';
+        const mid = data.match_id || data.room_code || '';
+        if (isPairingsMode || mid.startsWith('WTC-') || data.game_system === 'pairings') {
+          try {
+            if (data.captain_a_token && mid) {
+              localStorage.setItem(`tp_cap_token_${mid}`, data.captain_a_token);
+            }
+          } catch (e) {}
+          window.location.href = `/team-pairings?room=${encodeURIComponent(mid)}&from_lobby=1`;
+          return;
+        }
         const isAosMatch = isAosMode || mid.startsWith('AOS-') || data.game_system === 'aos';
         if (data.state && mid) {
           data.state.id = mid;
@@ -2223,23 +2297,28 @@
         return;
       }
     } catch (err) {}
-    if (isAosMode) {
+    if (isPairingsMode) {
+      window.location.href = '/team-pairings?from_lobby=1';
+    } else if (isAosMode) {
       window.location.href = '/11th/tracker/aos?solo=true';
     } else {
       window.location.href = '/11th/tracker/play';
     }
   };
 
-  window.__handleJoinRoomInput = async function () {
+  window.__handleJoinRoomInput = async function (forceSpectator) {
     const isAosMode = window.location.pathname.includes('/aos') ||
       window.location.search.includes('game_system=aos') ||
       window.location.search.includes('system=aos');
     const input = document.getElementById('gt-lobby-join-input');
     const errDiv = document.getElementById('gt-lobby-join-error');
     const btn = document.getElementById('gt-lobby-join-btn');
-    let code = (input.value || '').trim();
-    if (code.includes('match_id=')) {
-      try { code = new URL(code).searchParams.get('match_id') || code; } catch(e) {}
+    let code = (input ? input.value : '').trim();
+    if (code.includes('match_id=') || code.includes('room=')) {
+      try {
+        const parsedUrl = new URL(code, window.location.origin);
+        code = parsedUrl.searchParams.get('room') || parsedUrl.searchParams.get('match_id') || code;
+      } catch(e) {}
     }
     if (!code) {
       if (errDiv) { errDiv.textContent = 'Please enter a Room Key.'; errDiv.style.display = 'block'; }
@@ -2247,13 +2326,13 @@
     }
 
     code = code.toUpperCase().replace(/\s+/g, '');
-    if (!code.startsWith('WH40K-') && !code.startsWith('AOS-') && code.length === 8) {
+    if (!code.startsWith('WH40K-') && !code.startsWith('AOS-') && !code.startsWith('WTC-') && code.length === 8) {
       code = (isAosMode ? 'AOS-' : 'WH40K-') + `${code.substring(0, 4)}-${code.substring(4)}`;
     }
 
     if (errDiv) errDiv.style.display = 'none';
     if (btn) { btn.disabled = true; btn.textContent = '...'; }
-    const loadingTitle = '🔗 Joining Tabletop Room';
+    const loadingTitle = forceSpectator ? '👁️ Entering Spectator View' : '🔗 Joining Tabletop Room';
     const loadingSubtitle = `Connecting to Room #${code}...`;
     isNavigatingToRoom = true;
     window.__showGtLoadingOverlay(loadingTitle, loadingSubtitle, true);
@@ -2275,13 +2354,56 @@
           errDiv.textContent = `❌ Room "${code}" does not exist. Please check with your opponent.`;
           errDiv.style.display = 'block';
         }
-        if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'ENTER ROOM ➔'; }
+        return;
+      }
+
+      const targetMid = data.match_id || data.room_code || code;
+      const isPairingsMatch = String(targetMid).toUpperCase().startsWith('WTC-') || data.game_system === 'pairings' || data.game_mode === 'pairings';
+
+      if (isPairingsMatch) {
+        if (forceSpectator || data.is_finished || data.is_spectator) {
+          window.location.href = `/team-pairings?room=${encodeURIComponent(targetMid)}&role=spectator`;
+          return;
+        }
+        try {
+          const joinResp = await fetch(`/api/tracker/room/${encodeURIComponent(targetMid)}/join`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${getAuthToken()}`,
+              'X-Guest-Id': guestId
+            },
+            body: JSON.stringify({
+              token: getAuthToken(),
+              guest_id: guestId,
+              claim_role: forceSpectator ? 'spectator' : 'captain_b'
+            })
+          });
+          if (joinResp.ok) {
+            const joinData = await joinResp.json();
+            if (joinData.role === 'spectator' || joinData.is_finished) {
+              window.location.href = `/team-pairings?room=${encodeURIComponent(targetMid)}&role=spectator`;
+              return;
+            }
+            if (joinData.captain_token) {
+              try { localStorage.setItem(`tp_cap_token_${targetMid}`, joinData.captain_token); } catch (e) {}
+            }
+            window.location.href = `/team-pairings?room=${encodeURIComponent(targetMid)}&role=${encodeURIComponent(joinData.role || 'captain_b')}&from_lobby=1`;
+            return;
+          }
+        } catch (e) {}
+        window.location.href = `/team-pairings?room=${encodeURIComponent(targetMid)}&from_lobby=1`;
+        return;
+      }
+
+      if (forceSpectator) {
+        window.location.href = `/scorecard/${encodeURIComponent(targetMid)}`;
         return;
       }
 
       const isAosMatch = isAosMode || code.startsWith('AOS-') || data.game_system === 'aos';
       const playBaseUrl = isAosMatch ? '/11th/tracker/aos' : '/11th/tracker/play';
-      const targetMid = data.match_id || code;
       let lobbyClaimRole = getSavedRoomSeat(targetMid) || undefined;
 
       if ((data.is_spectator || (data.is_full && !data.is_open_for_p2)) && !data.is_referee && data.role !== 'player1' && data.role !== 'player2') {
@@ -2300,10 +2422,10 @@
             : `⚠️ Room "${code}" already has 2 active players (${data.p1_name} vs ${data.p2_name}). View Scorecard as Spectator?`;
           const proceed = confirm(lockPrompt);
           if (!proceed) {
-            if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
+            if (btn) { btn.disabled = false; btn.textContent = 'ENTER ROOM ➔'; }
             return;
           }
-          window.location.href = `/scorecard/${encodeURIComponent(targetMid)}`;
+          window.location.href = `/scorecard/${encodeURIComponent(data.match_id || code)}`;
           return;
         }
       }
@@ -2362,11 +2484,11 @@
         errDiv.textContent = 'Connection error checking room status. Please try again.';
         errDiv.style.display = 'block';
       }
-      if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'ENTER ROOM ➔'; }
     }
   };
 
-  // 4. Landing Page: Inject Mobile-Friendly 2-Player Room Key Generator & Join Card
+  // 4. Landing Page: Inject Mobile-Friendly Match Lobby & Room Key Hub
   function injectLobbyHub() {
     function tryInject() {
       const main = document.querySelector('main') || document.body;
@@ -2376,26 +2498,29 @@
         window.location.search.includes('game_system=aos') ||
         window.location.search.includes('system=aos');
 
+      if (!window.__selectedLobbyGameMode) {
+        window.__selectedLobbyGameMode = isAosMode ? 'aos' : '40k';
+      }
+
       let wrapper = document.getElementById('gt-lobby-wrapper');
       if (!wrapper || !document.body.contains(wrapper)) {
         wrapper = document.createElement('div');
         wrapper.id = 'gt-lobby-wrapper';
-        wrapper.style.cssText = "width:100%; max-width:820px; margin:0 auto; padding:12px; box-sizing:border-box; display:block !important; visibility:visible !important; opacity:1 !important;";
+        wrapper.style.cssText = "width:100%; max-width:860px; margin:0 auto; padding:12px; box-sizing:border-box; display:block !important; visibility:visible !important; opacity:1 !important;";
 
-        const lobbyTitle = isAosMode ? '⚡ AGE OF SIGMAR 2-PLAYER MATCH LOBBY' : '2-PLAYER MATCH LOBBY';
+        const lobbyTitle = isAosMode ? '⚡ AGE OF SIGMAR MATCH LOBBY' : 'MATCH LOBBY';
         const lobbyBadge = isAosMode
-          ? `<span style="font-size:10px; font-weight:700; color:#f59e0b; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); padding:3px 8px; border-radius:9999px; font-family:'JetBrains Mono',monospace;">⚡ Age of Sigmar</span>`
-          : `<span style="font-size:10px; font-weight:700; color:var(--accent, #38bdf8); background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:9999px; font-family:'JetBrains Mono',monospace;">2 Players Max</span>`;
+          ? `<span style="font-size:10px; font-weight:700; color:#f59e0b; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); padding:3px 8px; border-radius:9999px; font-family:'JetBrains Mono',monospace;">⚡ Age of Sigmar • Spectate Ready</span>`
+          : `<span style="font-size:10px; font-weight:700; color:var(--accent, #38bdf8); background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:9999px; font-family:'JetBrains Mono',monospace;">Multiplayer & Spectate Ready</span>`;
 
-        const hostTitle = isAosMode ? '⚡ Host an AoS Match' : '🎲 Host a Match';
+        const hostTitle = isAosMode ? '⚡ Host a Room' : '🎲 Host a Room';
         const hostDesc = isAosMode
           ? 'Create a match room and begin battleplan & army setup with shareable room code.'
-          : 'Create a match room and begin army setup with shareable room code.';
-        const hostBtnText = isAosMode ? 'CREATE & ENTER AOS MATCH ➔' : 'CREATE & ENTER MATCH ➔';
-        const hostBtnCall = isAosMode ? "window.__handleCreateRoom('aos')" : "window.__handleCreateRoom('40k')";
+          : 'Choose 1v1 Game Tracker or WTC Team Pairings Minigame and generate a shareable room key.';
+        const hostBtnText = isAosMode ? 'CREATE & ENTER AOS MATCH ➔' : 'CREATE & ENTER 40K MATCH ➔';
 
-        const joinTitle = isAosMode ? '🔗 Join AoS Room Key' : '🔗 Join Room Key';
-        const joinPlaceholder = isAosMode ? 'e.g. AOS-7A9B-3C4D' : 'e.g. WH40K-7A9B-3C4D';
+        const joinTitle = '🔗 Join or Spectate Room Key';
+        const joinPlaceholder = isAosMode ? 'e.g. AOS-7A9B-3C4D or WTC-DEV1' : 'e.g. WH40K-7A9B-3C4D or WTC-DEV1';
         const joinBtnColor = isAosMode ? '#f59e0b' : 'var(--accent, #38bdf8)';
 
         wrapper.innerHTML = `
@@ -2403,22 +2528,46 @@
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; border-bottom:1px solid var(--border, #273042); padding-bottom:10px; flex-wrap:wrap; gap:8px;">
               <div>
                 <h3 style="font-size:15px; font-weight:800; color:var(--text-primary, #f0f4fc); margin:0; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">${lobbyTitle}</h3>
-                <p style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:2px 0 0;">Create a room key to host or enter a code to join an opponent's table.</p>
+                <p style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:2px 0 0;">Host a 1v1 Game Tracker or WTC Team Pairings room, or enter a Room Key to join/spectate.</p>
               </div>
               ${lobbyBadge}
             </div>
 
-            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px;">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(275px, 1fr)); gap:14px;">
               <!-- Host Card -->
               <div style="background:var(--bg-card, #181d28); border:1px solid var(--border, #273042); border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
                 <div>
-                  <div style="font-size:12px; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">${hostTitle}</div>
-                  <p style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:0 0 12px; line-height:1.4;">${hostDesc}</p>
+                  <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:6px;">
+                    <div style="font-size:12px; font-weight:800; color:#f59e0b; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">${hostTitle}</div>
+                    <span style="font-size:9px; font-weight:700; color:#c084fc; background:rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.35); padding:2px 6px; border-radius:999px; font-family:'JetBrains Mono',monospace;">NEW: WTC PAIRINGS</span>
+                  </div>
+                  <!-- Game Mode Selector Pills -->
+                  <div id="gt-lobby-mode-selector" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+                    <button type="button" id="gt-mode-btn-40k" data-lobby-mode-pill="${isAosMode ? 'aos' : '40k'}" onclick="window.__selectLobbyGameMode('${isAosMode ? 'aos' : '40k'}')" style="flex:1; min-width:95px; background:rgba(245,158,11,0.22); border:1px solid #f59e0b; color:#fde68a; border-radius:8px; padding:6px 8px; font-size:10px; font-weight:800; font-family:'JetBrains Mono',monospace; cursor:pointer;">
+                      ${isAosMode ? '⚡ AoS Tracker' : '🦅 40K Tracker'}
+                    </button>
+                    <button type="button" id="gt-mode-btn-pairings-5v5" data-lobby-mode-pill="pairings_5v5" onclick="window.__selectLobbyGameMode('pairings_5v5')" style="flex:1; min-width:105px; background:rgba(15,23,42,0.65); border:1px solid rgba(148,163,184,0.25); color:#94a3b8; border-radius:8px; padding:6px 8px; font-size:10px; font-weight:800; font-family:'JetBrains Mono',monospace; cursor:pointer;">
+                      ⚔️ Pairings 5v5
+                    </button>
+                    <button type="button" id="gt-mode-btn-pairings-8v8" data-lobby-mode-pill="pairings_8v8" onclick="window.__selectLobbyGameMode('pairings_8v8')" style="flex:1; min-width:105px; background:rgba(15,23,42,0.65); border:1px solid rgba(148,163,184,0.25); color:#94a3b8; border-radius:8px; padding:6px 8px; font-size:10px; font-weight:800; font-family:'JetBrains Mono',monospace; cursor:pointer;">
+                      ⚔️ Pairings 8v8
+                    </button>
+                  </div>
+                  <p id="gt-lobby-host-desc" style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:0 0 10px; line-height:1.4;">${hostDesc}</p>
                 </div>
-                <div>
-                  <button onclick="${hostBtnCall}" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0a0c10; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:opacity 0.2s;">
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                  <button id="gt-lobby-create-btn" onclick="window.__handleCreateRoom('selected')" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0a0c10; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:11px 12px; border-radius:10px; cursor:pointer; letter-spacing:0.05em; font-family:'JetBrains Mono',monospace; transition:opacity 0.2s;">
                     ${hostBtnText}
                   </button>
+                  <!-- 1-Click Quick Launch Bar -->
+                  <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    <button id="gt-quick-launch-pairings-btn" type="button" onclick="window.__handleCreateRoom('pairings_5v5', 5)" style="flex:1; background:rgba(168,85,247,0.16); border:1px solid rgba(168,85,247,0.45); color:#e9d5ff; font-weight:800; font-size:10px; padding:7px 10px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; justify-content:center; gap:4px;" title="1-Click Quick Launch WTC Team Pairings Minigame">
+                      ⚔️ Quick Launch Team Pairings
+                    </button>
+                    <button id="gt-quick-launch-aos-btn" type="button" onclick="window.__handleCreateRoom('${isAosMode ? '40k' : 'aos'}')" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.35); color:#38bdf8; font-weight:800; font-size:10px; padding:7px 10px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;" title="1-Click Quick Launch ${isAosMode ? '40K' : 'AoS'} Game Tracker">
+                      ${isAosMode ? '🦅 40K Tracker' : '⚡ AoS Tracker'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -2426,13 +2575,14 @@
               <div style="background:var(--bg-card, #181d28); border:1px solid var(--border, #273042); border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
                 <div>
                   <div style="font-size:12px; font-weight:800; color:${joinBtnColor}; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">${joinTitle}</div>
-                  <p style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:0 0 10px; line-height:1.4;">Enter the 8-character Room Key provided by your opponent.</p>
+                  <p style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:0 0 10px; line-height:1.4;">Enter a 40K, AoS, or WTC Team Pairings Room Key to join as a Player/Captain or spectate live.</p>
                 </div>
                 <div>
                   <div id="gt-lobby-join-error" style="display:none; color:var(--loss, #ef4444); font-size:11px; font-weight:600; margin-bottom:6px; font-family:'JetBrains Mono',monospace;"></div>
-                  <div style="display:flex; gap:8px;">
-                    <input id="gt-lobby-join-input" type="text" placeholder="${joinPlaceholder}" style="flex:1; min-width:0; background:var(--bg-primary, #0a0c10); border:1px solid var(--border, #273042); border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--text-primary, #f0f4fc); outline:none; text-transform:uppercase; box-sizing:border-box;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput()" />
-                    <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:${joinBtnColor}; color:#0a0c10; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">ENTER ROOM ➔</button>
+                  <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    <input id="gt-lobby-join-input" type="text" placeholder="${joinPlaceholder}" style="flex:1; min-width:140px; background:var(--bg-primary, #0a0c10); border:1px solid var(--border, #273042); border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text-primary, #f0f4fc); outline:none; text-transform:uppercase; box-sizing:border-box;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput(false)" />
+                    <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput(false)" style="background:${joinBtnColor}; color:#0a0c10; font-weight:800; font-size:11px; text-transform:uppercase; border:none; padding:10px 12px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">JOIN ➔</button>
+                    <button id="gt-lobby-spectate-btn" onclick="window.__handleJoinRoomInput(true)" style="background:rgba(148,163,184,0.14); color:#e2e8f0; border:1px solid rgba(148,163,184,0.35); font-weight:800; font-size:11px; text-transform:uppercase; padding:10px 10px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;" title="Enter Room in Live Read-Only Spectator Mode">👁️ SPECTATE</button>
                   </div>
                 </div>
               </div>
@@ -2442,7 +2592,7 @@
           <div id="gt-history-section" style="margin:20px 0 40px; width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
               <div style="font-size:14px; font-weight:800; color:var(--text-primary, #f0f4fc); font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">
-                ${isAosMode ? 'AOS MATCH HISTORY' : 'GAME HISTORY'} <span id="gt-history-count" style="font-size:12px; color:var(--accent, #38bdf8); font-weight:700; margin-left:4px;"></span>
+                ${isAosMode ? 'AOS MATCH HISTORY' : 'GAME & PAIRINGS HISTORY'} <span id="gt-history-count" style="font-size:12px; color:var(--accent, #38bdf8); font-weight:700; margin-left:4px;"></span>
               </div>
               <button id="gt-btn-import-games" type="button" onclick="window.openTrackerImportModal && window.openTrackerImportModal()" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.35); color:#38bdf8; font-size:11px; font-weight:800; padding:6px 12px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:5px;">
                 📥 IMPORT GAMES
@@ -2764,7 +2914,7 @@
       outHtml += `
         <div style="margin-bottom:18px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-family:'JetBrains Mono',monospace; flex-wrap:wrap; gap:4px;">
-            <span style="font-size:11px; font-weight:800; color:var(--win, #22c55e); text-transform:uppercase;">🟢 Active Matches (${scopedActiveList.length})</span>
+            <span style="font-size:11px; font-weight:800; color:var(--win, #22c55e); text-transform:uppercase;">🟢 Active Matches & Pairings (${scopedActiveList.length})</span>
             <span style="font-size:10px; color:var(--text-secondary, #94a3b8);">⏳ Uncompleted games auto-purge after 14 days</span>
           </div>
           <div style="display:flex; flex-direction:column; gap:10px;">
@@ -2789,17 +2939,30 @@
               const p2NameStr = (m.game?.p2Name || m.p2_name || '').trim().toLowerCase();
               const isRegisteredPlayer = !currentUser || (uId && (uId === p1Uid || uId === p2Uid)) || (uName && (uName === p1NameStr || uName === p2NameStr));
 
-              const isAosGame = isAosMode || String(mid).toUpperCase().startsWith('AOS-') || m.game_system === 'aos';
-              const resumeUrl = isAosGame
-                ? `/11th/tracker/aos?match_id=${encodeURIComponent(mid)}`
-                : `/11th/tracker/play?match_id=${encodeURIComponent(mid)}`;
+              const isPairingsGame = String(mid).toUpperCase().startsWith('WTC-') || m.game_system === 'pairings' || m.game_mode === 'pairings';
+              const isAosGame = !isPairingsGame && (isAosMode || String(mid).toUpperCase().startsWith('AOS-') || m.game_system === 'aos');
+              const resumeUrl = isPairingsGame
+                ? `/team-pairings?room=${encodeURIComponent(mid)}&from_lobby=1`
+                : (isAosGame
+                  ? `/11th/tracker/aos?match_id=${encodeURIComponent(mid)}`
+                  : `/11th/tracker/play?match_id=${encodeURIComponent(mid)}`);
+
+              const cardBorder = isPairingsGame ? 'rgba(168,85,247,0.4)' : 'rgba(34,197,94,0.3)';
+              const cardBg = isPairingsGame ? 'rgba(168,85,247,0.09)' : 'var(--win-bg, rgba(34,197,94,0.08))';
+              const statusColor = isPairingsGame ? '#c084fc' : 'var(--win, #22c55e)';
+              const rawFmt = String(m.format_label || m.format_size || '5v5').trim();
+              const fmtLbl = rawFmt.toLowerCase().includes('v') ? rawFmt.toUpperCase() : `${rawFmt}V${rawFmt}`;
+              const statusText = isPairingsGame
+                ? `⚔️ Active Team Pairings (${fmtLbl} • #${mid})`
+                : `Active Match (Round ${rNum})`;
+              const resumeLabel = isPairingsGame ? '⚔️ Resume Pairings' : '▶️ Resume Match';
 
               return `
-                <div data-active-match-id="${escapeHtml(mid)}" style="background:var(--win-bg, rgba(34,197,94,0.08)); border:1px solid rgba(34,197,94,0.3); border-radius:14px; padding:14px 18px; box-sizing:border-box;">
+                <div data-active-match-id="${escapeHtml(mid)}" style="background:${cardBg}; border:1px solid ${cardBorder}; border-radius:14px; padding:14px 18px; box-sizing:border-box;">
                   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:4px;">
-                    <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:var(--win, #22c55e); text-transform:uppercase; font-family:'JetBrains Mono',monospace;">
-                      <span style="width:7px; height:7px; border-radius:50%; background:var(--win, #22c55e); display:inline-block;"></span>
-                      Active Match (Round ${rNum})
+                    <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:${statusColor}; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">
+                      <span style="width:7px; height:7px; border-radius:50%; background:${statusColor}; display:inline-block;"></span>
+                      ${escapeHtml(statusText)}
                     </span>
                     <span style="font-size:11px; color:var(--text-secondary, #94a3b8); font-family:'JetBrains Mono',monospace;">📅 Created ${dateLabel}</span>
                   </div>
@@ -2811,11 +2974,16 @@
                         ${m.primary_mission ? ` • 🎯 ${escapeHtml(m.primary_mission)}` : ''}
                       </div>
                     </div>
-                    <div style="display:flex; gap:6px; align-items:center;">
-                      <a href="${resumeUrl}" style="background:var(--accent, #38bdf8); color:#0a0c10; font-weight:800; font-size:12px; padding:8px 14px; border-radius:8px; text-decoration:none; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:4px;">
-                        ▶️ Resume Match
+                    <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                      <a href="${resumeUrl}" style="background:${isPairingsGame ? 'linear-gradient(135deg, #a855f7, #ec4899)' : 'var(--accent, #38bdf8)'}; color:${isPairingsGame ? '#ffffff' : '#0a0c10'}; font-weight:800; font-size:12px; padding:8px 14px; border-radius:8px; text-decoration:none; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:4px;">
+                        ${resumeLabel}
                       </a>
-                      ${isRegisteredPlayer && !(String(mid).toUpperCase().startsWith('BCP-') || String(mid).toUpperCase().startsWith('ES-') || m.event_id || m.tournament_id) ? `
+                      ${isPairingsGame ? `
+                        <a href="/team-pairings?room=${encodeURIComponent(mid)}&role=spectator" style="background:rgba(148,163,184,0.14); color:#e2e8f0; border:1px solid rgba(148,163,184,0.35); font-weight:800; font-size:11px; padding:8px 10px; border-radius:8px; text-decoration:none; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:4px;" title="Enter Read-Only Spectator View">
+                          👁️ Spectate
+                        </a>
+                      ` : ''}
+                      ${(isRegisteredPlayer || isPairingsGame) && !(String(mid).toUpperCase().startsWith('BCP-') || String(mid).toUpperCase().startsWith('ES-') || m.event_id || m.tournament_id) ? `
                         <button onclick="window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('div[style*=\\'background\\']'))" style="background:var(--loss-bg, rgba(239,68,68,0.15)); color:var(--loss, #ef4444); border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer;" title="Discard / Abandon Session">
                           🗑️
                         </button>
@@ -2833,6 +3001,10 @@
     // 2. Completed Match History (All in Grey Cards with Edition Filter Bar)
     if (scopedCompleted.length > 0) {
       const normalizeTrackerEditionCode = (item) => {
+        const midCheck = String(item.match_id || item.id || '').toUpperCase();
+        if (midCheck.startsWith('WTC-') || item.game_system === 'pairings' || item.game_mode === 'pairings') {
+          return 'wtc_pairings';
+        }
         let rawEd = item.edition || item.edition_label || item.game?.edition || '';
         if (!rawEd && item.state_json) {
           try {
@@ -2841,6 +3013,7 @@
           } catch (e) {}
         }
         const s = String(rawEd || (isAosMode ? 'aos_4e' : '10th')).toLowerCase().trim();
+        if (s.includes('wtc') || s.includes('pairing')) return 'wtc_pairings';
         if (s.includes('8th') || s.includes('itc')) return '8th_itc';
         if (s.includes('9th') || s === '9e') return '9th';
         if (s.includes('11th') || s === '11e') return '11th';
@@ -2867,6 +3040,7 @@
           ]
         : [
             { code: 'all', label: 'All Editions', icon: '📚' },
+            { code: 'wtc_pairings', label: 'WTC Pairings', icon: '⚔️' },
             { code: '11th', label: '11th Ed', icon: '🚀' },
             { code: '10th', label: '10th Ed', icon: '🦅' },
             { code: '9th', label: '9th Ed', icon: '📜' },
@@ -2921,8 +3095,13 @@
               }
               const factionSubtitle = `<div class="gt-history-factions">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>`;
               const edCode = normalizeTrackerEditionCode(item);
-              const edShort = edCode === '8th_itc' ? '🏛️ 8th ITC' : (edCode === '9th' ? '📜 9th Ed' : (edCode === '11th' ? '🚀 11th Ed' : (edCode === 'aos_3e' ? '⚔️ AoS 3e' : (edCode === 'aos_4e' ? '⚡ AoS 4e' : (edCode === '10th' ? '🦅 10th Ed' : '')))));
+              const isPairingsItem = edCode === 'wtc_pairings' || String(mid).toUpperCase().startsWith('WTC-') || item.game_system === 'pairings';
+              const inferredFmt = (String(item.edition_label || p1F || '').toUpperCase().includes('8V8')) ? '8v8' : '5v5';
+              const itemRawFmt = String(item.format_label || item.format_size || inferredFmt).trim();
+              const itemFmtLbl = itemRawFmt.toLowerCase().includes('v') ? itemRawFmt.toUpperCase() : `${itemRawFmt}V${itemRawFmt}`;
+              const edShort = edCode === 'wtc_pairings' ? `⚔️ WTC ${itemFmtLbl}` : (edCode === '8th_itc' ? '🏛️ 8th ITC' : (edCode === '9th' ? '📜 9th Ed' : (edCode === '11th' ? '🚀 11th Ed' : (edCode === 'aos_3e' ? '⚔️ AoS 3e' : (edCode === 'aos_4e' ? '⚡ AoS 4e' : (edCode === '10th' ? '🦅 10th Ed' : ''))))));
               const edStyleMap = {
+                'wtc_pairings': 'background:rgba(168,85,247,0.16); color:#e9d5ff; border:1px solid rgba(168,85,247,0.42);',
                 '11th': 'background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35);',
                 '10th': 'background:rgba(45,212,191,0.14); color:#2dd4bf; border:1px solid rgba(45,212,191,0.35);',
                 '9th': 'background:rgba(251,191,36,0.14); color:#fbbf24; border:1px solid rgba(251,191,36,0.35);',
@@ -2938,12 +3117,19 @@
               const sysStr = item.game_system || (String(mid).startsWith('AOS-') || isAosMode ? 'aos' : '40k');
               const evTitleText = item.mapped_event_name || 'Tournament';
               const evRoundText = `R${item.round_num || 1}${item.table_num ? ' T' + item.table_num : ''}`;
-              const eventMetaSlot = isLockedEvent
-                ? `<span class="gt-history-event-badge" title="🏆 ${escapeHtml(evTitleText)} • ${escapeHtml(evRoundText)}"><span class="gt-history-event-icon">🏆</span><span class="gt-history-event-name">${escapeHtml(evTitleText)}</span><span class="gt-history-event-round">${escapeHtml(evRoundText)}</span></span>`
-                : `<button type="button" class="gt-history-map-pill" title="Map & Lock Scorecard to Official Tournament Pairing" onclick="event.stopPropagation(); window.openMapGameToEventModal('${escapeHtml(mid)}', '${escapeHtml(sysStr)}')">🏆 Map to Event</button>`;
+              const eventMetaSlot = isPairingsItem
+                ? `<span class="gt-history-event-badge" title="Room #${escapeHtml(mid)}"><span class="gt-history-event-icon">🎲</span><span class="gt-history-event-name">#${escapeHtml(mid)}</span></span>`
+                : (isLockedEvent
+                  ? `<span class="gt-history-event-badge" title="🏆 ${escapeHtml(evTitleText)} • ${escapeHtml(evRoundText)}"><span class="gt-history-event-icon">🏆</span><span class="gt-history-event-name">${escapeHtml(evTitleText)}</span><span class="gt-history-event-round">${escapeHtml(evRoundText)}</span></span>`
+                  : `<button type="button" class="gt-history-map-pill" title="Map & Lock Scorecard to Official Tournament Pairing" onclick="event.stopPropagation(); window.openMapGameToEventModal('${escapeHtml(mid)}', '${escapeHtml(sysStr)}')">🏆 Map to Event</button>`);
+
+              const targetViewUrl = isPairingsItem
+                ? `/team-pairings?room=${encodeURIComponent(mid)}&role=spectator`
+                : `/scorecard/${encodeURIComponent(mid)}`;
+              const viewBtnLabel = isPairingsItem ? '⚔️ View Pairings' : '📄 Scorecard';
 
               return `
-                <div class="gt-history-card" data-match-id="${escapeHtml(mid)}" data-edition="${escapeHtml(edCode)}" onclick="window.location.href='/scorecard/${encodeURIComponent(mid)}'">
+                <div class="gt-history-card" data-match-id="${escapeHtml(mid)}" data-edition="${escapeHtml(edCode)}" onclick="window.location.href='${targetViewUrl}'">
                   <div class="gt-history-main">
                     <div class="gt-history-players">${escapeHtml(p1)} <span class="gt-history-vs">vs</span> ${escapeHtml(p2)}</div>
                     ${factionSubtitle}
@@ -2959,8 +3145,8 @@
                       <span class="gt-score-val gt-score-p2">${p2S}</span>
                     </span>
                     <div class="gt-history-actions">
-                      <button type="button" class="gt-history-scorecard-btn" title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')">
-                        📄 Scorecard
+                      <button type="button" class="gt-history-scorecard-btn" title="${isPairingsItem ? 'View Completed WTC Team Pairings' : 'View Full Turn-by-Turn Digital Scorecard'}" onclick="event.stopPropagation(); window.location.href='${targetViewUrl}'">
+                        ${viewBtnLabel}
                       </button>
                     </div>
                   </div>
@@ -3158,6 +3344,12 @@
                 id: item.match_id,
                 match_id: item.match_id,
                 game_system: item.game_system || s.gameSystem || (String(item.match_id || '').startsWith('AOS-') ? 'aos' : '40k'),
+                game_mode: item.game_mode || s.game_mode || (String(item.match_id || '').startsWith('WTC-') ? 'pairings' : 'tracker'),
+                format_size: item.format_size || s.format_size || null,
+                format_label: item.format_label || s.format_label || null,
+                paired_count: item.paired_count ?? s.paired_count ?? null,
+                target_tables: item.target_tables ?? s.target_tables ?? null,
+                pairing_status: item.pairing_status || s.pairing_status || null,
                 edition: item.edition || s.edition || null,
                 edition_label: item.edition_label || s.edition_label || null,
                 event_id: item.event_id || s.event_id || null,

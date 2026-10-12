@@ -263,7 +263,7 @@ def normalize_tracker_match_id(raw: str) -> str:
         return f"{prefix}{system}-{event_id}-R{r_num}-T{t_num}"
 
     s = clean.upper()
-    if s.startswith("WH40K-") or s.startswith("BCP-") or s.startswith("ES-") or s.startswith("AOS-"):
+    if s.startswith("WH40K-") or s.startswith("BCP-") or s.startswith("ES-") or s.startswith("AOS-") or s.startswith("WTC-"):
         return s
     s_clean = s.replace("-", "")
     if len(s_clean) == 8:

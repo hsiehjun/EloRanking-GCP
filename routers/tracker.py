@@ -56,6 +56,10 @@ class TrackerCreatePayload(BaseModel):
     match_id: Optional[str] = None
     pairing_id: Optional[str] = None
     game_system: Optional[str] = "40k"
+    game_mode: Optional[str] = None
+    format_size: Optional[str] = "5v5"
+    vs_ai: Optional[bool] = True
+    empty_rosters: Optional[bool] = True
     is_locked: Optional[bool] = None
 
 class TrackerLockPayload(BaseModel):
@@ -931,7 +935,51 @@ def _api_tracker_create_room_sync(request: Request, payload: Optional[TrackerCre
         session_token = (payload.token if payload and payload.token else None) or (request.cookies.get("session_token") if request and hasattr(request, "cookies") else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
     
-    req_sys = (payload.game_system if payload and payload.game_system else None) or request.headers.get("X-Game-System") or ("aos" if payload and payload.match_id and payload.match_id.startswith("AOS-") else "40k")
+    req_sys = (payload.game_system if payload and payload.game_system else None) or (request.headers.get("X-Game-System") if request and hasattr(request, "headers") else None) or ("aos" if payload and payload.match_id and payload.match_id.startswith("AOS-") else "40k")
+    req_mode = (payload.game_mode if payload and payload.game_mode else None) or req_sys
+    if str(req_sys).lower() in ("pairings", "wtc", "team_pairings", "team-pairings") or str(req_mode).lower() in ("pairings", "wtc", "team_pairings", "team-pairings") or (payload and payload.match_id and str(payload.match_id).upper().startswith("WTC-")):
+        fs_engine = get_firestore_engine()
+        u_id = (user.get("id") or user.get("user_id")) if user else _extract_guest_id(request, payload)
+        u_name = (user.get("display_name") or user.get("name")) if user else ((payload.p1_name if payload else None) or "Team A Captain")
+        fmt_size = (payload.format_size if payload and payload.format_size else "5v5")
+        vs_ai_val = True if (payload is None or payload.vs_ai is None) else bool(payload.vs_ai)
+        empty_rosters_val = True if (payload is None or payload.empty_rosters is None) else bool(payload.empty_rosters)
+        existing_wtc = fs_engine.get_pairing_room_raw(payload.match_id) if (payload and payload.match_id) else None
+        if existing_wtc:
+            raw_room = existing_wtc
+        else:
+            raw_room = fs_engine.create_pairing_room({
+                "room_code": payload.match_id if (payload and payload.match_id) else None,
+                "format_size": fmt_size,
+                "vs_ai": vs_ai_val,
+                "empty_rosters": empty_rosters_val,
+                "user_id": u_id,
+                "user_name": u_name,
+                "captain_a_name": u_name,
+                "is_locked": bool(payload.is_locked) if (payload and payload.is_locked is not None) else False,
+            })
+        p_code = raw_room["room_code"]
+        return {
+            "success": True,
+            "match_id": p_code,
+            "room_code": p_code,
+            "role": "captain_a",
+            "game_system": "pairings",
+            "game_mode": "pairings",
+            "format_size": raw_room.get("format_size", "5v5"),
+            "is_locked": bool(raw_room.get("is_locked", False)),
+            "is_owner": True,
+            "user_id_p1": raw_room.get("user_id_cap_a"),
+            "user_id_p2": raw_room.get("user_id_cap_b"),
+            "p1_name": (raw_room.get("team_a") or {}).get("name") or "Team A",
+            "p2_name": (raw_room.get("team_b") or {}).get("name") or "Team B",
+            "captain_a_token": raw_room.get("captain_a_token"),
+            "captain_b_token": raw_room.get("captain_b_token"),
+            "room_url": f"/team-pairings?room={p_code}&from_lobby=1",
+            "spectator_url": f"/team-pairings?room={p_code}&role=spectator",
+            "room": fs_engine.mask_pairing_room_for_viewer(raw_room, force_role="captain_a"),
+        }
+
     sys_id = "aos" if "aos" in str(req_sys).lower() else "40k"
 
     # Check if deterministic tournament room was requested
@@ -1347,9 +1395,70 @@ def _api_tracker_check_room_sync(match_id: str, request: Request):
             user = auth_mgr.get_session(session_token) if session_token else None
         except Exception:
             pass
-    user_id = user["id"] if user else None
+    user_id = (user.get("id") or user.get("user_id")) if user else None
     guest_id = _extract_guest_id(request)
     effective_uid = user_id or guest_id
+
+    # Check if this is a WTC Team Pairings Minigame room (e.g. WTC-XXXX or 4-char code matching WTC-XXXX)
+    wtc_candidate = match_id if match_id.startswith("WTC-") else (f"WTC-{match_id}" if len(match_id) == 4 else None)
+    if wtc_candidate:
+        discarded_wtc = getattr(fs_engine, "_discarded_pairing_rooms", set())
+        if wtc_candidate in discarded_wtc:
+            return {"exists": False, "is_abandoned": True, "match_id": wtc_candidate, "error": f"Room key '{wtc_candidate}' was discarded."}
+        p_room = fs_engine.get_pairing_room_raw(wtc_candidate)
+        if p_room:
+            p_code = p_room["room_code"]
+            p_locked = bool(p_room.get("is_locked", False))
+            p_fin = bool(p_room.get("is_finished") or p_room.get("status") == "completed" or p_room.get("phase") == "COMPLETED")
+            cap_a_uid = p_room.get("user_id_cap_a")
+            cap_b_uid = p_room.get("user_id_cap_b")
+            seat_a_locked = bool(p_room.get("seat_a_locked", False))
+            seat_b_locked = bool(p_room.get("seat_b_locked", False))
+            is_cap_a = bool(effective_uid and cap_a_uid and str(effective_uid) == str(cap_a_uid))
+            is_cap_b = bool(effective_uid and cap_b_uid and str(effective_uid) == str(cap_b_uid))
+
+            if is_cap_a:
+                assigned_role = "captain_a"
+            elif is_cap_b:
+                assigned_role = "captain_b"
+            elif not p_locked and not p_fin and not seat_a_locked:
+                assigned_role = "captain_a"
+            elif not p_locked and not p_fin and not seat_b_locked:
+                assigned_role = "captain_b"
+            else:
+                assigned_role = "spectator"
+
+            is_spectator = assigned_role == "spectator"
+            is_open_for_p2 = bool(not p_fin and not p_locked and not seat_b_locked)
+            is_full = bool(p_fin or (is_spectator and (p_locked or (seat_a_locked and seat_b_locked))))
+            p1_name = (p_room.get("team_a") or {}).get("name") or "Team A"
+            p2_name = (p_room.get("team_b") or {}).get("name") or "Team B"
+
+            return {
+                "exists": True,
+                "match_id": p_code,
+                "room_code": p_code,
+                "game_system": "pairings",
+                "game_mode": "pairings",
+                "format_size": p_room.get("format_size", "5v5"),
+                "is_locked": p_locked,
+                "is_owner": bool(effective_uid and str(effective_uid) in (str(p_room.get("owner_id") or ""), str(cap_a_uid or ""))),
+                "p1_name": p1_name,
+                "p2_name": p2_name,
+                "user_id_p1": cap_a_uid,
+                "user_id_p2": cap_b_uid,
+                "is_full": is_full,
+                "is_open_for_p2": is_open_for_p2,
+                "is_finished": p_fin,
+                "is_spectator": is_spectator,
+                "is_participant": assigned_role in ("captain_a", "captain_b"),
+                "role": assigned_role,
+                "room_url": f"/team-pairings?room={p_code}&from_lobby=1",
+                "spectator_url": f"/team-pairings?room={p_code}&role=spectator",
+                "scorecard_url": f"/team-pairings?room={p_code}&role=spectator",
+            }
+        if match_id.startswith("WTC-"):
+            return {"exists": False, "match_id": match_id, "error": f"Pairing room key '{match_id}' does not exist."}
     
     if hasattr(fs_engine, "is_room_discarded") and fs_engine.is_room_discarded(match_id) is True:
         TRACKER_ROOMS.pop(match_id, None)
@@ -1549,6 +1658,61 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
             payload = TrackerJoinPayload(guest_id=guest_id)
         elif not payload.guest_id:
             payload.guest_id = guest_id
+
+    wtc_join_candidate = match_id if match_id.startswith("WTC-") else (f"WTC-{match_id}" if len(match_id) == 4 else None)
+    if wtc_join_candidate:
+        p_room = fs_engine.get_pairing_room_raw(wtc_join_candidate)
+        if p_room:
+            p_code = p_room["room_code"]
+            req_role = str(getattr(payload, "claim_role", None) or "").strip().lower()
+            if req_role in ("player1", "p1", "captain_a"):
+                desired_seat = "captain_a"
+            elif req_role in ("player2", "p2", "captain_b"):
+                desired_seat = "captain_b"
+            elif req_role == "spectator":
+                desired_seat = "spectator"
+            else:
+                if effective_uid and str(p_room.get("user_id_cap_a") or "") == str(effective_uid):
+                    desired_seat = "captain_a"
+                elif effective_uid and str(p_room.get("user_id_cap_b") or "") == str(effective_uid):
+                    desired_seat = "captain_b"
+                elif not p_room.get("is_locked") and not p_room.get("seat_b_locked"):
+                    desired_seat = "captain_b"
+                elif not p_room.get("is_locked") and not p_room.get("seat_a_locked"):
+                    desired_seat = "captain_a"
+                else:
+                    desired_seat = "spectator"
+
+            res = fs_engine.apply_pairing_action(
+                p_code,
+                {
+                    "action": "claim_seat",
+                    "seat": desired_seat,
+                    "user_id": effective_uid,
+                    "user_name": user_name,
+                },
+            )
+            granted_role = res.get("role") or ("spectator" if not res.get("ok") else desired_seat)
+            cap_tok = res.get("captain_token") or ""
+            p_fin = bool(p_room.get("is_finished") or p_room.get("status") == "completed" or p_room.get("phase") == "COMPLETED")
+            return {
+                "success": True,
+                "match_id": p_code,
+                "room_code": p_code,
+                "game_system": "pairings",
+                "game_mode": "pairings",
+                "role": granted_role,
+                "captain_token": cap_tok,
+                "is_locked": bool(p_room.get("is_locked", False)),
+                "is_finished": p_fin,
+                "room_url": f"/team-pairings?room={p_code}&role={granted_role}&from_lobby=1",
+                "spectator_url": f"/team-pairings?room={p_code}&role=spectator",
+                "scorecard_url": f"/team-pairings?room={p_code}&role=spectator",
+                "redirect_url": f"/team-pairings?room={p_code}&role=spectator" if granted_role == "spectator" else f"/team-pairings?room={p_code}&role={granted_role}&from_lobby=1",
+                "room": res.get("room"),
+            }
+        if match_id.startswith("WTC-"):
+            raise HTTPException(status_code=404, detail="Pairing room not found")
     
     if match_id not in TRACKER_ROOMS or fs_engine.is_connected is True:
         fs_doc = fs_engine.get_room(match_id)
@@ -2216,16 +2380,26 @@ def api_tracker_history(request: Request, limit: int = 500, search: Optional[str
         active_docs = fs_engine.list_active_rooms_for_user(user_id=user_id, user_name=user_name, limit=limit)
         active_sessions = [_format_firestore_session_item(d) for d in active_docs if not d.get("is_abandoned")]
         
+        pairing_lists = {"active": [], "completed": []}
+        if hasattr(fs_engine, "list_pairing_rooms_for_user"):
+            try:
+                pairing_lists = fs_engine.list_pairing_rooms_for_user(user_id=user_id, user_name=user_name, limit=limit)
+            except Exception as p_err:
+                logger.debug(f"Pairing history fetch notice: {p_err}")
+        active_sessions.extend(pairing_lists.get("active", []))
+
         db = get_database()
-        completed = db.get_tracker_history(limit=limit, search=search, user_id=user_id, user_name=user_name)
+        completed = (db.get_tracker_history(limit=limit, search=search, user_id=user_id, user_name=user_name) or []) + pairing_lists.get("completed", [])
         seen = {a["match_id"] for a in active_sessions}
         filtered_completed = [c for c in completed if c.get("match_id") not in seen]
         
         all_history = active_sessions + filtered_completed
         if game_system:
-            sys_filter = "aos" if "aos" in game_system.lower() else "40k"
+            sys_filter = "aos" if "aos" in game_system.lower() else ("pairings" if "pair" in game_system.lower() or "wtc" in game_system.lower() else "40k")
             if sys_filter == "aos":
                 all_history = [h for h in all_history if h.get("game_system") == "aos" or str(h.get("match_id", "")).upper().startswith("AOS-")]
+            elif sys_filter == "pairings":
+                all_history = [h for h in all_history if h.get("game_system") == "pairings" or str(h.get("match_id", "")).upper().startswith("WTC-")]
             else:
                 all_history = [h for h in all_history if h.get("game_system") != "aos" and not str(h.get("match_id", "")).upper().startswith("AOS-")]
         return {"success": True, "history": all_history}
@@ -2273,11 +2447,12 @@ def _api_tracker_user_sessions_sync(
     completed_mids = set()
     if db and hasattr(db, "get_tracker_history"):
         try:
-            raw_completed_history = db.get_tracker_history(limit=500, user_id=user_id, user_name=user_name) or []
+            fetched_hist = db.get_tracker_history(limit=500, user_id=user_id, user_name=user_name)
+            raw_completed_history = list(fetched_hist) if isinstance(fetched_hist, list) else []
             completed_mids = {
                 (g.get("match_id") or "").strip().upper()
                 for g in raw_completed_history
-                if g.get("is_finished", True) and g.get("match_id")
+                if isinstance(g, dict) and g.get("is_finished", True) and g.get("match_id")
             }
         except Exception as err:
             logger.debug(f"History fetch notice: {err}")
@@ -2316,6 +2491,23 @@ def _api_tracker_user_sessions_sync(
             if not formatted["is_abandoned"]:
                 active_sessions.append(formatted)
 
+    # 2b. Include WTC Team Pairings rooms (active and completed)
+    if hasattr(fs_engine, "list_pairing_rooms_for_user"):
+        try:
+            pairing_lists = fs_engine.list_pairing_rooms_for_user(user_id=user_id, user_name=user_name)
+            for p_act in pairing_lists.get("active", []):
+                pmid = (p_act.get("match_id") or "").strip().upper()
+                if pmid and pmid not in seen_matches:
+                    seen_matches.add(pmid)
+                    active_sessions.append(p_act)
+            for p_comp in pairing_lists.get("completed", []):
+                pmid = (p_comp.get("match_id") or "").strip().upper()
+                if pmid and pmid not in completed_mids:
+                    completed_mids.add(pmid)
+                    raw_completed_history.append(p_comp)
+        except Exception as p_err:
+            logger.debug(f"Pairing sessions fetch notice: {p_err}")
+
     # Evict any stale casual rooms in TRACKER_ROOMS that are no longer in Firestore when connected
     if fs_engine.is_connected:
         for cached_mid in list(TRACKER_ROOMS.keys()):
@@ -2323,9 +2515,11 @@ def _api_tracker_user_sessions_sync(
                 TRACKER_ROOMS.pop(cached_mid, None)
 
     if game_system:
-        sys_filter = "aos" if "aos" in game_system.lower() else "40k"
+        sys_filter = "aos" if "aos" in game_system.lower() else ("pairings" if "pair" in game_system.lower() or "wtc" in game_system.lower() else "40k")
         if sys_filter == "aos":
             active_sessions = [s for s in active_sessions if s.get("game_system") == "aos" or str(s.get("match_id", "")).upper().startswith("AOS-")]
+        elif sys_filter == "pairings":
+            active_sessions = [s for s in active_sessions if s.get("game_system") == "pairings" or str(s.get("match_id", "")).upper().startswith("WTC-")]
         else:
             active_sessions = [s for s in active_sessions if s.get("game_system") != "aos" and not str(s.get("match_id", "")).upper().startswith("AOS-")]
                 
@@ -2335,9 +2529,11 @@ def _api_tracker_user_sessions_sync(
     
     completed_history = [g for g in raw_completed_history if g.get("is_finished", True) and (g.get("match_id") or "").strip().upper() not in seen_matches]
     if game_system:
-        sys_filter = "aos" if "aos" in game_system.lower() else "40k"
+        sys_filter = "aos" if "aos" in game_system.lower() else ("pairings" if "pair" in game_system.lower() or "wtc" in game_system.lower() else "40k")
         if sys_filter == "aos":
             completed_history = [c for c in completed_history if c.get("game_system") == "aos" or str(c.get("match_id", "")).upper().startswith("AOS-")]
+        elif sys_filter == "pairings":
+            completed_history = [c for c in completed_history if c.get("game_system") == "pairings" or str(c.get("match_id", "")).upper().startswith("WTC-")]
         else:
             completed_history = [c for c in completed_history if c.get("game_system") != "aos" and not str(c.get("match_id", "")).upper().startswith("AOS-")]
         
@@ -2362,7 +2558,19 @@ async def api_tracker_discard_game(match_id: str, request: Request, payload: Opt
             user = auth_mgr.get_session(session_token) if session_token else None
         except Exception:
             pass
-    
+
+    fs_engine = get_firestore_engine()
+    if match_id.startswith("WTC-") and hasattr(fs_engine, "get_pairing_room_raw"):
+        p_room = fs_engine.get_pairing_room_raw(match_id)
+        if p_room:
+            if p_room.get("is_finished") or p_room.get("status") == "completed":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Permanent record: Completed pairing rooms cannot be discarded or deleted."
+                )
+            fs_engine.discard_pairing_room(match_id)
+            return {"success": True, "match_id": match_id, "status": "abandoned", "is_abandoned": True}
+
     # 1. Verify this is NOT a completed / permanent match record
     db = None
     try:
@@ -2379,7 +2587,6 @@ async def api_tracker_discard_game(match_id: str, request: Request, payload: Opt
     except Exception:
         pass
 
-    fs_engine = get_firestore_engine()
     room_doc = fs_engine.get_room(match_id) or TRACKER_ROOMS.get(match_id) or {}
     st_doc = room_doc.get("state", {}) if isinstance(room_doc.get("state"), dict) else {}
 

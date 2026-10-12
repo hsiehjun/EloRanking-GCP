@@ -2642,17 +2642,201 @@ class FirestoreRoomEngine:
             return None
         code = str(room_code).strip().upper()
         if code in self._fallback_pairing_rooms:
-            return self._fallback_pairing_rooms[code]
+            rm = self._fallback_pairing_rooms[code]
+            if rm.get("is_abandoned") or rm.get("status") == "abandoned":
+                return None
+            return rm
         if self._client:
             try:
                 doc = self._client.collection("pairing_rooms").document(code).get(timeout=0.45)
                 if doc.exists:
                     data = doc.to_dict() or {}
+                    if data.get("is_abandoned") or data.get("status") == "abandoned":
+                        return None
                     self._fallback_pairing_rooms[code] = data
                     return data
             except Exception as err:
                 logger.warning(f"Notice reading pairing_room {code} from Firestore: {err}")
         return None
+
+    def discard_pairing_room(self, room_code: str) -> bool:
+        """Marks a WTC Team Pairings room as discarded/abandoned and removes it from active rooms."""
+        import threading
+        if not room_code:
+            return False
+        code = str(room_code).strip().upper()
+        existing = self._fallback_pairing_rooms.pop(code, None)
+        if not hasattr(self, "_discarded_pairing_rooms"):
+            self._discarded_pairing_rooms = set()
+        self._discarded_pairing_rooms.add(code)
+        if self._client:
+            def _bg_del():
+                try:
+                    self._client.collection("pairing_rooms").document(code).delete()
+                except Exception as err:
+                    logger.debug(f"Notice deleting pairing_room {code} from Firestore: {err}")
+            threading.Thread(target=_bg_del, daemon=True).start()
+        return existing is not None or True
+
+    def finish_pairing_room(self, room_code: str) -> Optional[Dict[str, Any]]:
+        """Marks a WTC Team Pairings room as completed/finished so it appears in Completed History."""
+        room = self.get_pairing_room_raw(room_code)
+        if not room:
+            return None
+        room["is_finished"] = True
+        room["status"] = "completed"
+        room["phase"] = "COMPLETED"
+        room["completedAt"] = int(datetime.now(timezone.utc).timestamp() * 1000)
+        self._append_log(room, "🏁 Pairing Minigame concluded and saved to Match History.")
+        self._save_pairing_room_doc(room["room_code"], room)
+        return room
+
+    def format_pairing_room_session_item(self, room: Dict[str, Any]) -> Dict[str, Any]:
+        """Formats a WTC Team Pairings room into a unified Game Tracker Lobby session/history item."""
+        code = str(room.get("room_code") or "").strip().upper()
+        fmt = str(room.get("format_size") or room.get("format") or "5v5").upper()
+        total_tables = int(room.get("total_tables") or room.get("team_size") or (8 if fmt == "8V8" else 5))
+        pairings_list = room.get("pairings") or []
+        tables_locked = len(pairings_list)
+        pred_on = bool(room.get("prediction_scoring_enabled", True))
+
+        exp_a = 0
+        exp_b = 0
+        sim_a = 0
+        sim_b = 0
+        for m in pairings_list:
+            ea = int(m.get("est_score_a", 10))
+            eb = int(m.get("est_score_b", 20 - ea))
+            br = m.get("battle_result") if isinstance(m.get("battle_result"), dict) else {}
+            sa = int(m.get("sim_score_a", br.get("sim_score_a", ea)))
+            sb = int(m.get("sim_score_b", br.get("sim_score_b", 20 - sa)))
+            exp_a += ea
+            exp_b += eb
+            sim_a += sa
+            sim_b += sb
+
+        score_a = sim_a if pred_on else exp_a
+        score_b = sim_b if pred_on else exp_b
+        if not pairings_list:
+            score_a = int(round(float(room.get("sim_total_a") or room.get("expected_total_a") or 0)))
+            score_b = int(round(float(room.get("sim_total_b") or room.get("expected_total_b") or 0)))
+
+        team_a = room.get("team_a") or {}
+        team_b = room.get("team_b") or {}
+        name_a = str(team_a.get("name") or "Team A").strip()
+        name_b = str(team_b.get("name") or "Team B").strip()
+        cap_a = str(room.get("seat_a_owner_name") or room.get("captain_a_name") or team_a.get("captain_name") or "Captain A").strip()
+        cap_b = str(room.get("seat_b_owner_name") or room.get("captain_b_name") or team_b.get("captain_name") or "Captain B").strip()
+
+        is_fin = bool(room.get("is_finished") or room.get("status") == "completed" or room.get("phase") in ("COMPLETED", "COMPLETE"))
+        created_ts = int(room.get("createdAt") or int(datetime.now(timezone.utc).timestamp() * 1000))
+        updated_ts = int(room.get("updatedAt") or created_ts)
+        date_iso = datetime.fromtimestamp(updated_ts / 1000.0, tz=timezone.utc).strftime("%Y-%m-%d")
+
+        phase_str = str(room.get("phase") or "STEP_1_DEFENDER")
+        progress_str = f"All {total_tables} Tables Paired" if is_fin else f"{tables_locked}/{total_tables} Tables Paired • Cycle {room.get('cycle', 1)}"
+
+        return {
+            "id": code,
+            "match_id": code,
+            "room_code": code,
+            "game_system": "pairings",
+            "game_mode": "pairings",
+            "edition": "wtc_pairings",
+            "edition_label": f"WTC {fmt} Pairings",
+            "format_label": fmt.lower(),
+            "format_size": fmt.lower(),
+            "total_tables": total_tables,
+            "tables_locked": tables_locked,
+            "p1_name": name_a,
+            "p2_name": name_b,
+            "p1_faction": f"⚔️ {fmt} Roster ({cap_a})",
+            "p2_faction": f"⚔️ {fmt} Roster ({cap_b})",
+            "p1_score": score_a,
+            "p2_score": score_b,
+            "p1Score": score_a,
+            "p2Score": score_b,
+            "primary_mission": f"WTC {fmt} Pairing Duel ({progress_str})",
+            "round": int(room.get("cycle") or 1),
+            "current_round": int(room.get("cycle") or 1),
+            "phase": phase_str,
+            "user_id_p1": room.get("user_id_cap_a") or room.get("owner_id"),
+            "user_id_p2": room.get("user_id_cap_b"),
+            "is_locked": bool(room.get("is_locked", False)),
+            "is_finished": is_fin,
+            "isFinished": is_fin,
+            "status": "completed" if is_fin else "active",
+            "is_abandoned": bool(room.get("is_abandoned") or room.get("status") == "abandoned"),
+            "created_at": created_ts,
+            "updated_at": updated_ts,
+            "date": date_iso,
+            "game_date": date_iso,
+            "pairings_url": f"/team-pairings?room={code}&from_lobby=1",
+            "spectator_url": f"/team-pairings?room={code}&role=spectator",
+            "game": {
+                "p1Name": name_a,
+                "p2Name": name_b,
+                "p1Faction": f"⚔️ {fmt} Roster ({cap_a})",
+                "p2Faction": f"⚔️ {fmt} Roster ({cap_b})",
+                "edition": "wtc_pairings",
+                "gameMode": "pairings",
+            },
+        }
+
+    def list_pairing_rooms_for_user(
+        self,
+        user_id: Optional[str] = None,
+        user_name: Optional[str] = None,
+        limit: int = 50,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Returns active and completed WTC Team Pairings rooms for Lobby Match History in < 5ms."""
+        discarded = getattr(self, "_discarded_pairing_rooms", set())
+        u_id = str(user_id or "").strip()
+        u_name = str(user_name or "").strip().lower()
+
+        active_items: List[Dict[str, Any]] = []
+        completed_items: List[Dict[str, Any]] = []
+
+        rooms_snapshot = list(self._fallback_pairing_rooms.values())
+        rooms_snapshot.sort(key=lambda r: int(r.get("updatedAt") or r.get("createdAt") or 0), reverse=True)
+
+        for rm in rooms_snapshot:
+            if not isinstance(rm, dict):
+                continue
+            code = str(rm.get("room_code") or "").strip().upper()
+            if not code or code in discarded or rm.get("is_abandoned") or rm.get("status") == "abandoned":
+                continue
+
+            if u_id or u_name:
+                owner_uid = str(rm.get("owner_id") or "").strip()
+                cap_a_uid = str(rm.get("user_id_cap_a") or "").strip()
+                cap_b_uid = str(rm.get("user_id_cap_b") or "").strip()
+                cap_a_nm = str(rm.get("seat_a_owner_name") or rm.get("captain_a_name") or "").strip().lower()
+                cap_b_nm = str(rm.get("seat_b_owner_name") or rm.get("captain_b_name") or "").strip().lower()
+                has_any_owner = bool(owner_uid or cap_a_uid or cap_b_uid)
+                matches_user = False
+                if u_id and u_id in (owner_uid, cap_a_uid, cap_b_uid):
+                    matches_user = True
+                elif u_name and (u_name in cap_a_nm or u_name in cap_b_nm):
+                    matches_user = True
+                elif not has_any_owner:
+                    # Include local/guest pairing rooms created in the same session
+                    matches_user = True
+                if not matches_user:
+                    continue
+
+            item = self.format_pairing_room_session_item(rm)
+            if item["is_finished"]:
+                if len(completed_items) < limit:
+                    completed_items.append(item)
+            else:
+                if len(active_items) < limit:
+                    active_items.append(item)
+
+        return {
+            "active": active_items,
+            "completed": completed_items,
+        }
 
     def _sync_roster_statuses(self, room: Dict[str, Any]) -> None:
         bench_a = set(room.get("bench_a") or [])
@@ -3239,7 +3423,7 @@ class FirestoreRoomEngine:
         req.update(kwargs)
 
         fmt = str(req.get("format_size") or req.get("format") or "5v5").strip().lower()
-        team_size = 8 if fmt == "8v8" else 5
+        team_size = 8 if fmt in ("8v8", "8") else 5
         fmt = "8v8" if team_size == 8 else "5v5"
         max_cycles = 3 if team_size == 8 else 2
 
@@ -3445,6 +3629,8 @@ class FirestoreRoomEngine:
         masked["guarantees_remaining_b"] = int(room.get("guarantees_remaining_b", 2))
         masked["guarantee_armed_a"] = bool(room.get("guarantee_armed_a", False))
         masked["guarantee_armed_b"] = bool(room.get("guarantee_armed_b", False))
+        masked["is_finished"] = bool(room.get("is_finished") or room.get("status") == "completed" or room.get("phase") == "COMPLETED")
+        masked["status"] = "completed" if masked["is_finished"] else str(room.get("status") or "active")
 
         phase = masked.get("phase")
         locked_a = bool(masked.get("locked_a"))
@@ -4689,6 +4875,26 @@ class FirestoreRoomEngine:
                 "table_num": target_t,
                 "battle_result": battle_res,
                 "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+            }
+
+        if act in ("finish_room", "complete_room", "finalize_room"):
+            self.finish_pairing_room(room["room_code"])
+            return {
+                "ok": True,
+                "success": True,
+                "status_code": 200,
+                "is_finished": True,
+                "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+            }
+
+        if act in ("discard_room", "abandon_room"):
+            self.discard_pairing_room(room["room_code"])
+            return {
+                "ok": True,
+                "success": True,
+                "status_code": 200,
+                "is_abandoned": True,
+                "room_code": room["room_code"],
             }
 
         if phase == "COMPLETED":

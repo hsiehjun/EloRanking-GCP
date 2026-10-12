@@ -13,25 +13,22 @@
 </head>
 <body>
   <div class="ygo-app-shell">
-    <!-- Compact Top Bar -->
-    <header class="ygo-topbar">
+    <!-- Unified Game Tracker + Team Pairings Top HUD Bar -->
+    <header class="ygo-topbar" id="gt-sync-hud">
       <div class="brand-group">
-        <a href="/app" class="brand-logo-link">
-          <img src="/assets/logo.svg" alt="OmniTactica" class="brand-logo" onerror="this.style.display='none'">
-        </a>
+        <a href="/app#my-hub" class="gt-hud-nav-pill" title="Back to OmniTactica Hub">🏠 Hub</a>
+        <a href="/11th/tracker" class="gt-hud-nav-pill lobby-pill" id="btnBackToTrackerLobby" title="Return to Match Lobby">🎲 Lobby</a>
+        <button type="button" class="gt-hud-room-badge" id="topbarRoomCodeBadge" title="Click to Copy Room Code">#WTC-DEV1</button>
+        <button type="button" class="room-lock-pill unlocked" id="btnTopbarRoomLock" title="Toggle Room Lock (Unlocked vs Locked)">
+          🔓 Unlocked
+        </button>
         <div class="brand-titles">
           <h1>Team Pairings Lab <span class="gold-tag">CARD DUEL ARENA</span></h1>
         </div>
       </div>
 
-      <!-- Quick Seat Pills & Room Access Status -->
+      <!-- Quick Seat Pills & Room Roster / Coin Controls -->
       <div class="topbar-center" id="roleSelectorPills">
-        <button type="button" class="room-lock-pill unlocked" id="btnTopbarRoomLock" title="Toggle Room Lock (Unlocked vs Locked)">
-          🔓 Unlocked
-        </button>
-        <button type="button" class="top-share-pill" id="btnTopbarShareModal" title="Share Match Room (Link or OmniTactica Chat)">
-          🔗 Share
-        </button>
         <button type="button" class="seat-chip active" id="btnRoleCapA" data-role="captain_a">👑 Team A Cap</button>
         <button type="button" class="seat-chip" id="btnRoleCapB" data-role="captain_b">👑 Team B Cap</button>
         <button type="button" class="seat-chip" id="btnRoleSpectator" data-role="spectator">👁️ Spectator</button>
@@ -43,6 +40,12 @@
         <button type="button" id="btnToggleLandscape" class="top-action-btn mobile-only-btn" title="Toggle Horizontal / Landscape View on Mobile">
           🔄 Landscape
         </button>
+        <button type="button" id="btnTopbarClock" class="top-action-btn hud-tool-btn" title="Toggle WTC Captain Pairing Clock">
+          ⏱️ <span id="topbarClockText">05:00</span>
+        </button>
+        <button type="button" id="btnTopbarDice" class="top-action-btn hud-tool-btn" title="Open D100 &amp; WTC Battle Dice Roller">
+          🎲 Dice
+        </button>
         <label class="ai-quick-toggle pred-score-toggle" id="lblPredictionScoringToggle" title="Toggle Casual Prediction Scoring Minigame (D100 Dice Roll + ±1 WTC Variance + 2 Tactical Guarantees) vs Pure Tournament Pairing Mode">
           <input type="checkbox" id="chkPredictionScoring" checked>
           <span id="txtPredictionScoringToggle">🎲 Score Sim: ON</span>
@@ -52,12 +55,39 @@
           <span>🤖 vs AI</span>
         </label>
         <button type="button" id="btnAutoFinish" class="top-action-btn accent">⚡ Auto-Duel</button>
-        <button type="button" id="btnNewMatch" class="top-action-btn">🔄 New Room</button>
-        <a href="/admin/dice-tracker" class="top-action-btn desktop-nav-link">📹 CV Dice</a>
-        <a href="/admin" class="top-action-btn desktop-nav-link">🛡️ Admin</a>
-        <a href="/app" class="top-action-btn desktop-nav-link">🏠 App</a>
+        <button type="button" class="top-share-pill" id="btnTopbarShareModal" title="Share Match Room (Link or OmniTactica Chat)">
+          🔗 Share
+        </button>
+        <button type="button" id="btnFinishPairingRoom" class="top-action-btn finish-room-btn" title="Finalize Pairings &amp; Save to Lobby Completed Matches">
+          🏁 Finish
+        </button>
+        <button type="button" id="btnNewMatch" class="top-action-btn desktop-nav-link" title="Create Fresh Room">🔄 New</button>
+        <button type="button" id="btnTopbarFeedback" class="top-action-btn desktop-nav-link" title="Send Feedback">💬</button>
       </div>
     </header>
+
+    <!-- WTC Captain Pairing Clock Popover -->
+    <div id="pairingClockPopover" class="pairing-clock-popover hidden">
+      <div class="pcp-head">
+        <span>⏱️ WTC CAPTAIN PAIRING CLOCK</span>
+        <button type="button" id="btnCloseClockPopover" class="pcp-close">✕</button>
+      </div>
+      <div class="pcp-clocks-row">
+        <div class="pcp-clock-box active" id="clockBoxTeamA" data-clock-side="a">
+          <span class="pcp-team-lbl" id="clockLabelTeamA">TEAM A CAP</span>
+          <strong class="pcp-time-val" id="clockValueTeamA">05:00</strong>
+        </div>
+        <div class="pcp-clock-box" id="clockBoxTeamB" data-clock-side="b">
+          <span class="pcp-team-lbl" id="clockLabelTeamB">TEAM B CAP</span>
+          <strong class="pcp-time-val" id="clockValueTeamB">05:00</strong>
+        </div>
+      </div>
+      <div class="pcp-actions-row">
+        <button type="button" id="btnClockToggleRun" class="pcp-btn primary">▶️ Start</button>
+        <button type="button" id="btnClockSwitchSide" class="pcp-btn">⇄ Switch Turn</button>
+        <button type="button" id="btnClockReset" class="pcp-btn">↺ 5:00</button>
+      </div>
+    </div>
 
     <!-- Spectator Read-Only Banner -->
     <div id="spectatorBanner" class="spectator-strip hidden">
@@ -684,10 +714,42 @@
         </div>
       </div>
     </div>
+
+    <!-- UNIFIED GAME TRACKER MOBILE BOTTOM DOCK -->
+    <nav id="gt-mobile-bottom-dock" class="gt-mobile-bottom-dock" aria-label="Match Room Quick Controls">
+      <a href="/11th/tracker" class="gt-dock-btn" id="btnDockLobby" title="Back to Match Lobby">
+        <span class="gt-dock-ico">🎲</span>
+        <span class="gt-dock-lbl">Lobby</span>
+      </a>
+      <button type="button" class="gt-dock-btn" id="btnDockOpenRoster" title="Open Team Roster &amp; Seat Builder">
+        <span class="gt-dock-ico">🪑</span>
+        <span class="gt-dock-lbl">Roster</span>
+      </button>
+      <button type="button" class="gt-dock-btn" id="btnDockOpenCoin" title="Open WTC Coin Flip">
+        <span class="gt-dock-ico">🪙</span>
+        <span class="gt-dock-lbl">Coin</span>
+      </button>
+      <button type="button" class="gt-dock-btn" id="btnDockToggleClock" title="Toggle WTC Captain Pairing Clock">
+        <span class="gt-dock-ico">⏱️</span>
+        <span class="gt-dock-lbl" id="dockClockLabel">Clock</span>
+      </button>
+      <button type="button" class="gt-dock-btn" id="btnDockOpenDice" title="Open D100 &amp; WTC Battle Dice">
+        <span class="gt-dock-ico">🎲</span>
+        <span class="gt-dock-lbl">Dice</span>
+      </button>
+      <button type="button" class="gt-dock-btn" id="btnDockOpenShare" title="Share Match Room">
+        <span class="gt-dock-ico">🔗</span>
+        <span class="gt-dock-lbl">Share</span>
+      </button>
+      <button type="button" class="gt-dock-btn finish" id="btnDockFinishRoom" title="Finalize Pairings &amp; Save to History">
+        <span class="gt-dock-ico">🏁</span>
+        <span class="gt-dock-lbl">Finish</span>
+      </button>
+    </nav>
   </div>
 
   <div id="toastNotification" class="toast-notification hidden"></div>
   <script src="/js/armory_svgs.js"></script>
-  <script src="/team-pairings/app.js?v=9"></script>
+  <script src="/team-pairings/app.js?v=10"></script>
 </body>
 </html>

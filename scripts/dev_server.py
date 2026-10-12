@@ -2029,7 +2029,59 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             tok_str = (p_load.get("token") or (auth_hdr[7:].strip() if auth_hdr.startswith("Bearer ") else "")).strip()
             guest_hdr = (p_load.get("guest_id") or self.headers.get("X-Guest-Id") or "").strip()
             u_id = f"auth_{tok_str}" if tok_str else (guest_hdr or "usr_dev")
-            is_aos = p_load.get("game_system") == "aos" or str(p_load.get("match_id", "")).startswith("AOS-")
+            req_sys = str(p_load.get("game_system") or "").strip().lower()
+            req_mode = str(p_load.get("game_mode") or "").strip().lower()
+            is_pairings = (
+                req_sys in ("pairings", "team_pairings", "wtc")
+                or req_mode in ("pairings", "team_pairings", "wtc")
+                or str(p_load.get("match_id", "")).upper().startswith("WTC-")
+            )
+            if is_pairings:
+                from firestore_db import get_firestore_engine
+                fs_eng = get_firestore_engine()
+                raw_fmt = str(p_load.get("format_size") or p_load.get("format") or "5v5").strip().lower()
+                fmt_str = "8v8" if "8" in raw_fmt else "5v5"
+                create_cfg = {
+                    "format": fmt_str,
+                    "format_size": fmt_str,
+                    "team_a_name": p_load.get("p1_name") or "Art of War",
+                    "team_b_name": p_load.get("p2_name") or "Team Zero Comp",
+                    "vs_ai": True if p_load.get("vs_ai") is None else bool(p_load.get("vs_ai")),
+                    "empty_rosters": bool(p_load.get("empty_rosters", False)),
+                    "user_id": u_id,
+                    "captain_a_name": p_load.get("p1_name") or "Innes Wilson",
+                }
+                if p_load.get("match_id"):
+                    create_cfg["room_code"] = str(p_load.get("match_id")).strip().upper()
+                raw_room = fs_eng.create_pairing_room(create_cfg)
+                masked = fs_eng.mask_pairing_room_for_viewer(raw_room, force_role="captain_a")
+                rc = raw_room["room_code"]
+                res = {
+                    "success": True,
+                    "match_id": rc,
+                    "room_code": rc,
+                    "role": "captain_a",
+                    "captain_a_token": raw_room.get("captain_a_token"),
+                    "captain_b_token": raw_room.get("captain_b_token"),
+                    "user_id_p1": u_id,
+                    "user_id_p2": None,
+                    "game_system": "pairings",
+                    "game_mode": "pairings",
+                    "format_size": fmt_str,
+                    "p1_name": (raw_room.get("team_a") or {}).get("name", "Team A"),
+                    "p2_name": (raw_room.get("team_b") or {}).get("name", "Team B"),
+                    "room_url": f"/team-pairings?room={rc}&from_lobby=1",
+                    "redirect_url": f"/team-pairings?room={rc}&from_lobby=1",
+                    "spectator_url": f"/team-pairings?room={rc}&role=spectator",
+                    "room": masked,
+                    "state": masked,
+                }
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+                return
+            is_aos = req_sys == "aos" or str(p_load.get("match_id", "")).startswith("AOS-")
             token = secrets.token_hex(4).upper()
             match_id = p_load.get("match_id") or (f"AOS-{token[:4]}-{token[4:]}" if is_aos else f"WH40K-{token[:4]}-{token[4:]}")
             init_state = {
@@ -2411,6 +2463,59 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
             room_id = tail.strip("/")
             if room_id:
+                upper_rid = room_id.strip().upper()
+                if upper_rid.startswith("WTC-"):
+                    from firestore_db import get_firestore_engine
+                    fs_eng = get_firestore_engine()
+                    p_room = fs_eng.get_pairing_room_raw(upper_rid)
+                    if action == "discard" and p_room:
+                        fs_eng.discard_pairing_room(upper_rid)
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"success": True, "match_id": upper_rid, "status": "abandoned", "is_abandoned": True}).encode("utf-8"))
+                        return
+                    if action == "join" and p_room:
+                        claim_role = str(payload.get("claim_role") or "").strip().lower()
+                        if claim_role == "spectator":
+                            assigned_role = "spectator"
+                            cap_tok = None
+                        elif claim_role in ("player1", "captain_a"):
+                            assigned_role = "captain_a"
+                            cap_tok = p_room.get("captain_a_token")
+                        else:
+                            assigned_role = "captain_b"
+                            cap_tok = p_room.get("captain_b_token")
+                        masked = fs_eng.mask_pairing_room_for_viewer(
+                            p_room,
+                            role_token=cap_tok,
+                            force_role=assigned_role,
+                        )
+                        res = {
+                            "success": True,
+                            "match_id": upper_rid,
+                            "room_code": upper_rid,
+                            "role": assigned_role,
+                            "captain_token": cap_tok,
+                            "captain_a_token": p_room.get("captain_a_token") if assigned_role == "captain_a" else None,
+                            "captain_b_token": p_room.get("captain_b_token") if assigned_role == "captain_b" else None,
+                            "game_system": "pairings",
+                            "game_mode": "pairings",
+                            "format_size": p_room.get("format_size", "5v5"),
+                            "p1_name": (p_room.get("team_a") or {}).get("name", "Team A"),
+                            "p2_name": (p_room.get("team_b") or {}).get("name", "Team B"),
+                            "room_url": f"/team-pairings?room={upper_rid}&role={assigned_role}",
+                            "redirect_url": f"/team-pairings?room={upper_rid}&role={assigned_role}",
+                            "spectator_url": f"/team-pairings?room={upper_rid}&role=spectator",
+                            "state": masked,
+                            "room": masked,
+                        }
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.end_headers()
+                        self.wfile.write(json.dumps(res).encode("utf-8"))
+                        return
+
                 if room_id not in ROOMS_DB:
                     ROOMS_DB[room_id] = {
                         "match_id": room_id,
@@ -2424,6 +2529,14 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     }
 
                 entry = ROOMS_DB[room_id]
+                if action == "discard":
+                    ROOMS_DB.pop(room_id, None)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"success": True, "match_id": room_id, "status": "abandoned", "is_abandoned": True}).encode("utf-8"))
+                    return
+
                 if action == "share_chat":
                     res = {
                         "success": True,
@@ -2913,13 +3026,17 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                req_sys = "aos" if "game_system=aos" in query_str else ("40k" if "game_system=40k" in query_str else None)
+                req_sys = "aos" if "game_system=aos" in query_str else ("pairings" if ("game_system=pairings" in query_str or "game_system=wtc" in query_str) else ("40k" if "game_system=40k" in query_str else None))
                 active = []
                 for rid, rdata in ROOMS_DB.items():
                     if not isinstance(rdata, dict):
                         continue
                     rsys = rdata.get("game_system") or ("aos" if rid.startswith("AOS-") else "40k")
-                    if req_sys and rsys != req_sys:
+                    if req_sys == "aos" and rsys != "aos":
+                        continue
+                    if req_sys == "pairings":
+                        continue
+                    if req_sys == "40k" and rsys == "aos":
                         continue
                     st = rdata.get("state") or {}
                     game = st.get("game") or {}
@@ -2950,9 +3067,56 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     if not isinstance(gdata, dict):
                         continue
                     gsys = gdata.get("game_system") or ("aos" if str(gid).startswith("AOS-") else "40k")
-                    if req_sys and gsys != req_sys:
+                    if req_sys == "aos" and gsys != "aos":
+                        continue
+                    if req_sys == "pairings":
+                        continue
+                    if req_sys == "40k" and gsys == "aos":
                         continue
                     completed_history.append(gdata)
+
+                if req_sys != "aos":
+                    try:
+                        from firestore_db import get_firestore_engine
+                        fs_eng = get_firestore_engine()
+                        if hasattr(fs_eng, "_fallback_pairing_rooms") and not fs_eng._fallback_pairing_rooms:
+                            # Seed 1 active 5v5 and 1 completed 8v8 WTC Team Pairings room in dev mode
+                            dev_act = fs_eng.create_pairing_room({
+                                "room_code": "WTC-DEV1",
+                                "format_size": "5v5",
+                                "team_a_name": "Art of War",
+                                "team_b_name": "Team Zero Comp",
+                                "vs_ai": True,
+                            })
+                            dev_act["cycle"] = 2
+                            dev_act["pairings"] = [
+                                {"table_num": 1, "cycle": 1, "est_score_a": 12, "est_score_b": 8, "sim_score_a": 13, "sim_score_b": 7},
+                                {"table_num": 2, "cycle": 1, "est_score_a": 11, "est_score_b": 9, "sim_score_a": 11, "sim_score_b": 9},
+                            ]
+                            dev_comp = fs_eng.create_pairing_room({
+                                "room_code": "WTC-FIN8",
+                                "format_size": "8v8",
+                                "team_a_name": "Stat Check",
+                                "team_b_name": "Team Ignite",
+                                "vs_ai": False,
+                            })
+                            dev_comp["phase"] = "COMPLETED"
+                            dev_comp["is_finished"] = True
+                            dev_comp["status"] = "completed"
+                            dev_comp["expected_total_a"] = 92.0
+                            dev_comp["expected_total_b"] = 68.0
+                            dev_comp["sim_total_a"] = 92
+                            dev_comp["sim_total_b"] = 68
+                            dev_comp["pairings"] = [
+                                {"table_num": i + 1, "cycle": (i // 2) + 1, "est_score_a": s_a, "est_score_b": 20 - s_a, "sim_score_a": s_a, "sim_score_b": 20 - s_a}
+                                for i, s_a in enumerate([13, 12, 11, 14, 10, 12, 9, 11])
+                            ]
+                        p_lists = fs_eng.list_pairing_rooms_for_user()
+                        active.extend(p_lists.get("active", []))
+                        completed_history.extend(p_lists.get("completed", []))
+                    except Exception:
+                        pass
+
                 completed_history.sort(key=lambda x: str(x.get("game_date") or x.get("updated_at") or ""), reverse=True)
                 self.wfile.write(json.dumps({
                     "success": True,
@@ -3016,6 +3180,32 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             if not is_head:
                 check_id = clean_path.replace("api/tracker/room/", "").replace("/check", "").strip("/")
+                upper_cid = check_id.strip().upper()
+                if upper_cid.startswith("WTC-"):
+                    from firestore_db import get_firestore_engine
+                    fs_eng = get_firestore_engine()
+                    p_room = fs_eng.get_pairing_room_raw(upper_cid)
+                    if p_room:
+                        is_fin = bool(p_room.get("is_finished") or p_room.get("status") == "completed")
+                        self.wfile.write(json.dumps({
+                            "success": True,
+                            "exists": True,
+                            "match_id": upper_cid,
+                            "room_code": upper_cid,
+                            "game_system": "pairings",
+                            "game_mode": "pairings",
+                            "format_size": p_room.get("format_size", 5),
+                            "p1_name": p_room.get("team_a_name", "Team A"),
+                            "p2_name": p_room.get("team_b_name", "Team B"),
+                            "role": "spectator" if is_fin else "captain_b",
+                            "is_spectator": is_fin,
+                            "is_open_for_p2": not is_fin,
+                            "is_full": is_fin,
+                            "is_finished": is_fin,
+                            "room_url": f"/team-pairings?room={upper_cid}",
+                            "spectator_url": f"/team-pairings?room={upper_cid}&role=spectator",
+                        }).encode("utf-8"))
+                        return
                 room_data = ROOMS_DB.get(check_id) or ROOMS_DB.get(check_id.upper()) or {}
                 sys_id = room_data.get("game_system") or ("aos" if check_id.startswith("AOS-") else "40k")
                 parsed_url = urllib.parse.urlparse(self.path)
@@ -7881,6 +8071,17 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 r_num = qp.get("round", ["1"])[0]
                 t_num = qp.get("table", ["1"])[0]
                 match_id = f"BCP-{ev_id}-R{r_num}-T{t_num}"
+            if match_id and str(match_id).strip().upper().startswith("WTC-"):
+                clean_wtc = urllib.parse.quote(str(match_id).strip().upper())
+                if role == "spectator" or spectate == "true":
+                    target_wtc = f"/team-pairings?room={clean_wtc}&role=spectator"
+                else:
+                    role_q = f"&role={urllib.parse.quote(role)}" if role else ""
+                    target_wtc = f"/team-pairings?room={clean_wtc}{role_q}&from_lobby=1"
+                self.send_response(302)
+                self.send_header("Location", target_wtc)
+                self.end_headers()
+                return
             if (role == "spectator" or spectate == "true") and match_id:
                 self.send_response(302)
                 self.send_header("Location", f"/scorecard/{urllib.parse.quote(match_id)}")

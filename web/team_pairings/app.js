@@ -112,6 +112,15 @@ class YuGiOhPairingsArena {
     this.activeClashTableNum = null;
     this._diceRollingAnim = false;
 
+    // WTC Captain Pairing Clock State (5:00 per team captain)
+    this.pairingClock = {
+      running: false,
+      activeSide: "a",
+      secA: 300,
+      secB: 300,
+      timerId: null
+    };
+
     // Expose Game Tracker-compatible global helpers for the Share Room modal
     window.__openShareRoomModal = (mid) => this.openShareRoomModal(mid);
     window.__copyRoomShareLink = (mid, btn) => this.copyRoomShareLink(mid, btn);
@@ -378,6 +387,85 @@ class YuGiOhPairingsArena {
         }
       });
     }
+
+    // Unified Game Tracker Top HUD & Mobile Bottom Dock Controls
+    const topRoomBadge = document.getElementById("topbarRoomCodeBadge");
+    if (topRoomBadge) {
+      topRoomBadge.addEventListener("click", () => this.copyRoomShareLink(this.roomCode));
+    }
+
+    const btnTopClock = document.getElementById("btnTopbarClock");
+    if (btnTopClock) {
+      btnTopClock.addEventListener("click", () => this.toggleClockPopover());
+    }
+    const btnCloseClock = document.getElementById("btnCloseClockPopover");
+    if (btnCloseClock) {
+      btnCloseClock.addEventListener("click", () => this.toggleClockPopover(false));
+    }
+    const btnClockRun = document.getElementById("btnClockToggleRun");
+    if (btnClockRun) {
+      btnClockRun.addEventListener("click", () => this.toggleClockRun());
+    }
+    const btnClockSwitch = document.getElementById("btnClockSwitchSide");
+    if (btnClockSwitch) {
+      btnClockSwitch.addEventListener("click", () => this.switchClockSide());
+    }
+    const btnClockReset = document.getElementById("btnClockReset");
+    if (btnClockReset) {
+      btnClockReset.addEventListener("click", () => this.resetClock());
+    }
+    document.querySelectorAll("#pairingClockPopover .pcp-clock-box").forEach((box) => {
+      box.addEventListener("click", () => {
+        const side = box.getAttribute("data-clock-side");
+        if (side === "a" || side === "b") {
+          this.pairingClock.activeSide = side;
+          this.renderPairingClock();
+        }
+      });
+    });
+
+    const btnTopDice = document.getElementById("btnTopbarDice");
+    if (btnTopDice) {
+      btnTopDice.addEventListener("click", () => this.openQuickDiceModal());
+    }
+
+    const btnFinishRoom = document.getElementById("btnFinishPairingRoom");
+    if (btnFinishRoom) {
+      btnFinishRoom.addEventListener("click", () => this.finishPairingRoom());
+    }
+
+    const btnFeedback = document.getElementById("btnTopbarFeedback");
+    if (btnFeedback) {
+      btnFeedback.addEventListener("click", () => {
+        this.showToast("💬 Thanks! Send feedback anytime in OmniTactica Hub or Discord.");
+      });
+    }
+
+    // Mobile Bottom Dock buttons
+    const btnDockRoster = document.getElementById("btnDockOpenRoster");
+    if (btnDockRoster) {
+      btnDockRoster.addEventListener("click", () => this.openLobbyModal());
+    }
+    const btnDockCoin = document.getElementById("btnDockOpenCoin");
+    if (btnDockCoin) {
+      btnDockCoin.addEventListener("click", () => this.openCoinFlipModal());
+    }
+    const btnDockClock = document.getElementById("btnDockToggleClock");
+    if (btnDockClock) {
+      btnDockClock.addEventListener("click", () => this.toggleClockPopover());
+    }
+    const btnDockDice = document.getElementById("btnDockOpenDice");
+    if (btnDockDice) {
+      btnDockDice.addEventListener("click", () => this.openQuickDiceModal());
+    }
+    const btnDockShare = document.getElementById("btnDockOpenShare");
+    if (btnDockShare) {
+      btnDockShare.addEventListener("click", () => this.openShareRoomModal());
+    }
+    const btnDockFinish = document.getElementById("btnDockFinishRoom");
+    if (btnDockFinish) {
+      btnDockFinish.addEventListener("click", () => this.finishPairingRoom());
+    }
   }
 
   async bootstrap() {
@@ -415,7 +503,7 @@ class YuGiOhPairingsArena {
       demoState === "defender_view";
 
     if (urlRoom) {
-      await this.joinExistingRoom(urlRoom, { openLobby: !demoState || demoState === "lobby" });
+      await this.joinExistingRoom(urlRoom, { openLobby: demoState === "lobby" });
     } else {
       await this.createNewRoom({
         openLobby: !demoState || demoState === "lobby",
@@ -1673,7 +1761,18 @@ class YuGiOhPairingsArena {
         this.selectedIds = [];
         this.syncLobbyDraftFromRoom();
         this.renderLobbySeatLockState();
-        if (openLobby) this.openLobbyModal();
+
+        const myRoster = this.activeRole === "captain_b"
+          ? (this.room.team_b?.roster || [])
+          : (this.room.team_a?.roster || []);
+        const shouldOpenLobbyModal = Boolean(
+          openLobby || (this.activeRole !== "spectator" && myRoster.length === 0)
+        );
+        if (shouldOpenLobbyModal) {
+          this.openLobbyModal();
+        } else {
+          this.closeLobbyModal();
+        }
         this.renderAll();
       } else {
         this.showToast(`Room ${cleanCode} not found`);
@@ -1870,6 +1969,28 @@ class YuGiOhPairingsArena {
     const p = this.getPerspective();
     if (!p) return;
 
+    const topRoomBadge = document.getElementById("topbarRoomCodeBadge");
+    if (topRoomBadge) {
+      topRoomBadge.textContent = `#${this.roomCode || this.room.room_code || "WTC"}`;
+    }
+
+    const isDone = Boolean(
+      this.room.is_finished ||
+      this.room.status === "completed" ||
+      this.room.phase === "COMPLETED"
+    );
+    const btnFinish = document.getElementById("btnFinishPairingRoom");
+    if (btnFinish) {
+      btnFinish.classList.toggle("completed-state", Boolean(this.room.is_finished || this.room.status === "completed"));
+      if (this.room.is_finished || this.room.status === "completed") {
+        btnFinish.textContent = "✅ Saved";
+      } else if (isDone) {
+        btnFinish.textContent = "🏁 Save & Exit";
+      } else {
+        btnFinish.textContent = "🏁 Finish";
+      }
+    }
+
     const specBanner = document.getElementById("spectatorBanner");
     if (specBanner) {
       specBanner.classList.toggle("hidden", !p.isSpectator);
@@ -1885,6 +2006,7 @@ class YuGiOhPairingsArena {
     }
 
     this.renderLobbySeatLockState();
+    this.renderPairingClock();
     this.renderDuelistHud(p);
     this.renderBattleLine(p);
     this.renderPlaymatZones(p);
@@ -3594,6 +3716,139 @@ class YuGiOhPairingsArena {
       navigator.clipboard.writeText(txt).catch(() => {});
     }
     this.showToast("Copied pairings summary to clipboard!");
+  }
+
+  formatClockSec(sec) {
+    const s = Math.max(0, Math.floor(Number(sec) || 0));
+    const mm = String(Math.floor(s / 60)).padStart(2, "0");
+    const ss = String(s % 60).padStart(2, "0");
+    return `${mm}:${ss}`;
+  }
+
+  toggleClockPopover(forceState) {
+    const pop = document.getElementById("pairingClockPopover");
+    if (!pop) return;
+    if (typeof forceState === "boolean") {
+      pop.classList.toggle("hidden", !forceState);
+    } else {
+      pop.classList.toggle("hidden");
+    }
+    this.renderPairingClock();
+  }
+
+  toggleClockRun() {
+    if (!this.pairingClock) return;
+    this.pairingClock.running = !this.pairingClock.running;
+    if (this.pairingClock.timerId) {
+      clearInterval(this.pairingClock.timerId);
+      this.pairingClock.timerId = null;
+    }
+    if (this.pairingClock.running) {
+      this.pairingClock.timerId = setInterval(() => {
+        if (!this.pairingClock.running) return;
+        if (this.pairingClock.activeSide === "b") {
+          this.pairingClock.secB = Math.max(0, this.pairingClock.secB - 1);
+        } else {
+          this.pairingClock.secA = Math.max(0, this.pairingClock.secA - 1);
+        }
+        this.renderPairingClock();
+      }, 1000);
+    }
+    this.renderPairingClock();
+  }
+
+  switchClockSide() {
+    if (!this.pairingClock) return;
+    this.pairingClock.activeSide = this.pairingClock.activeSide === "a" ? "b" : "a";
+    this.renderPairingClock();
+  }
+
+  resetClock() {
+    if (!this.pairingClock) return;
+    this.pairingClock.running = false;
+    if (this.pairingClock.timerId) {
+      clearInterval(this.pairingClock.timerId);
+      this.pairingClock.timerId = null;
+    }
+    this.pairingClock.secA = 300;
+    this.pairingClock.secB = 300;
+    this.renderPairingClock();
+  }
+
+  renderPairingClock() {
+    if (!this.pairingClock) return;
+    const activeSec = this.pairingClock.activeSide === "b" ? this.pairingClock.secB : this.pairingClock.secA;
+    const topTxt = document.getElementById("topbarClockText");
+    if (topTxt) topTxt.textContent = this.formatClockSec(activeSec);
+    const dockLbl = document.getElementById("dockClockLabel");
+    if (dockLbl) dockLbl.textContent = this.pairingClock.running ? this.formatClockSec(activeSec) : "Clock";
+
+    const valA = document.getElementById("clockValueTeamA");
+    const valB = document.getElementById("clockValueTeamB");
+    if (valA) valA.textContent = this.formatClockSec(this.pairingClock.secA);
+    if (valB) valB.textContent = this.formatClockSec(this.pairingClock.secB);
+
+    const lblA = document.getElementById("clockLabelTeamA");
+    const lblB = document.getElementById("clockLabelTeamB");
+    if (lblA && this.room?.team_a?.tag) lblA.textContent = `${this.room.team_a.tag} CAP`;
+    if (lblB && this.room?.team_b?.tag) lblB.textContent = `${this.room.team_b.tag} CAP`;
+
+    const boxA = document.getElementById("clockBoxTeamA");
+    const boxB = document.getElementById("clockBoxTeamB");
+    if (boxA) boxA.classList.toggle("active", this.pairingClock.activeSide === "a");
+    if (boxB) boxB.classList.toggle("active", this.pairingClock.activeSide === "b");
+
+    const runBtn = document.getElementById("btnClockToggleRun");
+    if (runBtn) runBtn.textContent = this.pairingClock.running ? "⏸️ Pause" : "▶️ Start";
+  }
+
+  openQuickDiceModal() {
+    if (this.room?.pairings?.length) {
+      const latestTable = this.room.pairings[this.room.pairings.length - 1];
+      this.openBattleClashModal(latestTable.table_num || this.room.pairings.length, []);
+      return;
+    }
+    this.showToast("🎲 Lock a Table Pairing first to roll D100 WTC Combat Dice, or click 🪙 Coin Flip!");
+  }
+
+  async finishPairingRoom() {
+    if (!this.roomCode) {
+      window.location.href = "/11th/tracker";
+      return;
+    }
+    if (this.activeRole === "spectator") {
+      window.location.href = "/11th/tracker";
+      return;
+    }
+    const alreadyFinished = Boolean(this.room && (this.room.is_finished || this.room.status === "completed"));
+    if (alreadyFinished) {
+      window.location.href = "/11th/tracker";
+      return;
+    }
+    try {
+      const tok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(this.roomCode, this.activeRole);
+      const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: this.activeRole,
+          user_id: this.userId,
+          captain_token: tok,
+          action: "finish_room",
+          payload: {}
+        })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (data && (data.ok || data.success) && data.room) {
+        this.room = data.room;
+        this.renderAll();
+        this.showToast("🏁 Team Pairings finalized & saved to Completed Matches in Lobby! Click again to exit to Lobby.");
+      } else {
+        this.showToast(data.error || "Could not finalize room");
+      }
+    } catch (err) {
+      console.error("Failed to finish pairing room:", err);
+    }
   }
 
   showToast(msg) {

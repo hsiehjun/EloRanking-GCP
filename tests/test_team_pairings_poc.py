@@ -995,6 +995,172 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertEqual(summary_off["active_total_a"], summary_off["expected_total_a"])
         self.assertEqual(len(summary_off["round_by_round"]), 2)
 
+    def test_unified_lobby_pairings_mode_history_spectate_and_top_hud(self):
+        """Verify Match Lobby branding, Game Mode selector, Quick Launch, Spectator routing to /team-pairings, Active/Completed History, and Unified Top HUD + Mobile Dock (<1s latency)."""
+        import time
+        import routers.tracker as tracker_mod
+        from routers.tracker import (
+            TrackerCreatePayload,
+            TrackerJoinPayload,
+            api_tracker_check_room,
+            api_tracker_create_room,
+            api_tracker_discard_game,
+            api_tracker_join_room,
+            api_tracker_user_sessions,
+        )
+
+        # 1. Verify Lobby UI strings & controls in web/tracker/tracker_sync.js
+        ts_js = (ROOT_DIR / "web" / "tracker" / "tracker_sync.js").read_text(encoding="utf-8")
+        self.assertNotIn("2-PLAYER MATCH LOBBY", ts_js)
+        self.assertNotIn("2 Players Max", ts_js)
+        self.assertIn("MATCH LOBBY", ts_js)
+        self.assertIn("Multiplayer & Spectate Ready", ts_js)
+        self.assertIn('id="gt-mode-btn-40k"', ts_js)
+        self.assertIn('id="gt-mode-btn-pairings-5v5"', ts_js)
+        self.assertIn('id="gt-mode-btn-pairings-8v8"', ts_js)
+        self.assertIn('id="gt-quick-launch-pairings-btn"', ts_js)
+        self.assertIn('id="gt-lobby-spectate-btn"', ts_js)
+        self.assertIn("/team-pairings?room=${encodeURIComponent(targetMid)}&role=spectator", ts_js)
+
+        # 2. Verify Unified Game Tracker Top HUD & Mobile Bottom Dock in web/team_pairings/index.html
+        tp_html = (ROOT_DIR / "web" / "team_pairings" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="gt-sync-hud"', tp_html)
+        self.assertIn('id="btnBackToTrackerLobby"', tp_html)
+        self.assertIn('id="topbarRoomCodeBadge"', tp_html)
+        self.assertIn('id="btnTopbarClock"', tp_html)
+        self.assertIn('id="btnTopbarDice"', tp_html)
+        self.assertIn('id="btnFinishPairingRoom"', tp_html)
+        self.assertIn('id="pairingClockPopover"', tp_html)
+        self.assertIn('id="gt-mobile-bottom-dock"', tp_html)
+
+        # 3. Verify Tracker Lobby API create / check / join / spectate / sessions / finish / discard (< 1000ms each)
+        def _mock_req(user_dict=None, guest_id="guest_cap_1"):
+            r = MagicMock()
+            r.headers = {"X-Guest-Id": guest_id, "X-Game-System": "40k"}
+            r.cookies = {}
+            r.query_params = {"guest_id": guest_id}
+            r._mock_user = user_dict
+            return r
+
+        cap_a_user = {"id": "u_cap_a_lobby", "user_id": "u_cap_a_lobby", "display_name": "John Lennon"}
+        cap_b_user = {"id": "u_cap_b_lobby", "user_id": "u_cap_b_lobby", "display_name": "Brian Pullen"}
+        spec_user = {"id": "u_spec_lobby", "user_id": "u_spec_lobby", "display_name": "Live Viewer"}
+
+        with patch.object(tracker_mod, "get_firestore_engine", return_value=self.engine), \
+             patch.object(tracker_mod, "_get_user_session_or_401", side_effect=lambda req: getattr(req, "_mock_user", None)), \
+             patch("routers.tracker.get_database", return_value=MagicMock(get_user_tracker_games=MagicMock(return_value=[]))):
+
+            t0 = time.perf_counter()
+            create_res = asyncio.run(
+                api_tracker_create_room(
+                    payload=TrackerCreatePayload(
+                        game_mode="pairings",
+                        format_size="8v8",
+                        p1_name="Art of War",
+                        user_id_p1="u_cap_a_lobby",
+                    ),
+                    request=_mock_req(cap_a_user, "guest_a"),
+                )
+            )
+            ms_create = (time.perf_counter() - t0) * 1000.0
+            self.assertLess(ms_create, 1000.0)
+            self.assertTrue(create_res["success"])
+            wtc_code = create_res["match_id"]
+            self.assertTrue(wtc_code.startswith("WTC-"))
+            self.assertEqual(create_res["game_mode"], "pairings")
+            self.assertEqual(create_res["format_size"], "8v8")
+
+            # Check room (< 1s)
+            t0 = time.perf_counter()
+            chk_res = asyncio.run(api_tracker_check_room(wtc_code, _mock_req(cap_b_user, "guest_b")))
+            ms_chk = (time.perf_counter() - t0) * 1000.0
+            self.assertLess(ms_chk, 1000.0)
+            self.assertTrue(chk_res["exists"])
+            self.assertEqual(chk_res["game_mode"], "pairings")
+            self.assertTrue(chk_res["is_open_for_p2"])
+
+            # Join room as Captain B (< 1s)
+            t0 = time.perf_counter()
+            join_b = asyncio.run(
+                api_tracker_join_room(
+                    wtc_code,
+                    request=_mock_req(cap_b_user, "guest_b"),
+                    payload=TrackerJoinPayload(player_name="Brian Pullen", player_id="u_cap_b_lobby", claim_role="captain_b"),
+                )
+            )
+            ms_join_b = (time.perf_counter() - t0) * 1000.0
+            self.assertLess(ms_join_b, 1000.0)
+            self.assertEqual(join_b["role"], "captain_b")
+            self.assertIn("/team-pairings?room=", join_b["redirect_url"])
+
+            # Join room as Spectator (both seats taken -> routes to /team-pairings?room=...&role=spectator, NOT /scorecard/)
+            t0 = time.perf_counter()
+            join_spec = asyncio.run(
+                api_tracker_join_room(
+                    wtc_code,
+                    request=_mock_req(spec_user, "guest_spec"),
+                    payload=TrackerJoinPayload(player_name="Live Viewer", player_id="u_spec_lobby"),
+                )
+            )
+            ms_join_spec = (time.perf_counter() - t0) * 1000.0
+            self.assertLess(ms_join_spec, 1000.0)
+            self.assertEqual(join_spec["role"], "spectator")
+            self.assertEqual(join_spec["redirect_url"], f"/team-pairings?room={wtc_code}&role=spectator")
+
+            # Server HTML route redirects WTC spectator directly to /team-pairings?room=...&role=spectator
+            mock_srv_req = MagicMock()
+            mock_srv_req.query_params = {"match_id": wtc_code, "role": "spectator"}
+            srv_resp = asyncio.run(server.serve_tracker_play_alias(mock_srv_req))
+            srv_loc = getattr(srv_resp, "url", None) or (getattr(srv_resp, "headers", {}) or {}).get("location", "")
+            self.assertEqual(str(srv_loc), f"/team-pairings?room={wtc_code}&role=spectator")
+
+            # Active sessions list includes the WTC room (< 1s)
+            t0 = time.perf_counter()
+            sess_active = asyncio.run(api_tracker_user_sessions(request=_mock_req(cap_a_user, "guest_a"), token=None, game_system="40k"))
+            ms_sess = (time.perf_counter() - t0) * 1000.0
+            self.assertLess(ms_sess, 1000.0)
+            active_ids = [s["match_id"] for s in sess_active.get("active_sessions", [])]
+            self.assertIn(wtc_code, active_ids)
+
+            # Finish room -> moves from active_sessions to completed_games (< 1s)
+            t0 = time.perf_counter()
+            fin_res = self.engine.apply_pairing_action(wtc_code, {
+                "role": "captain_a",
+                "user_id": "u_cap_a_lobby",
+                "captain_token": create_res.get("captain_a_token", ""),
+                "action": "finish_room",
+            })
+            ms_fin = (time.perf_counter() - t0) * 1000.0
+            self.assertLess(ms_fin, 1000.0)
+            self.assertTrue(fin_res["ok"])
+            self.assertTrue(fin_res["room"]["is_finished"])
+
+            sess_after_fin = asyncio.run(api_tracker_user_sessions(request=_mock_req(cap_a_user, "guest_a"), token=None, game_system="40k"))
+            active_ids_after = [s["match_id"] for s in sess_after_fin.get("active_sessions", [])]
+            completed_ids_after = [s["match_id"] for s in sess_after_fin.get("completed_history", [])]
+            self.assertNotIn(wtc_code, active_ids_after)
+            self.assertIn(wtc_code, completed_ids_after)
+
+            # Create a second active WTC room and discard it -> removed from active sessions (< 1s)
+            create_res2 = asyncio.run(
+                api_tracker_create_room(
+                    payload=TrackerCreatePayload(
+                        game_mode="pairings",
+                        format_size="5v5",
+                        p1_name="Art of War",
+                        user_id_p1="u_cap_a_lobby",
+                    ),
+                    request=_mock_req(cap_a_user, "guest_a"),
+                )
+            )
+            wtc_code2 = create_res2["match_id"]
+            t0 = time.perf_counter()
+            disc_res = asyncio.run(api_tracker_discard_game(wtc_code2, request=_mock_req(cap_a_user, "guest_a")))
+            ms_disc = (time.perf_counter() - t0) * 1000.0
+            self.assertLess(ms_disc, 1000.0)
+            self.assertEqual(disc_res["status"], "abandoned")
+            self.assertIsNone(self.engine.get_pairing_room_raw(wtc_code2))
+
 
 if __name__ == "__main__":
     unittest.main()

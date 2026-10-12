@@ -578,6 +578,12 @@ async def serve_tracker_html(path: str, request: Request) -> Response:
         role = request.query_params.get("role")
         spectate = request.query_params.get("spectate")
         match_id = request.query_params.get("match_id") or request.query_params.get("room") or request.query_params.get("id")
+        if match_id and str(match_id).strip().upper().startswith("WTC-"):
+            clean_wtc = urllib.parse.quote(str(match_id).strip().upper())
+            if role == "spectator" or spectate == "true":
+                return RedirectResponse(url=f"/team-pairings?room={clean_wtc}&role=spectator", status_code=303)
+            role_q = f"&role={urllib.parse.quote(role)}" if role else ""
+            return RedirectResponse(url=f"/team-pairings?room={clean_wtc}{role_q}&from_lobby=1", status_code=303)
         if (role == "spectator" or spectate == "true") and match_id:
             return RedirectResponse(url=f"/scorecard/{urllib.parse.quote(match_id)}", status_code=303)
 
@@ -823,6 +829,13 @@ def serve_tracker_alias(request: Request, token: Optional[str] = Query(None)):
             target = f"/11th/tracker/play?match_id={urllib.parse.quote_plus(match_id)}&role={urllib.parse.quote_plus(role)}"
         if qp.get("pairing_id") and role != "spectator":
             target += f"&pairing_id={urllib.parse.quote_plus(qp['pairing_id'])}"
+    elif match_id and str(match_id).strip().upper().startswith("WTC-"):
+        clean_wtc = urllib.parse.quote_plus(str(match_id).strip().upper())
+        if role == "spectator" or qp.get("spectate") == "true":
+            target = f"/team-pairings?room={clean_wtc}&role=spectator"
+        else:
+            role_q = f"&role={urllib.parse.quote_plus(role)}" if role else ""
+            target = f"/team-pairings?room={clean_wtc}{role_q}&from_lobby=1"
     elif match_id and (role == "spectator" or qp.get("spectate") == "true"):
         target = f"/scorecard/{urllib.parse.quote_plus(match_id)}"
     elif match_id or "play" in qp:
@@ -833,7 +846,7 @@ def serve_tracker_alias(request: Request, token: Optional[str] = Query(None)):
         target = f"/11th/tracker{query_str}"
 
     target = _sanitize_redirect_target(target, default="/11th/tracker")
-    can_proceed_as_guest = target.startswith("/scorecard/") or _has_valid_shared_match_params(request)
+    can_proceed_as_guest = target.startswith("/scorecard/") or target.startswith("/team-pairings") or _has_valid_shared_match_params(request)
     if not user and not can_proceed_as_guest:
         return _clear_stale_auth_cookies(RedirectResponse(url=f"/login?redirect={urllib.parse.quote_plus(target)}", status_code=303))
     return RedirectResponse(url=target, status_code=303)
@@ -844,6 +857,12 @@ async def serve_tracker_play_alias(request: Request):
     role = qp.get("role")
     spectate = qp.get("spectate")
     match_id = qp.get("match_id") or qp.get("room") or qp.get("id")
+    if match_id and str(match_id).strip().upper().startswith("WTC-"):
+        clean_wtc = urllib.parse.quote(str(match_id).strip().upper())
+        if role == "spectator" or spectate == "true":
+            return RedirectResponse(url=f"/team-pairings?room={clean_wtc}&role=spectator", status_code=303)
+        role_q = f"&role={urllib.parse.quote(role)}" if role else ""
+        return RedirectResponse(url=f"/team-pairings?room={clean_wtc}{role_q}&from_lobby=1", status_code=303)
     if (role == "spectator" or spectate == "true") and match_id:
         return RedirectResponse(url=f"/scorecard/{urllib.parse.quote(match_id)}", status_code=303)
     query = f"?{request.url.query}" if request.url.query else ""
@@ -1133,7 +1152,11 @@ def serve_admin_team_pairings(request: Request, token: Optional[str] = Query(Non
     qp = getattr(request, "query_params", None)
     raw_room_param = qp.get("room") if hasattr(qp, "get") else None
     has_shared_room = isinstance(raw_room_param, str) and bool(raw_room_param.strip())
-    if not is_admin and not has_shared_room:
+    raw_from_lobby = qp.get("from_lobby") if hasattr(qp, "get") else None
+    is_from_lobby = isinstance(raw_from_lobby, str) and raw_from_lobby.strip().lower() in ("1", "true", "yes")
+    raw_url_path = getattr(getattr(request, "url", None), "path", None)
+    is_public_team_pairings = isinstance(raw_url_path, str) and raw_url_path.rstrip("/") == "/team-pairings"
+    if not is_admin and not has_shared_room and not is_from_lobby and not is_public_team_pairings:
         if not user:
             return _clear_stale_auth_cookies(
                 RedirectResponse(url="/login?redirect=/admin/team-pairings", status_code=303, headers=NO_CACHE_HEADERS)
