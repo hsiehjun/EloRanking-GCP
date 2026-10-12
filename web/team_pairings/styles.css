@@ -1,19 +1,22 @@
 :root {
-  --bg-void: #040711;
-  --bg-panel: rgba(9, 15, 30, 0.92);
-  --bg-mat: rgba(10, 20, 42, 0.88);
-  --cyan-glow: #00e5ff;
-  --cyan-soft: rgba(0, 229, 255, 0.22);
-  --gold-glow: #f5b942;
-  --gold-bright: #ffe07d;
-  --crimson-glow: #ff4757;
+  --bg-void: #070b14;
+  --bg-panel: #0e1526;
+  --bg-mat: #0b111e;
+  --bg-card: #181d28;
+  --border-slate: #1e293b;
+  --border-Mid: #273042;
+  --cyan-glow: #38bdf8;
+  --cyan-soft: rgba(56, 189, 248, 0.14);
+  --gold-glow: #f59e0b;
+  --gold-bright: #fbbf24;
+  --crimson-glow: #f43f5e;
   --emerald-glow: #10b981;
   --text-main: #f8fafc;
   --text-dim: #94a3b8;
   --text-muted: #64748b;
-  --border-cyan: rgba(0, 229, 255, 0.45);
-  --border-gold: rgba(245, 185, 66, 0.55);
-  --font-display: 'Cinzel', serif;
+  --border-cyan: rgba(56, 189, 248, 0.35);
+  --border-gold: rgba(245, 158, 11, 0.42);
+  --font-display: 'JetBrains Mono', monospace;
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
@@ -27,11 +30,11 @@
 html, body {
   width: 100%;
   height: 100%;
-  background:
-    radial-gradient(circle at 50% 42%, rgba(0, 140, 255, 0.16) 0%, transparent 58%),
-    radial-gradient(circle at 15% 15%, rgba(245, 185, 66, 0.10) 0%, transparent 40%),
-    radial-gradient(circle at 85% 80%, rgba(239, 68, 68, 0.12) 0%, transparent 45%),
-    linear-gradient(180deg, #03060f 0%, #070d1d 50%, #03050c 100%);
+  background-color: #070b14;
+  background-image:
+    linear-gradient(rgba(30, 41, 59, 0.28) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(30, 41, 59, 0.28) 1px, transparent 1px);
+  background-size: 36px 36px;
   color: var(--text-main);
   font-family: var(--font-sans);
   overflow-x: hidden;
@@ -6048,3 +6051,714 @@ html, body {
     font-size: 0.45rem;
   }
 }
+
+/* ============================================================================
+   OMNITACTICA DESIGN SYSTEM UNIFICATION
+   Aligns Team Pairings & TCG Vault with /11th/tracker & theme.css (#070b14 / #0e1526 / #1e293b / #38bdf8)
+   ============================================================================ */
+
+/* 1. Top HUD Bar (#gt-sync-hud / .ygo-topbar) — Matches OmniTactica Tracker HUD */
+.ygo-topbar {
+  background: rgba(11, 17, 32, 0.96) !important;
+  border-bottom: 1px solid #1e293b !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45) !important;
+  padding: 5px 10px !important;
+  gap: 5px !important;
+  flex-wrap: wrap !important;
+  justify-content: space-between !important;
+}
+
+.brand-group,
+.topbar-center,
+.topbar-right {
+  gap: 4px !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+}
+
+.brand-titles h1 {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 0.62rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.03em !important;
+  color: #94a3b8 !important;
+  text-transform: uppercase;
+  white-space: nowrap !important;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 !important;
+}
+
+@media (max-width: 1650px) {
+  .brand-titles {
+    display: none !important;
+  }
+}
+
+.brand-titles .gold-tag {
+  display: none !important;
+}
+
+.gt-hud-nav-pill,
+.gt-hud-room-badge,
+.room-lock-pill,
+.top-share-pill,
+.top-action-btn,
+.btn-lobby-open,
+.ai-quick-toggle,
+.seat-chip {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 0.58rem !important;
+  font-weight: 700 !important;
+  border-radius: 6px !important;
+  padding: 3px 6px !important;
+  letter-spacing: 0.01em !important;
+  box-shadow: none !important;
+  text-transform: none;
+  white-space: nowrap !important;
+  flex-shrink: 0;
+}
+
+.gt-hud-nav-pill {
+  background: #0f172a !important;
+  border: 1px solid #273042 !important;
+  color: #94a3b8 !important;
+}
+
+.gt-hud-nav-pill:hover {
+  border-color: #38bdf8 !important;
+  color: #f8fafc !important;
+}
+
+.gt-hud-nav-pill.lobby-pill {
+  background: rgba(56, 189, 248, 0.1) !important;
+  border-color: rgba(56, 189, 248, 0.32) !important;
+  color: #7dd3fc !important;
+}
+
+.gt-hud-room-badge {
+  background: #070b14 !important;
+  border: 1px solid #1e293b !important;
+  color: #38bdf8 !important;
+}
+
+.room-lock-pill.unlocked {
+  background: rgba(16, 185, 129, 0.1) !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+  color: #34d399 !important;
+}
+
+.room-lock-pill.locked {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
+  color: #fbbf24 !important;
+}
+
+/* Segmented Seat Tabs & Center Toolbar Buttons */
+.topbar-center {
+  gap: 5px !important;
+}
+
+.seat-chip {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 0.68rem !important;
+  font-weight: 700 !important;
+  padding: 4px 9px !important;
+  border-radius: 7px !important;
+  background: #070b14 !important;
+  border: 1px solid #1e293b !important;
+  color: #94a3b8 !important;
+  box-shadow: none !important;
+}
+
+.seat-chip:hover {
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+.seat-chip.active {
+  background: rgba(56, 189, 248, 0.14) !important;
+  border-color: #38bdf8 !important;
+  color: #f8fafc !important;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.15) !important;
+}
+
+.btn-lobby-open {
+  background: #0f172a !important;
+  border: 1px solid #273042 !important;
+  color: #e2e8f0 !important;
+}
+
+.btn-lobby-open:hover {
+  border-color: #38bdf8 !important;
+  background: #162033 !important;
+  transform: translateY(-1px);
+}
+
+.tcg-vault-pill-btn {
+  background: rgba(168, 85, 247, 0.1) !important;
+  border: 1px solid rgba(168, 85, 247, 0.38) !important;
+  color: #e9d5ff !important;
+}
+
+.tcg-vault-pill-btn:hover {
+  background: rgba(168, 85, 247, 0.18) !important;
+  border-color: #a855f7 !important;
+}
+
+.tcg-glory-chip {
+  background: #070b14 !important;
+  border: 1px solid rgba(245, 158, 11, 0.45) !important;
+  color: #fbbf24 !important;
+  padding: 1px 6px !important;
+  border-radius: 5px !important;
+  font-size: 0.64rem !important;
+}
+
+.coin-pill-btn {
+  background: #0f172a !important;
+  border: 1px solid #273042 !important;
+  color: #cbd5e1 !important;
+}
+
+.coin-pill-btn:hover {
+  border-color: #f59e0b !important;
+  color: #fde68a !important;
+}
+
+.top-action-btn,
+.top-share-pill,
+.ai-quick-toggle {
+  background: #0f172a !important;
+  border: 1px solid #273042 !important;
+  color: #cbd5e1 !important;
+}
+
+.top-action-btn:hover,
+.top-share-pill:hover {
+  border-color: #38bdf8 !important;
+  color: #f8fafc !important;
+}
+
+.top-action-btn.accent {
+  background: rgba(56, 189, 248, 0.12) !important;
+  border-color: rgba(56, 189, 248, 0.4) !important;
+  color: #38bdf8 !important;
+}
+
+.top-action-btn.finish-room-btn {
+  background: rgba(16, 185, 129, 0.12) !important;
+  border-color: rgba(16, 185, 129, 0.4) !important;
+  color: #34d399 !important;
+}
+
+/* 2. Left & Right Panels — Matte Dark Slate (#0e1526 + #1e293b border) */
+.ygo-inspector-panel,
+.paired-tables-dock,
+.duelist-lp-box {
+  background: #0e1526 !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 14px !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45) !important;
+}
+
+.duelist-lp-box.opp-lp {
+  border-left: 3px solid #f43f5e !important;
+}
+
+.duelist-lp-box.my-lp {
+  border-left: 3px solid #38bdf8 !important;
+}
+
+.duelist-avatar {
+  background: #070b14 !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 10px !important;
+}
+
+.duelist-name {
+  font-family: 'Inter', sans-serif !important;
+  font-weight: 800 !important;
+  color: #f8fafc !important;
+}
+
+.duelist-sub {
+  font-family: 'JetBrains Mono', monospace !important;
+  color: #94a3b8 !important;
+}
+
+.pg-header,
+.dock-header {
+  border-bottom: 1px solid #1e293b !important;
+}
+
+.pg-title,
+.dock-header h2 {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.06em !important;
+  color: #f8fafc !important;
+}
+
+.pg-cycle-badge,
+.dock-count-pill {
+  background: #070b14 !important;
+  border: 1px solid #1e293b !important;
+  color: #38bdf8 !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  border-radius: 6px !important;
+}
+
+.pg-current-callout {
+  background: #070b14 !important;
+  border: 1px solid rgba(56, 189, 248, 0.45) !important;
+  border-radius: 10px !important;
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.08) !important;
+}
+
+.pg-callout-headline {
+  font-family: 'Inter', sans-serif !important;
+  font-weight: 800 !important;
+  color: #f8fafc !important;
+}
+
+.pg-step-item {
+  background: #070b14 !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 10px !important;
+}
+
+.pg-step-item.active {
+  background: rgba(56, 189, 248, 0.07) !important;
+  border-color: #38bdf8 !important;
+  box-shadow: none !important;
+}
+
+.pg-step-item.done {
+  background: rgba(16, 185, 129, 0.05) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+}
+
+.pg-inspector-drawer,
+.wtc-match-log-drawer {
+  background: #070b14 !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 10px !important;
+}
+
+.clash-mini-card {
+  background: #070b14 !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+
+.clash-mini-card:hover {
+  border-color: #334155 !important;
+}
+
+.clash-mini-top {
+  background: rgba(15, 23, 42, 0.7) !important;
+  border-bottom: 1px solid #1e293b !important;
+}
+
+.clash-table-tag {
+  font-family: 'JetBrains Mono', monospace !important;
+  color: #38bdf8 !important;
+}
+
+/* 3. Center Tactical Command Table (#duelPodA / .ygo-playmat-3d) */
+.opp-hand-label-pill,
+.my-hand-label-pill {
+  background: #0e1526 !important;
+  border: 1px solid #1e293b !important;
+  color: #94a3b8 !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+
+.ygo-playmat-3d {
+  background: #0b111e !important;
+  background-image:
+    linear-gradient(rgba(30, 41, 59, 0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(30, 41, 59, 0.35) 1px, transparent 1px) !important;
+  background-size: 28px 28px !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 14px !important;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55) !important;
+  transform: rotateX(3deg);
+}
+
+.ygo-playmat-3d::before {
+  border: 1px solid rgba(56, 189, 248, 0.08) !important;
+  border-radius: 10px !important;
+}
+
+.field-slot {
+  background: rgba(7, 11, 20, 0.82) !important;
+  border: 1px dashed #273042 !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+
+.field-slot.opp-slot {
+  border-color: rgba(244, 63, 94, 0.25) !important;
+}
+
+.field-slot.my-slot {
+  border-color: rgba(56, 189, 248, 0.25) !important;
+}
+
+.field-slot.active-target {
+  border-style: solid !important;
+  border-color: #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.06) !important;
+  box-shadow: inset 0 0 16px rgba(56, 189, 248, 0.1) !important;
+}
+
+.zone-tag {
+  font-family: 'JetBrains Mono', monospace !important;
+  color: #64748b !important;
+  letter-spacing: 0.06em !important;
+}
+
+.empty-zone-sigil {
+  background: rgba(15, 23, 42, 0.45) !important;
+  border: 1px dashed #1e293b !important;
+  border-radius: 8px !important;
+  color: #64748b !important;
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+/* Battle Line Strip & Action Controls */
+.battle-line-strip {
+  background: #070b14 !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
+}
+
+.cycle-chip {
+  background: rgba(56, 189, 248, 0.12) !important;
+  border: 1px solid rgba(56, 189, 248, 0.35) !important;
+  color: #38bdf8 !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  border-radius: 6px !important;
+}
+
+.phase-token {
+  background: #0e1526 !important;
+  border: 1px solid #1e293b !important;
+  color: #64748b !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  border-radius: 6px !important;
+}
+
+.phase-token.active {
+  background: rgba(56, 189, 248, 0.14) !important;
+  border-color: #38bdf8 !important;
+  color: #f8fafc !important;
+  box-shadow: none !important;
+}
+
+.phase-token.done {
+  background: rgba(16, 185, 129, 0.1) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+  color: #34d399 !important;
+}
+
+.action-callout-pill {
+  font-family: 'Inter', sans-serif !important;
+  font-weight: 600 !important;
+  color: #cbd5e1 !important;
+}
+
+.ygo-confirm-btn {
+  background: #38bdf8 !important;
+  color: #070b14 !important;
+  border: 1px solid #38bdf8 !important;
+  border-radius: 8px !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.04em !important;
+  box-shadow: 0 4px 12px rgba(56, 189, 248, 0.25) !important;
+}
+
+.ygo-confirm-btn:hover:not(:disabled) {
+  background: #7dd3fc !important;
+  border-color: #7dd3fc !important;
+  transform: translateY(-1px);
+}
+
+.ygo-confirm-btn:disabled {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+  color: #64748b !important;
+  box-shadow: none !important;
+}
+
+/* 4. OmniTactica Dark Slate Tactical Player Cards (.ygo-card) */
+.ygo-card {
+  background: linear-gradient(165deg, #162033 0%, #0e1526 60%, #070b14 100%) !important;
+  border: 1.5px solid #334155 !important;
+  border-radius: 9px !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55) !important;
+}
+
+.ygo-card::after {
+  border-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+.ygo-card.team-a-tint {
+  border-color: rgba(56, 189, 248, 0.5) !important;
+}
+
+.ygo-card.team-b-tint {
+  border-color: rgba(244, 63, 94, 0.5) !important;
+}
+
+.ygo-card.selected {
+  border-color: #38bdf8 !important;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.75), 0 0 0 2px rgba(56, 189, 248, 0.45) !important;
+}
+
+.ygo-card.selected::before {
+  background: #38bdf8 !important;
+  color: #070b14 !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  border-radius: 5px !important;
+}
+
+.ygo-card .yc-top {
+  background: #070b14 !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 5px !important;
+}
+
+.ygo-card .yc-name,
+.tcg-binder-card .yc-name,
+.tcg-deck-slot-card .yc-name {
+  font-family: 'Inter', sans-serif !important;
+  font-weight: 700 !important;
+  color: #f8fafc !important;
+  letter-spacing: -0.01em !important;
+}
+
+.ygo-card .yc-art {
+  background: radial-gradient(circle at 50% 40%, #1e293b 0%, #070b14 90%) !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 5px !important;
+}
+
+.ygo-card .yc-emblem {
+  background: rgba(7, 11, 20, 0.75) !important;
+  border: 1px solid rgba(56, 189, 248, 0.25) !important;
+}
+
+.ygo-card .yc-faction {
+  font-family: 'JetBrains Mono', monospace !important;
+  color: #94a3b8 !important;
+}
+
+.ygo-card .yc-bottom {
+  background: #070b14 !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 5px !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  color: #cbd5e1 !important;
+}
+
+.ygo-card .yc-atk {
+  color: #38bdf8 !important;
+}
+
+.ygo-card .yc-def {
+  color: #94a3b8 !important;
+}
+
+/* Face-Down Card Back — Sleek OmniTactica Dark Slate Hex/Diamond Core */
+.ygo-card.face-down {
+  background: radial-gradient(circle at 50% 50%, #162033 0%, #0b111e 65%, #070b14 100%) !important;
+  border: 1.5px solid #334155 !important;
+}
+
+.ygo-card.face-down .vortex-ring {
+  border: 1.5px solid rgba(56, 189, 248, 0.35) !important;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.14) 0%, transparent 70%) !important;
+}
+
+.ygo-card.face-down .vortex-lbl {
+  font-family: 'JetBrains Mono', monospace !important;
+  color: #64748b !important;
+}
+
+/* Rarity Borders on OmniTactica Cards */
+.ygo-card.tcg-rarity-starter {
+  border-color: #475569 !important;
+}
+.ygo-card.tcg-rarity-common {
+  border-color: rgba(16, 185, 129, 0.65) !important;
+}
+.ygo-card.tcg-rarity-rare {
+  border-color: rgba(56, 189, 248, 0.75) !important;
+}
+.ygo-card.tcg-rarity-epic {
+  border-color: rgba(168, 85, 247, 0.8) !important;
+}
+.ygo-card.tcg-rarity-mythic {
+  border-color: rgba(245, 158, 11, 0.9) !important;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.65), 0 0 12px rgba(245, 158, 11, 0.25) !important;
+}
+
+/* 5. Modals (Lobby & Roster, TCG Vault, Coin Flip, Share Room) — Match Lobby Style */
+.lobby-modal-card,
+.tcg-modal-card,
+.coin-modal-card,
+.share-room-modal-card {
+  background: #0e1526 !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 16px !important;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85) !important;
+}
+
+.lobby-modal-header,
+.tcg-modal-header,
+.coin-modal-header {
+  background: #0b111e !important;
+  border-bottom: 1px solid #1e293b !important;
+}
+
+.lobby-modal-header h2,
+.tcg-modal-header h2,
+.coin-modal-header h2 {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-weight: 800 !important;
+  color: #f8fafc !important;
+  letter-spacing: 0.04em !important;
+}
+
+.lobby-section,
+.tcg-pack-banner,
+.tcg-deck-panel,
+.tcg-duel-stage,
+.lobby-seat-card {
+  background: #070b14 !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 12px !important;
+}
+
+.lobby-seat-card.active {
+  border-color: #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.07) !important;
+}
+
+.tcg-tab-btn {
+  font-family: 'JetBrains Mono', monospace !important;
+  border-radius: 8px !important;
+}
+
+.tcg-tab-btn.active {
+  background: rgba(56, 189, 248, 0.14) !important;
+  border-color: #38bdf8 !important;
+  color: #f8fafc !important;
+  box-shadow: none !important;
+}
+
+/* 6. On-Field Combat Stage — OmniTactica Tactical HUD Styling */
+.on-field-combat-stage {
+  background: radial-gradient(circle at 50% 50%, rgba(14, 21, 38, 0.82) 0%, rgba(7, 11, 20, 0.94) 85%) !important;
+}
+
+.ofc-table-banner {
+  background: #070b14 !important;
+  border: 1px solid #38bdf8 !important;
+  color: #38bdf8 !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  border-radius: 8px !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7) !important;
+}
+
+.ofc-wtc-score-card {
+  background: #0e1526 !important;
+  border: 1.5px solid #38bdf8 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.9), 0 0 20px rgba(56, 189, 248, 0.25) !important;
+}
+
+.ofc-wtc-kicker {
+  color: #38bdf8 !important;
+}
+
+.ofc-wtc-nums {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+/* 7. Deck Stacks, Card Footer Spacing, Matchup Chip & Toast */
+.deck-zone {
+  background: rgba(7, 11, 20, 0.85) !important;
+  border: 1px dashed #273042 !important;
+  border-radius: 10px !important;
+}
+
+.deck-stack {
+  background: #0e1526 !important;
+  border: 1px solid #334155 !important;
+  border-radius: 7px !important;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5) !important;
+}
+
+.deck-stack strong {
+  font-family: 'JetBrains Mono', monospace !important;
+  color: #38bdf8 !important;
+}
+
+.deck-stack span {
+  font-family: 'JetBrains Mono', monospace !important;
+  color: #64748b !important;
+}
+
+.ygo-card .yc-bottom,
+.tcg-deck-slot-card .yc-bottom {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 2px 5px !important;
+}
+
+.ygo-card .yc-matchup-chip {
+  background: rgba(7, 11, 20, 0.92) !important;
+  border: 1px solid rgba(56, 189, 248, 0.45) !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 0.46rem !important;
+  padding: 1px 4px !important;
+  border-radius: 4px !important;
+  top: 2px !important;
+  right: 2px !important;
+  z-index: 4 !important;
+}
+
+@media (max-width: 768px) {
+  .ofc-card-mount .ygo-card .yc-matchup-chip {
+    font-size: 0.42rem !important;
+    padding: 1px 3px !important;
+    top: 2px !important;
+    right: 2px !important;
+  }
+  .ofc-card-mount .ygo-card .yc-emblem {
+    margin-top: 8px !important;
+  }
+}
+
+.ygo-toast {
+  background: #0e1526 !important;
+  border: 1px solid #38bdf8 !important;
+  color: #f8fafc !important;
+  font-family: 'Inter', sans-serif !important;
+  border-radius: 10px !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.75) !important;
+}
+
+
