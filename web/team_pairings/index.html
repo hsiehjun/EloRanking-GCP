@@ -58,31 +58,81 @@
 
     <!-- Main 3-Zone Yu-Gi-Oh! Duel Screen -->
     <div class="ygo-duel-stage">
-      <!-- 1. LEFT PANEL: Card Inspector (Yu-Gi-Oh style full card detail view with Armory SVG Sigils) -->
-      <aside class="ygo-inspector-panel" id="cardInspectorPanel">
-        <div class="inspector-card-frame" id="inspectorCardFrame">
-          <div class="insp-header">
-            <span class="insp-name" id="inspCardName">Select a Player Card</span>
-            <span class="insp-attribute" id="inspCardIcon"></span>
-          </div>
-          <div class="insp-stars" id="inspCardStars">☆☆☆☆☆☆☆☆</div>
-          <div class="insp-art-box" id="inspCardArtBox">
-            <div class="insp-art-glow"></div>
-            <div class="insp-big-emblem" id="inspBigEmblem"></div>
-            <div class="insp-faction-banner" id="inspCardFaction">No Card Selected</div>
-          </div>
-          <div class="insp-type-box">
-            <div class="insp-type-line" id="inspCardTypeLine">[ Awaiting Roster ]</div>
-            <div class="insp-desc-text" id="inspCardDesc">
-              Search players or a team in the Lobby to add cards to your hand, then click any card to inspect or place it on the field.
+      <!-- 1. LEFT PANEL: WTC Pairing Process & Active Step Guide -->
+      <aside class="ygo-inspector-panel" id="pairingProcessPanel">
+        <div class="process-guide-frame">
+          <div class="pg-header">
+            <div class="pg-title-row">
+              <span class="pg-title">⚡ PAIRING PROCESS</span>
+              <span class="pg-cycle-badge" id="pgCycleBadge">CYCLE 1 / 2</span>
             </div>
-            <div class="insp-matchup-box hidden" id="inspMatchupBox">
-              <span>VS ENEMY DEFENDER:</span>
-              <strong id="inspMatchupVal">--</strong>
+            <div class="pg-format-sub" id="pgFormatSub">5v5 WTC Format • 5 Tables</div>
+          </div>
+
+          <!-- Current Active Step Callout -->
+          <div class="pg-current-callout" id="pgCurrentCallout">
+            <div class="pg-callout-top">
+              <span class="pg-callout-tag" id="pgActiveStepTag">CURRENT STEP</span>
+              <span class="pg-callout-tables" id="pgTablesProgress">0 / 5 Paired</span>
             </div>
-            <div class="insp-stats-bar">
-              <span>ELO / <strong id="inspCardElo">----</strong></span>
-              <span>ROLE / <strong id="inspCardRoleShort">---</strong></span>
+            <div class="pg-callout-headline" id="pgActiveStepHeadline">Step 1: Blind Defender</div>
+            <div class="pg-callout-desc" id="pgActiveStepDesc">
+              Click 1 card in your bottom hand to place face-down in your Defender Zone, then click Lock In Defender.
+            </div>
+            <div class="pg-lock-status-row">
+              <span class="pg-lock-chip" id="pgMyLockChip">You: Selecting...</span>
+              <span class="pg-lock-chip" id="pgOppLockChip">Enemy: Thinking...</span>
+            </div>
+          </div>
+
+          <!-- 3-Step Cycle Stepper -->
+          <div class="pg-steps-list">
+            <div class="pg-step-card active" id="pgStepCard1">
+              <div class="pg-step-head">
+                <span class="pg-step-num">1</span>
+                <span class="pg-step-name">🛡️ Put 1 Defender</span>
+                <span class="pg-step-state" id="pgStepState1">ACTIVE</span>
+              </div>
+              <p class="pg-step-body">
+                Both Captains secretly place <strong>1 Defender</strong> face-down. Revealed simultaneously once both lock in.
+              </p>
+            </div>
+
+            <div class="pg-step-card" id="pgStepCard2">
+              <div class="pg-step-head">
+                <span class="pg-step-num">2</span>
+                <span class="pg-step-name">⚔️ Send 2 Attackers</span>
+                <span class="pg-step-state" id="pgStepState2">NEXT</span>
+              </div>
+              <p class="pg-step-body">
+                Seeing the enemy Defender, each Captain secretly nominates <strong>2 Attackers</strong> from hand to challenge them.
+              </p>
+            </div>
+
+            <div class="pg-step-card" id="pgStepCard3">
+              <div class="pg-step-head">
+                <span class="pg-step-num">3</span>
+                <span class="pg-step-name">🎯 Defender's Choice</span>
+                <span class="pg-step-state" id="pgStepState3">PENDING</span>
+              </div>
+              <p class="pg-step-body" id="pgStepBody3">
+                Each Captain picks <strong>1 of the 2 enemy Attackers</strong> for their Defender to fight (locks 2 tables). Unchosen Attackers return to hand (or pair off in the final cycle).
+              </p>
+            </div>
+          </div>
+
+          <!-- Cycle Table Breakdown Footer -->
+          <div class="pg-cycle-summary" id="pgCycleSummaryBox">
+            <div class="pg-summary-title">CYCLE BREAKDOWN</div>
+            <div class="pg-summary-rows" id="pgCycleSummaryRows">
+              <div class="pg-summary-row active">
+                <span>Cycle 1</span>
+                <strong>Locks Tables #1 – #2</strong>
+              </div>
+              <div class="pg-summary-row">
+                <span>Cycle 2 (Final)</span>
+                <strong>Locks Tables #3 – #5</strong>
+              </div>
             </div>
           </div>
         </div>

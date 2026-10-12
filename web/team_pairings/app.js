@@ -1428,10 +1428,7 @@ class YuGiOhPairingsArena {
     this.renderPlaymatZones(p);
     this.renderHands(p);
     this.renderPairedTables();
-
-    const bench = (p.myTeam.roster || []).filter((c) => c.status === "bench");
-    const candidate = this.inspectedPlayer || bench[0] || p.myDef || p.myTeam.roster?.[0] || null;
-    this.inspectCard(candidate, p.oppDef);
+    this.renderPairingProcessGuide(p);
   }
 
   renderDuelistHud(p) {
@@ -1958,61 +1955,142 @@ class YuGiOhPairingsArena {
     this.renderAll();
   }
 
-  inspectCard(player, opponentContextCard = null) {
-    const nameEl = document.getElementById("inspCardName");
-    const iconEl = document.getElementById("inspCardIcon");
-    const starsEl = document.getElementById("inspCardStars");
-    const emblemEl = document.getElementById("inspBigEmblem");
-    const facEl = document.getElementById("inspCardFaction");
-    const typeEl = document.getElementById("inspCardTypeLine");
-    const descEl = document.getElementById("inspCardDesc");
-    const eloEl = document.getElementById("inspCardElo");
-    const roleShortEl = document.getElementById("inspCardRoleShort");
-    const matchupBox = document.getElementById("inspMatchupBox");
-    const matchupVal = document.getElementById("inspMatchupVal");
+  inspectCard(player) {
+    if (player) this.inspectedPlayer = player;
+  }
 
-    if (!player) {
-      if (nameEl) nameEl.textContent = "Select a Player Card";
-      if (iconEl) iconEl.innerHTML = "";
-      if (starsEl) starsEl.textContent = "☆☆☆☆☆☆☆☆";
-      if (emblemEl) emblemEl.innerHTML = "";
-      if (facEl) facEl.textContent = "No Card Selected";
-      if (typeEl) typeEl.textContent = "[ Awaiting Roster ]";
-      if (descEl) descEl.textContent = "Search players or a team in the Lobby to add cards to your hand, then click any card to inspect or place it on the field.";
-      if (eloEl) eloEl.textContent = "----";
-      if (roleShortEl) roleShortEl.textContent = "---";
-      if (matchupBox) matchupBox.classList.add("hidden");
-      return;
+  renderPairingProcessGuide(p) {
+    if (!this.room || !p) return;
+    const phase = this.room.phase;
+    const cycle = Number(this.room.cycle || 1);
+    const maxCycles = Number(this.room.max_cycles || 2);
+    const totalTables = Number(this.room.total_tables || 5);
+    const pairedCount = (this.room.pairings || []).length;
+    const fmtLabel = totalTables === 8 ? "8v8 WTC Format • 8 Tables" : "5v5 WTC Format • 5 Tables";
+
+    const cycleBadge = document.getElementById("pgCycleBadge");
+    if (cycleBadge) {
+      cycleBadge.textContent = phase === "COMPLETED" ? "COMPLETED" : `CYCLE ${cycle} / ${maxCycles}`;
     }
 
-    this.inspectedPlayer = player;
-    const meta = resolveFactionMeta(player.faction);
-    const starsCount = Math.max(4, Math.min(10, Math.round(((player.elo || 2050) - 1800) / 45)));
-    const svgHtml = getFactionSvgHtml(player.faction, "armory-faction-svg");
+    const fmtSub = document.getElementById("pgFormatSub");
+    if (fmtSub) fmtSub.textContent = fmtLabel;
 
-    if (nameEl) nameEl.textContent = player.name;
-    if (iconEl) iconEl.innerHTML = svgHtml;
-    if (starsEl) starsEl.textContent = "★".repeat(starsCount);
-    if (emblemEl) emblemEl.innerHTML = svgHtml;
-    if (facEl) facEl.textContent = player.faction;
-    if (typeEl) typeEl.textContent = `[ ${player.faction} / ${player.detachment || meta.detachment} ]`;
-    if (descEl) {
-      descEl.innerHTML = `Tactical Role: <strong>${this.escapeHtml(player.role_tag || "All-Rounder")}</strong>. Click this card in your bottom hand to place it onto the glowing field zone.`;
-    }
-    if (eloEl) eloEl.textContent = String(player.elo || 2100);
-    if (roleShortEl) {
-      const rTag = (player.role_tag || "").toUpperCase();
-      roleShortEl.textContent = rTag.includes("DEF") ? "DEF" : (rTag.includes("ATK") || rTag.includes("SPEAR") ? "ATK" : "FLEX");
+    const tablesProg = document.getElementById("pgTablesProgress");
+    if (tablesProg) tablesProg.textContent = `${pairedCount} / ${totalTables} Paired`;
+
+    const tagEl = document.getElementById("pgActiveStepTag");
+    const headlineEl = document.getElementById("pgActiveStepHeadline");
+    const descEl = document.getElementById("pgActiveStepDesc");
+    const myChip = document.getElementById("pgMyLockChip");
+    const oppChip = document.getElementById("pgOppLockChip");
+
+    const sCard1 = document.getElementById("pgStepCard1");
+    const sCard2 = document.getElementById("pgStepCard2");
+    const sCard3 = document.getElementById("pgStepCard3");
+    const sState1 = document.getElementById("pgStepState1");
+    const sState2 = document.getElementById("pgStepState2");
+    const sState3 = document.getElementById("pgStepState3");
+
+    [sCard1, sCard2, sCard3].forEach((el) => el?.classList.remove("active", "done"));
+
+    let myLocked = false;
+    let oppLocked = false;
+
+    if (phase === "STEP_1_DEFENDER") {
+      myLocked = !!p.mySecDefLocked;
+      oppLocked = !!p.oppSecDefLocked;
+      if (tagEl) tagEl.textContent = `CYCLE ${cycle} • STEP 1 OF 3`;
+      if (headlineEl) headlineEl.textContent = "Step 1: Blind Defender";
+      if (descEl) {
+        descEl.textContent = myLocked
+          ? "Your Defender is locked face-down. Waiting for opponent Captain to lock their Defender so both reveal simultaneously."
+          : "Select 1 player card from your bottom hand to place face-down in your Defender Zone, then click Lock In Defender.";
+      }
+      sCard1?.classList.add("active");
+      if (sState1) sState1.textContent = "ACTIVE";
+      if (sState2) sState2.textContent = "NEXT";
+      if (sState3) sState3.textContent = "PENDING";
+    } else if (phase === "STEP_2_ATTACKERS") {
+      myLocked = !!p.mySecAttsLocked;
+      oppLocked = !!p.oppSecAttsLocked;
+      if (tagEl) tagEl.textContent = `CYCLE ${cycle} • STEP 2 OF 3`;
+      if (headlineEl) headlineEl.textContent = "Step 2: Send 2 Attackers";
+      if (descEl) {
+        descEl.textContent = myLocked
+          ? "Your 2 Attackers are locked face-down. Waiting for opponent Captain to lock their 2 Attackers."
+          : `Enemy Defender (${p.oppDef?.name || "Revealed"}) is on the mat! Select 2 cards from your bottom hand to challenge them, then click Lock In 2 Attackers.`;
+      }
+      sCard1?.classList.add("done");
+      sCard2?.classList.add("active");
+      if (sState1) sState1.textContent = "DONE";
+      if (sState2) sState2.textContent = "ACTIVE";
+      if (sState3) sState3.textContent = "NEXT";
+    } else if (phase === "STEP_3_CHOOSE") {
+      myLocked = !!p.mySecChoiceLocked;
+      oppLocked = !!p.oppSecChoiceLocked;
+      const isFinalCycle = cycle >= maxCycles;
+      if (tagEl) tagEl.textContent = `CYCLE ${cycle} • STEP 3 OF 3`;
+      if (headlineEl) headlineEl.textContent = "Step 3: Defender's Choice";
+      if (descEl) {
+        descEl.textContent = myLocked
+          ? "Your Defender's matchup choice is locked. Waiting for opponent Captain."
+          : isFinalCycle
+            ? "Click 1 of the 2 pulsing enemy Attackers on the top mat for your Defender to fight. Unchosen Attackers automatically pair on the final table!"
+            : "Click 1 of the 2 pulsing enemy Attackers on the top mat for your Defender to fight. The unchosen Attacker returns to their Captain's hand.";
+      }
+      sCard1?.classList.add("done");
+      sCard2?.classList.add("done");
+      sCard3?.classList.add("active");
+      if (sState1) sState1.textContent = "DONE";
+      if (sState2) sState2.textContent = "DONE";
+      if (sState3) sState3.textContent = "ACTIVE";
+    } else {
+      myLocked = true;
+      oppLocked = true;
+      if (tagEl) tagEl.textContent = "PAIRINGS COMPLETE";
+      if (headlineEl) headlineEl.textContent = `All ${totalTables} Tables Locked!`;
+      if (descEl) {
+        descEl.textContent = "Every matchup has been finalized. Review the full table pairings on the right dock or start a new room.";
+      }
+      sCard1?.classList.add("done");
+      sCard2?.classList.add("done");
+      sCard3?.classList.add("done");
+      if (sState1) sState1.textContent = "DONE";
+      if (sState2) sState2.textContent = "DONE";
+      if (sState3) sState3.textContent = "DONE";
     }
 
-    if (matchupBox && matchupVal) {
-      if (opponentContextCard && opponentContextCard.id && player.id) {
-        const est = this.getMatchupEstimate(player, opponentContextCard);
-        matchupBox.classList.remove("hidden");
-        const verdict = est >= 12 ? "FAVORED" : (est <= 8 ? "UNFAVORED" : "EVEN CLASH");
-        matchupVal.textContent = `${est} - ${20 - est} (${verdict} vs ${opponentContextCard.name})`;
+    if (myChip) {
+      myChip.textContent = myLocked
+        ? "✓ You: Locked In"
+        : (p.isSpectator ? "👁️ Spectator Mode" : `⚡ You: Selecting (${this.selectedIds.length} chosen)`);
+      myChip.classList.toggle("ready", myLocked);
+    }
+    if (oppChip) {
+      oppChip.textContent = oppLocked ? "✓ Enemy: Locked In" : "⏳ Enemy: Thinking...";
+      oppChip.classList.toggle("ready", oppLocked);
+    }
+
+    const summaryRows = document.getElementById("pgCycleSummaryRows");
+    if (summaryRows) {
+      if (totalTables === 8) {
+        summaryRows.innerHTML = [
+          { c: 1, lbl: "Cycle 1", desc: "Locks Tables #1 – #2" },
+          { c: 2, lbl: "Cycle 2", desc: "Locks Tables #3 – #4" },
+          { c: 3, lbl: "Cycle 3 (Final)", desc: "Locks Tables #5 – #8" }
+        ].map((row) => {
+          const cls = phase === "COMPLETED" || cycle > row.c ? "done" : (cycle === row.c ? "active" : "");
+          return `<div class="pg-summary-row ${cls}"><span>${row.lbl}</span><strong>${row.desc}</strong></div>`;
+        }).join("");
       } else {
-        matchupBox.classList.add("hidden");
+        summaryRows.innerHTML = [
+          { c: 1, lbl: "Cycle 1", desc: "Locks Tables #1 – #2" },
+          { c: 2, lbl: "Cycle 2 (Final)", desc: "Locks Tables #3 – #5" }
+        ].map((row) => {
+          const cls = phase === "COMPLETED" || cycle > row.c ? "done" : (cycle === row.c ? "active" : "");
+          return `<div class="pg-summary-row ${cls}"><span>${row.lbl}</span><strong>${row.desc}</strong></div>`;
+        }).join("");
       }
     }
   }
