@@ -389,6 +389,278 @@ class TestRepairMatchesAndElo(unittest.TestCase):
         self.assertNotIn("Imperium", profile["top_faction"])
         self.assertNotIn("Space Marines (Astartes)", profile["top_faction"])
 
+    def test_multi_week_league_missing_rounds_backfill(self):
+        """Simulate Autumn Annihilation 2026 (DAVY7pZIVACh) where DB only has Round 1 and BCP has Rounds 1-3."""
+        db_round1_only = [
+            {
+                "id": "RdkFsTLJ7Vc7",
+                "event_id": "DAVY7pZIVACh",
+                "round": 1,
+                "table_number": 1,
+                "player1_id": "CF1MBH6T87",
+                "player1_name": "Nemo The Fish",
+                "player1_score": 20,
+                "player2_id": "mick_id",
+                "player2_name": "Mick (Pyrothenia) Miller",
+                "player2_score": 0,
+                "winner_id": "CF1MBH6T87",
+                "loser_id": "mick_id",
+                "is_draw": False,
+                "is_bye": False,
+                "is_done": True,
+                "raw_json": "{}",
+            }
+        ]
+
+        authoritative_roster = [
+            {
+                "id": "reg_nemo",
+                "userId": "CF1MBH6T87",
+                "user": {"id": "CF1MBH6T87", "firstName": "Nemo", "lastName": "The Fish"},
+                "faction": {"name": "Astra Militarum"},
+                "total_games": [
+                    {"gameNum": 1, "gamePoints": 20, "gameResult": 2, "pod": False},
+                    {"gameNum": 2, "gamePoints": 20, "gameResult": 2, "pod": False},
+                    {"gameNum": 3, "gamePoints": 19, "gameResult": 2, "pod": False},
+                ],
+            },
+            {
+                "id": "reg_mick",
+                "userId": "mick_id",
+                "user": {"id": "mick_id", "firstName": "Mick", "lastName": "Miller"},
+                "total_games": [
+                    {"gameNum": 1, "gamePoints": 0, "gameResult": 0, "pod": False},
+                    {"gameNum": 2, "gamePoints": 10, "gameResult": 1, "pod": False},
+                    {"gameNum": 3, "gamePoints": 15, "gameResult": 2, "pod": False},
+                ],
+            },
+            {
+                "id": "reg_blake",
+                "userId": "blake_id",
+                "user": {"id": "blake_id", "firstName": "Blake", "lastName": "Baker"},
+                "total_games": [
+                    {"gameNum": 1, "gamePoints": 15, "gameResult": 2, "pod": False},
+                    {"gameNum": 2, "gamePoints": 0, "gameResult": 0, "pod": False},
+                    {"gameNum": 3, "gamePoints": 12, "gameResult": 2, "pod": False},
+                ],
+            },
+            {
+                "id": "reg_rii",
+                "userId": "rii_id",
+                "user": {"id": "rii_id", "firstName": "Rii", "lastName": "Anderson"},
+                "total_games": [
+                    {"gameNum": 1, "gamePoints": 18, "gameResult": 2, "pod": False},
+                    {"gameNum": 2, "gamePoints": 10, "gameResult": 1, "pod": False},
+                    {"gameNum": 3, "gamePoints": 1, "gameResult": 0, "pod": False},
+                ],
+            },
+        ]
+
+        r2_pairings = [
+            {
+                "id": "tHUdTiYhD6UA",
+                "round": 2,
+                "table": 3,
+                "player1": {"id": "reg_nemo", "userId": "CF1MBH6T87", "firstName": "Nemo", "lastName": "The Fish"},
+                "player2": {"id": "reg_blake", "userId": "blake_id", "firstName": "Blake", "lastName": "Baker"},
+                "player1Game": {"points": 20, "result": 2},
+                "player2Game": {"points": 0, "result": 0},
+            }
+        ]
+        r3_pairings = [
+            {
+                "id": "ER9qjVfy6tHZ",
+                "round": 3,
+                "table": 1,
+                "player1": {"id": "reg_rii", "userId": "rii_id", "firstName": "Rii", "lastName": "Anderson"},
+                "player2": {"id": "reg_nemo", "userId": "CF1MBH6T87", "firstName": "Nemo", "lastName": "The Fish"},
+                "player1Game": {"points": 1, "result": 0},
+                "player2Game": {"points": 19, "result": 2},
+            }
+        ]
+
+        mock_db = MagicMock()
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchall.return_value = db_round1_only
+        mock_cur.fetchone.return_value = {"event_date": "2026-09-14T05:00:00Z", "game_system": "40k"}
+
+        mock_elo_engine = MagicMock()
+        mock_elo_engine.reconstruct_since_date.return_value = {"status": "success"}
+
+        def _fake_fetch_pairings(eid, round_num=1):
+            if round_num == 2:
+                return r2_pairings
+            if round_num == 3:
+                return r3_pairings
+            return []
+
+        with patch("scripts.repair_matches_and_elo.BestCoastPairingsScraper") as MockScraperCls, \
+             patch("scripts.repair_matches_and_elo.get_elo_engine", return_value=mock_elo_engine):
+            real_helper = BestCoastPairingsScraper(db=mock_db)
+            scraper_inst = MockScraperCls.return_value
+            scraper_inst.fetch_event_players.return_value = authoritative_roster
+            scraper_inst.build_roster_id_map.side_effect = real_helper.build_roster_id_map
+            scraper_inst.fetch_event_pairings_for_round.side_effect = _fake_fetch_pairings
+            scraper_inst.parse_and_store_match.side_effect = real_helper.parse_and_store_match
+
+            res = repair_historical_matches_and_elo(
+                db=mock_db,
+                event_ids=["DAVY7pZIVACh"],
+                reconstruct=True,
+            )
+
+        self.assertEqual(res["status"], "success")
+        self.assertEqual(res["matches_inserted"], 2)
+        self.assertEqual(res["events_repaired"], ["DAVY7pZIVACh"])
+        self.assertTrue(res["elo_reconstructed"])
+        self.assertTrue(mock_db.upsert_matches_batch.called)
+        upserted = mock_db.upsert_matches_batch.call_args[0][0]
+        self.assertEqual(len(upserted), 2)
+        self.assertEqual({m["id"] for m in upserted}, {"tHUdTiYhD6UA", "ER9qjVfy6tHZ"})
+        for m in upserted:
+            self.assertEqual(m["winner_id"], "CF1MBH6T87")
+
+    def test_nemo_player_profile_reconciles_missing_rounds_under_1s(self):
+        """Verify EloEngine.get_player_win_path supplements missing rounds from matches/_event_details_cache in <1s."""
+        import time
+        from elo import EloEngine
+        from routers import leaderboard as lb_router
+
+        mock_db = MagicMock()
+        mock_db._is_mock_instance.return_value = True
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.return_value = {
+            "player_id": "CF1MBH6T87",
+            "player_name": "Nemo The Fish",
+            "current_elo": 1919.8,
+            "peak_elo": 1919.8,
+            "matches_played": 250,
+            "wins": 200,
+            "losses": 50,
+            "draws": 0,
+            "win_rate": 80.0,
+            "top_faction": "Astra Militarum",
+            "team": "Wyvern",
+        }
+        mock_cur.fetchall.return_value = []
+
+        # Suppose rating_history only had Round 1 of DAVY7pZIVACh
+        mock_db.get_player_history.return_value = [
+            {
+                "match_id": "RdkFsTLJ7Vc7",
+                "event_id": "DAVY7pZIVACh",
+                "event_name": "Wyvern Wargaming Teams League - Autumn Annihilation 2026",
+                "round": 1,
+                "table_number": 1,
+                "match_date": "2026-09-14",
+                "result": "W",
+                "player_score": 20,
+                "opponent_score": 0,
+                "delta_elo": 0.4,
+                "new_elo": 1919.8,
+                "opponent_id": "mick_id",
+                "opponent_name": "Mick (Pyrothenia) Miller",
+                "opponent_elo": 1500.0,
+                "player_faction": "Astra Militarum",
+                "opponent_faction": "Chaos Knights",
+            }
+        ]
+        mock_db.get_player_matches.return_value = []
+        mock_db.get_player_tournaments.return_value = [
+            {
+                "event_id": "DAVY7pZIVACh",
+                "event_name": "Wyvern Wargaming Teams League - Autumn Annihilation 2026",
+                "event_date": "2026-09-14",
+                "registered_faction": "Astra Militarum",
+                "placement": 2,
+                "total_players": 87,
+                "wins": 1,
+                "losses": 0,
+                "draws": 0,
+                "matches_played": 1,
+            }
+        ]
+
+        # And suppose _event_details_cache has the 3 completed rounds from Event Detail modal
+        lb_router._event_details_cache["DAVY7pZIVACh"] = {
+            "timestamp": time.time(),
+            "is_ended": False,
+            "data": {
+                "id": "DAVY7pZIVACh",
+                "name": "Wyvern Wargaming Teams League - Autumn Annihilation 2026",
+                "event_date": "2026-09-14",
+                "matches": [
+                    {
+                        "id": "RdkFsTLJ7Vc7",
+                        "round": 1,
+                        "table_number": 1,
+                        "player1_id": "CF1MBH6T87",
+                        "player1_name": "Nemo The Fish",
+                        "player1_faction": "Astra Militarum",
+                        "player1_score": 20,
+                        "player2_id": "mick_id",
+                        "player2_name": "Mick (Pyrothenia) Miller",
+                        "player2_faction": "Chaos Knights",
+                        "player2_score": 0,
+                        "winner_id": "CF1MBH6T87",
+                        "is_done": True,
+                    },
+                    {
+                        "id": "tHUdTiYhD6UA",
+                        "round": 2,
+                        "table_number": 3,
+                        "player1_id": "CF1MBH6T87",
+                        "player1_name": "Nemo The Fish",
+                        "player1_faction": "Astra Militarum",
+                        "player1_score": 20,
+                        "player2_id": "blake_id",
+                        "player2_name": "Blake @bernafein Baker",
+                        "player2_faction": "Thousand Sons",
+                        "player2_score": 0,
+                        "winner_id": "CF1MBH6T87",
+                        "is_done": True,
+                    },
+                    {
+                        "id": "ER9qjVfy6tHZ",
+                        "round": 3,
+                        "table_number": 1,
+                        "player1_id": "rii_id",
+                        "player1_name": "Rii Anderson",
+                        "player1_faction": "Necrons",
+                        "player1_score": 1,
+                        "player2_id": "CF1MBH6T87",
+                        "player2_name": "Nemo The Fish",
+                        "player2_faction": "Astra Militarum",
+                        "player2_score": 19,
+                        "winner_id": "CF1MBH6T87",
+                        "is_done": True,
+                    },
+                ],
+            },
+        }
+
+        try:
+            engine = EloEngine(db=mock_db)
+            t0 = time.perf_counter()
+            profile = engine.get_player_win_path("CF1MBH6T87", game_system="40k", include_tournaments=True)
+            elapsed_s = time.perf_counter() - t0
+
+            self.assertLess(elapsed_s, 1.0)
+            davy_hist = [h for h in profile["history"] if h.get("event_id") == "DAVY7pZIVACh"]
+            self.assertEqual(len(davy_hist), 3)
+            self.assertEqual([h["round"] for h in sorted(davy_hist, key=lambda x: x["round"])], [1, 2, 3])
+            self.assertEqual(profile["tournaments"][0]["wins"], 3)
+            self.assertEqual(profile["tournaments"][0]["losses"], 0)
+            self.assertEqual(profile["tournaments"][0]["matches_played"], 3)
+        finally:
+            lb_router._event_details_cache.pop("DAVY7pZIVACh", None)
+
 
 if __name__ == "__main__":
     unittest.main()

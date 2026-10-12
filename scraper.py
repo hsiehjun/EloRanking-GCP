@@ -1279,8 +1279,17 @@ class BestCoastPairingsScraper:
             dict_rounds = 0
             if isinstance(rounds_dict, dict):
                 dict_rounds = max([int(k) for k in rounds_dict.keys() if str(k).isdigit()] or [0])
-            raw_rounds = event_data.get("numberOfRounds") or event_data.get("currentRound") or dict_rounds or 3
-            num_rounds = min(max(int(raw_rounds or 3), dict_rounds), 12)
+            roster_max_round = 0
+            if isinstance(roster_id_map, dict):
+                for k_map, v_games in roster_id_map.items():
+                    if isinstance(k_map, str) and k_map.startswith("games:") and isinstance(v_games, list):
+                        for g_item in v_games:
+                            if isinstance(g_item, dict):
+                                r_val = int(g_item.get("effectiveRound") or g_item.get("gameNum") or g_item.get("round") or 0)
+                                if r_val > roster_max_round:
+                                    roster_max_round = r_val
+            raw_rounds = event_data.get("numberOfRounds") or event_data.get("currentRound") or dict_rounds or roster_max_round or 3
+            num_rounds = min(max(int(raw_rounds or 3), dict_rounds, roster_max_round), 12)
         except Exception:
             num_rounds = 3
 
@@ -1328,8 +1337,116 @@ class BestCoastPairingsScraper:
             if total_players > 30 or num_rounds > 4:
                 logger.info(f"  -> Round {r}/{num_rounds}: {round_matches} matches processed.")
 
+        if (
+            actual_rounds > 0
+            and self.db is not None
+            and hasattr(self.db, "get_connection")
+            and type(getattr(self.db, "get_connection", None)).__name__ != "MagicMock"
+        ):
+            try:
+                with self.db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            UPDATE events
+                            SET current_round = GREATEST(COALESCE(current_round, 0), %s),
+                                num_rounds = GREATEST(COALESCE(num_rounds, 0), %s),
+                                raw_json = CASE
+                                    WHEN raw_json IS NOT NULL AND (raw_json::jsonb ? 'matches')
+                                    THEN (raw_json::jsonb - 'matches')::json
+                                    ELSE raw_json
+                                END
+                            WHERE id = %s;
+                            """,
+                            (actual_rounds, actual_rounds, event_id),
+                        )
+                    conn.commit()
+            except Exception as upd_err:
+                logger.debug(f"Could not update current_round for event {event_id}: {upd_err}")
+
         logger.info(f"Scraped '{event_name}' ({event_id}) [{event_date}]: {actual_rounds or num_rounds} rounds, {total_matches} matches total.")
         return total_matches
+
+    def rescrape_incomplete_and_ongoing_events(
+        self,
+        days: int = 90,
+        game_system: str = "all",
+        max_events: int = 60,
+    ) -> Dict[str, int]:
+        """Re-scrape multi-week leagues, ongoing events, and partially scraped events in PostgreSQL.
+
+        Why this is needed:
+        BCP's `/v1/events?startDate=...&endDate=...` filters strictly by `eventDate` (the event START date).
+        Multi-week leagues (e.g. `DAVY7pZIVACh` Autumn Annihilation 2026, running 2026-09-14 to 2026-11-01)
+        or weekend tournaments whose final rounds were uploaded late are missed by a narrow 3-day `startDate`
+        window once their `event_date` is >3 days in the past.
+        """
+        if not self.db or not hasattr(self.db, "get_connection"):
+            return {"events_rescraped": 0, "matches_rescraped": 0}
+
+        candidate_eids: List[str] = []
+        try:
+            gs_filter_sql = ""
+            params: List[Any] = [max(7, int(days or 90))]
+            if game_system and game_system not in ("all", "*"):
+                gs_filter_sql = "AND COALESCE(e.game_system, '40k') = %s"
+                params.append(str(game_system))
+            params.append(max(1, int(max_events or 60)))
+
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"""
+                        WITH candidate_window AS (
+                            SELECT e.id, e.event_date, e.end_date, e.num_rounds, e.current_round, e.is_ended
+                            FROM events e
+                            WHERE e.event_date >= NOW() - (%s * INTERVAL '1 day')
+                              AND e.event_date <= NOW() + INTERVAL '1 day'
+                              AND e.id NOT LIKE 'ES-%%'
+                              AND e.id NOT LIKE 'native_%%'
+                              {gs_filter_sql}
+                        ),
+                        match_round_stats AS (
+                            SELECT
+                                m.event_id,
+                                COUNT(DISTINCT m.round) AS db_rounds
+                            FROM matches m
+                            JOIN candidate_window cw ON cw.id = m.event_id
+                            GROUP BY m.event_id
+                        )
+                        SELECT cw.id
+                        FROM candidate_window cw
+                        LEFT JOIN match_round_stats mrs ON mrs.event_id = cw.id
+                        WHERE (cw.end_date IS NOT NULL AND cw.end_date >= NOW() - INTERVAL '10 days')
+                           OR COALESCE(cw.is_ended, FALSE) = FALSE
+                           OR (COALESCE(cw.num_rounds, 0) > 0 AND COALESCE(mrs.db_rounds, 0) < COALESCE(cw.num_rounds, 0))
+                           OR (COALESCE(cw.num_rounds, 0) > 0 AND COALESCE(cw.current_round, 0) < COALESCE(cw.num_rounds, 0))
+                        ORDER BY cw.event_date DESC
+                        LIMIT %s;
+                        """,
+                        tuple(params),
+                    )
+                    for (eid,) in cur.fetchall():
+                        if eid:
+                            candidate_eids.append(str(eid))
+        except Exception as e:
+            logger.warning(f"Failed querying incomplete/ongoing events for rescrape: {e}")
+            return {"events_rescraped": 0, "matches_rescraped": 0}
+
+        events_count = 0
+        matches_count = 0
+        for eid in candidate_eids:
+            try:
+                m_cnt = self.scrape_event(eid)
+                events_count += 1
+                matches_count += int(m_cnt or 0)
+            except Exception as err:
+                logger.warning(f"Error re-scraping incomplete/ongoing event {eid}: {err}")
+
+        logger.info(
+            f"Finished re-scraping {events_count} incomplete/ongoing events (last {days}d): {matches_count} matches."
+        )
+        return {"events_rescraped": events_count, "matches_rescraped": matches_count}
 
     def scrape_date_range(
         self,

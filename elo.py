@@ -1863,59 +1863,6 @@ class EloEngine:
                     "team": None
                 }
 
-        # Fallback or supplement from matches table if rating_history is empty or missing recent games
-        seen_match_ids = {str(h.get("match_id")) for h in history if isinstance(h, dict) and h.get("match_id") is not None}
-        is_mock_matches = hasattr(self.db, "get_player_matches") and isinstance(getattr(self.db.get_player_matches, "return_value", None), list)
-        if not history or int(player_meta.get("matches_played") or 0) > len(history) or is_mock_matches:
-            raw_matches = self.db.get_player_matches(player_id, game_system=game_system) if hasattr(self.db, "get_player_matches") else []
-            if isinstance(raw_matches, list):
-                for m in raw_matches:
-                    mid = m.get("id") if m.get("id") is not None else m.get("match_id")
-                    if mid is not None and str(mid) in seen_match_ids:
-                        continue
-                    is_p1 = (m.get("player1_id") == player_id)
-                    opp_id = m.get("player2_id") if is_p1 else m.get("player1_id")
-                    opp_name = m.get("player2_name") if is_p1 else m.get("player1_name")
-                    opp_fac = m.get("player2_faction") if is_p1 else m.get("player1_faction")
-                    my_fac = m.get("player1_faction") if is_p1 else m.get("player2_faction")
-                    my_score = m.get("player1_score") if is_p1 else m.get("player2_score")
-                    opp_score = m.get("player2_score") if is_p1 else m.get("player1_score")
-
-                    is_win = (m.get("winner_id") == player_id)
-                    is_loss = (m.get("loser_id") == player_id) or (m.get("winner_id") and m.get("winner_id") != player_id)
-                    is_draw = bool(m.get("is_draw"))
-                    if not (m.get("is_done") or is_win or is_loss or is_draw):
-                        continue
-                    res = "W" if is_win else ("L" if is_loss else ("D" if is_draw else "-"))
-
-                    if mid is not None:
-                        seen_match_ids.add(str(mid))
-                    ev_id_val = m.get("event_id") or m.get("tournament_id")
-                    ev_name_val = m.get("event_name") or m.get("tournament_name")
-                    history.append({
-                        "player_id": player_id,
-                        "match_id": mid,
-                        "event_id": ev_id_val,
-                        "tournament_id": ev_id_val,
-                        "event_name": ev_name_val,
-                        "tournament_name": ev_name_val,
-                        "round": m.get("round"),
-                        "table_number": m.get("table_number"),
-                        "match_date": m.get("match_date") or m.get("date_played") or m.get("date"),
-                        "old_elo": player_meta.get("current_elo", self.initial_elo),
-                        "new_elo": player_meta.get("current_elo", self.initial_elo),
-                        "delta_elo": 0.0,
-                        "opponent_id": opp_id,
-                        "opponent_name": opp_name or ("BYE" if m.get("is_bye") else "Opponent"),
-                        "opponent_elo": 1500.0,
-                        "result": res,
-                        "player_faction": my_fac,
-                        "opponent_faction": opp_fac,
-                        "player_score": my_score,
-                        "opponent_score": opp_score,
-                        "is_bye": bool(m.get("is_bye"))
-                    })
-
         if prefetched_tournaments is not None and player_id == initial_pid:
             tournaments_list = prefetched_tournaments
         else:
@@ -1925,8 +1872,155 @@ class EloEngine:
                 else []
             )
 
+        # Fallback or supplement from matches table (and in-memory live event cache) if rating_history is empty
+        # or missing rounds for any tournament compared to `player_meta` or `tournaments_list`.
+        seen_match_ids = {str(h.get("match_id")) for h in history if isinstance(h, dict) and h.get("match_id") is not None}
+        seen_event_rounds = {
+            (str(h.get("event_id") or h.get("tournament_id") or ""), int(h.get("round") or 0))
+            for h in history
+            if isinstance(h, dict) and (h.get("event_id") or h.get("tournament_id")) and h.get("round") is not None
+        }
+        history_counts_by_eid: Dict[str, int] = {}
+        for h in history:
+            if isinstance(h, dict):
+                h_eid = str(h.get("event_id") or h.get("tournament_id") or "").strip()
+                if h_eid:
+                    history_counts_by_eid[h_eid] = history_counts_by_eid.get(h_eid, 0) + 1
+
+        has_event_round_gap = any(
+            isinstance(t, dict)
+            and str(t.get("event_id") or "").strip()
+            and int(t.get("matches_played") or 0) > history_counts_by_eid.get(str(t.get("event_id") or "").strip(), 0)
+            for t in (tournaments_list or [])
+        )
+        is_mock_matches = hasattr(self.db, "get_player_matches") and isinstance(getattr(self.db.get_player_matches, "return_value", None), list)
+
+        supplement_matches: List[Dict[str, Any]] = []
+        if not history or int(player_meta.get("matches_played") or 0) > len(history) or has_event_round_gap or is_mock_matches:
+            raw_matches = self.db.get_player_matches(player_id, game_system=game_system) if hasattr(self.db, "get_player_matches") else []
+            if isinstance(raw_matches, list):
+                supplement_matches.extend(raw_matches)
+
+        # Also check in-memory `_event_details_cache` for any tournament in `tournaments_list` that was recently viewed
+        try:
+            from routers import leaderboard as _lb_router
+            ev_cache = getattr(_lb_router, "_event_details_cache", None)
+            if isinstance(ev_cache, dict) and tournaments_list:
+                for t_item in tournaments_list:
+                    if not isinstance(t_item, dict):
+                        continue
+                    t_eid = str(t_item.get("event_id") or "").strip()
+                    if not t_eid or t_eid not in ev_cache:
+                        continue
+                    cached_ev = (ev_cache.get(t_eid) or {}).get("data") or {}
+                    cached_ev_matches = cached_ev.get("matches")
+                    if not isinstance(cached_ev_matches, list):
+                        continue
+                    for cm in cached_ev_matches:
+                        if isinstance(cm, dict) and (cm.get("player1_id") == player_id or cm.get("player2_id") == player_id):
+                            cm_copy = dict(cm)
+                            cm_copy.setdefault("event_id", t_eid)
+                            cm_copy.setdefault("event_name", cached_ev.get("name") or t_item.get("event_name"))
+                            cm_copy.setdefault("match_date", cached_ev.get("event_date") or cached_ev.get("date") or t_item.get("event_date"))
+                            supplement_matches.append(cm_copy)
+        except Exception:
+            pass
+
+        if supplement_matches:
+            for m in supplement_matches:
+                if not isinstance(m, dict):
+                    continue
+                mid = m.get("id") if m.get("id") is not None else m.get("match_id")
+                ev_id_val = str(m.get("event_id") or m.get("tournament_id") or "").strip() or None
+                r_val = int(m.get("round") or 0) if m.get("round") is not None else 0
+                if mid is not None and str(mid) in seen_match_ids:
+                    continue
+                if ev_id_val and r_val > 0 and (ev_id_val, r_val) in seen_event_rounds:
+                    continue
+                is_p1 = (m.get("player1_id") == player_id)
+                opp_id = m.get("player2_id") if is_p1 else m.get("player1_id")
+                opp_name = m.get("player2_name") if is_p1 else m.get("player1_name")
+                opp_fac = m.get("player2_faction") if is_p1 else m.get("player1_faction")
+                my_fac = m.get("player1_faction") if is_p1 else m.get("player2_faction")
+                my_score = m.get("player1_score") if is_p1 else m.get("player2_score")
+                opp_score = m.get("player2_score") if is_p1 else m.get("player1_score")
+
+                is_win = (m.get("winner_id") == player_id)
+                is_loss = (m.get("loser_id") == player_id) or bool(m.get("winner_id") and m.get("winner_id") != player_id)
+                is_draw = bool(m.get("is_draw"))
+                if not (is_win or is_loss or is_draw) and my_score is not None and opp_score is not None:
+                    try:
+                        ms_f = float(my_score)
+                        os_f = float(opp_score)
+                        if ms_f > os_f:
+                            is_win = True
+                        elif os_f > ms_f:
+                            is_loss = True
+                        elif ms_f == os_f and ms_f > 0:
+                            is_draw = True
+                    except (ValueError, TypeError):
+                        pass
+                if not (is_win or is_loss or is_draw or m.get("is_bye")):
+                    continue
+                res = "W" if (is_win or m.get("is_bye")) else ("L" if is_loss else ("D" if is_draw else "-"))
+
+                if mid is not None:
+                    seen_match_ids.add(str(mid))
+                if ev_id_val and r_val > 0:
+                    seen_event_rounds.add((ev_id_val, r_val))
+                ev_name_val = m.get("event_name") or m.get("tournament_name")
+                history.append({
+                    "player_id": player_id,
+                    "match_id": mid,
+                    "event_id": ev_id_val,
+                    "tournament_id": ev_id_val,
+                    "event_name": ev_name_val,
+                    "tournament_name": ev_name_val,
+                    "round": m.get("round"),
+                    "table_number": m.get("table_number"),
+                    "match_date": m.get("match_date") or m.get("date_played") or m.get("date"),
+                    "old_elo": player_meta.get("current_elo", self.initial_elo),
+                    "new_elo": player_meta.get("current_elo", self.initial_elo),
+                    "delta_elo": 0.0,
+                    "opponent_id": opp_id,
+                    "opponent_name": opp_name or ("BYE" if m.get("is_bye") else "Opponent"),
+                    "opponent_elo": 1500.0,
+                    "result": res,
+                    "player_faction": my_fac,
+                    "opponent_faction": opp_fac,
+                    "player_score": my_score,
+                    "opponent_score": opp_score,
+                    "is_bye": bool(m.get("is_bye"))
+                })
+
         if history:
             _sync_history_from_tournaments(tournaments_list, history)
+            if tournaments_list:
+                hist_wld_by_eid: Dict[str, List[int]] = {}
+                for h_item in history:
+                    if not isinstance(h_item, dict):
+                        continue
+                    h_eid = str(h_item.get("event_id") or h_item.get("tournament_id") or "").strip()
+                    if not h_eid:
+                        continue
+                    wld = hist_wld_by_eid.setdefault(h_eid, [0, 0, 0])
+                    r_code = str(h_item.get("result") or "").upper()
+                    if r_code == "W":
+                        wld[0] += 1
+                    elif r_code == "L":
+                        wld[1] += 1
+                    elif r_code == "D":
+                        wld[2] += 1
+                for t_item in tournaments_list:
+                    if not isinstance(t_item, dict):
+                        continue
+                    t_eid = str(t_item.get("event_id") or "").strip()
+                    wld = hist_wld_by_eid.get(t_eid)
+                    if wld and sum(wld) > int(t_item.get("matches_played") or 0):
+                        t_item["wins"] = wld[0]
+                        t_item["losses"] = wld[1]
+                        t_item["draws"] = wld[2]
+                        t_item["matches_played"] = sum(wld)
 
         current_streak = 0
         max_streak = 0

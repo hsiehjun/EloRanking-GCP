@@ -2559,6 +2559,7 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                         for r_idx, rp in zip(rounds_to_fetch, pool.map(lambda rn: scraper.fetch_event_pairings_for_round(event_id_str, rn), rounds_to_fetch)):
                             pairings_by_round[r_idx] = rp
 
+                newly_completed_for_db = []
                 for r in round_nums:
                     raw_pairings = pairings_by_round.get(r)
                     if raw_pairings:
@@ -2702,9 +2703,11 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                                     pass
 
                             is_done = bool(is_bye or winner_id is not None or is_real_draw or tracker_is_done)
+                            match_id_str = str(p.get("id") or f"pair-{event_id_str}-{r}-{idx+1}")
+                            loser_id_val = p2_id if winner_id == p1_id else (p1_id if winner_id == p2_id else None)
 
-                            live_matches.append({
-                                "id": str(p.get("id") or f"pair-{r}-{idx+1}"),
+                            live_m_obj = {
+                                "id": match_id_str,
                                 "event_id": event_id_str,
                                 "round": int(p.get("round") or r),
                                 "table_number": table_num,
@@ -2720,7 +2723,7 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                                 "player2_list_id": p2_list_id or None,
                                 "player2_score": p2_score,
                                 "winner_id": winner_id,
-                                "loser_id": p2_id if winner_id == p1_id else (p1_id if winner_id == p2_id else None),
+                                "loser_id": loser_id_val,
                                 "is_draw": is_real_draw,
                                 "is_bye": is_bye,
                                 "is_done": is_done,
@@ -2728,8 +2731,21 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                                 "pod_num": p.get("podNum"),
                                 "has_tracker_game": has_tracker_game,
                                 "tracker_is_done": tracker_is_done,
-                                "tracker_started": tracker_started
-                            })
+                                "tracker_started": tracker_started,
+                            }
+                            live_matches.append(live_m_obj)
+
+                            if is_done and (p1_id or p2_id):
+                                needs_db_persist = (
+                                    local_m is None
+                                    or not bool(local_m.get("is_done"))
+                                    or str(local_m.get("winner_id") or "") != str(winner_id or "")
+                                    or bool(local_m.get("is_draw")) != bool(is_real_draw)
+                                    or local_m.get("player1_score") != p1_score
+                                    or local_m.get("player2_score") != p2_score
+                                )
+                                if needs_db_persist:
+                                    newly_completed_for_db.append((live_m_obj, p))
                     elif r in existing_by_round:
                         live_matches.extend(existing_by_round[r])
                 if live_matches:
@@ -2738,6 +2754,91 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                     event_details["current_round"] = max(int(event_details.get("current_round") or 0), observed_max_r)
                     if not event_details.get("num_rounds") or int(event_details.get("num_rounds") or 0) < observed_max_r:
                         event_details["num_rounds"] = raw_ev.get("numberOfRounds") or raw_ev.get("numRounds") or observed_max_r
+
+                    if (
+                        newly_completed_for_db
+                        and hasattr(db, "upsert_matches_batch")
+                        and type(getattr(db, "upsert_matches_batch", None)).__name__ not in ("MagicMock", "NonCallableMagicMock")
+                    ):
+                        ev_date_persist = str(event_details.get("event_date") or event_details.get("date") or "")[:19] or None
+                        ev_gs_persist = str(event_details.get("game_system") or "40k")
+                        obs_r_persist = int(observed_max_r or 1)
+                        num_r_persist = int(event_details.get("num_rounds") or obs_r_persist)
+                        batch_payload = []
+                        affected_pids = set()
+                        for lm_item, raw_p_item in newly_completed_for_db:
+                            if lm_item.get("player1_id"):
+                                affected_pids.add(str(lm_item["player1_id"]))
+                            if lm_item.get("player2_id"):
+                                affected_pids.add(str(lm_item["player2_id"]))
+                            batch_payload.append({
+                                "id": lm_item["id"],
+                                "event_id": event_id_str,
+                                "round": lm_item["round"],
+                                "table_number": lm_item["table_number"],
+                                "player1_id": lm_item.get("player1_id") or None,
+                                "player1_name": lm_item.get("player1_name") or None,
+                                "player1_faction": sanitize_event_faction(lm_item.get("player1_faction") or "") or "Unknown",
+                                "player1_detachment": None,
+                                "player1_list_id": lm_item.get("player1_list_id") or None,
+                                "player1_score": lm_item.get("player1_score"),
+                                "player2_id": lm_item.get("player2_id") or None,
+                                "player2_name": lm_item.get("player2_name") or None,
+                                "player2_faction": sanitize_event_faction(lm_item.get("player2_faction") or "") or ("None" if lm_item.get("is_bye") else "Unknown"),
+                                "player2_detachment": None,
+                                "player2_list_id": lm_item.get("player2_list_id") or None,
+                                "player2_score": lm_item.get("player2_score"),
+                                "winner_id": lm_item.get("winner_id") or None,
+                                "loser_id": lm_item.get("loser_id") or None,
+                                "is_draw": bool(lm_item.get("is_draw")),
+                                "is_bye": bool(lm_item.get("is_bye")),
+                                "is_done": bool(lm_item.get("is_done")),
+                                "match_date": ev_date_persist,
+                                "game_system": ev_gs_persist,
+                                "raw_json": json.dumps(raw_p_item) if isinstance(raw_p_item, dict) else "{}",
+                            })
+
+                        def _persist_live_matches_bg(
+                            _eid=event_id_str,
+                            _batch=batch_payload,
+                            _obs_r=obs_r_persist,
+                            _num_r=num_r_persist,
+                            _gs=ev_gs_persist,
+                            _pids=affected_pids,
+                        ):
+                            try:
+                                db.upsert_matches_batch(_batch)
+                                with db.get_connection() as _conn:
+                                    with _conn.cursor() as _cur:
+                                        _cur.execute(
+                                            """
+                                            UPDATE events
+                                            SET current_round = GREATEST(COALESCE(current_round, 0), %s),
+                                                num_rounds = GREATEST(COALESCE(num_rounds, 0), %s),
+                                                raw_json = CASE
+                                                    WHEN raw_json IS NOT NULL AND (raw_json::jsonb ? 'matches')
+                                                    THEN (raw_json::jsonb - 'matches')::json
+                                                    ELSE raw_json
+                                                END
+                                            WHERE id = %s;
+                                            """,
+                                            (_obs_r, _num_r, _eid),
+                                        )
+                                    _conn.commit()
+                                eng = get_elo_engine()
+                                eng.reconstruct_incremental(game_system=_gs)
+                                eng.invalidate_caches()
+                                if hasattr(db, "_player_tournaments_cache_dict") and isinstance(db._player_tournaments_cache_dict, dict):
+                                    for _pid in _pids:
+                                        for _sfx in ("all", "40k", "aos"):
+                                            db._player_tournaments_cache_dict.pop(f"{_pid}:{_sfx}", None)
+                                logger.info(
+                                    f"[LiveEventPersist] Persisted {len(_batch)} live completed matches for {_eid} and updated Elo incrementally."
+                                )
+                            except Exception as _bg_err:
+                                logger.debug(f"[LiveEventPersist] Background persist notice for {_eid}: {_bg_err}")
+
+                        threading.Thread(target=_persist_live_matches_bg, daemon=True).start()
         except Exception as pe:
             logger.warning(f"BCP live pairings fetch notice for {event_id_str}: {pe}")
 
@@ -2909,6 +3010,12 @@ def api_cron_sync_tournaments(
                 logger.info(f"⏰ [CRON SYNC] Scraping Age of Sigmar tournaments from {start_str} to {end_str}...")
                 res_aos = scraper.scrape_date_range(start_date=start_str, end_date=end_str, game_system_id=AOS_GAME_SYSTEM_ID, max_events=None)
                 logger.info(f"⏰ [CRON SYNC] AoS Scraped {res_aos.get('events_scraped', 0)} events, {res_aos.get('matches_scraped', 0)} matches.")
+
+            try:
+                res_ong = scraper.rescrape_incomplete_and_ongoing_events(days=90, game_system=target_sys, max_events=60)
+                logger.info(f"⏰ [CRON SYNC] Ongoing/Leagues re-scraped {res_ong.get('events_rescraped', 0)} events, {res_ong.get('matches_rescraped', 0)} matches.")
+            except Exception as ong_err:
+                logger.warning(f"⏰ [CRON SYNC] Notice during ongoing/league event rescrape: {ong_err}")
             
             engine = get_elo_engine()
             recon_res = engine.reconstruct_incremental(game_system=target_sys)

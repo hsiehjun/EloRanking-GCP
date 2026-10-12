@@ -46,6 +46,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import Database, get_db
 from elo import get_elo_engine
 from scraper import BestCoastPairingsScraper
+from scraper import BestCoastPairingsScraper as _RealBCPScraper
 
 try:
     from psycopg2 import extras
@@ -63,8 +64,17 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-REPAIR_MIGRATION_KEY = "bcp_pairing_elo_repair_v4"
-ALWAYS_CHECK_EVENT_IDS = ("7ohG0RuDqC1k",)
+REPAIR_MIGRATION_KEY = "bcp_pairing_elo_repair_v5"
+ALWAYS_CHECK_EVENT_IDS = (
+    "7ohG0RuDqC1k",
+    "DAVY7pZIVACh",
+    "Xm3Y3oXsyH3V",
+    "5dYDVVnPIDSz",
+    "a3OVZEBq96dd",
+    "WMNAh7pm6f0M",
+    "GZahflUfMMm1",
+    "vioLQXa9DO6x",
+)
 META_BUG_WINDOW_START = "2026-09-01"
 
 _REPAIR_LOCK = threading.Lock()
@@ -246,8 +256,8 @@ def find_candidate_event_ids(
             # Always include explicitly known affected events if they exist in matches/events
             for known_id in ALWAYS_CHECK_EVENT_IDS:
                 cur.execute(
-                    "SELECT 1 FROM matches WHERE event_id = %s LIMIT 1;",
-                    (known_id,),
+                    "SELECT 1 FROM events WHERE id = %s UNION ALL SELECT 1 FROM matches WHERE event_id = %s LIMIT 1;",
+                    (known_id, known_id),
                 )
                 if cur.fetchone():
                     event_ids.add(known_id)
@@ -313,8 +323,7 @@ def find_candidate_event_ids(
                        AND COALESCE(pmt.had_bye, FALSE) = FALSE
                        AND ep.battle_points IS NOT NULL
                        AND ep.battle_points > 0
-                       AND pmt.match_bp IS NOT NULL
-                       AND ep.battle_points != pmt.match_bp
+                       AND (pmt.match_bp IS NULL OR ep.battle_points != pmt.match_bp)
                    );
                 """,
                 window_params,
@@ -350,6 +359,46 @@ def find_candidate_event_ids(
                           AND (m.is_done = FALSE OR (m.winner_id IS NULL AND m.is_draw = FALSE))
                       )
                   );
+                """,
+                window_params,
+            )
+            for (eid,) in cur.fetchall():
+                if eid:
+                    event_ids.add(str(eid))
+
+            # 3. Partially scraped or multi-week/ongoing events missing rounds in `matches`:
+            cur.execute(
+                f"""
+                WITH recent_events AS (
+                    SELECT e.id, e.num_rounds, e.current_round, e.is_ended, e.end_date
+                    FROM events e
+                    WHERE {window_sql}
+                      AND e.event_date <= NOW() + INTERVAL '1 day'
+                      AND e.id NOT LIKE 'ES-%%'
+                      AND e.id NOT LIKE 'native_%%'
+                ),
+                match_round_stats AS (
+                    SELECT
+                        m.event_id,
+                        COUNT(DISTINCT m.round) AS db_rounds,
+                        MAX(m.round) AS max_db_round
+                    FROM matches m
+                    JOIN recent_events re ON re.id = m.event_id
+                    GROUP BY m.event_id
+                )
+                SELECT re.id
+                FROM recent_events re
+                LEFT JOIN match_round_stats mrs ON mrs.event_id = re.id
+                WHERE (
+                    COALESCE(re.num_rounds, 0) > 0
+                    AND COALESCE(mrs.db_rounds, 0) < COALESCE(re.num_rounds, 0)
+                )
+                OR (
+                    COALESCE(re.num_rounds, 0) > 0
+                    AND COALESCE(re.current_round, 0) < COALESCE(re.num_rounds, 0)
+                )
+                OR COALESCE(re.is_ended, FALSE) = FALSE
+                OR (re.end_date IS NOT NULL AND re.end_date >= NOW() - INTERVAL '14 days');
                 """,
                 window_params,
             )
@@ -399,6 +448,8 @@ def _fetch_event_authoritative_data(
         if not isinstance(roster, list) or not roster:
             return event_id, {}, {}, None
         roster_id_map = scraper.build_roster_id_map(roster)
+        if isinstance(roster_id_map, dict):
+            roster_id_map["__raw_roster__"] = roster
         roster_name_games_map: Dict[str, List[Dict[str, Any]]] = {}
         for k, val in roster_id_map.items():
             if k.startswith("fullname:") and isinstance(val, str):
@@ -437,6 +488,7 @@ def repair_historical_matches_and_elo(
     try:
         db = db or get_db()
         scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
+        parser_helper = _RealBCPScraper(db=db, request_delay=0.0)
 
         candidates = find_candidate_event_ids(
             db=db,
@@ -445,7 +497,7 @@ def repair_historical_matches_and_elo(
             scan_all=scan_all,
         )
         logger.info(
-            f"[RepairMatchesElo] Scanning {len(candidates)} candidate BCP events for stale pairing results..."
+            f"[RepairMatchesElo] Scanning {len(candidates)} candidate BCP events for stale pairing results or missing rounds..."
         )
 
         # Fetch authoritative player rosters concurrently
@@ -467,6 +519,8 @@ def repair_historical_matches_and_elo(
                         roster_by_event[eid] = (id_map, name_map)
 
         updates_to_apply: List[Tuple[Any, ...]] = []
+        inserted_matches_to_apply: List[Dict[str, Any]] = []
+        events_with_inserted_rounds: Dict[str, int] = {}
         repaired_matches_detail: List[Dict[str, Any]] = []
         repaired_event_ids: Set[str] = set()
         scanned_matches_count = 0
@@ -479,6 +533,30 @@ def repair_historical_matches_and_elo(
                     if not maps:
                         continue
                     roster_id_map, roster_name_games_map = maps
+
+                    # Compute authoritative rounds played from player `games` in `roster_id_map`
+                    round_player_counts: Dict[int, int] = {}
+                    seen_canonical_pids: Set[str] = set()
+                    for k_map, v_games in roster_id_map.items():
+                        if not isinstance(k_map, str) or not k_map.startswith("games:") or not isinstance(v_games, list):
+                            continue
+                        raw_pid = k_map[len("games:"):]
+                        canon_pid = str(roster_id_map.get(raw_pid) or raw_pid)
+                        if canon_pid in seen_canonical_pids:
+                            continue
+                        seen_canonical_pids.add(canon_pid)
+                        for g_item in v_games:
+                            if not isinstance(g_item, dict):
+                                continue
+                            eff_r = int(g_item.get("effectiveRound") or g_item.get("gameNum") or g_item.get("round") or 0)
+                            if eff_r <= 0:
+                                continue
+                            has_played_result = (
+                                g_item.get("gameResult") in (0, 1, 2)
+                                or (g_item.get("gamePoints") is not None and int(g_item.get("gamePoints") or 0) > 0)
+                            )
+                            if has_played_result:
+                                round_player_counts[eff_r] = round_player_counts.get(eff_r, 0) + 1
 
                     cur.execute(
                         """
@@ -495,10 +573,106 @@ def repair_historical_matches_and_elo(
                         (eid,),
                     )
                     rows = cur.fetchall()
-                    if not rows:
-                        continue
+                    if not isinstance(rows, list):
+                        rows = []
+
+                    db_round_match_counts: Dict[int, int] = {}
+                    for m_row in rows:
+                        if isinstance(m_row, dict):
+                            r_db = int(m_row.get("round") or 1)
+                            db_round_match_counts[r_db] = db_round_match_counts.get(r_db, 0) + 1
+
+                    # Detect rounds played in BCP that are missing or under-populated in PostgreSQL `matches`
+                    max_roster_round = max(round_player_counts.keys()) if round_player_counts else 0
+                    missing_rounds_to_fetch: List[int] = []
+                    for r_check in range(1, max_roster_round + 1):
+                        players_with_result = round_player_counts.get(r_check, 0)
+                        if players_with_result < 2:
+                            continue
+                        expected_matches = max(1, players_with_result // 2)
+                        existing_matches = db_round_match_counts.get(r_check, 0)
+                        if existing_matches == 0 or existing_matches < max(1, int(expected_matches * 0.75)):
+                            missing_rounds_to_fetch.append(r_check)
 
                     pairings_fallback_by_round: Dict[int, Dict[Tuple[int, str, str], Dict[str, Any]]] = {}
+
+                    if missing_rounds_to_fetch:
+                        ev_meta_loaded = False
+                        ev_date_str: Optional[str] = None
+                        ev_gs: str = "40k"
+
+                        for r_miss in missing_rounds_to_fetch:
+                            try:
+                                round_pairings = scraper.fetch_event_pairings_for_round(eid, round_num=r_miss)
+                                if not isinstance(round_pairings, list) or not round_pairings:
+                                    continue
+                                if not ev_meta_loaded:
+                                    ev_meta_loaded = True
+                                    try:
+                                        cur.execute(
+                                            "SELECT event_date, game_system FROM events WHERE id = %s LIMIT 1;",
+                                            (eid,),
+                                        )
+                                        ev_row = cur.fetchone()
+                                        if isinstance(ev_row, dict):
+                                            ev_date_str = str(ev_row.get("event_date") or "")[:19] or None
+                                            ev_gs = str(ev_row.get("game_system") or "40k")
+                                    except Exception:
+                                        pass
+                                p_map: Dict[Tuple[int, str, str], Dict[str, Any]] = {}
+                                round_inserted = 0
+                                for rp in round_pairings:
+                                    if not isinstance(rp, dict):
+                                        continue
+                                    rp_table = int(rp.get("table") or 0)
+                                    rp_p1 = str((rp.get("player1") or {}).get("userId") or (rp.get("player1") or {}).get("id") or "")
+                                    rp_p2 = str((rp.get("player2") or {}).get("userId") or (rp.get("player2") or {}).get("id") or "")
+                                    p_map[(rp_table, rp_p1, rp_p2)] = rp
+                                    p_map[(rp_table, "", "")] = rp
+
+                                    rp_with_round = dict(rp)
+                                    rp_with_round.setdefault("round", r_miss)
+                                    ev_data_dict = {
+                                        "id": eid,
+                                        "eventDate": ev_date_str,
+                                        "game_system": ev_gs,
+                                    }
+
+                                    parse_fn = getattr(scraper, "parse_and_store_match", None)
+                                    parsed_m = None
+                                    if callable(parse_fn) and type(parse_fn).__name__ not in ("MagicMock", "NonCallableMagicMock"):
+                                        parsed_m = parse_fn(
+                                            ev_data_dict,
+                                            rp_with_round,
+                                            roster_id_map=roster_id_map,
+                                            defer_db_write=True,
+                                        )
+                                    else:
+                                        parsed_m = parser_helper.parse_and_store_match(
+                                            ev_data_dict,
+                                            rp_with_round,
+                                            roster_id_map=roster_id_map,
+                                            defer_db_write=True,
+                                        )
+                                    if isinstance(parsed_m, dict) and parsed_m.get("id"):
+                                        inserted_matches_to_apply.append(parsed_m)
+                                        round_inserted += 1
+                                pairings_fallback_by_round[r_miss] = p_map
+                                if round_inserted > 0:
+                                    repaired_event_ids.add(eid)
+                                    events_with_inserted_rounds[eid] = max(
+                                        events_with_inserted_rounds.get(eid, 0),
+                                        max_roster_round,
+                                        r_miss,
+                                    )
+                                    logger.info(
+                                        f"[RepairMatchesElo] Event {eid} Round {r_miss}: queued {round_inserted} missing/unscraped matches from BCP pairings."
+                                    )
+                            except Exception as miss_err:
+                                logger.warning(f"[RepairMatchesElo] Failed fetching missing round {r_miss} for {eid}: {miss_err}")
+
+                    if not rows:
+                        continue
 
                     for m in rows:
                         scanned_matches_count += 1
@@ -568,17 +742,18 @@ def repair_historical_matches_and_elo(
                         )
                         if (auth_p1_score is None or auth_p2_score is None) and has_legacy_meta:
                             if r_num not in pairings_fallback_by_round:
-                                p_map: Dict[Tuple[int, str, str], Dict[str, Any]] = {}
+                                p_map = {}
                                 try:
                                     round_pairings = scraper.fetch_event_pairings_for_round(eid, round_num=r_num)
-                                    for rp in round_pairings:
-                                        if not isinstance(rp, dict):
-                                            continue
-                                        rp_table = int(rp.get("table") or 0)
-                                        rp_p1 = str((rp.get("player1") or {}).get("userId") or (rp.get("player1") or {}).get("id") or "")
-                                        rp_p2 = str((rp.get("player2") or {}).get("userId") or (rp.get("player2") or {}).get("id") or "")
-                                        p_map[(rp_table, rp_p1, rp_p2)] = rp
-                                        p_map[(rp_table, "", "")] = rp
+                                    if isinstance(round_pairings, list):
+                                        for rp in round_pairings:
+                                            if not isinstance(rp, dict):
+                                                continue
+                                            rp_table = int(rp.get("table") or 0)
+                                            rp_p1 = str((rp.get("player1") or {}).get("userId") or (rp.get("player1") or {}).get("id") or "")
+                                            rp_p2 = str((rp.get("player2") or {}).get("userId") or (rp.get("player2") or {}).get("id") or "")
+                                            p_map[(rp_table, rp_p1, rp_p2)] = rp
+                                            p_map[(rp_table, "", "")] = rp
                                 except Exception:
                                     pass
                                 pairings_fallback_by_round[r_num] = p_map
@@ -687,25 +862,36 @@ def repair_historical_matches_and_elo(
                                 }
                             )
 
-                if updates_to_apply:
-                    logger.info(
-                        f"[RepairMatchesElo] Applying {len(updates_to_apply)} authoritative match repairs across {len(repaired_event_ids)} events..."
-                    )
-                    extras.execute_batch(
-                        cur,
-                        """
-                        UPDATE matches
-                        SET player1_score = %s,
-                            player2_score = %s,
-                            winner_id = %s,
-                            loser_id = %s,
-                            is_draw = %s,
-                            is_done = %s
-                        WHERE id = %s;
-                        """,
-                        updates_to_apply,
-                        page_size=200,
-                    )
+                if updates_to_apply or inserted_matches_to_apply:
+                    if updates_to_apply:
+                        logger.info(
+                            f"[RepairMatchesElo] Applying {len(updates_to_apply)} authoritative match updates across {len(repaired_event_ids)} events..."
+                        )
+                        extras.execute_batch(
+                            cur,
+                            """
+                            UPDATE matches
+                            SET player1_score = %s,
+                                player2_score = %s,
+                                winner_id = %s,
+                                loser_id = %s,
+                                is_draw = %s,
+                                is_done = %s
+                            WHERE id = %s;
+                            """,
+                            updates_to_apply,
+                            page_size=200,
+                        )
+                    for rep_eid, max_r in events_with_inserted_rounds.items():
+                        cur.execute(
+                            """
+                            UPDATE events
+                            SET current_round = GREATEST(COALESCE(current_round, 0), %s),
+                                num_rounds = GREATEST(COALESCE(num_rounds, 0), %s)
+                            WHERE id = %s;
+                            """,
+                            (max_r, max_r, rep_eid),
+                        )
                     # Clear any cached `matches` snapshot inside `events.raw_json` for repaired events
                     for rep_eid in repaired_event_ids:
                         cur.execute(
@@ -720,6 +906,20 @@ def repair_historical_matches_and_elo(
                         )
                     conn.commit()
 
+        if inserted_matches_to_apply:
+            logger.info(
+                f"[RepairMatchesElo] Upserting {len(inserted_matches_to_apply)} newly backfilled matches across {len(events_with_inserted_rounds)} events..."
+            )
+            db.upsert_matches_batch(inserted_matches_to_apply)
+            for rep_eid in events_with_inserted_rounds:
+                maps = roster_by_event.get(rep_eid)
+                raw_roster = maps[0].get("__raw_roster__") if maps and isinstance(maps[0], dict) else None
+                if isinstance(raw_roster, list) and raw_roster:
+                    try:
+                        parser_helper.ingest_event_roster(rep_eid, raw_roster)
+                    except Exception as ing_err:
+                        logger.warning(f"[RepairMatchesElo] Failed refreshing roster for {rep_eid}: {ing_err}")
+
         super_faction_repair_summary = None
         if hasattr(db, "repair_super_factions_in_db"):
             try:
@@ -727,8 +927,9 @@ def repair_historical_matches_and_elo(
             except Exception as sf_err:
                 logger.warning(f"[RepairMatchesElo] Super-faction repair notice: {sf_err}")
 
+        total_repaired_or_inserted = len(updates_to_apply) + len(inserted_matches_to_apply)
         elo_summary = None
-        should_reconstruct = bool(reconstruct and (updates_to_apply or force_reconstruct))
+        should_reconstruct = bool(reconstruct and (total_repaired_or_inserted > 0 or force_reconstruct))
         if should_reconstruct:
             elo_engine = get_elo_engine(db=db)
             if scan_all or not hasattr(elo_engine, "reconstruct_since_date"):
@@ -751,6 +952,8 @@ def repair_historical_matches_and_elo(
             from routers import leaderboard as lb_router
             if hasattr(lb_router, "_EVENT_DETAILS_CACHE"):
                 lb_router._EVENT_DETAILS_CACHE.clear()
+            if hasattr(lb_router, "_event_details_cache"):
+                lb_router._event_details_cache.clear()
         except Exception:
             pass
 
@@ -760,6 +963,7 @@ def repair_historical_matches_and_elo(
             "candidate_events_scanned": len(candidates),
             "matches_scanned": scanned_matches_count,
             "matches_repaired": len(updates_to_apply),
+            "matches_inserted": len(inserted_matches_to_apply),
             "events_repaired": sorted(repaired_event_ids),
             "repaired_matches_sample": repaired_matches_detail[:100],
             "elo_reconstructed": should_reconstruct,

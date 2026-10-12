@@ -53,6 +53,20 @@ def run_tournament_sync(game_system: str = "all", days: int = 3, max_events: Opt
         logger.info(f"✅ [AOS] Scraped {e_aos} events, {m_aos} matches.")
 
     try:
+        res_ongoing = scraper.rescrape_incomplete_and_ongoing_events(
+            days=90,
+            game_system=target_sys,
+            max_events=max_events or 60,
+        )
+        e_ong = res_ongoing.get("events_rescraped", 0)
+        m_ong = res_ongoing.get("matches_rescraped", 0)
+        total_events += e_ong
+        total_matches += m_ong
+        logger.info(f"✅ [ONGOING/LEAGUES] Re-scraped {e_ong} incomplete/ongoing events, {m_ong} matches.")
+    except Exception as ong_err:
+        logger.warning(f"Notice during incomplete/ongoing event rescrape: {ong_err}")
+
+    try:
         from scripts.repair_matches_and_elo import ensure_startup_elo_repair_migration
         ensure_startup_elo_repair_migration(db)
     except Exception as rep_err:

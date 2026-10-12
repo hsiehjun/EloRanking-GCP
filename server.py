@@ -383,11 +383,14 @@ async def on_server_startup():
                 lambda: elo_eng.get_player_win_path("Te1Q9Ip3By", game_system="40k"),
                 lambda: elo_eng.get_player_win_path("M7EJ7VW2K3", game_system="40k"),
                 lambda: elo_eng.get_player_win_path("xcaFfMZt5b", game_system="40k"),
+                lambda: elo_eng.get_player_win_path("CF1MBH6T87", game_system="40k"),
                 lambda: auth_mgr.get_user_competitor_hub(player_id="MEV83VFANA", user_id=None, game_system="40k"),
                 lambda: db.fetch_and_cache_bcp_event_placings("7ohG0RuDqC1k", timeout=3.0, persist_async=True),
+                lambda: db.fetch_and_cache_bcp_event_placings("DAVY7pZIVACh", timeout=3.0, persist_async=True),
                 lambda: db.get_player_tournaments("MEV83VFANA", game_system="40k"),
                 lambda: db.get_player_tournaments("Te1Q9Ip3By", game_system="40k"),
                 lambda: db.get_player_tournaments("M7EJ7VW2K3", game_system="40k"),
+                lambda: db.get_player_tournaments("CF1MBH6T87", game_system="40k"),
                 lambda: lh_svc.get_leagues_list(game_system=None, limit=50),
                 lambda: lh_svc.get_leagues_list(game_system="40k", limit=50),
                 lambda: lh_svc.get_leagues_list(game_system="aos", limit=50),
@@ -416,6 +419,15 @@ async def on_server_startup():
             logger.warning(f"Notice during NR detachments pre-warming: {nr_err}")
         finally:
             SERVER_PREWARM_COMPLETE = True
+            try:
+                from scripts.repair_matches_and_elo import ensure_startup_elo_repair_migration
+                threading.Thread(
+                    target=ensure_startup_elo_repair_migration,
+                    args=(db,),
+                    daemon=True,
+                ).start()
+            except Exception as mig_err:
+                logger.warning(f"Notice starting background Elo repair migration: {mig_err}")
 
     asyncio.create_task(_deferred_startup_tasks())
 

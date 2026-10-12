@@ -7982,7 +7982,7 @@ class PostgresDatabase:
                                   AND (
                                       NULLIF(m.winner_id, '') IS NOT NULL
                                       OR COALESCE(m.is_draw, FALSE) = TRUE
-                                      OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
+                                      OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0))
                                   )
                             ),
                             event_match_outcomes AS (
@@ -8001,14 +8001,14 @@ class PostgresDatabase:
                                             rm.player1_id,
                                             CASE WHEN rm.winner_id = rm.player1_id OR (rm.winner_id IS NULL AND NOT rm.is_draw AND rm.has_scores AND rm.p1_score > rm.p2_score) THEN 1 ELSE 0 END,
                                             CASE WHEN rm.loser_id = rm.player1_id OR (rm.winner_id IS NOT NULL AND rm.winner_id != rm.player1_id) OR (rm.winner_id IS NULL AND NOT rm.is_draw AND rm.has_scores AND rm.p1_score < rm.p2_score) THEN 1 ELSE 0 END,
-                                            CASE WHEN rm.is_draw OR (rm.winner_id IS NULL AND rm.has_scores AND rm.p1_score = rm.p2_score AND (rm.p1_score > 0 OR rm.is_done)) THEN 1 ELSE 0 END,
+                                            CASE WHEN rm.is_draw OR (rm.winner_id IS NULL AND rm.has_scores AND rm.p1_score = rm.p2_score AND rm.p1_score > 0) THEN 1 ELSE 0 END,
                                             rm.p1_score
                                         ),
                                         (
                                             CASE WHEN NOT rm.is_bye THEN rm.player2_id ELSE NULL END,
                                             CASE WHEN rm.winner_id = rm.player2_id OR (rm.winner_id IS NULL AND NOT rm.is_draw AND rm.has_scores AND rm.p2_score > rm.p1_score) THEN 1 ELSE 0 END,
                                             CASE WHEN rm.loser_id = rm.player2_id OR (rm.winner_id IS NOT NULL AND rm.winner_id != rm.player2_id) OR (rm.winner_id IS NULL AND NOT rm.is_draw AND rm.has_scores AND rm.p2_score < rm.p1_score) THEN 1 ELSE 0 END,
-                                            CASE WHEN rm.is_draw OR (rm.winner_id IS NULL AND rm.has_scores AND rm.p1_score = rm.p2_score AND (rm.p2_score > 0 OR rm.is_done)) THEN 1 ELSE 0 END,
+                                            CASE WHEN rm.is_draw OR (rm.winner_id IS NULL AND rm.has_scores AND rm.p1_score = rm.p2_score AND rm.p2_score > 0) THEN 1 ELSE 0 END,
                                             rm.p2_score
                                         )
                                 ) AS v(pid, is_win, is_loss, is_draw, match_bp)
@@ -8419,10 +8419,42 @@ class PostgresDatabase:
                 if b_pl and int(b_pl) > 0:
                     t_item["placement"] = int(b_pl)
                 meta_i = (plc_i.get("meta_by_id") or {}).get(p_id) or ((plc_i.get("meta_by_name") or {}).get(p_norm) if p_norm else None)
-                if isinstance(meta_i, dict) and meta_i.get("faction"):
-                    t_item["registered_faction"] = PostgresDatabase.pick_specific_faction(
-                        meta_i.get("faction"), t_item.get("registered_faction")
-                    )
+                if isinstance(meta_i, dict):
+                    if meta_i.get("faction"):
+                        t_item["registered_faction"] = PostgresDatabase.pick_specific_faction(
+                            meta_i.get("faction"), t_item.get("registered_faction")
+                        )
+                    bcp_games = meta_i.get("games")
+                    if isinstance(bcp_games, list) and bcp_games:
+                        bcp_w = sum(1 for g in bcp_games if isinstance(g, dict) and g.get("gameResult") == 2)
+                        bcp_l = sum(1 for g in bcp_games if isinstance(g, dict) and g.get("gameResult") == 0)
+                        bcp_d = sum(1 for g in bcp_games if isinstance(g, dict) and g.get("gameResult") == 1)
+                        bcp_mp = bcp_w + bcp_l + bcp_d
+                        if bcp_mp > int(t_item.get("matches_played") or 0):
+                            t_item["wins"] = bcp_w
+                            t_item["losses"] = bcp_l
+                            t_item["draws"] = bcp_d
+                            t_item["matches_played"] = bcp_mp
+                            if not self._is_mock_instance():
+                                triggered_set = getattr(PostgresDatabase, "_auto_repair_triggered_events", None)
+                                if triggered_set is None:
+                                    triggered_set = set()
+                                    PostgresDatabase._auto_repair_triggered_events = triggered_set
+                                if t_eid not in triggered_set:
+                                    triggered_set.add(t_eid)
+
+                                    def _bg_repair_missing_rounds(_eid=t_eid):
+                                        try:
+                                            from scripts.repair_matches_and_elo import repair_historical_matches_and_elo
+                                            repair_historical_matches_and_elo(
+                                                db=self,
+                                                event_ids=[_eid],
+                                                reconstruct=True,
+                                            )
+                                        except Exception:
+                                            pass
+
+                                    threading.Thread(target=_bg_repair_missing_rounds, daemon=True).start()
                 act_cnt = int(plc_i.get("active_count") or 0)
                 if act_cnt > 0 or int(t_item.get("placement") or 0) > int(t_item.get("total_players") or 0):
                     t_item["total_players"] = max(int(t_item.get("total_players") or 0), act_cnt, int(t_item.get("placement") or 0))
@@ -8753,7 +8785,7 @@ class PostgresDatabase:
                             END AS is_loss,
                             CASE
                                 WHEN COALESCE(m.is_draw, FALSE) = TRUE
-                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND (m.player1_score > 0 OR COALESCE(m.is_done, TRUE) = TRUE))
+                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND m.player1_score > 0)
                                 THEN 1 ELSE 0
                             END AS is_draw,
                             COALESCE(m.player1_score, 0) AS match_bp,
@@ -8765,7 +8797,7 @@ class PostgresDatabase:
                           AND (
                               m.winner_id IS NOT NULL
                               OR COALESCE(m.is_draw, FALSE) = TRUE
-                              OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
+                              OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0))
                           )
                         UNION ALL
                         SELECT
@@ -8791,7 +8823,7 @@ class PostgresDatabase:
                             END AS is_loss,
                             CASE
                                 WHEN COALESCE(m.is_draw, FALSE) = TRUE
-                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND (m.player2_score > 0 OR COALESCE(m.is_done, TRUE) = TRUE))
+                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND m.player2_score > 0)
                                 THEN 1 ELSE 0
                             END AS is_draw,
                             COALESCE(m.player2_score, 0) AS match_bp,
@@ -8803,7 +8835,7 @@ class PostgresDatabase:
                           AND (
                               m.winner_id IS NOT NULL
                               OR COALESCE(m.is_draw, FALSE) = TRUE
-                              OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
+                              OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0))
                           )
                     ),
                     agg_match_players AS (
