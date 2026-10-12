@@ -10338,16 +10338,27 @@ class PostgresDatabase:
                         return [dict(r) for r in cur_safe.fetchall()]
 
     def search_players(self, query: str, limit: int = 25, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
-        """Searches players for prediction autocomplete."""
+        """Searches players for prediction autocomplete (indexed & L1 cached)."""
+        q_str = (query or "").strip()
+        if not q_str:
+            return []
+        eff_limit = max(1, min(int(limit or 25), 100))
+        target_sys = (game_system or "40k").strip().lower()
+        is_mock_self = self._is_mock_instance()
+        cache_key = ("search_players_v3", q_str.lower(), eff_limit, target_sys)
+        if not is_mock_self:
+            cached = PostgresDatabase.get_cached(PostgresDatabase._players_cache_dict, cache_key, ttl=600)
+            if cached is not None:
+                return list(cached)
+
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                q_str = (query or "").strip()
                 tokens = [t for t in q_str.split() if t]
                 sys_clause = ""
                 sys_params = []
-                if game_system and game_system != "all":
+                if game_system and target_sys != "all":
                     sys_clause = " AND COALESCE(game_system, '40k') = %s"
-                    sys_params = [(game_system or "40k").lower()]
+                    sys_params = [target_sys]
 
                 try:
                     is_id_token = (
@@ -10359,6 +10370,7 @@ class PostgresDatabase:
                             or (len(q_str) >= 8 and any(c.isupper() for c in q_str[1:]))
                         )
                     )
+                    fetch_cap = max(eff_limit * 4, 40)
                     if is_id_token:
                         cursor.execute(f"""
                         SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, COALESCE(game_system, '40k') as game_system
@@ -10366,26 +10378,43 @@ class PostgresDatabase:
                         WHERE player_id = %s{sys_clause}
                         ORDER BY matches_played DESC, current_elo DESC
                         LIMIT %s;
-                        """, (q_str, *sys_params, limit))
+                        """, (q_str, *sys_params, eff_limit))
+                        rows = [dict(r) for r in cursor.fetchall()]
                     elif len(tokens) > 1:
                         sub = " AND ".join(["player_name ILIKE %s" for _ in tokens])
-                        params = [f"%{t}%" for t in tokens] + [q_str] + sys_params + [limit]
+                        params = [f"%{t}%" for t in tokens] + sys_params + [fetch_cap]
                         cursor.execute(f"""
                         SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, COALESCE(game_system, '40k') as game_system
                         FROM player_ratings
-                        WHERE (({sub}) OR player_id = %s){sys_clause}
-                        ORDER BY matches_played DESC, current_elo DESC
+                        WHERE ({sub}){sys_clause}
+                        ORDER BY current_elo DESC NULLS LAST
                         LIMIT %s;
                         """, tuple(params))
+                        rows = [dict(r) for r in cursor.fetchall()]
+                        rows.sort(key=lambda r: (-(r.get("matches_played") or 0), -(r.get("current_elo") or 1500.0)))
+                        rows = rows[:eff_limit]
                     else:
                         cursor.execute(f"""
                         SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, COALESCE(game_system, '40k') as game_system
                         FROM player_ratings
-                        WHERE (player_name ILIKE %s OR player_id = %s){sys_clause}
-                        ORDER BY matches_played DESC, current_elo DESC
+                        WHERE player_name ILIKE %s{sys_clause}
+                        ORDER BY current_elo DESC NULLS LAST
                         LIMIT %s;
-                        """, (f"%{q_str}%", q_str, *sys_params, limit))
-                    return [dict(r) for r in cursor.fetchall()]
+                        """, (f"%{q_str}%", *sys_params, fetch_cap))
+                        rows = [dict(r) for r in cursor.fetchall()]
+                        if not rows:
+                            cursor.execute(f"""
+                            SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, COALESCE(game_system, '40k') as game_system
+                            FROM player_ratings
+                            WHERE player_id = %s{sys_clause}
+                            LIMIT %s;
+                            """, (q_str, *sys_params, eff_limit))
+                            rows = [dict(r) for r in cursor.fetchall()]
+                        rows.sort(key=lambda r: (-(r.get("matches_played") or 0), -(r.get("current_elo") or 1500.0)))
+                        rows = rows[:eff_limit]
+                    if not is_mock_self:
+                        PostgresDatabase.set_cached(PostgresDatabase._players_cache_dict, cache_key, rows)
+                    return rows
                 except Exception as e:
                     conn.rollback()
                     logger.warning(f"Fallback search_players notice: {e}")
@@ -10398,7 +10427,7 @@ class PostgresDatabase:
                             WHERE (({sub}) OR player_id = %s)
                             ORDER BY matches_played DESC, current_elo DESC
                             LIMIT %s;
-                            """, tuple([f"%{t}%" for t in tokens] + [q_str, limit]))
+                            """, tuple([f"%{t}%" for t in tokens] + [q_str, eff_limit]))
                         else:
                             cur_safe.execute("""
                             SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, '40k' as game_system
@@ -10406,8 +10435,11 @@ class PostgresDatabase:
                             WHERE player_name ILIKE %s OR player_id = %s
                             ORDER BY matches_played DESC, current_elo DESC
                             LIMIT %s;
-                            """, (f"%{q_str}%", q_str, limit))
-                        return [dict(r) for r in cur_safe.fetchall()]
+                            """, (f"%{q_str}%", q_str, eff_limit))
+                        rows = [dict(r) for r in cur_safe.fetchall()]
+                        if not is_mock_self:
+                            PostgresDatabase.set_cached(PostgresDatabase._players_cache_dict, cache_key, rows)
+                        return rows
 
     def get_head_to_head(
         self,

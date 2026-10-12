@@ -374,7 +374,6 @@ async def on_server_startup():
                 await asyncio.to_thread(db_for_repair.repair_super_factions_in_db)
         except Exception as sf_err:
             logger.warning(f"Notice during startup super-faction self-heal: {sf_err}")
-        await _prewarm_meta_intel_cache()
         try:
             db = db or await asyncio.to_thread(get_database)
             from services.places_service import PlacesService
@@ -382,13 +381,18 @@ async def on_server_startup():
             lh_svc = get_leagues_hub_service()
             elo_eng = get_elo_engine()
             auth_mgr = get_auth_manager()
+            fs_eng = get_firestore_engine()
             core_tasks = [
                 lambda: db.get_summary_stats(game_system="40k"),
                 lambda: db.get_summary_stats(game_system="aos"),
                 lambda: db.get_top_ranked_players(page=1, page_size=25, min_matches=3, faction="All", sort_by="current_elo", order="DESC", game_system="40k", active_only=True),
                 lambda: db.get_top_ranked_players(page=1, page_size=25, min_matches=3, faction="All", sort_by="current_elo", order="DESC", game_system="aos", active_only=True),
+                lambda: db.get_teams_leaderboard(page=1, page_size=25, min_members=1, sort_by="power_rating", order="DESC", game_system="40k"),
+                lambda: db.get_teams_leaderboard(page=1, page_size=25, min_members=1, sort_by="power_rating", order="DESC", game_system="aos"),
                 lambda: db.get_players_directory(page=1, page_size=25, min_matches=0, faction="All", sort_by="current_elo", order="DESC", game_system="40k", active_only=False),
                 lambda: db.get_players_directory(page=1, page_size=25, min_matches=0, faction="All", sort_by="current_elo", order="DESC", game_system="aos", active_only=False),
+                lambda: db.search_players("Folger", limit=10, game_system="40k"),
+                lambda: db.search_players("Folger", limit=25, game_system="40k"),
                 lambda: db.get_events_list(page=1, page_size=25, status="all", sort_by="event_date", order="DESC", game_system="40k"),
                 lambda: db.get_events_list(page=1, page_size=25, status="completed", sort_by="event_date", order="DESC", game_system="40k"),
                 lambda: db.get_events_list(page=1, page_size=25, status="upcoming", sort_by="event_date", order="DESC", game_system="40k"),
@@ -433,10 +437,10 @@ async def on_server_startup():
                 lambda: lh_svc.get_unified_floor_ops("sd40k"),
                 lambda: lh_svc.get_player_league_summary("Jun Hsieh"),
                 lambda: db.prewarm_itc_rankings_cache(),
-                lambda: get_room_engine().search_real_teams_and_players("", "40k", 24),
-                lambda: get_room_engine().search_real_teams_and_players("Team Zero Comp", "40k", 24),
-                lambda: get_room_engine().get_real_team_roster("Team Zero Comp", "40k"),
-                lambda: get_room_engine().get_real_team_roster("Art of War", "40k"),
+                lambda: fs_eng.search_real_teams_and_players("", "40k", 24),
+                lambda: fs_eng.search_real_teams_and_players("Team Zero Comp", "40k", 24),
+                lambda: fs_eng.get_real_team_roster("Team Zero Comp", "40k"),
+                lambda: fs_eng.get_real_team_roster("Art of War", "40k"),
             ]
             sem = asyncio.Semaphore(6)
 
@@ -447,7 +451,11 @@ async def on_server_startup():
                     except Exception as inner_cw_err:
                         logger.warning(f"Notice during individual cache pre-warm step: {inner_cw_err}")
 
-            await asyncio.gather(*(_run_bounded(fn) for fn in core_tasks))
+            await asyncio.gather(
+                _prewarm_meta_intel_cache(),
+                asyncio.gather(*(_run_bounded(fn) for fn in core_tasks)),
+                return_exceptions=True,
+            )
             logger.info("🔥 Core leaderboard, stats, events, teams, stores & community caches pre-warmed")
         except Exception as cw_err:
             logger.warning(f"Notice during core cache pre-warming: {cw_err}")
