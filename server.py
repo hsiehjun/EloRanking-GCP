@@ -403,6 +403,10 @@ async def on_server_startup():
                 lambda: lh_svc.get_unified_floor_ops("sd40k"),
                 lambda: lh_svc.get_player_league_summary("Jun Hsieh"),
                 lambda: db.prewarm_itc_rankings_cache(),
+                lambda: get_room_engine().search_real_teams_and_players("", "40k", 24),
+                lambda: get_room_engine().search_real_teams_and_players("Team Zero Comp", "40k", 24),
+                lambda: get_room_engine().get_real_team_roster("Team Zero Comp", "40k"),
+                lambda: get_room_engine().get_real_team_roster("Art of War", "40k"),
             ]
             for fn in core_tasks:
                 try:
