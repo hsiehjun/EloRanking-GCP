@@ -278,6 +278,32 @@ class YuGiOhPairingsArena {
       btnStartDuel.addEventListener("click", () => this.confirmLobbyAndEnterArena());
     }
 
+    // Coin Flip Modal Controls
+    const btnOpenCoinFlip = document.getElementById("btnOpenCoinFlipModal");
+    if (btnOpenCoinFlip) {
+      btnOpenCoinFlip.addEventListener("click", () => this.openCoinFlipModal());
+    }
+    const btnCloseCoinFlip = document.getElementById("btnCloseCoinFlipModal");
+    if (btnCloseCoinFlip) {
+      btnCloseCoinFlip.addEventListener("click", () => this.closeCoinFlipModal());
+    }
+    const btnFlipCoinNow = document.getElementById("btnFlipCoinNow");
+    if (btnFlipCoinNow) {
+      btnFlipCoinNow.addEventListener("click", () => this.flipCoinForRole());
+    }
+    const btnChooseDef = document.getElementById("btnChooseDefenderRole");
+    if (btnChooseDef) {
+      btnChooseDef.addEventListener("click", () => this.chooseCoinFlipRole("defender", this.activeRole));
+    }
+    const btnChooseAtt = document.getElementById("btnChooseAttackerRole");
+    if (btnChooseAtt) {
+      btnChooseAtt.addEventListener("click", () => this.chooseCoinFlipRole("attacker", this.activeRole));
+    }
+    const btnAcceptAiCoin = document.getElementById("btnAcceptAiCoinChoice");
+    if (btnAcceptAiCoin) {
+      btnAcceptAiCoin.addEventListener("click", () => this.acceptAiCoinChoice());
+    }
+
     // Main Duel Confirm Button
     const btnLock = document.getElementById("btnLockSelection");
     if (btnLock) {
@@ -340,7 +366,14 @@ class YuGiOhPairingsArena {
     }
 
     // Do NOT pre-populate teams or players unless demo_state specifically tests mid-duel field steps
-    const needsFieldDemoPreset = demoState === "step2" || demoState === "step3_spectator" || demoState === "completed" || demoState === "8v8_field";
+    const needsFieldDemoPreset =
+      demoState === "step2" ||
+      demoState === "step3_spectator" ||
+      demoState === "completed" ||
+      demoState === "8v8_field" ||
+      demoState === "coin_flip" ||
+      demoState === "attacker_view" ||
+      demoState === "defender_view";
 
     if (urlRoom) {
       await this.joinExistingRoom(urlRoom, { openLobby: !demoState || demoState === "lobby" });
@@ -1257,6 +1290,9 @@ class YuGiOhPairingsArena {
       await this.onFormatChanged(fmt);
       this.closeLobbyModal();
       this.renderAll();
+      if (this.room && !this.room.coin_flip_done && this.room.phase !== "COMPLETED") {
+        this.openCoinFlipModal();
+      }
       return;
     }
 
@@ -1308,6 +1344,205 @@ class YuGiOhPairingsArena {
     this.closeLobbyModal();
     this.renderAll();
     this.showToast(`Locked ${lockedCount} players for ${teamName} (${fmt.toUpperCase()})!`);
+
+    if (this.room && !this.room.coin_flip_done && this.room.phase !== "COMPLETED") {
+      this.openCoinFlipModal();
+    }
+  }
+
+  openCoinFlipModal() {
+    const modal = document.getElementById("coinFlipModalBackdrop");
+    if (!modal) return;
+    modal.classList.remove("hidden");
+    this.renderCoinFlipModal();
+  }
+
+  closeCoinFlipModal() {
+    const modal = document.getElementById("coinFlipModalBackdrop");
+    if (modal) modal.classList.add("hidden");
+  }
+
+  renderCoinFlipModal() {
+    if (!this.room) return;
+    const teamA = this.room.team_a || {};
+    const teamB = this.room.team_b || {};
+    const winner = this.room.coin_flip_winner;
+    const done = !!this.room.coin_flip_done;
+    const defRole = this.room.defender_role;
+    const aiChoice = this.room.ai_coin_choice;
+
+    const tagA = document.getElementById("coinFlipTeamATag");
+    const nameA = document.getElementById("coinFlipTeamAName");
+    const capA = document.getElementById("coinFlipTeamACap");
+    const boxA = document.getElementById("coinFlipTeamABox");
+    if (tagA) tagA.textContent = teamA.tag || "TMA";
+    if (nameA) nameA.textContent = teamA.name || "Team A";
+    if (capA) capA.textContent = `Cap: ${teamA.captain_name || "Team A Captain"}`;
+    if (boxA) boxA.classList.toggle("winner", winner === "captain_a");
+
+    const tagB = document.getElementById("coinFlipTeamBTag");
+    const nameB = document.getElementById("coinFlipTeamBName");
+    const capB = document.getElementById("coinFlipTeamBCap");
+    const boxB = document.getElementById("coinFlipTeamBBox");
+    if (tagB) tagB.textContent = teamB.tag || "TMB";
+    if (nameB) nameB.textContent = teamB.name || "Team B";
+    if (capB) capB.textContent = `Cap: ${teamB.captain_name || "Team B Captain"}`;
+    if (boxB) boxB.classList.toggle("winner", winner === "captain_b");
+
+    const faceLbl = document.getElementById("coinFaceFrontLabel");
+    if (faceLbl) {
+      if (winner === "captain_a") {
+        faceLbl.textContent = teamA.tag || "TMA";
+      } else if (winner === "captain_b") {
+        faceLbl.textContent = teamB.tag || "TMB";
+      } else {
+        faceLbl.textContent = "TOSS";
+      }
+    }
+
+    const headline = document.getElementById("coinFlipStatusHeadline");
+    const sub = document.getElementById("coinFlipStatusSub");
+    const btnFlip = document.getElementById("btnFlipCoinNow");
+    const aiBanner = document.getElementById("coinFlipAiChoiceBanner");
+    const aiText = document.getElementById("coinFlipAiChoiceText");
+    const choiceGrid = document.getElementById("coinFlipRoleChoiceSection");
+
+    if (!winner) {
+      if (headline) headline.textContent = "READY TO FLIP FOR CYCLE 1 ROLE SELECTION";
+      if (sub) {
+        sub.textContent = "Neither team defaults to Defender — flip the coin to decide who chooses Defender or Attacker first!";
+      }
+      if (btnFlip) {
+        btnFlip.disabled = this.activeRole === "spectator";
+        btnFlip.textContent = "🪙 FLIP COIN";
+      }
+      aiBanner?.classList.add("hidden");
+      choiceGrid?.classList.add("hidden");
+      return;
+    }
+
+    const winTeamName = winner === "captain_a" ? (teamA.name || "Team A") : (teamB.name || "Team B");
+    if (btnFlip) {
+      btnFlip.disabled = this.activeRole === "spectator";
+      btnFlip.textContent = "🔄 RE-FLIP COIN";
+    }
+
+    if (done && defRole) {
+      const defTeamName = defRole === "captain_a" ? (teamA.name || "Team A") : (teamB.name || "Team B");
+      const attTeamName = defRole === "captain_a" ? (teamB.name || "Team B") : (teamA.name || "Team A");
+      if (headline) {
+        headline.textContent = `🪙 ${winTeamName.toUpperCase()} WON THE TOSS!`;
+      }
+      if (sub) {
+        sub.textContent = `Cycle 1 Roles Locked: 🛡️ ${defTeamName} is DEFENDER • ⚔️ ${attTeamName} is ATTACKER (roles swap each cycle).`;
+      }
+    } else if (winner === "captain_b" && this.room.vs_ai && this.activeRole === "captain_a") {
+      const aiPicked = (aiChoice || "defender").toUpperCase();
+      const myStartRole = aiPicked === "DEFENDER" ? "ATTACKER" : "DEFENDER";
+      if (headline) {
+        headline.textContent = `🪙 ${winTeamName.toUpperCase()} WON THE COIN FLIP!`;
+      }
+      if (sub) {
+        sub.textContent = `AI Captain chose ${aiPicked} for Cycle 1 — You will start Cycle 1 as ${myStartRole} (or pick below to override in practice mode).`;
+      }
+      if (aiBanner) aiBanner.classList.remove("hidden");
+      if (aiText) {
+        aiText.innerHTML = `🤖 <strong>${this.escapeHtml(winTeamName)}</strong> won the coin toss and chose <strong>${aiPicked}</strong> (you start Cycle 1 as <strong>${myStartRole}</strong>)!`;
+      }
+    } else {
+      if (headline) {
+        headline.textContent = `🪙 ${winTeamName.toUpperCase()} WON THE COIN FLIP!`;
+      }
+      if (sub) {
+        sub.textContent = "Select whether you want to start Cycle 1 as DEFENDER (place 1 card first) or ATTACKER (send 2 cards against enemy Defender):";
+      }
+      aiBanner?.classList.add("hidden");
+    }
+
+    if (this.activeRole !== "spectator") {
+      choiceGrid?.classList.remove("hidden");
+    } else {
+      choiceGrid?.classList.add("hidden");
+    }
+  }
+
+  async flipCoinForRole(forceWinner = null) {
+    if (!this.roomCode || this.activeRole === "spectator") return;
+    const coinEl = document.getElementById("coinFlipCoin3d");
+    if (coinEl) {
+      coinEl.classList.remove("spinning");
+      void coinEl.offsetWidth;
+      coinEl.classList.add("spinning");
+    }
+    const tok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(this.roomCode, this.activeRole);
+    try {
+      const payload = {};
+      if (forceWinner) payload.force_winner = forceWinner;
+      const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: this.activeRole,
+          user_id: this.userId,
+          captain_token: tok,
+          action: "flip_coin",
+          payload
+        })
+      });
+      const data = await resp.json();
+      if (data && (data.ok || data.success) && data.room) {
+        this.room = data.room;
+        this.syncLobbyDraftFromRoom();
+        setTimeout(() => {
+          this.renderCoinFlipModal();
+          this.renderAll();
+        }, 420);
+      }
+    } catch (err) {
+      console.error("Coin flip failed:", err);
+    }
+  }
+
+  async chooseCoinFlipRole(choice, chooserOverride = null) {
+    if (!this.roomCode || this.activeRole === "spectator") return;
+    const tok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(this.roomCode, this.activeRole);
+    const chooserRole = chooserOverride || this.room?.coin_flip_winner || this.activeRole;
+    try {
+      const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: this.activeRole,
+          user_id: this.userId,
+          captain_token: tok,
+          action: "choose_coin_flip_role",
+          payload: {
+            choice,
+            chooser_role: chooserRole,
+            vs_ai: document.getElementById("chkVsAi")?.checked ?? true
+          }
+        })
+      });
+      const data = await resp.json();
+      if (data && (data.ok || data.success) && data.room) {
+        this.room = data.room;
+        this.selectedIds = [];
+        this.syncLobbyDraftFromRoom();
+        this.closeCoinFlipModal();
+        this.renderAll();
+        const p = this.getPerspective();
+        const myRoleLabel = p?.amIDefender ? "🛡️ DEFENDER" : "⚔️ ATTACKER";
+        this.showToast(`🪙 Cycle 1 Started! You are ${myRoleLabel} (roles swap every cycle).`);
+      }
+    } catch (err) {
+      console.error("Failed to lock coin flip role:", err);
+    }
+  }
+
+  async acceptAiCoinChoice() {
+    if (!this.room) return;
+    const aiChoice = this.room.ai_coin_choice || "defender";
+    await this.chooseCoinFlipRole(aiChoice, "captain_b");
   }
 
   async createNewRoom({ openLobby = false, emptyRosters = true } = {}) {
@@ -1345,6 +1580,7 @@ class YuGiOhPairingsArena {
         this.renderSearchResults();
 
         this.renderLobbySeatLockState();
+        this.closeCoinFlipModal();
         if (openLobby) {
           this.openLobbyModal();
         } else {
@@ -1422,6 +1658,7 @@ class YuGiOhPairingsArena {
         this.room = data.room;
         if (oldRev !== this.room.revision) {
           this.renderLobbySeatLockState();
+          this.renderCoinFlipModal();
           this.renderAll();
         }
       }
@@ -1436,8 +1673,28 @@ class YuGiOhPairingsArena {
     const r = this.room;
     if (!r) return null;
     const isCapB = this.activeRole === "captain_b";
+    const myRoleKey = isCapB ? "captain_b" : "captain_a";
+    const isAlternating = r.defender_role === "captain_a" || r.defender_role === "captain_b";
+    const amIDefender = isAlternating ? (r.defender_role === myRoleKey) : true;
+    const amIAttacker = isAlternating ? (r.attacker_role === myRoleKey) : true;
+    let isMyActionTurn = true;
+    if (isAlternating) {
+      if (r.phase === "STEP_1_DEFENDER" || r.phase === "STEP_3_CHOOSE") {
+        isMyActionTurn = amIDefender;
+      } else if (r.phase === "STEP_2_ATTACKERS") {
+        isMyActionTurn = amIAttacker;
+      } else {
+        isMyActionTurn = false;
+      }
+    }
+
     return {
       isCapB,
+      myRoleKey,
+      isAlternating,
+      amIDefender,
+      amIAttacker,
+      isMyActionTurn,
       isSpectator: this.activeRole === "spectator",
       myTeam: isCapB ? r.team_b : r.team_a,
       oppTeam: isCapB ? r.team_a : r.team_b,
@@ -1492,6 +1749,15 @@ class YuGiOhPairingsArena {
       specBanner.classList.toggle("hidden", !p.isSpectator);
     }
 
+    const coinBtn = document.getElementById("btnOpenCoinFlipModal");
+    if (coinBtn) {
+      if (p.isAlternating && this.room.phase !== "COMPLETED") {
+        coinBtn.textContent = p.amIDefender ? "🪙 Role: 🛡️ DEF" : "🪙 Role: ⚔️ ATK";
+      } else {
+        coinBtn.textContent = "🪙 Coin Flip";
+      }
+    }
+
     this.renderLobbySeatLockState();
     this.renderDuelistHud(p);
     this.renderBattleLine(p);
@@ -1531,6 +1797,21 @@ class YuGiOhPairingsArena {
     }
 
     const phase = this.room.phase;
+    if (p.isAlternating && phase !== "COMPLETED") {
+      if (oppStatus) {
+        oppStatus.textContent = !p.amIDefender ? "🛡️ DEFENDER" : "⚔️ ATTACKER";
+        oppStatus.classList.toggle("ready", !p.isMyActionTurn);
+      }
+      if (myStatus) {
+        const myRoleIcon = p.amIDefender ? "🛡️ DEFENDER" : "⚔️ ATTACKER";
+        myStatus.textContent = p.isSpectator
+          ? `👁️ ${myRoleIcon}`
+          : (p.isMyActionTurn ? `${myRoleIcon} • YOUR TURN` : `${myRoleIcon} • WAITING`);
+        myStatus.classList.toggle("ready", p.isMyActionTurn);
+      }
+      return;
+    }
+
     let oppLocked = false;
     let myLocked = false;
     if (phase === "STEP_1_DEFENDER") {
@@ -1561,9 +1842,13 @@ class YuGiOhPairingsArena {
     const phase = this.room.phase;
     const cycleBadge = document.getElementById("cycleBadge");
     if (cycleBadge) {
-      cycleBadge.textContent = phase === "COMPLETED"
-        ? "DUEL COMPLETE"
-        : `CYCLE ${this.room.cycle}/${this.room.max_cycles}`;
+      if (phase === "COMPLETED") {
+        cycleBadge.textContent = "DUEL COMPLETE";
+      } else if (p.isAlternating) {
+        cycleBadge.textContent = `CYCLE ${this.room.cycle}/${this.room.max_cycles} • ${p.amIDefender ? "🛡️ DEF" : "⚔️ ATK"}`;
+      } else {
+        cycleBadge.textContent = `CYCLE ${this.room.cycle}/${this.room.max_cycles}`;
+      }
     }
 
     const pDef = document.getElementById("stepPillDefender");
@@ -1605,6 +1890,24 @@ class YuGiOhPairingsArena {
       return;
     }
 
+    if (p.isAlternating && !p.isMyActionTurn && phase !== "COMPLETED") {
+      if (hintBadge) hintBadge.textContent = "WAIT";
+      if (promptEl) {
+        if (phase === "STEP_1_DEFENDER") {
+          promptEl.textContent = "⏳ WAITING FOR ENEMY DEFENDER TO PLACE 1 DEFENDER CARD...";
+        } else if (phase === "STEP_2_ATTACKERS") {
+          promptEl.textContent = "⏳ WAITING FOR ENEMY ATTACKER TO SEND 2 ATTACKERS AGAINST YOUR DEFENDER...";
+        } else {
+          promptEl.textContent = "⏳ WAITING FOR ENEMY DEFENDER TO PICK 1 OF YOUR 2 ATTACKERS...";
+        }
+      }
+      if (btnLock) {
+        btnLock.disabled = true;
+        btnLock.textContent = "⏳ OPPONENT'S TURN";
+      }
+      return;
+    }
+
     if (phase === "STEP_1_DEFENDER") {
       const ready = this.selectedIds.length === 1;
       if (hintBadge) hintBadge.textContent = `${this.selectedIds.length}/1`;
@@ -1618,7 +1921,9 @@ class YuGiOhPairingsArena {
         if (promptEl) {
           promptEl.textContent = ready
             ? "DEFENDER PLACED ON FIELD — CLICK LOCK IN DEFENDER!"
-            : "PHASE 1: CLICK 1 CARD IN YOUR BOTTOM HAND TO PLACE AS DEFENDER";
+            : (p.isAlternating
+                ? "🛡️ YOU ARE DEFENDER: CLICK 1 CARD IN YOUR BOTTOM HAND TO PLACE AS DEFENDER"
+                : "PHASE 1: CLICK 1 CARD IN YOUR BOTTOM HAND TO PLACE AS DEFENDER");
         }
         if (btnLock) {
           btnLock.disabled = !ready;
@@ -1638,7 +1943,9 @@ class YuGiOhPairingsArena {
         if (promptEl) {
           promptEl.textContent = ready
             ? "2 ATTACKERS PLACED ON FIELD — CLICK LOCK IN 2 ATTACKERS!"
-            : "PHASE 2: CLICK 2 CARDS IN YOUR BOTTOM HAND TO ATTACK ENEMY DEFENDER";
+            : (p.isAlternating
+                ? `⚔️ YOU ARE ATTACKER: CLICK 2 CARDS IN YOUR HAND TO CHALLENGE ${(p.oppDef?.name || "ENEMY DEFENDER").toUpperCase()}`
+                : "PHASE 2: CLICK 2 CARDS IN YOUR BOTTOM HAND TO ATTACK ENEMY DEFENDER");
         }
         if (btnLock) {
           btnLock.disabled = !ready;
@@ -1658,7 +1965,9 @@ class YuGiOhPairingsArena {
         if (promptEl) {
           promptEl.textContent = ready
             ? "ENEMY ATTACKER TARGETED — CLICK LOCK IN CLASH!"
-            : "PHASE 3: CLICK 1 PULSING ENEMY ATTACKER ON THE TOP FIELD FOR YOUR DEFENDER";
+            : (p.isAlternating
+                ? "🎯 DEFENDER'S CHOICE: CLICK 1 OF THE 2 ENEMY ATTACKERS FOR YOUR DEFENDER TO FIGHT"
+                : "PHASE 3: CLICK 1 PULSING ENEMY ATTACKER ON THE TOP FIELD FOR YOUR DEFENDER");
         }
         if (btnLock) {
           btnLock.disabled = !ready;
@@ -1695,9 +2004,9 @@ class YuGiOhPairingsArena {
     const myDefSlot = document.getElementById("myDefenderSlot");
     const myAttSlot = document.getElementById("myAttackersSlot");
     const oppAttSlot = document.getElementById("oppAttackersSlot");
-    myDefSlot?.classList.toggle("active-target-zone", phase === "STEP_1_DEFENDER" && !p.isSpectator);
-    myAttSlot?.classList.toggle("active-target-zone", phase === "STEP_2_ATTACKERS" && !p.isSpectator);
-    oppAttSlot?.classList.toggle("active-target-zone", phase === "STEP_3_CHOOSE" && !p.isSpectator);
+    myDefSlot?.classList.toggle("active-target-zone", phase === "STEP_1_DEFENDER" && !p.isSpectator && p.isMyActionTurn);
+    myAttSlot?.classList.toggle("active-target-zone", phase === "STEP_2_ATTACKERS" && !p.isSpectator && p.isMyActionTurn);
+    oppAttSlot?.classList.toggle("active-target-zone", phase === "STEP_3_CHOOSE" && !p.isSpectator && p.isMyActionTurn);
 
     // 1. OPPONENT DEFENDER MOUNT
     const oppDefMount = document.getElementById("oppDefenderMount");
@@ -1718,7 +2027,7 @@ class YuGiOhPairingsArena {
       if (p.oppAtts && p.oppAtts.length > 0) {
         oppAttMount.innerHTML = p.oppAtts.map((att) => {
           const isChosen = phase === "STEP_3_CHOOSE" && (this.selectedIds.includes(att.id) || p.mySecChoice === att.id);
-          const canPick = phase === "STEP_3_CHOOSE" && !p.isSpectator && !p.mySecChoiceLocked;
+          const canPick = phase === "STEP_3_CHOOSE" && !p.isSpectator && !p.mySecChoiceLocked && p.isMyActionTurn;
           const vsMyDefScore = p.myDef ? this.getMatchupEstimate(p.myDef, att) : null;
           return this.buildYuGiOhCardHtml(att, {
             fieldSize: true,
@@ -1733,7 +2042,7 @@ class YuGiOhPairingsArena {
           cardEl.addEventListener("mouseenter", () => this.inspectCard(attObj, p.myDef));
           cardEl.addEventListener("click", () => {
             this.inspectCard(attObj, p.myDef);
-            if (phase === "STEP_3_CHOOSE" && !p.isSpectator && !p.mySecChoiceLocked) {
+            if (phase === "STEP_3_CHOOSE" && !p.isSpectator && !p.mySecChoiceLocked && p.isMyActionTurn) {
               this.selectedIds = [attObj.id];
               this.renderAll();
             }
@@ -1755,7 +2064,7 @@ class YuGiOhPairingsArena {
     const myDefMount = document.getElementById("myDefenderMount");
     if (myDefMount) {
       let stagedDef = null;
-      if (phase === "STEP_1_DEFENDER") {
+      if (phase === "STEP_1_DEFENDER" && p.isMyActionTurn) {
         const targetId = p.mySecDef || this.selectedIds[0];
         if (targetId) {
           stagedDef = (p.myTeam.roster || []).find((c) => c.id === targetId);
@@ -1772,7 +2081,7 @@ class YuGiOhPairingsArena {
           cardEl.addEventListener("mouseenter", () => this.inspectCard(cardToShow, p.oppDef));
           cardEl.addEventListener("click", () => {
             this.inspectCard(cardToShow, p.oppDef);
-            if (phase === "STEP_1_DEFENDER" && !p.mySecDefLocked) {
+            if (phase === "STEP_1_DEFENDER" && !p.mySecDefLocked && p.isMyActionTurn) {
               this.toggleHandCardSelection(cardToShow.id);
             }
           });
@@ -1780,7 +2089,8 @@ class YuGiOhPairingsArena {
       } else if (p.mySecDefLocked) {
         myDefMount.innerHTML = this.buildFaceDownFieldCardHtml("LOCKED DEF");
       } else {
-        myDefMount.innerHTML = `<div class="empty-zone-sigil"><span class="sigil-icon">🛡️</span><span>CLICK HAND CARD</span></div>`;
+        const emptyDefHint = (p.isAlternating && !p.amIDefender) ? "ATTACKER ROLE" : "CLICK HAND CARD";
+        myDefMount.innerHTML = `<div class="empty-zone-sigil"><span class="sigil-icon">🛡️</span><span>${emptyDefHint}</span></div>`;
       }
     }
 
@@ -1790,7 +2100,7 @@ class YuGiOhPairingsArena {
       let cardsToShow = [];
       if (p.myAtts && p.myAtts.length > 0) {
         cardsToShow = p.myAtts;
-      } else if (phase === "STEP_2_ATTACKERS") {
+      } else if (phase === "STEP_2_ATTACKERS" && p.isMyActionTurn) {
         const ids = (p.mySecAtts && p.mySecAtts.length > 0) ? p.mySecAtts : this.selectedIds;
         cardsToShow = ids
           .map((id) => (p.myTeam.roster || []).find((c) => c.id === id))
@@ -1818,7 +2128,7 @@ class YuGiOhPairingsArena {
           if (cObj) {
             el.addEventListener("mouseenter", () => this.inspectCard(cObj, p.oppDef));
             el.addEventListener("click", () => {
-              if (phase === "STEP_2_ATTACKERS" && !p.mySecAttsLocked) {
+              if (phase === "STEP_2_ATTACKERS" && !p.mySecAttsLocked && p.isMyActionTurn) {
                 this.toggleHandCardSelection(cObj.id);
               }
             });
@@ -1906,6 +2216,11 @@ class YuGiOhPairingsArena {
     const p = this.getPerspective();
     if (!p || p.isSpectator) return;
 
+    if (p.isAlternating && !p.isMyActionTurn) {
+      this.showToast("Wait for the opposing Captain to complete their step first.");
+      return;
+    }
+
     if (phase === "STEP_1_DEFENDER" && !p.mySecDefLocked) {
       if (this.selectedIds.includes(cardId)) {
         this.selectedIds = [];
@@ -1987,15 +2302,26 @@ class YuGiOhPairingsArena {
     ) {
       await this.createNewRoom({ openLobby: false, emptyRosters: false });
     }
+    this.closeCoinFlipModal();
     const roleToUse = this.activeRole === "spectator" ? "captain_a" : this.activeRole;
     const tok = this.captainTokens[roleToUse] || this.captainTokens.captain_a || "";
 
-    for (let guard = 0; guard < 15; guard++) {
+    for (let guard = 0; guard < 25; guard++) {
       if (!this.room || this.room.phase === "COMPLETED") break;
-      const isCapB = roleToUse === "captain_b";
+      const isAlternating = this.room.defender_role === "captain_a" || this.room.defender_role === "captain_b";
+      let actingRole = roleToUse;
+      if (isAlternating) {
+        if (this.room.phase === "STEP_1_DEFENDER" || this.room.phase === "STEP_3_CHOOSE") {
+          actingRole = this.room.defender_role;
+        } else if (this.room.phase === "STEP_2_ATTACKERS") {
+          actingRole = this.room.attacker_role;
+        }
+      }
+      const isCapB = actingRole === "captain_b";
       const myTeam = isCapB ? this.room.team_b : this.room.team_a;
       const oppAtts = isCapB ? (this.room.active_attackers_a || []) : (this.room.active_attackers_b || []);
       const bench = (myTeam.roster || []).filter((c) => c.status === "bench");
+      const actingTok = this.captainTokens[actingRole] || tok;
 
       let action = "";
       let payload = { vs_ai: true };
@@ -2017,9 +2343,9 @@ class YuGiOhPairingsArena {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          role: roleToUse,
+          role: actingRole,
           user_id: this.userId,
-          captain_token: tok,
+          captain_token: actingTok,
           action,
           payload
         })
@@ -2044,7 +2370,10 @@ class YuGiOhPairingsArena {
     const maxCycles = Number(this.room.max_cycles || 2);
     const totalTables = Number(this.room.total_tables || 5);
     const pairedCount = (this.room.pairings || []).length;
-    const fmtLabel = totalTables === 8 ? "8v8 WTC Format • 8 Tables" : "5v5 WTC Format • 5 Tables";
+    const roleBanner = p.isAlternating
+      ? (p.amIDefender ? " • 🛡️ YOU: DEFENDER" : " • ⚔️ YOU: ATTACKER")
+      : "";
+    const fmtLabel = `${totalTables === 8 ? "8v8" : "5v5"} WTC Format • ${totalTables} Tables${roleBanner}`;
 
     const cycleBadge = document.getElementById("pgCycleBadge");
     if (cycleBadge) {
@@ -2076,28 +2405,48 @@ class YuGiOhPairingsArena {
     let oppLocked = false;
 
     if (phase === "STEP_1_DEFENDER") {
-      myLocked = !!p.mySecDefLocked;
-      oppLocked = !!p.oppSecDefLocked;
-      if (tagEl) tagEl.textContent = `CYCLE ${cycle} • STEP 1 OF 3`;
-      if (headlineEl) headlineEl.textContent = "Step 1: Blind Defender";
+      myLocked = p.isAlternating ? !p.isMyActionTurn : !!p.mySecDefLocked;
+      oppLocked = p.isAlternating ? p.isMyActionTurn : !!p.oppSecDefLocked;
+      if (tagEl) {
+        tagEl.textContent = p.isAlternating
+          ? `CYCLE ${cycle} • ${p.amIDefender ? "🛡️ DEFENDER" : "⚔️ ATTACKER"}`
+          : `CYCLE ${cycle} • STEP 1 OF 3`;
+      }
+      if (headlineEl) {
+        headlineEl.textContent = p.isAlternating
+          ? (p.amIDefender ? "Step 1: Place Your Defender" : "Step 1: Enemy Places Defender")
+          : "Step 1: Blind Defender";
+      }
       if (descEl) {
-        descEl.textContent = myLocked
-          ? "Your Defender is locked face-down. Waiting for opponent Captain to lock their Defender so both reveal simultaneously."
-          : "Select 1 player card from your bottom hand to place face-down in your Defender Zone, then click Lock In Defender.";
+        descEl.textContent = p.isAlternating
+          ? (p.amIDefender
+              ? "You are DEFENDER this cycle! Select 1 player card from your bottom hand to place in your Defender Zone, then click Lock In Defender."
+              : "You are ATTACKER this cycle! Waiting for the Defender team to put forward 1 Defender card first.")
+          : (myLocked
+              ? "Your Defender is locked face-down. Waiting for opponent Captain to lock their Defender so both reveal simultaneously."
+              : "Select 1 player card from your bottom hand to place face-down in your Defender Zone, then click Lock In Defender.");
       }
       sCard1?.classList.add("active");
       if (sState1) sState1.textContent = "ACTIVE";
       if (sState2) sState2.textContent = "NEXT";
       if (sState3) sState3.textContent = "PENDING";
     } else if (phase === "STEP_2_ATTACKERS") {
-      myLocked = !!p.mySecAttsLocked;
-      oppLocked = !!p.oppSecAttsLocked;
-      if (tagEl) tagEl.textContent = `CYCLE ${cycle} • STEP 2 OF 3`;
+      myLocked = p.isAlternating ? !p.isMyActionTurn : !!p.mySecAttsLocked;
+      oppLocked = p.isAlternating ? p.isMyActionTurn : !!p.oppSecAttsLocked;
+      if (tagEl) {
+        tagEl.textContent = p.isAlternating
+          ? `CYCLE ${cycle} • ${p.amIDefender ? "🛡️ DEFENDER" : "⚔️ ATTACKER"}`
+          : `CYCLE ${cycle} • STEP 2 OF 3`;
+      }
       if (headlineEl) headlineEl.textContent = "Step 2: Send 2 Attackers";
       if (descEl) {
-        descEl.textContent = myLocked
-          ? "Your 2 Attackers are locked face-down. Waiting for opponent Captain to lock their 2 Attackers."
-          : `Enemy Defender (${p.oppDef?.name || "Revealed"}) is on the mat! Select 2 cards from your bottom hand to challenge them, then click Lock In 2 Attackers.`;
+        descEl.textContent = p.isAlternating
+          ? (p.amIAttacker
+              ? `Enemy Defender (${p.oppDef?.name || "Revealed"}) is on the mat! As ATTACKER, select 2 cards from your hand to challenge them, then click Lock In 2 Attackers.`
+              : `Your Defender (${p.myDef?.name || "Revealed"}) is on the mat. Waiting for the Attacker team to send 2 Attackers against you.`)
+          : (myLocked
+              ? "Your 2 Attackers are locked face-down. Waiting for opponent Captain to lock their 2 Attackers."
+              : `Enemy Defender (${p.oppDef?.name || "Revealed"}) is on the mat! Select 2 cards from your bottom hand to challenge them, then click Lock In 2 Attackers.`);
       }
       sCard1?.classList.add("done");
       sCard2?.classList.add("active");
@@ -2105,17 +2454,25 @@ class YuGiOhPairingsArena {
       if (sState2) sState2.textContent = "ACTIVE";
       if (sState3) sState3.textContent = "NEXT";
     } else if (phase === "STEP_3_CHOOSE") {
-      myLocked = !!p.mySecChoiceLocked;
-      oppLocked = !!p.oppSecChoiceLocked;
+      myLocked = p.isAlternating ? !p.isMyActionTurn : !!p.mySecChoiceLocked;
+      oppLocked = p.isAlternating ? p.isMyActionTurn : !!p.oppSecChoiceLocked;
       const isFinalCycle = cycle >= maxCycles;
-      if (tagEl) tagEl.textContent = `CYCLE ${cycle} • STEP 3 OF 3`;
+      if (tagEl) {
+        tagEl.textContent = p.isAlternating
+          ? `CYCLE ${cycle} • ${p.amIDefender ? "🛡️ DEFENDER" : "⚔️ ATTACKER"}`
+          : `CYCLE ${cycle} • STEP 3 OF 3`;
+      }
       if (headlineEl) headlineEl.textContent = "Step 3: Defender's Choice";
       if (descEl) {
-        descEl.textContent = myLocked
-          ? "Your Defender's matchup choice is locked. Waiting for opponent Captain."
-          : isFinalCycle
-            ? "Click 1 of the 2 pulsing enemy Attackers on the top mat for your Defender to fight. Unchosen Attackers automatically pair on the final table!"
-            : "Click 1 of the 2 pulsing enemy Attackers on the top mat for your Defender to fight. The unchosen Attacker returns to their Captain's hand.";
+        descEl.textContent = p.isAlternating
+          ? (p.amIDefender
+              ? "Click 1 of the 2 pulsing enemy Attackers on the top mat for your Defender to fight. The unchosen Attacker returns to their hand, and roles swap next cycle!"
+              : "Waiting for the enemy Defender to pick 1 of your 2 Attackers to fight. Your unchosen Attacker will return to your hand, and you become DEFENDER next cycle!")
+          : (myLocked
+              ? "Your Defender's matchup choice is locked. Waiting for opponent Captain."
+              : isFinalCycle
+                ? "Click 1 of the 2 pulsing enemy Attackers on the top mat for your Defender to fight. Unchosen Attackers automatically pair on the final table!"
+                : "Click 1 of the 2 pulsing enemy Attackers on the top mat for your Defender to fight. The unchosen Attacker returns to their Captain's hand.");
       }
       sCard1?.classList.add("done");
       sCard2?.classList.add("done");
@@ -2140,19 +2497,44 @@ class YuGiOhPairingsArena {
     }
 
     if (myChip) {
-      myChip.textContent = myLocked
-        ? "✓ You: Locked In"
-        : (p.isSpectator ? "👁️ Spectator Mode" : `⚡ You: Selecting (${this.selectedIds.length} chosen)`);
-      myChip.classList.toggle("ready", myLocked);
+      if (p.isAlternating && phase !== "COMPLETED") {
+        myChip.textContent = p.isMyActionTurn
+          ? `⚡ You (${p.amIDefender ? "DEF" : "ATK"}): Acting`
+          : `⏳ You (${p.amIDefender ? "DEF" : "ATK"}): Waiting`;
+        myChip.classList.toggle("ready", !p.isMyActionTurn);
+      } else {
+        myChip.textContent = myLocked
+          ? "✓ You: Locked In"
+          : (p.isSpectator ? "👁️ Spectator Mode" : `⚡ You: Selecting (${this.selectedIds.length} chosen)`);
+        myChip.classList.toggle("ready", myLocked);
+      }
     }
     if (oppChip) {
-      oppChip.textContent = oppLocked ? "✓ Enemy: Locked In" : "⏳ Enemy: Thinking...";
-      oppChip.classList.toggle("ready", oppLocked);
+      if (p.isAlternating && phase !== "COMPLETED") {
+        oppChip.textContent = !p.isMyActionTurn
+          ? `⚡ Enemy (${!p.amIDefender ? "DEF" : "ATK"}): Acting`
+          : `✓ Enemy (${!p.amIDefender ? "DEF" : "ATK"}): Ready`;
+        oppChip.classList.toggle("ready", p.isMyActionTurn);
+      } else {
+        oppChip.textContent = oppLocked ? "✓ Enemy: Locked In" : "⏳ Enemy: Thinking...";
+        oppChip.classList.toggle("ready", oppLocked);
+      }
     }
 
     const summaryRows = document.getElementById("pgCycleSummaryRows");
     if (summaryRows) {
-      if (totalTables === 8) {
+      if (p.isAlternating) {
+        const rows = [];
+        for (let c = 1; c <= maxCycles; c++) {
+          const isFinal = c === maxCycles;
+          const tblDesc = isFinal
+            ? `Locks Tables #${c} – #${totalTables}`
+            : `Locks Table #${c} (Roles Swap)`;
+          const cls = phase === "COMPLETED" || cycle > c ? "done" : (cycle === c ? "active" : "");
+          rows.push(`<div class="pg-summary-row ${cls}"><span>Cycle ${c}${isFinal ? " (Final)" : ""}</span><strong>${tblDesc}</strong></div>`);
+        }
+        summaryRows.innerHTML = rows.join("");
+      } else if (totalTables === 8) {
         summaryRows.innerHTML = [
           { c: 1, lbl: "Cycle 1", desc: "Locks Tables #1 – #2" },
           { c: 2, lbl: "Cycle 2", desc: "Locks Tables #3 – #4" },
@@ -2339,6 +2721,24 @@ class YuGiOhPairingsArena {
       await this.createNewRoom({ openLobby: false, emptyRosters: false });
     }
     this.closeLobbyModal();
+
+    if (demoState === "coin_flip") {
+      await this.flipCoinForRole("captain_a");
+      this.openCoinFlipModal();
+      return;
+    }
+    if (demoState === "attacker_view") {
+      await this.chooseCoinFlipRole("attacker", "captain_a");
+      this.selectedIds = ["A1"];
+      this.renderAll();
+      return;
+    }
+    if (demoState === "defender_view") {
+      await this.chooseCoinFlipRole("defender", "captain_a");
+      this.selectedIds = ["A1"];
+      this.renderAll();
+      return;
+    }
 
     if (demoState === "step2") {
       await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {

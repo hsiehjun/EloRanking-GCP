@@ -627,9 +627,155 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertEqual([p["id"] for p in r2["team_a"]["roster"]], [f"A{i}" for i in range(1, 9)])
         self.assertEqual([p["id"] for p in r2["team_b"]["roster"]], [f"B{i}" for i in range(1, 9)])
 
+    def test_coin_flip_and_alternating_defender_attacker_cycles(self):
+        """Verify Coin Flip winner chooses Defender or Attacker (never defaulting Team A to Defender), AI responds automatically, and roles swap every cycle."""
+        html = (ROOT_DIR / "web" / "team_pairings" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="coinFlipModalBackdrop"', html)
+        self.assertIn('id="btnFlipCoinNow"', html)
+        self.assertIn('id="btnChooseDefenderRole"', html)
+        self.assertIn('id="btnChooseAttackerRole"', html)
+
+        created = self.engine.create_pairing_room({"format_size": "5v5", "vs_ai": True, "user_id": "cap_a_coin"})
+        code = created["room_code"]
+        tok_a = created["captain_a_token"]
+        self.assertFalse(created["coin_flip_done"])
+        self.assertIsNone(created["defender_role"])
+        self.assertIsNone(created["attacker_role"])
+
+        # 1. Flip the coin
+        flip_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_a_coin",
+            "captain_token": tok_a,
+            "action": "flip_coin",
+            "payload": {"force_winner": "captain_a"},
+        })
+        self.assertTrue(flip_res["ok"])
+        self.assertEqual(flip_res["room"]["coin_flip_winner"], "captain_a")
+
+        # 2. Team A chooses ATTACKER for Cycle 1!
+        #    -> Team B (AI) becomes DEFENDER for Cycle 1, immediately places 1 Defender on the mat,
+        #       and advances phase to STEP_2_ATTACKERS so Team A can send 2 Attackers!
+        choose_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_a_coin",
+            "captain_token": tok_a,
+            "action": "choose_coin_flip_role",
+            "payload": {"choice": "attacker", "chooser_role": "captain_a", "vs_ai": True},
+        })
+        self.assertTrue(choose_res["ok"])
+        r1 = choose_res["room"]
+        self.assertTrue(r1["coin_flip_done"])
+        self.assertEqual(r1["defender_role"], "captain_b")
+        self.assertEqual(r1["attacker_role"], "captain_a")
+        self.assertEqual(r1["cycle"], 1)
+        self.assertEqual(r1["max_cycles"], 4)
+        self.assertEqual(r1["phase"], "STEP_2_ATTACKERS")
+        self.assertIsNotNone(r1["active_defender_b"])
+        self.assertIsNone(r1["active_defender_a"])
+
+        # 3. Team A (Attacker in Cycle 1) sends 2 Attackers (A1, A2).
+        #    -> AI (Defender in Cycle 1) immediately picks 1 to fight (locks Table #1),
+        #       returns the unchosen Attacker to Team A's hand, and SWAPS ROLES for Cycle 2!
+        c1_att_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_a_coin",
+            "captain_token": tok_a,
+            "action": "lock_attackers",
+            "payload": {"player_ids": ["A1", "A2"], "vs_ai": True},
+        })
+        self.assertTrue(c1_att_res["ok"])
+        r2 = c1_att_res["room"]
+        self.assertEqual(len(r2["pairings"]), 1)
+        self.assertEqual(r2["cycle"], 2)
+        self.assertEqual(r2["defender_role"], "captain_a")
+        self.assertEqual(r2["attacker_role"], "captain_b")
+        self.assertEqual(r2["phase"], "STEP_1_DEFENDER")
+
+        # 4. Cycle 2: Team A is now DEFENDER! Team A places 1 Defender -> AI (now Attacker) immediately sends 2 Attackers -> STEP_3_CHOOSE
+        bench_a_c2 = [p["id"] for p in r2["team_a"]["roster"] if p["status"] == "bench"]
+        self.assertEqual(len(bench_a_c2), 4)
+        c2_def_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_a_coin",
+            "captain_token": tok_a,
+            "action": "lock_defender",
+            "payload": {"player_id": bench_a_c2[0], "vs_ai": True},
+        })
+        self.assertTrue(c2_def_res["ok"])
+        r2_step3 = c2_def_res["room"]
+        self.assertEqual(r2_step3["phase"], "STEP_3_CHOOSE")
+        self.assertEqual(len(r2_step3["active_attackers_b"]), 2)
+
+        # Team A (Defender in Cycle 2) picks 1 of AI's 2 Attackers -> locks Table #2, swaps roles for Cycle 3,
+        # and AI (Defender in Cycle 3) immediately places its Defender for Cycle 3!
+        c2_pick_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_a_coin",
+            "captain_token": tok_a,
+            "action": "lock_choice",
+            "payload": {"player_id": r2_step3["active_attackers_b"][0]["id"], "vs_ai": True},
+        })
+        self.assertTrue(c2_pick_res["ok"])
+        r3 = c2_pick_res["room"]
+        self.assertEqual(len(r3["pairings"]), 2)
+        self.assertEqual(r3["cycle"], 3)
+        self.assertEqual(r3["defender_role"], "captain_b")
+        self.assertEqual(r3["attacker_role"], "captain_a")
+        self.assertEqual(r3["phase"], "STEP_2_ATTACKERS")
+        self.assertIsNotNone(r3["active_defender_b"])
+
+        # 5. Cycle 3: Team A (Attacker) sends 2 Attackers -> AI picks 1 (locks Table #3) -> swaps roles for Cycle 4 (Final)
+        bench_a_c3 = [p["id"] for p in r3["team_a"]["roster"] if p["status"] == "bench"]
+        self.assertEqual(len(bench_a_c3), 3)
+        c3_att_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_a_coin",
+            "captain_token": tok_a,
+            "action": "lock_attackers",
+            "payload": {"player_ids": bench_a_c3[:2], "vs_ai": True},
+        })
+        self.assertTrue(c3_att_res["ok"])
+        r4 = c3_att_res["room"]
+        self.assertEqual(len(r4["pairings"]), 3)
+        self.assertEqual(r4["cycle"], 4)
+        self.assertEqual(r4["defender_role"], "captain_a")
+        self.assertEqual(r4["attacker_role"], "captain_b")
+        self.assertEqual(r4["phase"], "STEP_1_DEFENDER")
+
+        # 6. Cycle 4 (Final): Team A (Defender) places 1 of last 2 cards -> AI sends last 2 cards -> Team A picks 1 -> locks Tables #4 and #5!
+        bench_a_c4 = [p["id"] for p in r4["team_a"]["roster"] if p["status"] == "bench"]
+        self.assertEqual(len(bench_a_c4), 2)
+        c4_def_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_a_coin",
+            "captain_token": tok_a,
+            "action": "lock_defender",
+            "payload": {"player_id": bench_a_c4[0], "vs_ai": True},
+        })
+        self.assertTrue(c4_def_res["ok"])
+        r4_step3 = c4_def_res["room"]
+        self.assertEqual(r4_step3["phase"], "STEP_3_CHOOSE")
+        self.assertEqual(len(r4_step3["active_attackers_b"]), 2)
+
+        c4_pick_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_a_coin",
+            "captain_token": tok_a,
+            "action": "lock_choice",
+            "payload": {"player_id": r4_step3["active_attackers_b"][0]["id"], "vs_ai": True},
+        })
+        self.assertTrue(c4_pick_res["ok"])
+        r_done = c4_pick_res["room"]
+        self.assertEqual(r_done["phase"], "COMPLETED")
+        self.assertEqual(len(r_done["pairings"]), 5)
+        self.assertEqual({m["player_a"]["id"] for m in r_done["pairings"]}, {"A1", "A2", "A3", "A4", "A5"})
+        self.assertEqual({m["player_b"]["id"] for m in r_done["pairings"]}, {"B1", "B2", "B3", "B4", "B5"})
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

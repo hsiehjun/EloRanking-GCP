@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/team-pairings/styles.css?v=6">
+  <link rel="stylesheet" href="/team-pairings/styles.css?v=7">
 </head>
 <body>
   <div class="ygo-app-shell">
@@ -36,6 +36,7 @@
         <button type="button" class="seat-chip" id="btnRoleCapB" data-role="captain_b">👑 Team B Cap</button>
         <button type="button" class="seat-chip" id="btnRoleSpectator" data-role="spectator">👁️ Spectator</button>
         <button type="button" class="btn-lobby-open" id="btnOpenLobbyModal">🪑 Lobby &amp; Roster</button>
+        <button type="button" class="btn-lobby-open coin-pill-btn" id="btnOpenCoinFlipModal" title="Coin Flip for Defender / Attacker">🪙 Coin Flip</button>
       </div>
 
       <div class="topbar-right">
@@ -96,8 +97,8 @@
                 <span class="pg-step-name">🛡️ Put 1 Defender</span>
                 <span class="pg-step-state" id="pgStepState1">ACTIVE</span>
               </div>
-              <p class="pg-step-body">
-                Both Captains secretly place <strong>1 Defender</strong> face-down. Revealed simultaneously once both lock in.
+              <p class="pg-step-body" id="pgStepBody1">
+                The <strong>Defender</strong> team places <strong>1 Defender</strong> card on the mat.
               </p>
             </div>
 
@@ -107,8 +108,8 @@
                 <span class="pg-step-name">⚔️ Send 2 Attackers</span>
                 <span class="pg-step-state" id="pgStepState2">NEXT</span>
               </div>
-              <p class="pg-step-body">
-                Seeing the enemy Defender, each Captain secretly nominates <strong>2 Attackers</strong> from hand to challenge them.
+              <p class="pg-step-body" id="pgStepBody2">
+                Seeing the Defender on the mat, the <strong>Attacker</strong> team nominates <strong>2 Attackers</strong> from hand to challenge them.
               </p>
             </div>
 
@@ -119,7 +120,7 @@
                 <span class="pg-step-state" id="pgStepState3">PENDING</span>
               </div>
               <p class="pg-step-body" id="pgStepBody3">
-                Each Captain picks <strong>1 of the 2 enemy Attackers</strong> for their Defender to fight (locks 2 tables). Unchosen Attackers return to hand (or pair off in the final cycle).
+                The <strong>Defender</strong> team picks <strong>1 of the 2 Attackers</strong> to fight (locks 1 table; unchosen Attacker returns to hand, roles swap next cycle).
               </p>
             </div>
           </div>
@@ -463,10 +464,103 @@
         </div>
       </div>
     </div>
+
+    <!-- WTC COIN FLIP MODAL: SELECT DEFENDER OR ATTACKER FOR CYCLE 1 -->
+    <div class="coin-modal-backdrop hidden" id="coinFlipModalBackdrop">
+      <div class="coin-modal-card">
+        <div class="coin-modal-header">
+          <div>
+            <h2>🪙 COIN FLIP — DEFENDER / ATTACKER TOSS</h2>
+            <p>Flip the coin! The winner chooses to start Cycle 1 as <strong>DEFENDER</strong> or <strong>ATTACKER</strong> (roles swap every cycle).</p>
+          </div>
+          <button type="button" class="lobby-close-btn" id="btnCloseCoinFlipModal" title="Close Coin Flip">✕</button>
+        </div>
+
+        <div class="coin-modal-body">
+          <!-- Team A vs 3D Coin vs Team B -->
+          <div class="coin-arena-row">
+            <div class="coin-team-box" id="coinFlipTeamABox">
+              <span class="coin-team-tag" id="coinFlipTeamATag">TMA</span>
+              <span class="coin-team-name" id="coinFlipTeamAName">Team A</span>
+              <span class="coin-team-sub" id="coinFlipTeamACap">Team A Captain</span>
+            </div>
+
+            <div class="coin-3d-stage">
+              <div class="coin-3d-object" id="coinFlipCoin3d">
+                <div class="coin-face coin-face-front">
+                  <span class="coin-emblem">🪙</span>
+                  <span class="coin-face-txt" id="coinFaceFrontLabel">TOSS</span>
+                </div>
+                <div class="coin-face coin-face-back">
+                  <span class="coin-emblem">⚔️</span>
+                  <span class="coin-face-txt">WTC</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="coin-team-box" id="coinFlipTeamBBox">
+              <span class="coin-team-tag opp" id="coinFlipTeamBTag">TMB</span>
+              <span class="coin-team-name" id="coinFlipTeamBName">Team B</span>
+              <span class="coin-team-sub" id="coinFlipTeamBCap">Team B Captain</span>
+            </div>
+          </div>
+
+          <!-- Coin Toss Status & Flip Button -->
+          <div class="coin-status-box">
+            <div class="coin-status-headline" id="coinFlipStatusHeadline">
+              READY TO FLIP FOR CYCLE 1 ROLE SELECTION
+            </div>
+            <div class="coin-status-sub" id="coinFlipStatusSub">
+              Neither team defaults to Defender — flip the coin to decide who chooses Defender or Attacker first!
+            </div>
+            <div class="coin-flip-btn-row">
+              <button type="button" class="ygo-confirm-btn large coin-flip-trigger-btn" id="btnFlipCoinNow">
+                🪙 FLIP COIN
+              </button>
+            </div>
+          </div>
+
+          <!-- AI Winner Banner (shown when AI wins coin toss) -->
+          <div class="coin-ai-banner hidden" id="coinFlipAiChoiceBanner">
+            <div class="coin-ai-banner-text" id="coinFlipAiChoiceText">
+              🤖 AI Captain won the coin flip and chose DEFENDER!
+            </div>
+            <button type="button" class="ygo-confirm-btn" id="btnAcceptAiCoinChoice">
+              ⚔️ ACCEPT &amp; START CYCLE 1
+            </button>
+          </div>
+
+          <!-- Role Choice Cards (shown once coin is flipped) -->
+          <div class="coin-role-choice-grid hidden" id="coinFlipRoleChoiceSection">
+            <button type="button" class="coin-role-card defender-choice" id="btnChooseDefenderRole">
+              <div class="crc-badge">🛡️ OPTION 1 • DEFENDER FIRST</div>
+              <div class="crc-title">START AS DEFENDER</div>
+              <div class="crc-desc">
+                <strong>Step 1:</strong> You place <strong>1 Defender</strong> card on the mat.<br>
+                <strong>Step 2:</strong> Opponent sends <strong>2 Attackers</strong> against your Defender.<br>
+                <strong>Step 3:</strong> You choose <strong>which of their 2 Attackers</strong> your Defender fights!
+              </div>
+              <span class="crc-cta">🛡️ CHOOSE DEFENDER</span>
+            </button>
+
+            <button type="button" class="coin-role-card attacker-choice" id="btnChooseAttackerRole">
+              <div class="crc-badge">⚔️ OPTION 2 • ATTACKER FIRST</div>
+              <div class="crc-title">START AS ATTACKER</div>
+              <div class="crc-desc">
+                <strong>Step 1:</strong> Opponent places <strong>1 Defender</strong> card on the mat first.<br>
+                <strong>Step 2:</strong> Seeing their Defender, you send <strong>2 Attackers</strong> to counter them.<br>
+                <strong>Step 3:</strong> Opponent picks 1 of your 2 Attackers (the other returns to your hand).
+              </div>
+              <span class="crc-cta">⚔️ CHOOSE ATTACKER</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="toastNotification" class="toast-notification hidden"></div>
   <script src="/js/armory_svgs.js"></script>
-  <script src="/team-pairings/app.js?v=6"></script>
+  <script src="/team-pairings/app.js?v=7"></script>
 </body>
 </html>

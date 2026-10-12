@@ -2885,6 +2885,12 @@ class FirestoreRoomEngine:
             },
             "bench_a": [p["id"] for p in roster_a],
             "bench_b": [p["id"] for p in roster_b],
+            "coin_flip_done": False,
+            "coin_flip_winner": None,
+            "coin_flip_choice": None,
+            "ai_coin_choice": None,
+            "defender_role": None,
+            "attacker_role": None,
             "cycle": 1,
             "phase": "STEP_1_DEFENDER",
             "secret_defender_a": None,
@@ -2902,11 +2908,11 @@ class FirestoreRoomEngine:
             "pairings": [],
             "history_log": [
                 f"Room {raw_code} initialized ({fmt} WTC Pairing Protocol): {team_a_name} vs {team_b_name}.",
-                "Cycle 1 — Step 1: Both Captains secretly put forward 1 Defender card.",
+                "Coin Flip ready — Flip coin to decide who starts Cycle 1 as Defender or Attacker.",
             ],
             "log": [
                 {"ts": ts_str, "msg": f"Room {raw_code} initialized ({fmt} WTC Pairing Protocol): {team_a_name} vs {team_b_name}."},
-                {"ts": ts_str, "msg": "Cycle 1 — Step 1: Both Captains secretly put forward 1 Defender card."},
+                {"ts": ts_str, "msg": "Coin Flip ready — Flip coin to decide who starts Cycle 1 as Defender or Attacker."},
             ],
             "createdAt": now_ts,
             "updatedAt": now_ts,
@@ -2953,6 +2959,12 @@ class FirestoreRoomEngine:
         masked["seat_b_locked"] = bool(room.get("seat_b_locked", False))
         masked["seat_a_owner_name"] = room.get("seat_a_owner_name") or (room.get("captain_a_name") if room.get("seat_a_locked") else None)
         masked["seat_b_owner_name"] = room.get("seat_b_owner_name") or (room.get("captain_b_name") if room.get("seat_b_locked") else None)
+        masked["coin_flip_done"] = bool(room.get("coin_flip_done", False))
+        masked["coin_flip_winner"] = room.get("coin_flip_winner")
+        masked["coin_flip_choice"] = room.get("coin_flip_choice")
+        masked["ai_coin_choice"] = room.get("ai_coin_choice")
+        masked["defender_role"] = room.get("defender_role")
+        masked["attacker_role"] = room.get("attacker_role")
 
         phase = masked.get("phase")
         locked_a = bool(masked.get("locked_a"))
@@ -3006,6 +3018,224 @@ class FirestoreRoomEngine:
         ts_str = datetime.now(timezone.utc).strftime("%H:%M:%S")
         room.setdefault("history_log", []).append(msg)
         room.setdefault("log", []).append({"ts": ts_str, "msg": msg})
+
+    def _ensure_rosters_ready_for_duel(self, room: Dict[str, Any]) -> None:
+        """Ensures both teams have `team_size` cards on their roster when starting the coin flip / duel."""
+        import copy
+        team_size = int(room.get("team_size") or 5)
+        for side_s, t_key, preset_key, prefix in (
+            ("a", "team_a", "art_of_war", "A"),
+            ("b", "team_b", "team_zero_comp", "B"),
+        ):
+            cur_roster = list((room.get(t_key) or {}).get("roster") or [])
+            if len(cur_roster) < team_size and not room.get("pairings"):
+                preset = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get(preset_key) or next(iter(self.TEAM_PAIRING_PRESETS.values())))
+                used_names = {str(p.get("name") or "").lower() for p in cur_roster}
+                for cand in preset.get("roster") or []:
+                    if len(cur_roster) >= team_size:
+                        break
+                    if str(cand.get("name") or "").lower() in used_names:
+                        continue
+                    idx = len(cur_roster)
+                    c_copy = copy.deepcopy(cand)
+                    c_copy["id"] = f"{prefix}{idx + 1}"
+                    c_copy["team"] = prefix
+                    c_copy["status"] = "bench"
+                    cur_roster.append(c_copy)
+                    used_names.add(str(c_copy.get("name") or "").lower())
+                room[t_key]["roster"] = cur_roster
+                if room[t_key].get("name") in ("Team A", "Team B") and preset.get("name"):
+                    room[t_key]["name"] = preset["name"]
+                    room[t_key]["tag"] = preset["short_tag"]
+                    room[t_key]["short_tag"] = preset["short_tag"]
+                room[f"bench_{side_s}"] = [p["id"] for p in cur_roster]
+        self._sync_roster_statuses(room)
+
+    def _advance_alternating_pairing(self, room: Dict[str, Any]) -> None:
+        """
+        Advances the Coin-Flip Alternating Defender/Attacker Pairing Cycle:
+        - Step 1 (STEP_1_DEFENDER): Only `defender_role` locks 1 Defender -> Revealed immediately on mat -> STEP_2_ATTACKERS.
+        - Step 2 (STEP_2_ATTACKERS): Only `attacker_role` locks 2 Attackers -> Revealed immediately on mat -> STEP_3_CHOOSE.
+        - Step 3 (STEP_3_CHOOSE): Only `defender_role` picks 1 of the 2 Attackers -> Locks 1 Table, returns unchosen Attacker to bench, swaps Defender/Attacker roles for next cycle (or auto-pairs final remaining 1v1 on last table).
+        """
+        def_role = room.get("defender_role")
+        att_role = room.get("attacker_role")
+        if def_role not in ("captain_a", "captain_b"):
+            return
+        if att_role not in ("captain_a", "captain_b"):
+            att_role = "captain_b" if def_role == "captain_a" else "captain_a"
+            room["attacker_role"] = att_role
+
+        def_s = "a" if def_role == "captain_a" else "b"
+        att_s = "b" if def_s == "a" else "a"
+        phase = room.get("phase")
+        cycle = int(room.get("cycle") or 1)
+
+        if phase in ("STEP_1_DEFENDER", "PICK_DEFENDER"):
+            if not room.get(f"locked_{def_s}"):
+                return
+            def_id = room.get(f"secret_defender_{def_s}")
+            if not def_id:
+                return
+            room[f"defender_{def_s}"] = def_id
+            room[f"secret_defender_{def_s}"] = None
+            if def_id in room[f"bench_{def_s}"]:
+                room[f"bench_{def_s}"].remove(def_id)
+            room["locked_a"] = False
+            room["locked_b"] = False
+            room["phase"] = "STEP_2_ATTACKERS"
+
+            p_def = self._find_player(room, def_id)
+            def_team_tag = room[f"team_{def_s}"]["short_tag"]
+            att_team_tag = room[f"team_{att_s}"]["short_tag"]
+            self._append_log(
+                room,
+                f"Cycle {cycle} — Step 1: {def_team_tag} (Defender) puts forward {p_def['name'] if p_def else def_id} ({p_def['faction'] if p_def else ''}). {att_team_tag} (Attacker) now sends 2 Attackers!",
+            )
+
+        elif phase in ("STEP_2_ATTACKERS", "PICK_ATTACKERS"):
+            if not room.get(f"locked_{att_s}"):
+                return
+            atts = list(room.get(f"secret_attackers_{att_s}") or [])
+            if len(atts) < 2:
+                return
+            room[f"attackers_{att_s}"] = atts
+            room[f"secret_attackers_{att_s}"] = []
+            room[f"bench_{att_s}"] = [pid for pid in room[f"bench_{att_s}"] if pid not in atts]
+            room["locked_a"] = False
+            room["locked_b"] = False
+            room["phase"] = "STEP_3_CHOOSE"
+
+            att_names = ", ".join((self._find_player(room, pid) or {}).get("name", pid) for pid in atts)
+            def_team_tag = room[f"team_{def_s}"]["short_tag"]
+            att_team_tag = room[f"team_{att_s}"]["short_tag"]
+            self._append_log(
+                room,
+                f"Cycle {cycle} — Step 2: {att_team_tag} (Attacker) sends [{att_names}]. {def_team_tag} (Defender) now picks 1 to fight!",
+            )
+
+        elif phase in ("STEP_3_CHOOSE", "CHOOSE_OPPONENT"):
+            if not room.get(f"locked_{def_s}"):
+                return
+            def_id = room.get(f"defender_{def_s}")
+            chosen_att_id = room.get(f"secret_choice_{def_s}")
+            att_list = list(room.get(f"attackers_{att_s}") or [])
+            if chosen_att_id not in att_list and att_list:
+                chosen_att_id = att_list[0]
+            rejected_ids = [pid for pid in att_list if pid != chosen_att_id]
+
+            if def_s == "a":
+                pa_id, pb_id = def_id, chosen_att_id
+            else:
+                pa_id, pb_id = chosen_att_id, def_id
+
+            def_team_tag = room[f"team_{def_s}"]["short_tag"]
+            self._append_pairing(room, pa_id, pb_id, f"Cycle {cycle} • {def_team_tag} Defender Choice")
+
+            # Return unchosen attacker back to Attacker team's hand
+            room[f"bench_{att_s}"].extend(rejected_ids)
+
+            # Clear active mat zones
+            room["defender_a"] = None
+            room["defender_b"] = None
+            room["attackers_a"] = []
+            room["attackers_b"] = []
+            room["secret_choice_a"] = None
+            room["secret_choice_b"] = None
+            room["locked_a"] = False
+            room["locked_b"] = False
+
+            # If exactly 1 player remains on each bench, automatically pair the final two players on the last table
+            if len(room["bench_a"]) == 1 and len(room["bench_b"]) == 1:
+                last_a = room["bench_a"][0]
+                last_b = room["bench_b"][0]
+                self._append_pairing(room, last_a, last_b, f"Cycle {cycle} • Final Remainder")
+                room["bench_a"] = []
+                room["bench_b"] = []
+                room["phase"] = "COMPLETED"
+                self._append_log(
+                    room,
+                    f"All {len(room['pairings'])} WTC Match Pairings Locked! Final two remaining players automatically paired on Table #{len(room['pairings'])}.",
+                )
+            elif len(room["bench_a"]) == 0 and len(room["bench_b"]) == 0:
+                room["phase"] = "COMPLETED"
+                self._append_log(room, "All WTC Match Pairings Locked!")
+            else:
+                # Swap Defender & Attacker roles for the next cycle!
+                room["cycle"] = cycle + 1
+                room["defender_role"], room["attacker_role"] = att_role, def_role
+                room["phase"] = "STEP_1_DEFENDER"
+                next_def_s = "a" if room["defender_role"] == "captain_a" else "b"
+                next_def_tag = room[f"team_{next_def_s}"]["short_tag"]
+                self._append_log(
+                    room,
+                    f"Cycle {cycle} Table Locked! Unchosen Attacker returned to hand ({len(room['bench_a'])} cards left each). Roles swap for Cycle {cycle + 1}: {next_def_tag} is now DEFENDER!",
+                )
+
+        self._sync_roster_statuses(room)
+
+    def _run_alternating_ai_if_needed(self, room: Dict[str, Any]) -> None:
+        """When vs_ai is active in Coin-Flip Alternating mode, automatically executes AI Captain B's steps whenever it is Team B's turn to act."""
+        if not room.get("vs_ai") or room.get("defender_role") not in ("captain_a", "captain_b"):
+            return
+
+        for _ in range(8):
+            if room.get("phase") == "COMPLETED":
+                break
+            phase = room.get("phase")
+            def_role = room.get("defender_role")
+            att_role = room.get("attacker_role")
+            bench_b_ids = list(room.get("bench_b") or [])
+            bench_b_players = [self._find_player(room, pid) for pid in bench_b_ids if self._find_player(room, pid)]
+
+            if phase in ("STEP_1_DEFENDER", "PICK_DEFENDER") and def_role == "captain_b" and not room.get("locked_b"):
+                if not bench_b_players:
+                    break
+                def _def_score(p: Dict[str, Any]) -> float:
+                    role_bonus = 35.0 if ("Defender" in str(p.get("role", "")) or "Blunt" in str(p.get("role", ""))) else (15.0 if "All-Rounder" in str(p.get("role", "")) else 0.0)
+                    return float(p.get("elo", 2000)) * 0.05 + role_bonus
+                best_def = sorted(bench_b_players, key=_def_score, reverse=True)[0]
+                room["secret_defender_b"] = best_def["id"]
+                room["locked_b"] = True
+                self._advance_alternating_pairing(room)
+                continue
+
+            if phase in ("STEP_2_ATTACKERS", "PICK_ATTACKERS") and att_role == "captain_b" and not room.get("locked_b"):
+                if len(bench_b_players) < 2:
+                    break
+                def_a = self._find_player(room, room.get("defender_a"))
+                if def_a:
+                    scored = sorted(
+                        bench_b_players,
+                        key=lambda pb: (20 - self.estimate_wtc_matchup(def_a, pb), float(pb.get("elo", 2000))),
+                        reverse=True,
+                    )
+                    room["secret_attackers_b"] = [scored[0]["id"], scored[1]["id"]]
+                else:
+                    room["secret_attackers_b"] = [bench_b_players[0]["id"], bench_b_players[1]["id"]]
+                room["locked_b"] = True
+                self._advance_alternating_pairing(room)
+                continue
+
+            if phase in ("STEP_3_CHOOSE", "CHOOSE_OPPONENT") and def_role == "captain_b" and not room.get("locked_b"):
+                def_b = self._find_player(room, room.get("defender_b"))
+                att_a_ids = list(room.get("attackers_a") or [])
+                att_a_players = [self._find_player(room, pid) for pid in att_a_ids if self._find_player(room, pid)]
+                if not att_a_players:
+                    break
+                if def_b:
+                    best_target = sorted(
+                        att_a_players,
+                        key=lambda pa: (self.estimate_wtc_matchup(pa, def_b), float(pa.get("elo", 2000))),
+                    )[0]
+                    room["secret_choice_b"] = best_target["id"]
+                else:
+                    room["secret_choice_b"] = att_a_players[0]["id"]
+                room["locked_b"] = True
+                self._advance_alternating_pairing(room)
+                continue
+
+            break
 
     def _run_ai_captain_b_decision(self, room: Dict[str, Any]) -> None:
         """Smart AI Captain for Team B: selects and locks Defender, 2 Attackers, or Attacker Choice."""
@@ -3236,6 +3466,8 @@ class FirestoreRoomEngine:
         Enforces that ONLY Captain A can interact for Team A and ONLY Captain B can interact for Team B.
         Spectators cannot perform pairing actions (403).
         """
+        import secrets
+
         room = self.get_pairing_room_raw(room_code)
         if not room:
             return {"ok": False, "success": False, "status_code": 404, "error": f"Pairing room '{room_code}' not found."}
@@ -3450,6 +3682,85 @@ class FirestoreRoomEngine:
         side_suffix = "a" if is_cap_a else "b"
         phase = room.get("phase")
 
+        if act == "flip_coin":
+            self._ensure_rosters_ready_for_duel(room)
+            forced_w = str(req.get("force_winner") or "").strip().lower()
+            winner = forced_w if forced_w in ("captain_a", "captain_b") else secrets.choice(["captain_a", "captain_b"])
+            room["coin_flip_winner"] = winner
+            room["coin_flip_done"] = False
+            room["coin_flip_choice"] = None
+            if winner == "captain_b" and room.get("vs_ai"):
+                room["ai_coin_choice"] = secrets.choice(["defender", "attacker"])
+            else:
+                room["ai_coin_choice"] = None
+
+            win_team = room["team_a"]["name"] if winner == "captain_a" else room["team_b"]["name"]
+            self._append_log(room, f"🪙 Coin Flip Result: {win_team} won the coin toss!")
+            self._save_pairing_room_doc(room["room_code"], room)
+            return {
+                "ok": True,
+                "success": True,
+                "status_code": 200,
+                "coin_flip_winner": winner,
+                "ai_coin_choice": room.get("ai_coin_choice"),
+                "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+            }
+
+        if act == "choose_coin_flip_role":
+            self._ensure_rosters_ready_for_duel(room)
+            choice = str(req.get("choice") or "defender").strip().lower()
+            if choice not in ("defender", "attacker"):
+                choice = "defender"
+            chooser = str(req.get("chooser_role") or room.get("coin_flip_winner") or viewer_role).strip().lower()
+            if chooser not in ("captain_a", "captain_b"):
+                chooser = viewer_role
+            other = "captain_b" if chooser == "captain_a" else "captain_a"
+
+            if choice == "defender":
+                def_role, att_role = chooser, other
+            else:
+                def_role, att_role = other, chooser
+
+            t_size = int(room.get("team_size") or 5)
+            room["coin_flip_winner"] = chooser
+            room["coin_flip_choice"] = choice
+            room["coin_flip_done"] = True
+            room["defender_role"] = def_role
+            room["attacker_role"] = att_role
+            room["cycle"] = 1
+            room["max_cycles"] = max(1, t_size - 1)
+            room["phase"] = "STEP_1_DEFENDER"
+            room["secret_defender_a"] = None
+            room["secret_defender_b"] = None
+            room["defender_a"] = None
+            room["defender_b"] = None
+            room["secret_attackers_a"] = []
+            room["secret_attackers_b"] = []
+            room["attackers_a"] = []
+            room["attackers_b"] = []
+            room["secret_choice_a"] = None
+            room["secret_choice_b"] = None
+            room["locked_a"] = False
+            room["locked_b"] = False
+
+            def_team_name = room["team_a"]["name"] if def_role == "captain_a" else room["team_b"]["name"]
+            att_team_name = room["team_a"]["name"] if att_role == "captain_a" else room["team_b"]["name"]
+            self._append_log(
+                room,
+                f"🪙 Coin Flip Decision: {def_team_name} starts Cycle 1 as DEFENDER; {att_team_name} starts Cycle 1 as ATTACKER!",
+            )
+
+            self._run_alternating_ai_if_needed(room)
+            self._save_pairing_room_doc(room["room_code"], room)
+            return {
+                "ok": True,
+                "success": True,
+                "status_code": 200,
+                "defender_role": room.get("defender_role"),
+                "attacker_role": room.get("attacker_role"),
+                "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+            }
+
         if act == "set_format":
             import copy
             req_fmt = str(req.get("format_size") or req.get("format") or "5v5").strip().lower()
@@ -3459,7 +3770,10 @@ class FirestoreRoomEngine:
             room["format"] = resolved_fmt
             room["team_size"] = t_size
             room["total_tables"] = t_size
-            room["max_cycles"] = 3 if t_size == 8 else 2
+            if room.get("defender_role") in ("captain_a", "captain_b"):
+                room["max_cycles"] = max(1, t_size - 1)
+            else:
+                room["max_cycles"] = 3 if t_size == 8 else 2
 
             # Trim rosters if switching from 8v8 down to 5v5 before pairings start
             if not room.get("pairings"):
@@ -3503,7 +3817,10 @@ class FirestoreRoomEngine:
                 room["format"] = resolved_fmt
                 room["team_size"] = t_size
                 room["total_tables"] = t_size
-                room["max_cycles"] = 3 if t_size == 8 else 2
+                if room.get("defender_role") in ("captain_a", "captain_b"):
+                    room["max_cycles"] = max(1, t_size - 1)
+                else:
+                    room["max_cycles"] = 3 if t_size == 8 else 2
 
             team_size = int(room.get("team_size") or 5)
             if not isinstance(raw_roster, list) or len(raw_roster) < 1:
@@ -3550,7 +3867,7 @@ class FirestoreRoomEngine:
                     cand_copy["status"] = "bench"
                     cand_copy["role_tag"] = str(cand_copy.get("role_tag") or cand_copy.get("role") or "All-Rounder")
                     new_roster.append(cand_copy)
-                    used_names.add(str(cand.get("name") or "").lower())
+                    used_names.add(str(cand_copy.get("name") or "").lower())
 
             if req.get("team_name"):
                 room[team_key]["name"] = str(req["team_name"]).strip()
@@ -3600,8 +3917,11 @@ class FirestoreRoomEngine:
         if act == "toggle_ai":
             room["vs_ai"] = bool(req.get("vs_ai", not room.get("vs_ai")))
             if room["vs_ai"]:
-                self._run_ai_captain_b_decision(room)
-                self._advance_phase_if_both_locked(room)
+                if room.get("defender_role") in ("captain_a", "captain_b"):
+                    self._run_alternating_ai_if_needed(room)
+                else:
+                    self._run_ai_captain_b_decision(room)
+                    self._advance_phase_if_both_locked(room)
             self._save_pairing_room_doc(room["room_code"], room)
             return {
                 "ok": True,
@@ -3613,7 +3933,16 @@ class FirestoreRoomEngine:
         if phase == "COMPLETED":
             return {"ok": False, "success": False, "status_code": 400, "error": "All pairings in this room are already finalized."}
 
+        is_alternating = room.get("defender_role") in ("captain_a", "captain_b")
+
         if phase in ("STEP_1_DEFENDER", "PICK_DEFENDER"):
+            if is_alternating and viewer_role != room.get("defender_role"):
+                return {
+                    "ok": False,
+                    "success": False,
+                    "status_code": 400,
+                    "error": "Only the active Defender team Captain can place a Defender card in Step 1.",
+                }
             player_id = str(req.get("player_id") or "").strip()
             bench = room[f"bench_{side_suffix}"]
             if player_id not in bench:
@@ -3628,6 +3957,13 @@ class FirestoreRoomEngine:
                 room[f"locked_{side_suffix}"] = True
 
         elif phase in ("STEP_2_ATTACKERS", "PICK_ATTACKERS"):
+            if is_alternating and viewer_role != room.get("attacker_role"):
+                return {
+                    "ok": False,
+                    "success": False,
+                    "status_code": 400,
+                    "error": "Only the active Attacker team Captain can send 2 Attackers in Step 2.",
+                }
             player_ids = req.get("player_ids") or []
             if not isinstance(player_ids, list):
                 player_ids = []
@@ -3649,6 +3985,13 @@ class FirestoreRoomEngine:
                 room[f"locked_{side_suffix}"] = True
 
         elif phase in ("STEP_3_CHOOSE", "CHOOSE_OPPONENT"):
+            if is_alternating and viewer_role != room.get("defender_role"):
+                return {
+                    "ok": False,
+                    "success": False,
+                    "status_code": 400,
+                    "error": "Only the active Defender team Captain can pick which Attacker their Defender fights in Step 3.",
+                }
             player_id = str(req.get("player_id") or "").strip()
             opp_suffix = "b" if is_cap_a else "a"
             opp_attackers = room[f"attackers_{opp_suffix}"]
@@ -3665,12 +4008,15 @@ class FirestoreRoomEngine:
         else:
             return {"ok": False, "success": False, "status_code": 400, "error": f"Unsupported action '{act}' in phase '{phase}'."}
 
-        # If vs_ai is enabled, let AI Captain B lock in its decision for the current phase
-        if room.get("vs_ai"):
-            self._run_ai_captain_b_decision(room)
-
-        # If both captains have locked in, reveal simultaneously and advance phase
-        self._advance_phase_if_both_locked(room)
+        if is_alternating:
+            self._advance_alternating_pairing(room)
+            if room.get("vs_ai"):
+                self._run_alternating_ai_if_needed(room)
+        else:
+            # Simultaneous WTC mode (legacy/default if coin flip role was not chosen)
+            if room.get("vs_ai"):
+                self._run_ai_captain_b_decision(room)
+            self._advance_phase_if_both_locked(room)
 
         self._save_pairing_room_doc(room["room_code"], room)
         return {

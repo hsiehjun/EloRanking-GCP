@@ -823,9 +823,10 @@ html, body {
 }
 
 .ygo-confirm-btn {
-  background: linear-gradient(135deg, #00e5ff 0%, #2563eb 100%);
-  border: 2px solid #bae6fd;
-  color: #020617;
+  background: linear-gradient(135deg, #0284c7 0%, #1d4ed8 100%);
+  border: 2px solid #7dd3fc;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(2, 6, 23, 0.85);
   font-family: var(--font-display);
   font-size: 0.75rem;
   font-weight: 900;
@@ -2914,6 +2915,352 @@ html, body {
     gap: 4px;
   }
 }
+
+/* ============================================================================
+   WTC COIN FLIP MODAL & 3D COIN TOSS FOR DEFENDER / ATTACKER ROLE SELECTION
+   ============================================================================ */
+.coin-pill-btn {
+  border-color: rgba(245, 185, 66, 0.65) !important;
+  background: linear-gradient(135deg, rgba(245, 185, 66, 0.22), rgba(15, 23, 42, 0.92)) !important;
+  color: #fde047 !important;
+}
+
+.coin-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+  background: rgba(3, 6, 15, 0.88);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.coin-modal-card {
+  width: min(760px, 96vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: linear-gradient(180deg, #0b1329 0%, #050914 100%);
+  border: 2px solid var(--gold-bright);
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.92), 0 0 38px rgba(245, 185, 66, 0.28);
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.coin-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(245, 185, 66, 0.28);
+  padding-bottom: 10px;
+}
+
+.coin-modal-header h2 {
+  font-family: var(--font-display);
+  font-size: 1.12rem;
+  font-weight: 900;
+  color: var(--gold-bright);
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+.coin-modal-header p {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin: 4px 0 0;
+}
+
+.coin-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.coin-arena-row {
+  display: grid;
+  grid-template-columns: 1fr 150px 1fr;
+  align-items: center;
+  gap: 14px;
+  background: radial-gradient(circle at center, rgba(245, 185, 66, 0.14), rgba(2, 6, 23, 0.88));
+  border: 1px solid rgba(0, 229, 255, 0.28);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.coin-team-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 10px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1.5px solid rgba(56, 189, 248, 0.35);
+  text-align: center;
+  transition: all 0.25s ease;
+}
+
+.coin-team-box.winner {
+  border-color: var(--gold-bright);
+  background: linear-gradient(145deg, rgba(245, 185, 66, 0.22), rgba(15, 23, 42, 0.95));
+  box-shadow: 0 0 24px rgba(245, 185, 66, 0.45);
+  transform: scale(1.03);
+}
+
+.coin-team-tag {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 900;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+}
+
+.coin-team-tag.opp {
+  background: rgba(244, 63, 94, 0.2);
+  color: #fb7185;
+  border-color: rgba(244, 63, 94, 0.45);
+}
+
+.coin-team-name {
+  font-family: var(--font-display);
+  font-size: 0.96rem;
+  font-weight: 900;
+  color: #fff;
+}
+
+.coin-team-sub {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+.coin-3d-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  perspective: 700px;
+}
+
+.coin-3d-object {
+  width: 108px;
+  height: 108px;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.coin-3d-object.spinning {
+  animation: ygoCoinSpin 0.85s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes ygoCoinSpin {
+  0% { transform: rotateY(0deg) scale(1); }
+  50% { transform: rotateY(900deg) scale(1.18); }
+  100% { transform: rotateY(1800deg) scale(1); }
+}
+
+.coin-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  backface-visibility: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: radial-gradient(circle at 32% 30%, #fef08a 0%, #f59e0b 55%, #b45309 100%);
+  border: 4px solid #fef9c3;
+  box-shadow: 0 0 28px rgba(245, 185, 66, 0.65), inset 0 0 14px rgba(120, 53, 15, 0.65);
+  color: #090d16;
+}
+
+.coin-face-back {
+  transform: rotateY(180deg);
+}
+
+.coin-emblem {
+  font-size: 1.85rem;
+  line-height: 1;
+}
+
+.coin-face-txt {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #0f172a;
+}
+
+.coin-status-box {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: rgba(9, 15, 30, 0.85);
+  border: 1px solid rgba(245, 185, 66, 0.3);
+  border-radius: 12px;
+}
+
+.coin-status-headline {
+  font-family: var(--font-display);
+  font-size: 0.96rem;
+  font-weight: 900;
+  color: #fde047;
+  letter-spacing: 0.04em;
+}
+
+.coin-status-sub {
+  font-size: 0.76rem;
+  color: #cbd5e1;
+  max-width: 580px;
+}
+
+.coin-flip-btn-row {
+  margin-top: 4px;
+}
+
+.coin-ai-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.16), rgba(15, 23, 42, 0.94));
+  border: 1px solid rgba(244, 63, 94, 0.5);
+}
+
+.coin-ai-banner-text {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fecdd3;
+}
+
+.coin-role-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.coin-role-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.95), rgba(6, 11, 25, 0.98));
+  border: 2px solid rgba(56, 189, 248, 0.45);
+  color: #f8fafc;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.coin-role-card.attacker-choice {
+  border-color: rgba(245, 185, 66, 0.55);
+}
+
+.coin-role-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(0, 229, 255, 0.25);
+  border-color: #38bdf8;
+}
+
+.coin-role-card.attacker-choice:hover {
+  box-shadow: 0 10px 26px rgba(245, 185, 66, 0.3);
+  border-color: var(--gold-bright);
+}
+
+.crc-badge {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 900;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.16);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+
+.coin-role-card.attacker-choice .crc-badge {
+  background: rgba(245, 185, 66, 0.16);
+  color: #fde047;
+  border-color: rgba(245, 185, 66, 0.45);
+}
+
+.crc-title {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 900;
+  color: #fff;
+}
+
+.crc-desc {
+  font-size: 0.74rem;
+  color: #cbd5e1;
+  line-height: 1.45;
+}
+
+.crc-cta {
+  align-self: stretch;
+  text-align: center;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+  font-weight: 900;
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  color: #fff;
+  margin-top: 4px;
+}
+
+.coin-role-card.attacker-choice .crc-cta {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #090d16;
+}
+
+@media (max-width: 900px) {
+  .coin-arena-row {
+    grid-template-columns: 1fr 92px 1fr;
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .coin-3d-object {
+    width: 78px;
+    height: 78px;
+  }
+
+  .coin-role-choice-grid {
+    grid-template-columns: 1fr;
+  }
+
+  body.force-landscape-mobile .coin-modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 100vw;
+    width: 100vh;
+    height: 100vw;
+    transform-origin: top left;
+    transform: rotate(90deg);
+  }
+}
+
 
 
 
