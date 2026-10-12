@@ -2188,16 +2188,16 @@ class FirestoreRoomEngine:
             "id": "team_zero_comp",
             "name": "Team Zero Comp",
             "short_tag": "TZC",
-            "captain_name": "Mani Cheema",
+            "captain_name": "John Hsieh",
             "roster": [
-                {"id": "tzc_1", "name": "Mani Cheema", "faction": "Necrons", "detachment": "Starshatter Arsenal", "elo": 2148, "role": "Blunt / Defender", "win_rate": 80},
-                {"id": "tzc_2", "name": "Vik Vijay", "faction": "Adeptus Custodes", "detachment": "Shield Host", "elo": 2124, "role": "Blunt / Defender", "win_rate": 78},
-                {"id": "tzc_3", "name": "Liam VSL", "faction": "T'au Empire", "detachment": "Mont'ka", "elo": 2110, "role": "Spear / Slayer", "win_rate": 77},
-                {"id": "tzc_4", "name": "Nassim Fouchane", "faction": "Orks", "detachment": "War Horde", "elo": 2079, "role": "Spear / Slayer", "win_rate": 75},
-                {"id": "tzc_5", "name": "Ed Watts", "faction": "Thousand Sons", "detachment": "Cult of Magic", "elo": 2055, "role": "All-Rounder", "win_rate": 73},
-                {"id": "tzc_6", "name": "Malik Amin", "faction": "Death Guard", "detachment": "Plague Company", "elo": 2034, "role": "Blunt / Defender", "win_rate": 71},
-                {"id": "tzc_7", "name": "David Gaylard", "faction": "Chaos Knights", "detachment": "Traitoris Lance", "elo": 2020, "role": "Spear / Slayer", "win_rate": 70},
-                {"id": "tzc_8", "name": "Kieran Harper", "faction": "Adepta Sororitas", "detachment": "Bringers of Flame", "elo": 2005, "role": "All-Rounder", "win_rate": 69},
+                {"id": "tzc_1", "name": "Junior Aflleje", "faction": "Leagues of Votann", "detachment": "Oathband", "elo": 2191, "role": "Top Ace / Spear", "win_rate": 83},
+                {"id": "tzc_2", "name": "David Gaylard", "faction": "Necrons", "detachment": "Starshatter Arsenal", "elo": 2120, "role": "Blunt / Defender", "win_rate": 81},
+                {"id": "tzc_3", "name": "James Carmona", "faction": "Adeptus Custodes", "detachment": "Shield Host", "elo": 1940, "role": "Blunt / Defender", "win_rate": 70},
+                {"id": "tzc_4", "name": "John Hsieh", "faction": "Necrons", "detachment": "Awakened Dynasty", "elo": 1889, "role": "All-Rounder", "win_rate": 66},
+                {"id": "tzc_5", "name": "Jake Nelson", "faction": "Blood Angels", "detachment": "Liberator Assault Group", "elo": 1866, "role": "Spear / Slayer", "win_rate": 73},
+                {"id": "tzc_6", "name": "Jesse Sell", "faction": "Aeldari", "detachment": "Warhost", "elo": 1862, "role": "Spear / Slayer", "win_rate": 68},
+                {"id": "tzc_7", "name": "Aurelio Correa", "faction": "Dark Angels", "detachment": "Gladius Task Force", "elo": 1848, "role": "All-Rounder", "win_rate": 66},
+                {"id": "tzc_8", "name": "Jeremy Larson", "faction": "Astra Militarum", "detachment": "Combined Regiment", "elo": 1834, "role": "Blunt / Defender", "win_rate": 65},
             ],
         },
         "stat_check": {
@@ -2329,6 +2329,391 @@ class FirestoreRoomEngine:
             else:
                 p["status"] = "paired"
 
+    @staticmethod
+    def _clean_primary_faction(raw_fac: Any) -> str:
+        """Extracts the primary 40K/AoS faction name from a player_ratings top_faction or faction string."""
+        s = str(raw_fac or "").strip()
+        if not s or s.lower() in ("unknown", "none", "n/a", "unaligned"):
+            return "Space Marines"
+        first = s.split(",")[0].strip()
+        # Normalize common variants to canonical Retribution Armory faction names
+        low = first.lower()
+        if "custodes" in low:
+            return "Adeptus Custodes"
+        if "sororitas" in low or "sisters of battle" in low:
+            return "Adepta Sororitas"
+        if "mechanicus" in low or "admech" in low:
+            return "Adeptus Mechanicus"
+        if "tau" in low or "t'au" in low:
+            return "T'au Empire"
+        if "votann" in low:
+            return "Leagues of Votann"
+        if "genestealer" in low:
+            return "Genestealer Cults"
+        if "thousand sons" in low:
+            return "Thousand Sons"
+        if "world eaters" in low:
+            return "World Eaters"
+        if "death guard" in low:
+            return "Death Guard"
+        if "black templars" in low:
+            return "Black Templars"
+        if "blood angels" in low:
+            return "Blood Angels"
+        if "dark angels" in low:
+            return "Dark Angels"
+        if "space wolves" in low:
+            return "Space Wolves"
+        if "grey knights" in low:
+            return "Grey Knights"
+        if "deathwatch" in low:
+            return "Deathwatch"
+        if "imperial knights" in low:
+            return "Imperial Knights"
+        if "chaos knights" in low:
+            return "Chaos Knights"
+        if "chaos space marines" in low or low == "csm" or "heretic astartes" in low:
+            return "Chaos Space Marines"
+        if "chaos daemons" in low or low == "daemons":
+            return "Chaos Daemons"
+        if "emperor's children" in low or "emperors children" in low:
+            return "Emperor's Children"
+        if "imperial agents" in low or "agents of the imperium" in low:
+            return "Imperial Agents"
+        if "astra militarum" in low or "imperial guard" in low:
+            return "Astra Militarum"
+        if "drukhari" in low:
+            return "Drukhari"
+        if "aeldari" in low or "eldar" in low or "ynnari" in low or "harlequin" in low:
+            return "Aeldari"
+        if "necron" in low:
+            return "Necrons"
+        if "tyranid" in low:
+            return "Tyranids"
+        if "ork" in low:
+            return "Orks"
+        if "space marines" in low or "astartes" in low or "ultramarines" in low:
+            return "Space Marines"
+        return first
+
+    def get_real_team_roster(self, team_name: str, game_system: str = "40k") -> Dict[str, Any]:
+        """Queries real team roster players from PostgreSQL player_ratings and teams_hub_service."""
+        clean_team = str(team_name or "").strip()
+        if not clean_team:
+            return {"team": "", "short_tag": "", "roster": [], "stats": {}}
+
+        roster_out: List[Dict[str, Any]] = []
+        seen_names = set()
+        short_tag = ""
+        stats: Dict[str, Any] = {}
+
+        # 1. Query live PostgreSQL database if available
+        try:
+            from core import get_database
+            db = get_database()
+            if db is not None and hasattr(db, "get_team_roster"):
+                db_res = db.get_team_roster(clean_team, game_system=game_system)
+                if isinstance(db_res, dict) and isinstance(db_res.get("roster"), list):
+                    stats = db_res.get("stats") or {}
+                    for idx, p in enumerate(db_res["roster"]):
+                        pname = str(p.get("player_name") or p.get("name") or "").strip()
+                        if not pname or pname.lower() in seen_names:
+                            continue
+                        seen_names.add(pname.lower())
+                        fac = self._clean_primary_faction(p.get("top_faction") or p.get("faction"))
+                        elo_val = int(round(float(p.get("current_elo") or p.get("elo") or 1800)))
+                        role_lbl = "Top Ace / Spear" if idx == 0 else ("Core / All-Rounder" if idx < 5 else "All-Rounder")
+                        roster_out.append({
+                            "player_id": str(p.get("player_id") or f"p_{idx}"),
+                            "name": pname,
+                            "player_name": pname,
+                            "faction": fac,
+                            "top_faction": str(p.get("top_faction") or fac),
+                            "elo": elo_val,
+                            "current_elo": float(p.get("current_elo") or elo_val),
+                            "matches_played": int(p.get("matches_played") or 0),
+                            "win_rate": float(p.get("win_rate") or 0.0),
+                            "team": clean_team,
+                            "is_active": bool(p.get("is_active", True)),
+                            "role_tag": role_lbl,
+                        })
+        except Exception as err:
+            logger.debug(f"Notice querying PostgreSQL get_team_roster for {clean_team}: {err}")
+
+        # 2. Enrich / fallback from TeamsHubService (real tournament club rosters)
+        try:
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            hub = svc.get_team_hub(clean_team, game_system)
+            if hub and isinstance(hub, dict):
+                clean_team = str(hub.get("name") or clean_team)
+                short_tag = str(hub.get("short_tag") or short_tag)
+                if not stats:
+                    stats = {
+                        "roster_count": hub.get("roster_count", len(hub.get("roster") or [])),
+                        "active_roster_count": hub.get("active_roster_count", len(hub.get("roster") or [])),
+                        "power_rating": hub.get("power_rating", 0.0),
+                        "avg_elo": hub.get("active_avg_elo", 1800.0),
+                    }
+                for idx, p in enumerate(hub.get("roster") or []):
+                    pname = str(p.get("player_name") or p.get("name") or "").strip()
+                    if not pname or pname.lower() in seen_names:
+                        continue
+                    seen_names.add(pname.lower())
+                    fac = self._clean_primary_faction(p.get("top_faction") or p.get("faction"))
+                    elo_val = int(round(float(p.get("current_elo") or p.get("elo") or 1800)))
+                    role_lbl = str(p.get("role") or ("Top Ace" if idx == 0 else "Core"))
+                    roster_out.append({
+                        "player_id": str(p.get("player_id") or f"p_{idx}"),
+                        "name": pname,
+                        "player_name": pname,
+                        "faction": fac,
+                        "top_faction": str(p.get("top_faction") or fac),
+                        "elo": elo_val,
+                        "current_elo": float(p.get("current_elo") or elo_val),
+                        "matches_played": int(p.get("matches_played") or 0),
+                        "win_rate": float(p.get("win_rate") or 0.0),
+                        "team": clean_team,
+                        "is_active": bool(p.get("is_active", True)),
+                        "role_tag": role_lbl,
+                    })
+        except Exception as err:
+            logger.debug(f"Notice querying TeamsHubService for {clean_team}: {err}")
+
+        if not short_tag and clean_team:
+            short_tag = "".join(w[0] for w in clean_team.split() if w).upper()[:4] or clean_team[:3].upper()
+
+        return {
+            "ok": True,
+            "success": True,
+            "team": clean_team,
+            "team_name": clean_team,
+            "short_tag": short_tag,
+            "roster": roster_out,
+            "players": roster_out,
+            "starting_5": roster_out[:5],
+            "stats": stats,
+            "game_system": game_system,
+        }
+
+    def search_real_teams_and_players(self, query: str = "", game_system: str = "40k", limit: int = 24) -> Dict[str, Any]:
+        """Searches real teams and real players from PostgreSQL player_ratings and teams_hub_service."""
+        q_raw = str(query or "").strip()
+        q_low = q_raw.lower()
+        teams_out: List[Dict[str, Any]] = []
+        players_out: List[Dict[str, Any]] = []
+        seen_teams = set()
+        seen_players = set()
+
+        # 1. Query live PostgreSQL database first
+        try:
+            from core import get_database
+            db = get_database()
+            if db is not None:
+                if hasattr(db, "get_teams_leaderboard"):
+                    t_res = db.get_teams_leaderboard(
+                        page=1,
+                        page_size=min(limit, 15),
+                        min_members=1,
+                        query=q_raw if q_raw else None,
+                        game_system=game_system,
+                    )
+                    for t in (t_res.get("items") or []):
+                        tname = str(t.get("team") or t.get("name") or "").strip()
+                        if not tname or tname.lower() in seen_teams:
+                            continue
+                        seen_teams.add(tname.lower())
+                        tag = str(t.get("short_tag") or "".join(w[0] for w in tname.split() if w).upper()[:4] or tname[:3].upper())
+                        rc = int(t.get("roster_count") or t.get("active_roster_count") or 0)
+                        teams_out.append({
+                            "team_name": tname,
+                            "team": tname,
+                            "name": tname,
+                            "short_tag": tag,
+                            "member_count": rc,
+                            "roster_count": rc,
+                            "active_roster_count": int(t.get("active_roster_count") or rc),
+                            "power_rating": float(t.get("power_rating") or 0.0),
+                            "avg_elo": int(round(float(t.get("active_avg_elo") or t.get("avg_elo") or 1800.0))),
+                            "top_player_name": str(t.get("top_player_name") or ""),
+                        })
+
+                raw_players = []
+                if q_raw:
+                    if hasattr(db, "search_players"):
+                        raw_players.extend(db.search_players(q_raw, limit=limit, game_system=game_system) or [])
+                    if len(raw_players) < limit and hasattr(db, "get_players_directory"):
+                        dir_res = db.get_players_directory(
+                            page=1,
+                            page_size=limit,
+                            query=q_raw,
+                            game_system=game_system,
+                        )
+                        raw_players.extend(dir_res.get("items") or [])
+                else:
+                    if hasattr(db, "get_top_ranked_players"):
+                        top_res = db.get_top_ranked_players(
+                            page=1,
+                            page_size=limit,
+                            min_matches=1,
+                            game_system=game_system,
+                        )
+                        raw_players.extend(top_res.get("items") or top_res.get("players") or [])
+
+                for p in raw_players:
+                    pname = str(p.get("player_name") or p.get("name") or "").strip()
+                    if not pname or pname.lower() in seen_players:
+                        continue
+                    seen_players.add(pname.lower())
+                    fac = self._clean_primary_faction(p.get("top_faction") or p.get("faction"))
+                    elo_val = int(round(float(p.get("current_elo") or p.get("elo") or 1800)))
+                    t_lbl = str(p.get("team") or "").strip()
+                    players_out.append({
+                        "player_id": str(p.get("player_id") or ""),
+                        "name": pname,
+                        "player_name": pname,
+                        "faction": fac,
+                        "top_faction": str(p.get("top_faction") or fac),
+                        "elo": elo_val,
+                        "current_elo": float(p.get("current_elo") or elo_val),
+                        "team": t_lbl,
+                        "team_name": t_lbl,
+                        "matches_played": int(p.get("matches_played") or 0),
+                        "win_rate": float(p.get("win_rate") or 0.0),
+                        "role_tag": "All-Rounder",
+                    })
+                    if len(players_out) >= limit:
+                        break
+        except Exception as err:
+            logger.debug(f"Notice searching PostgreSQL for team pairings '{q_raw}': {err}")
+
+        # 2. Enrich / fallback from TeamsHubService real tournament clubs & rosters
+        try:
+            import teams_hub_service
+            svc = teams_hub_service.get_teams_hub_service()
+            t_hub_res = svc.get_teams_leaderboard(
+                game_system=game_system,
+                page=1,
+                page_size=15,
+                query=q_raw if q_raw else None,
+                min_roster=1,
+            )
+            for t in (t_hub_res.get("items") or []):
+                tname = str(t.get("team") or t.get("name") or "").strip()
+                if not tname:
+                    continue
+                if tname.lower() not in seen_teams:
+                    seen_teams.add(tname.lower())
+                    tag = str(t.get("short_tag") or "".join(w[0] for w in tname.split() if w).upper()[:4] or tname[:3].upper())
+                    rc = int(t.get("roster_count") or t.get("active_roster_count") or 0)
+                    teams_out.append({
+                        "team_name": tname,
+                        "team": tname,
+                        "name": tname,
+                        "short_tag": tag,
+                        "member_count": rc,
+                        "roster_count": rc,
+                        "active_roster_count": int(t.get("active_roster_count") or rc),
+                        "power_rating": float(t.get("power_rating") or 0.0),
+                        "avg_elo": int(round(float(t.get("active_avg_elo") or t.get("avg_elo") or 1800.0))),
+                        "top_player_name": str(t.get("top_player_name") or ""),
+                    })
+
+            if len(players_out) < limit:
+                all_hub_teams = svc.get_teams_leaderboard(game_system=game_system, page=1, page_size=50, min_roster=1).get("items") or []
+                for t_summary in all_hub_teams:
+                    tname = str(t_summary.get("team") or t_summary.get("name") or "").strip()
+                    hub = svc.get_team_hub(tname, game_system)
+                    if not hub or not isinstance(hub.get("roster"), list):
+                        continue
+                    for p in hub["roster"]:
+                        pname = str(p.get("player_name") or p.get("name") or "").strip()
+                        if not pname or pname.lower() in seen_players:
+                            continue
+                        fac = self._clean_primary_faction(p.get("top_faction") or p.get("faction"))
+                        if q_low:
+                            haystack = f"{pname} {fac} {tname} {hub.get('short_tag', '')}".lower()
+                            if not all(tok in haystack for tok in q_low.split()):
+                                continue
+                        seen_players.add(pname.lower())
+                        elo_val = int(round(float(p.get("current_elo") or p.get("elo") or 1800)))
+                        players_out.append({
+                            "player_id": str(p.get("player_id") or ""),
+                            "name": pname,
+                            "player_name": pname,
+                            "faction": fac,
+                            "top_faction": str(p.get("top_faction") or fac),
+                            "elo": elo_val,
+                            "current_elo": float(p.get("current_elo") or elo_val),
+                            "team": tname,
+                            "team_name": tname,
+                            "matches_played": int(p.get("matches_played") or 0),
+                            "win_rate": float(p.get("win_rate") or 0.0),
+                            "role_tag": str(p.get("role") or "All-Rounder"),
+                        })
+                        if len(players_out) >= limit:
+                            break
+                    if len(players_out) >= limit:
+                        break
+        except Exception as err:
+            logger.debug(f"Notice searching TeamsHubService for '{q_raw}': {err}")
+
+        # 3. Enrich player search from real SD40K League player careers (data/sd40k_player_careers.json)
+        if len(players_out) < limit and game_system == "40k":
+            try:
+                import json
+                from pathlib import Path
+                careers_path = Path(__file__).resolve().parent / "data" / "sd40k_player_careers.json"
+                if careers_path.exists():
+                    if not hasattr(self, "_sd40k_careers_cache") or self._sd40k_careers_cache is None:
+                        with open(careers_path, "r", encoding="utf-8") as f:
+                            self._sd40k_careers_cache = json.load(f) or {}
+                    for pname_key, cdata in (self._sd40k_careers_cache or {}).items():
+                        pname = str(cdata.get("name") or pname_key or "").strip()
+                        if not pname or pname.lower() in seen_players:
+                            continue
+                        factions_list = [f for f in (cdata.get("factions") or []) if f and str(f).upper() != "N/A"]
+                        fac = self._clean_primary_faction(factions_list[0] if factions_list else "Space Marines")
+                        if q_low:
+                            haystack = f"{pname} {fac} sd40k san diego".lower()
+                            if not all(tok in haystack for tok in q_low.split()):
+                                continue
+                        seen_players.add(pname.lower())
+                        games = int(cdata.get("total_games") or 0)
+                        win_pct_str = str(cdata.get("win_pct") or "50%").replace("%", "").strip()
+                        try:
+                            wr = float(win_pct_str)
+                        except ValueError:
+                            wr = 50.0
+                        elo_est = int(round(1600 + (wr - 50.0) * 6.5 + min(games, 150) * 1.2))
+                        players_out.append({
+                            "player_id": str(cdata.get("bcp_player_id") or f"sd_{pname.lower().replace(' ', '_')}"),
+                            "name": pname,
+                            "player_name": pname,
+                            "faction": fac,
+                            "top_faction": fac,
+                            "elo": elo_est,
+                            "current_elo": float(elo_est),
+                            "team": "SD40K League",
+                            "team_name": "SD40K League",
+                            "matches_played": games,
+                            "win_rate": wr,
+                            "role_tag": "All-Rounder",
+                        })
+                        if len(players_out) >= limit:
+                            break
+            except Exception as err:
+                logger.debug(f"Notice searching sd40k_player_careers.json for '{q_raw}': {err}")
+
+        players_out.sort(key=lambda x: float(x.get("elo") or 0), reverse=True)
+        return {
+            "ok": True,
+            "success": True,
+            "query": q_raw,
+            "teams": teams_out[:12],
+            "players": players_out[:limit],
+        }
+
     def create_pairing_room(self, payload: Optional[Dict[str, Any]] = None, **kwargs: Any) -> Dict[str, Any]:
         import copy
         import secrets
@@ -2379,6 +2764,11 @@ class FirestoreRoomEngine:
         cap_a_token = str(req.get("captain_a_token") or f"capA_{secrets.token_hex(6)}")
         cap_b_token = str(req.get("captain_b_token") or f"capB_{secrets.token_hex(6)}")
         vs_ai = bool(req.get("vs_ai", True))
+        is_locked = bool(req.get("is_locked", False))
+
+        creator_uid = str(req.get("user_id") or req.get("guest_id") or req.get("owner_id") or "").strip() or None
+        seat_a_locked = bool(req.get("seat_a_locked", bool(creator_uid)))
+        seat_b_locked = bool(req.get("seat_b_locked", False))
 
         now_dt = datetime.now(timezone.utc)
         now_ts = int(now_dt.timestamp() * 1000)
@@ -2387,7 +2777,7 @@ class FirestoreRoomEngine:
         team_b_name = str(req.get("team_b_name") or preset_b["name"]).strip()
         tag_a = str(req.get("team_a_tag") or preset_a["short_tag"])
         tag_b = str(req.get("team_b_tag") or preset_b["short_tag"])
-        cap_a_name = str(req.get("captain_a_name") or preset_a["captain_name"])
+        cap_a_name = str(req.get("captain_a_name") or req.get("user_name") or preset_a["captain_name"])
         cap_b_name = str(req.get("captain_b_name") or (f"{preset_b['captain_name']} (AI Bot)" if vs_ai else preset_b["captain_name"]))
 
         room_data: Dict[str, Any] = {
@@ -2398,6 +2788,14 @@ class FirestoreRoomEngine:
             "total_tables": team_size,
             "max_cycles": max_cycles,
             "vs_ai": vs_ai,
+            "is_locked": is_locked,
+            "owner_id": creator_uid,
+            "user_id_cap_a": creator_uid if seat_a_locked else None,
+            "user_id_cap_b": None,
+            "seat_a_locked": seat_a_locked,
+            "seat_b_locked": seat_b_locked,
+            "seat_a_owner_name": cap_a_name if seat_a_locked else None,
+            "seat_b_owner_name": None,
             "captain_a_token": cap_a_token,
             "captain_b_token": cap_b_token,
             "captain_a_name": cap_a_name,
@@ -2484,6 +2882,11 @@ class FirestoreRoomEngine:
         masked["viewer_role"] = viewer_role
         masked["can_interact_a"] = viewer_role == "captain_a"
         masked["can_interact_b"] = viewer_role == "captain_b"
+        masked["is_locked"] = bool(room.get("is_locked", False))
+        masked["seat_a_locked"] = bool(room.get("seat_a_locked", False))
+        masked["seat_b_locked"] = bool(room.get("seat_b_locked", False))
+        masked["seat_a_owner_name"] = room.get("seat_a_owner_name") or (room.get("captain_a_name") if room.get("seat_a_locked") else None)
+        masked["seat_b_owner_name"] = room.get("seat_b_owner_name") or (room.get("captain_b_name") if room.get("seat_b_locked") else None)
 
         phase = masked.get("phase")
         locked_a = bool(masked.get("locked_a"))
@@ -2785,14 +3188,98 @@ class FirestoreRoomEngine:
         if "vs_ai" in req and req["vs_ai"] is not None:
             room["vs_ai"] = bool(req["vs_ai"])
 
+        caller_uid = str(req.get("user_id") or req.get("guest_id") or "").strip()
+
+        if act == "toggle_room_lock":
+            desired_lock = bool(req.get("is_locked", not room.get("is_locked", False)))
+            room["is_locked"] = desired_lock
+            self._save_pairing_room_doc(room["room_code"], room)
+            v_role = self.resolve_viewer_role(room, role_token=role_token, force_role=force_role)
+            return {
+                "ok": True,
+                "success": True,
+                "status_code": 200,
+                "is_locked": desired_lock,
+                "room": self.mask_pairing_room_for_viewer(room, force_role=v_role),
+            }
+
+        if act in ("unlock_seat", "leave_seat"):
+            target_seat = str(req.get("seat") or force_role or "").strip().lower()
+            if target_seat == "captain_a":
+                room["seat_a_locked"] = False
+                room["user_id_cap_a"] = None
+                room["seat_a_owner_name"] = None
+                room["captain_a_claimed"] = False
+            elif target_seat == "captain_b":
+                room["seat_b_locked"] = False
+                room["user_id_cap_b"] = None
+                room["seat_b_owner_name"] = None
+                room["captain_b_claimed"] = bool(room.get("vs_ai"))
+            self._save_pairing_room_doc(room["room_code"], room)
+            return {
+                "ok": True,
+                "success": True,
+                "status_code": 200,
+                "role": "spectator",
+                "room": self.mask_pairing_room_for_viewer(room, force_role="spectator"),
+            }
+
         if act == "claim_seat":
             seat = str(req.get("seat") or force_role or "spectator").strip().lower()
-            cap_name = str(req.get("captain_name") or "").strip()
+            cap_name = str(req.get("captain_name") or req.get("user_name") or "").strip()
+            has_token_a = bool(role_token and role_token == room.get("captain_a_token"))
+            has_token_b = bool(role_token and role_token == room.get("captain_b_token"))
+
             if seat == "captain_a":
+                existing_owner_a = str(room.get("user_id_cap_a") or "").strip()
+                if (
+                    room.get("seat_a_locked")
+                    and existing_owner_a
+                    and caller_uid
+                    and existing_owner_a != caller_uid
+                    and not has_token_a
+                ):
+                    owner_lbl = room.get("seat_a_owner_name") or room.get("captain_a_name") or "Player 1"
+                    return {
+                        "ok": False,
+                        "success": False,
+                        "status_code": 409,
+                        "error": f"Team A Captain seat is locked by {owner_lbl}.",
+                        "room": self.mask_pairing_room_for_viewer(room, force_role="spectator"),
+                    }
+                if (
+                    room.get("is_locked")
+                    and room.get("owner_id")
+                    and caller_uid
+                    and caller_uid != str(room.get("owner_id"))
+                    and caller_uid != existing_owner_a
+                    and not has_token_a
+                ):
+                    return {
+                        "ok": False,
+                        "success": False,
+                        "status_code": 403,
+                        "error": "Room is locked by owner. Joining as Spectator.",
+                        "role": "spectator",
+                        "room": self.mask_pairing_room_for_viewer(room, force_role="spectator"),
+                    }
+                # Release Seat B if this same caller held Seat B
+                if caller_uid and str(room.get("user_id_cap_b") or "") == caller_uid:
+                    room["seat_b_locked"] = False
+                    room["user_id_cap_b"] = None
+                    room["seat_b_owner_name"] = None
                 if cap_name:
                     room["captain_a_name"] = cap_name
                     room["team_a"]["captain_name"] = cap_name
+                    room["seat_a_owner_name"] = cap_name
+                else:
+                    room["seat_a_owner_name"] = room.get("seat_a_owner_name") or room.get("captain_a_name")
                 room["captain_a_claimed"] = True
+                room["seat_a_locked"] = True
+                if caller_uid:
+                    room["user_id_cap_a"] = caller_uid
+                    if not room.get("owner_id"):
+                        room["owner_id"] = caller_uid
                 self._save_pairing_room_doc(room["room_code"], room)
                 return {
                     "ok": True,
@@ -2803,11 +3290,57 @@ class FirestoreRoomEngine:
                     "room": self.mask_pairing_room_for_viewer(room, force_role="captain_a"),
                 }
             if seat == "captain_b":
+                existing_owner_b = str(room.get("user_id_cap_b") or "").strip()
+                if (
+                    room.get("seat_b_locked")
+                    and existing_owner_b
+                    and caller_uid
+                    and existing_owner_b != caller_uid
+                    and not has_token_b
+                ):
+                    owner_lbl = room.get("seat_b_owner_name") or room.get("captain_b_name") or "Player 2"
+                    return {
+                        "ok": False,
+                        "success": False,
+                        "status_code": 409,
+                        "error": f"Team B Captain seat is locked by {owner_lbl}.",
+                        "room": self.mask_pairing_room_for_viewer(room, force_role="spectator"),
+                    }
+                if (
+                    room.get("is_locked")
+                    and room.get("owner_id")
+                    and caller_uid
+                    and caller_uid != str(room.get("owner_id"))
+                    and caller_uid != existing_owner_b
+                    and not has_token_b
+                ):
+                    return {
+                        "ok": False,
+                        "success": False,
+                        "status_code": 403,
+                        "error": "Room is locked by owner. Joining as Spectator.",
+                        "role": "spectator",
+                        "room": self.mask_pairing_room_for_viewer(room, force_role="spectator"),
+                    }
+                # Release Seat A if this same caller held Seat A
+                if caller_uid and str(room.get("user_id_cap_a") or "") == caller_uid:
+                    room["seat_a_locked"] = False
+                    room["user_id_cap_a"] = None
+                    room["seat_a_owner_name"] = None
                 room["vs_ai"] = False
                 room["captain_b_claimed"] = True
+                room["seat_b_locked"] = True
+                if caller_uid:
+                    room["user_id_cap_b"] = caller_uid
                 if cap_name:
                     room["captain_b_name"] = cap_name
                     room["team_b"]["captain_name"] = cap_name
+                    room["seat_b_owner_name"] = cap_name
+                else:
+                    clean_b = str(room.get("captain_b_name") or "Captain B").replace(" (AI Bot)", "")
+                    room["captain_b_name"] = clean_b
+                    room["team_b"]["captain_name"] = clean_b
+                    room["seat_b_owner_name"] = clean_b
                 self._save_pairing_room_doc(room["room_code"], room)
                 return {
                     "ok": True,
@@ -2817,6 +3350,16 @@ class FirestoreRoomEngine:
                     "captain_token": room["captain_b_token"],
                     "room": self.mask_pairing_room_for_viewer(room, force_role="captain_b"),
                 }
+            # Spectator seat: release any Captain seat held by this caller
+            if caller_uid:
+                if str(room.get("user_id_cap_a") or "") == caller_uid:
+                    room["seat_a_locked"] = False
+                    room["user_id_cap_a"] = None
+                    room["seat_a_owner_name"] = None
+                if str(room.get("user_id_cap_b") or "") == caller_uid:
+                    room["seat_b_locked"] = False
+                    room["user_id_cap_b"] = None
+                    room["seat_b_owner_name"] = None
             room["spectator_count"] = int(room.get("spectator_count") or 0) + 1
             self._save_pairing_room_doc(room["room_code"], room)
             return {

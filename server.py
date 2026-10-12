@@ -1075,7 +1075,10 @@ def serve_admin_team_pairings(request: Request, token: Optional[str] = Query(Non
         or user_role in ("admin", "superuser", "developer", "owner")
         or (bool(superadmin_email) and user_email == superadmin_email)
     )
-    if not is_admin:
+    qp = getattr(request, "query_params", None)
+    raw_room_param = qp.get("room") if hasattr(qp, "get") else None
+    has_shared_room = isinstance(raw_room_param, str) and bool(raw_room_param.strip())
+    if not is_admin and not has_shared_room:
         if not user:
             return _clear_stale_auth_cookies(
                 RedirectResponse(url="/login?redirect=/admin/team-pairings", status_code=303, headers=NO_CACHE_HEADERS)
@@ -1103,6 +1106,41 @@ def serve_team_pairings_js():
     if js_file.exists():
         return FileResponse(str(js_file), media_type="application/javascript", headers=NO_CACHE_HEADERS)
     raise HTTPException(status_code=404, detail="team_pairings/app.js not found")
+
+
+@app.get("/api/team-pairings/search", include_in_schema=False)
+def api_search_team_pairings_entities(
+    q: str = Query(""),
+    game_system: str = Query("40k"),
+    limit: int = Query(24, ge=1, le=50),
+):
+    fs_engine = get_firestore_engine()
+    res = fs_engine.search_real_teams_and_players(query=q, game_system=game_system, limit=limit)
+    return JSONResponse(res, headers=NO_CACHE_HEADERS)
+
+
+@app.get("/api/team-pairings/team/{team_name}", include_in_schema=False)
+def api_get_team_pairings_roster(
+    team_name: str,
+    game_system: str = Query("40k"),
+):
+    fs_engine = get_firestore_engine()
+    decoded_name = urllib.parse.unquote(team_name or "").strip()
+    raw_res = fs_engine.get_real_team_roster(decoded_name, game_system=game_system)
+    players = (raw_res.get("roster") or raw_res.get("players") or []) if isinstance(raw_res, dict) else list(raw_res or [])
+    resolved_team = (raw_res.get("team") if isinstance(raw_res, dict) else None) or decoded_name
+    return JSONResponse(
+        {
+            "ok": True,
+            "success": True,
+            "team_name": resolved_team,
+            "game_system": game_system,
+            "players": players,
+            "roster": players,
+            "count": len(players),
+        },
+        headers=NO_CACHE_HEADERS,
+    )
 
 
 @app.post("/api/team-pairings/room", include_in_schema=False)

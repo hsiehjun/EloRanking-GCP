@@ -841,7 +841,7 @@ html, body {
 .ygo-card.selected::before {
   content: "✓ READY";
   position: absolute;
-  bottom: 24px;
+  bottom: 36px;
   left: 50%;
   transform: translateX(-50%);
   background: linear-gradient(135deg, #f59e0b, #fbbf24);
@@ -1623,6 +1623,368 @@ html, body {
   font-weight: 700;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.75);
   z-index: 200;
+}
+
+/* ============================================================================
+   RETRIBUTION ARMORY SVG FACTION SIGILS
+   ============================================================================ */
+.yc-attr,
+.insp-attribute,
+.srp-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.yc-attr svg,
+.yc-attr .armory-faction-svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.yc-emblem {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+}
+
+.yc-emblem svg,
+.yc-emblem .armory-faction-svg {
+  width: 44px;
+  height: 44px;
+  display: block;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.85));
+}
+
+.ygo-card.field-size .yc-emblem {
+  width: 36px;
+  height: 36px;
+}
+
+.ygo-card.field-size .yc-emblem svg,
+.ygo-card.field-size .yc-emblem .armory-faction-svg {
+  width: 34px;
+  height: 34px;
+}
+
+.insp-attribute svg,
+.insp-attribute .armory-faction-svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.insp-big-emblem {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+}
+
+.insp-big-emblem svg,
+.insp-big-emblem .armory-faction-svg {
+  width: 78px;
+  height: 78px;
+  display: block;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.9));
+}
+
+.srp-ico svg,
+.srp-ico .armory-faction-svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.duelist-avatar svg,
+.duelist-avatar .armory-faction-svg {
+  width: 28px;
+  height: 28px;
+  display: block;
+}
+
+.clash-side-ico {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.clash-side-ico svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ============================================================================
+   GAME TRACKER-STYLE ROOM ACCESS BAR & SEAT LOCKING
+   ============================================================================ */
+.room-lock-pill {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.16);
+  color: #6ee7b7;
+  transition: all 0.15s ease;
+}
+
+.room-lock-pill.locked {
+  border-color: rgba(244, 63, 94, 0.65);
+  background: rgba(244, 63, 94, 0.2);
+  color: #fda4af;
+}
+
+.gt-room-access-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 9px 18px;
+  background: linear-gradient(90deg, rgba(6, 18, 38, 0.96), rgba(15, 23, 42, 0.96));
+  border-bottom: 1px solid rgba(0, 229, 255, 0.28);
+}
+
+.gt-room-code-group,
+.gt-room-join-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gt-access-lbl {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: var(--text-dim);
+}
+
+.gt-access-btn {
+  background: rgba(30, 41, 59, 0.95);
+  border: 1px solid rgba(0, 229, 255, 0.42);
+  color: #e2e8f0;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.gt-access-btn:hover {
+  border-color: var(--gold-bright);
+  color: #fff;
+}
+
+.gt-access-btn.lock-toggle.unlocked {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.16);
+  color: #6ee7b7;
+}
+
+.gt-access-btn.lock-toggle.locked {
+  border-color: rgba(244, 63, 94, 0.65);
+  background: rgba(244, 63, 94, 0.22);
+  color: #fda4af;
+}
+
+.gt-access-btn.primary {
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.24), rgba(37, 99, 235, 0.4));
+  border-color: var(--cyan-glow);
+  color: #fff;
+}
+
+.gt-name-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.lobby-input.compact {
+  padding: 4px 8px;
+  width: 128px;
+}
+
+.lobby-input.compact.mono {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  width: 120px;
+}
+
+.gt-room-lock-status {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: #6ee7b7;
+}
+
+.gt-room-lock-status.locked {
+  color: #fda4af;
+}
+
+.seat-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.seat-lock-pill {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.18);
+  border: 1px solid rgba(16, 185, 129, 0.48);
+  color: #6ee7b7;
+}
+
+.seat-lock-pill.mine {
+  background: rgba(245, 185, 66, 0.22);
+  border-color: var(--gold-bright);
+  color: var(--gold-bright);
+}
+
+.seat-lock-pill.taken {
+  background: rgba(244, 63, 94, 0.22);
+  border-color: rgba(244, 63, 94, 0.6);
+  color: #fda4af;
+}
+
+.seat-owner-line {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: #fde68a;
+}
+
+.seat-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.seat-unlock-btn {
+  background: rgba(244, 63, 94, 0.2);
+  border: 1px solid rgba(244, 63, 94, 0.55);
+  color: #fda4af;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.lobby-seat-card.locked-other {
+  border-color: rgba(244, 63, 94, 0.45);
+  background: rgba(30, 12, 24, 0.65);
+  opacity: 0.85;
+}
+
+/* ============================================================================
+   REAL TEAM SEARCH PILLS & TEAM ROSTER PLAYERS DRAWER UNDERNEATH
+   ============================================================================ */
+.search-result-pill.team-pill {
+  background: linear-gradient(135deg, rgba(30, 58, 138, 0.85), rgba(15, 23, 42, 0.96));
+  border: 1.5px solid var(--gold-bright);
+  box-shadow: 0 0 12px rgba(245, 185, 66, 0.22);
+}
+
+.search-result-pill.team-pill.active-team {
+  background: linear-gradient(135deg, rgba(245, 185, 66, 0.28), rgba(30, 58, 138, 0.92));
+  box-shadow: 0 0 16px rgba(245, 185, 66, 0.45);
+}
+
+.srp-team-badge {
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  font-weight: 900;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(245, 185, 66, 0.22);
+  border: 1px solid var(--gold-bright);
+  color: var(--gold-bright);
+  margin-right: 4px;
+}
+
+.team-roster-drawer {
+  margin: 4px 0 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: linear-gradient(160deg, rgba(12, 25, 52, 0.95) 0%, rgba(5, 11, 24, 0.98) 100%);
+  border: 1.5px solid rgba(0, 229, 255, 0.5);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.65);
+}
+
+.team-roster-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.trd-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #fff;
+}
+
+.trd-badge {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(0, 229, 255, 0.18);
+  border: 1px solid var(--cyan-glow);
+  color: var(--cyan-glow);
+}
+
+.trd-sub {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+.trd-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lobby-mini-btn.accent {
+  background: linear-gradient(135deg, rgba(245, 185, 66, 0.26), rgba(217, 119, 6, 0.36));
+  border-color: var(--gold-bright);
+  color: #fef08a;
+}
+
+.team-roster-players-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  max-height: 124px;
+  overflow-y: auto;
+  padding: 2px;
 }
 
 @media (max-width: 1100px) {

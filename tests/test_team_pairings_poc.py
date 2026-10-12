@@ -387,7 +387,125 @@ class TestTeamPairingsPoC(unittest.TestCase):
             ["Nemo", "conankun", "Innes Wilson", "Folger Pyles", "Vik Vijay"],
         )
 
+    def test_real_teams_and_players_search_and_zero_mock_data(self):
+        """Verify search_real_teams_and_players & get_real_team_roster return real data and app.js has zero mock player pools."""
+        app_js = (ROOT_DIR / "web" / "team_pairings" / "app.js").read_text(encoding="utf-8")
+        self.assertNotIn("SEARCHABLE_PLAYERS_POOL", app_js)
+        self.assertNotIn("isCustom: true", app_js)
+        self.assertIn("/api/team-pairings/search", app_js)
+        self.assertIn("/api/team-pairings/team/", app_js)
+
+        search_res = self.engine.search_real_teams_and_players(query="Art of War", game_system="40k")
+        self.assertTrue(search_res["success"])
+        self.assertGreaterEqual(len(search_res["teams"]), 1)
+        self.assertTrue(any("Art of War" in t["team_name"] for t in search_res["teams"]))
+
+        roster_res = self.engine.get_real_team_roster("Team Zero Comp", game_system="40k")
+        roster = roster_res["players"] if isinstance(roster_res, dict) else roster_res
+        self.assertGreaterEqual(len(roster), 5)
+        self.assertTrue(any(p["name"] == "Mani Cheema" or p["name"] == "Liam VSL" or p["elo"] >= 1500 for p in roster))
+
+    def test_retribution_armory_faction_svgs_wired(self):
+        """Verify Retribution Armory faction SVGs (/js/armory_svgs.js & window.getArmoryAvatarSvg) are wired."""
+        html = (ROOT_DIR / "web" / "team_pairings" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('/js/armory_svgs.js', html)
+        self.assertIn('id="teamRosterPlayersSection"', html)
+
+        app_js = (ROOT_DIR / "web" / "team_pairings" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("getArmoryAvatarSvg", app_js)
+        self.assertIn("avatar_aeldari", app_js)
+        self.assertIn("avatar_necrons", app_js)
+        self.assertIn("avatar_adeptus_custodes", app_js)
+        self.assertIn("avatar_world_eaters", app_js)
+
+    def test_game_tracker_style_seat_locking_and_room_lock_access(self):
+        """Verify Game Tracker-style seat locking (409 when seat taken by another user), seat unlocking, room lock, and shared link access."""
+        room = self.engine.create_pairing_room({
+            "format_size": "5v5",
+            "team_a_preset": "art_of_war",
+            "team_b_preset": "team_zero_comp",
+            "vs_ai": False,
+            "owner_id": "user_alpha",
+        })
+        code = room["room_code"]
+
+        # 1. User Alpha claims Team A Captain seat -> Seat A becomes locked to user_alpha
+        claim_a = self.engine.apply_pairing_action(code, {
+            "action": "claim_seat",
+            "role": "captain_a",
+            "user_id": "user_alpha",
+            "user_name": "Alpha Cap",
+        })
+        self.assertTrue(claim_a["ok"])
+        self.assertTrue(claim_a["room"]["seat_a_locked"])
+        self.assertEqual(claim_a["room"]["user_id_cap_a"], "user_alpha")
+        self.assertEqual(claim_a["room"]["seat_a_owner_name"], "Alpha Cap")
+
+        # 2. User Beta tries to claim Team A Captain seat -> Rejected with 409 Conflict because seat is locked!
+        steal_a = self.engine.apply_pairing_action(code, {
+            "action": "claim_seat",
+            "role": "captain_a",
+            "user_id": "user_beta",
+            "user_name": "Beta Cap",
+            "captain_token": "",
+        })
+        self.assertFalse(steal_a["ok"])
+        self.assertEqual(steal_a["status_code"], 409)
+        self.assertIn("locked", steal_a["error"].lower())
+
+        # 3. User Beta claims open Team B Captain seat -> Succeeds and locks Seat B!
+        claim_b = self.engine.apply_pairing_action(code, {
+            "action": "claim_seat",
+            "role": "captain_b",
+            "user_id": "user_beta",
+            "user_name": "Beta Cap",
+        })
+        self.assertTrue(claim_b["ok"])
+        self.assertTrue(claim_b["room"]["seat_b_locked"])
+        self.assertEqual(claim_b["room"]["user_id_cap_b"], "user_beta")
+
+        # 4. User Beta unlocks/leaves Seat B -> Seat B is open again
+        unlock_b = self.engine.apply_pairing_action(code, {
+            "action": "unlock_seat",
+            "role": "captain_b",
+            "user_id": "user_beta",
+            "captain_token": claim_b["captain_token"],
+        })
+        self.assertTrue(unlock_b["ok"])
+        self.assertFalse(unlock_b["room"]["seat_b_locked"])
+
+        # 5. Room owner locks the room -> User Gamma cannot claim open Seat B (403 Forbidden)
+        lock_room = self.engine.apply_pairing_action(code, {
+            "action": "toggle_room_lock",
+            "user_id": "user_alpha",
+            "captain_token": claim_a["captain_token"],
+        })
+        self.assertTrue(lock_room["ok"])
+        self.assertTrue(lock_room["room"]["is_locked"])
+
+        gamma_claim = self.engine.apply_pairing_action(code, {
+            "action": "claim_seat",
+            "role": "captain_b",
+            "user_id": "user_gamma",
+            "user_name": "Gamma",
+        })
+        self.assertFalse(gamma_claim["ok"])
+        self.assertEqual(gamma_claim["status_code"], 403)
+
+        # 6. Shared room URL (?room=WTC-XXXX) allows any player/guest with the link to load the lobby HTML
+        mock_req = MagicMock()
+        mock_req.headers = {}
+        mock_req.cookies = {}
+        mock_req.query_params = {"room": code}
+        mock_auth_mgr = MagicMock()
+        mock_auth_mgr.get_session.return_value = None
+        with patch.object(server, "get_auth_manager", return_value=mock_auth_mgr):
+            resp = server.serve_admin_team_pairings(mock_req, token=None)
+            tp_path = Path(str(getattr(resp, "path", "")))
+            self.assertTrue(tp_path.is_file(), f"Expected shared room link to serve index.html, got {resp}")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

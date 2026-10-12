@@ -24,17 +24,20 @@
         </div>
       </div>
 
-      <!-- Quick Seat Pills & Room Code -->
+      <!-- Quick Seat Pills & Room Access Status -->
       <div class="topbar-center" id="roleSelectorPills">
-        <span class="room-code-pill" id="roomCodeBadge">ROOM: ----</span>
+        <span class="room-code-pill" id="roomCodeBadge" title="Room Code">ROOM: ----</span>
+        <button type="button" class="room-lock-pill unlocked" id="btnTopbarRoomLock" title="Toggle Room Lock (Unlocked vs Locked)">
+          🔓 UNLOCKED
+        </button>
         <button type="button" class="seat-chip active" id="btnRoleCapA" data-role="captain_a">👑 Team A Cap</button>
         <button type="button" class="seat-chip" id="btnRoleCapB" data-role="captain_b">👑 Team B Cap</button>
         <button type="button" class="seat-chip" id="btnRoleSpectator" data-role="spectator">👁️ Spectator</button>
-        <button type="button" class="btn-lobby-open" id="btnOpenLobbyModal">🪑 Seats &amp; Build Team</button>
+        <button type="button" class="btn-lobby-open" id="btnOpenLobbyModal">🪑 Lobby &amp; Roster</button>
       </div>
 
       <div class="topbar-right">
-        <label class="ai-quick-toggle" title="Auto-play opposing Captain">
+        <label class="ai-quick-toggle" title="Auto-play opposing Captain if seat is open">
           <input type="checkbox" id="chkVsAi" checked>
           <span>🤖 vs AI</span>
         </label>
@@ -48,22 +51,22 @@
 
     <!-- Spectator Read-Only Banner -->
     <div id="spectatorBanner" class="spectator-strip hidden">
-      👁️ <strong>SPECTATOR VIEW (READ-ONLY)</strong> — Watching live duel field. Only the 2 Team Captains can place or flip cards.
+      👁️ <strong>SPECTATOR VIEW (READ-ONLY)</strong> — Watching live duel field. Only the 2 locked Team Captains can place or flip cards.
     </div>
 
     <!-- Main 3-Zone Yu-Gi-Oh! Duel Screen -->
     <div class="ygo-duel-stage">
-      <!-- 1. LEFT PANEL: Card Inspector (Yu-Gi-Oh style full card detail view) -->
+      <!-- 1. LEFT PANEL: Card Inspector (Yu-Gi-Oh style full card detail view with Armory SVG Sigils) -->
       <aside class="ygo-inspector-panel" id="cardInspectorPanel">
         <div class="inspector-card-frame" id="inspectorCardFrame">
           <div class="insp-header">
             <span class="insp-name" id="inspCardName">Richard Siegler</span>
-            <span class="insp-attribute" id="inspCardIcon">🔮</span>
+            <span class="insp-attribute" id="inspCardIcon"></span>
           </div>
           <div class="insp-stars" id="inspCardStars">★★★★★★★★</div>
           <div class="insp-art-box" id="inspCardArtBox">
             <div class="insp-art-glow"></div>
-            <div class="insp-big-emblem" id="inspBigEmblem">🔮</div>
+            <div class="insp-big-emblem" id="inspBigEmblem"></div>
             <div class="insp-faction-banner" id="inspCardFaction">Aeldari</div>
           </div>
           <div class="insp-type-box">
@@ -209,7 +212,7 @@
       <aside class="ygo-right-hud">
         <!-- Opponent Duelist LP/Status Box -->
         <div class="duelist-lp-box opponent-box">
-          <div class="duelist-avatar opp-avatar">👹</div>
+          <div class="duelist-avatar opp-avatar" id="oppHudAvatar"></div>
           <div class="duelist-info">
             <div class="duelist-team-row">
               <span class="duelist-tag opp-tag" id="oppHudTag">TZC</span>
@@ -222,7 +225,7 @@
 
         <!-- Your Duelist LP/Status Box -->
         <div class="duelist-lp-box player-box">
-          <div class="duelist-avatar my-avatar">👑</div>
+          <div class="duelist-avatar my-avatar" id="myHudAvatar"></div>
           <div class="duelist-info">
             <div class="duelist-team-row">
               <span class="duelist-tag my-tag" id="myHudTag">AOW</span>
@@ -258,52 +261,99 @@
       </aside>
     </div>
 
-    <!-- ROOM ENTRY LOBBY & PLAYER SEARCH DECK BUILDER MODAL -->
+    <!-- GAME TRACKER-STYLE ROOM LOBBY, SEAT LOCKING & REAL TEAM/PLAYER SEARCH MODAL -->
     <div class="lobby-modal-backdrop" id="lobbyModalBackdrop">
       <div class="lobby-modal-card">
         <div class="lobby-modal-header">
           <div>
-            <h2>⚔️ ENTER DUEL ROOM &amp; SELECT YOUR SEAT</h2>
-            <p>Choose your seat below. Captains can search and select any 5 players to build their Team Card Hand!</p>
+            <h2>⚔️ TEAM PAIRINGS ROOM LOBBY &amp; ROSTER BUILDER</h2>
+            <p>Share the room link or code like the Game Tracker Lobby. Claim &amp; lock your Captain seat, then search real Teams or Players!</p>
           </div>
           <button type="button" class="lobby-close-btn" id="btnCloseLobbyModal" title="Return to Duel Field">✕</button>
         </div>
 
-        <!-- Step 1: Select Your Seat -->
+        <!-- Game Tracker-Style Room Sharing & Access Control Bar -->
+        <div class="gt-room-access-bar">
+          <div class="gt-room-code-group">
+            <span class="gt-access-lbl">ROOM CODE:</span>
+            <span class="lobby-room-pill" id="lobbyRoomCodeText">WTC-NEW</span>
+            <button type="button" class="gt-access-btn" id="btnLobbyCopyLink" title="Copy shareable room URL">
+              📋 Share Room Link
+            </button>
+            <button type="button" class="gt-access-btn lock-toggle unlocked" id="btnLobbyToggleLock" title="Lock or Unlock Room Access">
+              🔓 Room Unlocked (Open Access)
+            </button>
+          </div>
+          <div class="gt-room-join-group">
+            <label class="gt-name-label">
+              <span>Your Name:</span>
+              <input type="text" id="lobbyUserNameInput" class="lobby-input compact" placeholder="Captain Name" maxlength="24">
+            </label>
+            <input type="text" id="lobbyJoinCodeInput" class="lobby-input compact mono" placeholder="Enter Room Code..." maxlength="14">
+            <button type="button" class="gt-access-btn primary" id="btnLobbyJoinRoom">Join Room</button>
+          </div>
+        </div>
+
+        <!-- Step 1: Select & Lock Your Seat -->
         <div class="lobby-section">
-          <div class="lobby-step-title">1. SELECT YOUR SEAT IN ROOM <span class="lobby-room-pill" id="lobbyRoomCodeText">WTC-NEW</span></div>
+          <div class="lobby-step-title">
+            <span>1. CLAIM YOUR LOBBY SEAT (SEATS LOCK WHEN TAKEN)</span>
+            <span class="gt-room-lock-status" id="lobbyRoomAccessStatusBadge">🟢 UNLOCKED LOBBY — Anyone with link can join</span>
+          </div>
           <div class="lobby-seats-grid">
             <div class="lobby-seat-card active" id="lobbySeatCapA" data-seat="captain_a">
-              <div class="seat-icon">👑</div>
+              <div class="seat-card-top">
+                <div class="seat-icon">👑</div>
+                <span class="seat-lock-pill" id="seatLockBadgeCapA">🟢 OPEN SEAT</span>
+              </div>
               <div class="seat-title">Team A Captain</div>
-              <div class="seat-desc">1 Player Seat • Build Team A Hand &amp; Place Cards from Bottom View</div>
-              <span class="seat-badge can-act">INTERACTIVE SEAT</span>
+              <div class="seat-owner-line" id="seatOwnerTextCapA">Available to claim</div>
+              <div class="seat-desc">1 Captain Seat • Search real teams/players &amp; play from Bottom Hand</div>
+              <div class="seat-card-actions">
+                <span class="seat-badge can-act" id="seatActionBadgeCapA">CLAIM &amp; LOCK SEAT</span>
+                <button type="button" class="seat-unlock-btn hidden" id="btnUnlockSeatA" data-unlock-seat="captain_a">🔓 Leave Seat</button>
+              </div>
             </div>
+
             <div class="lobby-seat-card" id="lobbySeatCapB" data-seat="captain_b">
-              <div class="seat-icon">🔥</div>
+              <div class="seat-card-top">
+                <div class="seat-icon">🔥</div>
+                <span class="seat-lock-pill" id="seatLockBadgeCapB">🟢 OPEN SEAT</span>
+              </div>
               <div class="seat-title">Team B Captain</div>
-              <div class="seat-desc">1 Player Seat • Build Team B Hand &amp; Place Cards from Bottom View</div>
-              <span class="seat-badge can-act">INTERACTIVE SEAT</span>
+              <div class="seat-owner-line" id="seatOwnerTextCapB">Available to claim</div>
+              <div class="seat-desc">1 Captain Seat • Search real teams/players &amp; play from Bottom Hand</div>
+              <div class="seat-card-actions">
+                <span class="seat-badge can-act" id="seatActionBadgeCapB">CLAIM &amp; LOCK SEAT</span>
+                <button type="button" class="seat-unlock-btn hidden" id="btnUnlockSeatB" data-unlock-seat="captain_b">🔓 Leave Seat</button>
+              </div>
             </div>
+
             <div class="lobby-seat-card" id="lobbySeatSpectator" data-seat="spectator">
-              <div class="seat-icon">👁️</div>
+              <div class="seat-card-top">
+                <div class="seat-icon">👁️</div>
+                <span class="seat-lock-pill spec">🟢 UNLIMITED</span>
+              </div>
               <div class="seat-title">Spectator</div>
-              <div class="seat-desc">Unlimited Viewers • Watch the Card Duel Live (Cannot Touch Cards)</div>
-              <span class="seat-badge view-only">VIEW ONLY</span>
+              <div class="seat-owner-line">Open to all viewers</div>
+              <div class="seat-desc">Unlimited Viewers • Watch the Card Duel Live (Read-Only)</div>
+              <div class="seat-card-actions">
+                <span class="seat-badge view-only">WATCH LIVE</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Step 2: Build Your Team Hand via Player Search (Shown for Captain A or Captain B) -->
+        <!-- Step 2: Build Your Team Hand via Real Team / Player Search -->
         <div class="lobby-section" id="lobbyDeckBuilderSection">
           <div class="lobby-builder-top">
             <div class="lobby-step-title">
-              2. BUILD YOUR 5-CARD TEAM HAND (<span id="lobbyDeckCountLabel">5 / 5</span> CARDS)
+              2. SEARCH REAL TEAMS OR PLAYERS (<span id="lobbyDeckCountLabel">5 / 5</span> CARDS IN HAND)
             </div>
             <div class="lobby-team-meta">
               <label>
                 <span>Team Name:</span>
-                <input type="text" id="lobbyTeamNameInput" class="lobby-input" value="Art of War" maxlength="28">
+                <input type="text" id="lobbyTeamNameInput" class="lobby-input" value="Art of War" maxlength="32">
               </label>
               <label>
                 <span>Format:</span>
@@ -312,12 +362,12 @@
                   <option value="8v8">8v8 (8 Cards)</option>
                 </select>
               </label>
-              <button type="button" id="btnQuickFillTeam" class="lobby-mini-btn">⚡ Auto-Fill Pro Team</button>
+              <button type="button" id="btnQuickFillTeam" class="lobby-mini-btn">⚡ Load Real Team Roster</button>
               <button type="button" id="btnClearTeamHand" class="lobby-mini-btn danger">🗑️ Clear Hand</button>
             </div>
           </div>
 
-          <!-- Player Search Bar + Faction Picker -->
+          <!-- Real Team & Player Search Bar + Faction Override -->
           <div class="player-search-bar-wrap">
             <div class="search-input-box">
               <span class="search-icon">🔍</span>
@@ -325,38 +375,63 @@
                 type="text"
                 id="playerSearchInput"
                 class="player-search-input"
-                placeholder="Search players by name or faction (e.g. Siegler, Innes, Lennon, Mani, Necrons, Aeldari)..."
+                placeholder="Search REAL Teams (e.g. Art of War, Team Zero Comp, Stat Check) or Players (e.g. Siegler, Innes, Lennon)..."
                 autocomplete="off"
               >
             </div>
             <select id="playerSearchFactionOverride" class="lobby-select" title="Optional Faction Override when adding player">
               <option value="">Default Player Faction</option>
-              <option value="Aeldari">🔮 Aeldari</option>
-              <option value="Necrons">💀 Necrons</option>
-              <option value="Adeptus Custodes">🦅 Adeptus Custodes</option>
-              <option value="Space Marines">⚡ Space Marines</option>
-              <option value="Blood Angels">🩸 Blood Angels</option>
-              <option value="Dark Angels">🗡️ Dark Angels</option>
-              <option value="World Eaters">🩸 World Eaters</option>
-              <option value="Thousand Sons">👁️ Thousand Sons</option>
-              <option value="Death Guard">☣️ Death Guard</option>
-              <option value="T'au Empire">🎯 T'au Empire</option>
-              <option value="Orks">🪓 Orks</option>
-              <option value="Tyranids">🦂 Tyranids</option>
-              <option value="Astra Militarum">🛡️ Astra Militarum</option>
-              <option value="Chaos Daemons">👹 Chaos Daemons</option>
-              <option value="Chaos Space Marines">🔥 Chaos Space Marines</option>
-              <option value="Drukhari">🕷️ Drukhari</option>
-              <option value="Grey Knights">⚔️ Grey Knights</option>
-              <option value="Sisters of Battle">⚜️ Sisters of Battle</option>
-              <option value="Imperial Knights">🏰 Imperial Knights</option>
-              <option value="Chaos Knights">🤖 Chaos Knights</option>
-              <option value="Leagues of Votann">⛏️ Leagues of Votann</option>
+              <option value="Aeldari">Aeldari</option>
+              <option value="Necrons">Necrons</option>
+              <option value="Adeptus Custodes">Adeptus Custodes</option>
+              <option value="Space Marines">Space Marines</option>
+              <option value="Blood Angels">Blood Angels</option>
+              <option value="Dark Angels">Dark Angels</option>
+              <option value="Black Templars">Black Templars</option>
+              <option value="Space Wolves">Space Wolves</option>
+              <option value="Deathwatch">Deathwatch</option>
+              <option value="World Eaters">World Eaters</option>
+              <option value="Thousand Sons">Thousand Sons</option>
+              <option value="Death Guard">Death Guard</option>
+              <option value="Emperor's Children">Emperor's Children</option>
+              <option value="T'au Empire">T'au Empire</option>
+              <option value="Orks">Orks</option>
+              <option value="Tyranids">Tyranids</option>
+              <option value="Genestealer Cults">Genestealer Cults</option>
+              <option value="Astra Militarum">Astra Militarum</option>
+              <option value="Chaos Daemons">Chaos Daemons</option>
+              <option value="Chaos Space Marines">Chaos Space Marines</option>
+              <option value="Drukhari">Drukhari</option>
+              <option value="Grey Knights">Grey Knights</option>
+              <option value="Adepta Sororitas">Adepta Sororitas</option>
+              <option value="Adeptus Mechanicus">Adeptus Mechanicus</option>
+              <option value="Imperial Knights">Imperial Knights</option>
+              <option value="Chaos Knights">Chaos Knights</option>
+              <option value="Leagues of Votann">Leagues of Votann</option>
+              <option value="Imperial Agents">Imperial Agents</option>
             </select>
           </div>
 
-          <!-- Search Results Strip (Click a player to add to your 5-card hand) -->
+          <!-- Search Results Strip: Shows Real Teams & Real Players -->
           <div class="search-results-strip" id="playerSearchResults"></div>
+
+          <!-- Team Roster Drawer: Populates underneath when a Team is searched or clicked! -->
+          <div class="team-roster-drawer hidden" id="teamRosterPlayersSection">
+            <div class="team-roster-drawer-header">
+              <div class="trd-title-group">
+                <span class="trd-badge">🛡️ TEAM ROSTER</span>
+                <strong id="selectedTeamRosterTitle">Art of War</strong>
+                <span class="trd-sub" id="selectedTeamRosterMeta">(0 real players)</span>
+              </div>
+              <div class="trd-actions">
+                <button type="button" class="lobby-mini-btn accent" id="btnLoadFullTeamRoster">
+                  ⚡ Load Top Roster into Hand
+                </button>
+                <button type="button" class="lobby-mini-btn" id="btnCloseTeamRosterDrawer">✕</button>
+              </div>
+            </div>
+            <div class="team-roster-players-grid" id="teamRosterPlayersList"></div>
+          </div>
 
           <!-- Your 5-Card Hand Slot Tray -->
           <div class="lobby-hand-tray" id="lobbyHandTray"></div>
@@ -378,6 +453,7 @@
   </div>
 
   <div id="toastNotification" class="toast-notification hidden"></div>
+  <script src="/js/armory_svgs.js"></script>
   <script src="/team-pairings/app.js"></script>
 </body>
 </html>

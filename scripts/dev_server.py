@@ -7725,6 +7725,47 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 }).encode("utf-8"))
             return
 
+        if clean_path == "api/team-pairings/search":
+            from firestore_db import get_firestore_engine
+            fs_eng = get_firestore_engine()
+            q_val = (query_params.get("q") or [""])[0]
+            sys_val = (query_params.get("game_system") or ["40k"])[0]
+            try:
+                lim_val = int((query_params.get("limit") or ["24"])[0])
+            except Exception:
+                lim_val = 24
+            res = fs_eng.search_real_teams_and_players(query=q_val, game_system=sys_val, limit=lim_val)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/team-pairings/team/"):
+            from firestore_db import get_firestore_engine
+            fs_eng = get_firestore_engine()
+            raw_tname = clean_path.replace("api/team-pairings/team/", "", 1)
+            t_name = urllib.parse.unquote(raw_tname).strip()
+            sys_val = (query_params.get("game_system") or ["40k"])[0]
+            raw_res = fs_eng.get_real_team_roster(t_name, game_system=sys_val)
+            players = (raw_res.get("roster") or raw_res.get("players") or []) if isinstance(raw_res, dict) else list(raw_res or [])
+            resolved_team = (raw_res.get("team") if isinstance(raw_res, dict) else None) or t_name
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "ok": True,
+                    "success": True,
+                    "team_name": resolved_team,
+                    "game_system": sys_val,
+                    "players": players,
+                    "roster": players,
+                    "count": len(players),
+                }).encode("utf-8"))
+            return
+
         if clean_path.startswith("api/team-pairings/room/"):
             parts = clean_path.split("/")
             r_code = parts[3] if len(parts) >= 4 else ""

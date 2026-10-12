@@ -353,34 +353,17 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 "total_draws": 142,
                 "roster": [
                     {"player_id": "Te1Q9lp3By", "player_name": "Junior Aflleje", "current_elo": 2190.8, "peak_elo": 2190.8, "faction": "Leagues of Votann", "role": "Top Ace", "status": "confirmed", "is_active": True, "win_rate": 83.4, "matches_played": 434, "wins": 362, "losses": 68, "draws": 4, "form": "🔥 Top Ace"},
+                    {"player_id": "p_david", "player_name": "David Gaylard", "current_elo": 2120.0, "peak_elo": 2145.0, "faction": "Necrons", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 80.5, "matches_played": 148, "wins": 119, "losses": 27, "draws": 2, "form": "Core 5"},
                     {"player_id": "p_james_c", "player_name": "James Carmona", "current_elo": 1939.5, "peak_elo": 2014.9, "faction": "Adeptus Custodes", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 69.5, "matches_played": 141, "wins": 98, "losses": 40, "draws": 3, "form": "Core 5"},
                     {"player_id": "9oEfu25ccjqE", "player_name": "John Hsieh", "current_elo": 1888.5, "peak_elo": 1888.5, "faction": "Necrons", "role": "Captain", "status": "confirmed", "is_active": True, "win_rate": 66.0, "matches_played": 94, "wins": 62, "losses": 31, "draws": 1, "form": "Captain"},
                     {"player_id": "p_jake_n", "player_name": "Jake Nelson", "current_elo": 1865.7, "peak_elo": 1957.9, "faction": "Blood Angels", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 73.4, "matches_played": 425, "wins": 312, "losses": 99, "draws": 14, "form": "Core 5"},
                     {"player_id": "p_jesse_s", "player_name": "Jesse Sell", "current_elo": 1861.5, "peak_elo": 1916.6, "faction": "Aeldari", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 67.8, "matches_played": 214, "wins": 145, "losses": 62, "draws": 7, "form": "Core 5"},
-                    {"player_id": "p_tzc_6", "player_name": "Marcus Alvarez", "current_elo": 1845.0, "peak_elo": 1860.0, "faction": "Thousand Sons", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 64.0, "matches_played": 118, "wins": 75, "losses": 41, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_7", "player_name": "Brandon Taylor", "current_elo": 1832.0, "peak_elo": 1850.0, "faction": "World Eaters", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 62.5, "matches_played": 105, "wins": 65, "losses": 38, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_8", "player_name": "Chris Miller", "current_elo": 1810.5, "peak_elo": 1830.0, "faction": "Tyranids", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 61.0, "matches_played": 98, "wins": 59, "losses": 37, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_9", "player_name": "Derek White", "current_elo": 1795.0, "peak_elo": 1815.0, "faction": "Chaos Space Marines", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 59.5, "matches_played": 89, "wins": 52, "losses": 35, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_10", "player_name": "Eric Davis", "current_elo": 1780.0, "peak_elo": 1800.0, "faction": "Tau Empire", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 58.0, "matches_played": 82, "wins": 47, "losses": 33, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_11", "player_name": "Frank Garcia", "current_elo": 1765.0, "peak_elo": 1785.0, "faction": "Orks", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 57.0, "matches_played": 75, "wins": 42, "losses": 31, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_12", "player_name": "Greg Martinez", "current_elo": 1750.0, "peak_elo": 1770.0, "faction": "Death Guard", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 56.0, "matches_played": 70, "wins": 39, "losses": 29, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_13", "player_name": "Henry Robinson", "current_elo": 1740.0, "peak_elo": 1760.0, "faction": "Imperial Knights", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 55.0, "matches_played": 68, "wins": 37, "losses": 29, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_14", "player_name": "Ian Clark", "current_elo": 1730.0, "peak_elo": 1750.0, "faction": "Grey Knights", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 54.5, "matches_played": 65, "wins": 35, "losses": 28, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_15", "player_name": "Kevin Lewis", "current_elo": 1720.0, "peak_elo": 1740.0, "faction": "Dark Angels", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 54.0, "matches_played": 62, "wins": 33, "losses": 27, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_16", "player_name": "Leo Walker", "current_elo": 1710.0, "peak_elo": 1730.0, "faction": "Drukhari", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 53.5, "matches_played": 60, "wins": 32, "losses": 26, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_17", "player_name": "Mike Hall", "current_elo": 1700.0, "peak_elo": 1720.0, "faction": "Genestealer Cults", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 53.0, "matches_played": 58, "wins": 30, "losses": 26, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_18", "player_name": "Nathan Young", "current_elo": 1690.0, "peak_elo": 1710.0, "faction": "Astra Militarum", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 52.5, "matches_played": 56, "wins": 29, "losses": 25, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_19", "player_name": "Oscar King", "current_elo": 1680.0, "peak_elo": 1700.0, "faction": "Adeptus Mechanicus", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 52.0, "matches_played": 54, "wins": 28, "losses": 24, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_20", "player_name": "Paul Wright", "current_elo": 1670.0, "peak_elo": 1690.0, "faction": "Chaos Daemons", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 51.5, "matches_played": 52, "wins": 26, "losses": 24, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_21", "player_name": "Quinn Lopez", "current_elo": 1660.0, "peak_elo": 1680.0, "faction": "Chaos Knights", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 51.0, "matches_played": 50, "wins": 25, "losses": 23, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_22", "player_name": "Ryan Scott", "current_elo": 1650.0, "peak_elo": 1670.0, "faction": "Leagues of Votann", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 50.5, "matches_played": 48, "wins": 24, "losses": 22, "draws": 2, "form": "Steady"},
-                    {"player_id": "p_tzc_23", "player_name": "Sean Green (Inactive)", "current_elo": 1640.0, "peak_elo": 1660.0, "faction": "Space Marines", "role": "Member", "status": "confirmed", "is_active": False, "win_rate": 50.0, "matches_played": 40, "wins": 20, "losses": 19, "draws": 1, "form": "Inactive"},
-                    {"player_id": "p_tzc_24", "player_name": "Tyler Adams (Inactive)", "current_elo": 1630.0, "peak_elo": 1650.0, "faction": "Necrons", "role": "Member", "status": "confirmed", "is_active": False, "win_rate": 49.0, "matches_played": 38, "wins": 18, "losses": 19, "draws": 1, "form": "Inactive"},
-                    {"player_id": "p_tzc_25", "player_name": "Victor Baker (Inactive)", "current_elo": 1620.0, "peak_elo": 1640.0, "faction": "Aeldari", "role": "Member", "status": "confirmed", "is_active": False, "win_rate": 48.0, "matches_played": 35, "wins": 16, "losses": 18, "draws": 1, "form": "Inactive"},
-                    {"player_id": "p_tzc_26", "player_name": "Walter Nelson (Inactive)", "current_elo": 1610.0, "peak_elo": 1630.0, "faction": "Tyranids", "role": "Member", "status": "confirmed", "is_active": False, "win_rate": 47.0, "matches_played": 32, "wins": 15, "losses": 16, "draws": 1, "form": "Inactive"},
-                    {"player_id": "p_tzc_27", "player_name": "Xavier Carter (Inactive)", "current_elo": 1600.0, "peak_elo": 1620.0, "faction": "Orks", "role": "Member", "status": "confirmed", "is_active": False, "win_rate": 46.0, "matches_played": 30, "wins": 13, "losses": 16, "draws": 1, "form": "Inactive"},
-                    {"player_id": "p_tzc_28", "player_name": "Yosef Mitchell (Inactive)", "current_elo": 1590.0, "peak_elo": 1610.0, "faction": "Tau Empire", "role": "Member", "status": "confirmed", "is_active": False, "win_rate": 45.0, "matches_played": 28, "wins": 12, "losses": 15, "draws": 1, "form": "Inactive"},
-                    {"player_id": "p_tzc_29", "player_name": "Zachary Perez (Inactive)", "current_elo": 1580.0, "peak_elo": 1600.0, "faction": "World Eaters", "role": "Member", "status": "confirmed", "is_active": False, "win_rate": 44.0, "matches_played": 25, "wins": 11, "losses": 13, "draws": 1, "form": "Inactive"}
+                    {"player_id": "p_aurelio_c", "player_name": "Aurelio Correa", "current_elo": 1848.0, "peak_elo": 1875.0, "faction": "Dark Angels", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 65.5, "matches_played": 116, "wins": 76, "losses": 38, "draws": 2, "form": "Steady"},
+                    {"player_id": "OFRLJlX7Og", "player_name": "Jeremy Larson", "current_elo": 1834.0, "peak_elo": 1860.0, "faction": "Astra Militarum", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 65.3, "matches_played": 176, "wins": 115, "losses": 59, "draws": 2, "form": "Steady"},
+                    {"player_id": "5a4Eh1jWg3", "player_name": "Rock Liberty", "current_elo": 1822.0, "peak_elo": 1850.0, "faction": "Adeptus Custodes", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 64.7, "matches_played": 173, "wins": 112, "losses": 59, "draws": 2, "form": "Steady"},
+                    {"player_id": "PUhi0j7EVT", "player_name": "Mike Mental", "current_elo": 1808.0, "peak_elo": 1835.0, "faction": "Death Guard", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 61.9, "matches_played": 105, "wins": 65, "losses": 38, "draws": 2, "form": "Steady"},
+                    {"player_id": "sHTgrnzZpJ", "player_name": "Cooper Waddell", "current_elo": 1794.0, "peak_elo": 1820.0, "faction": "Blood Angels", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 54.7, "matches_played": 137, "wins": 75, "losses": 60, "draws": 2, "form": "Steady"},
+                    {"player_id": "83ujXMrjvX", "player_name": "Alex Ivanov", "current_elo": 1782.0, "peak_elo": 1810.0, "faction": "Aeldari", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 53.9, "matches_played": 102, "wins": 55, "losses": 45, "draws": 2, "form": "Steady"}
                 ],
                 "power_rating": 1812.8,
                 "skill_baseline": 1949.2,
@@ -390,9 +373,9 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 "top_player_elo": 2190.8,
                 "top_player_name": "Junior Aflleje",
                 "top_player_id": "Te1Q9lp3By",
-                "active_avg_elo": 1780.0,
-                "active_roster_count": 22,
-                "roster_count": 29,
+                "active_avg_elo": 1896.2,
+                "active_roster_count": 12,
+                "roster_count": 12,
                 "team_win_rate": 63.4,
                 "total_matches": 4680,
                 "total_wins": 2969,
@@ -665,6 +648,41 @@ def get_default_teams_seed() -> Dict[str, Any]:
                 "trophy_room": [],
                 "locker_room": {"pinned_message": None, "messages": [], "squad_events": []}
             },
+            {
+                "id": "team_stat_check",
+                "name": "Stat Check",
+                "short_tag": "STC",
+                "bcp_team_id": "stc_bcp_55",
+                "owner_player_id": "PYYEVPCL1X",
+                "captain_name": "Innes Wilson",
+                "home_venue": "Dice & Bolter Arena",
+                "home_city": "Chicago",
+                "home_state": "IL",
+                "home_country": "USA",
+                "game_system": "40k",
+                "logo_url": "/assets/badges/badge_tier1_legend.svg",
+                "bio": "Data-driven competitive Warhammer 40,000 analytics & tournament powerhouse.",
+                "discord_url": "https://discord.gg/statcheck40k",
+                "membership_mode": "approval_required",
+                "created_at": "2024-01-15T00:00:00Z",
+                "total_wins": 270,
+                "total_losses": 72,
+                "total_draws": 5,
+                "roster": [
+                    {"player_id": "PYYEVPCL1X", "player_name": "Innes Wilson", "current_elo": 2248.0, "peak_elo": 2275.0, "faction": "Genestealer Cults", "role": "Captain", "status": "confirmed", "is_active": True, "win_rate": 93.0, "matches_played": 86, "form": "🔥 #1 ITC"},
+                    {"player_id": "p_anthony_v", "player_name": "Anthony Vanella", "current_elo": 2135.0, "peak_elo": 2160.0, "faction": "Deathwatch", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 78.0, "matches_played": 78, "form": "Core 5"},
+                    {"player_id": "p_cliff_t", "player_name": "Cliff Thomas", "current_elo": 2092.0, "peak_elo": 2115.0, "faction": "Imperial Knights", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 75.0, "matches_played": 72, "form": "Core 5"},
+                    {"player_id": "p_sam_pope", "player_name": "Sam Pope", "current_elo": 2076.0, "peak_elo": 2100.0, "faction": "Tyranids", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 74.0, "matches_played": 68, "form": "Core 5"},
+                    {"player_id": "p_ben_jurek", "player_name": "Ben Jurek", "current_elo": 2042.0, "peak_elo": 2070.0, "faction": "Genestealer Cults", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 87.1, "matches_played": 85, "form": "Core 5"},
+                    {"player_id": "p_jeremy_atk", "player_name": "Jeremy Atk", "current_elo": 2028.0, "peak_elo": 2050.0, "faction": "Dark Angels", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 73.0, "matches_played": 64, "form": "Steady"},
+                    {"player_id": "p_colin_m", "player_name": "Colin McDade", "current_elo": 2015.0, "peak_elo": 2040.0, "faction": "Adeptus Mechanicus", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 70.0, "matches_played": 60, "form": "Steady"},
+                    {"player_id": "p_nathan_d", "player_name": "Nathan D", "current_elo": 1998.0, "peak_elo": 2020.0, "faction": "Grey Knights", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 68.0, "matches_played": 54, "form": "Steady"}
+                ],
+                "battlefield_feed": [],
+                "war_room": {"faction_matchups": [], "club_rivalries": []},
+                "trophy_room": [],
+                "locker_room": {"pinned_message": None, "messages": [], "squad_events": []}
+            },
             # ── AGE OF SIGMAR (AoS) PREMIER COMPETITIVE CLUBS ──
             {
                 "id": "team_hammerhal_vanguard",
@@ -910,15 +928,38 @@ class TeamsHubService:
         self.state = self._load()
 
     def _load(self) -> Dict[str, Any]:
+        seed = get_default_teams_seed()
         if self.db_file.exists():
             try:
                 with open(self.db_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if data and isinstance(data.get("teams"), list) and len(data["teams"]) > 0:
+                        seed_by_id = {t["id"]: t for t in seed.get("teams", []) if t.get("id")}
+                        updated = False
+                        cleaned_teams = []
+                        seen_ids = set()
+                        for t in data["teams"]:
+                            tid = str(t.get("id") or "")
+                            if any(k in tid for k in ("team_governance_squad_", "team_pin_test_squad_", "team_cocaptain_test_club_", "team_test_guard_squad_")):
+                                updated = True
+                                continue
+                            if tid in seed_by_id:
+                                seen_ids.add(tid)
+                                roster_ids = [str(p.get("player_id") or "") for p in (t.get("roster") or [])]
+                                if any(pid.startswith("p_tzc_") for pid in roster_ids):
+                                    t = seed_by_id[tid]
+                                    updated = True
+                            cleaned_teams.append(t)
+                        for tid, st in seed_by_id.items():
+                            if tid not in seen_ids:
+                                cleaned_teams.append(st)
+                                updated = True
+                        data["teams"] = cleaned_teams
+                        if updated:
+                            self._save_raw(data)
                         return data
             except Exception as e:
                 print(f"Notice loading teams DB: {e}")
-        seed = get_default_teams_seed()
         self._save_raw(seed)
         return seed
 
@@ -1301,11 +1342,11 @@ class TeamsHubService:
                 ('Jesse Sell', 'p_jesse_s', [
                     {'event_id': 'ev_battle_armory_gt_2025', 'event_name': 'Battle for the Armory GT 2025', 'event_date': '2025-11-09', 'total_players': 52, 'num_rounds': 5, 'wins': 5, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Aeldari'}
                 ]),
-                ('Brandon Taylor', 'p_tzc_7', [
-                    {'event_id': 'ev_blood_god_brawls_rtt_2025', 'event_name': 'Blood God Brawls RTT 2025', 'event_date': '2025-08-16', 'total_players': 18, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'World Eaters'}
+                ('Aurelio Correa', 'p_aurelio_c', [
+                    {'event_id': 'ev_blood_god_brawls_rtt_2025', 'event_name': 'Blood God Brawls RTT 2025', 'event_date': '2025-08-16', 'total_players': 18, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Dark Angels'}
                 ]),
-                ('Marcus Alvarez', 'p_tzc_6', [
-                    {'event_id': 'ev_prospero_burns_rtt_2025', 'event_name': 'Prospero Burns RTT 2025', 'event_date': '2025-03-29', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Thousand Sons'}
+                ('David Gaylard', 'p_david', [
+                    {'event_id': 'ev_prospero_burns_rtt_2025', 'event_name': 'Prospero Burns RTT 2025', 'event_date': '2025-03-29', 'total_players': 16, 'num_rounds': 3, 'wins': 3, 'losses': 0, 'draws': 0, 'placement': 1, 'registered_faction': 'Necrons'}
                 ])
             ]
 
