@@ -523,42 +523,98 @@ html, body {
   perspective: 1150px;
 }
 
-/* Opponent Fanned Face-Down Hand at Top Edge */
+/* Opponent Open Roster Hand at Top Edge */
 .opp-hand-area {
   width: 100%;
   display: flex;
-  justify-content: center;
-  height: 58px;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 2px;
   flex-shrink: 0;
-  z-index: 10;
+  z-index: 25;
+}
+
+.opp-hand-label-pill {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: #fda4af;
+  background: rgba(2, 6, 23, 0.88);
+  border: 1px solid rgba(244, 63, 94, 0.45);
+  padding: 2px 12px;
+  border-radius: 999px;
+  margin-bottom: 3px;
 }
 
 .opp-hand-fan {
   display: flex;
   align-items: flex-start;
   justify-content: center;
+  gap: 7px;
+  min-height: 118px;
+  padding: 2px 10px 4px;
 }
 
-.opp-card-back {
-  width: 48px;
-  height: 68px;
-  margin: 0 -6px;
-  border-radius: 6px;
-  border: 2px solid #d4af37;
-  background:
-    radial-gradient(ellipse at center, #7c2d12 0%, #31102f 55%, #090d16 100%);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.75);
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.2s ease;
+.opp-hand-fan.format-8v8 {
+  gap: 5px;
 }
 
-.opp-card-back::after {
-  content: "🌀";
-  font-size: 1.05rem;
-  opacity: 0.78;
+.opp-hand-fan .ygo-card {
+  width: 96px;
+  height: 116px;
+  padding: 4px;
+  border-color: rgba(244, 63, 94, 0.65);
+}
+
+.opp-hand-fan.format-8v8 .ygo-card {
+  width: 84px;
+  height: 110px;
+  padding: 3px;
+}
+
+.opp-hand-fan .ygo-card .yc-art {
+  min-height: 40px;
+}
+
+.opp-hand-fan .ygo-card .yc-emblem {
+  font-size: 1.3rem;
+}
+
+.opp-hand-fan .ygo-card:hover {
+  transform: translateY(6px) scale(1.06);
+  z-index: 35;
+  border-color: var(--crimson-glow);
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.9),
+    0 0 18px rgba(244, 63, 94, 0.65);
+}
+
+.ygo-card.inspected-target {
+  border-color: var(--gold-bright) !important;
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.92),
+    0 0 22px rgba(245, 185, 66, 0.85) !important;
+  transform: translateY(5px) scale(1.05);
+  z-index: 34;
+}
+
+.ygo-card.inspected-target::before {
+  content: "🎯 TARGET";
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #f43f5e, #fbbf24);
+  color: #020617;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  font-weight: 900;
+  padding: 1px 5px;
+  border-radius: 999px;
+  border: 1px solid #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.75);
+  z-index: 5;
+  white-space: nowrap;
 }
 
 /* 3D PERSPECTIVE PLAYMAT */
@@ -646,7 +702,7 @@ html, body {
   display: grid;
   grid-template-columns: 165px 1fr;
   gap: 14px;
-  height: 156px;
+  height: 136px;
   align-items: stretch;
 }
 
@@ -1104,8 +1160,18 @@ html, body {
   align-items: flex-end;
   justify-content: center;
   gap: 8px;
-  min-height: 158px;
+  min-height: 130px;
   padding: 4px 12px 2px;
+}
+
+.my-hand-fan .ygo-card {
+  width: 102px;
+  height: 126px;
+  padding: 4px;
+}
+
+.my-hand-fan .ygo-card .yc-art {
+  min-height: 44px;
 }
 
 .my-hand-fan.format-8v8 {
@@ -1113,9 +1179,9 @@ html, body {
 }
 
 .my-hand-fan.format-8v8 .ygo-card {
-  width: 96px;
-  height: 140px;
-  padding: 4px;
+  width: 88px;
+  height: 118px;
+  padding: 3px;
 }
 
 /* ============================================================================
@@ -2077,17 +2143,62 @@ html, body {
 
   /* Playmat scaled to fit 100% inside 375px-412px mobile screens without clipping */
   .opp-hand-area {
-    height: 36px;
+    height: auto;
+    padding-bottom: 2px;
   }
 
-  .opp-card-back {
-    width: 32px;
-    height: 44px;
-    margin: 0 -4px;
+  .opp-hand-label-pill {
+    font-size: 0.54rem;
+    padding: 2px 8px;
+    max-width: 98%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .opp-card-back::after {
-    font-size: 0.75rem;
+  .opp-hand-fan,
+  .opp-hand-fan.format-8v8 {
+    width: 100%;
+    min-height: 98px;
+    gap: 4px;
+    padding: 2px 2px 4px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .opp-hand-fan .ygo-card,
+  .opp-hand-fan.format-8v8 .ygo-card {
+    width: 72px;
+    height: 96px;
+    padding: 3px;
+  }
+
+  .opp-hand-fan .ygo-card .yc-name {
+    font-size: 0.5rem;
+  }
+
+  .opp-hand-fan .ygo-card .yc-art {
+    min-height: 32px;
+  }
+
+  .opp-hand-fan .ygo-card .yc-emblem {
+    width: 24px;
+    height: 24px;
+  }
+
+  .opp-hand-fan .ygo-card .yc-emblem svg,
+  .opp-hand-fan .ygo-card .yc-emblem .armory-faction-svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .opp-hand-fan .ygo-card .yc-faction {
+    font-size: 0.43rem;
+  }
+
+  .opp-hand-fan .ygo-card .yc-bottom {
+    font-size: 0.44rem;
+    padding: 1px 2px;
   }
 
   .ygo-playmat-3d {
@@ -2589,18 +2700,44 @@ html, body {
   }
 
   body.force-landscape-mobile .opp-hand-area {
-    height: 18px;
+    height: auto;
+    padding-bottom: 1px;
   }
 
-  body.force-landscape-mobile .opp-card-back {
-    width: 20px;
-    height: 26px;
+  body.force-landscape-mobile .opp-hand-label-pill {
+    font-size: 0.44rem;
+    padding: 1px 6px;
+    margin-bottom: 1px;
+  }
+
+  body.force-landscape-mobile .opp-hand-fan,
+  body.force-landscape-mobile .opp-hand-fan.format-8v8 {
+    min-height: 66px;
+    padding: 1px;
+    flex-wrap: nowrap;
+  }
+
+  body.force-landscape-mobile .opp-hand-fan .ygo-card,
+  body.force-landscape-mobile .opp-hand-fan.format-8v8 .ygo-card {
+    width: 56px;
+    height: 64px;
+    padding: 2px;
+  }
+
+  body.force-landscape-mobile .opp-hand-fan .ygo-card .yc-art {
+    min-height: 18px;
+  }
+
+  body.force-landscape-mobile .opp-hand-fan .ygo-card .yc-emblem,
+  body.force-landscape-mobile .opp-hand-fan .ygo-card .yc-emblem svg {
+    width: 15px;
+    height: 15px;
   }
 
   body.force-landscape-mobile .ygo-playmat-3d {
     flex: 1;
     min-height: 0;
-    padding: 3px 6px;
+    padding: 2px 6px;
     gap: 2px;
   }
 
@@ -2609,30 +2746,30 @@ html, body {
   }
 
   body.force-landscape-mobile .main-zones-group {
-    grid-template-columns: 92px minmax(0, 1fr);
-    height: 76px;
+    grid-template-columns: 88px minmax(0, 1fr);
+    height: 66px;
     gap: 5px;
   }
 
   body.force-landscape-mobile .field-slot {
-    padding: 11px 3px 2px;
+    padding: 10px 3px 2px;
   }
 
   body.force-landscape-mobile .ygo-card.field-size,
   body.force-landscape-mobile .empty-zone-sigil {
-    width: 54px;
-    height: 62px;
+    width: 52px;
+    height: 54px;
     padding: 2px;
   }
 
   body.force-landscape-mobile .ygo-card.field-size .yc-art {
-    min-height: 18px;
+    min-height: 16px;
   }
 
   body.force-landscape-mobile .ygo-card.field-size .yc-emblem,
   body.force-landscape-mobile .ygo-card.field-size .yc-emblem svg {
-    width: 15px;
-    height: 15px;
+    width: 14px;
+    height: 14px;
   }
 
   body.force-landscape-mobile .battle-line-strip {
@@ -2664,33 +2801,33 @@ html, body {
   }
 
   body.force-landscape-mobile .my-hand-label-pill {
-    font-size: 0.46rem;
+    font-size: 0.44rem;
     padding: 1px 6px;
     margin-bottom: 1px;
   }
 
   body.force-landscape-mobile .my-hand-fan,
   body.force-landscape-mobile .my-hand-fan.format-8v8 {
-    min-height: 82px;
-    padding: 2px;
+    min-height: 68px;
+    padding: 1px;
     flex-wrap: nowrap;
   }
 
   body.force-landscape-mobile .my-hand-fan .ygo-card,
   body.force-landscape-mobile .my-hand-fan.format-8v8 .ygo-card {
-    width: 60px;
-    height: 80px;
+    width: 58px;
+    height: 66px;
     padding: 2px;
   }
 
   body.force-landscape-mobile .my-hand-fan .ygo-card .yc-art {
-    min-height: 24px;
+    min-height: 18px;
   }
 
   body.force-landscape-mobile .my-hand-fan .ygo-card .yc-emblem,
   body.force-landscape-mobile .my-hand-fan .ygo-card .yc-emblem svg {
-    width: 18px;
-    height: 18px;
+    width: 15px;
+    height: 15px;
   }
 
   body.force-landscape-mobile .ygo-right-hud {
@@ -2797,18 +2934,44 @@ html, body {
   }
 
   .opp-hand-area {
-    height: 18px;
+    height: auto;
+    padding-bottom: 1px;
   }
 
-  .opp-card-back {
-    width: 20px;
-    height: 26px;
+  .opp-hand-label-pill {
+    font-size: 0.44rem;
+    padding: 1px 6px;
+    margin-bottom: 1px;
+  }
+
+  .opp-hand-fan,
+  .opp-hand-fan.format-8v8 {
+    min-height: 66px;
+    padding: 1px;
+    flex-wrap: nowrap;
+  }
+
+  .opp-hand-fan .ygo-card,
+  .opp-hand-fan.format-8v8 .ygo-card {
+    width: 56px;
+    height: 64px;
+    padding: 2px;
+  }
+
+  .opp-hand-fan .ygo-card .yc-art {
+    min-height: 18px;
+  }
+
+  .opp-hand-fan .ygo-card .yc-emblem,
+  .opp-hand-fan .ygo-card .yc-emblem svg {
+    width: 15px;
+    height: 15px;
   }
 
   .ygo-playmat-3d {
     flex: 1;
     min-height: 0;
-    padding: 3px 6px;
+    padding: 2px 6px;
     gap: 2px;
     transform: none;
   }
@@ -2823,30 +2986,30 @@ html, body {
   }
 
   .main-zones-group {
-    grid-template-columns: 92px minmax(0, 1fr);
-    height: 76px;
+    grid-template-columns: 88px minmax(0, 1fr);
+    height: 66px;
     gap: 5px;
   }
 
   .field-slot {
-    padding: 11px 3px 2px;
+    padding: 10px 3px 2px;
   }
 
   .ygo-card.field-size,
   .empty-zone-sigil {
-    width: 54px;
-    height: 62px;
+    width: 52px;
+    height: 54px;
     padding: 2px;
   }
 
   .ygo-card.field-size .yc-art {
-    min-height: 18px;
+    min-height: 16px;
   }
 
   .ygo-card.field-size .yc-emblem,
   .ygo-card.field-size .yc-emblem svg {
-    width: 15px;
-    height: 15px;
+    width: 14px;
+    height: 14px;
   }
 
   .battle-line-strip {
@@ -2878,33 +3041,33 @@ html, body {
   }
 
   .my-hand-label-pill {
-    font-size: 0.46rem;
+    font-size: 0.44rem;
     padding: 1px 6px;
     margin-bottom: 1px;
   }
 
   .my-hand-fan,
   .my-hand-fan.format-8v8 {
-    min-height: 82px;
-    padding: 2px;
+    min-height: 68px;
+    padding: 1px;
     flex-wrap: nowrap;
   }
 
   .my-hand-fan .ygo-card,
   .my-hand-fan.format-8v8 .ygo-card {
-    width: 60px;
-    height: 80px;
+    width: 58px;
+    height: 66px;
     padding: 2px;
   }
 
   .my-hand-fan .ygo-card .yc-art {
-    min-height: 24px;
+    min-height: 18px;
   }
 
   .my-hand-fan .ygo-card .yc-emblem,
   .my-hand-fan .ygo-card .yc-emblem svg {
-    width: 18px;
-    height: 18px;
+    width: 15px;
+    height: 15px;
   }
 
   .ygo-right-hud {

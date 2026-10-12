@@ -6,7 +6,7 @@
   <title>OmniTactica • Tactical Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=5deb806091">
+  <link rel="manifest" href="/manifest.json?v=4559c92f35">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=5deb806091">
-  <link rel="stylesheet" href="/css/styles.min.css?v=5deb806091">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=5deb806091">
-  <link rel="preload" href="/js/app.bundle.min.js?v=5deb806091" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=4559c92f35">
+  <link rel="stylesheet" href="/css/styles.min.css?v=4559c92f35">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=4559c92f35">
+  <link rel="preload" href="/js/app.bundle.min.js?v=4559c92f35" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "5deb806091";</script>
+  <script>window.APP_VERSION = "4559c92f35";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -1559,7 +1559,12 @@
         <div class="predictor-grid">
           <!-- Player 1 Column -->
           <div class="predict-col">
-            <label style="font-weight: 600; font-size: 0.82rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 1</label>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+              <label style="font-weight: 700; font-size: 0.82rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 1</label>
+              <button type="button" id="p1-quick-profile-btn" class="btn-xs btn-outline" style="display: none; font-size: 0.72rem; padding: 2px 8px; border-radius: 5px; color: #38bdf8; border-color: rgba(56,189,248,0.35); background: rgba(56,189,248,0.08); cursor: pointer; font-weight: 700;">
+                👤 Quick Profile
+              </button>
+            </div>
             <div class="search-input-group" style="max-width: 100%;">
               <span class="search-icon">🔍</span>
               <input type="text" id="p1-name-input" class="search-input" placeholder="Type player name..." oninput="searchPlayerAc(1)" autocomplete="off">
@@ -1568,15 +1573,28 @@
 
             <div id="p1-card" class="player-match-card p1-active">
               <div class="pm-header">
-                <div>
-                  <div class="pm-name" id="p1-card-name">Player 1</div>
+                <div style="min-width: 0; flex: 1;">
+                  <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                    <div class="pm-name" id="p1-card-name">Player 1</div>
+                    <span id="p1-card-team" class="badge" style="display: none; background: rgba(255,255,255,0.06); color: var(--text-secondary); font-size: 0.7rem;"></span>
+                  </div>
                   <div id="p1-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: none;"></div>
                 </div>
-                <div style="text-align: right;">
+                <div style="text-align: right; flex-shrink: 0;">
                   <div class="pm-elo-display" style="color: #38bdf8;" id="p1-card-elo">1500</div>
                   <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
                 </div>
               </div>
+
+              <!-- Interactive Faction Selector & Career Faction Chips -->
+              <div id="p1-faction-selector-row" style="display: none; margin-top: 0.65rem; padding-top: 0.6rem; border-top: 1px solid rgba(255,255,255,0.07);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                  <label for="p1-faction-select" style="font-size: 0.7rem; font-weight: 700; color: #7dd3fc; text-transform: uppercase; letter-spacing: 0.04em;">🛡️ Active Faction:</label>
+                  <select id="p1-faction-select" onchange="onPredictorFactionChange(1, this.value)" style="flex: 1; min-width: 160px; max-width: 260px; background: rgba(9, 14, 26, 0.85); color: #f8fafc; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 6px; padding: 0.3rem 0.55rem; font-size: 0.78rem; font-weight: 700; cursor: pointer;"></select>
+                </div>
+                <div id="p1-faction-chips" style="display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.45rem;"></div>
+              </div>
+
               <div class="pm-stats-row">
                 <div><b>Record:</b> <span id="p1-card-record" style="color: var(--win);"></span></div>
                 <div><b>Win %:</b> <span id="p1-card-winrate"></span></div>
@@ -1589,7 +1607,12 @@
 
           <!-- Player 2 Column -->
           <div class="predict-col">
-            <label style="font-weight: 600; font-size: 0.82rem; color: #f43f5e; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 2</label>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+              <label style="font-weight: 700; font-size: 0.82rem; color: #f43f5e; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 2</label>
+              <button type="button" id="p2-quick-profile-btn" class="btn-xs btn-outline" style="display: none; font-size: 0.72rem; padding: 2px 8px; border-radius: 5px; color: #f43f5e; border-color: rgba(244,63,94,0.35); background: rgba(244,63,94,0.08); cursor: pointer; font-weight: 700;">
+                👤 Quick Profile
+              </button>
+            </div>
             <div class="search-input-group" style="max-width: 100%;">
               <span class="search-icon">🔍</span>
               <input type="text" id="p2-name-input" class="search-input" placeholder="Type player name..." oninput="searchPlayerAc(2)" autocomplete="off">
@@ -1598,15 +1621,28 @@
 
             <div id="p2-card" class="player-match-card p2-active">
               <div class="pm-header">
-                <div>
-                  <div class="pm-name" id="p2-card-name">Player 2</div>
+                <div style="min-width: 0; flex: 1;">
+                  <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                    <div class="pm-name" id="p2-card-name">Player 2</div>
+                    <span id="p2-card-team" class="badge" style="display: none; background: rgba(255,255,255,0.06); color: var(--text-secondary); font-size: 0.7rem;"></span>
+                  </div>
                   <div id="p2-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: none;"></div>
                 </div>
-                <div style="text-align: right;">
+                <div style="text-align: right; flex-shrink: 0;">
                   <div class="pm-elo-display" style="color: #f43f5e;" id="p2-card-elo">1500</div>
                   <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
                 </div>
               </div>
+
+              <!-- Interactive Faction Selector & Career Faction Chips -->
+              <div id="p2-faction-selector-row" style="display: none; margin-top: 0.65rem; padding-top: 0.6rem; border-top: 1px solid rgba(255,255,255,0.07);">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                  <label for="p2-faction-select" style="font-size: 0.7rem; font-weight: 700; color: #fda4af; text-transform: uppercase; letter-spacing: 0.04em;">🛡️ Active Faction:</label>
+                  <select id="p2-faction-select" onchange="onPredictorFactionChange(2, this.value)" style="flex: 1; min-width: 160px; max-width: 260px; background: rgba(9, 14, 26, 0.85); color: #f8fafc; border: 1px solid rgba(244, 63, 94, 0.35); border-radius: 6px; padding: 0.3rem 0.55rem; font-size: 0.78rem; font-weight: 700; cursor: pointer;"></select>
+                </div>
+                <div id="p2-faction-chips" style="display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.45rem;"></div>
+              </div>
+
               <div class="pm-stats-row">
                 <div><b>Record:</b> <span id="p2-card-record" style="color: var(--win);"></span></div>
                 <div><b>Win %:</b> <span id="p2-card-winrate"></span></div>
@@ -1618,7 +1654,13 @@
 
         <!-- Prediction Output Box -->
         <div class="predict-result-box">
-          <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Expected Win Probability</div>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+            <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Expected Win Probability</div>
+            <div id="pred-header-badges" style="display: none; align-items: center; gap: 0.45rem; flex-wrap: wrap; font-family: var(--font-mono); font-size: 0.74rem;">
+              <span id="pred-elo-gap-pill" style="padding: 2px 8px; border-radius: 5px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; font-weight: 700;"></span>
+              <span id="pred-pure-elo-pill" style="padding: 2px 8px; border-radius: 5px; background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.28); color: #7dd3fc; font-weight: 700;"></span>
+            </div>
+          </div>
           <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 1.5rem; margin-top: 0.5rem;">
             <span style="color: #38bdf8;" id="pred-p1-prob"></span>
             <span style="color: #f43f5e;" id="pred-p2-prob"></span>
@@ -1629,7 +1671,14 @@
             <div id="pred-bar-p2" class="p2-bar" style="width: 50%;"></div>
           </div>
 
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.5rem; text-align: left;">
+          <!-- 6-Factor Prediction Breakdown Strip -->
+          <div id="pred-multi-factor-breakdown" style="text-align: left;"></div>
+
+          <!-- Matchup Context Summary Strip -->
+          <div id="pred-context-strip" style="display: none; margin-top: 0.9rem; padding: 0.65rem 0.85rem; background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; align-items: center; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8rem; color: var(--text-secondary);"></div>
+
+          <!-- Pure Elo Rating Stakes -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.15rem; text-align: left;">
             <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
               <div style="font-size: 0.78rem; font-weight: 700; color: var(--win); text-transform: uppercase;">IF PLAYER 1 WINS</div>
               <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-win" style="color: var(--win);"></b> <span id="new-p1-win-elo"></span></div>
@@ -1650,9 +1699,18 @@
           </div>
         </div>
 
+        <!-- Global Faction Matchup (Past 3 Months) Card -->
+        <div id="pred-faction-3mo-container" style="margin-bottom: 1.25rem;"></div>
+
+        <!-- Side-by-Side Commander Dossiers: Faction Mastery, Vs-Faction Matrix & Recent Tournament Path -->
+        <div id="pred-commander-dossiers-container" style="margin-bottom: 1.25rem;"></div>
+
         <!-- Head-to-Head Table -->
         <div id="h2h-section">
-          <h3 style="font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">📜 Past Head-to-Head Encounters</h3>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
+            <h3 style="font-size: 1rem; font-weight: 700; color: #fff; margin: 0;">📜 Past Head-to-Head Encounters</h3>
+            <span id="pred-h2h-summary-badge" class="badge" style="display: none; font-size: 0.74rem; font-weight: 700; padding: 3px 10px;"></span>
+          </div>
           <div class="table-container">
             <table>
               <thead>
@@ -3769,7 +3827,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=5deb806091"></script>
+  <script src="/js/app.bundle.min.js?v=4559c92f35"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

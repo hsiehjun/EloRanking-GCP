@@ -9748,6 +9748,14 @@ function buildCasterPredictionBreakdownHtml(pred, p1Name, p2Name, fac1, fac2) {
     </div>
   `;
 }
+window.buildCasterPredictionBreakdownHtml = buildCasterPredictionBreakdownHtml;
+window.buildCasterFaction3MoMatchupCardHtml = buildCasterFaction3MoMatchupCardHtml;
+window.buildCasterFactionMasteryHtml = buildCasterFactionMasteryHtml;
+window.computeCasterFaction3MoMetrics = computeCasterFaction3MoMetrics;
+window.computeCasterCareerMasteryForPrediction = computeCasterCareerMasteryForPrediction;
+window.computeCasterPastH2hRecord = computeCasterPastH2hRecord;
+window.isSameCasterFaction = isSameCasterFaction;
+window.normalizeCasterFactionKey = normalizeCasterFactionKey;
 
 function computeCasterMatchupPredictionSnapshot(ev, p1, p2, p1Elo, p2Elo, selectedMatch) {
   const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');

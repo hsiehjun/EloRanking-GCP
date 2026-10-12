@@ -296,7 +296,7 @@ async def _periodic_firestore_cleanup():
             logger.warning(f"Notice during periodic Firestore cleanup: {e}")
         await asyncio.sleep(12 * 3600)  # Run every 12 hours
 
-async def _prewarm_meta_intel_cache():
+async def _prewarm_meta_intel_cache(force_refresh: bool = False):
     """Pre-warms all Meta Intel presets (30d, 60d, 90d, 180d, 1yr, ytd, all) and Faction Details caches for 40k and AoS."""
     try:
         now = datetime.now(timezone.utc)
@@ -305,27 +305,40 @@ async def _prewarm_meta_intel_cache():
         end_str = now.strftime("%Y-%m-%d")
         db = await asyncio.to_thread(get_database)
         await asyncio.gather(
-            asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k"),
-            asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos"),
+            asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k", _force_refresh=force_refresh),
+            asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos", _force_refresh=force_refresh),
             return_exceptions=True,
         )
         if hasattr(db, "prewarm_meta_intel_presets"):
             await asyncio.gather(
-                asyncio.to_thread(db.prewarm_meta_intel_presets, "40k"),
-                asyncio.to_thread(db.prewarm_meta_intel_presets, "aos"),
+                asyncio.to_thread(db.prewarm_meta_intel_presets, "40k", None, force_refresh),
+                asyncio.to_thread(db.prewarm_meta_intel_presets, "aos", None, force_refresh),
                 return_exceptions=True,
             )
         await asyncio.gather(
+            asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "3mo", 6),
             asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 6),
             asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "all", 4),
             asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "6mo", 4),
+            asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "3mo", 4),
             asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "1yr", 4),
             asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "6mo", 2),
             return_exceptions=True,
         )
-        logger.info(f"🔥 Meta Intel (all presets) & Faction Details caches pre-warmed for 40k and AoS ({start_str} to {end_str})")
+        logger.info(f"🔥 Meta Intel (all presets) & Faction Details caches {'refreshed' if force_refresh else 'pre-warmed'} for 40k and AoS ({start_str} to {end_str})")
     except Exception as me:
         logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
+
+async def _periodic_meta_intel_refresh():
+    """Background task to proactively refresh rolling 90-day and preset Meta Intel caches every 30 minutes."""
+    interval_secs = float(os.environ.get("META_INTEL_REFRESH_INTERVAL_SECS", "1800") or 1800)
+    await asyncio.sleep(max(300.0, interval_secs))
+    while True:
+        try:
+            await _prewarm_meta_intel_cache(force_refresh=True)
+        except Exception as e:
+            logger.warning(f"Notice during periodic Meta Intel cache refresh: {e}")
+        await asyncio.sleep(max(300.0, interval_secs))
 
 async def _periodic_nr_bundle_refresh():
     """Background task to periodically check www.newrecruit.eu and refresh data/nr_offline_bundle.zip."""
@@ -352,6 +365,7 @@ async def on_server_startup():
         pass
     logger.info("Warhammer 40,000 Elo Backend online and ready.")
     asyncio.create_task(_periodic_firestore_cleanup())
+    asyncio.create_task(_periodic_meta_intel_refresh())
     asyncio.create_task(_periodic_nr_bundle_refresh())
 
     async def _deferred_startup_tasks():

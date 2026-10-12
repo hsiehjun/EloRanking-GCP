@@ -77,6 +77,16 @@ def run_tournament_sync(game_system: str = "all", days: int = 3, max_events: Opt
     recon_res = engine.reconstruct_incremental(game_system=target_sys)
     logger.info(f"🏆 Elo Reconstruction complete: {recon_res}")
 
+    # Refresh L2 persistent Meta Intel (90d / rolling windows) in system_settings so web instances serve fresh 3-month stats
+    try:
+        if hasattr(db, "prewarm_meta_intel_presets"):
+            systems_to_warm = ["40k", "aos"] if target_sys == "all" else [target_sys]
+            for sys_w in systems_to_warm:
+                warmed_cnt = db.prewarm_meta_intel_presets(sys_w, force_refresh=True)
+                logger.info(f"🔥 Refreshed {warmed_cnt} Meta Intel rolling-window preset(s) in L2 system_settings for {sys_w.upper()}.")
+    except Exception as meta_err:
+        logger.warning(f"Notice during Meta Intel L2 preset refresh: {meta_err}")
+
     # Programmatic sweep of expired Firestore documents across rooms, connect_chats, and connect_user_sync
     try:
         from firestore_db import get_firestore_engine

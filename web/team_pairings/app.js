@@ -2244,27 +2244,89 @@ class YuGiOhPairingsArena {
       (phase === "STEP_1_DEFENDER" || phase === "STEP_2_ATTACKERS") ? this.selectedIds : []
     );
     const myBench = rawMyBench.filter((c) => !stagedOnMatIds.has(c.id));
+    const is8v8 = (
+      this.room?.team_size === 8 ||
+      this.room?.total_tables === 8 ||
+      (p.myTeam.roster || []).length > 5 ||
+      (p.oppTeam.roster || []).length > 5
+    );
+
+    if (this.inspectedMyCard && !(p.myTeam.roster || []).some((c) => c.id === this.inspectedMyCard.id)) {
+      this.inspectedMyCard = null;
+    }
+    if (this.inspectedOppCard && !oppBench.some((c) => c.id === this.inspectedOppCard.id)) {
+      this.inspectedOppCard = null;
+    }
+
+    const stagedMyCard = this.selectedIds.length > 0
+      ? (p.myTeam.roster || []).find((c) => c.id === this.selectedIds[0])
+      : null;
+    const myRefCard = stagedMyCard || p.myDef || this.inspectedMyCard || myBench[0] || null;
+    const oppRefCard = (phase === "STEP_2_ATTACKERS" && p.oppDef)
+      ? p.oppDef
+      : (this.inspectedOppCard || p.oppDef || null);
+
+    // 1. OPPONENT OPEN ROSTER HAND (TOP)
+    const oppTitle = document.getElementById("oppHandOwnerTitle");
+    if (oppTitle) {
+      const oppTeamLabel = (p.oppTeam.name || "OPPONENT TEAM").toUpperCase();
+      const vsHint = myRefCard ? ` • VS ${myRefCard.name.toUpperCase()}` : " • CLICK CARD TO COMPARE";
+      const secretNote = (p.oppSecDefLocked && !p.oppDef)
+        ? " • 1 SET FACE-DOWN"
+        : ((p.oppSecAttsLocked && (!p.oppAtts || p.oppAtts.length === 0)) ? " • 2 SET FACE-DOWN" : "");
+      oppTitle.textContent = `OPPONENT ROSTER — ${oppTeamLabel} (${oppBench.length} IN HAND${secretNote}${vsHint})`;
+    }
 
     const oppFan = document.getElementById("oppHandFan");
     if (oppFan) {
-      oppFan.innerHTML = oppBench.map((_, i) => {
-        const mid = (oppBench.length - 1) / 2;
-        const deg = (i - mid) * 4;
-        return `<div class="opp-card-back" style="transform: rotate(${deg}deg);"></div>`;
-      }).join("");
+      oppFan.classList.toggle("format-8v8", is8v8);
+      if ((p.oppTeam.roster || []).length === 0) {
+        oppFan.innerHTML = "";
+      } else if (oppBench.length === 0) {
+        oppFan.innerHTML = `<div style="color:var(--text-dim);font-family:var(--font-mono);font-size:0.7rem;align-self:center;">ALL OPPONENT CARDS ON FIELD / PAIRED</div>`;
+      } else {
+        oppFan.innerHTML = oppBench.map((oppCard) => {
+          const mPred = myRefCard ? this.getMatchupPrediction(myRefCard, oppCard) : null;
+          const isTarget = this.inspectedOppCard && this.inspectedOppCard.id === oppCard.id;
+          return this.buildYuGiOhCardHtml(oppCard, {
+            oppHand: true,
+            inspectedTarget: isTarget,
+            matchupScore: mPred ? mPred.wtcScore : null,
+            matchupPred: mPred
+          });
+        }).join("");
+
+        oppFan.querySelectorAll(".ygo-card").forEach((cardEl, idx) => {
+          const oppCardObj = oppBench[idx];
+          cardEl.addEventListener("mouseenter", () => {
+            this.inspectCard(oppCardObj, myRefCard);
+            this.updateHandMatchupBadgesInPlace(p, null, oppCardObj);
+          });
+          cardEl.addEventListener("click", () => {
+            if (this.inspectedOppCard && this.inspectedOppCard.id === oppCardObj.id) {
+              this.inspectedOppCard = null;
+            } else {
+              this.inspectedOppCard = oppCardObj;
+            }
+            this.inspectCard(oppCardObj, myRefCard);
+            this.renderHands(p);
+          });
+        });
+      }
     }
 
+    // 2. YOUR OPEN ROSTER HAND (BOTTOM)
     const handTitle = document.getElementById("myHandOwnerTitle");
     if (handTitle) {
       const teamLabel = (p.myTeam.name || "YOUR TEAM").toUpperCase();
+      const vsOppHint = oppRefCard ? ` • VS ${oppRefCard.name.toUpperCase()}` : " • CLICK TO PLACE ON FIELD";
       handTitle.textContent = p.isSpectator
-        ? `${teamLabel} HAND (${myBench.length} CARDS REMAINING)`
-        : `YOUR HAND — ${teamLabel} (${myBench.length} CARDS IN HAND • CLICK TO PLACE ON FIELD)`;
+        ? `${teamLabel} HAND (${myBench.length} CARDS REMAINING${oppRefCard ? ` • VS ${oppRefCard.name.toUpperCase()}` : ""})`
+        : `YOUR HAND — ${teamLabel} (${myBench.length} IN HAND${vsOppHint})`;
     }
 
     const myFan = document.getElementById("myHandFan");
     if (!myFan) return;
-    const is8v8 = (this.room?.team_size === 8 || this.room?.total_tables === 8 || myBench.length > 5);
     myFan.classList.toggle("format-8v8", is8v8);
 
     if ((p.myTeam.roster || []).length === 0) {
@@ -2278,8 +2340,8 @@ class YuGiOhPairingsArena {
     }
 
     myFan.innerHTML = myBench.map((card) => {
-      const mPred = (phase === "STEP_2_ATTACKERS" && p.oppDef)
-        ? this.getMatchupPrediction(card, p.oppDef)
+      const mPred = oppRefCard
+        ? this.getMatchupPrediction(card, oppRefCard)
         : null;
       return this.buildYuGiOhCardHtml(card, {
         selected: false,
@@ -2290,14 +2352,86 @@ class YuGiOhPairingsArena {
 
     myFan.querySelectorAll(".ygo-card").forEach((cardEl, idx) => {
       const cardObj = myBench[idx];
-      cardEl.addEventListener("mouseenter", () => this.inspectCard(cardObj, p.oppDef));
+      cardEl.addEventListener("mouseenter", () => {
+        this.inspectedMyCard = cardObj;
+        this.inspectCard(cardObj, oppRefCard);
+        this.updateHandMatchupBadgesInPlace(p, cardObj, null);
+      });
       cardEl.addEventListener("click", () => {
-        this.inspectCard(cardObj, p.oppDef);
+        this.inspectedMyCard = cardObj;
+        this.inspectCard(cardObj, oppRefCard);
         if (!p.isSpectator) {
           this.toggleHandCardSelection(cardObj.id);
+        } else {
+          this.renderHands(p);
         }
       });
     });
+  }
+
+  updateHandMatchupBadgesInPlace(p, hoveredMyCard = null, hoveredOppCard = null) {
+    const oppBench = (p.oppTeam.roster || []).filter((c) => c.status === "bench");
+    const rawMyBench = (p.myTeam.roster || []).filter((c) => c.status === "bench");
+    const phase = this.room?.phase;
+    const stagedOnMatIds = new Set(
+      (phase === "STEP_1_DEFENDER" || phase === "STEP_2_ATTACKERS") ? this.selectedIds : []
+    );
+    const myBench = rawMyBench.filter((c) => !stagedOnMatIds.has(c.id));
+
+    if (hoveredMyCard) {
+      const oppTitle = document.getElementById("oppHandOwnerTitle");
+      if (oppTitle) {
+        const oppTeamLabel = (p.oppTeam.name || "OPPONENT TEAM").toUpperCase();
+        oppTitle.textContent = `OPPONENT ROSTER — ${oppTeamLabel} (${oppBench.length} IN HAND • VS ${hoveredMyCard.name.toUpperCase()})`;
+      }
+      const oppFan = document.getElementById("oppHandFan");
+      if (oppFan) {
+        oppFan.querySelectorAll(".ygo-card").forEach((cardEl, idx) => {
+          const oppCard = oppBench[idx];
+          if (!oppCard) return;
+          const mPred = this.getMatchupPrediction(hoveredMyCard, oppCard);
+          this.applyMatchupChipToCardElement(cardEl, mPred);
+        });
+      }
+    }
+
+    if (hoveredOppCard) {
+      const handTitle = document.getElementById("myHandOwnerTitle");
+      if (handTitle) {
+        const teamLabel = (p.myTeam.name || "YOUR TEAM").toUpperCase();
+        handTitle.textContent = p.isSpectator
+          ? `${teamLabel} HAND (${myBench.length} CARDS REMAINING • VS ${hoveredOppCard.name.toUpperCase()})`
+          : `YOUR HAND — ${teamLabel} (${myBench.length} IN HAND • VS ${hoveredOppCard.name.toUpperCase()})`;
+      }
+      const myFan = document.getElementById("myHandFan");
+      if (myFan) {
+        myFan.querySelectorAll(".ygo-card").forEach((cardEl, idx) => {
+          const myCard = myBench[idx];
+          if (!myCard) return;
+          const mPred = this.getMatchupPrediction(myCard, hoveredOppCard);
+          this.applyMatchupChipToCardElement(cardEl, mPred);
+        });
+      }
+    }
+  }
+
+  applyMatchupChipToCardElement(cardEl, mPred) {
+    if (!cardEl || !mPred) return;
+    const artEl = cardEl.querySelector(".yc-art");
+    if (!artEl) return;
+    const s = mPred.wtcScore;
+    const color = s >= 12 ? "#4ade80" : (s <= 8 ? "#fb7185" : "#fde047");
+    const winPct = mPred.winProb ?? Math.max(5, Math.min(95, Math.round(50 + ((s - 10) / 14) * 100)));
+    const tip = mPred.tooltip || `6-Factor Prediction: ${winPct}% Win • Est. ${s}-${20 - s} WTC`;
+    let chip = artEl.querySelector(".yc-matchup-chip");
+    if (!chip) {
+      chip = document.createElement("span");
+      chip.className = "yc-matchup-chip";
+      artEl.prepend(chip);
+    }
+    chip.style.color = color;
+    chip.title = tip;
+    chip.textContent = `${s}-${20 - s} • ${winPct}%`;
   }
 
   toggleHandCardSelection(cardId) {
@@ -2669,6 +2803,8 @@ class YuGiOhPairingsArena {
     const classes = [
       "ygo-card",
       opts.fieldSize ? "field-size" : "",
+      opts.oppHand ? "opp-hand-card" : "",
+      opts.inspectedTarget ? "inspected-target" : "",
       opts.selected ? "selected" : "",
       opts.clashChoice ? "clash-choice" : ""
     ].filter(Boolean).join(" ");

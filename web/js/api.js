@@ -798,10 +798,12 @@ window.api = {
   },
 
   // Match Predictor
-  async predictMatch(p1Id, p2Id, gameSystem = '') {
+  async predictMatch(p1Id, p2Id, gameSystem = '', p1Faction = '', p2Faction = '') {
     const params = new URLSearchParams({ p1: p1Id, p2: p2Id });
     const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     if (currentSys) params.append('game_system', currentSys);
+    if (p1Faction) params.append('p1_faction', p1Faction);
+    if (p2Faction) params.append('p2_faction', p2Faction);
     return this._fetchJson(`/api/predict?${params}`);
   },
 

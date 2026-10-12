@@ -246,7 +246,7 @@ class TestMyHubDataIsolation(unittest.TestCase):
             mock_get_conn.return_value.__enter__.return_value = mock_conn
 
             # 1. 40k Competitor Hub
-            res_40k = self.auth_mgr.get_user_competitor_hub(player_id="p_tester", game_system="40k")
+            res_40k = self.auth_mgr.get_user_competitor_hub(player_id="p_tester", user_id="u_tester", game_system="40k")
             executed_sqls_40k = [call[0][0] for call in mock_cur.execute.call_args_list]
 
             # Verify ratings query
@@ -276,7 +276,7 @@ class TestMyHubDataIsolation(unittest.TestCase):
                 "game_system": "aos"
             }
 
-            res_aos = self.auth_mgr.get_user_competitor_hub(player_id="p_tester", game_system="aos")
+            res_aos = self.auth_mgr.get_user_competitor_hub(player_id="p_tester", user_id="u_tester", game_system="aos")
             executed_sqls_aos = [call[0][0] for call in mock_cur.execute.call_args_list]
 
             self.assertTrue(any("COALESCE(game_system, '40k') = %s" in sql for sql in executed_sqls_aos))
@@ -295,32 +295,66 @@ class TestMyHubDataIsolation(unittest.TestCase):
 
 
 class TestArmyListsDataIsolation(unittest.TestCase):
-    """Verifies that Army Lists are saved and retrieved per game system."""
+    """Verifies that Army Lists are isolated per game system and NewRecruit source of truth returns empty DB list."""
 
     def setUp(self):
         self.db = PostgresDatabase.__new__(PostgresDatabase)
 
     def test_get_user_army_lists_query_isolation(self):
-        """Ensure get_user_army_lists uses COALESCE(game_system, '40k') = %s."""
+        """Ensure get_user_army_lists returns empty list as NewRecruit is single source of truth."""
+        self.assertEqual(self.db.get_user_army_lists(user_id="user_123", game_system="40k"), [])
+        self.assertEqual(self.db.get_user_army_lists(user_id="user_123", game_system="aos"), [])
+
+
+class TestPredictorAndMetaIntelFreshness(unittest.TestCase):
+    """Verifies 6-Factor Match Predictor enrichment, 90-day faction meta attach, and prewarm_meta_intel_presets."""
+
+    def test_predict_match_outcome_6factor_and_dossiers(self):
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        PostgresDatabase._players_cache_dict = {}
+        PostgresDatabase._faction_meta_cache_dict = {
+            "preset_90d_40k": (
+                {
+                    "factions": [
+                        {"faction": "Orks", "total_matches": 1000, "wins": 520, "losses": 460, "draws": 20, "win_rate": 52.0},
+                        {"faction": "Leagues of Votann", "total_matches": 800, "wins": 420, "losses": 360, "draws": 20, "win_rate": 52.5},
+                    ],
+                    "matchups_by_faction": {
+                        "Orks": [
+                            {"opponent": "Leagues of Votann", "matches_played": 50, "wins": 22, "losses": 26, "draws": 2, "win_rate": 46.0}
+                        ],
+                        "Leagues of Votann": [
+                            {"opponent": "Orks", "matches_played": 50, "wins": 26, "losses": 22, "draws": 2, "win_rate": 54.0}
+                        ],
+                    },
+                },
+                9999999999.0,
+            )
+        }
         mock_conn = MagicMock()
         mock_cur = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = mock_cur
-        mock_cur.fetchall.return_value = []
+        p1_row = {"player_id": "p1", "player_name": "Jack Murphy", "current_elo": 1827.1, "peak_elo": 1870.5, "matches_played": 30, "wins": 23, "losses": 7, "draws": 0, "top_faction": "Orks"}
+        p2_row = {"player_id": "p2", "player_name": "Junior Aflleje", "current_elo": 1732.0, "peak_elo": 1739.5, "matches_played": 25, "wins": 18, "losses": 7, "draws": 0, "top_faction": "Leagues of Votann"}
+        mock_cur.fetchone.side_effect = [p1_row, p2_row]
+        mock_cur.fetchall.return_value = [
+            {"player_id": "p1", "result": "W", "delta_elo": 12.0, "player_faction": "Orks", "opponent_faction": "Leagues of Votann", "opponent_name": "Junior Aflleje", "event_name": "GT", "match_date": "2026-09-20", "round": 1},
+            {"player_id": "p2", "result": "L", "delta_elo": -12.0, "player_faction": "Leagues of Votann", "opponent_faction": "Orks", "opponent_name": "Jack Murphy", "event_name": "GT", "match_date": "2026-09-20", "round": 1},
+        ]
+        mock_conn.__enter__.return_value = mock_conn
+        db.get_connection = MagicMock(return_value=mock_conn)
+        db.get_head_to_head = MagicMock(return_value=[])
 
-        with patch.object(self.db, "get_connection") as mock_get_conn:
-            mock_get_conn.return_value.__enter__.return_value = mock_conn
-
-            # 40k lists
-            self.db.get_user_army_lists(user_id="user_123", game_system="40k")
-            sql_40k, params_40k = mock_cur.execute.call_args[0]
-            self.assertIn("COALESCE(game_system, '40k') = %s", sql_40k)
-            self.assertEqual(params_40k[1], "40k")
-
-            # AoS lists
-            self.db.get_user_army_lists(user_id="user_123", game_system="aos")
-            sql_aos, params_aos = mock_cur.execute.call_args[0]
-            self.assertIn("COALESCE(game_system, '40k') = %s", sql_aos)
-            self.assertEqual(params_aos[1], "aos")
+        engine = EloEngine(db)
+        res = engine.predict_match_outcome("p1", "p2", game_system="40k")
+        self.assertIn("multi_factor_prediction", res)
+        self.assertIn("p1_profile", res)
+        self.assertIn("p2_profile", res)
+        self.assertIn("faction_3mo_summary", res)
+        self.assertEqual(res["p1_profile"]["primary_faction"], "Orks")
+        self.assertEqual(res["p2_profile"]["primary_faction"], "Leagues of Votann")
+        self.assertIn("Orks", res["faction_3mo_summary"])
+        self.assertIn("Leagues of Votann", res["faction_3mo_summary"])
 
 
 class TestFrontendSwitchingAndCacheReset(unittest.TestCase):

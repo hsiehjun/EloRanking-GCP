@@ -3230,6 +3230,8 @@ async def api_predict(
     p2: Optional[str] = Query(None),
     player1: Optional[str] = Query(None),
     player2: Optional[str] = Query(None),
+    p1_faction: Optional[str] = Query(None),
+    p2_faction: Optional[str] = Query(None),
     game_system: Optional[str] = Query("40k")
 ):
     p1_name = p1 or player1 or ""
@@ -3237,7 +3239,13 @@ async def api_predict(
     if not p1_name or not p2_name:
         raise HTTPException(status_code=400, detail="Missing p1 (player1) or p2 (player2) parameters")
     def _run_predict():
-        return get_elo_engine().predict_match_outcome(p1_name.strip(), p2_name.strip(), game_system=game_system)
+        return get_elo_engine().predict_match_outcome(
+            p1_name.strip(),
+            p2_name.strip(),
+            game_system=game_system,
+            p1_faction=p1_faction,
+            p2_faction=p2_faction,
+        )
     return await asyncio.to_thread(_run_predict)
 
 

@@ -308,19 +308,31 @@ class EloEngine:
             "draw_deltas": {"p1": f"{d_p1_draw:+}", "p2": f"{d_p2_draw:+}"}
         }
 
-    def predict_match_outcome(self, p1_id_or_name: str, p2_id_or_name: str, game_system: Optional[str] = "40k") -> Dict[str, Any]:
-        """Calculates win probabilities, simulated Elo rating changes, and past head-to-head encounters (indexed & cached)."""
-        from psycopg2 import extras
+    def predict_match_outcome(
+        self,
+        p1_id_or_name: str,
+        p2_id_or_name: str,
+        game_system: Optional[str] = "40k",
+        p1_faction: Optional[str] = None,
+        p2_faction: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Calculates 6-factor win probabilities, simulated pure Elo rating changes, career dossiers, 90d faction meta, and past head-to-head encounters (indexed & cached)."""
+        try:
+            from psycopg2 import extras
+        except ImportError:
+            extras = None
         from database import Database as PostgresDatabase
 
         target_sys = (game_system or "40k").strip().lower()
         p1_str = (p1_id_or_name or "").strip()
         p2_str = (p2_id_or_name or "").strip()
+        p1_fac_req = (p1_faction or "").strip()
+        p2_fac_req = (p2_faction or "").strip()
         is_mock_db = (
             type(self.db).__module__.startswith("unittest.mock")
             or getattr(self.db, "_is_mock_instance", lambda: False)()
         )
-        cache_key = ("predict_match_v3", p1_str.lower(), p2_str.lower(), target_sys)
+        cache_key = ("predict_match_v4", p1_str.lower(), p2_str.lower(), target_sys, p1_fac_req.lower(), p2_fac_req.lower())
         if not is_mock_db:
             cached_pred = PostgresDatabase.get_cached(PostgresDatabase._players_cache_dict, cache_key, ttl=600)
             if cached_pred is not None:
@@ -328,6 +340,7 @@ class EloEngine:
 
         p1_data = None
         p2_data = None
+        hist_by_pid: Dict[str, List[Dict[str, Any]]] = {}
 
         def _lookup_rating(cur, val: str):
             if not val:
@@ -365,15 +378,52 @@ class EloEngine:
             return cur.fetchone()
 
         with self.db.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+            with (conn.cursor(cursor_factory=extras.RealDictCursor) if extras else conn.cursor()) as cur:
                 p1_data = _lookup_rating(cur, p1_str)
                 p2_data = _lookup_rating(cur, p2_str)
 
-        r1 = float(p1_data["current_elo"]) if p1_data else self.initial_elo
-        r2 = float(p2_data["current_elo"]) if p2_data else self.initial_elo
+                pids_to_fetch = []
+                for p_row in (p1_data, p2_data):
+                    if isinstance(p_row, dict) and p_row.get("player_id"):
+                        pid_v = str(p_row["player_id"]).strip()
+                        if pid_v and pid_v not in pids_to_fetch:
+                            pids_to_fetch.append(pid_v)
+                if pids_to_fetch:
+                    try:
+                        cur.execute("SET LOCAL statement_timeout = '350ms';")
+                        cur.execute(
+                            """
+                            SELECT rh.player_id, rh.match_id, rh.event_id, rh.round, rh.match_date,
+                                   rh.result, rh.delta_elo, rh.player_score, rh.opponent_score,
+                                   rh.player_faction, rh.opponent_id, rh.opponent_name, rh.opponent_faction,
+                                   e.name AS event_name
+                            FROM rating_history rh
+                            LEFT JOIN events e ON rh.event_id = e.id
+                            WHERE COALESCE(rh.game_system, '40k') = %s
+                              AND rh.player_id = ANY(%s)
+                            ORDER BY rh.match_date DESC NULLS LAST, rh.id DESC;
+                            """,
+                            (target_sys, pids_to_fetch),
+                        )
+                        fetched_hist = cur.fetchall()
+                        if isinstance(fetched_hist, list):
+                            for hr in fetched_hist:
+                                if isinstance(hr, dict) or hasattr(hr, "keys"):
+                                    h_dict = dict(hr)
+                                    h_pid = str(h_dict.get("player_id") or "").strip()
+                                    if h_pid:
+                                        hist_by_pid.setdefault(h_pid, []).append(h_dict)
+                    except Exception:
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
 
-        m1 = int(p1_data["matches_played"]) if p1_data else 0
-        m2 = int(p2_data["matches_played"]) if p2_data else 0
+        r1 = float(p1_data["current_elo"]) if isinstance(p1_data, dict) and p1_data.get("current_elo") is not None else self.initial_elo
+        r2 = float(p2_data["current_elo"]) if isinstance(p2_data, dict) and p2_data.get("current_elo") is not None else self.initial_elo
+
+        m1 = int(p1_data["matches_played"]) if isinstance(p1_data, dict) and p1_data.get("matches_played") is not None else 0
+        m2 = int(p2_data["matches_played"]) if isinstance(p2_data, dict) and p2_data.get("matches_played") is not None else 0
 
         k1 = self.get_k_factor(m1)
         k2 = self.get_k_factor(m2)
@@ -381,8 +431,8 @@ class EloEngine:
 
         exp1 = self.expected_score(r1, r2)
         exp2 = 1.0 - exp1
-        p1_prob = round(exp1 * 100.0, 1)
-        p2_prob = round(exp2 * 100.0, 1)
+        pure_p1_prob = round(exp1 * 100.0, 1)
+        pure_p2_prob = round(exp2 * 100.0, 1)
 
         d_p1_win = round(k * (1.0 - exp1), 1)
         d_p2_win = round(k * (1.0 - exp2), 1)
@@ -392,8 +442,8 @@ class EloEngine:
         # Head-to-head encounters
         p1_resolved_id = str(p1_data.get("player_id") or p1_str) if isinstance(p1_data, dict) else p1_str
         p2_resolved_id = str(p2_data.get("player_id") or p2_str) if isinstance(p2_data, dict) else p2_str
-        p1_resolved_name = str(p1_data.get("player_name") or "") if isinstance(p1_data, dict) else None
-        p2_resolved_name = str(p2_data.get("player_name") or "") if isinstance(p2_data, dict) else None
+        p1_resolved_name = str(p1_data.get("player_name") or p1_data.get("name") or "") if isinstance(p1_data, dict) else None
+        p2_resolved_name = str(p2_data.get("player_name") or p2_data.get("name") or "") if isinstance(p2_data, dict) else None
         try:
             h2h_matches = self.db.get_head_to_head(
                 p1_resolved_id,
@@ -404,12 +454,437 @@ class EloEngine:
             )
         except TypeError:
             h2h_matches = self.db.get_head_to_head(p1_str, p2_str, game_system=target_sys)
+        if not isinstance(h2h_matches, list):
+            h2h_matches = []
+
+        def _norm_fac_key(raw_f: str) -> str:
+            import re as _re
+            s = _re.sub(r"\s*\([^)]*\)\s*", " ", str(raw_f or "").strip().lower())
+            s = _re.sub(r"[^a-z0-9\s]", "", s)
+            s = _re.sub(r"\s+", " ", s).strip()
+            aliases = {
+                "genestealer cult": "genestealer cults",
+                "custodes": "adeptus custodes",
+                "admech": "adeptus mechanicus",
+                "mechanicus": "adeptus mechanicus",
+                "csm": "chaos space marines",
+                "heretic astartes": "chaos space marines",
+                "sm": "space marines",
+                "astartes": "space marines",
+                "adeptus astartes": "space marines",
+                "guard": "astra militarum",
+                "imperial guard": "astra militarum",
+                "sisters": "adepta sororitas",
+                "sisters of battle": "adepta sororitas",
+                "daemons": "chaos daemons",
+                "eldar": "aeldari",
+                "craftworlds": "aeldari",
+                "dark eldar": "drukhari",
+                "tau": "tau empire",
+            }
+            return aliases.get(s, s)
+
+        def _build_player_dossier(p_row: Optional[Dict[str, Any]], fallback_id: str, req_fac: str) -> Dict[str, Any]:
+            pid = str((p_row or {}).get("player_id") or fallback_id).strip()
+            pname = str((p_row or {}).get("player_name") or (p_row or {}).get("name") or fallback_id).strip()
+            c_elo = float((p_row or {}).get("current_elo") or self.initial_elo)
+            pk_elo = max(c_elo, float((p_row or {}).get("peak_elo") or c_elo))
+            w_tot = int((p_row or {}).get("wins") or 0)
+            l_tot = int((p_row or {}).get("losses") or 0)
+            d_tot = int((p_row or {}).get("draws") or 0)
+            m_tot = int((p_row or {}).get("matches_played") or (w_tot + l_tot + d_tot))
+            wr_tot = round((w_tot * 100.0) / m_tot, 1) if m_tot > 0 else 0.0
+            top_fac_str = str((p_row or {}).get("top_faction") or "").strip()
+            team_str = str((p_row or {}).get("team") or "").strip() or None
+
+            h_rows = hist_by_pid.get(pid) or list((p_row or {}).get("history") or [])
+            has_spec = any(
+                not PostgresDatabase.is_super_or_empty_faction(r.get("player_faction") or r.get("faction"), include_generic_sm=True)
+                for r in h_rows
+            )
+            fm_map: Dict[str, Dict[str, Any]] = {}
+            mm_map: Dict[str, Dict[str, Any]] = {}
+            recent_list: List[Dict[str, Any]] = []
+
+            # Compute longest win streak in chronological order
+            cur_streak = 0
+            max_streak = int((p_row or {}).get("best_win_streak") or 0)
+            for r in reversed(h_rows):
+                res_c = str(r.get("result") or "").upper()
+                if res_c == "W":
+                    cur_streak += 1
+                    if cur_streak > max_streak:
+                        max_streak = cur_streak
+                elif res_c in ("L", "D"):
+                    cur_streak = 0
+
+            for r in h_rows:
+                opp_name_val = str(r.get("opponent_name") or "").strip()
+                if opp_name_val.upper() == "BYE":
+                    continue
+                res_code = str(r.get("result") or "").upper()
+                raw_delta = r.get("delta_elo") if r.get("delta_elo") is not None else r.get("elo_delta")
+                delta_v = float(raw_delta or 0.0)
+                pf = str(r.get("player_faction") or r.get("faction") or "").strip()
+                of = str(r.get("opponent_faction") or "").strip()
+
+                if len(recent_list) < 8:
+                    m_dt = r.get("match_date") or r.get("date")
+                    dt_str = m_dt.strftime("%Y-%m-%d") if hasattr(m_dt, "strftime") else str(m_dt or "")[:10]
+                    recent_list.append({
+                        "match_id": str(r.get("match_id") or ""),
+                        "event_id": str(r.get("event_id") or ""),
+                        "event_name": str(r.get("event_name") or "Tournament"),
+                        "round": int(r.get("round") or 1),
+                        "match_date": dt_str,
+                        "result": res_code or "D",
+                        "player_score": r.get("player_score"),
+                        "opponent_score": r.get("opponent_score"),
+                        "player_faction": pf,
+                        "opponent_id": str(r.get("opponent_id") or ""),
+                        "opponent_name": opp_name_val or "Opponent",
+                        "opponent_faction": of,
+                        "delta_elo": round(delta_v, 1),
+                    })
+
+                if pf and not PostgresDatabase.is_super_or_empty_faction(pf, include_generic_sm=has_spec):
+                    fb = fm_map.setdefault(pf, {"games": 0, "wins": 0, "losses": 0, "draws": 0, "net_elo": 0.0})
+                    fb["games"] += 1
+                    if res_code == "W":
+                        fb["wins"] += 1
+                    elif res_code == "L":
+                        fb["losses"] += 1
+                    else:
+                        fb["draws"] += 1
+                    fb["net_elo"] += delta_v
+
+                if of and of.lower() != "bye" and not PostgresDatabase.is_super_or_empty_faction(of, include_generic_sm=False):
+                    mb = mm_map.setdefault(of, {"total_encounters": 0, "wins": 0, "losses": 0, "draws": 0, "net_elo": 0.0})
+                    mb["total_encounters"] += 1
+                    if res_code == "W":
+                        mb["wins"] += 1
+                    elif res_code == "L":
+                        mb["losses"] += 1
+                    else:
+                        mb["draws"] += 1
+                    mb["net_elo"] += delta_v
+
+            fm_list = []
+            for fn, b in fm_map.items():
+                g_c = int(b["games"])
+                w_c = int(b["wins"])
+                fm_list.append({
+                    "faction": fn,
+                    "games": g_c,
+                    "matches": g_c,
+                    "wins": w_c,
+                    "losses": int(b["losses"]),
+                    "draws": int(b["draws"]),
+                    "win_rate": round((w_c * 100.0) / g_c, 1) if g_c > 0 else 0.0,
+                    "net_elo": round(float(b["net_elo"]), 1),
+                })
+            fm_list.sort(key=lambda x: (x["games"], x["win_rate"]), reverse=True)
+
+            mm_list = []
+            for efn, b in mm_map.items():
+                g_c = int(b["total_encounters"])
+                w_c = int(b["wins"])
+                mm_list.append({
+                    "enemy_faction": efn,
+                    "total_encounters": g_c,
+                    "wins": w_c,
+                    "losses": int(b["losses"]),
+                    "draws": int(b["draws"]),
+                    "win_rate": round((w_c * 100.0) / g_c, 1) if g_c > 0 else 0.0,
+                    "net_elo": round(float(b["net_elo"]), 1),
+                })
+            mm_list.sort(key=lambda x: (x["total_encounters"], x["win_rate"]), reverse=True)
+
+            tf_parts = [p.strip() for p in top_fac_str.split(",") if p.strip()]
+            clean_tf = [p for p in tf_parts if not PostgresDatabase.is_super_or_empty_faction(p, include_generic_sm=len(tf_parts) > 1)]
+            if fm_list:
+                cleaned_top_fac = ", ".join(x["faction"] for x in fm_list[:5] if x.get("faction"))
+            elif clean_tf:
+                cleaned_top_fac = ", ".join(clean_tf[:5])
+            else:
+                cleaned_top_fac = top_fac_str or "Unknown"
+
+            if req_fac and req_fac.lower() not in ("", "unknown", "various", "all"):
+                primary_fac = req_fac
+            elif fm_list:
+                primary_fac = fm_list[0]["faction"]
+            elif clean_tf:
+                primary_fac = clean_tf[0]
+            elif tf_parts:
+                primary_fac = tf_parts[0]
+            else:
+                primary_fac = "Unknown"
+
+            return {
+                "player_id": pid,
+                "player_name": pname,
+                "current_elo": round(c_elo, 1),
+                "peak_elo": round(pk_elo, 1),
+                "matches_played": m_tot,
+                "wins": w_tot,
+                "losses": l_tot,
+                "draws": d_tot,
+                "win_rate": wr_tot,
+                "top_faction": cleaned_top_fac,
+                "primary_faction": primary_fac,
+                "team": team_str,
+                "longest_win_streak": max_streak,
+                "faction_mastery": fm_list,
+                "matchup_matrix": mm_list,
+                "recent_matches": recent_list,
+            }
+
+        p1_prof = _build_player_dossier(p1_data, p1_resolved_id, p1_fac_req)
+        p2_prof = _build_player_dossier(p2_data, p2_resolved_id, p2_fac_req)
+
+        # Attach 90-day global faction meta summary from L1 cache (<0.2ms)
+        meta_90d = (
+            PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, f"preset_90d_{target_sys}", ttl=86400)
+            or PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, f"::{target_sys}:90d", ttl=86400)
+        )
+        if meta_90d is None and hasattr(self.db, "get_faction_meta_stats"):
+            try:
+                meta_90d = self.db.get_faction_meta_stats(game_system=target_sys, timeframe="90d")
+            except Exception:
+                meta_90d = None
+
+        fac_summary: Dict[str, Any] = {}
+        fac_norm_lookup: Dict[str, Dict[str, Any]] = {}
+        if isinstance(meta_90d, dict):
+            mu_by_fac = meta_90d.get("matchups_by_faction") if isinstance(meta_90d.get("matchups_by_faction"), dict) else {}
+            for f_row in (meta_90d.get("factions") or []):
+                if not isinstance(f_row, dict):
+                    continue
+                f_name = str(f_row.get("faction") or "").strip()
+                if not f_name:
+                    continue
+                mu_raw = mu_by_fac.get(f_name) or []
+                fac_entry = {
+                    "faction": f_name,
+                    "stats": {
+                        "total_matches": int(f_row.get("total_matches") or 0),
+                        "total_wins": int(f_row.get("wins") or 0),
+                        "total_losses": int(f_row.get("losses") or 0),
+                        "total_draws": int(f_row.get("draws") or 0),
+                        "win_rate": float(f_row.get("win_rate") or 0.0),
+                    },
+                    "matchups": [
+                        {
+                            "opponent_faction": str(m.get("opponent") or m.get("opponent_faction") or ""),
+                            "matches_played": int(m.get("matches_played") or m.get("total") or 0),
+                            "wins": int(m.get("wins") or 0),
+                            "losses": int(m.get("losses") or 0),
+                            "draws": int(m.get("draws") or 0),
+                            "win_rate": float(m.get("win_rate") or 0.0),
+                        }
+                        for m in mu_raw
+                        if isinstance(m, dict)
+                    ],
+                }
+                fac_summary[f_name] = fac_entry
+                fac_norm_lookup[_norm_fac_key(f_name)] = fac_entry
+
+        # Compute 6-Factor Effective Matchup Elo Prediction
+        def _clamp(val: float, lo: float, hi: float) -> float:
+            return max(lo, min(hi, val))
+
+        act_f1 = p1_prof["primary_faction"]
+        act_f2 = p2_prof["primary_faction"]
+        nk1 = _norm_fac_key(act_f1)
+        nk2 = _norm_fac_key(act_f2)
+        is_mirror = bool(nk1 and nk2 and nk1 == nk2)
+
+        f1_meta_entry = fac_norm_lookup.get(nk1) or {}
+        f2_meta_entry = fac_norm_lookup.get(nk2) or {}
+        f1_st = f1_meta_entry.get("stats") or {}
+        f2_st = f2_meta_entry.get("stats") or {}
+
+        h2h_f1_w = 0
+        h2h_f2_w = 0
+        h2h_f_d = 0
+        if not is_mirror and nk1 and nk2:
+            for mu in (f1_meta_entry.get("matchups") or []):
+                if _norm_fac_key(mu.get("opponent_faction") or "") == nk2:
+                    h2h_f1_w += int(mu.get("wins") or 0)
+                    h2h_f2_w += int(mu.get("losses") or 0)
+                    h2h_f_d += int(mu.get("draws") or 0)
+            if (h2h_f1_w + h2h_f2_w + h2h_f_d) == 0:
+                for mu in (f2_meta_entry.get("matchups") or []):
+                    if _norm_fac_key(mu.get("opponent_faction") or "") == nk1:
+                        h2h_f2_w += int(mu.get("wins") or 0)
+                        h2h_f1_w += int(mu.get("losses") or 0)
+                        h2h_f_d += int(mu.get("draws") or 0)
+        h2h_f_tot = h2h_f1_w + h2h_f2_w + h2h_f_d
+
+        base_elo_delta = r1 - r2
+        fac_h2h_delta = 0.0
+        if not is_mirror and h2h_f_tot > 0:
+            shrunk_edge = ((h2h_f1_w + 0.5 * h2h_f_d) - 0.5 * h2h_f_tot) / (h2h_f_tot + 35.0)
+            fac_h2h_delta = _clamp(shrunk_edge * 350.0, -75.0, 75.0)
+
+        f1_meta_g = int(f1_st.get("total_matches") or 0)
+        f2_meta_g = int(f2_st.get("total_matches") or 0)
+        f1_meta_wr = float(f1_st.get("win_rate") or 50.0)
+        f2_meta_wr = float(f2_st.get("win_rate") or 50.0)
+        fac_meta_delta = 0.0
+        if not is_mirror and (f1_meta_g > 0 or f2_meta_g > 0):
+            adj1 = 0.50 + ((f1_meta_wr / 100.0) - 0.50) * (f1_meta_g / (f1_meta_g + 100.0))
+            adj2 = 0.50 + ((f2_meta_wr / 100.0) - 0.50) * (f2_meta_g / (f2_meta_g + 100.0))
+            fac_meta_delta = _clamp((adj1 - adj2) * 250.0, -40.0, 40.0)
+
+        def _extract_mastery_pair(prof: Dict[str, Any], own_nk: str, opp_nk: str):
+            own_w = own_l = own_d = 0
+            own_net = 0.0
+            for m_item in (prof.get("faction_mastery") or []):
+                if own_nk and _norm_fac_key(m_item.get("faction") or "") == own_nk:
+                    own_w += int(m_item.get("wins") or 0)
+                    own_l += int(m_item.get("losses") or 0)
+                    own_d += int(m_item.get("draws") or 0)
+                    own_net += float(m_item.get("net_elo") or 0.0)
+            own_g = own_w + own_l + own_d
+            own_wr = (own_w * 100.0 / own_g) if own_g > 0 else 50.0
+
+            vs_w = vs_l = vs_d = 0
+            vs_net = 0.0
+            for v_item in (prof.get("matchup_matrix") or []):
+                if opp_nk and _norm_fac_key(v_item.get("enemy_faction") or "") == opp_nk:
+                    vs_w += int(v_item.get("wins") or 0)
+                    vs_l += int(v_item.get("losses") or 0)
+                    vs_d += int(v_item.get("draws") or 0)
+                    vs_net += float(v_item.get("net_elo") or 0.0)
+            vs_g = vs_w + vs_l + vs_d
+            vs_wr = (vs_w * 100.0 / vs_g) if vs_g > 0 else 50.0
+            return {
+                "ownGames": own_g, "ownWins": own_w, "ownLosses": own_l, "ownDraws": own_d, "ownNetElo": own_net, "ownWr": own_wr,
+                "vsGames": vs_g, "vsWins": vs_w, "vsLosses": vs_l, "vsDraws": vs_d, "vsNetElo": vs_net, "vsWr": vs_wr,
+            }
+
+        m1_stats = _extract_mastery_pair(p1_prof, nk1, nk2)
+        m2_stats = _extract_mastery_pair(p2_prof, nk2, nk1)
+
+        def _calc_own_score(ms: Dict[str, Any]) -> float:
+            g = float(ms["ownGames"])
+            if g <= 0:
+                return 0.0
+            wr_part = (((ms["ownWins"] + 0.5 * ms["ownDraws"]) - 0.5 * g) / (g + 10.0)) * 140.0
+            net_part = _clamp((ms["ownNetElo"] / 6.0) * (g / (g + 10.0)), -20.0, 20.0)
+            return wr_part + net_part
+
+        def _calc_vs_score(ms: Dict[str, Any]) -> float:
+            g = float(ms["vsGames"])
+            if g <= 0:
+                return 0.0
+            wr_part = (((ms["vsWins"] + 0.5 * ms["vsDraws"]) - 0.5 * g) / (g + 10.0)) * 130.0
+            net_part = _clamp((ms["vsNetElo"] / 6.0) * (g / (g + 10.0)), -15.0, 15.0)
+            return wr_part + net_part
+
+        own_mastery_delta = _clamp(_calc_own_score(m1_stats) - _calc_own_score(m2_stats), -55.0, 55.0)
+        vs_mastery_delta = _clamp(_calc_vs_score(m1_stats) - _calc_vs_score(m2_stats), -45.0, 45.0)
+
+        p1_h2h_w = 0
+        p2_h2h_w = 0
+        h2h_dr = 0
+        p1_id_l = p1_prof["player_id"].lower()
+        p2_id_l = p2_prof["player_id"].lower()
+        p1_nm_l = p1_prof["player_name"].lower()
+        p2_nm_l = p2_prof["player_name"].lower()
+        for hm in h2h_matches:
+            if not isinstance(hm, dict) or hm.get("is_bye"):
+                continue
+            if hm.get("is_draw"):
+                h2h_dr += 1
+                continue
+            wid = str(hm.get("winner_id") or "").strip().lower()
+            s1_v = hm.get("player1_score")
+            s2_v = hm.get("player2_score")
+            m1_id_l = str(hm.get("player1_id") or "").strip().lower()
+            m1_nm_l = str(hm.get("player1_name") or "").strip().lower()
+            is_p1_side1 = (p1_id_l and m1_id_l == p1_id_l) or (p1_nm_l and m1_nm_l == p1_nm_l)
+            if wid:
+                if (p1_id_l and wid == p1_id_l):
+                    p1_h2h_w += 1
+                elif (p2_id_l and wid == p2_id_l):
+                    p2_h2h_w += 1
+            elif s1_v is not None and s2_v is not None:
+                if float(s1_v) > float(s2_v):
+                    if is_p1_side1:
+                        p1_h2h_w += 1
+                    else:
+                        p2_h2h_w += 1
+                elif float(s2_v) > float(s1_v):
+                    if is_p1_side1:
+                        p2_h2h_w += 1
+                    else:
+                        p1_h2h_w += 1
+
+        h2h_games_cnt = p1_h2h_w + p2_h2h_w + h2h_dr
+        past_h2h_delta = 0.0
+        if h2h_games_cnt > 0:
+            past_h2h_delta = _clamp(((p1_h2h_w - p2_h2h_w) / (h2h_games_cnt + 4.0)) * 90.0, -35.0, 35.0)
+
+        effective_elo_delta = (
+            base_elo_delta
+            + fac_h2h_delta
+            + fac_meta_delta
+            + own_mastery_delta
+            + vs_mastery_delta
+            + past_h2h_delta
+        )
+        raw_prob1 = 100.0 / (1.0 + math.pow(10.0, -effective_elo_delta / 400.0))
+        mf_p1_prob = float(_clamp(round(raw_prob1), 5, 95))
+        mf_p2_prob = float(100.0 - mf_p1_prob)
+        wtc_score1 = int(_clamp(round(10.0 + 14.0 * ((raw_prob1 / 100.0) - 0.50)), 3, 17))
+        wtc_score2 = 20 - wtc_score1
+
+        multi_factor_pred = {
+            "p1WinProb": int(mf_p1_prob),
+            "p2WinProb": int(mf_p2_prob),
+            "wtcScore1": wtc_score1,
+            "wtcScore2": wtc_score2,
+            "baseEloDelta": round(base_elo_delta, 1),
+            "facH2hDelta": round(fac_h2h_delta, 1),
+            "facMetaDelta": round(fac_meta_delta, 1),
+            "ownMasteryDelta": round(own_mastery_delta, 1),
+            "vsMasteryDelta": round(vs_mastery_delta, 1),
+            "pastH2hDelta": round(past_h2h_delta, 1),
+            "effectiveEloDelta": round(effective_elo_delta, 1),
+            "p1Faction": act_f1,
+            "p2Faction": act_f2,
+            "details": {
+                "h2hF1W": h2h_f1_w,
+                "h2hF2W": h2h_f2_w,
+                "h2hD": h2h_f_d,
+                "h2hTotal": h2h_f_tot,
+                "f1MetaGames": f1_meta_g,
+                "f2MetaGames": f2_meta_g,
+                "f1MetaWr": f1_meta_wr,
+                "f2MetaWr": f2_meta_wr,
+                "p1OwnGames": m1_stats["ownGames"],
+                "p1OwnWr": m1_stats["ownWr"],
+                "p2OwnGames": m2_stats["ownGames"],
+                "p2OwnWr": m2_stats["ownWr"],
+                "p1VsGames": m1_stats["vsGames"],
+                "p1VsWr": m1_stats["vsWr"],
+                "p2VsGames": m2_stats["vsGames"],
+                "p2VsWr": m2_stats["vsWr"],
+                "p1H2hW": p1_h2h_w,
+                "p2H2hW": p2_h2h_w,
+                "h2hGames": h2h_games_cnt,
+            },
+        }
 
         res = {
-            "p1_win_prob": p1_prob,
-            "p2_win_prob": p2_prob,
-            "player1_win_prob": p1_prob,
-            "player2_win_prob": p2_prob,
+            "p1_win_prob": mf_p1_prob,
+            "p2_win_prob": mf_p2_prob,
+            "player1_win_prob": mf_p1_prob,
+            "player2_win_prob": mf_p2_prob,
+            "pure_elo_p1_win_prob": pure_p1_prob,
+            "pure_elo_p2_win_prob": pure_p2_prob,
             "player1_rating": r1,
             "player2_rating": r2,
             "deltas": {
@@ -421,7 +896,11 @@ class EloEngine:
             "p1_win_deltas": {"p1": f"+{d_p1_win}", "p2": f"-{d_p1_win}"},
             "p2_win_deltas": {"p1": f"-{d_p2_win}", "p2": f"+{d_p2_win}"},
             "draw_deltas": {"p1": f"{d_p1_draw:+}", "p2": f"{d_p2_draw:+}"},
-            "head_to_head": h2h_matches
+            "head_to_head": h2h_matches,
+            "multi_factor_prediction": multi_factor_pred,
+            "p1_profile": p1_prof,
+            "p2_profile": p2_prof,
+            "faction_3mo_summary": fac_summary,
         }
         if not is_mock_db:
             PostgresDatabase.set_cached(PostgresDatabase._players_cache_dict, cache_key, res)

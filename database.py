@@ -5630,7 +5630,10 @@ class PostgresDatabase:
         ev_gs = str(event_obj.get("game_system") or "40k").strip().lower()
 
         # 1. Attach 90-day global faction meta & matchup matrix from L1 cache (<0.2ms)
-        meta_90d = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, f"::{ev_gs}:90d", ttl=86400)
+        meta_90d = (
+            PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, f"preset_90d_{ev_gs}", ttl=86400)
+            or PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, f"::{ev_gs}:90d", ttl=86400)
+        )
         if meta_90d is None:
             try:
                 meta_90d = self.get_faction_meta_stats(game_system=ev_gs, timeframe="90d")
@@ -10496,7 +10499,12 @@ class PostgresDatabase:
 
                     return res
 
-    def prewarm_meta_intel_presets(self, game_system: str = "40k", presets: Optional[List[str]] = None) -> int:
+    def prewarm_meta_intel_presets(
+        self,
+        game_system: str = "40k",
+        presets: Optional[List[str]] = None,
+        force_refresh: bool = False,
+    ) -> int:
         """Pre-warms L1 and L2 (system_settings) Meta Intel caches for all standard timeframe presets."""
         target_presets = presets or ["90d", "30d", "60d", "180d", "1yr", "ytd", "all"]
         sys_norm = (game_system or "40k").strip().lower()
@@ -10514,7 +10522,7 @@ class PostgresDatabase:
                 )
                 if is_seeded:
                     PostgresDatabase._faction_meta_cache_dict.pop(f"preset_{p}_{sys_norm}", None)
-                self.get_faction_meta_stats(timeframe=p, game_system=sys_norm)
+                self.get_faction_meta_stats(timeframe=p, game_system=sys_norm, _force_refresh=force_refresh)
                 return True
             except Exception as e:
                 logger.warning(f"Notice warming Meta Intel preset {p} ({game_system}): {e}")
