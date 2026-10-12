@@ -211,7 +211,18 @@ async def api_player_profile(
         # Check if this player is registered on OmniTactica
         db = get_database()
         actual_pid = str(data.get("player_id") or pid)
-        user_row = db.get_user_for_player(actual_pid, data.get("player_name"))
+        if current_user is None and isinstance(db, PostgresDatabase) and not db._is_mock_instance():
+            if not hasattr(PostgresDatabase, "_user_for_player_cache_dict"):
+                PostgresDatabase._user_for_player_cache_dict = {}
+            u_key = f"{actual_pid}:{str(data.get('player_name') or '').strip().lower()}"
+            cached_u = PostgresDatabase.get_cached(PostgresDatabase._user_for_player_cache_dict, u_key, ttl=120)
+            if cached_u is not None:
+                user_row = cached_u.get("row")
+            else:
+                user_row = db.get_user_for_player(actual_pid, data.get("player_name"))
+                PostgresDatabase.set_cached(PostgresDatabase._user_for_player_cache_dict, u_key, {"row": user_row})
+        else:
+            user_row = db.get_user_for_player(actual_pid, data.get("player_name"))
         if user_row:
             data["has_account"] = True
             data["account_user_id"] = user_row["id"]
@@ -381,15 +392,23 @@ async def api_player_profile(
                             hp["total_players"] = max(int(hp.get("total_players") or 0), est_tot, est_rk)
 
         user_pinned = user_row.get("pinned_badges") if (user_row and user_row.get("pinned_badges")) else None
-        b_eval = badges.evaluate_player_badges(
-            player_data=data.get("player") or data,
-            history=data.get("history") or [],
-            tournaments=data["tournaments"],
-            faction_mastery=data.get("faction_mastery") or [],
-            matchup_matrix=data.get("matchup_matrix") or [],
-            user_pinned_ids=user_pinned,
-            game_system=game_system or "40k"
-        )
+        t_len_sig = len(data["tournaments"])
+        cached_beval = raw_data.get("_cached_badge_eval") if (user_pinned is None and isinstance(raw_data, dict) and raw_data.get("_cached_badge_t_len") == t_len_sig) else None
+        if cached_beval is not None:
+            b_eval = cached_beval
+        else:
+            b_eval = badges.evaluate_player_badges(
+                player_data=data.get("player") or data,
+                history=data.get("history") or [],
+                tournaments=data["tournaments"],
+                faction_mastery=data.get("faction_mastery") or [],
+                matchup_matrix=data.get("matchup_matrix") or [],
+                user_pinned_ids=user_pinned,
+                game_system=game_system or "40k"
+            )
+            if user_pinned is None and isinstance(raw_data, dict):
+                raw_data["_cached_badge_eval"] = b_eval
+                raw_data["_cached_badge_t_len"] = t_len_sig
         data["badge_count"] = b_eval["badge_count"]
         data["total_badges"] = b_eval["total_badges"]
         data["completion_pct"] = b_eval["completion_pct"]

@@ -661,6 +661,29 @@ class TestRepairMatchesAndElo(unittest.TestCase):
         finally:
             lb_router._event_details_cache.pop("DAVY7pZIVACh", None)
 
+    def test_dropped_zero_score_byes_and_duplicate_round_dedup(self):
+        """Verify 0-0 dropped registration byes and duplicate same-round outcomes do not inflate W-L-D or matches_played."""
+        import inspect
+        from database import PostgresDatabase
+
+        for method_name in (
+            "_resolve_db_swiss_placings_for_events",
+            "get_player_tournaments",
+            "get_multiple_players_tournaments",
+        ):
+            fn = inspect.unwrap(getattr(PostgresDatabase, method_name))
+            src = inspect.getsource(fn)
+            self.assertIn(
+                "NOT (COALESCE(m.is_bye, FALSE) = TRUE AND COALESCE(m.player1_score, 0) = 0)",
+                src,
+                f"{method_name} must exclude 0-0 dropped registration byes",
+            )
+            self.assertIn(
+                "DISTINCT ON (",
+                src,
+                f"{method_name} must deduplicate outcomes per (event_id, pid, round_num)",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

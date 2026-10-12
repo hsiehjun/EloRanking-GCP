@@ -4957,15 +4957,17 @@ class PostgresDatabase:
                     r_num = m.get("round", 1)
                     is_done = m.get("is_done", True)
 
-                    # Skip unplayed / unscored pairings from Swiss match records and standings
+                    # Skip unplayed / unscored pairings and 0-point dropped registration byes from Swiss match records
                     if not m.get("winner_id") and not m.get("is_draw") and not has_scores:
                         continue
                     if not is_done and not m.get("winner_id") and (p1_score == 0 and p2_score == 0):
                         continue
+                    if m.get("is_bye") and p1_score == 0 and p2_score == 0:
+                        continue
 
                     is_p1_win = m.get("winner_id") == p1_id or (m.get("winner_id") is None and has_scores and p1_score > p2_score)
                     is_p2_win = m.get("winner_id") == p2_id or (m.get("winner_id") is None and has_scores and p2_score > p1_score)
-                    is_draw = m.get("is_draw") or (has_scores and p1_score == p2_score and not is_p1_win and not is_p2_win)
+                    is_draw = m.get("is_draw") or (has_scores and p1_score == p2_score and (p1_score > 0 or p2_score > 0) and not is_p1_win and not is_p2_win)
 
                     if p1_id:
                         if p1_id not in player_stats:
@@ -5001,20 +5003,21 @@ class PostgresDatabase:
                                 "opponents": []
                             }
                         ps = player_stats[p1_id]
-                        ps["event_matches_count"] += 1
-                        ps["event_battle_points"] += p1_score
-                        ps["event_mov"] += (p1_score - p2_score)
-                        if is_p1_win:
-                            ps["event_wins"] += 1
-                            ps["round_wins"][r_num] = 1
-                        elif is_draw:
-                            ps["event_draws"] += 1
-                            ps["round_wins"][r_num] = 0.5
-                        else:
-                            ps["event_losses"] += 1
-                            ps["round_wins"][r_num] = 0
-                        if p2_id and not m.get("is_bye") and p2_name != "BYE":
-                            ps["opponents"].append(p2_id)
+                        if r_num not in ps["round_wins"]:
+                            ps["event_matches_count"] += 1
+                            ps["event_battle_points"] += p1_score
+                            ps["event_mov"] += (p1_score - p2_score)
+                            if is_p1_win:
+                                ps["event_wins"] += 1
+                                ps["round_wins"][r_num] = 1
+                            elif is_draw:
+                                ps["event_draws"] += 1
+                                ps["round_wins"][r_num] = 0.5
+                            else:
+                                ps["event_losses"] += 1
+                                ps["round_wins"][r_num] = 0
+                            if p2_id and not m.get("is_bye") and p2_name != "BYE":
+                                ps["opponents"].append(p2_id)
 
                     if p2_id and not m.get("is_bye") and p2_name != "BYE":
                         if p2_id not in player_stats:
@@ -7979,6 +7982,7 @@ class PostgresDatabase:
                                     (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL) AS has_scores
                                 FROM matches m
                                 WHERE m.event_id = ANY(%(eids)s)
+                                  AND NOT (COALESCE(m.is_bye, FALSE) = TRUE AND COALESCE(m.player1_score, 0) = 0)
                                   AND (
                                       NULLIF(m.winner_id, '') IS NOT NULL
                                       OR COALESCE(m.is_draw, FALSE) = TRUE
@@ -7986,7 +7990,7 @@ class PostgresDatabase:
                                   )
                             ),
                             event_match_outcomes AS (
-                                SELECT
+                                SELECT DISTINCT ON (rm.event_id, v.pid, rm.round_num)
                                     rm.event_id,
                                     v.pid,
                                     rm.round_num,
@@ -8013,6 +8017,7 @@ class PostgresDatabase:
                                         )
                                 ) AS v(pid, is_win, is_loss, is_draw, match_bp)
                                 WHERE v.pid IS NOT NULL AND v.pid != ''
+                                ORDER BY rm.event_id, v.pid, rm.round_num, rm.is_bye ASC, v.match_bp DESC, v.is_win DESC
                             ),
                             agg_match_players AS (
                                 SELECT
@@ -8499,16 +8504,19 @@ class PostgresDatabase:
                     seen_eids.add(eid)
                     missing_eids.append(eid)
 
-        # Synchronously compute fast indexed DB Swiss standings for up to 12 unplaced events (~40-120ms budget)
-        # while _estimate_swiss_placement guarantees 100% immediate placement coverage for any remaining events.
+        # Synchronously compute fast indexed DB Swiss standings only for modest tournament lists (<= 35 events, ~75ms budget)
+        # while _estimate_swiss_placement guarantees 100% immediate placement coverage (<0.1ms) and background warming fills exact DB/BCP standings.
         rem_unplaced: List[str] = []
         if unplaced_eids and not self._is_mock_instance():
-            sync_unplaced = unplaced_eids[:12]
-            rem_unplaced = unplaced_eids[12:]
-            self._resolve_db_swiss_placings_for_events(sync_unplaced, timeout_ms=200)
-            for t in tournaments:
-                if int(t.get("placement") or 0) <= 0:
-                    _apply_cached_placings_to_item(t, pid_clean, norm_name)
+            if len(tournaments) <= 35:
+                sync_unplaced = unplaced_eids[:4]
+                rem_unplaced = unplaced_eids[4:]
+                self._resolve_db_swiss_placings_for_events(sync_unplaced, timeout_ms=75)
+                for t in tournaments:
+                    if int(t.get("placement") or 0) <= 0:
+                        _apply_cached_placings_to_item(t, pid_clean, norm_name)
+            else:
+                rem_unplaced = list(unplaced_eids)
 
         if missing_eids or rem_unplaced:
             from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -8762,81 +8770,97 @@ class PostgresDatabase:
                         WHERE COALESCE(e.game_system, '40k') = %(system)s
                     ),
                     event_match_outcomes AS MATERIALIZED (
-                        SELECT
-                            m.event_id,
-                            m.player1_id AS pid,
-                            NULLIF(TRIM(m.player1_name), '') AS match_name,
-                            CASE
-                                WHEN COALESCE(m.is_bye, FALSE) = FALSE AND m.player2_id IS NOT NULL AND m.player2_id != '' AND COALESCE(UPPER(TRIM(m.player2_name)), '') != 'BYE'
-                                THEN m.player2_id
-                                ELSE NULL
-                            END AS opp_id,
-                            COALESCE(m.round, 1) AS round_num,
-                            CASE
-                                WHEN m.winner_id = m.player1_id
-                                  OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score > m.player2_score)
-                                THEN 1 ELSE 0
-                            END AS is_win,
-                            CASE
-                                WHEN m.loser_id = m.player1_id
-                                  OR (m.winner_id IS NOT NULL AND m.winner_id != m.player1_id)
-                                  OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score < m.player2_score)
-                                THEN 1 ELSE 0
-                            END AS is_loss,
-                            CASE
-                                WHEN COALESCE(m.is_draw, FALSE) = TRUE
-                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND m.player1_score > 0)
-                                THEN 1 ELSE 0
-                            END AS is_draw,
-                            COALESCE(m.player1_score, 0) AS match_bp,
-                            NULLIF(m.player1_faction, '') AS match_faction,
-                            m.match_date
-                        FROM matches m
-                        JOIN target_events te ON te.event_id = m.event_id
-                        WHERE m.player1_id = %(pid)s -- OR te.needs_full_rank
-                          AND (
-                              m.winner_id IS NOT NULL
-                              OR COALESCE(m.is_draw, FALSE) = TRUE
-                              OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0))
-                          )
-                        UNION ALL
-                        SELECT
-                            m.event_id,
-                            m.player2_id AS pid,
-                            NULLIF(TRIM(m.player2_name), '') AS match_name,
-                            CASE
-                                WHEN m.player1_id IS NOT NULL AND m.player1_id != '' AND COALESCE(UPPER(TRIM(m.player1_name)), '') != 'BYE'
-                                THEN m.player1_id
-                                ELSE NULL
-                            END AS opp_id,
-                            COALESCE(m.round, 1) AS round_num,
-                            CASE
-                                WHEN m.winner_id = m.player2_id
-                                  OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player2_score > m.player1_score)
-                                THEN 1 ELSE 0
-                            END AS is_win,
-                            CASE
-                                WHEN m.loser_id = m.player2_id
-                                  OR (m.winner_id IS NOT NULL AND m.winner_id != m.player2_id)
-                                  OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player2_score < m.player1_score)
-                                THEN 1 ELSE 0
-                            END AS is_loss,
-                            CASE
-                                WHEN COALESCE(m.is_draw, FALSE) = TRUE
-                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND m.player2_score > 0)
-                                THEN 1 ELSE 0
-                            END AS is_draw,
-                            COALESCE(m.player2_score, 0) AS match_bp,
-                            NULLIF(m.player2_faction, '') AS match_faction,
-                            m.match_date
-                        FROM matches m
-                        JOIN target_events te ON te.event_id = m.event_id
-                        WHERE m.player2_id = %(pid)s AND COALESCE(m.is_bye, FALSE) = FALSE -- OR te.needs_full_rank
-                          AND (
-                              m.winner_id IS NOT NULL
-                              OR COALESCE(m.is_draw, FALSE) = TRUE
-                              OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0))
-                          )
+                        SELECT DISTINCT ON (u.event_id, u.pid, u.round_num)
+                            u.event_id,
+                            u.pid,
+                            u.match_name,
+                            u.opp_id,
+                            u.round_num,
+                            u.is_win,
+                            u.is_loss,
+                            u.is_draw,
+                            u.match_bp,
+                            u.match_faction,
+                            u.match_date
+                        FROM (
+                            SELECT
+                                m.event_id,
+                                m.player1_id AS pid,
+                                NULLIF(TRIM(m.player1_name), '') AS match_name,
+                                CASE
+                                    WHEN COALESCE(m.is_bye, FALSE) = FALSE AND m.player2_id IS NOT NULL AND m.player2_id != '' AND COALESCE(UPPER(TRIM(m.player2_name)), '') != 'BYE'
+                                    THEN m.player2_id
+                                    ELSE NULL
+                                END AS opp_id,
+                                COALESCE(m.round, 1) AS round_num,
+                                CASE
+                                    WHEN m.winner_id = m.player1_id
+                                      OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score > m.player2_score)
+                                    THEN 1 ELSE 0
+                                END AS is_win,
+                                CASE
+                                    WHEN m.loser_id = m.player1_id
+                                      OR (m.winner_id IS NOT NULL AND m.winner_id != m.player1_id)
+                                      OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score < m.player2_score)
+                                    THEN 1 ELSE 0
+                                END AS is_loss,
+                                CASE
+                                    WHEN COALESCE(m.is_draw, FALSE) = TRUE
+                                      OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND m.player1_score > 0)
+                                    THEN 1 ELSE 0
+                                END AS is_draw,
+                                COALESCE(m.player1_score, 0) AS match_bp,
+                                NULLIF(m.player1_faction, '') AS match_faction,
+                                m.match_date
+                            FROM matches m
+                            JOIN target_events te ON te.event_id = m.event_id
+                            WHERE m.player1_id = %(pid)s -- OR te.needs_full_rank
+                              AND NOT (COALESCE(m.is_bye, FALSE) = TRUE AND COALESCE(m.player1_score, 0) = 0)
+                              AND (
+                                  m.winner_id IS NOT NULL
+                                  OR COALESCE(m.is_draw, FALSE) = TRUE
+                                  OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0))
+                              )
+                            UNION ALL
+                            SELECT
+                                m.event_id,
+                                m.player2_id AS pid,
+                                NULLIF(TRIM(m.player2_name), '') AS match_name,
+                                CASE
+                                    WHEN m.player1_id IS NOT NULL AND m.player1_id != '' AND COALESCE(UPPER(TRIM(m.player1_name)), '') != 'BYE'
+                                    THEN m.player1_id
+                                    ELSE NULL
+                                END AS opp_id,
+                                COALESCE(m.round, 1) AS round_num,
+                                CASE
+                                    WHEN m.winner_id = m.player2_id
+                                      OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player2_score > m.player1_score)
+                                    THEN 1 ELSE 0
+                                END AS is_win,
+                                CASE
+                                    WHEN m.loser_id = m.player2_id
+                                      OR (m.winner_id IS NOT NULL AND m.winner_id != m.player2_id)
+                                      OR (m.winner_id IS NULL AND COALESCE(m.is_draw, FALSE) = FALSE AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player2_score < m.player1_score)
+                                    THEN 1 ELSE 0
+                                END AS is_loss,
+                                CASE
+                                    WHEN COALESCE(m.is_draw, FALSE) = TRUE
+                                      OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND m.player2_score > 0)
+                                    THEN 1 ELSE 0
+                                END AS is_draw,
+                                COALESCE(m.player2_score, 0) AS match_bp,
+                                NULLIF(m.player2_faction, '') AS match_faction,
+                                m.match_date
+                            FROM matches m
+                            JOIN target_events te ON te.event_id = m.event_id
+                            WHERE m.player2_id = %(pid)s AND COALESCE(m.is_bye, FALSE) = FALSE -- OR te.needs_full_rank
+                              AND (
+                                  m.winner_id IS NOT NULL
+                                  OR COALESCE(m.is_draw, FALSE) = TRUE
+                                  OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0))
+                              )
+                        ) u
+                        ORDER BY u.event_id, u.pid, u.round_num, (u.opp_id IS NOT NULL) DESC, u.match_bp DESC, u.is_win DESC
                     ),
                     agg_match_players AS (
                         SELECT
@@ -9177,16 +9201,20 @@ class PostgresDatabase:
                             END AS is_loss,
                             CASE
                                 WHEN COALESCE(m.is_draw, FALSE) = TRUE
-                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND (m.player1_score > 0 OR COALESCE(m.is_done, TRUE) = TRUE))
+                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND m.player1_score > 0)
                                 THEN 1 ELSE 0
                             END AS is_draw,
                             COALESCE(m.player1_score, 0) AS match_bp,
                             NULLIF(m.player1_faction, '') AS match_faction,
                             m.match_date,
+                            COALESCE(m.is_bye, FALSE) AS is_bye,
                             (
-                                m.winner_id IS NOT NULL
-                                OR COALESCE(m.is_draw, FALSE) = TRUE
-                                OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
+                                NOT (COALESCE(m.is_bye, FALSE) = TRUE AND COALESCE(m.player1_score, 0) = 0)
+                                AND (
+                                    m.winner_id IS NOT NULL
+                                    OR COALESCE(m.is_draw, FALSE) = TRUE
+                                    OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0))
+                                )
                             ) AS is_valid_outcome
                         FROM matches m
                         WHERE m.player1_id = ANY(%(pids)s) AND m.event_id IS NOT NULL
@@ -9209,18 +9237,19 @@ class PostgresDatabase:
                             END AS is_loss,
                             CASE
                                 WHEN COALESCE(m.is_draw, FALSE) = TRUE
-                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND (m.player2_score > 0 OR COALESCE(m.is_done, TRUE) = TRUE))
+                                  OR (m.winner_id IS NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND m.player1_score = m.player2_score AND m.player2_score > 0)
                                 THEN 1 ELSE 0
                             END AS is_draw,
                             COALESCE(m.player2_score, 0) AS match_bp,
                             NULLIF(m.player2_faction, '') AS match_faction,
                             m.match_date,
+                            COALESCE(m.is_bye, FALSE) AS is_bye,
                             (
                                 COALESCE(m.is_bye, FALSE) = FALSE
                                 AND (
                                     m.winner_id IS NOT NULL
                                     OR COALESCE(m.is_draw, FALSE) = TRUE
-                                    OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (COALESCE(m.is_done, TRUE) = TRUE OR m.player1_score > 0 OR m.player2_score > 0))
+                                    OR (m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0))
                                 )
                             ) AS is_valid_outcome
                         FROM matches m
@@ -9262,6 +9291,13 @@ class PostgresDatabase:
                         JOIN events e ON e.id = pe.event_id
                         WHERE COALESCE(e.game_system, '40k') = %(system)s
                     ),
+                    dedup_match_outcomes AS (
+                        SELECT DISTINCT ON (prm.event_id, prm.pid, prm.round_num)
+                            prm.*
+                        FROM player_raw_matches prm
+                        WHERE prm.is_valid_outcome = TRUE
+                        ORDER BY prm.event_id, prm.pid, prm.round_num, prm.is_bye ASC, prm.match_bp DESC, prm.is_win DESC
+                    ),
                     agg_match_players AS (
                         SELECT
                             emo.event_id,
@@ -9279,9 +9315,8 @@ class PostgresDatabase:
                             ((SUM(emo.is_win) + 0.5 * SUM(emo.is_draw))::numeric / GREATEST(1, COUNT(*)))::numeric AS win_pct,
                             MAX(emo.match_faction) AS match_faction,
                             MAX(emo.match_date) AS last_match_date
-                        FROM player_raw_matches emo
+                        FROM dedup_match_outcomes emo
                         JOIN target_events te ON te.event_id = emo.event_id
-                        WHERE emo.is_valid_outcome = TRUE
                         GROUP BY emo.event_id, emo.pid
                     ),
                     matched_ep AS (
