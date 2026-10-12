@@ -2574,161 +2574,36 @@ class FirestoreRoomEngine:
         seen_teams = set()
         seen_players = set()
 
-        # 1. Query live PostgreSQL database with fast bounded queries (< 50ms)
+        # 1. Query live PostgreSQL database with a single fast bounded query (< 30ms)
         try:
             from core import get_database
             db = get_database()
             if db is not None:
                 is_mock_db = getattr(db, "_is_mock_instance", lambda: False)() or type(db).__module__.startswith("unittest.mock") or not hasattr(db, "get_connection")
-                if is_mock_db:
-                    if hasattr(db, "get_teams_leaderboard"):
-                        t_res = db.get_teams_leaderboard(
-                            page=1,
-                            page_size=min(lim, 15),
-                            min_members=1,
-                            query=q_raw if q_raw else None,
-                            game_system=sys_key,
-                        )
-                        for t in (t_res.get("items") or []):
-                            tname = str(t.get("team") or t.get("name") or "").strip()
-                            if not tname or tname.lower() in seen_teams:
-                                continue
-                            seen_teams.add(tname.lower())
-                            tag = str(t.get("short_tag") or "".join(w[0] for w in tname.split() if w).upper()[:4] or tname[:3].upper())
-                            rc = int(t.get("roster_count") or t.get("active_roster_count") or 0)
-                            teams_out.append({
-                                "team_name": tname,
-                                "team": tname,
-                                "name": tname,
-                                "short_tag": tag,
-                                "member_count": rc,
-                                "roster_count": rc,
-                                "active_roster_count": int(t.get("active_roster_count") or rc),
-                                "power_rating": float(t.get("power_rating") or 0.0),
-                                "avg_elo": int(round(float(t.get("active_avg_elo") or t.get("avg_elo") or 1800.0))),
-                                "top_player_name": str(t.get("top_player_name") or ""),
-                            })
-                else:
-                    # Fast cached team index from player_ratings (< 15ms once per 10 min)
-                    if not hasattr(self, "_db_teams_fast_list_cache"):
-                        self._db_teams_fast_list_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
-                    t_cached = self._db_teams_fast_list_cache.get(sys_key)
-                    if t_cached and (now_mono - t_cached[0]) < 600.0:
-                        db_teams_list = t_cached[1]
-                    else:
-                        db_teams_list = []
-                        try:
-                            import psycopg2.extras as pg_extras
-                            with db.get_connection() as conn:
-                                with conn.cursor(cursor_factory=pg_extras.RealDictCursor) as cur:
-                                    cur.execute("SET LOCAL statement_timeout = '300ms';")
-                                    cur.execute(
-                                        """
-                                        SELECT TRIM(team) AS team,
-                                               COUNT(*) AS roster_count,
-                                               AVG(COALESCE(current_elo, 1500.0)) AS avg_elo,
-                                               MAX(COALESCE(current_elo, 1500.0)) AS top_elo
-                                        FROM player_ratings
-                                        WHERE COALESCE(game_system, '40k') = %s
-                                          AND COALESCE(matches_played, 0) > 0
-                                          AND team IS NOT NULL AND TRIM(team) != ''
-                                        GROUP BY TRIM(team)
-                                        ORDER BY COUNT(*) DESC, AVG(COALESCE(current_elo, 1500.0)) DESC
-                                        LIMIT 200;
-                                        """,
-                                        (sys_key,),
-                                    )
-                                    for r in cur.fetchall():
-                                        tname = str(r.get("team") or "").strip()
-                                        if not tname:
-                                            continue
-                                        rc = int(r.get("roster_count") or 0)
-                                        avg_e = int(round(float(r.get("avg_elo") or 1800.0)))
-                                        tag = "".join(w[0] for w in tname.split() if w).upper()[:4] or tname[:3].upper()
-                                        db_teams_list.append({
-                                            "team_name": tname,
-                                            "team": tname,
-                                            "name": tname,
-                                            "short_tag": tag,
-                                            "member_count": rc,
-                                            "roster_count": rc,
-                                            "active_roster_count": rc,
-                                            "power_rating": float(avg_e),
-                                            "avg_elo": avg_e,
-                                            "top_player_name": "",
-                                        })
-                            self._db_teams_fast_list_cache[sys_key] = (now_mono, db_teams_list)
-                        except Exception as t_err:
-                            logger.debug(f"Fast SQL teams index notice: {t_err}")
-
-                    for t in db_teams_list:
-                        tname = t["team_name"]
-                        if q_low and q_low not in tname.lower() and q_low not in t["short_tag"].lower():
-                            continue
-                        if tname.lower() not in seen_teams:
-                            seen_teams.add(tname.lower())
-                            teams_out.append(t)
-                            if len(teams_out) >= 12:
-                                break
-
                 raw_players = []
-                if q_raw:
-                    if is_mock_db:
-                        if hasattr(db, "search_players"):
-                            raw_players.extend(db.search_players(q_raw, limit=lim, game_system=sys_key) or [])
-                        if len(raw_players) < lim and hasattr(db, "get_players_directory"):
-                            dir_res = db.get_players_directory(page=1, page_size=lim, query=q_raw, game_system=sys_key)
-                            raw_players.extend(dir_res.get("items") or [])
-                    else:
-                        try:
-                            import psycopg2.extras as pg_extras
-                            tokens = [t for t in q_raw.split() if t]
-                            if tokens:
-                                token_clauses = " AND ".join(
-                                    ["(player_name ILIKE %s OR COALESCE(team, '') ILIKE %s)"] * len(tokens)
-                                )
-                                token_params: List[Any] = []
-                                for t in tokens:
-                                    pat = f"%{t}%"
-                                    token_params.extend([pat, pat])
-                                with db.get_connection() as conn:
-                                    with conn.cursor(cursor_factory=pg_extras.RealDictCursor) as cur:
-                                        cur.execute("SET LOCAL statement_timeout = '250ms';")
-                                        cur.execute(
-                                            f"""
-                                            SELECT player_id,
-                                                   COALESCE(player_name, 'Player') AS player_name,
-                                                   COALESCE(current_elo, 1500.0) AS current_elo,
-                                                   COALESCE(top_faction, 'Unknown') AS top_faction,
-                                                   COALESCE(team, '') AS team,
-                                                   COALESCE(matches_played, 0) AS matches_played,
-                                                   COALESCE(win_rate, 0.0) AS win_rate
-                                            FROM player_ratings
-                                            WHERE COALESCE(game_system, '40k') = %s
-                                              AND COALESCE(matches_played, 0) > 0
-                                              AND ({token_clauses})
-                                            ORDER BY current_elo DESC NULLS LAST
-                                            LIMIT %s;
-                                            """,
-                                            tuple([sys_key] + token_params + [lim]),
-                                        )
-                                        raw_players.extend(dict(r) for r in cur.fetchall())
-                        except Exception as p_search_err:
-                            logger.debug(f"Fast SQL player/team search notice for '{q_raw}': {p_search_err}")
-                            if hasattr(db, "search_players"):
-                                raw_players.extend(db.search_players(q_raw, limit=lim, game_system=sys_key) or [])
+                if is_mock_db:
+                    if hasattr(db, "search_players"):
+                        raw_players.extend(db.search_players(q_raw, limit=lim, game_system=sys_key) or [])
+                    if len(raw_players) < lim and hasattr(db, "get_players_directory"):
+                        dir_res = db.get_players_directory(page=1, page_size=lim, query=q_raw, game_system=sys_key)
+                        raw_players.extend(dir_res.get("items") or [])
                 else:
-                    if is_mock_db and hasattr(db, "get_top_ranked_players"):
-                        top_res = db.get_top_ranked_players(page=1, page_size=lim, min_matches=1, game_system=sys_key)
-                        raw_players.extend(top_res.get("items") or top_res.get("players") or [])
-                    elif not is_mock_db:
-                        try:
-                            import psycopg2.extras as pg_extras
+                    try:
+                        import psycopg2.extras as pg_extras
+                        tokens = [t for t in q_raw.split() if t]
+                        if tokens:
+                            token_clauses = " AND ".join(
+                                ["(player_name ILIKE %s OR COALESCE(team, '') ILIKE %s)"] * len(tokens)
+                            )
+                            token_params: List[Any] = []
+                            for t in tokens:
+                                pat = f"%{t}%"
+                                token_params.extend([pat, pat])
                             with db.get_connection() as conn:
                                 with conn.cursor(cursor_factory=pg_extras.RealDictCursor) as cur:
                                     cur.execute("SET LOCAL statement_timeout = '250ms';")
                                     cur.execute(
-                                        """
+                                        f"""
                                         SELECT player_id,
                                                COALESCE(player_name, 'Player') AS player_name,
                                                COALESCE(current_elo, 1500.0) AS current_elo,
@@ -2739,14 +2614,17 @@ class FirestoreRoomEngine:
                                         FROM player_ratings
                                         WHERE COALESCE(game_system, '40k') = %s
                                           AND COALESCE(matches_played, 0) > 0
+                                          AND ({token_clauses})
                                         ORDER BY current_elo DESC NULLS LAST
                                         LIMIT %s;
                                         """,
-                                        (sys_key, lim),
+                                        tuple([sys_key] + token_params + [lim]),
                                     )
                                     raw_players.extend(dict(r) for r in cur.fetchall())
-                        except Exception as p_err:
-                            logger.debug(f"Fast top players query notice: {p_err}")
+                    except Exception as p_search_err:
+                        logger.debug(f"Fast SQL player/team search notice for '{q_raw}': {p_search_err}")
+                        if hasattr(db, "search_players"):
+                            raw_players.extend(db.search_players(q_raw, limit=lim, game_system=sys_key) or [])
 
                 for p in raw_players:
                     pname = str(p.get("player_name") or p.get("name") or "").strip()
@@ -2775,72 +2653,61 @@ class FirestoreRoomEngine:
         except Exception as err:
             logger.debug(f"Notice searching PostgreSQL for team pairings '{q_raw}': {err}")
 
-        # 2. Enrich / fallback from TeamsHubService real tournament clubs & rosters (< 1ms)
-        try:
-            import teams_hub_service
-            svc = teams_hub_service.get_teams_hub_service()
-            t_hub_res = svc.get_teams_leaderboard(
-                game_system=sys_key,
-                page=1,
-                page_size=15,
-                query=q_raw if q_raw else None,
-                min_roster=1,
-            )
-            for t in (t_hub_res.get("items") or []):
-                tname = str(t.get("team") or t.get("name") or "").strip()
-                if not tname:
-                    continue
-                if tname.lower() not in seen_teams:
-                    seen_teams.add(tname.lower())
-                    tag = str(t.get("short_tag") or "".join(w[0] for w in tname.split() if w).upper()[:4] or tname[:3].upper())
-                    rc = int(t.get("roster_count") or t.get("active_roster_count") or 0)
-                    teams_out.append({
-                        "team_name": tname,
-                        "team": tname,
-                        "name": tname,
-                        "short_tag": tag,
-                        "member_count": rc,
-                        "roster_count": rc,
-                        "active_roster_count": int(t.get("active_roster_count") or rc),
-                        "power_rating": float(t.get("power_rating") or 0.0),
-                        "avg_elo": int(round(float(t.get("active_avg_elo") or t.get("avg_elo") or 1800.0))),
-                        "top_player_name": str(t.get("top_player_name") or ""),
-                    })
-
-            if len(players_out) < lim or q_low:
-                all_hub_teams = svc.get_teams_leaderboard(game_system=game_system, page=1, page_size=50, min_roster=1).get("items") or []
-                for t_summary in all_hub_teams:
-                    tname = str(t_summary.get("team") or t_summary.get("name") or "").strip()
-                    hub = svc.get_team_hub(tname, game_system)
-                    if not hub or not isinstance(hub.get("roster"), list):
-                        continue
-                    for p in hub["roster"]:
-                        pname = str(p.get("player_name") or p.get("name") or "").strip()
-                        if not pname or pname.lower() in seen_players:
+        # 2. Enrich / fallback from cached TeamsHubService real tournament rosters (< 1ms)
+        if len(players_out) < lim:
+            try:
+                if not hasattr(self, "_teams_hub_flat_players_cache"):
+                    self._teams_hub_flat_players_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+                hub_cached = self._teams_hub_flat_players_cache.get(sys_key)
+                if hub_cached and (now_mono - hub_cached[0]) < 600.0:
+                    flat_hub_players = hub_cached[1]
+                else:
+                    import teams_hub_service
+                    svc = teams_hub_service.get_teams_hub_service()
+                    flat_hub_players = []
+                    all_hub_teams = svc.get_teams_leaderboard(game_system=sys_key, page=1, page_size=50, min_roster=1).get("items") or []
+                    for t_summary in all_hub_teams:
+                        tname = str(t_summary.get("team") or t_summary.get("name") or "").strip()
+                        hub = svc.get_team_hub(tname, sys_key)
+                        if not hub or not isinstance(hub.get("roster"), list):
                             continue
-                        fac = self._clean_primary_faction(p.get("top_faction") or p.get("faction"))
-                        if q_low:
-                            haystack = f"{pname} {fac} {tname} {hub.get('short_tag', '')}".lower()
-                            if not all(tok in haystack for tok in q_low.split()):
+                        short_tag = str(hub.get("short_tag") or "")
+                        for p in hub["roster"]:
+                            pname = str(p.get("player_name") or p.get("name") or "").strip()
+                            if not pname:
                                 continue
-                        seen_players.add(pname.lower())
-                        elo_val = int(round(float(p.get("current_elo") or p.get("elo") or 1800)))
-                        players_out.append({
-                            "player_id": str(p.get("player_id") or ""),
-                            "name": pname,
-                            "player_name": pname,
-                            "faction": fac,
-                            "top_faction": str(p.get("top_faction") or fac),
-                            "elo": elo_val,
-                            "current_elo": float(p.get("current_elo") or elo_val),
-                            "team": tname,
-                            "team_name": tname,
-                            "matches_played": int(p.get("matches_played") or 0),
-                            "win_rate": float(p.get("win_rate") or 0.0),
-                            "role_tag": str(p.get("role") or "All-Rounder"),
-                        })
-        except Exception as err:
-            logger.debug(f"Notice searching TeamsHubService for '{q_raw}': {err}")
+                            fac = self._clean_primary_faction(p.get("top_faction") or p.get("faction"))
+                            elo_val = int(round(float(p.get("current_elo") or p.get("elo") or 1800)))
+                            flat_hub_players.append({
+                                "player_id": str(p.get("player_id") or ""),
+                                "name": pname,
+                                "player_name": pname,
+                                "faction": fac,
+                                "top_faction": str(p.get("top_faction") or fac),
+                                "elo": elo_val,
+                                "current_elo": float(p.get("current_elo") or elo_val),
+                                "team": tname,
+                                "team_name": tname,
+                                "matches_played": int(p.get("matches_played") or 0),
+                                "win_rate": float(p.get("win_rate") or 0.0),
+                                "role_tag": str(p.get("role") or "All-Rounder"),
+                                "_haystack": f"{pname} {fac} {tname} {short_tag}".lower(),
+                            })
+                    self._teams_hub_flat_players_cache[sys_key] = (now_mono, flat_hub_players)
+
+                q_tokens = q_low.split()
+                for hp in flat_hub_players:
+                    pname_l = hp["name"].lower()
+                    if pname_l in seen_players:
+                        continue
+                    if q_tokens and not all(tok in hp["_haystack"] for tok in q_tokens):
+                        continue
+                    seen_players.add(pname_l)
+                    players_out.append({k: v for k, v in hp.items() if k != "_haystack"})
+                    if len(players_out) >= lim:
+                        break
+            except Exception as err:
+                logger.debug(f"Notice searching TeamsHubService for '{q_raw}': {err}")
 
         # 3. Enrich player search from real SD40K League player careers (data/sd40k_player_careers.json)
         if len(players_out) < lim and game_system == "40k":
