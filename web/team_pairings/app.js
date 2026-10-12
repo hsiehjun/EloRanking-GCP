@@ -106,6 +106,12 @@ class YuGiOhPairingsArena {
     // Real Player Search State (populated only when user types in #playerSearchInput)
     this.searchResultsPlayers = [];
 
+    // Card Summon & Clash / Dice Combat Minigame State
+    this.lastRenderedFieldCardIds = new Set();
+    this.clashModalQueue = [];
+    this.activeClashTableNum = null;
+    this._diceRollingAnim = false;
+
     // Expose Game Tracker-compatible global helpers for the Share Room modal
     window.__openShareRoomModal = (mid) => this.openShareRoomModal(mid);
     window.__copyRoomShareLink = (mid, btn) => this.copyRoomShareLink(mid, btn);
@@ -328,6 +334,38 @@ class YuGiOhPairingsArena {
       btnCopyPairings.addEventListener("click", () => this.copyPairingsSummary());
     }
 
+    // Prediction Scoring Toggle (Casual Dice Combat & Guarantees vs Pure Tournament Pairing Mode)
+    const chkPredScore = document.getElementById("chkPredictionScoring");
+    if (chkPredScore) {
+      chkPredScore.addEventListener("change", () => {
+        this.togglePredictionScoringMode(chkPredScore.checked);
+      });
+    }
+
+    // Tactical Guarantee Arm Button
+    const btnArmGuarantee = document.getElementById("btnArmGuarantee");
+    if (btnArmGuarantee) {
+      btnArmGuarantee.addEventListener("click", () => this.toggleArmGuarantee());
+    }
+
+    // Card Clash & Dice Resolution Arena Modal Buttons
+    const btnCloseClash = document.getElementById("btnCloseBattleClashModal");
+    if (btnCloseClash) {
+      btnCloseClash.addEventListener("click", () => this.closeBattleClashModal());
+    }
+    const btnClashContinue = document.getElementById("btnClashContinue");
+    if (btnClashContinue) {
+      btnClashContinue.addEventListener("click", () => this.advanceOrCloseBattleClashModal());
+    }
+    const btnClashRoll = document.getElementById("btnClashRollDice");
+    if (btnClashRoll) {
+      btnClashRoll.addEventListener("click", () => this.resolveActiveClashTable("dice"));
+    }
+    const btnClashGuarantee = document.getElementById("btnClashUseGuarantee");
+    if (btnClashGuarantee) {
+      btnClashGuarantee.addEventListener("click", () => this.resolveActiveClashTable("guarantee"));
+    }
+
     const btnToggleLandscape = document.getElementById("btnToggleLandscape");
     if (btnToggleLandscape) {
       btnToggleLandscape.addEventListener("click", () => {
@@ -370,6 +408,7 @@ class YuGiOhPairingsArena {
       demoState === "step2" ||
       demoState === "step3_spectator" ||
       demoState === "completed" ||
+      demoState === "clash_modal" ||
       demoState === "8v8_field" ||
       demoState === "coin_flip" ||
       demoState === "attacker_view" ||
@@ -1771,7 +1810,7 @@ class YuGiOhPairingsArena {
         const aScore = m[oppPlayer.id]?.[myPlayer.id];
         if (typeof aScore === "number") {
           const wtcScore = 20 - aScore;
-          const winProb = Math.max(5, Math.min(95, Math.round(50 + ((wtcScore - 10) / 14) * 100)));
+          const winProb = Math.max(5, Math.min(95, Math.round(50 + ((wtcScore - 10) / 33.34) * 100)));
           return {
             wtcScore,
             oppWtcScore: aScore,
@@ -1785,7 +1824,7 @@ class YuGiOhPairingsArena {
       } else {
         const score = m[myPlayer.id]?.[oppPlayer.id];
         if (typeof score === "number") {
-          const winProb = Math.max(5, Math.min(95, Math.round(50 + ((score - 10) / 14) * 100)));
+          const winProb = Math.max(5, Math.min(95, Math.round(50 + ((score - 10) / 33.34) * 100)));
           return {
             wtcScore: score,
             oppWtcScore: 20 - score,
@@ -1810,7 +1849,7 @@ class YuGiOhPairingsArena {
     const ownMasteryDelta = Math.max(-55, Math.min(55, ownShiftA - ownShiftB));
     const effDelta = baseEloDelta + ownMasteryDelta;
     const winProb = Math.max(5, Math.min(95, Math.round(100 / (1 + Math.pow(10, -effDelta / 400)))));
-    const wtcScore = Math.max(3, Math.min(17, Math.round(10 + 14 * (winProb / 100 - 0.5))));
+    const wtcScore = Math.max(0, Math.min(20, Math.round(10 + 33.34 * (winProb / 100 - 0.5))));
     return {
       wtcScore,
       oppWtcScore: 20 - wtcScore,
@@ -2095,11 +2134,15 @@ class YuGiOhPairingsArena {
     myAttSlot?.classList.toggle("active-target-zone", phase === "STEP_2_ATTACKERS" && !p.isSpectator && p.isMyActionTurn);
     oppAttSlot?.classList.toggle("active-target-zone", phase === "STEP_3_CHOOSE" && !p.isSpectator && p.isMyActionTurn);
 
+    const nextFieldIds = new Set();
+
     // 1. OPPONENT DEFENDER MOUNT
     const oppDefMount = document.getElementById("oppDefenderMount");
     if (oppDefMount) {
       if (p.oppDef) {
-        oppDefMount.innerHTML = this.buildYuGiOhCardHtml(p.oppDef, { fieldSize: true });
+        const isNewSummon = !this.lastRenderedFieldCardIds.has(`oppDef_${p.oppDef.id}`);
+        nextFieldIds.add(`oppDef_${p.oppDef.id}`);
+        oppDefMount.innerHTML = this.buildYuGiOhCardHtml(p.oppDef, { fieldSize: true, summonSlam: isNewSummon });
         this.attachCardInspectHandler(oppDefMount, p.oppDef);
       } else if (p.oppSecDefLocked) {
         oppDefMount.innerHTML = this.buildFaceDownFieldCardHtml("ENEMY DEF SET");
@@ -2116,10 +2159,13 @@ class YuGiOhPairingsArena {
           const isChosen = phase === "STEP_3_CHOOSE" && (this.selectedIds.includes(att.id) || p.mySecChoice === att.id);
           const canPick = phase === "STEP_3_CHOOSE" && !p.isSpectator && !p.mySecChoiceLocked && p.isMyActionTurn;
           const vsMyDefPred = p.myDef ? this.getMatchupPrediction(p.myDef, att) : null;
+          const isNewSummon = !this.lastRenderedFieldCardIds.has(`oppAtt_${att.id}`);
+          nextFieldIds.add(`oppAtt_${att.id}`);
           return this.buildYuGiOhCardHtml(att, {
             fieldSize: true,
             selected: isChosen,
             clashChoice: canPick,
+            summonSlam: isNewSummon,
             matchupScore: vsMyDefPred ? vsMyDefPred.wtcScore : null,
             matchupPred: vsMyDefPred
           });
@@ -2160,9 +2206,12 @@ class YuGiOhPairingsArena {
       }
       const cardToShow = p.myDef || stagedDef;
       if (cardToShow) {
+        const isNewSummon = !this.lastRenderedFieldCardIds.has(`myDef_${cardToShow.id}`);
+        nextFieldIds.add(`myDef_${cardToShow.id}`);
         myDefMount.innerHTML = this.buildYuGiOhCardHtml(cardToShow, {
           fieldSize: true,
-          selected: !p.myDef
+          selected: !p.myDef,
+          summonSlam: isNewSummon
         });
         const cardEl = myDefMount.querySelector(".ygo-card");
         if (cardEl) {
@@ -2201,9 +2250,12 @@ class YuGiOhPairingsArena {
           const c = cardsToShow[i];
           if (c) {
             const mPred = p.oppDef ? this.getMatchupPrediction(c, p.oppDef) : null;
+            const isNewSummon = !this.lastRenderedFieldCardIds.has(`myAtt_${c.id}`);
+            nextFieldIds.add(`myAtt_${c.id}`);
             slots.push(this.buildYuGiOhCardHtml(c, {
               fieldSize: true,
               selected: !(p.myAtts && p.myAtts.length > 0),
+              summonSlam: isNewSummon,
               matchupScore: mPred ? mPred.wtcScore : null,
               matchupPred: mPred
             }));
@@ -2234,6 +2286,8 @@ class YuGiOhPairingsArena {
         `;
       }
     }
+
+    this.lastRenderedFieldCardIds = nextFieldIds;
   }
 
   renderHands(p) {
@@ -2470,6 +2524,7 @@ class YuGiOhPairingsArena {
     const p = this.getPerspective();
     if (!p || p.isSpectator) return;
 
+    const prevPairingsCount = (this.room.pairings || []).length;
     const vsAi = document.getElementById("chkVsAi")?.checked ?? true;
     const tok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(this.roomCode, this.activeRole);
 
@@ -2506,6 +2561,18 @@ class YuGiOhPairingsArena {
         this.room = data.room;
         this.selectedIds = [];
         this.renderAll();
+
+        const newPairings = this.room.pairings || [];
+        if (newPairings.length > prevPairingsCount && this.room.prediction_scoring_enabled !== false) {
+          const newTables = [];
+          for (let i = prevPairingsCount; i < newPairings.length; i++) {
+            const tNum = Number(newPairings[i].table_num || newPairings[i].table || (i + 1));
+            newTables.push(tNum);
+          }
+          if (newTables.length > 0) {
+            this.openBattleClashModal(newTables[0], newTables.slice(1));
+          }
+        }
       } else if (data && data.error) {
         this.showToast(data.error);
       }
@@ -2795,7 +2862,7 @@ class YuGiOhPairingsArena {
     if (typeof opts.matchupScore === "number") {
       const s = opts.matchupScore;
       const color = s >= 12 ? "#4ade80" : (s <= 8 ? "#fb7185" : "#fde047");
-      const winPct = opts.matchupPred?.winProb ?? Math.max(5, Math.min(95, Math.round(50 + ((s - 10) / 14) * 100)));
+      const winPct = opts.matchupPred?.winProb ?? Math.max(5, Math.min(95, Math.round(50 + ((s - 10) / 33.34) * 100)));
       const tip = opts.matchupPred?.tooltip || `6-Factor Prediction: ${winPct}% Win • Est. ${s}-${20 - s} WTC`;
       matchupChipHtml = `<span class="yc-matchup-chip" style="color:${color}" title="${this.escapeHtml(tip)}">${s}-${20 - s} • ${winPct}%</span>`;
     }
@@ -2806,7 +2873,8 @@ class YuGiOhPairingsArena {
       opts.oppHand ? "opp-hand-card" : "",
       opts.inspectedTarget ? "inspected-target" : "",
       opts.selected ? "selected" : "",
-      opts.clashChoice ? "clash-choice" : ""
+      opts.clashChoice ? "clash-choice" : "",
+      opts.summonSlam ? "card-summon-slam" : ""
     ].filter(Boolean).join(" ");
 
     return `
@@ -2841,35 +2909,162 @@ class YuGiOhPairingsArena {
   renderPairedTables() {
     const pairings = this.room?.pairings || [];
     const total = this.room?.total_tables || 5;
+    const isSimOn = this.room?.prediction_scoring_enabled !== false;
+    const isCapB = this.activeRole === "captain_b";
+
+    // Sync topbar Prediction Scoring toggle
+    const chkSim = document.getElementById("chkPredictionScoring");
+    if (chkSim) chkSim.checked = isSimOn;
+    const lblSimText = document.getElementById("predictionScoringToggleText");
+    if (lblSimText) lblSimText.textContent = isSimOn ? "🎲 Score Sim: ON" : "🎲 Score Sim: OFF";
+
+    // Sync Tactical Guarantee Box
+    const guarBox = document.getElementById("tacticalGuaranteeBox");
+    if (guarBox) {
+      guarBox.classList.toggle("hidden", !isSimOn);
+      const rem = isCapB
+        ? Number(this.room?.guarantees_remaining_b ?? 2)
+        : Number(this.room?.guarantees_remaining_a ?? 2);
+      const armed = isCapB
+        ? Boolean(this.room?.guarantee_armed_b)
+        : Boolean(this.room?.guarantee_armed_a);
+      const badgeEl = document.getElementById("guaranteesRemainingBadge");
+      if (badgeEl) {
+        const bolts = "⚡".repeat(Math.max(0, rem)) + "▫️".repeat(Math.max(0, 2 - rem));
+        badgeEl.textContent = `${bolts} ${rem} / 2 LEFT`;
+      }
+      const btnArm = document.getElementById("btnArmGuarantee");
+      if (btnArm) {
+        btnArm.disabled = rem <= 0 || this.activeRole === "spectator";
+        btnArm.classList.toggle("armed", armed && rem > 0);
+        btnArm.textContent = rem <= 0
+          ? "⚡ NO GUARANTEES LEFT"
+          : (armed ? "⚡ GUARANTEE ARMED (NEXT CLASH LOCKS EST. SCORE)" : "⚡ ARM GUARANTEE FOR NEXT PAIRING (NO DICE ROLL)");
+      }
+    }
 
     const countLbl = document.getElementById("lockedCountLabel");
     if (countLbl) countLbl.textContent = `${pairings.length} / ${total}`;
 
-    let sumA = 0;
-    let sumB = 0;
+    let expSumA = 0;
+    let expSumB = 0;
+    let simSumA = 0;
+    let simSumB = 0;
     pairings.forEach((m) => {
       const estA = Number(m.est_score_a ?? m.matchup?.expected_a ?? m.a_expected ?? 10);
-      sumA += estA;
-      sumB += (20 - estA);
+      const estB = Number(m.est_score_b ?? (20 - estA));
+      expSumA += estA;
+      expSumB += estB;
+      const btl = m.battle_result || {};
+      const sA = Number(m.sim_score_a ?? btl.final_score_a ?? estA);
+      const sB = Number(m.sim_score_b ?? btl.final_score_b ?? (20 - sA));
+      simSumA += sA;
+      simSumB += sB;
     });
 
-    const isCapB = this.activeRole === "captain_b";
-    const myScore = isCapB ? sumB : sumA;
-    const oppScore = isCapB ? sumA : sumB;
+    const myExpScore = isCapB ? expSumB : expSumA;
+    const oppExpScore = isCapB ? expSumA : expSumB;
+    const mySimScore = isCapB ? simSumB : simSumA;
+    const oppSimScore = isCapB ? simSumA : simSumB;
+
+    const myActiveScore = isSimOn ? mySimScore : myExpScore;
+    const oppActiveScore = isSimOn ? oppSimScore : oppExpScore;
+
+    const modeLbl = document.getElementById("projectedScoreModeLabel");
+    if (modeLbl) {
+      modeLbl.textContent = isSimOn ? "LIVE WTC SIM SCORE" : "EXPECTED WTC SCORE";
+    }
 
     const scoreEl = document.getElementById("projectedScoreValue");
-    if (scoreEl) scoreEl.textContent = `${myScore} – ${oppScore}`;
+    if (scoreEl) scoreEl.textContent = `${myActiveScore} – ${oppActiveScore}`;
+
+    const expSubEl = document.getElementById("expectedScoreSubLine");
+    if (expSubEl) {
+      if (isSimOn) {
+        expSubEl.textContent = `6-Factor Expected: ${myExpScore} – ${oppExpScore} • Dice Sim (±1 WTC): ${mySimScore} – ${oppSimScore}`;
+      } else {
+        expSubEl.textContent = `6-Factor Expected WTC Total (Score Sim OFF)`;
+      }
+    }
 
     const verdictEl = document.getElementById("projectedVerdictBadge");
     if (verdictEl) {
       if (pairings.length === 0) {
         verdictEl.textContent = "No Tables Locked";
-      } else if (myScore > oppScore + 3) {
-        verdictEl.textContent = "Advantaged";
-      } else if (myScore < oppScore - 3) {
-        verdictEl.textContent = "Trailing";
+      } else if (myActiveScore > oppActiveScore + 5) {
+        verdictEl.textContent = pairings.length >= total ? "🏆 Projected Victory" : "Leading WTC";
+      } else if (myActiveScore < oppActiveScore - 5) {
+        verdictEl.textContent = pairings.length >= total ? "⚠️ Projected Defeat" : "Trailing WTC";
       } else {
-        verdictEl.textContent = "Tight Round";
+        verdictEl.textContent = "Tight WTC Round";
+      }
+    }
+
+    // Round-by-Round Progression Strip (T1 .. T5)
+    const rbrStrip = document.getElementById("roundByRoundProgressionStrip");
+    if (rbrStrip) {
+      const pills = [];
+      let runMy = 0;
+      let runOpp = 0;
+      for (let t = 1; t <= total; t++) {
+        const match = pairings.find((p) => Number(p.table_num) === t);
+        if (!match) {
+          pills.push(`<span class="rbr-pill">T${t}: —</span>`);
+        } else {
+          const estA = Number(match.est_score_a ?? 10);
+          const btl = match.battle_result || {};
+          const sA = isSimOn ? Number(match.sim_score_a ?? btl.final_score_a ?? estA) : estA;
+          const sB = 20 - sA;
+          const myTbl = isCapB ? sB : sA;
+          const oppTbl = isCapB ? sA : sB;
+          runMy += myTbl;
+          runOpp += oppTbl;
+          const isGuar = btl.mode === "guarantee";
+          const cls = [
+            "rbr-pill",
+            "locked",
+            myTbl > oppTbl ? "win-a" : (myTbl < oppTbl ? "win-b" : ""),
+            isGuar && isSimOn ? "guaranteed" : ""
+          ].filter(Boolean).join(" ");
+          const icon = isSimOn ? (isGuar ? "⚡" : "🎲") : "";
+          pills.push(
+            `<span class="${cls}" data-rbr-table="${t}" title="Table #${t}: ${myTbl}-${oppTbl} (Cumulative: ${runMy}-${runOpp}) — Click to open Battle Clash">${icon}T${t}: ${myTbl}-${oppTbl}</span>`
+          );
+        }
+      }
+      rbrStrip.innerHTML = pills.join("");
+      rbrStrip.querySelectorAll("[data-rbr-table]").forEach((el) => {
+        el.addEventListener("click", () => {
+          const tbl = Number(el.getAttribute("data-rbr-table"));
+          if (tbl) this.openBattleClashModal(tbl, []);
+        });
+      });
+    }
+
+    // Final Team Winner Prediction Verdict Banner when all tables are locked
+    const finalBanner = document.getElementById("finalMatchVerdictBanner");
+    if (finalBanner) {
+      if (pairings.length >= total && total > 0) {
+        finalBanner.classList.remove("hidden");
+        const myTeamName = isCapB ? (this.room?.team_b?.name || "Team B") : (this.room?.team_a?.name || "Team A");
+        const oppTeamName = isCapB ? (this.room?.team_a?.name || "Team A") : (this.room?.team_b?.name || "Team B");
+        let winHeadline = "⚖️ PROJECTED WTC DRAW";
+        if (myActiveScore > oppActiveScore + 5) {
+          winHeadline = `🏆 ${this.escapeHtml(myTeamName.toUpperCase())} PREDICTED TO WIN (${myActiveScore} – ${oppActiveScore} WTC)`;
+        } else if (oppActiveScore > myActiveScore + 5) {
+          winHeadline = `🏆 ${this.escapeHtml(oppTeamName.toUpperCase())} PREDICTED TO WIN (${oppActiveScore} – ${myActiveScore} WTC)`;
+        } else if (myActiveScore !== oppActiveScore) {
+          const edgeTeam = myActiveScore > oppActiveScore ? myTeamName : oppTeamName;
+          winHeadline = `⚔️ RAZOR-THIN EDGE: ${this.escapeHtml(edgeTeam.toUpperCase())} (${myActiveScore} – ${oppActiveScore} WTC)`;
+        }
+        finalBanner.innerHTML = `
+          <div>${winHeadline}</div>
+          <div style="font-size:0.62rem;color:var(--text-secondary);margin-top:2px;">
+            6-Factor Expected: ${myExpScore}–${oppExpScore} ${isSimOn ? `• Dice Sim (±1 WTC): ${mySimScore}–${oppSimScore}` : ""}
+          </div>
+        `;
+      } else {
+        finalBanner.classList.add("hidden");
       }
     }
 
@@ -2889,11 +3084,41 @@ class YuGiOhPairingsArena {
           const oppP = isCapB ? m.player_a : m.player_b;
           const rawA = Number(m.est_score_a ?? m.matchup?.expected_a ?? m.a_expected ?? 10);
           const myEst = isCapB ? (20 - rawA) : rawA;
-          const rawProbA = Number(m.win_prob_a ?? m.matchup?.win_prob_a ?? Math.round(50 + ((rawA - 10) / 14) * 100));
+          const rawProbA = Number(m.win_prob_a ?? m.matchup?.win_prob_a ?? Math.round(50 + ((rawA - 10) / 33.34) * 100));
           const myProb = isCapB ? (100 - rawProbA) : rawProbA;
           const pred = this.getMatchupPrediction(myP, oppP);
           const mySvg = getFactionSvgHtml(myP.faction, "armory-faction-svg");
           const oppSvg = getFactionSvgHtml(oppP.faction, "armory-faction-svg");
+
+          const btl = m.battle_result || {};
+          const simA = Number(m.sim_score_a ?? btl.final_score_a ?? rawA);
+          const mySim = isCapB ? (20 - simA) : simA;
+          const oppSim = 20 - mySim;
+          const isGuar = btl.mode === "guarantee";
+          const varA = Number(btl.variance ?? 0);
+          const myVar = isCapB ? -varA : varA;
+          const varStr = myVar > 0 ? `+${myVar}` : `${myVar}`;
+
+          let simRowHtml = "";
+          if (isSimOn) {
+            const pillHtml = isGuar
+              ? `<span class="clash-sim-pill guaranteed">⚡ GUARANTEED: ${mySim}-${oppSim}</span>`
+              : `<span class="clash-sim-pill">🎲 D100: ${btl.d100_roll ?? "—"} (±1: ${varStr}) → ${mySim}-${oppSim}</span>`;
+            simRowHtml = `
+              <div class="clash-mini-sim-row">
+                ${pillHtml}
+                <button type="button" class="clash-mini-fight-btn" data-open-clash-table="${m.table_num}">⚔️ Fight / Roll</button>
+              </div>
+            `;
+          } else {
+            simRowHtml = `
+              <div class="clash-mini-sim-row">
+                <span style="color:var(--text-muted)">6-Factor Expected: ${myEst}-${20 - myEst}</span>
+                <button type="button" class="clash-mini-fight-btn" data-open-clash-table="${m.table_num}">⚔️ Inspect Clash</button>
+              </div>
+            `;
+          }
+
           return `
             <div class="clash-mini-card" title="${this.escapeHtml(pred.tooltip || "")}">
               <div class="clash-mini-top">
@@ -2911,9 +3136,18 @@ class YuGiOhPairingsArena {
                   <span class="clash-side-sub">${this.escapeHtml(oppP.faction)}</span>
                 </div>
               </div>
+              ${simRowHtml}
             </div>
           `;
         }).join("");
+
+        listEl.querySelectorAll("[data-open-clash-table]").forEach((btn) => {
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const tbl = Number(btn.getAttribute("data-open-clash-table"));
+            if (tbl) this.openBattleClashModal(tbl, []);
+          });
+        });
       }
     }
 
@@ -2926,6 +3160,334 @@ class YuGiOhPairingsArena {
           <td>${this.escapeHtml(m.player_b.name)} (${this.escapeHtml(m.player_b.faction)})</td>
         </tr>
       `).join("");
+    }
+  }
+
+  async togglePredictionScoringMode(enabled) {
+    if (!this.room || !this.roomCode) return;
+    const role = this.activeRole === "spectator" ? "captain_a" : this.activeRole;
+    try {
+      const res = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role,
+          user_id: this.userId,
+          captain_token: this.captainTokens[role],
+          action: "toggle_prediction_scoring",
+          payload: { enabled: Boolean(enabled) }
+        })
+      });
+      const data = await res.json();
+      if (data && data.ok) {
+        this.room = data.room;
+        this.renderAll();
+        this.showToast(
+          this.room.prediction_scoring_enabled
+            ? "🎲 Prediction Scoring & Dice Combat ON!"
+            : "📋 Official Pairing Mode (Score Simulation OFF)"
+        );
+      }
+    } catch (e) {
+      // ignore network error
+    }
+  }
+
+  async toggleArmGuarantee() {
+    if (!this.room || !this.roomCode || this.activeRole === "spectator") return;
+    const isCapB = this.activeRole === "captain_b";
+    const currentlyArmed = isCapB ? Boolean(this.room.guarantee_armed_b) : Boolean(this.room.guarantee_armed_a);
+    try {
+      const res = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: this.activeRole,
+          user_id: this.userId,
+          captain_token: this.captainTokens[this.activeRole],
+          action: "arm_guarantee",
+          payload: { armed: !currentlyArmed }
+        })
+      });
+      const data = await res.json();
+      if (data && data.ok) {
+        this.room = data.room;
+        this.renderAll();
+        const nowArmed = isCapB ? Boolean(this.room.guarantee_armed_b) : Boolean(this.room.guarantee_armed_a);
+        this.showToast(
+          nowArmed
+            ? "⚡ Tactical Guarantee ARMED! Next locked pairing will guarantee its predicted WTC score without rolling dice."
+            : "Tactical Guarantee disarmed."
+        );
+      } else if (data && data.error) {
+        this.showToast(data.error);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  openBattleClashModal(tableNum, queueRest = []) {
+    if (!this.room) return;
+    this.activeClashTableNum = Number(tableNum);
+    this.pendingClashQueue = Array.isArray(queueRest) ? queueRest : [];
+    const backdrop = document.getElementById("battleClashModalBackdrop");
+    if (backdrop) backdrop.classList.remove("hidden");
+    this.renderBattleClashModal({ animateDice: true });
+  }
+
+  closeBattleClashModal() {
+    const backdrop = document.getElementById("battleClashModalBackdrop");
+    if (backdrop) backdrop.classList.add("hidden");
+    this.activeClashTableNum = null;
+    this.pendingClashQueue = [];
+  }
+
+  advanceOrCloseBattleClashModal() {
+    if (this.pendingClashQueue && this.pendingClashQueue.length > 0) {
+      const nextTbl = this.pendingClashQueue.shift();
+      this.openBattleClashModal(nextTbl, this.pendingClashQueue);
+    } else {
+      this.closeBattleClashModal();
+    }
+  }
+
+  renderBattleClashModal(opts = {}) {
+    if (!this.room || !this.activeClashTableNum) return;
+    const pairings = this.room.pairings || [];
+    const match = pairings.find((p) => Number(p.table_num) === Number(this.activeClashTableNum));
+    if (!match) return;
+
+    const isCapB = this.activeRole === "captain_b";
+    const myP = isCapB ? match.player_b : match.player_a;
+    const oppP = isCapB ? match.player_a : match.player_b;
+
+    const rawEstA = Number(match.est_score_a ?? 10);
+    const myEst = isCapB ? (20 - rawEstA) : rawEstA;
+    const oppEst = 20 - myEst;
+
+    const rawProbA = Number(match.win_prob_a ?? 50);
+    const myProb = isCapB ? (100 - rawProbA) : rawProbA;
+    const oppProb = 100 - myProb;
+
+    const btl = match.battle_result || {};
+    const simA = Number(match.sim_score_a ?? btl.final_score_a ?? rawEstA);
+    const mySim = isCapB ? (20 - simA) : simA;
+    const oppSim = 20 - mySim;
+    const isGuar = btl.mode === "guarantee";
+    const varA = Number(btl.variance ?? 0);
+    const myVar = isCapB ? -varA : varA;
+    const varStr = myVar > 0 ? `+${myVar}` : `${myVar}`;
+
+    const kickerEl = document.getElementById("clashModalTableKicker");
+    if (kickerEl) {
+      const qCount = (this.pendingClashQueue || []).length;
+      kickerEl.textContent = qCount > 0
+        ? `⚔️ TABLE #${match.table_num} LOCKED • CARD CLASH & WTC SCORE RESOLUTION (+${qCount} NEXT)`
+        : `⚔️ TABLE #${match.table_num} LOCKED • CARD CLASH & WTC SCORE RESOLUTION`;
+    }
+
+    const titleEl = document.getElementById("clashModalHeadline");
+    if (titleEl) {
+      titleEl.textContent = `${myP.name} (${myP.faction}) vs ${oppP.name} (${oppP.faction})`;
+    }
+
+    const leftTeamLbl = document.getElementById("clashLeftTeamLabel");
+    const rightTeamLbl = document.getElementById("clashRightTeamLabel");
+    const myTeamName = isCapB ? (this.room?.team_b?.name || "YOUR TEAM") : (this.room?.team_a?.name || "YOUR TEAM");
+    const oppTeamName = isCapB ? (this.room?.team_a?.name || "ENEMY TEAM") : (this.room?.team_b?.name || "ENEMY TEAM");
+    if (leftTeamLbl) leftTeamLbl.textContent = `${myTeamName.toUpperCase()} FIGHTER`;
+    if (rightTeamLbl) rightTeamLbl.textContent = `${oppTeamName.toUpperCase()} FIGHTER`;
+
+    const leftCol = document.getElementById("clashFighterLeftCol");
+    const rightCol = document.getElementById("clashFighterRightCol");
+    if (leftCol) {
+      leftCol.classList.remove("clash-fighter-left");
+      void leftCol.offsetWidth;
+      leftCol.classList.add("clash-fighter-left");
+    }
+    if (rightCol) {
+      rightCol.classList.remove("clash-fighter-right");
+      void rightCol.offsetWidth;
+      rightCol.classList.add("clash-fighter-right");
+    }
+
+    const leftSlot = document.getElementById("clashLeftCardMount");
+    const rightSlot = document.getElementById("clashRightCardMount");
+    if (leftSlot) {
+      leftSlot.innerHTML = this.buildYuGiOhCardHtml(myP, {
+        fieldSize: false,
+        matchupScore: myEst,
+        matchupPred: this.getMatchupPrediction(myP, oppP)
+      });
+    }
+    if (rightSlot) {
+      rightSlot.innerHTML = this.buildYuGiOhCardHtml(oppP, {
+        fieldSize: false,
+        matchupScore: oppEst,
+        matchupPred: this.getMatchupPrediction(oppP, myP)
+      });
+    }
+
+    const leftProbPill = document.getElementById("clashLeftProbPill");
+    const rightProbPill = document.getElementById("clashRightProbPill");
+    if (leftProbPill) leftProbPill.textContent = `${myProb}% WIN • EST ${myEst} PTS`;
+    if (rightProbPill) rightProbPill.textContent = `${oppProb}% WIN • EST ${oppEst} PTS`;
+
+    const barFill = document.getElementById("clashWinProbBarFill");
+    if (barFill) barFill.style.width = `${myProb}%`;
+
+    const lblEst = document.getElementById("clashExpectedScorePill");
+    if (lblEst) lblEst.textContent = `6-Factor Est: ${myEst} – ${oppEst} WTC`;
+
+    const d100El = document.getElementById("clashD100Value");
+    const d100Cube = document.getElementById("clashD100Cube");
+    const targetEl = document.getElementById("clashD100TargetSub");
+    const varEl = document.getElementById("clashVarianceValue");
+    const varCube = document.getElementById("clashVarianceCube");
+    const finalScoreEl = document.getElementById("clashFinalWtcScore");
+    const badgeModeEl = document.getElementById("clashOutcomeBadge");
+    const detailEl = document.getElementById("clashOutcomeDetail");
+
+    if (targetEl) {
+      targetEl.textContent = isCapB
+        ? `Target: > ${rawProbA}% (${myProb}% Win)`
+        : `Target: ≤ ${rawProbA}% (${myProb}% Win)`;
+    }
+
+    if (opts.animateDice && !isGuar && d100Cube && varCube) {
+      d100Cube.classList.add("rolling");
+      varCube.classList.add("rolling");
+      let ticks = 0;
+      clearInterval(this._diceAnimTimer);
+      this._diceAnimTimer = setInterval(() => {
+        ticks += 1;
+        if (d100El) d100El.textContent = String(Math.floor(Math.random() * 100) + 1);
+        if (varEl) {
+          const vs = ["-1", "0", "+1"];
+          varEl.textContent = vs[ticks % 3];
+        }
+        if (ticks >= 9) {
+          clearInterval(this._diceAnimTimer);
+          d100Cube.classList.remove("rolling");
+          varCube.classList.remove("rolling");
+          if (d100El) d100El.textContent = isGuar ? "⚡" : String(btl.d100_roll ?? "—");
+          if (varEl) varEl.textContent = isGuar ? "±0" : varStr;
+        }
+      }, 65);
+    } else {
+      if (d100Cube) d100Cube.classList.remove("rolling");
+      if (varCube) varCube.classList.remove("rolling");
+      if (d100El) d100El.textContent = isGuar ? "⚡" : String(btl.d100_roll ?? "—");
+      if (varEl) varEl.textContent = isGuar ? "±0" : varStr;
+    }
+
+    if (finalScoreEl) {
+      finalScoreEl.textContent = `${mySim} – ${oppSim}`;
+    }
+
+    if (badgeModeEl) {
+      if (isGuar) {
+        badgeModeEl.textContent = "⚡ TACTICAL GUARANTEE LOCKED";
+      } else if (btl.upset) {
+        badgeModeEl.textContent = "🔥 UNDERDOG DICE UPSET!";
+      } else {
+        badgeModeEl.textContent = "🎲 DICE COMBAT RESULT";
+      }
+    }
+
+    if (detailEl) {
+      if (isGuar) {
+        detailEl.textContent = `⚡ Tactical Guarantee spent! Dice bypassed — ${myP.name} locks the predicted ${mySim} – ${oppSim} WTC score with zero variance!`;
+      } else {
+        const myWonRoll = isCapB ? (btl.roll_winner === "B") : (btl.roll_winner === "A");
+        const winnerName = myWonRoll ? myP.name : oppP.name;
+        if (btl.upset) {
+          detailEl.textContent = `🔥 UNDERDOG DICE UPSET! D100 rolled ${btl.d100_roll} (Target ≤ ${rawProbA}%) — ${winnerName} defies the odds for ${mySim} – ${oppSim} WTC (${varStr} WTC variance)!`;
+        } else {
+          detailEl.textContent = `🎲 D100 rolled ${btl.d100_roll} (Target ≤ ${rawProbA}%) + (${varStr} WTC variance) → ${winnerName} takes Table #${match.table_num} (${mySim} – ${oppSim} WTC)!`;
+        }
+      }
+    }
+
+    // Populate cumulative Round-by-Round team total up through this table
+    const cumScoreEl = document.getElementById("clashModalCumulativeScore");
+    const cumVerdictEl = document.getElementById("clashModalCumulativeVerdict");
+    const isSimOn = this.room?.prediction_scoring_enabled !== false;
+    let cumMy = 0;
+    let cumOpp = 0;
+    pairings.forEach((p) => {
+      if (Number(p.table_num) <= Number(match.table_num)) {
+        const pEstA = Number(p.est_score_a ?? 10);
+        const pBtl = p.battle_result || {};
+        const pSimA = isSimOn ? Number(p.sim_score_a ?? pBtl.final_score_a ?? pEstA) : pEstA;
+        const pMy = isCapB ? (20 - pSimA) : pSimA;
+        cumMy += pMy;
+        cumOpp += (20 - pMy);
+      }
+    });
+    if (cumScoreEl) cumScoreEl.textContent = `${cumMy} – ${cumOpp}`;
+    if (cumVerdictEl) {
+      const totalTables = Number(this.room?.total_tables || 5);
+      if (Number(match.table_num) >= totalTables) {
+        cumVerdictEl.textContent = cumMy > cumOpp ? `🏆 ${myTeamName} Wins!` : (cumOpp > cumMy ? `🏆 ${oppTeamName} Wins!` : "⚖️ Draw");
+      } else {
+        cumVerdictEl.textContent = `After Table #${match.table_num} of ${totalTables}`;
+      }
+    }
+
+    const rem = isCapB
+      ? Number(this.room?.guarantees_remaining_b ?? 2)
+      : Number(this.room?.guarantees_remaining_a ?? 2);
+    const btnGuar = document.getElementById("btnClashUseGuarantee");
+    if (btnGuar) {
+      if (isGuar) {
+        btnGuar.disabled = true;
+        btnGuar.textContent = `⚡ Guaranteed (${mySim}–${oppSim} WTC Locked)`;
+      } else if (rem <= 0) {
+        btnGuar.disabled = true;
+        btnGuar.textContent = `⚡ No Guarantees Left (0/2)`;
+      } else {
+        btnGuar.disabled = false;
+        btnGuar.textContent = `⚡ Use Tactical Guarantee (${rem}/2 Left — Lock ${myEst}–${oppEst} WTC)`;
+      }
+    }
+
+    const btnCont = document.getElementById("btnClashContinue");
+    if (btnCont) {
+      const qCount = (this.pendingClashQueue || []).length;
+      btnCont.textContent = qCount > 0 ? `Next Table Clash (${qCount} Left) →` : "⚔️ Continue Duel →";
+    }
+  }
+
+  async resolveActiveClashTable(mode = "dice") {
+    if (!this.room || !this.roomCode || !this.activeClashTableNum) return;
+    const role = this.activeRole === "spectator" ? "captain_a" : this.activeRole;
+    try {
+      const res = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role,
+          user_id: this.userId,
+          captain_token: this.captainTokens[role],
+          action: mode === "guarantee" ? "use_guarantee" : "reroll_table_dice",
+          payload: {
+            table_num: this.activeClashTableNum,
+            mode
+          }
+        })
+      });
+      const data = await res.json();
+      if (data && data.ok) {
+        this.room = data.room;
+        this.renderAll();
+        this.renderBattleClashModal({ animateDice: mode === "dice" });
+      } else if (data && data.error) {
+        this.showToast(data.error);
+      }
+    } catch (e) {
+      // ignore
     }
   }
 
@@ -3014,6 +3576,11 @@ class YuGiOhPairingsArena {
       await this.switchRole("spectator");
     } else if (demoState === "completed") {
       await this.autoCompleteRemainingPhases();
+    } else if (demoState === "clash_modal") {
+      await this.autoCompleteRemainingPhases();
+      if (this.room?.pairings?.length) {
+        this.openBattleClashModal(1, [2]);
+      }
     }
   }
 

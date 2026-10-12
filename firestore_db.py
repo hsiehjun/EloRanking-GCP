@@ -2477,7 +2477,7 @@ class FirestoreRoomEngine:
         win_prob_b = 100 - win_prob_a
 
         pure_elo_prob_a = int(_clamp(round(100.0 / (1.0 + (10.0 ** (-base_elo_delta / 400.0)))), 5, 95))
-        wtc_score_a = int(_clamp(round(10.0 + 14.0 * ((win_prob_a / 100.0) - 0.50)), 3, 17))
+        wtc_score_a = int(_clamp(round(10.0 + 33.34 * ((win_prob_a / 100.0) - 0.50)), 0, 20))
         wtc_score_b = 20 - wtc_score_a
 
         return {
@@ -2513,6 +2513,116 @@ class FirestoreRoomEngine:
     def estimate_wtc_matchup(cls, player_a: Dict[str, Any], player_b: Dict[str, Any]) -> int:
         """Estimates WTC 0-20 points for player_a vs player_b using the unified 6-Factor Prediction Engine."""
         return cls.predict_matchup_outcome(player_a, player_b)["wtc_score_a"]
+
+    @classmethod
+    def resolve_table_dice_battle(
+        cls,
+        pred: Dict[str, Any],
+        mode: str = "dice",
+        forced_roll: Optional[int] = None,
+        forced_variance: Optional[int] = None,
+        guaranteed_by: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Resolves a paired table matchup for the Prediction Scoring Minigame:
+        - If mode == 'guarantee': Skips dice rolling completely and locks in the predicted WTC score
+          (e.g. 80% win prob locks 20-0 directly with zero risk of an underdog upset or negative variance).
+        - If mode == 'dice': Rolls a D100 (1..100) against win_prob_a (1..win_prob_a => Player A wins;
+          win_prob_a+1..100 => Player B wins, allowing low-probability underdogs to pull upsets!),
+          then estimates the WTC 0-20 score from the prediction % with a bounded +/- 1 WTC variation.
+        """
+        import secrets
+
+        def _clamp_int(val: int, lo: int, hi: int) -> int:
+            return max(lo, min(hi, val))
+
+        win_prob_a = int(pred.get("win_prob_a", 50))
+        win_prob_b = 100 - win_prob_a
+        est_a = int(pred.get("wtc_score_a", 10))
+        est_b = 20 - est_a
+
+        clean_mode = str(mode or "dice").strip().lower()
+        if clean_mode in ("guarantee", "guarantee_a", "guarantee_b", "guaranteed"):
+            g_by = guaranteed_by or ("captain_b" if clean_mode == "guarantee_b" else "captain_a")
+            sim_a = est_a
+            if g_by == "captain_a" and sim_a == 10 and win_prob_a >= 50:
+                sim_a = 11
+            elif g_by == "captain_b" and sim_a == 10 and win_prob_b >= 50:
+                sim_a = 9
+            sim_b = 20 - sim_a
+            winner = "A" if sim_a > sim_b else ("B" if sim_b > sim_a else "TIE")
+            return {
+                "mode": "guarantee",
+                "is_guaranteed": True,
+                "guaranteed": True,
+                "guaranteed_by": g_by,
+                "dice_roll": None,
+                "d100_roll": None,
+                "win_threshold_a": win_prob_a,
+                "wtc_variance": 0,
+                "variance": 0,
+                "winner": winner,
+                "roll_winner": winner,
+                "is_upset": False,
+                "upset": False,
+                "est_score_a": est_a,
+                "est_score_b": est_b,
+                "sim_score_a": sim_a,
+                "sim_score_b": sim_b,
+                "final_score_a": sim_a,
+                "final_score_b": sim_b,
+                "headline": f"⚡ TACTICAL GUARANTEE LOCKED ({sim_a} - {sim_b})",
+            }
+
+        # D100 Dice Roll (1..100): 1..win_prob_a => Player A wins; (win_prob_a+1)..100 => Player B wins
+        d100 = _clamp_int(int(forced_roll), 1, 100) if forced_roll is not None else (secrets.randbelow(100) + 1)
+        variance = _clamp_int(int(forced_variance), -1, 1) if forced_variance is not None else secrets.choice([-1, 0, 1])
+
+        if d100 <= win_prob_a:
+            winner = "A"
+            is_upset = win_prob_a < 50
+            if not is_upset:
+                base_a = max(11, est_a)
+            else:
+                roll_quality = (win_prob_a - d100) / float(max(1, win_prob_a))
+                base_a = 11 + int(round(roll_quality * min(4, max(1, 10 - est_a))))
+            sim_a = _clamp_int(base_a + variance, 11, 20)
+            sim_b = 20 - sim_a
+        else:
+            winner = "B"
+            is_upset = win_prob_b < 50
+            if not is_upset:
+                base_b = max(11, est_b)
+            else:
+                roll_quality = (d100 - win_prob_a) / float(max(1, win_prob_b))
+                base_b = 11 + int(round(roll_quality * min(4, max(1, 10 - est_b))))
+            sim_b = _clamp_int(base_b + variance, 11, 20)
+            sim_a = 20 - sim_b
+
+        var_label = f"+{variance}" if variance > 0 else str(variance)
+        upset_tag = " • 🔥 UNDERDOG UPSET!" if is_upset else ""
+        return {
+            "mode": "dice",
+            "is_guaranteed": False,
+            "guaranteed": False,
+            "guaranteed_by": None,
+            "dice_roll": d100,
+            "d100_roll": d100,
+            "win_threshold_a": win_prob_a,
+            "wtc_variance": variance,
+            "variance": variance,
+            "winner": winner,
+            "roll_winner": winner,
+            "is_upset": is_upset,
+            "upset": is_upset,
+            "est_score_a": est_a,
+            "est_score_b": est_b,
+            "sim_score_a": sim_a,
+            "sim_score_b": sim_b,
+            "final_score_a": sim_a,
+            "final_score_b": sim_b,
+            "headline": f"🎲 D100 Roll: {d100} (Target ≤{win_prob_a}%) • Var {var_label} ➔ {sim_a} - {sim_b}{upset_tag}",
+        }
 
     def _save_pairing_room_doc(self, room_code: str, room_data: Dict[str, Any]) -> None:
         import threading
@@ -3258,6 +3368,11 @@ class FirestoreRoomEngine:
             "secret_choice_b": None,
             "locked_a": False,
             "locked_b": False,
+            "prediction_scoring_enabled": bool(req.get("prediction_scoring_enabled", True)),
+            "guarantees_remaining_a": int(req.get("guarantees_remaining_a", 2)),
+            "guarantees_remaining_b": int(req.get("guarantees_remaining_b", 2)),
+            "guarantee_armed_a": bool(req.get("guarantee_armed_a", False)),
+            "guarantee_armed_b": bool(req.get("guarantee_armed_b", False)),
             "pairings": [],
             "history_log": [
                 f"Room {raw_code} initialized ({fmt} WTC Pairing Protocol): {team_a_name} vs {team_b_name}.",
@@ -3325,6 +3440,11 @@ class FirestoreRoomEngine:
         masked["ai_coin_choice"] = room.get("ai_coin_choice")
         masked["defender_role"] = room.get("defender_role")
         masked["attacker_role"] = room.get("attacker_role")
+        masked["prediction_scoring_enabled"] = bool(room.get("prediction_scoring_enabled", True))
+        masked["guarantees_remaining_a"] = int(room.get("guarantees_remaining_a", 2))
+        masked["guarantees_remaining_b"] = int(room.get("guarantees_remaining_b", 2))
+        masked["guarantee_armed_a"] = bool(room.get("guarantee_armed_a", False))
+        masked["guarantee_armed_b"] = bool(room.get("guarantee_armed_b", False))
 
         phase = masked.get("phase")
         locked_a = bool(masked.get("locked_a"))
@@ -3381,6 +3501,84 @@ class FirestoreRoomEngine:
                 matchup_predictions[aid][bid] = pred
         masked["matchup_matrix"] = matchup_matrix
         masked["matchup_predictions"] = matchup_predictions
+
+        # Compute Round-by-Round WTC Score Summary (Expected vs Simulated Dice/Guarantee)
+        pairings_list = masked.get("pairings") or []
+        exp_tot_a = 0
+        exp_tot_b = 0
+        sim_tot_a = 0
+        sim_tot_b = 0
+        round_by_round: List[Dict[str, Any]] = []
+        for idx_p, m in enumerate(pairings_list):
+            t_num = int(m.get("table_num") or m.get("table") or (idx_p + 1))
+            est_a = int(m.get("est_score_a", 10))
+            est_b = int(m.get("est_score_b", 20 - est_a))
+            b_res = m.get("battle_result")
+            if not isinstance(b_res, dict):
+                pred_obj = m.get("prediction") or self.predict_matchup_outcome(m.get("player_a") or {}, m.get("player_b") or {})
+                b_res = self.resolve_table_dice_battle(pred_obj, mode="dice", forced_roll=50, forced_variance=0)
+                m["battle_result"] = b_res
+            sim_a = int(m.get("sim_score_a", b_res.get("sim_score_a", est_a)))
+            sim_b = int(m.get("sim_score_b", b_res.get("sim_score_b", 20 - sim_a)))
+            m["sim_score_a"] = sim_a
+            m["sim_score_b"] = sim_b
+
+            exp_tot_a += est_a
+            exp_tot_b += est_b
+            sim_tot_a += sim_a
+            sim_tot_b += sim_b
+            round_by_round.append({
+                "table_num": t_num,
+                "cycle": m.get("cycle", 1),
+                "est_a": est_a,
+                "est_b": est_b,
+                "sim_a": sim_a,
+                "sim_b": sim_b,
+                "cum_est_a": exp_tot_a,
+                "cum_est_b": exp_tot_b,
+                "cum_sim_a": sim_tot_a,
+                "cum_sim_b": sim_tot_b,
+                "mode": b_res.get("mode", "dice"),
+                "guaranteed_by": b_res.get("guaranteed_by"),
+                "dice_roll": b_res.get("dice_roll"),
+                "win_threshold_a": b_res.get("win_threshold_a", m.get("win_prob_a", 50)),
+                "wtc_variance": b_res.get("wtc_variance", 0),
+                "is_upset": bool(b_res.get("is_upset", False)),
+                "winner": b_res.get("winner", "A"),
+                "headline": b_res.get("headline", ""),
+            })
+
+        pred_scoring_on = masked["prediction_scoring_enabled"]
+        act_tot_a = sim_tot_a if pred_scoring_on else exp_tot_a
+        act_tot_b = sim_tot_b if pred_scoring_on else exp_tot_b
+        total_tables = int(masked.get("total_tables") or masked.get("team_size") or 5)
+        max_pts = total_tables * 20
+        win_thresh = (max_pts // 2) + 1
+        pred_winner = "team_a" if act_tot_a > act_tot_b else ("team_b" if act_tot_b > act_tot_a else "tie")
+        exp_winner = "team_a" if exp_tot_a > exp_tot_b else ("team_b" if exp_tot_b > exp_tot_a else "tie")
+        sim_winner = "team_a" if sim_tot_a > sim_tot_b else ("team_b" if sim_tot_b > sim_tot_a else "tie")
+
+        masked["score_summary"] = {
+            "prediction_scoring_enabled": pred_scoring_on,
+            "tables_locked": len(pairings_list),
+            "total_tables": total_tables,
+            "max_points": max_pts,
+            "win_threshold": win_thresh,
+            "expected_total_a": exp_tot_a,
+            "expected_total_b": exp_tot_b,
+            "sim_total_a": sim_tot_a,
+            "sim_total_b": sim_tot_b,
+            "active_total_a": act_tot_a,
+            "active_total_b": act_tot_b,
+            "predicted_winner": pred_winner,
+            "expected_winner": exp_winner,
+            "sim_winner": sim_winner,
+            "guarantees_remaining_a": masked["guarantees_remaining_a"],
+            "guarantees_remaining_b": masked["guarantees_remaining_b"],
+            "guarantee_armed_a": masked["guarantee_armed_a"],
+            "guarantee_armed_b": masked["guarantee_armed_b"],
+            "round_by_round": round_by_round,
+        }
 
         return masked
 
@@ -3683,6 +3881,32 @@ class FirestoreRoomEngine:
         pred = self.predict_matchup_outcome(pa, pb)
         est_a = pred["wtc_score_a"]
         est_b = pred["wtc_score_b"]
+
+        # Check if a Tactical Guarantee was pre-armed for this table lock
+        if room.get("guarantee_armed_a") and int(room.get("guarantees_remaining_a", 2)) > 0:
+            room["guarantees_remaining_a"] = max(0, int(room.get("guarantees_remaining_a", 2)) - 1)
+            room["guarantee_armed_a"] = False
+            battle_res = self.resolve_table_dice_battle(pred, mode="guarantee", guaranteed_by="captain_a")
+            self._append_log(
+                room,
+                f"⚡ Table #{table_num} Tactical Guarantee activated by {room['team_a']['short_tag']}! Locked {battle_res['sim_score_a']} - {battle_res['sim_score_b']} without rolling dice.",
+            )
+        elif room.get("guarantee_armed_b") and int(room.get("guarantees_remaining_b", 2)) > 0:
+            room["guarantees_remaining_b"] = max(0, int(room.get("guarantees_remaining_b", 2)) - 1)
+            room["guarantee_armed_b"] = False
+            battle_res = self.resolve_table_dice_battle(pred, mode="guarantee", guaranteed_by="captain_b")
+            self._append_log(
+                room,
+                f"⚡ Table #{table_num} Tactical Guarantee activated by {room['team_b']['short_tag']}! Locked {battle_res['sim_score_a']} - {battle_res['sim_score_b']} without rolling dice.",
+            )
+        else:
+            battle_res = self.resolve_table_dice_battle(pred, mode="dice")
+            if room.get("prediction_scoring_enabled", True):
+                self._append_log(
+                    room,
+                    f"⚔️ Table #{table_num} Combat ({pa['name']} vs {pb['name']}): {battle_res['headline']}",
+                )
+
         room["pairings"].append({
             "table": table_num,
             "table_num": table_num,
@@ -3692,12 +3916,17 @@ class FirestoreRoomEngine:
             "player_b": pb,
             "est_score_a": est_a,
             "est_score_b": est_b,
+            "sim_score_a": battle_res["sim_score_a"],
+            "sim_score_b": battle_res["sim_score_b"],
             "win_prob_a": pred["win_prob_a"],
             "win_prob_b": pred["win_prob_b"],
             "prediction": pred,
+            "battle_result": battle_res,
             "matchup": {
                 "expected_a": est_a,
                 "expected_b": est_b,
+                "sim_a": battle_res["sim_score_a"],
+                "sim_b": battle_res["sim_score_b"],
                 "win_prob_a": pred["win_prob_a"],
                 "win_prob_b": pred["win_prob_b"],
                 "effective_elo_delta": pred["effective_elo_delta"],
@@ -3881,6 +4110,8 @@ class FirestoreRoomEngine:
 
         if "vs_ai" in req and req["vs_ai"] is not None:
             room["vs_ai"] = bool(req["vs_ai"])
+        if "prediction_scoring_enabled" in req and req["prediction_scoring_enabled"] is not None:
+            room["prediction_scoring_enabled"] = bool(req["prediction_scoring_enabled"])
 
         caller_uid = str(req.get("user_id") or req.get("guest_id") or "").strip()
 
@@ -4330,6 +4561,133 @@ class FirestoreRoomEngine:
                 "ok": True,
                 "success": True,
                 "status_code": 200,
+                "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+            }
+
+        if act == "toggle_prediction_scoring":
+            desired_enabled = bool(
+                req.get(
+                    "enabled",
+                    req.get("prediction_scoring_enabled", not room.get("prediction_scoring_enabled", True)),
+                )
+            )
+            room["prediction_scoring_enabled"] = desired_enabled
+            mode_str = "ON (Dice Combat & Tactical Guarantees Active)" if desired_enabled else "OFF (Pure WTC Pairing Mode)"
+            self._append_log(room, f"🎲 Prediction Scoring Mode switched {mode_str}.")
+            self._save_pairing_room_doc(room["room_code"], room)
+            return {
+                "ok": True,
+                "success": True,
+                "status_code": 200,
+                "prediction_scoring_enabled": desired_enabled,
+                "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+            }
+
+        if act == "arm_guarantee":
+            for_side = str(req.get("team_side") or side_suffix).strip().lower()
+            if for_side not in ("a", "b"):
+                for_side = side_suffix
+            rem_key = f"guarantees_remaining_{for_side}"
+            arm_key = f"guarantee_armed_{for_side}"
+            rem_cnt = int(room.get(rem_key, 2))
+            desired_arm = bool(req.get("armed", not room.get(arm_key, False)))
+            if desired_arm and rem_cnt <= 0:
+                return {
+                    "ok": False,
+                    "success": False,
+                    "status_code": 400,
+                    "error": "No Tactical Guarantees remaining (0/2).",
+                }
+            room[arm_key] = desired_arm
+            self._save_pairing_room_doc(room["room_code"], room)
+            return {
+                "ok": True,
+                "success": True,
+                "status_code": 200,
+                "guarantee_armed": desired_arm,
+                "guarantees_remaining": rem_cnt,
+                "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+            }
+
+        if act in ("resolve_table_battle", "use_guarantee", "reroll_table_dice"):
+            pairings_arr = room.get("pairings") or []
+            if not pairings_arr:
+                return {
+                    "ok": False,
+                    "success": False,
+                    "status_code": 400,
+                    "error": "No locked tables available to resolve yet.",
+                }
+            target_t = int(req.get("table_num") or req.get("table") or len(pairings_arr))
+            target_entry = None
+            for entry in pairings_arr:
+                if int(entry.get("table_num") or entry.get("table") or 0) == target_t:
+                    target_entry = entry
+                    break
+            if not target_entry:
+                target_entry = pairings_arr[-1]
+                target_t = int(target_entry.get("table_num") or target_entry.get("table") or len(pairings_arr))
+
+            mode_req = str(req.get("mode") or ("guarantee" if act == "use_guarantee" else "dice")).strip().lower()
+            for_side = str(req.get("team_side") or side_suffix).strip().lower()
+            if for_side not in ("a", "b"):
+                for_side = side_suffix
+            rem_key = f"guarantees_remaining_{for_side}"
+            arm_key = f"guarantee_armed_{for_side}"
+            guar_by = "captain_a" if for_side == "a" else "captain_b"
+            team_tag = room[f"team_{for_side}"]["short_tag"]
+
+            prev_res = target_entry.get("battle_result") or {}
+            pred_obj = target_entry.get("prediction") or self.predict_matchup_outcome(
+                target_entry.get("player_a") or {},
+                target_entry.get("player_b") or {},
+            )
+
+            if mode_req == "guarantee":
+                if prev_res.get("mode") != "guarantee":
+                    rem_cnt = int(room.get(rem_key, 2))
+                    if rem_cnt <= 0:
+                        return {
+                            "ok": False,
+                            "success": False,
+                            "status_code": 400,
+                            "error": f"No Tactical Guarantees remaining for {team_tag} (0/2).",
+                        }
+                    room[rem_key] = rem_cnt - 1
+                    room[arm_key] = False
+                battle_res = self.resolve_table_dice_battle(pred_obj, mode="guarantee", guaranteed_by=guar_by)
+                self._append_log(
+                    room,
+                    f"⚡ Table #{target_t} Tactical Guarantee used by {team_tag}! Score locked at {battle_res['sim_score_a']} - {battle_res['sim_score_b']} without rolling.",
+                )
+            else:
+                if prev_res.get("mode") == "guarantee" and prev_res.get("guaranteed_by") == guar_by:
+                    room[rem_key] = min(2, int(room.get(rem_key, 0)) + 1)
+                battle_res = self.resolve_table_dice_battle(
+                    pred_obj,
+                    mode="dice",
+                    forced_roll=req.get("forced_roll"),
+                    forced_variance=req.get("forced_variance"),
+                )
+                self._append_log(
+                    room,
+                    f"🎲 Table #{target_t} Dice Combat Rolled: {battle_res['headline']}",
+                )
+
+            target_entry["sim_score_a"] = battle_res["sim_score_a"]
+            target_entry["sim_score_b"] = battle_res["sim_score_b"]
+            target_entry["battle_result"] = battle_res
+            if isinstance(target_entry.get("matchup"), dict):
+                target_entry["matchup"]["sim_a"] = battle_res["sim_score_a"]
+                target_entry["matchup"]["sim_b"] = battle_res["sim_score_b"]
+
+            self._save_pairing_room_doc(room["room_code"], room)
+            return {
+                "ok": True,
+                "success": True,
+                "status_code": 200,
+                "table_num": target_t,
+                "battle_result": battle_res,
                 "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
             }
 

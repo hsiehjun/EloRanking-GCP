@@ -841,11 +841,161 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertIn("win_prob_a", cell_pred)
         self.assertIn("factors", cell_pred)
 
+    def test_prediction_scoring_dice_combat_and_tactical_guarantees(self):
+        """Verify 80%+ win rate yields 20-0 WTC, D100 dice combat with +-1 variance and underdog upsets, 2/2 Tactical Guarantees, and round-by-round WTC score summary."""
+        # 1. Verify an 80%+ favorite predicts 20-0 WTC score
+        heavy_fav = {
+            "id": "A_FAV",
+            "name": "Liam VSL",
+            "faction": "Aeldari",
+            "elo": 2150,
+            "win_rate": 82.0,
+            "matches_played": 60,
+        }
+        underdog = {
+            "id": "B_DOG",
+            "name": "Casual Rookie",
+            "faction": "Imperial Agents",
+            "elo": 1750,
+            "win_rate": 42.0,
+            "matches_played": 20,
+        }
+        pred_80 = self.engine.predict_matchup_outcome(heavy_fav, underdog)
+        self.assertGreaterEqual(pred_80["win_prob_a"], 80)
+        self.assertEqual(pred_80["wtc_score_a"], 20)
+        self.assertEqual(pred_80["wtc_score_b"], 0)
+
+        # 2. Verify Tactical Guarantee locks 20-0 without rolling dice (d100_roll=None, variance=0)
+        guar_res = self.engine.resolve_table_dice_battle(pred_80, mode="guarantee", guaranteed_by="captain_a")
+        self.assertEqual(guar_res["mode"], "guarantee")
+        self.assertTrue(guar_res["guaranteed"])
+        self.assertIsNone(guar_res["d100_roll"])
+        self.assertEqual(guar_res["variance"], 0)
+        self.assertEqual(guar_res["final_score_a"], 20)
+        self.assertEqual(guar_res["final_score_b"], 0)
+
+        # 3. Verify D100 dice roll allows low-probability underdog to win (upset) + bounded +-1 variance
+        upset_res = self.engine.resolve_table_dice_battle(
+            pred_80,
+            mode="dice",
+            forced_roll=99,       # > win_prob_a -> Player B pulls the upset!
+            forced_variance=-1,   # bounded -1 variance on A's score
+        )
+        self.assertEqual(upset_res["mode"], "dice")
+        self.assertFalse(upset_res["guaranteed"])
+        self.assertEqual(upset_res["d100_roll"], 99)
+        self.assertEqual(upset_res["roll_winner"], "B")
+        self.assertTrue(upset_res["upset"])
+        self.assertLess(upset_res["final_score_a"], 10)
+        self.assertGreater(upset_res["final_score_b"], 10)
+        self.assertEqual(upset_res["final_score_a"] + upset_res["final_score_b"], 20)
+
+        # 4. Verify room creation defaults to prediction_scoring_enabled=True and 2/2 guarantees per team
+        created = self.engine.create_pairing_room({"format_size": "5v5", "vs_ai": True, "user_id": "cap_sim"})
+        code = created["room_code"]
+        tok_a = created["captain_a_token"]
+        self.assertTrue(created["prediction_scoring_enabled"])
+        self.assertEqual(created["guarantees_remaining_a"], 2)
+        self.assertEqual(created["guarantees_remaining_b"], 2)
+
+        # Arm guarantee before locking first pairing -> Table #1 automatically consumes 1 guarantee charge
+        arm_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_sim",
+            "captain_token": tok_a,
+            "action": "arm_guarantee",
+            "payload": {"armed": True},
+        })
+        self.assertTrue(arm_res["ok"])
+        self.assertTrue(arm_res["room"]["guarantee_armed_a"])
+
+        # Complete Coin Flip (Team A chooses Defender for Cycle 1)
+        self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_sim",
+            "captain_token": tok_a,
+            "action": "choose_coin_flip_role",
+            "payload": {"choice": "defender", "chooser_role": "captain_a", "vs_ai": True},
+        })
+
+        # Complete Cycle 1 (Defender + AI Attackers -> Team A picks 1 -> Table #1 locked)
+        def_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_sim",
+            "captain_token": tok_a,
+            "action": "lock_defender",
+            "payload": {"player_id": "A1", "vs_ai": True},
+        })
+        self.assertTrue(def_res["ok"])
+        att_b_id = def_res["room"]["active_attackers_b"][0]["id"]
+        c1_pick = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_sim",
+            "captain_token": tok_a,
+            "action": "lock_choice",
+            "payload": {"player_id": att_b_id, "vs_ai": True},
+        })
+        self.assertTrue(c1_pick["ok"])
+        r_after_t1 = c1_pick["room"]
+        self.assertEqual(len(r_after_t1["pairings"]), 1)
+        t1 = r_after_t1["pairings"][0]
+        self.assertEqual(t1["battle_result"]["mode"], "guarantee")
+        self.assertEqual(r_after_t1["guarantees_remaining_a"], 1)
+        self.assertFalse(r_after_t1["guarantee_armed_a"])
+
+        # Lock remaining tables via Cycle 2, 3, 4
+        # Cycle 2: Team A is Attacker
+        bench_a = [p["id"] for p in r_after_t1["team_a"]["roster"] if p["status"] == "bench"]
+        c2_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_sim",
+            "captain_token": tok_a,
+            "action": "lock_attackers",
+            "payload": {"player_ids": bench_a[:2], "vs_ai": True},
+        })
+        r_after_t2 = c2_res["room"]
+        self.assertEqual(len(r_after_t2["pairings"]), 2)
+        t2 = r_after_t2["pairings"][1]
+        self.assertEqual(t2["battle_result"]["mode"], "dice")
+
+        # Use 2nd guarantee on Table #2 via use_guarantee action -> guarantees_remaining_a becomes 0
+        g2_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_sim",
+            "captain_token": tok_a,
+            "action": "use_guarantee",
+            "payload": {"table_num": 2},
+        })
+        self.assertTrue(g2_res["ok"])
+        self.assertEqual(g2_res["room"]["guarantees_remaining_a"], 0)
+        self.assertEqual(g2_res["room"]["pairings"][1]["battle_result"]["mode"], "guarantee")
+
+        # Attempting a 3rd guarantee arm when 0 left is rejected with HTTP 400
+        g3_fail = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_sim",
+            "captain_token": tok_a,
+            "action": "arm_guarantee",
+            "payload": {"armed": True},
+        })
+        self.assertFalse(g3_fail["ok"])
+        self.assertEqual(g3_fail["status_code"], 400)
+
+        # Toggle Prediction Scoring OFF and verify score_summary switches to expected totals
+        tog_off = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "cap_sim",
+            "captain_token": tok_a,
+            "action": "toggle_prediction_scoring",
+            "payload": {"enabled": False},
+        })
+        self.assertTrue(tog_off["ok"])
+        self.assertFalse(tog_off["room"]["prediction_scoring_enabled"])
+        summary_off = tog_off["room"]["score_summary"]
+        self.assertEqual(summary_off["active_total_a"], summary_off["expected_total_a"])
+        self.assertEqual(len(summary_off["round_by_round"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-
 

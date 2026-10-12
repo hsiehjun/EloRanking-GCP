@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/team-pairings/styles.css?v=8">
+  <link rel="stylesheet" href="/team-pairings/styles.css?v=9">
 </head>
 <body>
   <div class="ygo-app-shell">
@@ -43,6 +43,10 @@
         <button type="button" id="btnToggleLandscape" class="top-action-btn mobile-only-btn" title="Toggle Horizontal / Landscape View on Mobile">
           🔄 Landscape
         </button>
+        <label class="ai-quick-toggle pred-score-toggle" id="lblPredictionScoringToggle" title="Toggle Casual Prediction Scoring Minigame (D100 Dice Roll + ±1 WTC Variance + 2 Tactical Guarantees) vs Pure Tournament Pairing Mode">
+          <input type="checkbox" id="chkPredictionScoring" checked>
+          <span id="txtPredictionScoringToggle">🎲 Score Sim: ON</span>
+        </label>
         <label class="ai-quick-toggle" title="Auto-play opposing Captain if seat is open">
           <input type="checkbox" id="chkVsAi" checked>
           <span>🤖 vs AI</span>
@@ -286,7 +290,21 @@
           </div>
         </div>
 
-        <!-- Paired Matchups Dock (Shows each locked Table 1..5) -->
+        <!-- Tactical Guarantee Ability Bar (Visible when Prediction Scoring is ON) -->
+        <div class="tactical-guarantee-box" id="tacticalGuaranteeBox">
+          <div class="tg-top-row">
+            <span class="tg-title">⚡ TACTICAL GUARANTEE</span>
+            <span class="tg-charges-badge" id="myGuaranteesLeftBadge">⚡⚡ 2 / 2 LEFT</span>
+          </div>
+          <div class="tg-desc">
+            Lock a high-confidence prediction (e.g. 80% ➔ 20-0) <strong>without rolling dice</strong>!
+          </div>
+          <button type="button" class="tg-arm-btn" id="btnArmGuarantee">
+            ⚡ ARM GUARANTEE FOR NEXT TABLE
+          </button>
+        </div>
+
+        <!-- Paired Matchups Dock (Shows each locked Table 1..5 + Round-by-Round WTC Score) -->
         <div class="paired-tables-dock" id="lockedPairingsSection">
           <div class="dock-header">
             <div>
@@ -294,10 +312,21 @@
             </div>
             <button type="button" id="btnCopyPairings" class="dock-copy-btn" title="Copy Pairings">📋</button>
           </div>
-          <div class="proj-score-strip">
-            <span>EST. SCORE:</span>
-            <strong id="projectedScoreValue">0 – 0</strong>
-            <span class="proj-badge" id="projectedVerdictBadge">In Progress</span>
+
+          <!-- Live WTC Team Scoreboard -->
+          <div class="wtc-live-scoreboard" id="wtcLiveScoreboard">
+            <div class="proj-score-strip">
+              <span id="projectedScoreModeLabel">🎲 SIM WTC:</span>
+              <strong id="projectedScoreValue">0 – 0</strong>
+              <span class="proj-badge" id="projectedVerdictBadge">In Progress</span>
+            </div>
+            <div class="wtc-exp-subline" id="expectedScoreSubLine">
+              6-Factor Expected WTC: <strong>0 – 0</strong> • Win Target: <strong>51+ PTS</strong>
+            </div>
+            <!-- Round-by-Round Progression Pills (T1..T5/T8) -->
+            <div class="round-progression-strip" id="roundByRoundProgressionStrip"></div>
+            <!-- Final Team Winner Prediction Banner (Displayed when pairings complete) -->
+            <div class="final-verdict-banner hidden" id="finalMatchVerdictBanner"></div>
           </div>
 
           <!-- Visual Card Clash List -->
@@ -560,10 +589,105 @@
         </div>
       </div>
     </div>
+
+    <!-- CARD CLASH & WTC DICE COMBAT RESOLUTION ARENA MODAL -->
+    <div class="clash-modal-backdrop hidden" id="battleClashModalBackdrop">
+      <div class="clash-modal-card">
+        <div class="clash-modal-header">
+          <div>
+            <div class="clash-table-kicker" id="clashModalTableKicker">⚔️ TABLE #1 LOCKED • CARD CLASH &amp; WTC SCORE RESOLUTION</div>
+            <h2 id="clashModalHeadline">DUEL CLASH: ART OF WAR VS TEAM ZERO COMP</h2>
+          </div>
+          <button type="button" class="lobby-close-btn" id="btnCloseBattleClashModal" title="Return to Duel Mat">✕</button>
+        </div>
+
+        <div class="clash-modal-body">
+          <!-- Two Cards Lunging & Fighting Animation Stage -->
+          <div class="clash-fighters-stage" id="clashFightersStage">
+            <div class="clash-fighter-col fighter-left" id="clashFighterLeftCol">
+              <div class="clash-fighter-team-tag" id="clashLeftTeamLabel">YOUR FIGHTER</div>
+              <div class="clash-fighter-card-mount" id="clashLeftCardMount"></div>
+              <div class="clash-fighter-prob-pill" id="clashLeftProbPill">50% WIN • EST 10 PTS</div>
+            </div>
+
+            <div class="clash-center-impact">
+              <div class="clash-swords-burst" id="clashImpactBurst">⚔️</div>
+              <div class="clash-vs-badge">CLASH!</div>
+              <div class="clash-pred-bar-wrap">
+                <div class="clash-pred-bar-fill" id="clashWinProbBarFill" style="width: 50%"></div>
+              </div>
+              <div class="clash-expected-pill" id="clashExpectedScorePill">6-Factor Est: 10 – 10 WTC</div>
+            </div>
+
+            <div class="clash-fighter-col fighter-right" id="clashFighterRightCol">
+              <div class="clash-fighter-team-tag opp" id="clashRightTeamLabel">ENEMY FIGHTER</div>
+              <div class="clash-fighter-card-mount" id="clashRightCardMount"></div>
+              <div class="clash-fighter-prob-pill opp" id="clashRightProbPill">50% WIN • EST 10 PTS</div>
+            </div>
+          </div>
+
+          <!-- Dice Roll & Tactical Guarantee Resolution Box -->
+          <div class="clash-dice-arena-box" id="clashDiceArenaBox">
+            <div class="dice-combat-visual-row">
+              <!-- D100 Percentile Die -->
+              <div class="dice-3d-widget" id="clashD100Widget">
+                <span class="dice-widget-lbl">D100 ROLL</span>
+                <div class="dice-3d-cube" id="clashD100Cube">
+                  <span class="dice-num" id="clashD100Value">--</span>
+                </div>
+                <span class="dice-target-sub" id="clashD100TargetSub">Target ≤ 50%</span>
+              </div>
+
+              <!-- Arrow / Outcome Verdict -->
+              <div class="dice-outcome-center">
+                <div class="dice-mode-badge" id="clashOutcomeBadge">🎲 DICE COMBAT RESULT</div>
+                <div class="dice-final-wtc-score" id="clashFinalWtcScore">10 – 10</div>
+                <div class="dice-outcome-detail" id="clashOutcomeDetail">
+                  Roll D100 against the 6-Factor Win % (with ±1 WTC variance), or spend a Tactical Guarantee to lock the predicted score without rolling!
+                </div>
+              </div>
+
+              <!-- ±1 WTC Variance Die -->
+              <div class="dice-3d-widget variance-widget" id="clashVarianceWidget">
+                <span class="dice-widget-lbl">WTC VARIANCE</span>
+                <div class="dice-3d-cube var-cube" id="clashVarianceCube">
+                  <span class="dice-num" id="clashVarianceValue">±0</span>
+                </div>
+                <span class="dice-target-sub">Bounded ±1 PT</span>
+              </div>
+            </div>
+
+            <!-- Interactive Action Buttons: Roll Dice vs Use Tactical Guarantee -->
+            <div class="clash-action-buttons-row">
+              <button type="button" class="clash-btn roll-dice-btn" id="btnClashRollDice">
+                🎲 ROLL D100 COMBAT DICE (±1 VAR)
+              </button>
+              <button type="button" class="clash-btn guarantee-btn" id="btnClashUseGuarantee">
+                ⚡ USE TACTICAL GUARANTEE (<span id="clashGuaranteesLeftCount">2</span> LEFT — NO ROLL!)
+              </button>
+            </div>
+          </div>
+
+          <!-- Live Round-by-Round Cumulative Score Footer inside Clash Modal -->
+          <div class="clash-modal-footer">
+            <div class="clash-cum-score-box">
+              <span class="clash-cum-lbl">ROUND-BY-ROUND TEAM TOTAL:</span>
+              <strong class="clash-cum-val" id="clashModalCumulativeScore">0 – 0</strong>
+              <span class="clash-cum-verdict" id="clashModalCumulativeVerdict">In Progress</span>
+            </div>
+            <div class="clash-footer-btns">
+              <button type="button" class="ygo-confirm-btn" id="btnClashContinue">
+                ⚔️ CONTINUE DUEL
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="toastNotification" class="toast-notification hidden"></div>
   <script src="/js/armory_svgs.js"></script>
-  <script src="/team-pairings/app.js?v=8"></script>
+  <script src="/team-pairings/app.js?v=9"></script>
 </body>
 </html>
