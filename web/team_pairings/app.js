@@ -241,8 +241,7 @@ class YuGiOhPairingsArena {
     const selectFormat = document.getElementById("selectFormat");
     if (selectFormat) {
       selectFormat.addEventListener("change", () => {
-        this.trimLobbyDraftToFormat();
-        this.renderLobbyDeckBuilder();
+        this.onFormatChanged(selectFormat.value);
       });
     }
 
@@ -309,13 +308,19 @@ class YuGiOhPairingsArena {
     const urlRoom = (params.get("room") || "").trim().toUpperCase();
     const urlRole = (params.get("role") || "").trim().toLowerCase();
     const demoState = (params.get("demo_state") || "").trim().toLowerCase();
+    const urlFmt = (params.get("format") || params.get("format_size") || "").trim().toLowerCase();
+
+    if (urlFmt === "8v8" || urlFmt === "5v5") {
+      const selectFormat = document.getElementById("selectFormat");
+      if (selectFormat) selectFormat.value = urlFmt;
+    }
 
     if (urlRole === "captain_a" || urlRole === "captain_b" || urlRole === "spectator") {
       this.activeRole = urlRole;
     }
 
     // Do NOT pre-populate teams or players unless demo_state specifically tests mid-duel field steps
-    const needsFieldDemoPreset = demoState === "step2" || demoState === "step3_spectator" || demoState === "completed";
+    const needsFieldDemoPreset = demoState === "step2" || demoState === "step3_spectator" || demoState === "completed" || demoState === "8v8_field";
 
     if (urlRoom) {
       await this.joinExistingRoom(urlRoom, { openLobby: !demoState || demoState === "lobby" });
@@ -420,8 +425,51 @@ class YuGiOhPairingsArena {
     return fmt === "8v8" ? 8 : 5;
   }
 
+  async onFormatChanged(newFormatValue) {
+    const fmt = String(newFormatValue || "5v5").toLowerCase() === "8v8" ? "8v8" : "5v5";
+    const tSize = fmt === "8v8" ? 8 : 5;
+    this.trimLobbyDraftToFormat();
+    this.renderLobbyDeckBuilder();
+
+    if (this.room) {
+      this.room.format_size = fmt;
+      this.room.format = fmt;
+      this.room.team_size = tSize;
+      this.room.total_tables = tSize;
+      this.room.max_cycles = tSize === 8 ? 3 : 2;
+      this.renderAll();
+    }
+
+    if (this.roomCode && this.activeRole !== "spectator") {
+      try {
+        const tok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(this.roomCode, this.activeRole);
+        const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            role: this.activeRole,
+            user_id: this.userId,
+            captain_token: tok,
+            action: "set_format",
+            payload: { format_size: fmt }
+          })
+        });
+        const data = await resp.json();
+        if (data && (data.ok || data.success) && data.room) {
+          this.room = data.room;
+          this.renderAll();
+        }
+      } catch (_) {}
+    }
+  }
+
   syncLobbyDraftFromRoom() {
     if (!this.room) return;
+    const roomFmt = (this.room.format_size === "8v8" || this.room.team_size === 8 || this.room.total_tables === 8) ? "8v8" : "5v5";
+    const selectFormat = document.getElementById("selectFormat");
+    if (selectFormat) {
+      selectFormat.value = roomFmt;
+    }
     if (this.room.team_a && Array.isArray(this.room.team_a.roster)) {
       this.lobbyDraftTeam.captain_a = this.room.team_a.roster.map((p) => {
         const meta = resolveFactionMeta(p.faction);
@@ -1138,6 +1186,7 @@ class YuGiOhPairingsArena {
 
     const tray = document.getElementById("lobbyHandTray");
     if (!tray) return;
+    tray.classList.toggle("format-8v8", targetSize === 8);
 
     const slotsHtml = [];
     for (let i = 0; i < targetSize; i++) {
@@ -1187,8 +1236,10 @@ class YuGiOhPairingsArena {
       return;
     }
 
+    const fmt = (document.getElementById("selectFormat")?.value || this.room?.format_size || "5v5").toLowerCase() === "8v8" ? "8v8" : "5v5";
     const finalHand = this.lobbyDraftTeam[this.activeRole] || [];
     if (finalHand.length === 0) {
+      await this.onFormatChanged(fmt);
       this.closeLobbyModal();
       this.renderAll();
       return;
@@ -1218,6 +1269,8 @@ class YuGiOhPairingsArena {
             captain_token: tok,
             action: "set_team_roster",
             payload: {
+              format_size: fmt,
+              format: fmt,
               team_name: teamName,
               team_tag: tag,
               roster: finalHand
@@ -1231,13 +1284,15 @@ class YuGiOhPairingsArena {
             this.captainTokens[this.activeRole] = data.captain_token;
             this.saveRoomTokenToStorage(this.roomCode, this.activeRole, data.captain_token);
           }
+          this.syncLobbyDraftFromRoom();
         }
       } catch (_) {}
     }
 
+    const lockedCount = (this.lobbyDraftTeam[this.activeRole] || finalHand).length;
     this.closeLobbyModal();
     this.renderAll();
-    this.showToast(`Locked ${finalHand.length} players for ${teamName}!`);
+    this.showToast(`Locked ${lockedCount} players for ${teamName} (${fmt.toUpperCase()})!`);
   }
 
   async createNewRoom({ openLobby = false, emptyRosters = true } = {}) {
@@ -1795,6 +1850,8 @@ class YuGiOhPairingsArena {
 
     const myFan = document.getElementById("myHandFan");
     if (!myFan) return;
+    const is8v8 = (this.room?.team_size === 8 || this.room?.total_tables === 8 || myBench.length > 5);
+    myFan.classList.toggle("format-8v8", is8v8);
 
     if ((p.myTeam.roster || []).length === 0) {
       myFan.innerHTML = "";
@@ -1905,14 +1962,20 @@ class YuGiOhPairingsArena {
 
   async autoCompleteRemainingPhases() {
     if (!this.room || !this.roomCode) return;
-    // If rosters are empty when Auto-Duel is clicked, initialize a room with rosters first
-    if (!(this.room.team_a?.roster?.length) || !(this.room.team_b?.roster?.length)) {
+    // If rosters are empty or don't match the selected format when Auto-Duel is clicked, initialize a room with rosters first
+    const targetTables = this.getTargetHandSize();
+    if (
+      !(this.room.team_a?.roster?.length) ||
+      !(this.room.team_b?.roster?.length) ||
+      this.room.team_a.roster.length !== targetTables ||
+      this.room.team_b.roster.length !== targetTables
+    ) {
       await this.createNewRoom({ openLobby: false, emptyRosters: false });
     }
     const roleToUse = this.activeRole === "spectator" ? "captain_a" : this.activeRole;
     const tok = this.captainTokens[roleToUse] || this.captainTokens.captain_a || "";
 
-    for (let guard = 0; guard < 12; guard++) {
+    for (let guard = 0; guard < 15; guard++) {
       if (!this.room || this.room.phase === "COMPLETED") break;
       const isCapB = roleToUse === "captain_b";
       const myTeam = isCapB ? this.room.team_b : this.room.team_a;

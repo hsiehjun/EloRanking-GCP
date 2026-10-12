@@ -570,6 +570,59 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertTrue(act["ok"])
         self.assertLess(ms_act, 1000.0, f"apply_pairing_action took {ms_act:.1f}ms (> 1000ms)")
 
+    def test_switch_5v5_room_to_8v8_locks_8_cards_and_8_tables(self):
+        """Verify switching a room created as 5v5 to 8v8 via set_format or set_team_roster sets 8 cards, 8 tables, and 3 cycles."""
+        created = self.engine.create_pairing_room({"format_size": "5v5", "empty_rosters": True, "vs_ai": True, "user_id": "u_8v8"})
+        code = created["room_code"]
+        tok_a = created["captain_a_token"]
+        self.assertEqual(created["team_size"], 5)
+        self.assertEqual(created["total_tables"], 5)
+
+        # 1. Switch format via set_format
+        fmt_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": "u_8v8",
+            "captain_token": tok_a,
+            "action": "set_format",
+            "payload": {"format_size": "8v8"},
+        })
+        self.assertTrue(fmt_res["ok"])
+        self.assertEqual(fmt_res["room"]["format_size"], "8v8")
+        self.assertEqual(fmt_res["room"]["team_size"], 8)
+        self.assertEqual(fmt_res["room"]["total_tables"], 8)
+        self.assertEqual(fmt_res["room"]["max_cycles"], 3)
+
+        # 2. Submit 8-player roster via set_team_roster (even on a room originally created as 5v5)
+        created2 = self.engine.create_pairing_room({"format_size": "5v5", "empty_rosters": True, "vs_ai": True, "user_id": "u_8v8_b"})
+        code2 = created2["room_code"]
+        tok2 = created2["captain_a_token"]
+        eight_players = [
+            {"name": f"Eight Card Duelist {i}", "faction": "Blood Angels", "elo": 2100 - i * 10}
+            for i in range(1, 9)
+        ]
+        roster_res = self.engine.apply_pairing_action(code2, {
+            "role": "captain_a",
+            "user_id": "u_8v8_b",
+            "captain_token": tok2,
+            "action": "set_team_roster",
+            "payload": {
+                "format_size": "8v8",
+                "team_name": "BATOOSKA",
+                "team_tag": "BTK",
+                "roster": eight_players,
+            },
+        })
+        self.assertTrue(roster_res["ok"])
+        r2 = roster_res["room"]
+        self.assertEqual(r2["format_size"], "8v8")
+        self.assertEqual(r2["team_size"], 8)
+        self.assertEqual(r2["total_tables"], 8)
+        self.assertEqual(r2["max_cycles"], 3)
+        self.assertEqual(len(r2["team_a"]["roster"]), 8)
+        self.assertEqual(len(r2["team_b"]["roster"]), 8)
+        self.assertEqual([p["id"] for p in r2["team_a"]["roster"]], [f"A{i}" for i in range(1, 9)])
+        self.assertEqual([p["id"] for p in r2["team_b"]["roster"]], [f"B{i}" for i in range(1, 9)])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1103,6 +1103,16 @@ html, body {
   padding: 4px 12px 2px;
 }
 
+.my-hand-fan.format-8v8 {
+  gap: 5px;
+}
+
+.my-hand-fan.format-8v8 .ygo-card {
+  width: 96px;
+  height: 140px;
+  padding: 4px;
+}
+
 /* ============================================================================
    3. RIGHT PANEL: DUELIST LP COUNTERS & PAIRED MATCHUPS STACK
    ============================================================================ */
@@ -1623,7 +1633,7 @@ html, body {
   color: var(--cyan-glow);
 }
 
-/* 5-Card Hand Tray inside Lobby */
+/* 5-Card / 8-Card Hand Tray inside Lobby */
 .lobby-hand-tray {
   display: flex;
   align-items: center;
@@ -1635,6 +1645,17 @@ html, body {
   background: rgba(2, 6, 23, 0.72);
   border: 1px dashed rgba(245, 185, 66, 0.45);
   min-height: 164px;
+}
+
+.lobby-hand-tray.format-8v8 {
+  gap: 6px;
+}
+
+.lobby-hand-tray.format-8v8 .lobby-empty-slot,
+.lobby-hand-tray.format-8v8 .ygo-card {
+  width: 98px;
+  height: 140px;
+  padding: 4px;
 }
 
 .lobby-card-slot-wrap {

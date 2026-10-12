@@ -3450,12 +3450,62 @@ class FirestoreRoomEngine:
         side_suffix = "a" if is_cap_a else "b"
         phase = room.get("phase")
 
+        if act == "set_format":
+            import copy
+            req_fmt = str(req.get("format_size") or req.get("format") or "5v5").strip().lower()
+            resolved_fmt = "8v8" if req_fmt == "8v8" else "5v5"
+            t_size = 8 if resolved_fmt == "8v8" else 5
+            room["format_size"] = resolved_fmt
+            room["format"] = resolved_fmt
+            room["team_size"] = t_size
+            room["total_tables"] = t_size
+            room["max_cycles"] = 3 if t_size == 8 else 2
+
+            # Trim rosters if switching from 8v8 down to 5v5 before pairings start
+            if not room.get("pairings"):
+                for side_s, t_key in (("a", "team_a"), ("b", "team_b")):
+                    cur_r = (room.get(t_key) or {}).get("roster") or []
+                    if len(cur_r) > t_size:
+                        trimmed = cur_r[:t_size]
+                        room[t_key]["roster"] = trimmed
+                        room[f"bench_{side_s}"] = [p["id"] for p in trimmed]
+                # If AI Team B already had a populated roster (e.g. 5 cards), resize it to match new format
+                cur_b = (room.get("team_b") or {}).get("roster") or []
+                if room.get("vs_ai") and not room.get("seat_b_locked") and len(cur_b) > 0 and len(cur_b) != t_size:
+                    preset_b = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get("team_zero_comp") or next(iter(self.TEAM_PAIRING_PRESETS.values())))
+                    ai_roster = preset_b["roster"][:t_size]
+                    for idx, p in enumerate(ai_roster):
+                        p["id"] = f"B{idx + 1}"
+                        p["team"] = "B"
+                        p["status"] = "bench"
+                    room["team_b"]["roster"] = ai_roster
+                    room["bench_b"] = [p["id"] for p in ai_roster]
+
+            self._sync_roster_statuses(room)
+            self._save_pairing_room_doc(room["room_code"], room)
+            return {
+                "ok": True,
+                "success": True,
+                "status_code": 200,
+                "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+            }
+
         if act == "set_team_roster":
             import copy
             team_key = "team_a" if is_cap_a else "team_b"
             id_prefix = "A" if is_cap_a else "B"
-            team_size = int(room.get("team_size") or 5)
             raw_roster = req.get("roster") or []
+            req_fmt = str(req.get("format_size") or req.get("format") or "").strip().lower()
+            if req_fmt in ("5v5", "8v8") or len(raw_roster) > 5:
+                resolved_fmt = "8v8" if (req_fmt == "8v8" or len(raw_roster) > 5) else "5v5"
+                t_size = 8 if resolved_fmt == "8v8" else 5
+                room["format_size"] = resolved_fmt
+                room["format"] = resolved_fmt
+                room["team_size"] = t_size
+                room["total_tables"] = t_size
+                room["max_cycles"] = 3 if t_size == 8 else 2
+
+            team_size = int(room.get("team_size") or 5)
             if not isinstance(raw_roster, list) or len(raw_roster) < 1:
                 return {"ok": False, "success": False, "status_code": 400, "error": "Roster must contain at least 1 player."}
             new_roster = []
@@ -3474,7 +3524,7 @@ class FirestoreRoomEngine:
                     "team": id_prefix,
                     "status": "bench",
                 })
-            # Pad from existing roster if fewer than team_size were provided
+            # Pad from existing roster or fallback preset if fewer than team_size were provided
             existing_roster = room[team_key].get("roster") or []
             while len(new_roster) < team_size and len(existing_roster) > len(new_roster):
                 idx = len(new_roster)
@@ -3483,6 +3533,24 @@ class FirestoreRoomEngine:
                 fallback_p["team"] = id_prefix
                 fallback_p["status"] = "bench"
                 new_roster.append(fallback_p)
+
+            if len(new_roster) < team_size:
+                fallback_preset_key = "art_of_war" if is_cap_a else "team_zero_comp"
+                fallback_pool = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get(fallback_preset_key, {}).get("roster") or [])
+                used_names = {str(p.get("name") or "").lower() for p in new_roster}
+                for cand in fallback_pool:
+                    if len(new_roster) >= team_size:
+                        break
+                    if str(cand.get("name") or "").lower() in used_names:
+                        continue
+                    idx = len(new_roster)
+                    cand_copy = copy.deepcopy(cand)
+                    cand_copy["id"] = f"{id_prefix}{idx + 1}"
+                    cand_copy["team"] = id_prefix
+                    cand_copy["status"] = "bench"
+                    cand_copy["role_tag"] = str(cand_copy.get("role_tag") or cand_copy.get("role") or "All-Rounder")
+                    new_roster.append(cand_copy)
+                    used_names.add(str(cand.get("name") or "").lower())
 
             if req.get("team_name"):
                 room[team_key]["name"] = str(req["team_name"]).strip()
@@ -3503,8 +3571,9 @@ class FirestoreRoomEngine:
             room[f"secret_choice_{side_suffix}"] = None
             room[f"locked_{side_suffix}"] = False
 
-            # If vs_ai is active and Team B has no human captain and an empty roster, populate AI opponent roster now
-            if is_cap_a and room.get("vs_ai") and not room.get("seat_b_locked") and not (room.get("team_b") or {}).get("roster"):
+            # If vs_ai is active and Team B has no human captain and an empty or mismatched-size roster, populate AI opponent roster now
+            existing_b_roster = (room.get("team_b") or {}).get("roster") or []
+            if is_cap_a and room.get("vs_ai") and not room.get("seat_b_locked") and len(existing_b_roster) != team_size:
                 preset_b = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get("team_zero_comp") or next(iter(self.TEAM_PAIRING_PRESETS.values())))
                 ai_roster = preset_b["roster"][:team_size]
                 for idx, p in enumerate(ai_roster):
