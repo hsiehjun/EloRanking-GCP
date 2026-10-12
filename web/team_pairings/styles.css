@@ -1939,28 +1939,977 @@ html, body {
   opacity: 0.85;
 }
 
-@media (max-width: 1100px) {
+.mobile-only-btn {
+  display: none;
+}
+
+@media (max-width: 1180px) {
   .ygo-duel-stage {
     grid-template-columns: 210px minmax(0, 1fr) 230px;
   }
 }
 
-@media (max-width: 860px) {
+/* ============================================================================
+   MOBILE & TABLET RESPONSIVE LAYOUT (<= 900px)
+   ============================================================================ */
+@media (max-width: 900px) {
+  .mobile-only-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-color: var(--border-gold);
+    color: var(--gold-bright);
+    background: rgba(245, 185, 66, 0.14);
+  }
+
+  .desktop-nav-link {
+    display: none !important;
+  }
+
   html, body, .ygo-app-shell {
     height: auto;
+    min-height: 100vh;
     max-height: none;
+    overflow-x: hidden;
     overflow-y: auto;
   }
+
+  /* Compact 2-Row Mobile Topbar (zero horizontal overflow) */
+  .ygo-topbar {
+    flex-wrap: wrap;
+    padding: 6px 8px;
+    gap: 5px;
+  }
+
+  .brand-group {
+    gap: 6px;
+  }
+
+  .brand-logo {
+    width: 22px;
+    height: 22px;
+  }
+
+  .brand-titles h1 {
+    font-size: 0.78rem;
+    gap: 5px;
+  }
+
+  .gold-tag {
+    display: none;
+  }
+
+  .topbar-right {
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+
+  .topbar-center {
+    order: 3;
+    width: 100%;
+    justify-content: flex-start;
+    gap: 4px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(148, 163, 184, 0.14);
+  }
+
+  .room-lock-pill,
+  .top-share-pill,
+  .seat-chip,
+  .btn-lobby-open,
+  .top-action-btn,
+  .ai-quick-toggle {
+    font-size: 0.62rem;
+    padding: 3px 7px;
+    border-radius: 5px;
+  }
+
+  /* Put Playmat + Hand FIRST at the top of the screen on mobile! */
   .ygo-duel-stage {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 6px 6px 18px;
+    overflow: visible;
   }
+
+  .ygo-field-center {
+    order: 1;
+    width: 100%;
+    perspective: none;
+    gap: 4px;
+  }
+
+  .ygo-right-hud {
+    order: 2;
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .paired-tables-dock {
+    grid-column: 1 / -1;
+    max-height: 230px;
+  }
+
+  .ygo-inspector-panel {
+    order: 3;
+    width: 100%;
+    padding: 8px;
+  }
+
+  .pg-steps-list {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+  }
+
+  .pg-step-body {
+    display: none;
+  }
+
+  /* Playmat scaled to fit 100% inside 375px-412px mobile screens without clipping */
+  .opp-hand-area {
+    height: 36px;
+  }
+
+  .opp-card-back {
+    width: 32px;
+    height: 44px;
+    margin: 0 -4px;
+  }
+
+  .opp-card-back::after {
+    font-size: 0.75rem;
+  }
+
   .ygo-playmat-3d {
+    width: 100%;
     transform: none;
+    padding: 6px;
+    gap: 5px;
+    border-radius: 12px;
   }
-  .lobby-seats-grid {
+
+  .field-row {
     grid-template-columns: 1fr;
+    gap: 4px;
   }
+
+  .deck-zone {
+    display: none;
+  }
+
+  .main-zones-group {
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 6px;
+    height: 110px;
+  }
+
+  .field-slot {
+    padding: 14px 4px 4px;
+    border-radius: 8px;
+  }
+
+  .slot-zone-label {
+    font-size: 0.46rem;
+    top: 2px;
+    left: 3px;
+    right: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .double-card-mounts {
+    gap: 6px;
+  }
+
+  .empty-zone-sigil {
+    width: 66px;
+    height: 86px;
+    font-size: 0.48rem;
+    padding: 2px;
+  }
+
+  .empty-zone-sigil .sigil-icon {
+    font-size: 0.95rem;
+  }
+
+  .ygo-card.field-size {
+    width: 72px;
+    height: 90px;
+    padding: 3px;
+  }
+
+  .ygo-card.field-size .yc-name {
+    font-size: 0.48rem;
+  }
+
+  .ygo-card.field-size .yc-stars {
+    font-size: 0.36rem;
+  }
+
+  .ygo-card.field-size .yc-art {
+    min-height: 32px;
+  }
+
+  .ygo-card.field-size .yc-emblem {
+    width: 24px;
+    height: 24px;
+  }
+
+  .ygo-card.field-size .yc-emblem svg,
+  .ygo-card.field-size .yc-emblem .armory-faction-svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .ygo-card.field-size .yc-faction {
+    font-size: 0.42rem;
+  }
+
+  .ygo-card.field-size .yc-bottom {
+    font-size: 0.44rem;
+    padding: 1px 2px;
+  }
+
+  /* Battle Line Strip wraps cleanly into 2 compact rows on mobile */
+  .battle-line-strip {
+    flex-direction: column;
+    border-radius: 10px;
+    padding: 5px 8px;
+    gap: 4px;
+  }
+
+  .ygo-phase-tokens {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .cycle-chip {
+    font-size: 0.56rem;
+    padding: 2px 6px;
+  }
+
+  .phase-token {
+    font-size: 0.54rem;
+    padding: 2px 6px;
+    gap: 3px;
+  }
+
+  .phase-token .pt-code {
+    width: 14px;
+    height: 14px;
+    font-size: 0.46rem;
+  }
+
+  .battle-action-center {
+    width: 100%;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .action-callout-pill {
+    font-size: 0.56rem;
+    line-height: 1.2;
+    flex: 1;
+  }
+
+  .ygo-confirm-btn {
+    font-size: 0.64rem;
+    padding: 5px 10px;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  /* Bottom Hand fits all 5 cards in 1 row (or 8 cards in 2 rows of 4) on 412px mobile */
+  .my-hand-label-pill {
+    font-size: 0.54rem;
+    padding: 2px 8px;
+    max-width: 98%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .my-hand-fan,
+  .my-hand-fan.format-8v8 {
+    width: 100%;
+    min-height: 108px;
+    gap: 4px;
+    padding: 4px 2px 2px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .my-hand-fan .ygo-card,
+  .my-hand-fan.format-8v8 .ygo-card {
+    width: 72px;
+    height: 102px;
+    padding: 3px;
+  }
+
+  .my-hand-fan .ygo-card .yc-name {
+    font-size: 0.5rem;
+  }
+
+  .my-hand-fan .ygo-card .yc-stars {
+    font-size: 0.38rem;
+  }
+
+  .my-hand-fan .ygo-card .yc-art {
+    min-height: 36px;
+  }
+
+  .my-hand-fan .ygo-card .yc-emblem {
+    width: 26px;
+    height: 26px;
+  }
+
+  .my-hand-fan .ygo-card .yc-emblem svg,
+  .my-hand-fan .ygo-card .yc-emblem .armory-faction-svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .my-hand-fan .ygo-card .yc-faction {
+    font-size: 0.44rem;
+  }
+
+  .my-hand-fan .ygo-card .yc-bottom {
+    font-size: 0.45rem;
+    padding: 1px 2px;
+  }
+
+  .ygo-card:hover {
+    transform: translateY(-6px) scale(1.03);
+  }
+
+  .ygo-card.selected {
+    transform: translateY(-8px) scale(1.04);
+  }
+
+  .ygo-card.selected::before {
+    bottom: 20px;
+    font-size: 0.42rem;
+    padding: 1px 5px;
+    white-space: nowrap;
+  }
+
+  /* Duelist LP Boxes side-by-side compact */
+  .duelist-lp-box {
+    padding: 6px 7px;
+    gap: 6px;
+  }
+
+  .duelist-avatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  .duelist-avatar svg,
+  .duelist-avatar .armory-faction-svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .duelist-name {
+    font-size: 0.68rem;
+  }
+
+  .duelist-sub {
+    font-size: 0.56rem;
+  }
+
+  .duelist-status-pill {
+    font-size: 0.54rem;
+    padding: 1px 5px;
+  }
+
+  /* Lobby & Roster Modal on Mobile */
+  .lobby-modal-backdrop {
+    padding: 6px;
+  }
+
+  .lobby-modal-card {
+    width: 100%;
+    max-height: 95vh;
+    border-radius: 12px;
+  }
+
+  .lobby-modal-header {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .lobby-modal-header h2 {
+    font-size: 0.84rem;
+  }
+
+  .lobby-modal-header p {
+    font-size: 0.65rem;
+  }
+
+  .lobby-section {
+    padding: 8px 10px;
+  }
+
+  .lobby-step-title {
+    font-size: 0.64rem;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .gt-room-lock-status {
+    font-size: 0.56rem;
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .lobby-seats-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .lobby-seat-card {
+    min-width: 0;
+    overflow: hidden;
+    padding: 6px 5px;
+    gap: 3px;
+    border-radius: 8px;
+  }
+
+  .seat-card-top {
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .seat-icon {
+    font-size: 0.88rem;
+    flex-shrink: 0;
+  }
+
+  .seat-lock-pill {
+    font-size: 0.4rem;
+    padding: 1px 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .seat-title {
+    font-size: 0.58rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .seat-owner-line {
+    font-size: 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .seat-desc {
+    display: none;
+  }
+
+  .seat-card-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+  }
+
+  .seat-badge,
+  .seat-unlock-btn {
+    font-size: 0.44rem;
+    padding: 2px 3px;
+    text-align: center;
+    align-self: stretch;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .player-search-bar-wrap {
     grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .search-results-strip {
+    grid-template-columns: 1fr 1fr;
+    max-height: 128px;
+  }
+
+  .lobby-hand-tray {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    padding: 6px;
+    min-height: 102px;
+  }
+
+  .lobby-hand-tray.format-8v8 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .lobby-empty-slot,
+  .lobby-hand-tray .ygo-card,
+  .lobby-hand-tray.format-8v8 .lobby-empty-slot,
+  .lobby-hand-tray.format-8v8 .ygo-card {
+    width: 100%;
+    height: 92px;
+    padding: 3px;
+    font-size: 0.46rem;
+  }
+
+  .lobby-modal-footer {
+    padding: 8px 10px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  #lobbyStatusHint {
+    font-size: 0.64rem;
+    text-align: center;
+  }
+
+  .ygo-confirm-btn.large {
+    width: 100%;
+    font-size: 0.76rem;
+    padding: 8px 14px;
   }
 }
+
+/* ============================================================================
+   FORCED HORIZONTAL / LANDSCAPE MODE ON PORTRAIT PHONES (🔄 Landscape Toggle)
+   AND PHYSICAL LANDSCAPE PHONES
+   ============================================================================ */
+@media (max-width: 900px) and (orientation: portrait) {
+  body.force-landscape-mobile {
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+    min-height: 100vh;
+  }
+
+  body.force-landscape-mobile .ygo-app-shell {
+    position: fixed;
+    top: 0;
+    left: 100vw;
+    width: 100vh;
+    height: 100vw !important;
+    min-height: 100vw !important;
+    max-height: 100vw !important;
+    transform-origin: top left;
+    transform: rotate(90deg);
+    overflow: hidden;
+    z-index: 80;
+    background: var(--bg-void);
+  }
+
+  body.force-landscape-mobile .ygo-topbar {
+    flex-wrap: nowrap;
+    padding: 2px 6px;
+    gap: 4px;
+    height: 30px;
+    overflow: hidden;
+  }
+
+  body.force-landscape-mobile .brand-titles h1 {
+    font-size: 0.66rem;
+    white-space: nowrap;
+  }
+
+  body.force-landscape-mobile .topbar-center {
+    order: 0;
+    width: auto;
+    padding-top: 0;
+    border-top: none;
+    flex-wrap: nowrap;
+    gap: 3px;
+  }
+
+  body.force-landscape-mobile .topbar-right {
+    flex-wrap: nowrap;
+    gap: 3px;
+  }
+
+  body.force-landscape-mobile .room-lock-pill,
+  body.force-landscape-mobile .top-share-pill,
+  body.force-landscape-mobile .seat-chip,
+  body.force-landscape-mobile .btn-lobby-open,
+  body.force-landscape-mobile .top-action-btn,
+  body.force-landscape-mobile .ai-quick-toggle {
+    font-size: 0.54rem;
+    padding: 2px 5px;
+    white-space: nowrap;
+  }
+
+  body.force-landscape-mobile .ygo-duel-stage {
+    display: grid;
+    grid-template-columns: 165px minmax(0, 1fr) 170px;
+    gap: 6px;
+    padding: 3px 6px;
+    height: calc(100vw - 30px);
+    overflow: hidden;
+  }
+
+  body.force-landscape-mobile .ygo-inspector-panel {
+    order: 1;
+    padding: 5px;
+    overflow-y: auto;
+  }
+
+  body.force-landscape-mobile .pg-steps-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  body.force-landscape-mobile .ygo-field-center {
+    order: 2;
+    gap: 2px;
+    justify-content: space-between;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body.force-landscape-mobile .opp-hand-area {
+    height: 18px;
+  }
+
+  body.force-landscape-mobile .opp-card-back {
+    width: 20px;
+    height: 26px;
+  }
+
+  body.force-landscape-mobile .ygo-playmat-3d {
+    flex: 1;
+    min-height: 0;
+    padding: 3px 6px;
+    gap: 2px;
+  }
+
+  body.force-landscape-mobile .field-row {
+    flex: 0 0 auto;
+  }
+
+  body.force-landscape-mobile .main-zones-group {
+    grid-template-columns: 92px minmax(0, 1fr);
+    height: 76px;
+    gap: 5px;
+  }
+
+  body.force-landscape-mobile .field-slot {
+    padding: 11px 3px 2px;
+  }
+
+  body.force-landscape-mobile .ygo-card.field-size,
+  body.force-landscape-mobile .empty-zone-sigil {
+    width: 54px;
+    height: 62px;
+    padding: 2px;
+  }
+
+  body.force-landscape-mobile .ygo-card.field-size .yc-art {
+    min-height: 18px;
+  }
+
+  body.force-landscape-mobile .ygo-card.field-size .yc-emblem,
+  body.force-landscape-mobile .ygo-card.field-size .yc-emblem svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  body.force-landscape-mobile .battle-line-strip {
+    flex-direction: row;
+    padding: 2px 6px;
+    margin: 1px 0;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  body.force-landscape-mobile .ygo-phase-tokens {
+    width: auto;
+    flex-wrap: nowrap;
+    gap: 3px;
+  }
+
+  body.force-landscape-mobile .action-callout-pill {
+    display: none;
+  }
+
+  body.force-landscape-mobile .battle-action-center {
+    width: auto;
+    margin-left: auto;
+  }
+
+  body.force-landscape-mobile .ygo-confirm-btn {
+    font-size: 0.56rem;
+    padding: 3px 8px;
+  }
+
+  body.force-landscape-mobile .my-hand-label-pill {
+    font-size: 0.46rem;
+    padding: 1px 6px;
+    margin-bottom: 1px;
+  }
+
+  body.force-landscape-mobile .my-hand-fan,
+  body.force-landscape-mobile .my-hand-fan.format-8v8 {
+    min-height: 82px;
+    padding: 2px;
+    flex-wrap: nowrap;
+  }
+
+  body.force-landscape-mobile .my-hand-fan .ygo-card,
+  body.force-landscape-mobile .my-hand-fan.format-8v8 .ygo-card {
+    width: 60px;
+    height: 80px;
+    padding: 2px;
+  }
+
+  body.force-landscape-mobile .my-hand-fan .ygo-card .yc-art {
+    min-height: 24px;
+  }
+
+  body.force-landscape-mobile .my-hand-fan .ygo-card .yc-emblem,
+  body.force-landscape-mobile .my-hand-fan .ygo-card .yc-emblem svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  body.force-landscape-mobile .ygo-right-hud {
+    order: 3;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    gap: 4px;
+  }
+
+  body.force-landscape-mobile .lobby-modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 100vw;
+    width: 100vh;
+    height: 100vw;
+    transform-origin: top left;
+    transform: rotate(90deg);
+  }
+}
+
+/* Native Mobile Landscape Orientation (e.g. 924x412 or 844x390) */
+@media (max-height: 540px) and (orientation: landscape) {
+  .desktop-nav-link,
+  .gold-tag {
+    display: none !important;
+  }
+
+  html, body, .ygo-app-shell {
+    height: 100vh !important;
+    min-height: 100vh !important;
+    max-height: 100vh !important;
+    overflow: hidden;
+  }
+
+  .ygo-topbar {
+    flex-wrap: nowrap;
+    padding: 2px 6px;
+    gap: 4px;
+    height: 30px;
+    overflow: hidden;
+  }
+
+  .brand-titles h1 {
+    font-size: 0.66rem;
+    white-space: nowrap;
+  }
+
+  .topbar-center {
+    order: 0;
+    width: auto;
+    padding-top: 0;
+    border-top: none;
+    flex-wrap: nowrap;
+    gap: 3px;
+  }
+
+  .topbar-right {
+    flex-wrap: nowrap;
+    gap: 3px;
+  }
+
+  .room-lock-pill,
+  .top-share-pill,
+  .seat-chip,
+  .btn-lobby-open,
+  .top-action-btn,
+  .ai-quick-toggle {
+    font-size: 0.54rem;
+    padding: 2px 5px;
+    white-space: nowrap;
+  }
+
+  .ygo-duel-stage {
+    display: grid;
+    grid-template-columns: 165px minmax(0, 1fr) 170px;
+    gap: 6px;
+    padding: 3px 6px;
+    height: calc(100vh - 30px);
+    overflow: hidden;
+  }
+
+  .ygo-inspector-panel {
+    order: 1;
+    padding: 5px;
+    overflow-y: auto;
+  }
+
+  .pg-steps-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .pg-step-body {
+    display: none;
+  }
+
+  .ygo-field-center {
+    order: 2;
+    gap: 2px;
+    justify-content: space-between;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .opp-hand-area {
+    height: 18px;
+  }
+
+  .opp-card-back {
+    width: 20px;
+    height: 26px;
+  }
+
+  .ygo-playmat-3d {
+    flex: 1;
+    min-height: 0;
+    padding: 3px 6px;
+    gap: 2px;
+    transform: none;
+  }
+
+  .field-row {
+    grid-template-columns: 1fr;
+    flex: 0 0 auto;
+  }
+
+  .deck-zone {
+    display: none;
+  }
+
+  .main-zones-group {
+    grid-template-columns: 92px minmax(0, 1fr);
+    height: 76px;
+    gap: 5px;
+  }
+
+  .field-slot {
+    padding: 11px 3px 2px;
+  }
+
+  .ygo-card.field-size,
+  .empty-zone-sigil {
+    width: 54px;
+    height: 62px;
+    padding: 2px;
+  }
+
+  .ygo-card.field-size .yc-art {
+    min-height: 18px;
+  }
+
+  .ygo-card.field-size .yc-emblem,
+  .ygo-card.field-size .yc-emblem svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .battle-line-strip {
+    flex-direction: row;
+    padding: 2px 6px;
+    margin: 1px 0;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .ygo-phase-tokens {
+    width: auto;
+    flex-wrap: nowrap;
+    gap: 3px;
+  }
+
+  .action-callout-pill {
+    display: none;
+  }
+
+  .battle-action-center {
+    width: auto;
+    margin-left: auto;
+  }
+
+  .ygo-confirm-btn {
+    font-size: 0.56rem;
+    padding: 3px 8px;
+  }
+
+  .my-hand-label-pill {
+    font-size: 0.46rem;
+    padding: 1px 6px;
+    margin-bottom: 1px;
+  }
+
+  .my-hand-fan,
+  .my-hand-fan.format-8v8 {
+    min-height: 82px;
+    padding: 2px;
+    flex-wrap: nowrap;
+  }
+
+  .my-hand-fan .ygo-card,
+  .my-hand-fan.format-8v8 .ygo-card {
+    width: 60px;
+    height: 80px;
+    padding: 2px;
+  }
+
+  .my-hand-fan .ygo-card .yc-art {
+    min-height: 24px;
+  }
+
+  .my-hand-fan .ygo-card .yc-emblem,
+  .my-hand-fan .ygo-card .yc-emblem svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .ygo-right-hud {
+    order: 3;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    gap: 4px;
+  }
+}
+
+
+

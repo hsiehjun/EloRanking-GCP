@@ -301,6 +301,19 @@ class YuGiOhPairingsArena {
     if (btnCopyPairings) {
       btnCopyPairings.addEventListener("click", () => this.copyPairingsSummary());
     }
+
+    const btnToggleLandscape = document.getElementById("btnToggleLandscape");
+    if (btnToggleLandscape) {
+      btnToggleLandscape.addEventListener("click", () => {
+        const isForced = document.body.classList.toggle("force-landscape-mobile");
+        btnToggleLandscape.textContent = isForced ? "📱 Portrait" : "🔄 Landscape";
+        if (isForced && screen.orientation && typeof screen.orientation.lock === "function") {
+          screen.orientation.lock("landscape").catch(() => {});
+        } else if (!isForced && screen.orientation && typeof screen.orientation.unlock === "function") {
+          try { screen.orientation.unlock(); } catch (_) {}
+        }
+      });
+    }
   }
 
   async bootstrap() {
@@ -309,6 +322,13 @@ class YuGiOhPairingsArena {
     const urlRole = (params.get("role") || "").trim().toLowerCase();
     const demoState = (params.get("demo_state") || "").trim().toLowerCase();
     const urlFmt = (params.get("format") || params.get("format_size") || "").trim().toLowerCase();
+    const urlLandscape = (params.get("landscape") || "").trim();
+
+    if (urlLandscape === "1" || urlLandscape === "true") {
+      document.body.classList.add("force-landscape-mobile");
+      const btnToggleLandscape = document.getElementById("btnToggleLandscape");
+      if (btnToggleLandscape) btnToggleLandscape.textContent = "📱 Portrait";
+    }
 
     if (urlFmt === "8v8" || urlFmt === "5v5") {
       const selectFormat = document.getElementById("selectFormat");

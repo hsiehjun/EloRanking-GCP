@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/team-pairings/styles.css?v=4">
+  <link rel="stylesheet" href="/team-pairings/styles.css?v=5">
 </head>
 <body>
   <div class="ygo-app-shell">
@@ -39,15 +39,18 @@
       </div>
 
       <div class="topbar-right">
+        <button type="button" id="btnToggleLandscape" class="top-action-btn mobile-only-btn" title="Toggle Horizontal / Landscape View on Mobile">
+          🔄 Landscape
+        </button>
         <label class="ai-quick-toggle" title="Auto-play opposing Captain if seat is open">
           <input type="checkbox" id="chkVsAi" checked>
           <span>🤖 vs AI</span>
         </label>
         <button type="button" id="btnAutoFinish" class="top-action-btn accent">⚡ Auto-Duel</button>
         <button type="button" id="btnNewMatch" class="top-action-btn">🔄 New Room</button>
-        <a href="/admin/dice-tracker" class="top-action-btn">📹 CV Dice</a>
-        <a href="/admin" class="top-action-btn">🛡️ Admin</a>
-        <a href="/app" class="top-action-btn">🏠 App</a>
+        <a href="/admin/dice-tracker" class="top-action-btn desktop-nav-link">📹 CV Dice</a>
+        <a href="/admin" class="top-action-btn desktop-nav-link">🛡️ Admin</a>
+        <a href="/app" class="top-action-btn desktop-nav-link">🏠 App</a>
       </div>
     </header>
 
@@ -464,6 +467,6 @@
 
   <div id="toastNotification" class="toast-notification hidden"></div>
   <script src="/js/armory_svgs.js"></script>
-  <script src="/team-pairings/app.js?v=4"></script>
+  <script src="/team-pairings/app.js?v=5"></script>
 </body>
 </html>
