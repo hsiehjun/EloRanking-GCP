@@ -497,8 +497,7 @@ class YuGiOhPairingsArena {
           name: p.name,
           faction: p.faction,
           detachment: p.detachment || meta.detachment,
-          elo: p.elo || 2100,
-          role_tag: p.role_tag || "All-Rounder"
+          elo: p.elo || 2100
         };
       });
       const nameA = this.room.team_a.name || "";
@@ -511,8 +510,7 @@ class YuGiOhPairingsArena {
           name: p.name,
           faction: p.faction,
           detachment: p.detachment || meta.detachment,
-          elo: p.elo || 2100,
-          role_tag: p.role_tag || "All-Rounder"
+          elo: p.elo || 2100
         };
       });
       const nameB = this.room.team_b.name || "";
@@ -1156,16 +1154,14 @@ class YuGiOhPairingsArena {
         name: playerObj.name,
         faction: chosenFaction,
         detachment: playerObj.detachment || meta.detachment,
-        elo: playerObj.elo || 2080,
-        role_tag: playerObj.role_tag || "All-Rounder"
+        elo: playerObj.elo || 2080
       });
     } else {
       list[targetSize - 1] = {
         name: playerObj.name,
         faction: chosenFaction,
         detachment: playerObj.detachment || meta.detachment,
-        elo: playerObj.elo || 2080,
-        role_tag: playerObj.role_tag || "All-Rounder"
+        elo: playerObj.elo || 2080
       };
       this.showToast(`Swapped ${playerObj.name} into slot #${targetSize}`);
     }
@@ -1220,8 +1216,7 @@ class YuGiOhPairingsArena {
               name: p.name,
               faction: p.faction,
               detachment: p.detachment,
-              elo: p.elo,
-              role_tag: p.role_tag
+              elo: p.elo
             })}
           </div>
         `);
@@ -2188,9 +2183,6 @@ class YuGiOhPairingsArena {
 
   buildYuGiOhCardHtml(player, opts = {}) {
     const meta = resolveFactionMeta(player.faction);
-    const starsCount = Math.max(4, Math.min(9, Math.round(((player.elo || 2050) - 1800) / 48)));
-    const rTag = (player.role_tag || "").toUpperCase();
-    const shortRole = rTag.includes("DEF") ? "DEF" : (rTag.includes("ATK") || rTag.includes("SPEAR") ? "ATK" : "FLEX");
     const svgHtml = getFactionSvgHtml(player.faction, "armory-faction-svg");
 
     let matchupChipHtml = "";
@@ -2213,7 +2205,6 @@ class YuGiOhPairingsArena {
           <span class="yc-name">${this.escapeHtml(player.name)}</span>
           <span class="yc-attr">${svgHtml}</span>
         </div>
-        <div class="yc-stars">${"★".repeat(starsCount)}</div>
         <div class="yc-art">
           ${matchupChipHtml}
           <span class="yc-emblem">${svgHtml}</span>
@@ -2221,7 +2212,6 @@ class YuGiOhPairingsArena {
         </div>
         <div class="yc-bottom">
           <span>ELO <strong>${player.elo || 2100}</strong></span>
-          <span>${shortRole}</span>
         </div>
       </div>
     `;

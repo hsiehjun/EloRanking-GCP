@@ -432,6 +432,10 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertIn("avatar_necrons", app_js)
         self.assertIn("avatar_adeptus_custodes", app_js)
         self.assertIn("avatar_world_eaters", app_js)
+        self.assertNotIn("yc-stars", app_js)
+        self.assertNotIn("starsCount", app_js)
+        self.assertNotIn("shortRole", app_js)
+        self.assertNotIn("role_tag", app_js)
 
     def test_game_tracker_style_seat_locking_and_room_lock_access(self):
         """Verify Game Tracker-style seat locking (409 when seat taken by another user), seat unlocking, room lock, and shared link access."""
