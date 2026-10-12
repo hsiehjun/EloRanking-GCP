@@ -106,11 +106,12 @@ class YuGiOhPairingsArena {
     // Real Player Search State (populated only when user types in #playerSearchInput)
     this.searchResultsPlayers = [];
 
-    // Card Summon & Clash / Dice Combat Minigame State
+    // Card Summon Flight & On-Field Combat Animation State (Master Duel style — no popup modal)
     this.lastRenderedFieldCardIds = new Set();
-    this.clashModalQueue = [];
+    this.pendingCardFlightMap = new Map();
+    this.pendingClashQueue = [];
     this.activeClashTableNum = null;
-    this._diceRollingAnim = false;
+    this._combatTimers = [];
 
     // WTC Captain Pairing Clock State (5:00 per team captain)
     this.pairingClock = {
@@ -120,6 +121,14 @@ class YuGiOhPairingsArena {
       secB: 300,
       timerId: null
     };
+
+    // OmniTactica TCG Player Card Vault, Glory Pack Store & Deck Construction State
+    this.tcgState = null;
+    this.activeTcgTab = "deck";
+    this.selectedDeckSlotIdx = 0;
+    this.tcgPickerFilter = "all";
+    this.tcgBinderFilter = "all";
+    this.lastPackReveal = null;
 
     // Expose Game Tracker-compatible global helpers for the Share Room modal
     window.__openShareRoomModal = (mid) => this.openShareRoomModal(mid);
@@ -343,7 +352,7 @@ class YuGiOhPairingsArena {
       btnCopyPairings.addEventListener("click", () => this.copyPairingsSummary());
     }
 
-    // Prediction Scoring Toggle (Casual Dice Combat & Guarantees vs Pure Tournament Pairing Mode)
+    // Prediction Scoring Toggle (On-Field Combat & Score Sim vs Pure Tournament Pairing Mode)
     const chkPredScore = document.getElementById("chkPredictionScoring");
     if (chkPredScore) {
       chkPredScore.addEventListener("change", () => {
@@ -351,28 +360,14 @@ class YuGiOhPairingsArena {
       });
     }
 
-    // Tactical Guarantee Arm Button
-    const btnArmGuarantee = document.getElementById("btnArmGuarantee");
-    if (btnArmGuarantee) {
-      btnArmGuarantee.addEventListener("click", () => this.toggleArmGuarantee());
-    }
-
-    // Card Clash & Dice Resolution Arena Modal Buttons
-    const btnCloseClash = document.getElementById("btnCloseBattleClashModal");
-    if (btnCloseClash) {
-      btnCloseClash.addEventListener("click", () => this.closeBattleClashModal());
-    }
-    const btnClashContinue = document.getElementById("btnClashContinue");
-    if (btnClashContinue) {
-      btnClashContinue.addEventListener("click", () => this.advanceOrCloseBattleClashModal());
-    }
-    const btnClashRoll = document.getElementById("btnClashRollDice");
-    if (btnClashRoll) {
-      btnClashRoll.addEventListener("click", () => this.resolveActiveClashTable("dice"));
-    }
-    const btnClashGuarantee = document.getElementById("btnClashUseGuarantee");
-    if (btnClashGuarantee) {
-      btnClashGuarantee.addEventListener("click", () => this.resolveActiveClashTable("guarantee"));
+    // Clicking the On-Field Combat Stage during score reveal advances/dismisses immediately
+    const onFieldStage = document.getElementById("onFieldCombatStage");
+    if (onFieldStage) {
+      onFieldStage.addEventListener("click", () => {
+        if (onFieldStage.classList.contains("phase-score")) {
+          this.advanceOrHideOnFieldCombat();
+        }
+      });
     }
 
     const btnToggleLandscape = document.getElementById("btnToggleLandscape");
@@ -446,6 +441,10 @@ class YuGiOhPairingsArena {
     if (btnDockRoster) {
       btnDockRoster.addEventListener("click", () => this.openLobbyModal());
     }
+    const btnDockTcg = document.getElementById("btnDockOpenTcg");
+    if (btnDockTcg) {
+      btnDockTcg.addEventListener("click", () => this.openTcgVaultModal("deck"));
+    }
     const btnDockCoin = document.getElementById("btnDockOpenCoin");
     if (btnDockCoin) {
       btnDockCoin.addEventListener("click", () => this.openCoinFlipModal());
@@ -466,6 +465,95 @@ class YuGiOhPairingsArena {
     if (btnDockFinish) {
       btnDockFinish.addEventListener("click", () => this.finishPairingRoom());
     }
+
+    // OmniTactica TCG Player Card Vault, Glory Pack Store & Deck Construction Events
+    const btnOpenTcgTop = document.getElementById("btnOpenTcgVaultModal");
+    if (btnOpenTcgTop) {
+      btnOpenTcgTop.addEventListener("click", () => this.openTcgVaultModal("deck"));
+    }
+    const btnLobbyOpenTcg = document.getElementById("btnLobbyOpenTcgVault");
+    if (btnLobbyOpenTcg) {
+      btnLobbyOpenTcg.addEventListener("click", () => this.openTcgVaultModal("packs"));
+    }
+    const btnCloseTcg = document.getElementById("btnCloseTcgVaultModal");
+    if (btnCloseTcg) {
+      btnCloseTcg.addEventListener("click", () => this.closeTcgVaultModal());
+    }
+    document.querySelectorAll("#tcgVaultTabsBar .tcg-tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const tab = btn.getAttribute("data-tcg-tab") || "deck";
+        this.switchTcgTab(tab);
+      });
+    });
+
+    const btnClaimDaily = document.getElementById("btnClaimDailyGlory");
+    if (btnClaimDaily) {
+      btnClaimDaily.addEventListener("click", () => this.claimDailyGlory());
+    }
+
+    const tcgFmtSel = document.getElementById("tcgDeckFormatSelect");
+    if (tcgFmtSel) {
+      tcgFmtSel.addEventListener("change", () => {
+        this.selectedDeckSlotIdx = 0;
+        this.renderTcgDeckTab();
+      });
+    }
+
+    const btnAutoBest = document.getElementById("btnTcgAutoBestDeck");
+    if (btnAutoBest) {
+      btnAutoBest.addEventListener("click", () => this.saveOrModifyTcgDeck("auto_best"));
+    }
+    const btnResetStarter = document.getElementById("btnTcgResetStarterDeck");
+    if (btnResetStarter) {
+      btnResetStarter.addEventListener("click", () => this.saveOrModifyTcgDeck("reset_starter"));
+    }
+    const btnSaveTcgDeck = document.getElementById("btnTcgSaveDeck");
+    if (btnSaveTcgDeck) {
+      btnSaveTcgDeck.addEventListener("click", () => this.saveOrModifyTcgDeck("custom"));
+    }
+    const btnDeployTcg = document.getElementById("btnTcgDeployDeckToRoom");
+    if (btnDeployTcg) {
+      btnDeployTcg.addEventListener("click", () => this.deployTcgDeckToRoom("saved_deck", { enterArena: true }));
+    }
+
+    const btnEquipSavedTcg = document.getElementById("btnEquipSavedTcgDeck");
+    if (btnEquipSavedTcg) {
+      btnEquipSavedTcg.addEventListener("click", () => this.deployTcgDeckToRoom("saved_deck", { enterArena: false }));
+    }
+    const btnEquipStarter = document.getElementById("btnEquipStarterDeck");
+    if (btnEquipStarter) {
+      btnEquipStarter.addEventListener("click", () => this.deployTcgDeckToRoom("starter", { enterArena: false }));
+    }
+
+    document.querySelectorAll("#tcgDeckPickerFilters .tcg-filter-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        this.tcgPickerFilter = chip.getAttribute("data-picker-filter") || "all";
+        document.querySelectorAll("#tcgDeckPickerFilters .tcg-filter-chip").forEach((c) => {
+          c.classList.toggle("active", c === chip);
+        });
+        this.renderTcgDeckTab();
+      });
+    });
+
+    const pickerSearch = document.getElementById("tcgDeckPickerSearch");
+    if (pickerSearch) {
+      pickerSearch.addEventListener("input", () => this.renderTcgDeckTab());
+    }
+
+    document.querySelectorAll("#tcgBinderRarityFilters .tcg-filter-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        this.tcgBinderFilter = chip.getAttribute("data-binder-filter") || "all";
+        document.querySelectorAll("#tcgBinderRarityFilters .tcg-filter-chip").forEach((c) => {
+          c.classList.toggle("active", c === chip);
+        });
+        this.renderTcgBinderTab();
+      });
+    });
+
+    const binderSearch = document.getElementById("tcgBinderSearchInput");
+    if (binderSearch) {
+      binderSearch.addEventListener("input", () => this.renderTcgBinderTab());
+    }
   }
 
   async bootstrap() {
@@ -475,6 +563,7 @@ class YuGiOhPairingsArena {
     const demoState = (params.get("demo_state") || "").trim().toLowerCase();
     const urlFmt = (params.get("format") || params.get("format_size") || "").trim().toLowerCase();
     const urlLandscape = (params.get("landscape") || "").trim();
+    const urlTcg = (params.get("tcg") || "").trim().toLowerCase();
 
     if (urlLandscape === "1" || urlLandscape === "true") {
       document.body.classList.add("force-landscape-mobile");
@@ -485,11 +574,16 @@ class YuGiOhPairingsArena {
     if (urlFmt === "8v8" || urlFmt === "5v5") {
       const selectFormat = document.getElementById("selectFormat");
       if (selectFormat) selectFormat.value = urlFmt;
+      const tcgFmtSel = document.getElementById("tcgDeckFormatSelect");
+      if (tcgFmtSel) tcgFmtSel.value = urlFmt;
     }
 
     if (urlRole === "captain_a" || urlRole === "captain_b" || urlRole === "spectator") {
       this.activeRole = urlRole;
     }
+
+    // Pre-fetch TCG state so Glory wallet, Pity counter & Starter/Pro cards are ready
+    this.fetchTcgState().catch(() => {});
 
     // Do NOT pre-populate teams or players unless demo_state specifically tests mid-duel field steps
     const needsFieldDemoPreset =
@@ -497,18 +591,25 @@ class YuGiOhPairingsArena {
       demoState === "step3_spectator" ||
       demoState === "completed" ||
       demoState === "clash_modal" ||
+      demoState === "on_field_combat" ||
       demoState === "8v8_field" ||
       demoState === "coin_flip" ||
       demoState === "attacker_view" ||
-      demoState === "defender_view";
+      demoState === "defender_view" ||
+      demoState === "tcg_duel";
 
     if (urlRoom) {
       await this.joinExistingRoom(urlRoom, { openLobby: demoState === "lobby" });
     } else {
       await this.createNewRoom({
-        openLobby: !demoState || demoState === "lobby",
+        openLobby: (!demoState && !urlTcg) || demoState === "lobby",
         emptyRosters: !needsFieldDemoPreset
       });
+    }
+
+    if (urlTcg) {
+      const targetTab = (urlTcg === "packs" || urlTcg === "binder") ? urlTcg : "deck";
+      await this.openTcgVaultModal(targetTab);
     }
 
     if (demoState) {
@@ -654,10 +755,17 @@ class YuGiOhPairingsArena {
       this.lobbyDraftTeam.captain_a = this.room.team_a.roster.map((p) => {
         const meta = resolveFactionMeta(p.faction);
         return {
+          card_id: p.card_id || "",
           name: p.name,
+          player_name: p.player_name ?? "",
           faction: p.faction,
           detachment: p.detachment || meta.detachment,
-          elo: p.elo || 2100
+          elo: p.elo || 2100,
+          is_starter: Boolean(p.is_starter),
+          rarity: p.rarity || "",
+          rarity_label: p.rarity_label || "",
+          copies: p.copies || 1,
+          foil_tier: p.foil_tier || ""
         };
       });
       const nameA = this.room.team_a.name || "";
@@ -667,15 +775,23 @@ class YuGiOhPairingsArena {
       this.lobbyDraftTeam.captain_b = this.room.team_b.roster.map((p) => {
         const meta = resolveFactionMeta(p.faction);
         return {
+          card_id: p.card_id || "",
           name: p.name,
+          player_name: p.player_name ?? "",
           faction: p.faction,
           detachment: p.detachment || meta.detachment,
-          elo: p.elo || 2100
+          elo: p.elo || 2100,
+          is_starter: Boolean(p.is_starter),
+          rarity: p.rarity || "",
+          rarity_label: p.rarity_label || "",
+          copies: p.copies || 1,
+          foil_tier: p.foil_tier || ""
         };
       });
       const nameB = this.room.team_b.name || "";
       this.lobbyTeamNames.captain_b = (nameB === "Team B" && this.lobbyDraftTeam.captain_b.length === 0) ? "" : nameB;
     }
+    this.renderRoomModeStrip();
   }
 
   trimLobbyDraftToFormat() {
@@ -1372,11 +1488,8 @@ class YuGiOhPairingsArena {
           <div class="lobby-card-slot-wrap">
             <button type="button" class="lobby-remove-card-btn" data-remove-idx="${i}" title="Remove Player">✕</button>
             ${this.buildYuGiOhCardHtml({
-              id: `DRAFT_${i + 1}`,
-              name: p.name,
-              faction: p.faction,
-              detachment: p.detachment,
-              elo: p.elo
+              ...p,
+              id: `DRAFT_${i + 1}`
             })}
           </div>
         `);
@@ -2410,6 +2523,31 @@ class YuGiOhPairingsArena {
     }
 
     this.lastRenderedFieldCardIds = nextFieldIds;
+    this.applyPendingFlightAnimations();
+  }
+
+  applyPendingFlightAnimations() {
+    if (!this.pendingCardFlightMap || this.pendingCardFlightMap.size === 0) return;
+    const matEl = document.getElementById("duelPodA");
+    if (!matEl) {
+      this.pendingCardFlightMap.clear();
+      return;
+    }
+    this.pendingCardFlightMap.forEach((fromRect, cardId) => {
+      const targetEl = matEl.querySelector(`.ygo-card[data-card-id="${CSS.escape(String(cardId))}"]`);
+      if (targetEl && fromRect) {
+        const toRect = targetEl.getBoundingClientRect();
+        if (toRect.width > 0 && toRect.height > 0) {
+          const dx = Math.round((fromRect.left + fromRect.width / 2) - (toRect.left + toRect.width / 2));
+          const dy = Math.round((fromRect.top + fromRect.height / 2) - (toRect.top + toRect.height / 2));
+          targetEl.classList.remove("card-summon-slam");
+          targetEl.style.setProperty("--fly-dx", `${dx}px`);
+          targetEl.style.setProperty("--fly-dy", `${dy}px`);
+          targetEl.classList.add("card-fly-from-hand");
+        }
+      }
+    });
+    this.pendingCardFlightMap.clear();
   }
 
   renderHands(p) {
@@ -2537,7 +2675,7 @@ class YuGiOhPairingsArena {
         this.inspectedMyCard = cardObj;
         this.inspectCard(cardObj, oppRefCard);
         if (!p.isSpectator) {
-          this.toggleHandCardSelection(cardObj.id);
+          this.toggleHandCardSelection(cardObj.id, cardEl);
         } else {
           this.renderHands(p);
         }
@@ -2610,7 +2748,7 @@ class YuGiOhPairingsArena {
     chip.textContent = `${s}-${20 - s} • ${winPct}%`;
   }
 
-  toggleHandCardSelection(cardId) {
+  toggleHandCardSelection(cardId, sourceCardEl = null) {
     if (!this.room) return;
     const phase = this.room.phase;
     const p = this.getPerspective();
@@ -2621,10 +2759,21 @@ class YuGiOhPairingsArena {
       return;
     }
 
+    const recordHandRect = () => {
+      const el = sourceCardEl || document.querySelector(`#myHandFan .ygo-card[data-card-id="${CSS.escape(String(cardId))}"]`);
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        if (rect && rect.width > 0) {
+          this.pendingCardFlightMap.set(cardId, rect);
+        }
+      }
+    };
+
     if (phase === "STEP_1_DEFENDER" && !p.mySecDefLocked) {
       if (this.selectedIds.includes(cardId)) {
         this.selectedIds = [];
       } else {
+        recordHandRect();
         this.selectedIds = [cardId];
       }
       this.renderAll();
@@ -2632,8 +2781,10 @@ class YuGiOhPairingsArena {
       if (this.selectedIds.includes(cardId)) {
         this.selectedIds = this.selectedIds.filter((id) => id !== cardId);
       } else if (this.selectedIds.length < 2) {
+        recordHandRect();
         this.selectedIds.push(cardId);
       } else {
+        recordHandRect();
         this.selectedIds = [this.selectedIds[1], cardId];
       }
       this.renderAll();
@@ -2685,14 +2836,14 @@ class YuGiOhPairingsArena {
         this.renderAll();
 
         const newPairings = this.room.pairings || [];
-        if (newPairings.length > prevPairingsCount && this.room.prediction_scoring_enabled !== false) {
+        if (newPairings.length > prevPairingsCount) {
           const newTables = [];
           for (let i = prevPairingsCount; i < newPairings.length; i++) {
             const tNum = Number(newPairings[i].table_num || newPairings[i].table || (i + 1));
             newTables.push(tNum);
           }
           if (newTables.length > 0) {
-            this.openBattleClashModal(newTables[0], newTables.slice(1));
+            this.playOnFieldCombatAnimation(newTables[0], newTables.slice(1));
           }
         }
       } else if (data && data.error) {
@@ -2976,9 +3127,30 @@ class YuGiOhPairingsArena {
     }
   }
 
+  resolveCardRarity(player) {
+    if (!player) return "common";
+    const isStarter = Boolean(
+      player.is_starter ||
+      player.rarity === "starter" ||
+      String(player.card_id || "").startsWith("starter_")
+    );
+    if (isStarter) return "starter";
+    if (player.rarity && ["mythic", "epic", "rare", "common", "starter"].includes(String(player.rarity).toLowerCase())) {
+      return String(player.rarity).toLowerCase();
+    }
+    const elo = Number(player.elo || 1500);
+    if (elo >= 2080) return "mythic";
+    if (elo >= 1900) return "epic";
+    if (elo >= 1750) return "rare";
+    if (elo >= 1550) return "common";
+    return "starter";
+  }
+
   buildYuGiOhCardHtml(player, opts = {}) {
     const meta = resolveFactionMeta(player.faction);
     const svgHtml = getFactionSvgHtml(player.faction, "armory-faction-svg");
+    const rarity = this.resolveCardRarity(player);
+    const isStarter = rarity === "starter";
 
     let matchupChipHtml = "";
     if (typeof opts.matchupScore === "number") {
@@ -2989,8 +3161,21 @@ class YuGiOhPairingsArena {
       matchupChipHtml = `<span class="yc-matchup-chip" style="color:${color}" title="${this.escapeHtml(tip)}">${s}-${20 - s} • ${winPct}%</span>`;
     }
 
+    const rarityShortMap = {
+      starter: "STARTER",
+      common: "COMMON",
+      rare: "RARE",
+      epic: "EPIC",
+      mythic: "MYTHIC"
+    };
+    const rarityText = rarityShortMap[rarity] || "CARD";
+    const displayName = isStarter
+      ? `${player.faction || player.name} (Starter)`
+      : (player.player_name || player.name || player.faction);
+
     const classes = [
       "ygo-card",
+      `rarity-${rarity}`,
       opts.fieldSize ? "field-size" : "",
       opts.oppHand ? "opp-hand-card" : "",
       opts.inspectedTarget ? "inspected-target" : "",
@@ -3000,9 +3185,9 @@ class YuGiOhPairingsArena {
     ].filter(Boolean).join(" ");
 
     return `
-      <div class="${classes}" data-card-id="${this.escapeHtml(player.id || "")}" style="--card-accent: ${meta.accent}">
+      <div class="${classes}" data-card-id="${this.escapeHtml(player.id || player.card_id || "")}" style="--card-accent: ${meta.accent}">
         <div class="yc-top">
-          <span class="yc-name">${this.escapeHtml(player.name)}</span>
+          <span class="yc-name" title="${this.escapeHtml(displayName)}">${this.escapeHtml(player.name || displayName)}</span>
           <span class="yc-attr">${svgHtml}</span>
         </div>
         <div class="yc-art">
@@ -3011,7 +3196,8 @@ class YuGiOhPairingsArena {
           <span class="yc-faction">${this.escapeHtml(player.faction)}</span>
         </div>
         <div class="yc-bottom">
-          <span>ELO <strong>${player.elo || 2100}</strong></span>
+          <span>ELO <strong>${player.elo || 1500}</strong></span>
+          <span class="yc-rarity-pill ${rarity}">${rarityText}</span>
         </div>
       </div>
     `;
@@ -3038,32 +3224,7 @@ class YuGiOhPairingsArena {
     const chkSim = document.getElementById("chkPredictionScoring");
     if (chkSim) chkSim.checked = isSimOn;
     const lblSimText = document.getElementById("predictionScoringToggleText");
-    if (lblSimText) lblSimText.textContent = isSimOn ? "🎲 Score Sim: ON" : "🎲 Score Sim: OFF";
-
-    // Sync Tactical Guarantee Box
-    const guarBox = document.getElementById("tacticalGuaranteeBox");
-    if (guarBox) {
-      guarBox.classList.toggle("hidden", !isSimOn);
-      const rem = isCapB
-        ? Number(this.room?.guarantees_remaining_b ?? 2)
-        : Number(this.room?.guarantees_remaining_a ?? 2);
-      const armed = isCapB
-        ? Boolean(this.room?.guarantee_armed_b)
-        : Boolean(this.room?.guarantee_armed_a);
-      const badgeEl = document.getElementById("guaranteesRemainingBadge");
-      if (badgeEl) {
-        const bolts = "⚡".repeat(Math.max(0, rem)) + "▫️".repeat(Math.max(0, 2 - rem));
-        badgeEl.textContent = `${bolts} ${rem} / 2 LEFT`;
-      }
-      const btnArm = document.getElementById("btnArmGuarantee");
-      if (btnArm) {
-        btnArm.disabled = rem <= 0 || this.activeRole === "spectator";
-        btnArm.classList.toggle("armed", armed && rem > 0);
-        btnArm.textContent = rem <= 0
-          ? "⚡ NO GUARANTEES LEFT"
-          : (armed ? "⚡ GUARANTEE ARMED (NEXT CLASH LOCKS EST. SCORE)" : "⚡ ARM GUARANTEE FOR NEXT PAIRING (NO DICE ROLL)");
-      }
-    }
+    if (lblSimText) lblSimText.textContent = isSimOn ? "⚔️ Combat Score: ON" : "⚔️ Combat Score: OFF";
 
     const countLbl = document.getElementById("lockedCountLabel");
     if (countLbl) countLbl.textContent = `${pairings.length} / ${total}`;
@@ -3094,7 +3255,7 @@ class YuGiOhPairingsArena {
 
     const modeLbl = document.getElementById("projectedScoreModeLabel");
     if (modeLbl) {
-      modeLbl.textContent = isSimOn ? "LIVE WTC SIM SCORE" : "EXPECTED WTC SCORE";
+      modeLbl.textContent = isSimOn ? "LIVE WTC COMBAT SCORE" : "EXPECTED WTC SCORE";
     }
 
     const scoreEl = document.getElementById("projectedScoreValue");
@@ -3103,9 +3264,9 @@ class YuGiOhPairingsArena {
     const expSubEl = document.getElementById("expectedScoreSubLine");
     if (expSubEl) {
       if (isSimOn) {
-        expSubEl.textContent = `6-Factor Expected: ${myExpScore} – ${oppExpScore} • Dice Sim (±1 WTC): ${mySimScore} – ${oppSimScore}`;
+        expSubEl.textContent = `6-Factor Expected: ${myExpScore} – ${oppExpScore} • Combat Result: ${mySimScore} – ${oppSimScore}`;
       } else {
-        expSubEl.textContent = `6-Factor Expected WTC Total (Score Sim OFF)`;
+        expSubEl.textContent = `6-Factor Expected WTC Total (Combat Sim OFF)`;
       }
     }
 
@@ -3141,16 +3302,13 @@ class YuGiOhPairingsArena {
           const oppTbl = isCapB ? sA : sB;
           runMy += myTbl;
           runOpp += oppTbl;
-          const isGuar = btl.mode === "guarantee";
           const cls = [
             "rbr-pill",
             "locked",
-            myTbl > oppTbl ? "win-a" : (myTbl < oppTbl ? "win-b" : ""),
-            isGuar && isSimOn ? "guaranteed" : ""
+            myTbl > oppTbl ? "win-a" : (myTbl < oppTbl ? "win-b" : "")
           ].filter(Boolean).join(" ");
-          const icon = isSimOn ? (isGuar ? "⚡" : "🎲") : "";
           pills.push(
-            `<span class="${cls}" data-rbr-table="${t}" title="Table #${t}: ${myTbl}-${oppTbl} (Cumulative: ${runMy}-${runOpp}) — Click to open Battle Clash">${icon}T${t}: ${myTbl}-${oppTbl}</span>`
+            `<span class="${cls}" data-rbr-table="${t}" title="Table #${t}: ${myTbl}-${oppTbl} (Cumulative: ${runMy}-${runOpp}) — Click to replay on-field combat">⚔️T${t}: ${myTbl}-${oppTbl}</span>`
           );
         }
       }
@@ -3158,7 +3316,7 @@ class YuGiOhPairingsArena {
       rbrStrip.querySelectorAll("[data-rbr-table]").forEach((el) => {
         el.addEventListener("click", () => {
           const tbl = Number(el.getAttribute("data-rbr-table"));
-          if (tbl) this.openBattleClashModal(tbl, []);
+          if (tbl) this.playOnFieldCombatAnimation(tbl, []);
         });
       });
     }
@@ -3182,7 +3340,7 @@ class YuGiOhPairingsArena {
         finalBanner.innerHTML = `
           <div>${winHeadline}</div>
           <div style="font-size:0.62rem;color:var(--text-secondary);margin-top:2px;">
-            6-Factor Expected: ${myExpScore}–${oppExpScore} ${isSimOn ? `• Dice Sim (±1 WTC): ${mySimScore}–${oppSimScore}` : ""}
+            6-Factor Expected: ${myExpScore}–${oppExpScore} ${isSimOn ? `• Combat Total: ${mySimScore}–${oppSimScore}` : ""}
           </div>
         `;
       } else {
@@ -3216,30 +3374,9 @@ class YuGiOhPairingsArena {
           const simA = Number(m.sim_score_a ?? btl.final_score_a ?? rawA);
           const mySim = isCapB ? (20 - simA) : simA;
           const oppSim = 20 - mySim;
-          const isGuar = btl.mode === "guarantee";
-          const varA = Number(btl.variance ?? 0);
-          const myVar = isCapB ? -varA : varA;
-          const varStr = myVar > 0 ? `+${myVar}` : `${myVar}`;
 
-          let simRowHtml = "";
-          if (isSimOn) {
-            const pillHtml = isGuar
-              ? `<span class="clash-sim-pill guaranteed">⚡ GUARANTEED: ${mySim}-${oppSim}</span>`
-              : `<span class="clash-sim-pill">🎲 D100: ${btl.d100_roll ?? "—"} (±1: ${varStr}) → ${mySim}-${oppSim}</span>`;
-            simRowHtml = `
-              <div class="clash-mini-sim-row">
-                ${pillHtml}
-                <button type="button" class="clash-mini-fight-btn" data-open-clash-table="${m.table_num}">⚔️ Fight / Roll</button>
-              </div>
-            `;
-          } else {
-            simRowHtml = `
-              <div class="clash-mini-sim-row">
-                <span style="color:var(--text-muted)">6-Factor Expected: ${myEst}-${20 - myEst}</span>
-                <button type="button" class="clash-mini-fight-btn" data-open-clash-table="${m.table_num}">⚔️ Inspect Clash</button>
-              </div>
-            `;
-          }
+          const activeMy = isSimOn ? mySim : myEst;
+          const activeOpp = isSimOn ? oppSim : (20 - myEst);
 
           return `
             <div class="clash-mini-card" title="${this.escapeHtml(pred.tooltip || "")}">
@@ -3258,7 +3395,10 @@ class YuGiOhPairingsArena {
                   <span class="clash-side-sub">${this.escapeHtml(oppP.faction)}</span>
                 </div>
               </div>
-              ${simRowHtml}
+              <div class="clash-mini-sim-row">
+                <span class="clash-sim-pill">⚔️ WTC SCORE: <strong>${activeMy} – ${activeOpp}</strong></span>
+                <button type="button" class="clash-mini-fight-btn" data-open-clash-table="${m.table_num}">⚔️ Replay Fight</button>
+              </div>
             </div>
           `;
         }).join("");
@@ -3267,7 +3407,7 @@ class YuGiOhPairingsArena {
           btn.addEventListener("click", (e) => {
             e.stopPropagation();
             const tbl = Number(btn.getAttribute("data-open-clash-table"));
-            if (tbl) this.openBattleClashModal(tbl, []);
+            if (tbl) this.playOnFieldCombatAnimation(tbl, []);
           });
         });
       }
@@ -3306,7 +3446,7 @@ class YuGiOhPairingsArena {
         this.renderAll();
         this.showToast(
           this.room.prediction_scoring_enabled
-            ? "🎲 Prediction Scoring & Dice Combat ON!"
+            ? "⚔️ On-Field Combat & WTC Score Simulation ON!"
             : "📋 Official Pairing Mode (Score Simulation OFF)"
         );
       }
@@ -3315,70 +3455,56 @@ class YuGiOhPairingsArena {
     }
   }
 
-  async toggleArmGuarantee() {
-    if (!this.room || !this.roomCode || this.activeRole === "spectator") return;
-    const isCapB = this.activeRole === "captain_b";
-    const currentlyArmed = isCapB ? Boolean(this.room.guarantee_armed_b) : Boolean(this.room.guarantee_armed_a);
-    try {
-      const res = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          role: this.activeRole,
-          user_id: this.userId,
-          captain_token: this.captainTokens[this.activeRole],
-          action: "arm_guarantee",
-          payload: { armed: !currentlyArmed }
-        })
-      });
-      const data = await res.json();
-      if (data && data.ok) {
-        this.room = data.room;
-        this.renderAll();
-        const nowArmed = isCapB ? Boolean(this.room.guarantee_armed_b) : Boolean(this.room.guarantee_armed_a);
-        this.showToast(
-          nowArmed
-            ? "⚡ Tactical Guarantee ARMED! Next locked pairing will guarantee its predicted WTC score without rolling dice."
-            : "Tactical Guarantee disarmed."
-        );
-      } else if (data && data.error) {
-        this.showToast(data.error);
-      }
-    } catch (e) {
-      // ignore
+  clearCombatTimers() {
+    if (Array.isArray(this._combatTimers)) {
+      this._combatTimers.forEach((id) => clearTimeout(id));
     }
+    this._combatTimers = [];
   }
 
-  openBattleClashModal(tableNum, queueRest = []) {
-    if (!this.room) return;
-    this.activeClashTableNum = Number(tableNum);
-    this.pendingClashQueue = Array.isArray(queueRest) ? queueRest : [];
-    const backdrop = document.getElementById("battleClashModalBackdrop");
-    if (backdrop) backdrop.classList.remove("hidden");
-    this.renderBattleClashModal({ animateDice: true });
-  }
-
-  closeBattleClashModal() {
-    const backdrop = document.getElementById("battleClashModalBackdrop");
-    if (backdrop) backdrop.classList.add("hidden");
+  hideOnFieldCombatAnimation() {
+    this.clearCombatTimers();
+    const stage = document.getElementById("onFieldCombatStage");
+    if (stage) {
+      stage.classList.remove("phase-rise", "phase-strike", "phase-score");
+      stage.classList.add("hidden");
+    }
+    const mat = document.getElementById("duelPodA");
+    if (mat) {
+      mat.classList.remove("playmat-combat-shake");
+    }
     this.activeClashTableNum = null;
-    this.pendingClashQueue = [];
   }
 
-  advanceOrCloseBattleClashModal() {
+  advanceOrHideOnFieldCombat() {
     if (this.pendingClashQueue && this.pendingClashQueue.length > 0) {
       const nextTbl = this.pendingClashQueue.shift();
-      this.openBattleClashModal(nextTbl, this.pendingClashQueue);
+      this.playOnFieldCombatAnimation(nextTbl, this.pendingClashQueue);
     } else {
-      this.closeBattleClashModal();
+      this.hideOnFieldCombatAnimation();
     }
   }
 
-  renderBattleClashModal(opts = {}) {
-    if (!this.room || !this.activeClashTableNum) return;
+  /**
+   * Yu-Gi-Oh! Master Duel Style On-Field Combat Animation (NO Popup Modal!):
+   * 1. Brings the two paired cards to the front of the playmat (`#onFieldCombatStage`) and scales them larger (`phase-rise`).
+   * 2. Performs an attack lunge + diagonal slash beam + shockwave ring right on the playmat (`phase-strike`).
+   * 3. Reveals the behind-the-scenes computed WTC Score (`13 – 7`) right between the two enlarged cards (`phase-score`),
+   *    then smoothly advances to the next table or settles back into the playmat.
+   */
+  playOnFieldCombatAnimation(tableNum, queueRest = [], opts = {}) {
+    if (!this.room) return;
+    this.clearCombatTimers();
+
+    this.activeClashTableNum = Number(tableNum);
+    this.pendingClashQueue = Array.isArray(queueRest) ? [...queueRest] : [];
+
     const pairings = this.room.pairings || [];
     const match = pairings.find((p) => Number(p.table_num) === Number(this.activeClashTableNum));
     if (!match) return;
+
+    const stage = document.getElementById("onFieldCombatStage");
+    if (!stage) return;
 
     const isCapB = this.activeRole === "captain_b";
     const myP = isCapB ? match.player_b : match.player_a;
@@ -3388,233 +3514,126 @@ class YuGiOhPairingsArena {
     const myEst = isCapB ? (20 - rawEstA) : rawEstA;
     const oppEst = 20 - myEst;
 
-    const rawProbA = Number(match.win_prob_a ?? 50);
-    const myProb = isCapB ? (100 - rawProbA) : rawProbA;
-    const oppProb = 100 - myProb;
-
     const btl = match.battle_result || {};
+    const isSimOn = this.room?.prediction_scoring_enabled !== false;
     const simA = Number(match.sim_score_a ?? btl.final_score_a ?? rawEstA);
-    const mySim = isCapB ? (20 - simA) : simA;
-    const oppSim = 20 - mySim;
-    const isGuar = btl.mode === "guarantee";
-    const varA = Number(btl.variance ?? 0);
-    const myVar = isCapB ? -varA : varA;
-    const varStr = myVar > 0 ? `+${myVar}` : `${myVar}`;
+    const myScore = isSimOn ? (isCapB ? (20 - simA) : simA) : myEst;
+    const oppScore = 20 - myScore;
 
-    const kickerEl = document.getElementById("clashModalTableKicker");
-    if (kickerEl) {
-      const qCount = (this.pendingClashQueue || []).length;
-      kickerEl.textContent = qCount > 0
-        ? `⚔️ TABLE #${match.table_num} LOCKED • CARD CLASH & WTC SCORE RESOLUTION (+${qCount} NEXT)`
-        : `⚔️ TABLE #${match.table_num} LOCKED • CARD CLASH & WTC SCORE RESOLUTION`;
+    const bannerEl = document.getElementById("ofcTableBanner");
+    if (bannerEl) {
+      const qLen = this.pendingClashQueue.length;
+      bannerEl.textContent = qLen > 0
+        ? `⚔️ TABLE #${match.table_num} CLASH (${qLen} MORE QUEUED)`
+        : `⚔️ TABLE #${match.table_num} CLASH — ${myP.name.toUpperCase()} VS ${oppP.name.toUpperCase()}`;
     }
 
-    const titleEl = document.getElementById("clashModalHeadline");
-    if (titleEl) {
-      titleEl.textContent = `${myP.name} (${myP.faction}) vs ${oppP.name} (${oppP.faction})`;
-    }
-
-    const leftTeamLbl = document.getElementById("clashLeftTeamLabel");
-    const rightTeamLbl = document.getElementById("clashRightTeamLabel");
     const myTeamName = isCapB ? (this.room?.team_b?.name || "YOUR TEAM") : (this.room?.team_a?.name || "YOUR TEAM");
     const oppTeamName = isCapB ? (this.room?.team_a?.name || "ENEMY TEAM") : (this.room?.team_b?.name || "ENEMY TEAM");
-    if (leftTeamLbl) leftTeamLbl.textContent = `${myTeamName.toUpperCase()} FIGHTER`;
-    if (rightTeamLbl) rightTeamLbl.textContent = `${oppTeamName.toUpperCase()} FIGHTER`;
 
-    const leftCol = document.getElementById("clashFighterLeftCol");
-    const rightCol = document.getElementById("clashFighterRightCol");
-    if (leftCol) {
-      leftCol.classList.remove("clash-fighter-left");
-      void leftCol.offsetWidth;
-      leftCol.classList.add("clash-fighter-left");
-    }
-    if (rightCol) {
-      rightCol.classList.remove("clash-fighter-right");
-      void rightCol.offsetWidth;
-      rightCol.classList.add("clash-fighter-right");
-    }
+    const leftOwnerEl = document.getElementById("ofcLeftOwnerTag");
+    const rightOwnerEl = document.getElementById("ofcRightOwnerTag");
+    if (leftOwnerEl) leftOwnerEl.textContent = myTeamName.toUpperCase();
+    if (rightOwnerEl) rightOwnerEl.textContent = oppTeamName.toUpperCase();
 
-    const leftSlot = document.getElementById("clashLeftCardMount");
-    const rightSlot = document.getElementById("clashRightCardMount");
-    if (leftSlot) {
-      leftSlot.innerHTML = this.buildYuGiOhCardHtml(myP, {
+    const leftMount = document.getElementById("ofcLeftCardMount");
+    const rightMount = document.getElementById("ofcRightCardMount");
+    if (leftMount) {
+      leftMount.innerHTML = this.buildYuGiOhCardHtml(myP, {
         fieldSize: false,
         matchupScore: myEst,
         matchupPred: this.getMatchupPrediction(myP, oppP)
       });
     }
-    if (rightSlot) {
-      rightSlot.innerHTML = this.buildYuGiOhCardHtml(oppP, {
+    if (rightMount) {
+      rightMount.innerHTML = this.buildYuGiOhCardHtml(oppP, {
         fieldSize: false,
         matchupScore: oppEst,
         matchupPred: this.getMatchupPrediction(oppP, myP)
       });
     }
 
-    const leftProbPill = document.getElementById("clashLeftProbPill");
-    const rightProbPill = document.getElementById("clashRightProbPill");
-    if (leftProbPill) leftProbPill.textContent = `${myProb}% WIN • EST ${myEst} PTS`;
-    if (rightProbPill) rightProbPill.textContent = `${oppProb}% WIN • EST ${oppEst} PTS`;
-
-    const barFill = document.getElementById("clashWinProbBarFill");
-    if (barFill) barFill.style.width = `${myProb}%`;
-
-    const lblEst = document.getElementById("clashExpectedScorePill");
-    if (lblEst) lblEst.textContent = `6-Factor Est: ${myEst} – ${oppEst} WTC`;
-
-    const d100El = document.getElementById("clashD100Value");
-    const d100Cube = document.getElementById("clashD100Cube");
-    const targetEl = document.getElementById("clashD100TargetSub");
-    const varEl = document.getElementById("clashVarianceValue");
-    const varCube = document.getElementById("clashVarianceCube");
-    const finalScoreEl = document.getElementById("clashFinalWtcScore");
-    const badgeModeEl = document.getElementById("clashOutcomeBadge");
-    const detailEl = document.getElementById("clashOutcomeDetail");
-
-    if (targetEl) {
-      targetEl.textContent = isCapB
-        ? `Target: > ${rawProbA}% (${myProb}% Win)`
-        : `Target: ≤ ${rawProbA}% (${myProb}% Win)`;
-    }
-
-    if (opts.animateDice && !isGuar && d100Cube && varCube) {
-      d100Cube.classList.add("rolling");
-      varCube.classList.add("rolling");
-      let ticks = 0;
-      clearInterval(this._diceAnimTimer);
-      this._diceAnimTimer = setInterval(() => {
-        ticks += 1;
-        if (d100El) d100El.textContent = String(Math.floor(Math.random() * 100) + 1);
-        if (varEl) {
-          const vs = ["-1", "0", "+1"];
-          varEl.textContent = vs[ticks % 3];
-        }
-        if (ticks >= 9) {
-          clearInterval(this._diceAnimTimer);
-          d100Cube.classList.remove("rolling");
-          varCube.classList.remove("rolling");
-          if (d100El) d100El.textContent = isGuar ? "⚡" : String(btl.d100_roll ?? "—");
-          if (varEl) varEl.textContent = isGuar ? "±0" : varStr;
-        }
-      }, 65);
-    } else {
-      if (d100Cube) d100Cube.classList.remove("rolling");
-      if (varCube) varCube.classList.remove("rolling");
-      if (d100El) d100El.textContent = isGuar ? "⚡" : String(btl.d100_roll ?? "—");
-      if (varEl) varEl.textContent = isGuar ? "±0" : varStr;
-    }
-
-    if (finalScoreEl) {
-      finalScoreEl.textContent = `${mySim} – ${oppSim}`;
-    }
-
-    if (badgeModeEl) {
-      if (isGuar) {
-        badgeModeEl.textContent = "⚡ TACTICAL GUARANTEE LOCKED";
-      } else if (btl.upset) {
-        badgeModeEl.textContent = "🔥 UNDERDOG DICE UPSET!";
+    const scoreNumsEl = document.getElementById("ofcWtcScoreNums");
+    if (scoreNumsEl) {
+      scoreNumsEl.textContent = `${myScore} – ${oppScore}`;
+      scoreNumsEl.classList.remove("score-win", "score-loss", "score-even");
+      if (myScore > oppScore) {
+        scoreNumsEl.classList.add("score-win");
+      } else if (myScore < oppScore) {
+        scoreNumsEl.classList.add("score-loss");
       } else {
-        badgeModeEl.textContent = "🎲 DICE COMBAT RESULT";
+        scoreNumsEl.classList.add("score-even");
       }
     }
 
-    if (detailEl) {
-      if (isGuar) {
-        detailEl.textContent = `⚡ Tactical Guarantee spent! Dice bypassed — ${myP.name} locks the predicted ${mySim} – ${oppSim} WTC score with zero variance!`;
+    const verdictEl = document.getElementById("ofcWtcWinnerTag");
+    if (verdictEl) {
+      if (myScore > oppScore) {
+        verdictEl.textContent = `🏆 ${myP.name.toUpperCase()} PREVAILS`;
+      } else if (oppScore > myScore) {
+        verdictEl.textContent = `💥 ${oppP.name.toUpperCase()} PREVAILS`;
       } else {
-        const myWonRoll = isCapB ? (btl.roll_winner === "B") : (btl.roll_winner === "A");
-        const winnerName = myWonRoll ? myP.name : oppP.name;
-        if (btl.upset) {
-          detailEl.textContent = `🔥 UNDERDOG DICE UPSET! D100 rolled ${btl.d100_roll} (Target ≤ ${rawProbA}%) — ${winnerName} defies the odds for ${mySim} – ${oppSim} WTC (${varStr} WTC variance)!`;
-        } else {
-          detailEl.textContent = `🎲 D100 rolled ${btl.d100_roll} (Target ≤ ${rawProbA}%) + (${varStr} WTC variance) → ${winnerName} takes Table #${match.table_num} (${mySim} – ${oppSim} WTC)!`;
-        }
+        verdictEl.textContent = `⚖️ DEADLOCK 10–10 CLASH`;
       }
     }
 
-    // Populate cumulative Round-by-Round team total up through this table
-    const cumScoreEl = document.getElementById("clashModalCumulativeScore");
-    const cumVerdictEl = document.getElementById("clashModalCumulativeVerdict");
-    const isSimOn = this.room?.prediction_scoring_enabled !== false;
-    let cumMy = 0;
-    let cumOpp = 0;
-    pairings.forEach((p) => {
-      if (Number(p.table_num) <= Number(match.table_num)) {
-        const pEstA = Number(p.est_score_a ?? 10);
-        const pBtl = p.battle_result || {};
-        const pSimA = isSimOn ? Number(p.sim_score_a ?? pBtl.final_score_a ?? pEstA) : pEstA;
-        const pMy = isCapB ? (20 - pSimA) : pSimA;
-        cumMy += pMy;
-        cumOpp += (20 - pMy);
-      }
-    });
-    if (cumScoreEl) cumScoreEl.textContent = `${cumMy} – ${cumOpp}`;
-    if (cumVerdictEl) {
-      const totalTables = Number(this.room?.total_tables || 5);
-      if (Number(match.table_num) >= totalTables) {
-        cumVerdictEl.textContent = cumMy > cumOpp ? `🏆 ${myTeamName} Wins!` : (cumOpp > cumMy ? `🏆 ${oppTeamName} Wins!` : "⚖️ Draw");
-      } else {
-        cumVerdictEl.textContent = `After Table #${match.table_num} of ${totalTables}`;
-      }
-    }
+    // Reset classes & launch Phase 1: Cards brought to front & scale larger on the playmat
+    stage.classList.remove("hidden", "phase-rise", "phase-strike", "phase-score");
+    void stage.offsetWidth;
+    stage.classList.add("phase-rise");
 
-    const rem = isCapB
-      ? Number(this.room?.guarantees_remaining_b ?? 2)
-      : Number(this.room?.guarantees_remaining_a ?? 2);
-    const btnGuar = document.getElementById("btnClashUseGuarantee");
-    if (btnGuar) {
-      if (isGuar) {
-        btnGuar.disabled = true;
-        btnGuar.textContent = `⚡ Guaranteed (${mySim}–${oppSim} WTC Locked)`;
-      } else if (rem <= 0) {
-        btnGuar.disabled = true;
-        btnGuar.textContent = `⚡ No Guarantees Left (0/2)`;
-      } else {
-        btnGuar.disabled = false;
-        btnGuar.textContent = `⚡ Use Tactical Guarantee (${rem}/2 Left — Lock ${myEst}–${oppEst} WTC)`;
-      }
-    }
+    const mat = document.getElementById("duelPodA");
 
-    const btnCont = document.getElementById("btnClashContinue");
-    if (btnCont) {
-      const qCount = (this.pendingClashQueue || []).length;
-      btnCont.textContent = qCount > 0 ? `Next Table Clash (${qCount} Left) →` : "⚔️ Continue Duel →";
-    }
-  }
-
-  async resolveActiveClashTable(mode = "dice") {
-    if (!this.room || !this.roomCode || !this.activeClashTableNum) return;
-    const role = this.activeRole === "spectator" ? "captain_a" : this.activeRole;
-    try {
-      const res = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          role,
-          user_id: this.userId,
-          captain_token: this.captainTokens[role],
-          action: mode === "guarantee" ? "use_guarantee" : "reroll_table_dice",
-          payload: {
-            table_num: this.activeClashTableNum,
-            mode
-          }
-        })
-      });
-      const data = await res.json();
-      if (data && data.ok) {
-        this.room = data.room;
-        this.renderAll();
-        this.renderBattleClashModal({ animateDice: mode === "dice" });
-      } else if (data && data.error) {
-        this.showToast(data.error);
+    // Phase 2 (340ms): Attack Lunge + Energy Slash + Shockwave Impact on the playmat
+    const tStrike = setTimeout(() => {
+      stage.classList.add("phase-strike");
+      if (mat) {
+        mat.classList.remove("playmat-combat-shake");
+        void mat.offsetWidth;
+        mat.classList.add("playmat-combat-shake");
       }
-    } catch (e) {
-      // ignore
+    }, 340);
+    this._combatTimers.push(tStrike);
+
+    // Phase 3 (820ms): Behind-the-scenes WTC Score pops in between the two enlarged cards
+    const tScore = setTimeout(() => {
+      stage.classList.add("phase-score");
+    }, 820);
+    this._combatTimers.push(tScore);
+
+    // Auto-advance or dismiss after showing the WTC score (unless holdScore is set for screenshot inspection)
+    if (!opts.holdScore) {
+      const tDone = setTimeout(() => {
+        this.advanceOrHideOnFieldCombat();
+      }, 2450);
+      this._combatTimers.push(tDone);
     }
   }
 
   async applyDemoState(demoState) {
     if (!this.room) return;
+    if (demoState === "tcg_deck" || demoState === "tcg_packs" || demoState === "tcg_binder") {
+      this.closeLobbyModal();
+      const tab = demoState === "tcg_packs" ? "packs" : (demoState === "tcg_binder" ? "binder" : "deck");
+      await this.openTcgVaultModal(tab);
+      return;
+    }
+    if (demoState === "tcg_reveal") {
+      this.closeLobbyModal();
+      await this.openTcgVaultModal("packs");
+      if (Number(this.tcgState?.spendable_glory || 0) < 850) {
+        await this.claimDailyGlory();
+      }
+      await this.buyTcgPack("warlord");
+      return;
+    }
+    if (demoState === "tcg_duel") {
+      await this.fetchTcgState();
+      await this.saveOrModifyTcgDeck("auto_best");
+      await this.deployTcgDeckToRoom("saved_deck", { enterArena: true });
+      await this.chooseCoinFlipRole("defender", "captain_a");
+      return;
+    }
     if (demoState === "lobby") {
       this.openLobbyModal();
       return;
@@ -3698,10 +3717,10 @@ class YuGiOhPairingsArena {
       await this.switchRole("spectator");
     } else if (demoState === "completed") {
       await this.autoCompleteRemainingPhases();
-    } else if (demoState === "clash_modal") {
+    } else if (demoState === "clash_modal" || demoState === "on_field_combat") {
       await this.autoCompleteRemainingPhases();
       if (this.room?.pairings?.length) {
-        this.openBattleClashModal(1, [2]);
+        this.playOnFieldCombatAnimation(1, [], { holdScore: true });
       }
     }
   }
@@ -3805,10 +3824,10 @@ class YuGiOhPairingsArena {
   openQuickDiceModal() {
     if (this.room?.pairings?.length) {
       const latestTable = this.room.pairings[this.room.pairings.length - 1];
-      this.openBattleClashModal(latestTable.table_num || this.room.pairings.length, []);
+      this.playOnFieldCombatAnimation(latestTable.table_num || this.room.pairings.length, []);
       return;
     }
-    this.showToast("🎲 Lock a Table Pairing first to roll D100 WTC Combat Dice, or click 🪙 Coin Flip!");
+    this.showToast("⚔️ Lock a Table Pairing first to watch the On-Field Card Clash, or click 🪙 Coin Flip!");
   }
 
   async finishPairingRoom() {
@@ -3851,6 +3870,634 @@ class YuGiOhPairingsArena {
     }
   }
 
+  // =========================================================================
+  // OMNITACTICA TCG PLAYER CARD VAULT, GLORY PACK STORE & DECK CONSTRUCTION
+  // =========================================================================
+
+  async fetchTcgState() {
+    try {
+      const headers = {};
+      const tok = this.getAuthToken();
+      if (tok) headers["Authorization"] = `Bearer ${tok}`;
+      const resp = await fetch(`/api/tcg/state?user_id=${encodeURIComponent(this.userId)}`, { headers });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      if (data && (data.ok || data.success)) {
+        this.tcgState = data;
+        this.renderTcgHeaderCounters();
+        this.renderRoomModeStrip();
+        return data;
+      }
+    } catch (err) {
+      console.error("Failed to fetch TCG state:", err);
+    }
+    return null;
+  }
+
+  async openTcgVaultModal(tab = "deck") {
+    const backdrop = document.getElementById("tcgVaultModalBackdrop");
+    if (backdrop) backdrop.classList.remove("hidden");
+    if (!this.tcgState) {
+      await this.fetchTcgState();
+    }
+    this.switchTcgTab(tab);
+  }
+
+  closeTcgVaultModal() {
+    const backdrop = document.getElementById("tcgVaultModalBackdrop");
+    if (backdrop) backdrop.classList.add("hidden");
+  }
+
+  switchTcgTab(tab = "deck") {
+    this.activeTcgTab = ["deck", "packs", "binder"].includes(tab) ? tab : "deck";
+    document.querySelectorAll("#tcgVaultTabsBar .tcg-tab-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.getAttribute("data-tcg-tab") === this.activeTcgTab);
+    });
+    const pDeck = document.getElementById("tcgPanelDeck");
+    const pPacks = document.getElementById("tcgPanelPacks");
+    const pBinder = document.getElementById("tcgPanelBinder");
+    if (pDeck) pDeck.classList.toggle("hidden", this.activeTcgTab !== "deck");
+    if (pPacks) pPacks.classList.toggle("hidden", this.activeTcgTab !== "packs");
+    if (pBinder) pBinder.classList.toggle("hidden", this.activeTcgTab !== "binder");
+
+    this.renderTcgVaultAll();
+  }
+
+  renderTcgHeaderCounters() {
+    if (!this.tcgState) return;
+    const glory = Number(this.tcgState.spendable_glory ?? 0);
+    const pity = Number(this.tcgState.pity_counter ?? 0);
+    const maxPity = Number(this.tcgState.pity_threshold ?? 10);
+
+    const topBtn = document.getElementById("topbarTcgBtnText");
+    if (topBtn) {
+      topBtn.textContent = `TCG Cards (${glory.toLocaleString()} 🪙)`;
+    }
+    const balEl = document.getElementById("tcgVaultGloryBalance");
+    if (balEl) {
+      balEl.textContent = `🪙 ${glory.toLocaleString()}`;
+    }
+    const pityEl = document.getElementById("tcgVaultPityBadge");
+    if (pityEl) {
+      pityEl.textContent = `🔥 ${pity} / ${maxPity}`;
+    }
+    const ownedBadge = document.getElementById("tcgTabOwnedCountBadge");
+    if (ownedBadge) {
+      const totalOwned = Number(this.tcgState.owned_total_count || (this.tcgState.owned_cards || []).length || 28);
+      ownedBadge.textContent = String(totalOwned);
+    }
+  }
+
+  renderRoomModeStrip() {
+    const badge = document.getElementById("roomModeStatusBadge");
+    const desc = document.getElementById("roomModeStatusDesc");
+    if (!badge || !desc) return;
+    const isCasualTcg = this.room?.room_mode === "casual_tcg";
+    badge.classList.toggle("casual-active", isCasualTcg);
+    if (isCasualTcg) {
+      badge.textContent = "🃏 CASUAL TCG DECK MODE ACTIVE";
+      desc.textContent =
+        "Playing Casual / Offline Pairing Minigame with your TCG Deck (Starter 1450–1550 Faction Cards + Collected Real Player Cards). Official Tournament mode remains separate.";
+    } else {
+      badge.textContent = "🏆 OFFICIAL TOURNAMENT ROSTER MODE";
+      desc.textContent =
+        "Tournament Pairings use preset or searched real teams. For Casual / Offline Minigame play, click Equip My TCG Deck or Use Starter Faction Deck (1450–1550)!";
+    }
+  }
+
+  renderTcgVaultAll() {
+    if (!this.tcgState) return;
+    this.renderTcgHeaderCounters();
+    this.renderTcgDeckTab();
+    this.renderTcgPacksTab();
+    this.renderTcgBinderTab();
+  }
+
+  getActiveTcgFormat() {
+    const sel = document.getElementById("tcgDeckFormatSelect");
+    const val = (sel ? sel.value : (this.room?.format_size || "5v5")).toLowerCase();
+    return val === "8v8" ? "8v8" : "5v5";
+  }
+
+  renderTcgDeckTab() {
+    if (!this.tcgState) return;
+    const fmt = this.getActiveTcgFormat();
+    const fmtBadge = document.getElementById("tcgTabDeckFormatBadge");
+    if (fmtBadge) fmtBadge.textContent = fmt.toUpperCase();
+
+    const deckCards = (fmt === "8v8" ? this.tcgState.deck_8v8_cards : this.tcgState.deck_5v5_cards) || [];
+    const deckName = (fmt === "8v8" ? this.tcgState.deck_name_8v8 : this.tcgState.deck_name_5v5) || `Casual TCG Deck (${fmt.toUpperCase()})`;
+    const nameInput = document.getElementById("tcgDeckNameInput");
+    if (nameInput && document.activeElement !== nameInput) {
+      nameInput.value = deckName;
+    }
+
+    const totalElo = deckCards.reduce((acc, c) => acc + Number(c.elo || 1500), 0);
+    const avgElo = deckCards.length ? Math.round(totalElo / deckCards.length) : 1500;
+    const starterCount = deckCards.filter((c) => c.is_starter).length;
+    const proCount = deckCards.length - starterCount;
+    const summaryEl = document.getElementById("tcgDeckStatsSummary");
+    if (summaryEl) {
+      summaryEl.innerHTML = `Avg Elo: <strong>${avgElo.toLocaleString()}</strong> • ${starterCount} Starter / ${proCount} Pro Cards`;
+    }
+
+    if (this.selectedDeckSlotIdx >= deckCards.length) {
+      this.selectedDeckSlotIdx = 0;
+    }
+    const slotHint = document.getElementById("tcgSelectedSlotHint");
+    if (slotHint) {
+      const targetCard = deckCards[this.selectedDeckSlotIdx];
+      slotHint.textContent = targetCard
+        ? `Slot #${this.selectedDeckSlotIdx + 1} Selected (${targetCard.name} • ${targetCard.elo} Elo) — Click any owned card below to swap in!`
+        : `Slot #${this.selectedDeckSlotIdx + 1} Selected for Swap`;
+    }
+
+    // Render Active Deck Slots
+    const tray = document.getElementById("tcgActiveDeckTray");
+    if (tray) {
+      tray.classList.toggle("format-8v8", fmt === "8v8");
+      tray.innerHTML = deckCards.map((card, idx) => {
+        const isTarget = idx === this.selectedDeckSlotIdx;
+        const typeTag = card.is_starter ? "⚪ STARTER (1450–1550)" : `🌟 ${String(card.rarity || "PRO").toUpperCase()}`;
+        return `
+          <div class="tcg-deck-slot-card ${isTarget ? "selected-slot" : ""}" data-deck-slot-idx="${idx}">
+            <div class="tdsc-top-bar">
+              <span>SLOT #${idx + 1}</span>
+              <span class="tdsc-type-pill">${typeTag}</span>
+            </div>
+            ${this.buildYuGiOhCardHtml(card)}
+          </div>
+        `;
+      }).join("");
+
+      tray.querySelectorAll(".tcg-deck-slot-card").forEach((slotEl) => {
+        slotEl.addEventListener("click", () => {
+          this.selectedDeckSlotIdx = Number(slotEl.getAttribute("data-deck-slot-idx") || 0);
+          this.renderTcgDeckTab();
+        });
+      });
+    }
+
+    // Render Owned Cards Picker Grid
+    const pickerGrid = document.getElementById("tcgOwnedDeckPickerGrid");
+    if (!pickerGrid) return;
+
+    const inDeckCardIds = new Set(deckCards.map((c) => c.card_id));
+    const inDeckPlayers = new Set(
+      deckCards
+        .filter((c) => !c.is_starter && c.player_name)
+        .map((c) => String(c.player_name).toLowerCase())
+    );
+
+    const searchQ = (document.getElementById("tcgDeckPickerSearch")?.value || "").trim().toLowerCase();
+    const allOwned = (this.tcgState.owned_cards || []).slice();
+
+    const filteredOwned = allOwned.filter((c) => {
+      if (this.tcgPickerFilter === "pro" && c.is_starter) return false;
+      if (this.tcgPickerFilter === "starter" && !c.is_starter) return false;
+      if (searchQ) {
+        const hay = `${c.name || ""} ${c.player_name || ""} ${c.faction || ""} ${c.detachment || ""} ${c.rarity || ""}`.toLowerCase();
+        if (!hay.includes(searchQ)) return false;
+      }
+      return true;
+    });
+
+    pickerGrid.innerHTML = filteredOwned.map((card) => {
+      const rarity = this.resolveCardRarity(card);
+      const isInDeck = inDeckCardIds.has(card.card_id);
+      const samePlayerInDeck = !isInDeck && !card.is_starter && card.player_name && inDeckPlayers.has(String(card.player_name).toLowerCase());
+      const svgHtml = getFactionSvgHtml(card.faction, "armory-faction-svg");
+      const badgeTxt = card.is_starter
+        ? "1450–1550 ELO"
+        : (card.copies > 1 ? `×${card.copies} OWNED` : "EQUIP CARD");
+      const subText = card.is_starter
+        ? `No Player Name • ${card.detachment}`
+        : `${card.faction} • ${card.detachment}`;
+      const statusBadge = isInDeck
+        ? `<span class="tpc-RARITY starter">✓ IN DECK</span>`
+        : (samePlayerInDeck
+            ? `<span class="tpc-RARITY epic" title="Swapping will replace this player's other faction card in your deck">SWAP FACTION</span>`
+            : `<span class="tpc-RARITY starter">${this.escapeHtml(badgeTxt)}</span>`);
+
+      return `
+        <div class="tcg-picker-card rarity-${rarity} ${isInDeck ? "in-deck" : ""}" data-picker-card-id="${this.escapeHtml(card.card_id)}">
+          <div class="tpc-head">
+            <span class="tpc-RARITY ${rarity}">${card.is_starter ? "⚪ STARTER" : `★ ${String(rarity).toUpperCase()}`}</span>
+            ${statusBadge}
+          </div>
+          <div class="tpc-body">
+            <div class="tpc-sigil">${svgHtml}</div>
+            <div class="tpc-info">
+              <div class="tpc-name">${this.escapeHtml(card.is_starter ? card.faction : card.player_name || card.name)}</div>
+              <div class="tpc-sub">${this.escapeHtml(subText)}</div>
+            </div>
+          </div>
+          <div class="tpc-foot">
+            <span class="tpc-elo">ELO <strong>${card.elo}</strong></span>
+            <span class="tpc-foil">${this.escapeHtml(card.foil_tier || (card.is_starter ? "Base Set" : "★1 Standard"))}</span>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    pickerGrid.querySelectorAll(".tcg-picker-card").forEach((cardEl) => {
+      cardEl.addEventListener("click", () => {
+        const cid = cardEl.getAttribute("data-picker-card-id");
+        if (cid) this.swapCardIntoActiveDeck(cid);
+      });
+    });
+  }
+
+  async swapCardIntoActiveDeck(cardId) {
+    if (!this.tcgState || !cardId) return;
+    const fmt = this.getActiveTcgFormat();
+    const deckCards = ((fmt === "8v8" ? this.tcgState.deck_8v8_cards : this.tcgState.deck_5v5_cards) || []).slice();
+    const ownedMap = new Map((this.tcgState.owned_cards || []).map((c) => [c.card_id, c]));
+    const picked = ownedMap.get(cardId);
+    if (!picked) return;
+
+    // If exact card is already in deck, select its slot
+    const existingIdx = deckCards.findIndex((c) => c.card_id === cardId);
+    if (existingIdx >= 0) {
+      this.selectedDeckSlotIdx = existingIdx;
+      this.showToast(`${picked.name} (${picked.faction}) is already in Slot #${existingIdx + 1}!`);
+      this.renderTcgDeckTab();
+      return;
+    }
+
+    // Enforce 1 card per Real Player in a team deck: if same real player is in another slot, replace that slot
+    let targetSlot = this.selectedDeckSlotIdx;
+    if (!picked.is_starter && picked.player_name) {
+      const samePlayerIdx = deckCards.findIndex(
+        (c) => !c.is_starter && String(c.player_name || "").toLowerCase() === String(picked.player_name).toLowerCase()
+      );
+      if (samePlayerIdx >= 0) {
+        targetSlot = samePlayerIdx;
+      }
+    }
+
+    if (targetSlot < 0 || targetSlot >= deckCards.length) {
+      targetSlot = 0;
+    }
+    deckCards[targetSlot] = picked;
+    const newCardIds = deckCards.map((c) => c.card_id);
+    this.selectedDeckSlotIdx = (targetSlot + 1) % deckCards.length;
+    await this.saveOrModifyTcgDeck("custom", newCardIds);
+  }
+
+  async saveOrModifyTcgDeck(mode = "custom", customCardIds = null) {
+    const fmt = this.getActiveTcgFormat();
+    const deckCards = (fmt === "8v8" ? this.tcgState?.deck_8v8_cards : this.tcgState?.deck_5v5_cards) || [];
+    const cardIds = Array.isArray(customCardIds) ? customCardIds : deckCards.map((c) => c.card_id);
+    const deckName = (document.getElementById("tcgDeckNameInput")?.value || "").trim();
+
+    try {
+      const headers = { "Content-Type": "application/json" };
+      const tok = this.getAuthToken();
+      if (tok) headers["Authorization"] = `Bearer ${tok}`;
+      const resp = await fetch("/api/tcg/save-deck", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          user_id: this.userId,
+          format_size: fmt,
+          mode,
+          card_ids: cardIds,
+          deck_name: deckName
+        })
+      });
+      const data = await resp.json();
+      if (data && (data.ok || data.success) && data.tcg_state) {
+        this.tcgState = data.tcg_state;
+        this.renderTcgVaultAll();
+        if (mode === "reset_starter") {
+          this.showToast(`🛡️ Reset ${fmt.toUpperCase()} Deck to 1450–1550 Elo Starter Factions!`);
+        } else if (mode === "auto_best") {
+          this.showToast(`⚡ Auto-filled ${fmt.toUpperCase()} Deck with your highest-Elo owned cards!`);
+        } else {
+          this.showToast(`💾 Saved ${fmt.toUpperCase()} Casual TCG Deck!`);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to save TCG deck:", err);
+    }
+  }
+
+  renderTcgPacksTab() {
+    if (!this.tcgState) return;
+    const glory = Number(this.tcgState.spendable_glory ?? 0);
+    const pity = Number(this.tcgState.pity_counter ?? 0);
+    const maxPity = Number(this.tcgState.pity_threshold ?? 10);
+    const pct = Math.min(100, Math.round((pity / maxPity) * 100));
+
+    const pityBannerTxt = document.getElementById("tcgPityBannerCountText");
+    if (pityBannerTxt) pityBannerTxt.textContent = `${pity} / ${maxPity} PITY`;
+    const pityFill = document.getElementById("tcgPityProgressFill");
+    if (pityFill) pityFill.style.width = `${pct}%`;
+    const pityRem = document.getElementById("tcgPityRemainingText");
+    if (pityRem) {
+      const rem = Math.max(0, maxPity - pity);
+      pityRem.textContent = rem === 0
+        ? "🔥 NEXT PACK GUARANTEES A 2080+ ELO MYTHIC WARLORD!"
+        : `${rem} Pity until Guaranteed Mythic Warlord (2080+ Elo)`;
+    }
+
+    const catalog = this.tcgState.pack_catalog || {};
+    const packOrder = ["recruit", "veteran", "warlord"];
+    const storeGrid = document.getElementById("tcgPackStoreGrid");
+    if (storeGrid) {
+      storeGrid.innerHTML = packOrder.map((pKey) => {
+        const pack = catalog[pKey];
+        if (!pack) return "";
+        const canAfford = glory >= Number(pack.cost_glory || 0);
+        const s1 = pack.slot_1_odds || {};
+        const sRest = pack.other_slots_odds || {};
+        const fmtPct = (v) => `${Math.round(Number(v || 0) * 100)}%`;
+
+        return `
+          <div class="tcg-pack-card pack-${pKey}">
+            ${pack.badge ? `<span class="tpc-promo-ribbon">${this.escapeHtml(pack.badge)}</span>` : ""}
+            <div class="tpk-top">
+              <div class="tpk-icon">${pack.icon || "📦"}</div>
+              <div>
+                <div class="tpk-title">${this.escapeHtml(pack.name)}</div>
+                <div class="tpk-tagline">${this.escapeHtml(pack.tagline || "")}</div>
+              </div>
+            </div>
+            <div class="tpk-desc">${this.escapeHtml(pack.description || "")}</div>
+            <div class="tpk-odds-box">
+              <div class="tpk-odds-title">
+                <span>SLOT #1 FEATURED ODDS</span>
+                <span>+${pack.pity_points || 1} MYTHIC PITY</span>
+              </div>
+              <div class="tpk-odds-row">
+                <div class="tpk-odd-pill common">Common<span>${fmtPct(s1.common)}</span></div>
+                <div class="tpk-odd-pill rare">Rare<span>${fmtPct(s1.rare)}</span></div>
+                <div class="tpk-odd-pill epic">Epic<span>${fmtPct(s1.epic)}</span></div>
+                <div class="tpk-odd-pill mythic">Mythic<span>${fmtPct(s1.mythic)}</span></div>
+              </div>
+              <div class="tpk-odds-title" style="margin-top:4px;">
+                <span>SLOTS #2–#${pack.card_count || 3} ODDS</span>
+                <span>${pack.card_count || 3} CARDS TOTAL</span>
+              </div>
+              <div class="tpk-odds-row">
+                <div class="tpk-odd-pill common">Common<span>${fmtPct(sRest.common)}</span></div>
+                <div class="tpk-odd-pill rare">Rare<span>${fmtPct(sRest.rare)}</span></div>
+                <div class="tpk-odd-pill epic">Epic<span>${fmtPct(sRest.epic)}</span></div>
+                <div class="tpk-odd-pill mythic">Mythic<span>${fmtPct(sRest.mythic)}</span></div>
+              </div>
+            </div>
+            <button type="button" class="tpk-buy-btn" data-buy-pack="${pKey}" ${canAfford ? "" : "disabled"}>
+              <span>OPEN ${pack.card_count || 3}-CARD PACK</span>
+              <span class="tpk-cost-chip">🪙 ${Number(pack.cost_glory || 0).toLocaleString()} GLORY</span>
+            </button>
+          </div>
+        `;
+      }).join("");
+
+      storeGrid.querySelectorAll(".tpk-buy-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const pType = btn.getAttribute("data-buy-pack");
+          if (pType) this.buyTcgPack(pType);
+        });
+      });
+    }
+
+    this.renderPackRevealStage();
+  }
+
+  renderPackRevealStage() {
+    const stage = document.getElementById("tcgPackRevealStage");
+    if (!stage) return;
+    if (!this.lastPackReveal || !Array.isArray(this.lastPackReveal.pulled_cards)) {
+      stage.classList.add("hidden");
+      return;
+    }
+    stage.classList.remove("hidden");
+    const r = this.lastPackReveal;
+
+    const kicker = document.getElementById("tcgRevealPackNameKicker");
+    if (kicker) {
+      kicker.textContent = r.pity_triggered
+        ? `🔥 10/10 MYTHIC PITY TRIGGERED • ${String(r.pack?.name || "PACK").toUpperCase()}`
+        : `📦 OPENED ${String(r.pack?.name || "REQUISITION PACK").toUpperCase()}`;
+    }
+    const headline = document.getElementById("tcgRevealHeadline");
+    if (headline) {
+      const newCnt = r.pulled_cards.filter((c) => c.is_new).length;
+      headline.textContent = `${r.pulled_cards.length} PLAYER CARDS ACQUIRED (${newCnt} NEW • ${r.pulled_cards.length - newCnt} FOIL UPGRADE)`;
+    }
+
+    const pills = document.getElementById("tcgRevealSummaryPills");
+    if (pills) {
+      pills.innerHTML = `
+        <span class="tprs-pill">Spent: <strong>-${r.glory_spent} 🪙</strong></span>
+        ${r.glory_rebate > 0 ? `<span class="tprs-pill rebate">Dup Shard Rebate: <strong>+${r.glory_rebate} 🪙</strong></span>` : ""}
+        <span class="tprs-pill">Net Cost: <strong>-${r.net_glory_cost} 🪙</strong></span>
+      `;
+    }
+
+    const row = document.getElementById("tcgRevealCardsRow");
+    if (row) {
+      row.innerHTML = r.pulled_cards.map((card) => {
+        const rarity = this.resolveCardRarity(card);
+        const statusTag = card.is_new
+          ? `<span class="trc-status-tag new">✨ NEW CARD UNLOCKED!</span>`
+          : `<span class="trc-status-tag dup">★ FOIL UPGRADE (${card.foil_tier}) • +${card.duplicate_rebate_glory} 🪙</span>`;
+        return `
+          <div class="tcg-reveal-card-wrap">
+            ${statusTag}
+            ${this.buildYuGiOhCardHtml(card)}
+            <span class="trc-sub-meta">${this.escapeHtml(card.rarity_label || rarity.toUpperCase())} • ${this.escapeHtml(card.team_name || card.detachment)}</span>
+          </div>
+        `;
+      }).join("");
+    }
+  }
+
+  async buyTcgPack(packType = "recruit") {
+    try {
+      const headers = { "Content-Type": "application/json" };
+      const tok = this.getAuthToken();
+      if (tok) headers["Authorization"] = `Bearer ${tok}`;
+      const resp = await fetch("/api/tcg/buy-pack", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          user_id: this.userId,
+          pack_type: packType
+        })
+      });
+      const data = await resp.json();
+      if (resp.ok && data && (data.ok || data.success)) {
+        this.lastPackReveal = data;
+        if (data.tcg_state) {
+          this.tcgState = data.tcg_state;
+        }
+        this.renderTcgVaultAll();
+        const names = (data.pulled_cards || []).map((c) => `${c.player_name} (${c.faction} • ${c.elo})`).join(", ");
+        this.showToast(`🎉 Pulled: ${names}`);
+      } else {
+        this.showToast(data?.error || "Insufficient Glory Honor — click 🎁 +1,000 Glory above!");
+      }
+    } catch (err) {
+      console.error("Failed to buy TCG pack:", err);
+    }
+  }
+
+  async claimDailyGlory() {
+    try {
+      const headers = { "Content-Type": "application/json" };
+      const tok = this.getAuthToken();
+      if (tok) headers["Authorization"] = `Bearer ${tok}`;
+      const resp = await fetch("/api/tcg/claim-daily", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          user_id: this.userId,
+          amount: 1000
+        })
+      });
+      const data = await resp.json();
+      if (data && (data.ok || data.success)) {
+        if (data.tcg_state) {
+          this.tcgState = data.tcg_state;
+        }
+        this.renderTcgVaultAll();
+        this.showToast(`🪙 +1,000 Glory Honor added! Balance: ${Number(data.spendable_glory || 0).toLocaleString()} Glory`);
+      }
+    } catch (err) {
+      console.error("Failed to claim daily glory:", err);
+    }
+  }
+
+  renderTcgBinderTab() {
+    if (!this.tcgState) return;
+
+    // 1. Multi-Faction Real Player Spotlight (e.g. Folger P Custodes + Folger P Necrons)
+    const spotlightEl = document.getElementById("tcgMultiFactionSpotlight");
+    if (spotlightEl) {
+      const mfPlayers = this.tcgState.multi_faction_players || [];
+      spotlightEl.innerHTML = mfPlayers.slice(0, 8).map((pGroup) => {
+        const cardsHtml = (pGroup.cards || []).map((c) => {
+          return `
+            <span class="tmf-faction-chip ${c.owned ? "owned" : ""}">
+              ${c.owned ? "✅" : "🔒"} ${this.escapeHtml(c.faction)} (${c.elo})
+            </span>
+          `;
+        }).join("");
+        return `
+          <div class="tmf-player-group">
+            <div class="tmf-pg-top">
+              <span class="tmf-pg-name">👤 ${this.escapeHtml(pGroup.player_name)}</span>
+              <span class="tmf-pg-elo">LIVE ELO ${pGroup.live_elo} • ${pGroup.owned_count}/${pGroup.total_factions} OWNED</span>
+            </div>
+            <div class="tmf-pg-factions">${cardsHtml}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    // 2. Full Card Binder Grid (Starter 28 + Collectible Real Player × Faction Pool)
+    const binderGrid = document.getElementById("tcgBinderGrid");
+    if (!binderGrid) return;
+
+    const starters = (this.tcgState.starter_cards || []).slice();
+    const collectibles = (this.tcgState.collectible_catalog || []).slice();
+    const allCards = [...collectibles, ...starters];
+
+    const searchQ = (document.getElementById("tcgBinderSearchInput")?.value || "").trim().toLowerCase();
+    const filtered = allCards.filter((c) => {
+      const rarity = this.resolveCardRarity(c);
+      if (this.tcgBinderFilter === "owned" && !c.owned) return false;
+      if (["starter", "mythic", "epic", "rare", "common"].includes(this.tcgBinderFilter) && rarity !== this.tcgBinderFilter) {
+        return false;
+      }
+      if (searchQ) {
+        const hay = `${c.name || ""} ${c.player_name || ""} ${c.faction || ""} ${c.detachment || ""} ${c.team_name || ""}`.toLowerCase();
+        if (!hay.includes(searchQ)) return false;
+      }
+      return true;
+    });
+
+    binderGrid.innerHTML = filtered.map((card) => {
+      const rarity = this.resolveCardRarity(card);
+      const isOwned = Boolean(card.owned || card.is_starter);
+      const svgHtml = getFactionSvgHtml(card.faction, "armory-faction-svg");
+      const badgeTxt = card.is_starter
+        ? "⚪ STARTER (1450–1550)"
+        : `${String(card.rarity || rarity).toUpperCase()} (${card.elo})`;
+      const statusBadge = isOwned
+        ? `<span class="tpc-RARITY common">✅ OWNED${card.copies > 1 ? ` ×${card.copies}` : ""}</span>`
+        : `<span class="tpc-RARITY starter">🔒 LOCKED (PACK DROP)</span>`;
+
+      return `
+        <div class="tcg-picker-card rarity-${rarity} ${isOwned ? "" : "locked-card"}" data-binder-card-id="${this.escapeHtml(card.card_id)}">
+          <div class="tpc-head">
+            <span class="tpc-RARITY ${rarity}">${this.escapeHtml(badgeTxt)}</span>
+            ${statusBadge}
+          </div>
+          <div class="tpc-body">
+            <div class="tpc-sigil">${svgHtml}</div>
+            <div class="tpc-info">
+              <div class="tpc-name">${this.escapeHtml(card.is_starter ? `${card.faction} (No Player)` : `${card.player_name} — ${card.faction}`)}</div>
+              <div class="tpc-sub">${this.escapeHtml(card.detachment)}${card.team_name ? ` • ${this.escapeHtml(card.team_name)}` : ""}</div>
+            </div>
+          </div>
+          <div class="tpc-foot">
+            <span class="tpc-elo">LIVE ELO <strong>${card.elo}</strong></span>
+            <span class="tpc-foil">${this.escapeHtml(isOwned ? (card.foil_tier || "Owned") : "Buy Packs to Unlock")}</span>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  async deployTcgDeckToRoom(mode = "saved_deck", { enterArena = false } = {}) {
+    if (!this.roomCode) return;
+    const role = this.activeRole === "spectator" ? "captain_a" : this.activeRole;
+    const fmt = this.getActiveTcgFormat();
+    const tok = this.captainTokens[role] || this.loadRoomTokenFromStorage(this.roomCode, role);
+
+    try {
+      const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role,
+          user_id: this.userId,
+          captain_token: tok,
+          action: "apply_tcg_deck",
+          payload: {
+            format_size: fmt,
+            mode,
+            also_set_ai_tcg: true
+          }
+        })
+      });
+      const data = await resp.json();
+      if (data && (data.ok || data.success) && data.room) {
+        this.room = data.room;
+        this.syncLobbyDraftFromRoom();
+        this.renderLobbyDeckBuilder();
+        this.renderAll();
+        this.closeTcgVaultModal();
+        if (enterArena) {
+          this.closeLobbyModal();
+          if (!this.room.coin_flip_done && this.room.phase !== "COMPLETED") {
+            this.openCoinFlipModal();
+          }
+        }
+        const label = mode === "starter"
+          ? "🛡️ Equipped 1450–1550 Starter Faction Deck!"
+          : "🃏 Deployed Casual TCG Deck to your Hand!";
+        this.showToast(label);
+      }
+    } catch (err) {
+      console.error("Failed to deploy TCG deck to room:", err);
+    }
+  }
+
   showToast(msg) {
     const el = document.getElementById("toastNotification");
     if (!el) return;
@@ -3874,3 +4521,4 @@ class YuGiOhPairingsArena {
 window.addEventListener("DOMContentLoaded", () => {
   window.ygoPairingsArena = new YuGiOhPairingsArena();
 });
+

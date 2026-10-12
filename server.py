@@ -1277,6 +1277,106 @@ async def api_action_team_pairing_room(room_code: str, request: Request):
     return JSONResponse(resp_data, status_code=status_code, headers=NO_CACHE_HEADERS)
 
 
+@app.get("/api/tcg/state", include_in_schema=False)
+@app.get("/api/team-pairings/tcg/state", include_in_schema=False)
+def api_get_tcg_state(
+    request: Request,
+    user_id: Optional[str] = Query(None),
+    token: Optional[str] = Query(None),
+):
+    user = _get_request_user(request, token)
+    uid = user_id or ((user.get("user_id") or user.get("email")) if isinstance(user, dict) else None) or "dev_user"
+    fs_engine = get_firestore_engine()
+    doc = fs_engine._get_or_init_tcg_doc(uid)
+    wallet_glory = int(doc.get("wallet_glory", 1250))
+    state = fs_engine.get_user_tcg_state(uid, glory_balance=wallet_glory)
+    return JSONResponse(state, headers=NO_CACHE_HEADERS)
+
+
+@app.post("/api/tcg/buy-pack", include_in_schema=False)
+@app.post("/api/team-pairings/tcg/buy-pack", include_in_schema=False)
+async def api_buy_tcg_pack(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    user = _get_request_user(request, None)
+    uid = str(body.get("user_id") or ((user.get("user_id") or user.get("email")) if isinstance(user, dict) else None) or "dev_user")
+    pack_type = str(body.get("pack_type") or "recruit_pack")
+    fs_engine = get_firestore_engine()
+    doc = fs_engine._get_or_init_tcg_doc(uid)
+    wallet_glory = int(body.get("glory_balance") if body.get("glory_balance") is not None else doc.get("wallet_glory", 1250))
+    res = fs_engine.open_tcg_card_pack(
+        user_id=uid,
+        pack_type=pack_type,
+        glory_balance=wallet_glory,
+        forced_card_ids=body.get("forced_card_ids"),
+    )
+    if res.get("ok"):
+        doc["wallet_glory"] = int(res.get("spendable_glory", wallet_glory))
+    return JSONResponse(res, status_code=int(res.get("status_code", 200)), headers=NO_CACHE_HEADERS)
+
+
+@app.post("/api/tcg/save-deck", include_in_schema=False)
+@app.post("/api/team-pairings/tcg/save-deck", include_in_schema=False)
+async def api_save_tcg_deck(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    user = _get_request_user(request, None)
+    uid = str(body.get("user_id") or ((user.get("user_id") or user.get("email")) if isinstance(user, dict) else None) or "dev_user")
+    fs_engine = get_firestore_engine()
+    doc = fs_engine._get_or_init_tcg_doc(uid)
+    body.setdefault("glory_balance", int(doc.get("wallet_glory", 1250)))
+    res = fs_engine.save_user_tcg_deck(uid, body)
+    if res.get("ok") and body.get("room_code"):
+        room_res = fs_engine.apply_pairing_action(
+            str(body["room_code"]),
+            {
+                "action": "apply_tcg_deck",
+                "user_id": uid,
+                "format_size": res.get("format_size"),
+                "captain_token": body.get("captain_token"),
+                "role": body.get("role") or "captain_a",
+            },
+        )
+        res["room"] = room_res.get("room")
+    return JSONResponse(res, status_code=int(res.get("status_code", 200)), headers=NO_CACHE_HEADERS)
+
+
+@app.post("/api/tcg/claim-daily", include_in_schema=False)
+@app.post("/api/team-pairings/tcg/claim-daily", include_in_schema=False)
+async def api_claim_tcg_daily_glory(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    user = _get_request_user(request, None)
+    uid = str(body.get("user_id") or ((user.get("user_id") or user.get("email")) if isinstance(user, dict) else None) or "dev_user")
+    grant_amount = int(body.get("amount") or 1000)
+    fs_engine = get_firestore_engine()
+    doc = fs_engine._get_or_init_tcg_doc(uid)
+    doc["wallet_glory"] = int(doc.get("wallet_glory", 1250)) + grant_amount
+    doc["daily_claims"] = int(doc.get("daily_claims", 0)) + 1
+    state = fs_engine.get_user_tcg_state(uid, glory_balance=doc["wallet_glory"])
+    return JSONResponse(
+        {
+            "ok": True,
+            "granted_glory": grant_amount,
+            "spendable_glory": doc["wallet_glory"],
+            "tcg_state": state,
+        },
+        headers=NO_CACHE_HEADERS,
+    )
+
+
 
 
 # Global Structured Error Handler

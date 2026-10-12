@@ -2947,6 +2947,51 @@ class FirestoreRoomEngine:
             self._live_player_elo_cache: Dict[str, Dict[str, Tuple[float, Dict[str, Any]]]] = {}
         sys_cache = self._live_player_elo_cache.setdefault(sys_key, {})
 
+        if not hasattr(self, "_live_player_elo_overrides"):
+            self._live_player_elo_overrides: Dict[str, Dict[str, float]] = {}
+        sys_overrides = self._live_player_elo_overrides.get(sys_key) or {}
+
+        # Build fast canonical fallback map from TCG_BASE_PLAYER_CARDS & TeamsHubService (< 1ms cached)
+        if not hasattr(self, "_canonical_player_elo_map"):
+            self._canonical_player_elo_map: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        canon_map = self._canonical_player_elo_map.get(sys_key)
+        if canon_map is None:
+            canon_map = {}
+            for base_c in getattr(self, "TCG_BASE_PLAYER_CARDS", []) or []:
+                pn = str(base_c.get("player_name") or "").strip()
+                if pn:
+                    canon_map[pn.lower()] = {
+                        "current_elo": float(base_c.get("base_elo") or 1800.0),
+                        "matches_played": int(base_c.get("matches_played") or 0),
+                        "win_rate": float(base_c.get("win_rate") or 0.0),
+                    }
+            try:
+                import teams_hub_service
+                svc = teams_hub_service.get_teams_hub_service()
+                for t_sum in (svc.get_teams_leaderboard(game_system=sys_key, page=1, page_size=50, min_roster=1).get("items") or []):
+                    tname = str(t_sum.get("team") or t_sum.get("name") or "").strip()
+                    hub = svc.get_team_hub(tname, sys_key)
+                    for hp in (hub.get("roster") if isinstance(hub, dict) else []) or []:
+                        pn = str(hp.get("player_name") or hp.get("name") or "").strip()
+                        if pn and float(hp.get("current_elo") or hp.get("elo") or 0) > 0:
+                            canon_map[pn.lower()] = {
+                                "current_elo": float(hp.get("current_elo") or hp.get("elo")),
+                                "matches_played": int(hp.get("matches_played") or 0),
+                                "win_rate": float(hp.get("win_rate") or 0.0),
+                            }
+            except Exception:
+                pass
+            self._canonical_player_elo_map[sys_key] = canon_map
+
+        def _sync_card_rarity_if_needed(p_dict: Dict[str, Any], new_elo_int: int) -> None:
+            if p_dict.get("is_starter") or str(p_dict.get("rarity") or "").lower() == "starter":
+                return
+            if "rarity" in p_dict or "card_id" in p_dict:
+                r_info = self.classify_tcg_rarity(new_elo_int, is_starter=False)
+                p_dict["rarity"] = r_info["id"]
+                p_dict["rarity_label"] = r_info["label"]
+                p_dict["rarity_short"] = r_info["short"]
+
         # Collect distinct player names across rosters & apply immediate legacy-stale fix
         missing_names: List[str] = []
         seen_missing = set()
@@ -2954,9 +2999,9 @@ class FirestoreRoomEngine:
             if not isinstance(roster, list):
                 continue
             for p in roster:
-                if not isinstance(p, dict):
+                if not isinstance(p, dict) or p.get("is_starter"):
                     continue
-                pname = str(p.get("name") or p.get("player_name") or "").strip()
+                pname = str(p.get("player_name") or p.get("name") or "").strip()
                 if not pname:
                     continue
                 n_low = pname.lower()
@@ -2968,8 +3013,14 @@ class FirestoreRoomEngine:
                         p["win_rate"] = 67
                     if not p.get("matches_played") or int(p.get("matches_played") or 0) == 94:
                         p["matches_played"] = 100
+                if n_low in sys_overrides:
+                    ov_elo = round(float(sys_overrides[n_low]), 1)
+                    p["current_elo"] = ov_elo
+                    p["elo"] = int(round(ov_elo))
+                    _sync_card_rarity_if_needed(p, p["elo"])
+                    continue
                 cached = sys_cache.get(n_low)
-                if not cached or (now_mono - cached[0]) >= 300.0:
+                if not cached or (now_mono - cached[0]) >= 30.0:
                     if n_low not in seen_missing:
                         seen_missing.add(n_low)
                         missing_names.append(n_low)
@@ -3016,23 +3067,36 @@ class FirestoreRoomEngine:
                                     sys_cache[nk] = (now_mono, dict(r))
                                 for nk in missing_names:
                                     if nk not in found_keys:
-                                        sys_cache[nk] = (now_mono, {})
+                                        sys_cache[nk] = (now_mono, canon_map.get(nk, {}))
+                    else:
+                        for nk in missing_names:
+                            sys_cache[nk] = (now_mono, canon_map.get(nk, {}))
             except Exception as err:
                 logger.debug(f"Live Elo hydration notice: {err}")
+                for nk in missing_names:
+                    if nk not in sys_cache:
+                        sys_cache[nk] = (now_mono, canon_map.get(nk, {}))
 
-        # Apply live PostgreSQL ratings onto roster player dicts
+        # Apply live ratings onto roster player dicts
         for roster in rosters or []:
             if not isinstance(roster, list):
                 continue
             for p in roster:
-                if not isinstance(p, dict):
+                if not isinstance(p, dict) or p.get("is_starter"):
                     continue
-                pname = str(p.get("name") or p.get("player_name") or "").strip()
+                pname = str(p.get("player_name") or p.get("name") or "").strip()
                 if not pname:
                     continue
-                cached = sys_cache.get(pname.lower())
-                if cached and cached[1] and cached[1].get("current_elo"):
-                    live = cached[1]
+                n_low = pname.lower()
+                if n_low in sys_overrides:
+                    ov_elo = round(float(sys_overrides[n_low]), 1)
+                    p["current_elo"] = ov_elo
+                    p["elo"] = int(round(ov_elo))
+                    _sync_card_rarity_if_needed(p, p["elo"])
+                    continue
+                cached = sys_cache.get(n_low)
+                live = (cached[1] if (cached and cached[1]) else None) or canon_map.get(n_low)
+                if live and live.get("current_elo"):
                     cur_elo = round(float(live["current_elo"]), 1)
                     p["current_elo"] = cur_elo
                     p["elo"] = int(round(cur_elo))
@@ -3040,6 +3104,7 @@ class FirestoreRoomEngine:
                         p["matches_played"] = int(live["matches_played"])
                     if float(live.get("win_rate") or 0.0) > 0.0:
                         p["win_rate"] = round(float(live["win_rate"]), 1)
+                    _sync_card_rarity_if_needed(p, p["elo"])
 
     def get_real_team_roster(self, team_name: str, game_system: str = "40k") -> Dict[str, Any]:
         """Queries real team roster players from PostgreSQL player_ratings and teams_hub_service (< 50ms)."""
@@ -3055,7 +3120,9 @@ class FirestoreRoomEngine:
             self._team_roster_fast_cache: Dict[Tuple[str, str], Tuple[float, Dict[str, Any]]] = {}
         cached_entry = self._team_roster_fast_cache.get(cache_key)
         if cached_entry and (now_mono - cached_entry[0]) < 600.0:
-            return cached_entry[1]
+            res_cached = cached_entry[1]
+            self._hydrate_roster_live_elos([res_cached.get("roster") or []], game_system=sys_key)
+            return res_cached
 
         roster_out: List[Dict[str, Any]] = []
         seen_names = set()
@@ -3213,7 +3280,9 @@ class FirestoreRoomEngine:
         cache_key = (sys_key, q_low, lim)
         cached_hit = self._pairing_search_cache.get(cache_key)
         if cached_hit and (now_mono - cached_hit[0]) < 300.0:
-            return cached_hit[1]
+            res_hit = cached_hit[1]
+            self._hydrate_roster_live_elos([res_hit.get("players") or []], game_system=sys_key)
+            return res_hit
 
         teams_out: List[Dict[str, Any]] = []
         players_out: List[Dict[str, Any]] = []
@@ -3402,6 +3471,7 @@ class FirestoreRoomEngine:
             except Exception as err:
                 logger.debug(f"Notice searching sd40k_player_careers.json for '{q_raw}': {err}")
 
+        self._hydrate_roster_live_elos([players_out], game_system=sys_key)
         players_out.sort(key=lambda x: float(x.get("elo") or 0), reverse=True)
         result = {
             "ok": True,
@@ -3428,6 +3498,9 @@ class FirestoreRoomEngine:
         max_cycles = 3 if team_size == 8 else 2
 
         empty_rosters = bool(req.get("empty_rosters", False))
+        creator_uid = str(req.get("user_id") or req.get("guest_id") or req.get("owner_id") or "").strip() or None
+        raw_room_mode = str(req.get("room_mode") or ("casual_tcg" if req.get("use_tcg_deck") else "tournament")).strip().lower()
+        room_mode = "casual_tcg" if raw_room_mode in ("casual", "casual_tcg", "tcg") else "tournament"
 
         preset_a_key = str(req.get("team_a_preset") or "art_of_war").strip().lower()
         preset_b_key = str(req.get("team_b_preset") or "team_zero_comp").strip().lower()
@@ -3445,6 +3518,8 @@ class FirestoreRoomEngine:
         else:
             if isinstance(req.get("team_a_roster"), list) and len(req["team_a_roster"]) >= team_size:
                 roster_a = copy.deepcopy(req["team_a_roster"][:team_size])
+            elif room_mode == "casual_tcg" or bool(req.get("use_tcg_deck", False)):
+                roster_a = self.get_user_tcg_deck_roster(creator_uid or "dev_user", format_size=fmt)
             else:
                 roster_a = preset_a["roster"][:team_size]
             if isinstance(req.get("team_b_roster"), list) and len(req["team_b_roster"]) >= team_size:
@@ -3472,18 +3547,17 @@ class FirestoreRoomEngine:
         vs_ai = bool(req.get("vs_ai", True))
         is_locked = bool(req.get("is_locked", False))
 
-        creator_uid = str(req.get("user_id") or req.get("guest_id") or req.get("owner_id") or "").strip() or None
         seat_a_locked = bool(req.get("seat_a_locked", bool(creator_uid)))
         seat_b_locked = bool(req.get("seat_b_locked", False))
 
         now_dt = datetime.now(timezone.utc)
         now_ts = int(now_dt.timestamp() * 1000)
         ts_str = now_dt.strftime("%H:%M:%S")
-        default_name_a = "Team A" if empty_rosters else preset_a["name"]
+        default_name_a = "Team A" if empty_rosters else ("Commander TCG Strike Force" if room_mode == "casual_tcg" else preset_a["name"])
         default_name_b = "Team B" if empty_rosters else preset_b["name"]
-        default_tag_a = "TMA" if empty_rosters else preset_a["short_tag"]
+        default_tag_a = "TMA" if empty_rosters else ("TCG" if room_mode == "casual_tcg" else preset_a["short_tag"])
         default_tag_b = "TMB" if empty_rosters else preset_b["short_tag"]
-        default_cap_a = "Team A Captain" if empty_rosters else preset_a["captain_name"]
+        default_cap_a = "Team A Captain" if empty_rosters else (roster_a[0]["name"] if (room_mode == "casual_tcg" and roster_a) else preset_a["captain_name"])
         default_cap_b = ("AI Opponent" if vs_ai else "Team B Captain") if empty_rosters else (f"{preset_b['captain_name']} (AI Bot)" if vs_ai else preset_b["captain_name"])
 
         team_a_name = str(req.get("team_a_name") or default_name_a).strip()
@@ -3495,6 +3569,7 @@ class FirestoreRoomEngine:
 
         room_data: Dict[str, Any] = {
             "room_code": raw_code,
+            "room_mode": room_mode,
             "format": fmt,
             "format_size": fmt,
             "team_size": team_size,
@@ -3559,11 +3634,11 @@ class FirestoreRoomEngine:
             "guarantee_armed_b": bool(req.get("guarantee_armed_b", False)),
             "pairings": [],
             "history_log": [
-                f"Room {raw_code} initialized ({fmt} WTC Pairing Protocol): {team_a_name} vs {team_b_name}.",
+                f"Room {raw_code} initialized ({fmt} WTC Pairing Protocol • {'Casual TCG Deck Mode' if room_mode == 'casual_tcg' else 'Official Tournament Mode'}): {team_a_name} vs {team_b_name}.",
                 "Coin Flip ready — Flip coin to decide who starts Cycle 1 as Defender or Attacker.",
             ],
             "log": [
-                {"ts": ts_str, "msg": f"Room {raw_code} initialized ({fmt} WTC Pairing Protocol): {team_a_name} vs {team_b_name}."},
+                {"ts": ts_str, "msg": f"Room {raw_code} initialized ({fmt} WTC Pairing Protocol • {'Casual TCG Deck Mode' if room_mode == 'casual_tcg' else 'Official Tournament Mode'}): {team_a_name} vs {team_b_name}."},
                 {"ts": ts_str, "msg": "Coin Flip ready — Flip coin to decide who starts Cycle 1 as Defender or Attacker."},
             ],
             "createdAt": now_ts,
@@ -3598,10 +3673,19 @@ class FirestoreRoomEngine:
     ) -> Dict[str, Any]:
         import copy
 
+        pairings_player_list = []
+        for pm in (room.get("pairings") or []):
+            if isinstance(pm, dict):
+                if isinstance(pm.get("player_a"), dict):
+                    pairings_player_list.append(pm["player_a"])
+                if isinstance(pm.get("player_b"), dict):
+                    pairings_player_list.append(pm["player_b"])
+
         self._hydrate_roster_live_elos(
             [
                 (room.get("team_a") or {}).get("roster") or [],
                 (room.get("team_b") or {}).get("roster") or [],
+                pairings_player_list,
             ],
             game_system=str(room.get("game_system") or "40k"),
         )
@@ -3610,6 +3694,7 @@ class FirestoreRoomEngine:
         masked = copy.deepcopy(room)
         masked.pop("captain_a_token", None)
         masked.pop("captain_b_token", None)
+        masked["room_mode"] = str(room.get("room_mode") or "tournament")
         masked["viewer_role"] = viewer_role
         masked["can_interact_a"] = viewer_role == "captain_a"
         masked["can_interact_b"] = viewer_role == "captain_b"
@@ -4617,7 +4702,7 @@ class FirestoreRoomEngine:
                 "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
             }
 
-        if act == "set_team_roster":
+        if act in ("set_team_roster", "apply_tcg_deck", "equip_tcg_deck", "set_room_mode"):
             import copy
             team_key = "team_a" if is_cap_a else "team_b"
             id_prefix = "A" if is_cap_a else "B"
@@ -4636,6 +4721,37 @@ class FirestoreRoomEngine:
                     room["max_cycles"] = 3 if t_size == 8 else 2
 
             team_size = int(room.get("team_size") or 5)
+            fmt_str = "8v8" if team_size == 8 else "5v5"
+
+            if act in ("apply_tcg_deck", "equip_tcg_deck") or (
+                act == "set_room_mode" and str(req.get("room_mode") or "").strip().lower() in ("casual", "casual_tcg", "tcg")
+            ):
+                room["room_mode"] = "casual_tcg"
+                deck_uid = caller_uid or str(room.get("owner_id") or "dev_user")
+                card_ids = req.get("card_ids")
+                if isinstance(card_ids, list) and len(card_ids) >= 1:
+                    self.save_user_tcg_deck(
+                        deck_uid,
+                        {"format_size": fmt_str, "card_ids": card_ids, "deck_name": req.get("team_name") or req.get("deck_name")},
+                    )
+                if not raw_roster:
+                    raw_roster = self.get_user_tcg_deck_roster(deck_uid, format_size=fmt_str)
+                if not req.get("team_name"):
+                    tcg_st = self._get_or_init_tcg_doc(deck_uid)
+                    req["team_name"] = str(tcg_st.get(f"deck_name_{fmt_str}") or "Commander TCG Strike Force")
+                if not req.get("team_tag"):
+                    req["team_tag"] = "TCG"
+            elif act == "set_room_mode":
+                room["room_mode"] = "tournament"
+                preset_key = str(req.get("preset_key") or ("art_of_war" if is_cap_a else "team_zero_comp")).strip().lower()
+                preset_obj = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get(preset_key) or self.TEAM_PAIRING_PRESETS["art_of_war"])
+                raw_roster = preset_obj["roster"][:team_size]
+                req["team_name"] = preset_obj["name"]
+                req["team_tag"] = preset_obj["short_tag"]
+
+            if req.get("room_mode") in ("casual_tcg", "tournament"):
+                room["room_mode"] = str(req["room_mode"])
+
             if not isinstance(raw_roster, list) or len(raw_roster) < 1:
                 return {"ok": False, "success": False, "status_code": 400, "error": "Roster must contain at least 1 player."}
             new_roster = []
@@ -4643,17 +4759,22 @@ class FirestoreRoomEngine:
                 if not isinstance(item, dict):
                     continue
                 role_label = str(item.get("role_tag") or item.get("role") or "All-Rounder").strip()
-                new_roster.append({
+                is_starter_flag = bool(item.get("is_starter", False))
+                p_entry: Dict[str, Any] = {
                     "id": f"{id_prefix}{idx + 1}",
                     "name": str(item.get("name") or f"Player {idx + 1}").strip(),
                     "faction": str(item.get("faction") or "Space Marines").strip(),
                     "detachment": str(item.get("detachment") or "Index / Strike Force").strip(),
-                    "elo": int(float(item.get("elo") or 2000)),
+                    "elo": int(float(item.get("elo") or (1500 if is_starter_flag else 2000))),
                     "role": role_label,
                     "role_tag": role_label,
                     "team": id_prefix,
                     "status": "bench",
-                })
+                }
+                for tcg_key in ("card_id", "player_name", "is_starter", "rarity", "rarity_label", "copies", "foil_tier"):
+                    if tcg_key in item:
+                        p_entry[tcg_key] = item[tcg_key]
+                new_roster.append(p_entry)
             # Pad from existing roster or fallback preset if fewer than team_size were provided
             existing_roster = room[team_key].get("roster") or []
             while len(new_roster) < team_size and len(existing_roster) > len(new_roster):
@@ -4991,6 +5112,907 @@ class FirestoreRoomEngine:
             "success": True,
             "status_code": 200,
             "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+        }
+
+    # =========================================================================
+    # OMNITACTICA TCG PLAYER CARD COLLECTION, PACK STORE & DECK BUILDER ENGINE
+    # =========================================================================
+
+    TCG_FACTIONS_DETACHMENTS: List[Tuple[str, str, str]] = [
+        ("Adeptus Custodes", "Shield Host", "Mid-Board Anvil"),
+        ("Necrons", "Hypercrypt Legion", "Scoring & Teleport"),
+        ("Space Marines", "Gladius Task Force", "Combined Arms"),
+        ("Aeldari", "Battle Host", "Precision Alpha"),
+        ("T'au Empire", "Kauyon", "Ranged Firepower"),
+        ("Chaos Space Marines", "Pactbound Zealots", "Melee & Mid-Board"),
+        ("Tyranids", "Invasion Fleet", "Board Control"),
+        ("Death Guard", "Plague Company", "Attrition Anvil"),
+        ("Thousand Sons", "Cult of Magic", "Psychic Cabal"),
+        ("World Eaters", "Berzerker Warband", "Melee Rush"),
+        ("Leagues of Votann", "Oathband", "Grudge Mid-Range"),
+        ("Orks", "Waaagh! Tribe", "Pressure Rush"),
+        ("Adepta Sororitas", "Bringers of Flame", "Miracle Mid-Range"),
+        ("Grey Knights", "Teleport Strike Force", "Deep Strike Mobility"),
+        ("Blood Angels", "Sons of Sanguinius", "Jump Pack Assault"),
+        ("Dark Angels", "Unforgiven Task Force", "Terminator Anvil"),
+        ("Space Wolves", "Champions of Russ", "Heroic Brawl"),
+        ("Black Templars", "Righteous Crusaders", "Crusader Tide"),
+        ("Astra Militarum", "Combined Regiment", "Armored Artillery"),
+        ("Adeptus Mechanicus", "Skitarii Hunter Cohort", "Move-Block Gunline"),
+        ("Imperial Knights", "Noble Lance", "Super-Heavy Hull"),
+        ("Chaos Knights", "Traitoris Lance", "War Dog Pack"),
+        ("Chaos Daemons", "Daemonic Incursion", "Warp Deep Strike"),
+        ("Drukhari", "Skysplinter Assault", "Raider Lance Alpha"),
+        ("Genestealer Cults", "Host of Ascension", "Ambush Recursion"),
+        ("Imperial Agents", "Imperialis Fleet", "Inquisitorial Strike"),
+        ("Deathwatch", "Black Spear Task Force", "Kill Team Precision"),
+        ("Emperor's Children", "Peerless Bladesmen", "Sonic Duelists"),
+    ]
+
+    TCG_RARITY_META: Dict[str, Dict[str, Any]] = {
+        "starter": {
+            "id": "starter",
+            "label": "STARTER FACTION",
+            "short": "STARTER",
+            "elo_range": "1450–1550",
+            "min_elo": 1450,
+            "max_elo": 1550,
+            "duplicate_rebate": 0,
+            "color": "#94a3b8",
+        },
+        "common": {
+            "id": "common",
+            "label": "COMMON CONTENDER",
+            "short": "COMMON",
+            "elo_range": "1550–1749",
+            "min_elo": 1550,
+            "max_elo": 1749,
+            "duplicate_rebate": 20,
+            "color": "#10b981",
+        },
+        "rare": {
+            "id": "rare",
+            "label": "RARE GT VETERAN",
+            "short": "RARE",
+            "elo_range": "1750–1899",
+            "min_elo": 1750,
+            "max_elo": 1899,
+            "duplicate_rebate": 45,
+            "color": "#38bdf8",
+        },
+        "epic": {
+            "id": "epic",
+            "label": "EPIC MAJOR ACE",
+            "short": "EPIC",
+            "elo_range": "1900–2079",
+            "min_elo": 1900,
+            "max_elo": 2079,
+            "duplicate_rebate": 100,
+            "color": "#a855f7",
+        },
+        "mythic": {
+            "id": "mythic",
+            "label": "MYTHIC WARLORD",
+            "short": "MYTHIC",
+            "elo_range": "2080+",
+            "min_elo": 2080,
+            "max_elo": 3000,
+            "duplicate_rebate": 250,
+            "color": "#f59e0b",
+        },
+    }
+
+    TCG_PACK_CATALOG: Dict[str, Dict[str, Any]] = {
+        "recruit": {
+            "pack_type": "recruit",
+            "id": "recruit",
+            "name": "Standard Recruit Pack",
+            "icon": "📦",
+            "tagline": "ENTRY IMPULSE PACK",
+            "subtitle": "Entry Impulse Requisition • 3 Collectible Player Cards",
+            "description": "3 Collectible Player Cards. Slot 1 Guaranteed Rare (1750+ Elo) or higher. Adds +1 Mythic Pity.",
+            "badge": "ENTRY PACK",
+            "cost_glory": 150,
+            "card_count": 3,
+            "pity_increment": 1,
+            "pity_points": 1,
+            "guarantee_text": "Guaranteed 1+ Rare (1750+ Elo) or higher",
+            "odds": {"common": 58, "rare": 28, "epic": 11, "mythic": 3},
+            "slot1_odds": {"common": 0, "rare": 74, "epic": 21, "mythic": 5},
+            "slot_1_odds": {"common": 0.0, "rare": 0.74, "epic": 0.21, "mythic": 0.05},
+            "other_slots_odds": {"common": 0.58, "rare": 0.28, "epic": 0.11, "mythic": 0.03},
+        },
+        "veteran": {
+            "pack_type": "veteran",
+            "id": "veteran",
+            "name": "Tactical Veteran Pack",
+            "icon": "⚡",
+            "tagline": "SAVE 15% • ANCHOR VALUE",
+            "subtitle": "Mid-Tier Strike Bundle • 5 Collectible Player Cards",
+            "description": "5 Collectible Player Cards. Boosted 57% Epic/Mythic Lead Slot! Adds +2 Mythic Pity.",
+            "badge": "SAVE 15% • ANCHOR",
+            "cost_glory": 380,
+            "card_count": 5,
+            "pity_increment": 2,
+            "pity_points": 2,
+            "guarantee_text": "Guaranteed 1+ Epic (1900+) or High-Rare Lead Slot",
+            "odds": {"common": 35, "rare": 40, "epic": 19, "mythic": 6},
+            "slot1_odds": {"common": 0, "rare": 43, "epic": 45, "mythic": 12},
+            "slot_1_odds": {"common": 0.0, "rare": 0.43, "epic": 0.45, "mythic": 0.12},
+            "other_slots_odds": {"common": 0.35, "rare": 0.40, "epic": 0.19, "mythic": 0.06},
+        },
+        "warlord": {
+            "pack_type": "warlord",
+            "id": "warlord",
+            "name": "Warlord Command Crate",
+            "icon": "👑",
+            "tagline": "MOST POPULAR • 2.5× MYTHIC ODDS",
+            "subtitle": "Elite High-Elo Drop Crate • 5 Cards (0% Commons!)",
+            "description": "5 Elite Player Cards with ZERO Commons! Slot 1 is 100% Guaranteed Epic (1900+) or Mythic (2080+). Adds +3 Mythic Pity.",
+            "badge": "👑 MOST POPULAR • 2.5× MYTHIC ODDS",
+            "cost_glory": 850,
+            "card_count": 5,
+            "pity_increment": 3,
+            "pity_points": 3,
+            "guarantee_text": "ZERO Commons! Slot 1 is 100% Guaranteed Epic (1900+) or Mythic (2080+)",
+            "odds": {"common": 0, "rare": 52, "epic": 36, "mythic": 12},
+            "slot1_odds": {"common": 0, "rare": 0, "epic": 72, "mythic": 28},
+            "slot_1_odds": {"common": 0.0, "rare": 0.0, "epic": 0.72, "mythic": 0.28},
+            "other_slots_odds": {"common": 0.0, "rare": 0.52, "epic": 0.36, "mythic": 0.12},
+        },
+    }
+
+    @classmethod
+    def _normalize_pack_type_key(cls, pack_type: str) -> str:
+        raw = str(pack_type or "recruit").strip().lower()
+        aliases = {
+            "recruit": "recruit",
+            "recruit_pack": "recruit",
+            "standard": "recruit",
+            "veteran": "veteran",
+            "veteran_pack": "veteran",
+            "tactical": "veteran",
+            "warlord": "warlord",
+            "warlord_crate": "warlord",
+            "crate": "warlord",
+        }
+        return aliases.get(raw, raw)
+
+    # Real players with iconic faction pairings (including multi-faction stars like Folger P on Custodes & Necrons)
+    TCG_BASE_PLAYER_CARDS: List[Dict[str, Any]] = [
+        # Multi-Faction Spotlight Stars (Same real player -> Multiple Faction Cards sharing live Elo!)
+        {"player_name": "Folger P", "faction": "Adeptus Custodes", "detachment": "Shield Host", "base_elo": 2070, "role_tag": "Defender / Mid-Board Anvil"},
+        {"player_name": "Folger P", "faction": "Necrons", "detachment": "Hypercrypt Legion", "base_elo": 2070, "role_tag": "Attacker / Teleport Scoring"},
+        {"player_name": "Folger P", "faction": "Chaos Space Marines", "detachment": "Pactbound Zealots", "base_elo": 2070, "role_tag": "Attacker / Melee Pressure"},
+        {"player_name": "Richard Siegler", "faction": "Aeldari", "detachment": "Battle Host", "base_elo": 2113, "role_tag": "Attacker / Precision Alpha"},
+        {"player_name": "Richard Siegler", "faction": "T'au Empire", "detachment": "Kauyon", "base_elo": 2113, "role_tag": "Defender / Gunline Master"},
+        {"player_name": "Richard Siegler", "faction": "Adeptus Mechanicus", "detachment": "Skitarii Hunter Cohort", "base_elo": 2113, "role_tag": "Defender / Move-Block Tech"},
+        {"player_name": "John Lennon", "faction": "Space Marines", "detachment": "Gladius Task Force", "base_elo": 2180, "role_tag": "All-Rounder / Combined Arms"},
+        {"player_name": "John Lennon", "faction": "Adeptus Custodes", "detachment": "Talons of the Emperor", "base_elo": 2180, "role_tag": "Defender / Mid-Board Anvil"},
+        {"player_name": "John Lennon", "faction": "Tyranids", "detachment": "Invasion Fleet", "base_elo": 2180, "role_tag": "Defender / Board Control"},
+        {"player_name": "Junior Aflleje", "faction": "Leagues of Votann", "detachment": "Oathband", "base_elo": 2180, "role_tag": "Defender / Grudge Anvil"},
+        {"player_name": "Junior Aflleje", "faction": "Death Guard", "detachment": "Plague Company", "base_elo": 2180, "role_tag": "Defender / Attrition Wall"},
+        {"player_name": "Junior Aflleje", "faction": "Thousand Sons", "detachment": "Cult of Magic", "base_elo": 2180, "role_tag": "Attacker / Cabal Alpha"},
+        {"player_name": "Innes Wilson", "faction": "Genestealer Cults", "detachment": "Host of Ascension", "base_elo": 2368, "role_tag": "Attacker / Ambush Master"},
+        {"player_name": "Innes Wilson", "faction": "Space Wolves", "detachment": "Champions of Russ", "base_elo": 2368, "role_tag": "Defender / Wolf Jail"},
+        {"player_name": "John Hsieh", "faction": "Necrons", "detachment": "Canoptek Court", "base_elo": 1895, "role_tag": "Defender / Matrix Control"},
+        {"player_name": "John Hsieh", "faction": "Dark Angels", "detachment": "Gladius Task Force", "base_elo": 1895, "role_tag": "All-Rounder / Lion Guard"},
+        {"player_name": "Jack Harpster", "faction": "Blood Angels", "detachment": "Sons of Sanguinius", "base_elo": 2116, "role_tag": "Attacker / Jump Pack Rush"},
+        {"player_name": "Jack Harpster", "faction": "Grey Knights", "detachment": "Teleport Strike Force", "base_elo": 2116, "role_tag": "All-Rounder / Teleport Strike"},
+        {"player_name": "Liam VSL", "faction": "Thousand Sons", "detachment": "Cult of Magic", "base_elo": 2305, "role_tag": "Attacker / Warp Cabal"},
+        {"player_name": "Liam VSL", "faction": "Adepta Sororitas", "detachment": "Bringers of Flame", "base_elo": 2305, "role_tag": "All-Rounder / Miracle Dice"},
+        {"player_name": "Nick Nanavati", "faction": "World Eaters", "detachment": "Berzerker Warband", "base_elo": 2092, "role_tag": "Attacker / Melee Alpha"},
+        {"player_name": "Nick Nanavati", "faction": "Chaos Daemons", "detachment": "Daemonic Incursion", "base_elo": 2092, "role_tag": "Attacker / Monster Mash"},
+        # Additional Mythic & Epic Contenders (1900 - 2200+)
+        {"player_name": "David Gaylard", "faction": "World Eaters", "detachment": "Berzerker Warband", "base_elo": 2155, "role_tag": "Attacker / Eightbound Rush"},
+        {"player_name": "Anthony Vanella", "faction": "Orks", "detachment": "Waaagh! Tribe", "base_elo": 2120, "role_tag": "Attacker / Pressure Wave"},
+        {"player_name": "Sean Nayden", "faction": "Aeldari", "detachment": "Battle Host", "base_elo": 2104, "role_tag": "Attacker / Heroic Spearhead"},
+        {"player_name": "Sam Pope", "faction": "Drukhari", "detachment": "Skysplinter Assault", "base_elo": 2076, "role_tag": "Attacker / Lance Strike"},
+        {"player_name": "Sam Pope", "faction": "Aeldari", "detachment": "Battle Host", "base_elo": 2076, "role_tag": "Attacker / Aspect Host"},
+        {"player_name": "Brad Chester", "faction": "Chaos Knights", "detachment": "Traitoris Lance", "base_elo": 2061, "role_tag": "Defender / War Dog Wall"},
+        {"player_name": "Brad Chester", "faction": "Orks", "detachment": "Bully Boyz", "base_elo": 2061, "role_tag": "Defender / Meganob Anvil"},
+        {"player_name": "Mani Cheema", "faction": "Astra Militarum", "detachment": "Combined Regiment", "base_elo": 2048, "role_tag": "Defender / Indirect Gunline"},
+        {"player_name": "bridger Hahn", "faction": "Imperial Knights", "detachment": "Noble Lance", "base_elo": 2035, "role_tag": "Defender / Hull Check"},
+        {"player_name": "Ben Jurek", "faction": "Black Templars", "detachment": "Righteous Crusaders", "base_elo": 2018, "role_tag": "All-Rounder / Crusader Horde"},
+        {"player_name": "Vik Vijay", "faction": "Imperial Agents", "detachment": "Imperialis Fleet", "base_elo": 1995, "role_tag": "Defender / Objective Denial"},
+        {"player_name": "archibaldonenine", "faction": "Deathwatch", "detachment": "Black Spear Task Force", "base_elo": 1968, "role_tag": "Attacker / Kill Team Alpha"},
+        {"player_name": "Stat Check Cliff", "faction": "Emperor's Children", "detachment": "Peerless Bladesmen", "base_elo": 1945, "role_tag": "Attacker / Duelist Flank"},
+        {"player_name": "Stephen Box", "faction": "Blood Angels", "detachment": "Liberator Assault Group", "base_elo": 1930, "role_tag": "Attacker / Sanguinary Spear"},
+        {"player_name": "Adam Camilleri", "faction": "Tyranids", "detachment": "Vanguard Onslaught", "base_elo": 1915, "role_tag": "All-Rounder / Lictor Screen"},
+        # Rare Regional GT Veterans (1750 - 1899 Elo)
+        {"player_name": "Jake Nelson", "faction": "Space Marines", "detachment": "Ironstorm Spearhead", "base_elo": 1866, "role_tag": "Defender / Dreadnought Wall"},
+        {"player_name": "Marcus Vance", "faction": "Adeptus Custodes", "detachment": "Shield Host", "base_elo": 1882, "role_tag": "Defender / Golden Wall"},
+        {"player_name": "Elena Rostova", "faction": "Adepta Sororitas", "detachment": "Hallowed Martyrs", "base_elo": 1854, "role_tag": "All-Rounder / Faith Engine"},
+        {"player_name": "Devon Thorne", "faction": "T'au Empire", "detachment": "Mont'ka", "base_elo": 1840, "role_tag": "Attacker / Breacher Cadre"},
+        {"player_name": "Kieran O'Connor", "faction": "Death Guard", "detachment": "Plague Company", "base_elo": 1825, "role_tag": "Defender / Blight Hauler"},
+        {"player_name": "Lucas Sterling", "faction": "Grey Knights", "detachment": "Teleport Strike Force", "base_elo": 1812, "role_tag": "All-Rounder / Nemesis Dread"},
+        {"player_name": "Soren Lindqvist", "faction": "Leagues of Votann", "detachment": "Oathband", "base_elo": 1798, "role_tag": "Defender / Hekaton Fortress"},
+        {"player_name": "Tariq Al-Mansoor", "faction": "Thousand Sons", "detachment": "Cult of Magic", "base_elo": 1784, "role_tag": "Attacker / Magnus Cabal"},
+        {"player_name": "Hana Takahashi", "faction": "Drukhari", "detachment": "Skysplinter Assault", "base_elo": 1770, "role_tag": "Attacker / Venom Raid"},
+        {"player_name": "Garrett Cole", "faction": "Astra Militarum", "detachment": "Combined Regiment", "base_elo": 1758, "role_tag": "Defender / Rogal Dorn Line"},
+        # Common Local RTT Contenders (1550 - 1749 Elo)
+        {"player_name": "Caleb Mercer", "faction": "Space Marines", "detachment": "Gladius Task Force", "base_elo": 1735, "role_tag": "All-Rounder / Strike Force"},
+        {"player_name": "Nolan Bishop", "faction": "Necrons", "detachment": "Awakened Dynasty", "base_elo": 1718, "role_tag": "Defender / Silver Tide"},
+        {"player_name": "Derek Wheeler", "faction": "Orks", "detachment": "Dread Mob", "base_elo": 1702, "role_tag": "Attacker / Stompa Push"},
+        {"player_name": "Maya Lin", "faction": "Tyranids", "detachment": "Synaptic Nexus", "base_elo": 1688, "role_tag": "All-Rounder / Norn Emissary"},
+        {"player_name": "Victor Kovacs", "faction": "Chaos Space Marines", "detachment": "Renegade Raiders", "base_elo": 1670, "role_tag": "Attacker / Chosen Rhino"},
+        {"player_name": "Owen Gallagher", "faction": "World Eaters", "detachment": "Berzerker Warband", "base_elo": 1652, "role_tag": "Attacker / Khorne Rush"},
+        {"player_name": "Claire Beaumont", "faction": "Aeldari", "detachment": "Battle Host", "base_elo": 1638, "role_tag": "Attacker / Wraith Host"},
+        {"player_name": "julian Vance", "faction": "Imperial Knights", "detachment": "Noble Lance", "base_elo": 1620, "role_tag": "Defender / Armiger Screen"},
+        {"player_name": "Brandon Reyes", "faction": "Dark Angels", "detachment": "Inner Circle Task Force", "base_elo": 1604, "role_tag": "Defender / Deathwing"},
+        {"player_name": "Tyler McBride", "faction": "Chaos Knights", "detachment": "Traitoris Lance", "base_elo": 1588, "role_tag": "Defender / Stalker Pack"},
+        {"player_name": "ethan Brooks", "faction": "Genestealer Cults", "detachment": "Xenocreed Congregation", "base_elo": 1572, "role_tag": "Attacker / Neophyte Ambush"},
+        {"player_name": "Ryan Harper", "faction": "Black Templars", "detachment": "Righteous Crusaders", "base_elo": 1558, "role_tag": "All-Rounder / Sword Brethren"},
+    ]
+
+    @staticmethod
+    def _slugify_tcg(text: str) -> str:
+        import re
+        return re.sub(r"[^a-z0-9]+", "_", str(text or "").strip().lower()).strip("_")
+
+    def classify_tcg_rarity(self, elo_val: float, is_starter: bool = False) -> Dict[str, Any]:
+        if is_starter:
+            return dict(self.TCG_RARITY_META["starter"])
+        elo_i = int(round(float(elo_val or 1500)))
+        if elo_i >= 2080:
+            return dict(self.TCG_RARITY_META["mythic"])
+        if elo_i >= 1900:
+            return dict(self.TCG_RARITY_META["epic"])
+        if elo_i >= 1750:
+            return dict(self.TCG_RARITY_META["rare"])
+        return dict(self.TCG_RARITY_META["common"])
+
+    @staticmethod
+    def _foil_tier_for_copies(copies: int) -> str:
+        c = max(1, int(copies or 1))
+        if c >= 5:
+            return "★5 Immortal Relic"
+        if c == 4:
+            return "★4 Warp Prismatic"
+        if c == 3:
+            return "★3 Gold Foil"
+        if c == 2:
+            return "★2 Holofoil"
+        return "★1 Standard"
+
+    def _lookup_live_player_elo(self, player_name: str, fallback_elo: int = 1800, game_system: str = "40k") -> int:
+        p_norm = str(player_name or "").strip().lower()
+        if not p_norm:
+            return int(fallback_elo)
+        sys_key = str(game_system or "40k").strip().lower()
+        overrides = getattr(self, "_live_player_elo_overrides", None)
+        if isinstance(overrides, dict):
+            sys_ov = overrides.get(sys_key)
+            if isinstance(sys_ov, dict) and p_norm in sys_ov:
+                return int(round(float(sys_ov[p_norm])))
+            if p_norm in overrides and isinstance(overrides[p_norm], (int, float)):
+                return int(round(float(overrides[p_norm])))
+
+        # Populate live Elo map via _hydrate_roster_live_elos on a single dummy item
+        probe = [{"name": player_name, "player_name": player_name, "elo": fallback_elo, "is_starter": False}]
+        self._hydrate_roster_live_elos([probe], game_system=game_system)
+        return int(probe[0].get("current_elo") or probe[0].get("elo") or fallback_elo)
+
+    def update_live_player_elo_override(self, player_name: str, new_elo: int, game_system: str = "40k") -> Dict[str, Any]:
+        """Updates a real player's live Elo override and clears cache so all of their faction TCG cards immediately reflect the new Elo."""
+        if not hasattr(self, "_live_player_elo_overrides") or not isinstance(getattr(self, "_live_player_elo_overrides", None), dict):
+            self._live_player_elo_overrides = {}
+        sys_key = str(game_system or "40k").strip().lower()
+        p_norm = str(player_name or "").strip().lower()
+        if not isinstance(self._live_player_elo_overrides.get(sys_key), dict):
+            self._live_player_elo_overrides[sys_key] = {}
+        self._live_player_elo_overrides[sys_key][p_norm] = float(new_elo)
+        if hasattr(self, "_live_player_elo_cache"):
+            self._live_player_elo_cache = {}
+        if hasattr(self, "_pairing_live_elo_cache"):
+            self._pairing_live_elo_cache = {}
+            self._pairing_live_elo_cache_ts = 0.0
+        if hasattr(self, "_team_roster_fast_cache"):
+            self._team_roster_fast_cache = {}
+        if hasattr(self, "_pairing_search_cache"):
+            self._pairing_search_cache = {}
+        return {"ok": True, "player_name": player_name, "new_elo": int(new_elo)}
+
+    def get_tcg_starter_cards(self, user_id: str = "dev_user") -> List[Dict[str, Any]]:
+        """
+        Generates the pre-set 28-faction Starter Card list for `user_id`.
+        Every Starter Card has NO player name (just Faction + Detachment) and a deterministic
+        randomized Elo between 1450 and 1550.
+        """
+        import hashlib
+        uid_clean = str(user_id or "dev_user").strip() or "dev_user"
+        starter_cards: List[Dict[str, Any]] = []
+        for idx, (faction, detachment, role_tag) in enumerate(self.TCG_FACTIONS_DETACHMENTS):
+            f_slug = self._slugify_tcg(faction)
+            digest = hashlib.md5(f"tcg_starter:{uid_clean}:{faction}".encode("utf-8")).hexdigest()
+            rand_offset = int(digest[:8], 16) % 101  # 0..100 inclusive -> 1450..1550
+            starter_elo = 1450 + rand_offset
+            starter_cards.append({
+                "card_id": f"starter__{f_slug}",
+                "name": faction,
+                "card_title": f"{faction} [Starter]",
+                "player_name": "",
+                "faction": faction,
+                "detachment": detachment,
+                "role": role_tag,
+                "role_tag": role_tag,
+                "elo": starter_elo,
+                "base_elo": starter_elo,
+                "current_elo": starter_elo,
+                "is_starter": True,
+                "rarity": "starter",
+                "rarity_label": "STARTER FACTION",
+                "rarity_short": "STARTER",
+                "owned": True,
+                "copies": 1,
+                "foil_tier": "★1 Base Set",
+                "starter_order": idx + 1,
+            })
+        return starter_cards
+
+    def get_tcg_collectible_pool(self, game_system: str = "40k") -> List[Dict[str, Any]]:
+        """
+        Returns all collectible Real Player x Faction cards, hydrating each card's live Elo
+        from `player_ratings` (or `_live_player_elo_overrides`) so that when a real player's Elo
+        changes, ALL of their faction cards update automatically.
+        """
+        import copy
+        raw_cards = copy.deepcopy(self.TCG_BASE_PLAYER_CARDS)
+
+        # Also include any preset roster players not already in raw_cards
+        seen_keys = {(self._slugify_tcg(c["player_name"]), self._slugify_tcg(c["faction"])) for c in raw_cards}
+        for preset in (self.TEAM_PAIRING_PRESETS or {}).values():
+            for p in preset.get("roster") or []:
+                p_name = str(p.get("name") or "").strip()
+                fac = str(p.get("faction") or "Space Marines").strip()
+                key = (self._slugify_tcg(p_name), self._slugify_tcg(fac))
+                if p_name and key not in seen_keys:
+                    seen_keys.add(key)
+                    raw_cards.append({
+                        "player_name": p_name,
+                        "faction": fac,
+                        "detachment": str(p.get("detachment") or "Index / Strike Force"),
+                        "base_elo": int(float(p.get("elo") or 1950)),
+                        "role_tag": str(p.get("role_tag") or p.get("role") or "All-Rounder"),
+                    })
+
+        # Hydrate live Elos in a single batch call
+        probe_roster = [
+            {
+                "name": c["player_name"],
+                "player_name": c["player_name"],
+                "elo": c["base_elo"],
+                "is_starter": False,
+            }
+            for c in raw_cards
+        ]
+        self._hydrate_roster_live_elos([probe_roster], game_system=game_system)
+
+        # Count how many faction cards each real player has
+        player_faction_counts: Dict[str, List[str]] = {}
+        for c in raw_cards:
+            p_key = c["player_name"].strip()
+            player_faction_counts.setdefault(p_key, []).append(c["faction"])
+
+        pool: List[Dict[str, Any]] = []
+        for idx, c in enumerate(raw_cards):
+            p_name = c["player_name"].strip()
+            fac = c["faction"].strip()
+            live_elo = int(probe_roster[idx].get("current_elo") or probe_roster[idx].get("elo") or c["base_elo"])
+            rarity_info = self.classify_tcg_rarity(live_elo, is_starter=False)
+            p_slug = self._slugify_tcg(p_name)
+            f_slug = self._slugify_tcg(fac)
+            card_id = f"tcg_{p_slug}__{f_slug}"
+            factions_for_player = player_faction_counts.get(p_name, [fac])
+            pool.append({
+                "card_id": card_id,
+                "name": p_name,
+                "card_title": p_name,
+                "player_name": p_name,
+                "faction": fac,
+                "detachment": c["detachment"],
+                "role": c["role_tag"],
+                "role_tag": c["role_tag"],
+                "base_elo": int(c["base_elo"]),
+                "elo": live_elo,
+                "current_elo": live_elo,
+                "elo_delta": live_elo - int(c["base_elo"]),
+                "is_starter": False,
+                "rarity": rarity_info["id"],
+                "rarity_label": rarity_info["label"],
+                "rarity_short": rarity_info["short"],
+                "duplicate_rebate": rarity_info["duplicate_rebate"],
+                "player_faction_count": len(factions_for_player),
+                "player_factions": factions_for_player,
+            })
+
+        pool.sort(key=lambda item: (int(item["elo"]), item["player_name"], item["faction"]), reverse=True)
+        return pool
+
+    def _get_or_init_tcg_doc(self, user_id: str = "dev_user") -> Dict[str, Any]:
+        uid = str(user_id or "dev_user").strip() or "dev_user"
+        if not hasattr(self, "_memory_tcg_profiles") or not isinstance(getattr(self, "_memory_tcg_profiles", None), dict):
+            self._memory_tcg_profiles = {}
+        self._tcg_user_state = self._memory_tcg_profiles
+
+        if uid not in self._memory_tcg_profiles:
+            starters = self.get_tcg_starter_cards(uid)
+            default_5v5 = [c["card_id"] for c in starters[:5]]
+            default_8v8 = [c["card_id"] for c in starters[:8]]
+            # Give every user the 28 Starter Faction Cards (1450-1550) as their default 5v5 and 8v8 deck,
+            # plus 3 sample multi-faction collectible cards in their binder (Folger P Custodes, Folger P Necrons, John Hsieh Necrons)
+            # so they can immediately see multi-faction player cards in their collection or equip them!
+            initial_owned: Dict[str, Dict[str, Any]] = {
+                "tcg_folger_p__adeptus_custodes": {"copies": 1, "acquired_at": "Starter Welcome Drop"},
+                "tcg_folger_p__necrons": {"copies": 1, "acquired_at": "Starter Welcome Drop"},
+                "tcg_john_hsieh__necrons": {"copies": 1, "acquired_at": "Starter Welcome Drop"},
+            }
+            self._memory_tcg_profiles[uid] = {
+                "user_id": uid,
+                "spendable_glory": 1390,
+                "owned_collectibles": initial_owned,
+                "owned_cards": initial_owned,
+                "deck_5v5": default_5v5,
+                "deck_8v8": default_8v8,
+                "deck_name_5v5": "Starter Faction Strike Force (5v5)",
+                "deck_name_8v8": "Starter Faction Grand Battleline (8v8)",
+                "active_format": "5v5",
+                "pity_counter": 3,
+                "pity_target": 10,
+                "packs_opened": 0,
+                "glory_rebates_earned": 0,
+                "daily_claims": 0,
+                "pack_history": [],
+            }
+        doc = self._memory_tcg_profiles[uid]
+        if "owned_cards" in doc and doc.get("owned_cards") is not doc.get("owned_collectibles"):
+            doc["owned_collectibles"] = doc["owned_cards"]
+        else:
+            doc["owned_cards"] = doc.setdefault("owned_collectibles", {})
+        return doc
+
+    def claim_tcg_daily_glory(self, user_id: str = "dev_user", amount: int = 1000) -> Dict[str, Any]:
+        doc = self._get_or_init_tcg_doc(user_id)
+        bonus = max(1, int(amount or 1000))
+        doc["spendable_glory"] = int(doc.get("spendable_glory", 1390)) + bonus
+        doc["daily_claims"] = int(doc.get("daily_claims", 0)) + 1
+        state = self.get_user_tcg_state(user_id, glory_balance=doc["spendable_glory"])
+        return {
+            "ok": True,
+            "status_code": 200,
+            "claimed_glory": bonus,
+            "spendable_glory": doc["spendable_glory"],
+            "tcg_state": state,
+        }
+
+    def get_user_tcg_deck_roster(self, user_id: str = "dev_user", format_size: str = "5v5") -> List[Dict[str, Any]]:
+        fmt = "8v8" if str(format_size or "5v5").strip().lower() in ("8v8", "8") else "5v5"
+        st = self.get_user_tcg_state(user_id)
+        deck_cards = st.get("deck_8v8_cards") if fmt == "8v8" else st.get("deck_5v5_cards")
+        if not isinstance(deck_cards, list) or not deck_cards:
+            deck_cards = st.get("starter_cards", [])[: (8 if fmt == "8v8" else 5)]
+        roster: List[Dict[str, Any]] = []
+        for idx, c in enumerate(deck_cards[: (8 if fmt == "8v8" else 5)]):
+            is_st = bool(c.get("is_starter", False))
+            roster.append({
+                "id": f"A{idx + 1}",
+                "card_id": c.get("card_id"),
+                "name": c.get("name") or (c.get("faction") if is_st else c.get("player_name")),
+                "player_name": "" if is_st else str(c.get("player_name") or c.get("name") or ""),
+                "faction": c.get("faction") or "Space Marines",
+                "detachment": c.get("detachment") or "Index / Strike Force",
+                "elo": int(c.get("current_elo") or c.get("elo") or (1500 if is_st else 2000)),
+                "current_elo": int(c.get("current_elo") or c.get("elo") or (1500 if is_st else 2000)),
+                "role": c.get("role_tag") or c.get("role") or "All-Rounder",
+                "role_tag": c.get("role_tag") or c.get("role") or "All-Rounder",
+                "is_starter": is_st,
+                "rarity": c.get("rarity") or ("starter" if is_st else "common"),
+                "rarity_label": c.get("rarity_label") or ("STARTER FACTION" if is_st else "COMMON"),
+                "copies": int(c.get("copies") or 1),
+                "foil_tier": c.get("foil_tier") or "★1 Base Set",
+                "team": "A",
+                "status": "bench",
+            })
+        return roster
+
+    def get_user_tcg_state(self, user_id: str = "dev_user", glory_balance: Optional[int] = None) -> Dict[str, Any]:
+        import copy
+        doc = self._get_or_init_tcg_doc(user_id)
+        if glory_balance is not None:
+            doc["spendable_glory"] = int(glory_balance)
+        eff_glory = int(doc.get("spendable_glory", 1390))
+
+        starter_cards = self.get_tcg_starter_cards(user_id)
+        collectible_pool = self.get_tcg_collectible_pool()
+
+        owned_map: Dict[str, Dict[str, Any]] = doc.get("owned_collectibles") or {}
+        card_lookup: Dict[str, Dict[str, Any]] = {}
+        for sc in starter_cards:
+            card_lookup[sc["card_id"]] = sc
+
+        hydrated_pool: List[Dict[str, Any]] = []
+        owned_collectible_cards: List[Dict[str, Any]] = []
+        for cc in collectible_pool:
+            cid = cc["card_id"]
+            own_meta = owned_map.get(cid)
+            copies = int(own_meta.get("copies", 1)) if isinstance(own_meta, dict) else 0
+            c_copy = copy.deepcopy(cc)
+            c_copy["owned"] = copies > 0
+            c_copy["copies"] = copies
+            c_copy["foil_tier"] = self._foil_tier_for_copies(copies) if copies > 0 else "Locked"
+            hydrated_pool.append(c_copy)
+            card_lookup[cid] = c_copy
+            if copies > 0:
+                owned_collectible_cards.append(c_copy)
+
+        def _resolve_deck(cid_list: List[str], target_len: int) -> Tuple[List[str], List[Dict[str, Any]]]:
+            clean_ids: List[str] = []
+            cards_out: List[Dict[str, Any]] = []
+            for cid in cid_list or []:
+                if cid in card_lookup and cid not in clean_ids:
+                    c_obj = card_lookup[cid]
+                    if c_obj.get("is_starter") or c_obj.get("owned"):
+                        clean_ids.append(cid)
+                        cards_out.append(copy.deepcopy(c_obj))
+                if len(clean_ids) >= target_len:
+                    break
+            for sc in starter_cards:
+                if len(clean_ids) >= target_len:
+                    break
+                if sc["card_id"] not in clean_ids:
+                    clean_ids.append(sc["card_id"])
+                    cards_out.append(copy.deepcopy(sc))
+            return clean_ids, cards_out
+
+        deck_5v5_ids, deck_5v5_cards = _resolve_deck(doc.get("deck_5v5") or [], 5)
+        deck_8v8_ids, deck_8v8_cards = _resolve_deck(doc.get("deck_8v8") or [], 8)
+        doc["deck_5v5"] = deck_5v5_ids
+        doc["deck_8v8"] = deck_8v8_ids
+
+        avg_5v5 = int(round(sum(int(c["elo"]) for c in deck_5v5_cards) / max(1, len(deck_5v5_cards))))
+        avg_8v8 = int(round(sum(int(c["elo"]) for c in deck_8v8_cards) / max(1, len(deck_8v8_cards))))
+
+        # Group multi-faction showcase players (e.g. Folger P -> Custodes + Necrons + CSM)
+        multi_map: Dict[str, List[Dict[str, Any]]] = {}
+        for cc in hydrated_pool:
+            if int(cc.get("player_faction_count") or 1) > 1:
+                multi_map.setdefault(cc["player_name"], []).append(cc)
+
+        multi_showcase = [
+            {
+                "player_name": p_name,
+                "live_elo": cards[0]["current_elo"],
+                "rarity": cards[0]["rarity"],
+                "rarity_label": cards[0]["rarity_label"],
+                "owned_count": sum(1 for c in cards if c.get("owned")),
+                "total_factions": len(cards),
+                "cards": cards,
+            }
+            for p_name, cards in multi_map.items()
+        ]
+
+        economy_analysis = {
+            "starter_preset_elo_range": "1450–1550 (28 Factions, Free Pre-Set Deck, No Player Name)",
+            "live_elo_sync": "All collectible player cards dynamically mirror the real player's live Elo in player_ratings.",
+            "multi_faction_rule": "A single real player can have multiple cards across factions (e.g. Folger P [Adeptus Custodes] & Folger P [Necrons]). Each faction card is collected separately and updates live when the player's Elo changes.",
+            "pity_system": "10-Point Mythic Pity Timer: Every pack adds +1 to +3 Pity. Reaching 10/10 guarantees a 2080+ Elo Mythic Warlord card on the next pack.",
+            "intra_tier_weighting": "Inverse-Elo weighting inside Epic & Mythic tiers makes 2250+ Elo world champions 3.5x rarer than entry 2080 Mythics.",
+            "duplicate_protection": "Duplicate pulls upgrade card Foil Mastery (★1 -> ★5) and refund Glory Shards (+20 Common, +45 Rare, +100 Epic, +250 Mythic).",
+        }
+
+        all_owned_cards = owned_collectible_cards + starter_cards
+        return {
+            "ok": True,
+            "user_id": doc["user_id"],
+            "spendable_glory": eff_glory,
+            "pity_counter": int(doc.get("pity_counter", 3)),
+            "pity_target": int(doc.get("pity_target", 10)),
+            "pity_threshold": int(doc.get("pity_target", 10)),
+            "packs_opened": int(doc.get("packs_opened", 0)),
+            "glory_rebates_earned": int(doc.get("glory_rebates_earned", 0)),
+            "active_format": str(doc.get("active_format") or "5v5"),
+            "deck_name_5v5": str(doc.get("deck_name_5v5") or "Starter Faction Strike Force (5v5)"),
+            "deck_name_8v8": str(doc.get("deck_name_8v8") or "Starter Faction Grand Battleline (8v8)"),
+            "deck_5v5": deck_5v5_ids,
+            "deck_8v8": deck_8v8_ids,
+            "deck_5v5_cards": deck_5v5_cards,
+            "deck_8v8_cards": deck_8v8_cards,
+            "deck_5v5_avg_elo": avg_5v5,
+            "deck_8v8_avg_elo": avg_8v8,
+            "starter_cards": starter_cards,
+            "owned_cards": all_owned_cards,
+            "owned_collectible_cards": owned_collectible_cards,
+            "owned_total_count": len(all_owned_cards),
+            "collectible_pool": hydrated_pool,
+            "collectible_catalog": hydrated_pool,
+            "total_starter_cards": len(starter_cards),
+            "total_owned_collectibles": len(owned_collectible_cards),
+            "total_collectible_pool": len(hydrated_pool),
+            "pack_catalog": dict(self.TCG_PACK_CATALOG),
+            "rarity_meta": self.TCG_RARITY_META,
+            "multi_faction_showcase": multi_showcase,
+            "multi_faction_players": multi_showcase,
+            "economy_analysis": economy_analysis,
+            "pack_history": list(doc.get("pack_history") or [])[:10],
+        }
+
+    def _pick_weighted_tcg_card(
+        self,
+        pool_by_rarity: Dict[str, List[Dict[str, Any]]],
+        odds_map: Dict[str, int],
+        force_rarity: Optional[str] = None,
+        rng: Any = None,
+    ) -> Dict[str, Any]:
+        import random
+        rand = rng if rng is not None else random
+        if force_rarity and pool_by_rarity.get(force_rarity):
+            chosen_rarity = force_rarity
+        else:
+            tiers = []
+            weights = []
+            for r_key in ("mythic", "epic", "rare", "common"):
+                w = float(odds_map.get(r_key, 0))
+                if w > 0 and pool_by_rarity.get(r_key):
+                    tiers.append(r_key)
+                    weights.append(w)
+            if not tiers:
+                tiers = ["common"]
+                weights = [100.0]
+            chosen_rarity = rand.choices(tiers, weights=weights, k=1)[0]
+
+        candidates = pool_by_rarity.get(chosen_rarity) or pool_by_rarity.get("rare") or pool_by_rarity.get("common") or []
+        if not candidates:
+            all_c = [c for sub in pool_by_rarity.values() for c in sub]
+            return rand.choice(all_c)
+
+        # Inverse-Elo intra-tier weighting so 2300+ Elo legends are rarer than 2080 Elo Mythics
+        tier_floor = int(self.TCG_RARITY_META.get(chosen_rarity, {}).get("min_elo", 1550))
+        c_weights = [
+            1.0 / ((1.0 + max(0.0, float(c.get("current_elo") or c.get("elo") or tier_floor) - tier_floor) / 90.0) ** 1.65)
+            for c in candidates
+        ]
+        return rand.choices(candidates, weights=c_weights, k=1)[0]
+
+    def open_tcg_card_pack(
+        self,
+        user_id: str = "dev_user",
+        pack_type: str = "recruit",
+        glory_balance: Optional[int] = None,
+        forced_card_ids: Optional[List[str]] = None,
+        seed: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        import copy
+        import random
+        p_key = self._normalize_pack_type_key(pack_type)
+        if p_key not in self.TCG_PACK_CATALOG:
+            return {
+                "ok": False,
+                "status_code": 400,
+                "error": f"Unknown pack_type '{pack_type}'. Valid types: {', '.join(self.TCG_PACK_CATALOG.keys())}",
+            }
+
+        doc = self._get_or_init_tcg_doc(user_id)
+        if glory_balance is not None:
+            doc["spendable_glory"] = int(glory_balance)
+        avail_glory = int(doc.get("spendable_glory", 1390))
+
+        pack_cfg = self.TCG_PACK_CATALOG[p_key]
+        cost_glory = int(pack_cfg["cost_glory"])
+        if avail_glory < cost_glory:
+            return {
+                "ok": False,
+                "status_code": 400,
+                "error": f"Insufficient Spendable Glory Honor ({avail_glory} available, {cost_glory} required for {pack_cfg['name']}).",
+                "spendable_glory": avail_glory,
+                "required_glory": cost_glory,
+            }
+
+        rng = random.Random(seed) if seed is not None else random
+        pool = self.get_tcg_collectible_pool()
+        pool_by_id = {c["card_id"]: c for c in pool}
+        pool_by_rarity: Dict[str, List[Dict[str, Any]]] = {"common": [], "rare": [], "epic": [], "mythic": []}
+        for c in pool:
+            pool_by_rarity.setdefault(c["rarity"], []).append(c)
+
+        pity_before = int(doc.get("pity_counter", 0))
+        pity_target = int(doc.get("pity_target", 10))
+        pity_inc = int(pack_cfg.get("pity_increment", 1))
+        pity_triggered = (pity_before + pity_inc) >= pity_target
+
+        card_count = int(pack_cfg["card_count"])
+        raw_pulls: List[Dict[str, Any]] = []
+        if isinstance(forced_card_ids, list) and forced_card_ids:
+            for cid in forced_card_ids[:card_count]:
+                if cid in pool_by_id:
+                    raw_pulls.append(copy.deepcopy(pool_by_id[cid]))
+        while len(raw_pulls) < card_count:
+            slot_idx = len(raw_pulls)
+            if slot_idx == 0 and pity_triggered:
+                picked = self._pick_weighted_tcg_card(pool_by_rarity, pack_cfg["slot1_odds"], force_rarity="mythic", rng=rng)
+            elif slot_idx == 0:
+                picked = self._pick_weighted_tcg_card(pool_by_rarity, pack_cfg["slot1_odds"], rng=rng)
+            else:
+                picked = self._pick_weighted_tcg_card(pool_by_rarity, pack_cfg["odds"], rng=rng)
+            raw_pulls.append(copy.deepcopy(picked))
+
+        owned_map = doc.setdefault("owned_collectibles", {})
+        doc["owned_cards"] = owned_map
+        total_rebate = 0
+        pulled_Mythic = False
+        hydrated_pulls: List[Dict[str, Any]] = []
+
+        for c in raw_pulls:
+            cid = c["card_id"]
+            if c["rarity"] == "mythic":
+                pulled_Mythic = True
+            prev_entry = owned_map.get(cid)
+            was_duplicate = isinstance(prev_entry, dict) and int(prev_entry.get("copies", 0)) >= 1
+            new_copies = (int(prev_entry.get("copies", 0)) + 1) if isinstance(prev_entry, dict) else 1
+            owned_map[cid] = {
+                "copies": new_copies,
+                "acquired_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            rebate = int(c.get("duplicate_rebate") or 0) if was_duplicate else 0
+            total_rebate += rebate
+            c["is_new"] = not was_duplicate
+            c["is_duplicate"] = was_duplicate
+            c["rebate_glory"] = rebate
+            c["duplicate_rebate_glory"] = rebate
+            c["copies"] = new_copies
+            c["foil_tier"] = self._foil_tier_for_copies(new_copies)
+            c["owned"] = True
+            hydrated_pulls.append(c)
+
+        if pulled_Mythic or pity_triggered:
+            doc["pity_counter"] = 0
+        else:
+            doc["pity_counter"] = min(pity_target, pity_before + pity_inc)
+
+        doc["packs_opened"] = int(doc.get("packs_opened", 0)) + 1
+        doc["glory_rebates_earned"] = int(doc.get("glory_rebates_earned", 0)) + total_rebate
+        net_glory_spent = max(0, cost_glory - total_rebate)
+        new_glory_balance = avail_glory - net_glory_spent
+        doc["spendable_glory"] = new_glory_balance
+
+        summary_entry = {
+            "pack_type": p_key,
+            "pack_name": pack_cfg["name"],
+            "cost_glory": cost_glory,
+            "rebate_glory": total_rebate,
+            "net_glory_spent": net_glory_spent,
+            "pity_triggered": pity_triggered,
+            "cards": [
+                {
+                    "card_id": c["card_id"],
+                    "player_name": c["player_name"],
+                    "faction": c["faction"],
+                    "elo": c["current_elo"],
+                    "rarity": c["rarity"],
+                    "is_new": c["is_new"],
+                }
+                for c in hydrated_pulls
+            ],
+        }
+        doc.setdefault("pack_history", []).insert(0, summary_entry)
+
+        state = self.get_user_tcg_state(user_id, glory_balance=new_glory_balance)
+        return {
+            "ok": True,
+            "status_code": 200,
+            "pack": pack_cfg,
+            "pulled_cards": hydrated_pulls,
+            "cost_glory": cost_glory,
+            "glory_spent": cost_glory,
+            "glory_rebate": total_rebate,
+            "duplicate_rebate_glory": total_rebate,
+            "net_glory_spent": net_glory_spent,
+            "net_glory_cost": net_glory_spent,
+            "spendable_glory": new_glory_balance,
+            "pity_before": pity_before,
+            "pity_after": doc["pity_counter"],
+            "pity_target": pity_target,
+            "pity_triggered": pity_triggered,
+            "tcg_state": state,
+        }
+
+    def save_user_tcg_deck(
+        self,
+        user_id: str = "dev_user",
+        payload: Optional[Dict[str, Any]] = None,
+        format_size: Optional[str] = None,
+        card_ids: Optional[List[str]] = None,
+        deck_name: Optional[str] = None,
+        mode: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        req = dict(payload) if isinstance(payload, dict) else {}
+        if format_size is not None:
+            req["format_size"] = format_size
+        if card_ids is not None:
+            req["card_ids"] = card_ids
+        if deck_name is not None:
+            req["deck_name"] = deck_name
+        if mode is not None:
+            req["mode"] = mode
+
+        doc = self._get_or_init_tcg_doc(user_id)
+        fmt = "8v8" if str(req.get("format_size") or req.get("format") or doc.get("active_format") or "5v5").strip().lower() in ("8v8", "8") else "5v5"
+        target_size = 8 if fmt == "8v8" else 5
+        doc["active_format"] = fmt
+
+        eff_mode = str(req.get("mode") or "custom").strip().lower()
+        starters = self.get_tcg_starter_cards(user_id)
+        state_now = self.get_user_tcg_state(user_id)
+        owned_collectibles = state_now.get("owned_collectible_cards") or []
+
+        if eff_mode in ("reset_starter", "starter", "default_starter"):
+            chosen_ids = [c["card_id"] for c in starters[:target_size]]
+            doc[f"deck_name_{fmt}"] = f"Starter Faction Strike Force ({fmt})"
+        elif eff_mode in ("auto_best", "best_owned", "auto"):
+            chosen_ids = []
+            used_players = set()
+            # Sort owned collectibles by live Elo descending; allow max 1 card per real player in a single team deck!
+            for c in sorted(owned_collectibles, key=lambda x: int(x.get("current_elo") or x.get("elo") or 0), reverse=True):
+                if len(chosen_ids) >= target_size:
+                    break
+                p_norm = str(c.get("player_name") or "").strip().lower()
+                if p_norm and p_norm in used_players:
+                    continue
+                chosen_ids.append(c["card_id"])
+                if p_norm:
+                    used_players.add(p_norm)
+            for sc in starters:
+                if len(chosen_ids) >= target_size:
+                    break
+                if sc["card_id"] not in chosen_ids:
+                    chosen_ids.append(sc["card_id"])
+            doc[f"deck_name_{fmt}"] = f"Commander Pro & Starter Hybrid ({fmt})"
+        else:
+            raw_ids = req.get("card_ids") or req.get("deck") or []
+            if not isinstance(raw_ids, list):
+                raw_ids = []
+            valid_map = {c["card_id"]: c for c in starters}
+            for c in owned_collectibles:
+                valid_map[c["card_id"]] = c
+
+            chosen_ids = []
+            used_players = set()
+            skipped_duplicate_players: List[str] = []
+            for cid in raw_ids:
+                s_cid = str(cid or "").strip()
+                if s_cid not in valid_map or s_cid in chosen_ids:
+                    continue
+                c_obj = valid_map[s_cid]
+                p_norm = str(c_obj.get("player_name") or "").strip().lower()
+                # Prevent fielding the exact same real player twice on the same team (e.g. Folger Custodes + Folger Necrons simultaneously):
+                # skip the duplicate real player card and backfill with Starter Faction cards.
+                if p_norm and p_norm in used_players:
+                    skipped_duplicate_players.append(str(c_obj.get("player_name") or ""))
+                    continue
+                chosen_ids.append(s_cid)
+                if p_norm:
+                    used_players.add(p_norm)
+                if len(chosen_ids) >= target_size:
+                    break
+
+            for sc in starters:
+                if len(chosen_ids) >= target_size:
+                    break
+                if sc["card_id"] not in chosen_ids:
+                    chosen_ids.append(sc["card_id"])
+
+            if req.get("deck_name"):
+                doc[f"deck_name_{fmt}"] = str(req["deck_name"]).strip()[:60]
+
+        doc[f"deck_{fmt}"] = chosen_ids[:target_size]
+        updated_state = self.get_user_tcg_state(user_id, glory_balance=req.get("glory_balance"))
+        return {
+            "ok": True,
+            "status_code": 200,
+            "format_size": fmt,
+            "deck_card_ids": doc[f"deck_{fmt}"],
+            "deck_cards": updated_state[f"deck_{fmt}_cards"],
+            "deck_name": updated_state[f"deck_name_{fmt}"],
+            "tcg_state": updated_state,
         }
 
 

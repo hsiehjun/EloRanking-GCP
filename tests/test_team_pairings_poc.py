@@ -1161,7 +1161,259 @@ class TestTeamPairingsPoC(unittest.TestCase):
             self.assertEqual(disc_res["status"], "abandoned")
             self.assertIsNone(self.engine.get_pairing_room_raw(wtc_code2))
 
+    def test_tcg_starter_preset_28_factions_1450_to_1550_elo_no_player_name(self):
+        """Verify every user starts with all 28 factions as pre-set Starter Cards (no player name, 1450-1550 randomized Elo) and default 5v5/8v8 Starter decks."""
+        uid = "u_tcg_starter_fresh"
+        state = self.engine.get_user_tcg_state(uid)
+        self.assertTrue(state["ok"])
+
+        starters = state["starter_cards"]
+        self.assertEqual(len(starters), 28, "Expected all 28 Warhammer 40K factions in pre-set Starter Card list")
+        for c in starters:
+            self.assertTrue(c["is_starter"])
+            self.assertEqual(c["player_name"], "")
+            self.assertEqual(c["name"], c["faction"])
+            self.assertEqual(c["rarity"], "starter")
+            self.assertGreaterEqual(c["elo"], 1450)
+            self.assertLessEqual(c["elo"], 1550)
+            self.assertTrue(c["owned"])
+
+        # Default 5v5 and 8v8 decks for a brand-new user are built from Starter Faction Cards (1450-1550 Elo)
+        self.assertEqual(len(state["deck_5v5_cards"]), 5)
+        self.assertEqual(len(state["deck_8v8_cards"]), 8)
+        for c in state["deck_5v5_cards"]:
+            self.assertTrue(c["is_starter"])
+            self.assertGreaterEqual(c["elo"], 1450)
+            self.assertLessEqual(c["elo"], 1550)
+
+    def test_tcg_multi_faction_real_player_cards_and_dynamic_live_elo_sync(self):
+        """Verify a single real player has multiple faction cards (e.g. Folger P as Custodes & Necrons) and changing their live Elo dynamically updates all their cards and active rooms."""
+        uid = "u_tcg_folger_sync"
+        state0 = self.engine.get_user_tcg_state(uid)
+        folger_cards = [
+            c for c in state0["collectible_catalog"]
+            if c["player_name"].lower() == "folger p"
+        ]
+        self.assertGreaterEqual(len(folger_cards), 2, "Expected Folger P to have multiple faction cards (Custodes, Necrons, etc.)")
+        folger_factions = {c["faction"] for c in folger_cards}
+        self.assertIn("Adeptus Custodes", folger_factions)
+        self.assertIn("Necrons", folger_factions)
+
+        # Equip Folger P (Adeptus Custodes) into a room roster
+        created = self.engine.create_pairing_room({"format_size": "5v5", "vs_ai": True, "user_id": uid, "room_mode": "casual_tcg"})
+        code = created["room_code"]
+        tok_a = created["captain_a_token"]
+
+        folger_custodes = next(c for c in folger_cards if c["faction"] == "Adeptus Custodes")
+        starter_four = state0["starter_cards"][:4]
+        custom_roster = [folger_custodes] + starter_four
+        set_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": uid,
+            "captain_token": tok_a,
+            "action": "set_team_roster",
+            "payload": {
+                "format_size": "5v5",
+                "team_name": "Folger Strike",
+                "roster": custom_roster,
+            },
+        })
+        self.assertTrue(set_res["ok"])
+
+        try:
+            # Update Folger P's live rating to 2165 (Mythic Warlord tier >= 2080)
+            self.engine.update_live_player_elo_override("Folger P", 2165)
+
+            state1 = self.engine.get_user_tcg_state(uid)
+            updated_folger_cards = [
+                c for c in state1["collectible_catalog"]
+                if c["player_name"].lower() == "folger p"
+            ]
+            for fc in updated_folger_cards:
+                self.assertEqual(fc["elo"], 2165, f"Expected {fc['card_id']} to sync live Elo 2165")
+                self.assertEqual(fc["rarity"], "mythic", "Expected 2165 Elo to dynamically upgrade rarity to mythic")
+
+            # Also verify active pairing room hydrates Folger P's new live Elo while preserving Starter 1450-1550 Elos
+            raw_room = self.engine.get_pairing_room_raw(code)
+            masked_room = self.engine.mask_pairing_room_for_viewer(raw_room, "captain_a", tok_a)
+            roster_a = masked_room["team_a"]["roster"]
+            self.assertEqual(roster_a[0]["name"], "Folger P")
+            self.assertEqual(roster_a[0]["elo"], 2165)
+            for sc in roster_a[1:]:
+                self.assertTrue(sc["is_starter"])
+                self.assertGreaterEqual(sc["elo"], 1450)
+                self.assertLessEqual(sc["elo"], 1550)
+        finally:
+            self.engine.update_live_player_elo_override("Folger P", 2070)
+
+    def test_tcg_pack_store_pricing_pity_guarantee_and_duplicate_glory_rebate(self):
+        """Verify 3-tier pack pricing (150/380/850), Warlord 0% Common & Guaranteed Epic/Mythic Slot 1, 10-point Mythic Pity guarantee, and duplicate Glory rebates."""
+        uid = "u_tcg_pack_opener"
+        self.engine.claim_tcg_daily_glory(uid, amount=5000)
+        st = self.engine.get_user_tcg_state(uid)
+        self.assertGreaterEqual(st["spendable_glory"], 5000)
+
+        # 1. Open a Warlord Command Crate (850 Glory, 5 cards, 0% Common, Slot 1 Epic/Mythic, +3 Pity)
+        res_w = self.engine.open_tcg_card_pack(uid, pack_type="warlord", seed=42)
+        self.assertTrue(res_w["ok"])
+        self.assertEqual(res_w["glory_spent"], 850)
+        self.assertEqual(len(res_w["pulled_cards"]), 5)
+        self.assertIn(res_w["pulled_cards"][0]["rarity"], ("epic", "mythic"))
+        for c in res_w["pulled_cards"]:
+            self.assertNotEqual(c["rarity"], "common", "Warlord Command Crate must have 0% Common cards")
+
+        # 2. Push Pity Counter to >= 10 and verify next pack triggers 10/10 Mythic Pity on Slot 1 (2080+ Elo)
+        self.engine._tcg_user_state[uid]["pity_counter"] = 9
+        res_pity = self.engine.open_tcg_card_pack(uid, pack_type="recruit", seed=99)
+        self.assertTrue(res_pity["ok"])
+        self.assertTrue(res_pity["pity_triggered"], "Expected 9 + 1 = 10/10 Pity to trigger Guaranteed Mythic")
+        self.assertEqual(res_pity["pulled_cards"][0]["rarity"], "mythic")
+        self.assertGreaterEqual(res_pity["pulled_cards"][0]["elo"], 2080)
+        self.assertEqual(res_pity["tcg_state"]["pity_counter"], 0, "Pity counter must reset to 0 after Mythic pull")
+
+    def test_tcg_deck_construction_one_card_per_real_player_and_casual_vs_tournament_separation(self):
+        """Verify 1-card-per-real-player deck rule and strict separation between Casual TCG Mode and Official Tournament Mode."""
+        uid = "u_tcg_deck_rules"
+        # Unlock both Folger P (Adeptus Custodes) and Folger P (Necrons) for this user
+        st0 = self.engine.get_user_tcg_state(uid)
+        folger_cards = [c for c in st0["collectible_catalog"] if c["player_name"].lower() == "folger p"]
+        f_cust = next(c for c in folger_cards if c["faction"] == "Adeptus Custodes")
+        f_nec = next(c for c in folger_cards if c["faction"] == "Necrons")
+        self.engine._tcg_user_state[uid]["owned_cards"][f_cust["card_id"]] = {"copies": 1, "first_acquired_at": 1}
+        self.engine._tcg_user_state[uid]["owned_cards"][f_nec["card_id"]] = {"copies": 1, "first_acquired_at": 2}
+
+        # Attempt to save a 5v5 deck containing BOTH Folger Custodes and Folger Necrons
+        starter_ids = [c["card_id"] for c in st0["starter_cards"][:4]]
+        save_res = self.engine.save_user_tcg_deck(
+            uid,
+            format_size="5v5",
+            card_ids=[f_cust["card_id"], f_nec["card_id"]] + starter_ids,
+            deck_name="Folger Test Deck",
+            mode="custom",
+        )
+        self.assertTrue(save_res["ok"])
+        saved_cards = save_res["tcg_state"]["deck_5v5_cards"]
+        self.assertEqual(len(saved_cards), 5)
+        folger_in_deck = [c for c in saved_cards if c.get("player_name", "").lower() == "folger p"]
+        self.assertEqual(len(folger_in_deck), 1, "Deck construction must enforce at most 1 card per real player")
+
+        # Verify Casual TCG room creation vs Official Tournament room creation
+        casual_room = self.engine.create_pairing_room({
+            "format_size": "5v5",
+            "user_id": uid,
+            "room_mode": "casual_tcg",
+            "vs_ai": True,
+        })
+        self.assertEqual(casual_room["room_mode"], "casual_tcg")
+        self.assertEqual(len(casual_room["team_a"]["roster"]), 5)
+        self.assertEqual(casual_room["team_a"]["roster"][0]["name"], "Folger P")
+
+        tourney_room = self.engine.create_pairing_room({
+            "format_size": "5v5",
+            "user_id": uid,
+            "room_mode": "tournament",
+            "empty_rosters": False,
+        })
+        self.assertEqual(tourney_room["room_mode"], "tournament")
+        self.assertTrue(all(not p.get("is_starter") for p in tourney_room["team_a"]["roster"]))
+
+    def test_tcg_api_endpoints_sub_1s_latency(self):
+        """Verify all TCG backend and HTTP handler calls execute well under 1000ms (< 1s)."""
+        import time
+
+        uid = "u_tcg_perf_bench"
+
+        t0 = time.perf_counter()
+        s_res = self.engine.get_user_tcg_state(uid)
+        ms_state = (time.perf_counter() - t0) * 1000.0
+        self.assertTrue(s_res["ok"])
+        self.assertLess(ms_state, 1000.0, f"get_user_tcg_state took {ms_state:.2f}ms (> 1000ms)")
+
+        t0 = time.perf_counter()
+        c_res = self.engine.claim_tcg_daily_glory(uid, amount=1000)
+        ms_claim = (time.perf_counter() - t0) * 1000.0
+        self.assertTrue(c_res["ok"])
+        self.assertLess(ms_claim, 1000.0, f"claim_tcg_daily_glory took {ms_claim:.2f}ms (> 1000ms)")
+
+        t0 = time.perf_counter()
+        p_res = self.engine.open_tcg_card_pack(uid, pack_type="veteran")
+        ms_pack = (time.perf_counter() - t0) * 1000.0
+        self.assertTrue(p_res["ok"])
+        self.assertLess(ms_pack, 1000.0, f"open_tcg_card_pack took {ms_pack:.2f}ms (> 1000ms)")
+
+        t0 = time.perf_counter()
+        d_res = self.engine.save_user_tcg_deck(uid, format_size="5v5", mode="auto_best")
+        ms_deck = (time.perf_counter() - t0) * 1000.0
+        self.assertTrue(d_res["ok"])
+        self.assertLess(ms_deck, 1000.0, f"save_user_tcg_deck took {ms_deck:.2f}ms (> 1000ms)")
+
+    def test_on_field_combat_no_popup_no_skip_dice_and_universal_live_elo_sync(self):
+        """Verify Master Duel on-field combat stage (no popup modal), removal of skip-dice-roll Tactical Guarantee UI, and universal live Elo sync across search, team rosters, and locked pairings."""
+        tp_html = (ROOT_DIR / "web" / "team_pairings" / "index.html").read_text(encoding="utf-8")
+        tp_js = (ROOT_DIR / "web" / "team_pairings" / "app.js").read_text(encoding="utf-8")
+
+        # 1. Verify On-Field Combat Stage exists on the playmat and old popup / skip-dice-roll UI are gone
+        self.assertIn('id="onFieldCombatStage"', tp_html)
+        self.assertIn('id="ofcFighterMy"', tp_html)
+        self.assertIn('id="ofcFighterOpp"', tp_html)
+        self.assertIn('id="ofcWtcScoreCard"', tp_html)
+        self.assertNotIn('id="battleClashModalBackdrop"', tp_html)
+        self.assertNotIn('id="tacticalGuaranteeBox"', tp_html)
+        self.assertNotIn('id="btnArmGuarantee"', tp_html)
+        self.assertNotIn('id="btnClashUseGuarantee"', tp_html)
+        self.assertIn("playOnFieldCombatAnimation", tp_js)
+        self.assertIn("applyPendingFlightAnimations", tp_js)
+        self.assertNotIn("toggleArmGuarantee", tp_js)
+
+        # 2. Verify live Elo updates propagate everywhere (TCG state, search_real_teams_and_players, get_real_team_roster, and active room pairings)
+        room = self.engine.create_pairing_room(
+            format_size="5v5",
+            team_a_preset="art_of_war",
+            team_b_preset="team_zero_comp",
+            vs_ai=True,
+            created_by="hsiehjun",
+        )
+        code = room["room_code"]
+        tok_a = room["captain_a_token"]
+
+        # Complete Cycle 1 so Table #1 is locked with John Lennon
+        res1 = self.engine.apply_pairing_action(code, role="captain_a", captain_token=tok_a, action="lock_defender", payload={"player_id": "A1", "vs_ai": True})
+        r_step2 = res1["room"]
+        bench_a = [p["id"] for p in r_step2["team_a"]["roster"] if p["status"] == "bench"]
+        res2 = self.engine.apply_pairing_action(code, role="captain_a", captain_token=tok_a, action="lock_attackers", payload={"player_ids": bench_a[:2], "vs_ai": True})
+        r_step3 = res2["room"]
+        att_b = r_step3["active_attackers_b"][0]["id"]
+        self.engine.apply_pairing_action(code, role="captain_a", captain_token=tok_a, action="lock_choice", payload={"player_id": att_b, "vs_ai": True})
+
+        try:
+            # Update John Lennon's live Elo to 2210
+            self.engine.update_live_player_elo_override("John Lennon", 2210)
+
+            # Check search_real_teams_and_players
+            s_res = self.engine.search_real_teams_and_players(query="John Lennon", game_system="40k")
+            jl_search = [p for p in s_res["players"] if p["name"].lower() == "john lennon"]
+            self.assertTrue(len(jl_search) >= 1)
+            self.assertEqual(jl_search[0]["elo"], 2210)
+
+            # Check get_real_team_roster
+            t_res = self.engine.get_real_team_roster("Art of War", game_system="40k")
+            jl_team = [p for p in t_res["roster"] if p["name"].lower() == "john lennon"]
+            if jl_team:
+                self.assertEqual(jl_team[0]["elo"], 2210)
+
+            # Check masked pairing room (both team_a.roster AND locked pairings)
+            raw_after = self.engine.get_pairing_room_raw(code)
+            masked_after = self.engine.mask_pairing_room_for_viewer(raw_after, "captain_a", tok_a)
+            jl_roster = next(p for p in masked_after["team_a"]["roster"] if p["name"].lower() == "john lennon")
+            self.assertEqual(jl_roster["elo"], 2210)
+            jl_paired = [m["player_a"] for m in masked_after["pairings"] if m["player_a"]["name"].lower() == "john lennon"]
+            self.assertTrue(len(jl_paired) >= 1)
+            self.assertEqual(jl_paired[0]["elo"], 2210)
+        finally:
+            self.engine.update_live_player_elo_override("John Lennon", 2145)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

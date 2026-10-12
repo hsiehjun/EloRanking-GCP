@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/team-pairings/styles.css?v=9">
+  <link rel="stylesheet" href="/team-pairings/styles.css?v=13">
 </head>
 <body>
   <div class="ygo-app-shell">
@@ -27,12 +27,15 @@
         </div>
       </div>
 
-      <!-- Quick Seat Pills & Room Roster / Coin Controls -->
+      <!-- Quick Seat Pills & Room Roster / TCG / Coin Controls -->
       <div class="topbar-center" id="roleSelectorPills">
         <button type="button" class="seat-chip active" id="btnRoleCapA" data-role="captain_a">👑 Team A Cap</button>
         <button type="button" class="seat-chip" id="btnRoleCapB" data-role="captain_b">👑 Team B Cap</button>
         <button type="button" class="seat-chip" id="btnRoleSpectator" data-role="spectator">👁️ Spectator</button>
         <button type="button" class="btn-lobby-open" id="btnOpenLobbyModal">🪑 Lobby &amp; Roster</button>
+        <button type="button" class="btn-lobby-open tcg-vault-pill-btn" id="btnOpenTcgVaultModal" title="Open TCG Player Card Collection, Glory Pack Store &amp; Casual Deck Builder">
+          🃏 TCG Cards &amp; Decks <span class="tcg-glory-chip" id="topbarGloryBadge">🪙 1,390</span>
+        </button>
         <button type="button" class="btn-lobby-open coin-pill-btn" id="btnOpenCoinFlipModal" title="Coin Flip for Defender / Attacker">🪙 Coin Flip</button>
       </div>
 
@@ -43,12 +46,12 @@
         <button type="button" id="btnTopbarClock" class="top-action-btn hud-tool-btn" title="Toggle WTC Captain Pairing Clock">
           ⏱️ <span id="topbarClockText">05:00</span>
         </button>
-        <button type="button" id="btnTopbarDice" class="top-action-btn hud-tool-btn" title="Open D100 &amp; WTC Battle Dice Roller">
-          🎲 Dice
+        <button type="button" id="btnTopbarDice" class="top-action-btn hud-tool-btn" title="Replay Latest On-Field Card Clash">
+          ⚔️ Clash
         </button>
-        <label class="ai-quick-toggle pred-score-toggle" id="lblPredictionScoringToggle" title="Toggle Casual Prediction Scoring Minigame (D100 Dice Roll + ±1 WTC Variance + 2 Tactical Guarantees) vs Pure Tournament Pairing Mode">
+        <label class="ai-quick-toggle pred-score-toggle" id="lblPredictionScoringToggle" title="Toggle On-Field Combat &amp; WTC Score Simulation vs Official Pairing Mode">
           <input type="checkbox" id="chkPredictionScoring" checked>
-          <span id="txtPredictionScoringToggle">🎲 Score Sim: ON</span>
+          <span id="predictionScoringToggleText">⚔️ Combat Score: ON</span>
         </label>
         <label class="ai-quick-toggle" title="Auto-play opposing Captain if seat is open">
           <input type="checkbox" id="chkVsAi" checked>
@@ -281,6 +284,37 @@
               </div>
             </div>
           </div>
+
+          <!-- ON-FIELD CARD COMBAT STAGE (Master Duel Style: Two Cards Brought to Front, Enlarged, Attack Animation & WTC Score Reveal) -->
+          <div class="on-field-combat-stage hidden" id="onFieldCombatStage" title="Click anywhere to fast-forward">
+            <div class="ofc-table-banner" id="ofcTableBanner">⚔️ TABLE #1 COMBAT</div>
+
+            <div class="ofc-combat-arena" id="ofcCombatArena">
+              <!-- Your Card Brought to Front & Enlarged -->
+              <div class="ofc-fighter ofc-fighter-left" id="ofcFighterMy">
+                <span class="ofc-owner-tag" id="ofcLeftOwnerTag">YOUR FIGHTER</span>
+                <div class="ofc-card-mount" id="ofcLeftCardMount"></div>
+              </div>
+
+              <!-- Center Attack Impact Slash + Post-Fight WTC Score Reveal -->
+              <div class="ofc-impact-fx" id="ofcImpactCenter">
+                <div class="ofc-slash-beam" id="ofcSlashBeam"></div>
+                <div class="ofc-shockwave-ring" id="ofcShockwaveRing"></div>
+
+                <div class="ofc-wtc-score-card" id="ofcWtcScoreCard">
+                  <span class="ofc-wtc-kicker" id="ofcWtcKicker">WTC SCORE</span>
+                  <div class="ofc-wtc-nums" id="ofcWtcScoreNums">13 – 7</div>
+                  <span class="ofc-wtc-verdict" id="ofcWtcWinnerTag">🏆 VICTORY ON TABLE #1</span>
+                </div>
+              </div>
+
+              <!-- Opponent Card Brought to Front & Enlarged -->
+              <div class="ofc-fighter ofc-fighter-right" id="ofcFighterOpp">
+                <span class="ofc-owner-tag" id="ofcRightOwnerTag">ENEMY FIGHTER</span>
+                <div class="ofc-card-mount" id="ofcRightCardMount"></div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- BOTTOM EDGE: YOUR HAND OF UPRIGHT COLLECTIBLE PLAYER CARDS -->
@@ -318,20 +352,6 @@
             <div class="duelist-sub" id="myHudCaptain">Cap: Team A Captain</div>
             <div class="duelist-status-pill" id="capAStatusPill">⏳ YOUR MOVE</div>
           </div>
-        </div>
-
-        <!-- Tactical Guarantee Ability Bar (Visible when Prediction Scoring is ON) -->
-        <div class="tactical-guarantee-box" id="tacticalGuaranteeBox">
-          <div class="tg-top-row">
-            <span class="tg-title">⚡ TACTICAL GUARANTEE</span>
-            <span class="tg-charges-badge" id="myGuaranteesLeftBadge">⚡⚡ 2 / 2 LEFT</span>
-          </div>
-          <div class="tg-desc">
-            Lock a high-confidence prediction (e.g. 80% ➔ 20-0) <strong>without rolling dice</strong>!
-          </div>
-          <button type="button" class="tg-arm-btn" id="btnArmGuarantee">
-            ⚡ ARM GUARANTEE FOR NEXT TABLE
-          </button>
         </div>
 
         <!-- Paired Matchups Dock (Shows each locked Table 1..5 + Round-by-Round WTC Score) -->
@@ -439,7 +459,7 @@
           </div>
         </div>
 
-        <!-- Step 2: Build Your Team Hand via Real Player Search -->
+        <!-- Step 2: Build Your Team Hand via Real Player Search or TCG Deck -->
         <div class="lobby-section" id="lobbyDeckBuilderSection">
           <div class="lobby-builder-top">
             <div class="lobby-step-title">
@@ -458,6 +478,27 @@
                 </select>
               </label>
               <button type="button" id="btnClearTeamHand" class="lobby-mini-btn danger">🗑️ Clear Hand</button>
+            </div>
+          </div>
+
+          <!-- Casual TCG Deck vs Official Tournament Team Roster Switcher Strip -->
+          <div class="tcg-mode-switcher-strip" id="tcgModeSwitcherStrip">
+            <div class="tms-left">
+              <span class="tms-mode-badge" id="roomModeStatusBadge">🏆 OFFICIAL TOURNAMENT ROSTER MODE</span>
+              <span class="tms-mode-desc" id="roomModeStatusDesc">
+                Tournament Pairings use preset or searched real teams. For Casual / Offline Minigame play, equip your collected TCG Deck (or 1450–1550 Starter Faction Deck)!
+              </span>
+            </div>
+            <div class="tms-actions">
+              <button type="button" class="tms-btn primary" id="btnEquipSavedTcgDeck" title="Load your saved Casual TCG Deck into your Hand">
+                🃏 Equip My TCG Deck
+              </button>
+              <button type="button" class="tms-btn starter" id="btnEquipStarterDeck" title="Reset Hand to 1450–1550 Randomized Starter Faction Cards (No Player Name)">
+                🛡️ Use Starter Faction Deck (1450–1550)
+              </button>
+              <button type="button" class="tms-btn store" id="btnLobbyOpenTcgVault" title="Open TCG Card Vault, Glory Pack Store &amp; Deck Construction">
+                📦 Open TCG Store &amp; Binder
+              </button>
             </div>
           </div>
 
@@ -516,13 +557,208 @@
         <!-- Lobby Footer Actions -->
         <div class="lobby-modal-footer">
           <div class="lobby-footer-left">
-            <span id="lobbyStatusHint">Search players above to add cards to your hand.</span>
+            <span id="lobbyStatusHint">Search players above to add cards to your hand, or equip your Casual TCG Deck.</span>
           </div>
           <div class="lobby-footer-actions">
             <button type="button" class="ygo-confirm-btn large" id="btnStartDuelFromLobby">
               ⚔️ ENTER DUEL ARENA
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OMNITACTICA TCG PLAYER CARD VAULT, GLORY PACK STORE & DECK CONSTRUCTION MODAL -->
+    <div class="tcg-modal-backdrop hidden" id="tcgVaultModalBackdrop">
+      <div class="tcg-modal-card">
+        <div class="tcg-modal-header">
+          <div class="tcg-header-title-wrap">
+            <div class="tcg-kicker-row">
+              <span class="tcg-kicker-pill">🃏 CASUAL PAIRING MINIGAME TCG</span>
+              <span class="tcg-kicker-note">Strictly for Casual / Offline Minigame Play • Official Tournament Pairings use Preset Team Rosters</span>
+            </div>
+            <h2>OMNITACTICA TCG — PLAYER CARD COLLECTION &amp; DECK BUILDER</h2>
+          </div>
+
+          <div class="tcg-header-wallet">
+            <div class="tcg-wallet-pill" title="Spendable Glory Honor (Shared with OmniTactica Armory)">
+              <span class="twp-lbl">GLORY HONOR</span>
+              <strong class="twp-val" id="tcgVaultGloryBalance">🪙 1,390</strong>
+            </div>
+            <button type="button" class="tcg-daily-claim-btn" id="btnClaimDailyGlory" title="Claim +1,000 Commander Supply Glory for Pack Testing">
+              🎁 +1,000 Glory
+            </button>
+            <div class="tcg-pity-pill" title="10-Point Mythic Pity Timer: Guarantees a 2080+ Elo Mythic Warlord Card at 10/10!">
+              <span class="tpp-lbl">MYTHIC PITY</span>
+              <strong class="tpp-val" id="tcgVaultPityBadge">🔥 3 / 10</strong>
+            </div>
+            <button type="button" class="lobby-close-btn" id="btnCloseTcgVaultModal" title="Close TCG Vault">✕</button>
+          </div>
+        </div>
+
+        <!-- 3-Tab Navigation Bar -->
+        <div class="tcg-tabs-bar" id="tcgVaultTabsBar">
+          <button type="button" class="tcg-tab-btn active" id="btnTcgTabDeck" data-tcg-tab="deck">
+            ⚔️ 1. Deck Construction (<span id="tcgTabDeckFormatBadge">5v5</span>)
+          </button>
+          <button type="button" class="tcg-tab-btn" id="btnTcgTabPacks" data-tcg-tab="packs">
+            📦 2. Buy Card Packs (Glory Store &amp; Drop Odds)
+          </button>
+          <button type="button" class="tcg-tab-btn" id="btnTcgTabBinder" data-tcg-tab="binder">
+            📚 3. Card Collection &amp; Multi-Faction Pros (<span id="tcgTabOwnedCountBadge">31</span>)
+          </button>
+        </div>
+
+        <!-- TAB 1: DECK CONSTRUCTION (5v5 & 8v8) -->
+        <div class="tcg-tab-panel" id="tcgPanelDeck">
+          <div class="tcg-deck-toolbar">
+            <div class="tcg-deck-meta-left">
+              <label class="tcg-inline-field">
+                <span>Deck Format:</span>
+                <select id="tcgDeckFormatSelect" class="lobby-select">
+                  <option value="5v5" selected>5v5 Strike Force (5 Cards)</option>
+                  <option value="8v8">8v8 Grand Battleline (8 Cards)</option>
+                </select>
+              </label>
+              <label class="tcg-inline-field">
+                <span>Deck Name:</span>
+                <input type="text" id="tcgDeckNameInput" class="lobby-input" value="Starter Faction Strike Force (5v5)" maxlength="50">
+              </label>
+              <div class="tcg-deck-stats-chip" id="tcgDeckStatsSummary">
+                Avg Elo: <strong>1,500</strong> • 5 Starter / 0 Pro Cards
+              </div>
+            </div>
+
+            <div class="tcg-deck-actions-right">
+              <button type="button" class="tcg-action-btn gold" id="btnTcgAutoBestDeck" title="Auto-fill deck with your highest-Elo owned Real Player cards + Starter cards">
+                ⚡ Auto-Fill Best Owned
+              </button>
+              <button type="button" class="tcg-action-btn starter" id="btnTcgResetStarterDeck" title="Reset deck to pre-set 1450–1550 Elo Starter Faction Cards (No Player Name)">
+                🛡️ Reset to Starter Factions (1450–1550)
+              </button>
+              <button type="button" class="tcg-action-btn save" id="btnTcgSaveDeck">
+                💾 Save Deck
+              </button>
+              <button type="button" class="ygo-confirm-btn" id="btnTcgDeployDeckToRoom">
+                🚀 DEPLOY DECK TO DUEL ARENA
+              </button>
+            </div>
+          </div>
+
+          <div class="tcg-section-subtitle">
+            <span>ACTIVE CASUAL PAIRING DECK — CLICK A SLOT BELOW OR CLICK ANY OWNED CARD TO SWAP IN (MAX 1 CARD PER REAL PLAYER)</span>
+            <span id="tcgSelectedSlotHint">Slot #1 Selected for Swap</span>
+          </div>
+
+          <!-- Active 5 or 8 Deck Cards Row -->
+          <div class="tcg-active-deck-tray" id="tcgActiveDeckTray"></div>
+
+          <!-- Owned Cards Picker for Deck Building -->
+          <div class="tcg-picker-header">
+            <div class="tcg-picker-filters" id="tcgDeckPickerFilters">
+              <button type="button" class="tcg-filter-chip active" data-picker-filter="all">All Owned Cards</button>
+              <button type="button" class="tcg-filter-chip" data-picker-filter="pro">🌟 Collected Real Player Cards</button>
+              <button type="button" class="tcg-filter-chip" data-picker-filter="starter">🛡️ Pre-Set Starter Factions (1450–1550 Elo)</button>
+            </div>
+            <input type="text" id="tcgDeckPickerSearch" class="lobby-input tcg-search-mini" placeholder="Filter owned cards by player or faction...">
+          </div>
+
+          <div class="tcg-owned-picker-grid" id="tcgOwnedDeckPickerGrid"></div>
+        </div>
+
+        <!-- TAB 2: REQUISITION PACK STORE & ECONOMY / ODDS ANALYSIS -->
+        <div class="tcg-tab-panel hidden" id="tcgPanelPacks">
+          <!-- Mythic Pity Progress Banner -->
+          <div class="tcg-pity-banner">
+            <div class="tpb-info">
+              <div class="tpb-title">
+                🔥 10-POINT MYTHIC WARLORD PITY SYSTEM — <span id="tcgPityBannerCountText">3 / 10 PITY</span>
+              </div>
+              <div class="tpb-desc">
+                Every pack grants <strong>+1 to +3 Pity</strong>. Reaching <strong>10 / 10</strong> guarantees a <strong>2080+ Elo Mythic Warlord</strong> (e.g. Innes Wilson, John Lennon, Junior Aflleje, Richard Siegler) on Slot #1! Duplicate cards upgrade <strong>Foil Mastery (★1 ➔ ★5)</strong> &amp; refund <strong>+20 to +250 Glory Shards</strong>.
+              </div>
+            </div>
+            <div class="tpb-bar-wrap">
+              <div class="tpb-bar-track">
+                <div class="tpb-bar-fill" id="tcgPityProgressFill" style="width: 30%"></div>
+              </div>
+              <span class="tpb-bar-lbl" id="tcgPityRemainingText">7 Pity until Guaranteed Mythic (2080+ Elo)</span>
+            </div>
+          </div>
+
+          <!-- 3-Tier Pack Store Cards -->
+          <div class="tcg-pack-store-grid" id="tcgPackStoreGrid"></div>
+
+          <!-- Pack Opening Reveal Stage -->
+          <div class="tcg-pack-reveal-stage hidden" id="tcgPackRevealStage">
+            <div class="tprs-head">
+              <div>
+                <span class="tprs-kicker" id="tcgRevealPackNameKicker">📦 PACK OPENED!</span>
+                <h3 id="tcgRevealHeadline">REQUISITION DROP REVEAL</h3>
+              </div>
+              <div class="tprs-summary-pills" id="tcgRevealSummaryPills"></div>
+            </div>
+            <div class="tprs-cards-row" id="tcgRevealCardsRow"></div>
+          </div>
+
+          <!-- Microtransaction Pricing, Rarity Curve & Live-Elo Design Analysis -->
+          <div class="tcg-economy-analysis-box" id="tcgEconomyAnalysisPanel">
+            <div class="teab-title">📊 TCG ECONOMY, RARITY DROP CURVE &amp; LIVE-ELO ARCHITECTURE</div>
+            <div class="teab-grid">
+              <div class="teab-card">
+                <h4>1. Rarity Tiers &amp; Inverse-Elo Weighting</h4>
+                <ul class="teab-list">
+                  <li><span class="r-dot starter"></span> <strong>Starter (1450–1550 Elo):</strong> Free 28-Faction Pre-Set Deck (No Player Name).</li>
+                  <li><span class="r-dot common"></span> <strong>Common (1550–1749 Elo):</strong> Local RTT Contender (+20 Glory Dup Rebate).</li>
+                  <li><span class="r-dot rare"></span> <strong>Rare (1750–1899 Elo):</strong> Regional GT Veteran (+45 Glory Dup Rebate).</li>
+                  <li><span class="r-dot epic"></span> <strong>Epic (1900–2079 Elo):</strong> National Major Ace — e.g. Folger P 2070 (+100 Glory Rebate).</li>
+                  <li><span class="r-dot mythic"></span> <strong>Mythic Warlord (2080+ Elo):</strong> World Icons — Inverse-Elo weighted so 2300+ legends are 3.5× rarer (+250 Glory Rebate).</li>
+                </ul>
+              </div>
+              <div class="teab-card">
+                <h4>2. Real Player × Faction Cards (Dynamic Live Elo)</h4>
+                <p>
+                  Every collectible card represents a <strong>Real Competitive Player + Faction</strong> pairing. A single player can have multiple cards across factions — e.g. <strong>Folger P (Adeptus Custodes)</strong> and <strong>Folger P (Necrons)</strong> are 2 distinct cards. Because cards link directly to <code>player_ratings</code>, whenever that player's real tournament Elo rises or falls, all of their faction cards update live!
+                </p>
+              </div>
+              <div class="teab-card">
+                <h4>3. Pack Pricing Ladder &amp; Casual vs Tournament</h4>
+                <p>
+                  <strong>Recruit Pack (150 Glory, 3 Cards)</strong> is the impulse entry (~1 RTT win). <strong>Tactical Veteran Pack (380 Glory, 5 Cards)</strong> acts as the 15%-off mid-tier anchor. <strong>Warlord Command Crate (850 Glory, 5 Cards)</strong> eliminates Commons (0%) and guarantees an Epic (1900+) or Mythic (2080+) on Slot 1 with +3 Pity! TCG Decks are strictly for Casual Minigame play; Official Tournament mode always uses the real team roster.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: CARD BINDER & MULTI-FACTION REAL PLAYER SPOTLIGHT -->
+        <div class="tcg-tab-panel hidden" id="tcgPanelBinder">
+          <!-- Multi-Faction Player Spotlight (e.g. Folger P Custodes + Folger P Necrons) -->
+          <div class="tcg-multifaction-box">
+            <div class="tmf-head">
+              <div>
+                <h4>🌟 MULTI-FACTION REAL PLAYER SPOTLIGHT (DYNAMIC LIVE ELO SYNC)</h4>
+                <p>One real player can have multiple collectible cards across different factions (e.g. Folger P on Custodes &amp; Necrons). All faction cards of a player dynamically mirror their live Elo!</p>
+              </div>
+            </div>
+            <div class="tmf-scroll-row" id="tcgMultiFactionSpotlight"></div>
+          </div>
+
+          <!-- Full Card Binder Filter Bar -->
+          <div class="tcg-picker-header">
+            <div class="tcg-picker-filters" id="tcgBinderRarityFilters">
+              <button type="button" class="tcg-filter-chip active" data-binder-filter="all">All Cards</button>
+              <button type="button" class="tcg-filter-chip" data-binder-filter="owned">✅ Owned</button>
+              <button type="button" class="tcg-filter-chip" data-binder-filter="starter">⚪ Starter (1450–1550)</button>
+              <button type="button" class="tcg-filter-chip" data-binder-filter="mythic">🟡 Mythic (2080+)</button>
+              <button type="button" class="tcg-filter-chip" data-binder-filter="epic">🟣 Epic (1900–2079)</button>
+              <button type="button" class="tcg-filter-chip" data-binder-filter="rare">🔵 Rare (1750–1899)</button>
+              <button type="button" class="tcg-filter-chip" data-binder-filter="common">🟢 Common (1550–1749)</button>
+            </div>
+            <input type="text" id="tcgBinderSearchInput" class="lobby-input tcg-search-mini" placeholder="Search player name or faction (e.g. Folger, Siegler, Necrons)...">
+          </div>
+
+          <div class="tcg-binder-grid" id="tcgBinderGrid"></div>
         </div>
       </div>
     </div>
@@ -620,101 +856,6 @@
       </div>
     </div>
 
-    <!-- CARD CLASH & WTC DICE COMBAT RESOLUTION ARENA MODAL -->
-    <div class="clash-modal-backdrop hidden" id="battleClashModalBackdrop">
-      <div class="clash-modal-card">
-        <div class="clash-modal-header">
-          <div>
-            <div class="clash-table-kicker" id="clashModalTableKicker">⚔️ TABLE #1 LOCKED • CARD CLASH &amp; WTC SCORE RESOLUTION</div>
-            <h2 id="clashModalHeadline">DUEL CLASH: ART OF WAR VS TEAM ZERO COMP</h2>
-          </div>
-          <button type="button" class="lobby-close-btn" id="btnCloseBattleClashModal" title="Return to Duel Mat">✕</button>
-        </div>
-
-        <div class="clash-modal-body">
-          <!-- Two Cards Lunging & Fighting Animation Stage -->
-          <div class="clash-fighters-stage" id="clashFightersStage">
-            <div class="clash-fighter-col fighter-left" id="clashFighterLeftCol">
-              <div class="clash-fighter-team-tag" id="clashLeftTeamLabel">YOUR FIGHTER</div>
-              <div class="clash-fighter-card-mount" id="clashLeftCardMount"></div>
-              <div class="clash-fighter-prob-pill" id="clashLeftProbPill">50% WIN • EST 10 PTS</div>
-            </div>
-
-            <div class="clash-center-impact">
-              <div class="clash-swords-burst" id="clashImpactBurst">⚔️</div>
-              <div class="clash-vs-badge">CLASH!</div>
-              <div class="clash-pred-bar-wrap">
-                <div class="clash-pred-bar-fill" id="clashWinProbBarFill" style="width: 50%"></div>
-              </div>
-              <div class="clash-expected-pill" id="clashExpectedScorePill">6-Factor Est: 10 – 10 WTC</div>
-            </div>
-
-            <div class="clash-fighter-col fighter-right" id="clashFighterRightCol">
-              <div class="clash-fighter-team-tag opp" id="clashRightTeamLabel">ENEMY FIGHTER</div>
-              <div class="clash-fighter-card-mount" id="clashRightCardMount"></div>
-              <div class="clash-fighter-prob-pill opp" id="clashRightProbPill">50% WIN • EST 10 PTS</div>
-            </div>
-          </div>
-
-          <!-- Dice Roll & Tactical Guarantee Resolution Box -->
-          <div class="clash-dice-arena-box" id="clashDiceArenaBox">
-            <div class="dice-combat-visual-row">
-              <!-- D100 Percentile Die -->
-              <div class="dice-3d-widget" id="clashD100Widget">
-                <span class="dice-widget-lbl">D100 ROLL</span>
-                <div class="dice-3d-cube" id="clashD100Cube">
-                  <span class="dice-num" id="clashD100Value">--</span>
-                </div>
-                <span class="dice-target-sub" id="clashD100TargetSub">Target ≤ 50%</span>
-              </div>
-
-              <!-- Arrow / Outcome Verdict -->
-              <div class="dice-outcome-center">
-                <div class="dice-mode-badge" id="clashOutcomeBadge">🎲 DICE COMBAT RESULT</div>
-                <div class="dice-final-wtc-score" id="clashFinalWtcScore">10 – 10</div>
-                <div class="dice-outcome-detail" id="clashOutcomeDetail">
-                  Roll D100 against the 6-Factor Win % (with ±1 WTC variance), or spend a Tactical Guarantee to lock the predicted score without rolling!
-                </div>
-              </div>
-
-              <!-- ±1 WTC Variance Die -->
-              <div class="dice-3d-widget variance-widget" id="clashVarianceWidget">
-                <span class="dice-widget-lbl">WTC VARIANCE</span>
-                <div class="dice-3d-cube var-cube" id="clashVarianceCube">
-                  <span class="dice-num" id="clashVarianceValue">±0</span>
-                </div>
-                <span class="dice-target-sub">Bounded ±1 PT</span>
-              </div>
-            </div>
-
-            <!-- Interactive Action Buttons: Roll Dice vs Use Tactical Guarantee -->
-            <div class="clash-action-buttons-row">
-              <button type="button" class="clash-btn roll-dice-btn" id="btnClashRollDice">
-                🎲 ROLL D100 COMBAT DICE (±1 VAR)
-              </button>
-              <button type="button" class="clash-btn guarantee-btn" id="btnClashUseGuarantee">
-                ⚡ USE TACTICAL GUARANTEE (<span id="clashGuaranteesLeftCount">2</span> LEFT — NO ROLL!)
-              </button>
-            </div>
-          </div>
-
-          <!-- Live Round-by-Round Cumulative Score Footer inside Clash Modal -->
-          <div class="clash-modal-footer">
-            <div class="clash-cum-score-box">
-              <span class="clash-cum-lbl">ROUND-BY-ROUND TEAM TOTAL:</span>
-              <strong class="clash-cum-val" id="clashModalCumulativeScore">0 – 0</strong>
-              <span class="clash-cum-verdict" id="clashModalCumulativeVerdict">In Progress</span>
-            </div>
-            <div class="clash-footer-btns">
-              <button type="button" class="ygo-confirm-btn" id="btnClashContinue">
-                ⚔️ CONTINUE DUEL
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- UNIFIED GAME TRACKER MOBILE BOTTOM DOCK -->
     <nav id="gt-mobile-bottom-dock" class="gt-mobile-bottom-dock" aria-label="Match Room Quick Controls">
       <a href="/11th/tracker" class="gt-dock-btn" id="btnDockLobby" title="Back to Match Lobby">
@@ -725,6 +866,10 @@
         <span class="gt-dock-ico">🪑</span>
         <span class="gt-dock-lbl">Roster</span>
       </button>
+      <button type="button" class="gt-dock-btn tcg-dock-btn" id="btnDockOpenTcg" title="Open TCG Cards, Packs &amp; Deck Builder">
+        <span class="gt-dock-ico">🃏</span>
+        <span class="gt-dock-lbl">TCG</span>
+      </button>
       <button type="button" class="gt-dock-btn" id="btnDockOpenCoin" title="Open WTC Coin Flip">
         <span class="gt-dock-ico">🪙</span>
         <span class="gt-dock-lbl">Coin</span>
@@ -733,13 +878,9 @@
         <span class="gt-dock-ico">⏱️</span>
         <span class="gt-dock-lbl" id="dockClockLabel">Clock</span>
       </button>
-      <button type="button" class="gt-dock-btn" id="btnDockOpenDice" title="Open D100 &amp; WTC Battle Dice">
-        <span class="gt-dock-ico">🎲</span>
-        <span class="gt-dock-lbl">Dice</span>
-      </button>
-      <button type="button" class="gt-dock-btn" id="btnDockOpenShare" title="Share Match Room">
-        <span class="gt-dock-ico">🔗</span>
-        <span class="gt-dock-lbl">Share</span>
+      <button type="button" class="gt-dock-btn" id="btnDockOpenDice" title="Replay Latest On-Field Card Clash">
+        <span class="gt-dock-ico">⚔️</span>
+        <span class="gt-dock-lbl">Clash</span>
       </button>
       <button type="button" class="gt-dock-btn finish" id="btnDockFinishRoom" title="Finalize Pairings &amp; Save to History">
         <span class="gt-dock-ico">🏁</span>
@@ -750,6 +891,6 @@
 
   <div id="toastNotification" class="toast-notification hidden"></div>
   <script src="/js/armory_svgs.js"></script>
-  <script src="/team-pairings/app.js?v=10"></script>
+  <script src="/team-pairings/app.js?v=12"></script>
 </body>
 </html>

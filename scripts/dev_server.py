@@ -713,7 +713,7 @@ def _get_dev_user_glory_and_stats():
         total_earned = int(DEV_USER["total_glory"])
         glory_40k = max(0, total_earned - glory_aos)
     else:
-        glory_40k = int(DEV_USER.get("glory_40k") if DEV_USER.get("glory_40k") is not None else 8780)
+        glory_40k = int(DEV_USER.get("glory_40k") if DEV_USER.get("glory_40k") is not None else 9780)
         total_earned = glory_40k + glory_aos
     spent = int(DEV_USER.get("glory_spent") if DEV_USER.get("glory_spent") is not None else 8500)
     spendable = max(0, total_earned - spent)
@@ -2020,6 +2020,97 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(act_res).encode("utf-8"))
             return
 
+        if clean_path in ("api/tcg/buy-pack", "api/team-pairings/tcg/buy-pack"):
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            if not isinstance(p_load, dict):
+                p_load = {}
+            from firestore_db import get_firestore_engine
+            fs_eng = get_firestore_engine()
+            uid = str(p_load.get("user_id") or DEV_USER["user"].get("id") or "dev_user").strip()
+            g_stats = _get_dev_user_glory_and_stats()
+            avail_glory = int(p_load.get("glory_balance") if p_load.get("glory_balance") is not None else g_stats["spendable_glory"])
+            res = fs_eng.open_tcg_card_pack(
+                user_id=uid,
+                pack_type=str(p_load.get("pack_type") or "recruit_pack"),
+                glory_balance=avail_glory,
+                forced_card_ids=p_load.get("forced_card_ids"),
+            )
+            if res.get("ok"):
+                net_spent = int(res.get("net_glory_spent", 0))
+                DEV_USER["glory_spent"] = int(DEV_USER.get("glory_spent", 8500)) + net_spent
+                updated_g = _get_dev_user_glory_and_stats()
+                res["spendable_glory"] = updated_g["spendable_glory"]
+                if isinstance(res.get("tcg_state"), dict):
+                    res["tcg_state"]["spendable_glory"] = updated_g["spendable_glory"]
+            self.send_response(int(res.get("status_code", 200)))
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if clean_path in ("api/tcg/save-deck", "api/team-pairings/tcg/save-deck"):
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            if not isinstance(p_load, dict):
+                p_load = {}
+            from firestore_db import get_firestore_engine
+            fs_eng = get_firestore_engine()
+            uid = str(p_load.get("user_id") or DEV_USER["user"].get("id") or "dev_user").strip()
+            g_stats = _get_dev_user_glory_and_stats()
+            p_load["glory_balance"] = g_stats["spendable_glory"]
+            res = fs_eng.save_user_tcg_deck(uid, p_load)
+            if res.get("ok") and p_load.get("room_code"):
+                room_res = fs_eng.apply_pairing_action(
+                    str(p_load["room_code"]),
+                    {
+                        "action": "apply_tcg_deck",
+                        "user_id": uid,
+                        "format_size": res.get("format_size"),
+                        "captain_token": p_load.get("captain_token"),
+                        "role": p_load.get("role") or "captain_a",
+                    },
+                )
+                res["room"] = room_res.get("room")
+            self.send_response(int(res.get("status_code", 200)))
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if clean_path in ("api/tcg/claim-daily", "api/team-pairings/tcg/claim-daily"):
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            if not isinstance(p_load, dict):
+                p_load = {}
+            from firestore_db import get_firestore_engine
+            fs_eng = get_firestore_engine()
+            uid = str(p_load.get("user_id") or DEV_USER["user"].get("id") or "dev_user").strip()
+            grant = int(p_load.get("amount") or 1000)
+            DEV_USER["total_glory"] = int(DEV_USER.get("total_glory") or 9890) + grant
+            g_stats = _get_dev_user_glory_and_stats()
+            state = fs_eng.get_user_tcg_state(uid, glory_balance=g_stats["spendable_glory"])
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "granted_glory": grant,
+                        "spendable_glory": g_stats["spendable_glory"],
+                        "tcg_state": state,
+                    }
+                ).encode("utf-8")
+            )
+            return
+
         if clean_path == "api/tracker/room/create":
             try:
                 p_load = json.loads(body.decode("utf-8")) if body else {}
@@ -2044,11 +2135,13 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 create_cfg = {
                     "format": fmt_str,
                     "format_size": fmt_str,
-                    "team_a_name": p_load.get("p1_name") or "Art of War",
+                    "room_mode": p_load.get("room_mode") or ("casual_tcg" if p_load.get("use_tcg_deck") else "tournament"),
+                    "use_tcg_deck": bool(p_load.get("use_tcg_deck", False)),
+                    "team_a_name": p_load.get("p1_name") or ("Commander TCG Strike Force" if p_load.get("use_tcg_deck") else "Art of War"),
                     "team_b_name": p_load.get("p2_name") or "Team Zero Comp",
                     "vs_ai": True if p_load.get("vs_ai") is None else bool(p_load.get("vs_ai")),
                     "empty_rosters": bool(p_load.get("empty_rosters", False)),
-                    "user_id": u_id,
+                    "user_id": p_load.get("user_id") or DEV_USER["user"].get("id") or u_id,
                     "captain_a_name": p_load.get("p1_name") or "Innes Wilson",
                 }
                 if p_load.get("match_id"):
@@ -7913,6 +8006,19 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "active_tracker_tables": [],
                     "active_sessions": [],
                 }).encode("utf-8"))
+            return
+
+        if clean_path in ("api/tcg/state", "api/team-pairings/tcg/state"):
+            from firestore_db import get_firestore_engine
+            fs_eng = get_firestore_engine()
+            uid = (query_params.get("user_id") or [DEV_USER["user"].get("id") or "dev_user"])[0]
+            g_stats = _get_dev_user_glory_and_stats()
+            state = fs_eng.get_user_tcg_state(uid, glory_balance=g_stats["spendable_glory"])
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(state).encode("utf-8"))
             return
 
         if clean_path == "api/team-pairings/search":
