@@ -417,7 +417,10 @@ async def on_server_startup():
                 lambda: elo_eng.get_player_win_path("Te1Q9Ip3By", game_system="40k"),
                 lambda: elo_eng.get_player_win_path("M7EJ7VW2K3", game_system="40k"),
                 lambda: elo_eng.get_player_win_path("xcaFfMZt5b", game_system="40k"),
+                lambda: elo_eng.get_player_win_path("xcaFfMZt5b", game_system="40k", include_tournaments=False),
                 lambda: elo_eng.get_player_win_path("CF1MBH6T87", game_system="40k"),
+                lambda: db.get_head_to_head("xcaFfMZt5b", "MEV83VFANA", game_system="40k"),
+                lambda: elo_eng.predict_match_outcome("xcaFfMZt5b", "MEV83VFANA", game_system="40k"),
                 lambda: auth_mgr.get_user_competitor_hub(player_id="MEV83VFANA", user_id=None, game_system="40k"),
                 lambda: auth_mgr.get_user_competitor_hub(player_id="xcaFfMZt5b", user_id=None, game_system="40k"),
                 lambda: db.fetch_and_cache_bcp_event_placings("7ohG0RuDqC1k", timeout=3.0, persist_async=True),
@@ -433,6 +436,7 @@ async def on_server_startup():
                 lambda: lh_svc.get_league("sd40k"),
                 lambda: lh_svc.get_league("the-gauntlet"),
                 lambda: lh_svc.get_league_seasons("sd40k"),
+                lambda: lh_svc.get_league_season("sd40k", "1"),
                 lambda: lh_svc.get_league_group_chats("sd40k"),
                 lambda: lh_svc.get_unified_floor_ops("sd40k"),
                 lambda: lh_svc.get_player_league_summary("Jun Hsieh"),
@@ -451,11 +455,8 @@ async def on_server_startup():
                     except Exception as inner_cw_err:
                         logger.warning(f"Notice during individual cache pre-warm step: {inner_cw_err}")
 
-            await asyncio.gather(
-                _prewarm_meta_intel_cache(),
-                asyncio.gather(*(_run_bounded(fn) for fn in core_tasks)),
-                return_exceptions=True,
-            )
+            await asyncio.gather(*(_run_bounded(fn) for fn in core_tasks))
+            await _prewarm_meta_intel_cache()
             logger.info("🔥 Core leaderboard, stats, events, teams, stores & community caches pre-warmed")
         except Exception as cw_err:
             logger.warning(f"Notice during core cache pre-warming: {cw_err}")

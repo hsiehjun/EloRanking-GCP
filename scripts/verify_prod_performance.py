@@ -163,25 +163,34 @@ def fetch_once(url: str, timeout: float = 15.0) -> Tuple[int, float, bytes]:
         return 599, ms, str(exc).encode("utf-8")
 
 
-def wait_for_prewarm(base_url: str, max_wait_sec: int = 75) -> None:
-    """Waits after deployment for background startup cache pre-warming to finish."""
+def wait_for_prewarm(base_url: str, max_wait_sec: int = 90) -> None:
+    """Waits after deployment for traffic cutover and background startup cache pre-warming to finish."""
     deadline = time.time() + max_wait_sec
+    consecutive_ready = 0
     while time.time() < deadline:
         status, _, body = fetch_once(f"{base_url}/api/system/perf-telemetry", timeout=5.0)
+        is_ready = False
         if status == 200:
             try:
                 data = json.loads(body.decode("utf-8"))
                 if data.get("prewarm_complete") is True:
-                    return
-                db_names = {m.get("name") for m in (data.get("db_metrics") or [])}
-                if (
-                    "prewarm_complete" not in data
-                    and "PostgresDatabase.prewarm_faction_details_cache" in db_names
-                    and int(data.get("observed_db_methods_count") or 0) >= 20
-                ):
-                    return
+                    is_ready = True
+                else:
+                    db_names = {m.get("name") for m in (data.get("db_metrics") or [])}
+                    if (
+                        "prewarm_complete" not in data
+                        and "PostgresDatabase.prewarm_faction_details_cache" in db_names
+                        and int(data.get("observed_db_methods_count") or 0) >= 20
+                    ):
+                        is_ready = True
             except Exception:
                 pass
+        if is_ready:
+            consecutive_ready += 1
+            if consecutive_ready >= 4:
+                return
+        else:
+            consecutive_ready = 0
         time.sleep(2.0)
 
 

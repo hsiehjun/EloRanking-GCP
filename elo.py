@@ -309,26 +309,65 @@ class EloEngine:
         }
 
     def predict_match_outcome(self, p1_id_or_name: str, p2_id_or_name: str, game_system: Optional[str] = "40k") -> Dict[str, Any]:
-        """Calculates win probabilities, simulated Elo rating changes, and past head-to-head encounters."""
+        """Calculates win probabilities, simulated Elo rating changes, and past head-to-head encounters (indexed & cached)."""
         from psycopg2 import extras
+        from database import Database as PostgresDatabase
 
-        target_sys = (game_system or "40k").lower()
+        target_sys = (game_system or "40k").strip().lower()
+        p1_str = (p1_id_or_name or "").strip()
+        p2_str = (p2_id_or_name or "").strip()
+        is_mock_db = (
+            type(self.db).__module__.startswith("unittest.mock")
+            or getattr(self.db, "_is_mock_instance", lambda: False)()
+        )
+        cache_key = ("predict_match_v3", p1_str.lower(), p2_str.lower(), target_sys)
+        if not is_mock_db:
+            cached_pred = PostgresDatabase.get_cached(PostgresDatabase._players_cache_dict, cache_key, ttl=600)
+            if cached_pred is not None:
+                return dict(cached_pred)
+
         p1_data = None
         p2_data = None
 
+        def _lookup_rating(cur, val: str):
+            if not val:
+                return None
+            cur.execute(
+                "SELECT * FROM player_ratings WHERE player_id = %s AND COALESCE(game_system, '40k') = %s LIMIT 1;",
+                (val, target_sys),
+            )
+            row = cur.fetchone()
+            if row:
+                return row
+            cur.execute(
+                """
+                SELECT * FROM player_ratings
+                WHERE LOWER(TRIM(player_name)) = LOWER(TRIM(%s))
+                  AND COALESCE(game_system, '40k') = %s
+                ORDER BY current_elo DESC NULLS LAST
+                LIMIT 1;
+                """,
+                (val, target_sys),
+            )
+            row = cur.fetchone()
+            if row:
+                return row
+            cur.execute(
+                """
+                SELECT * FROM player_ratings
+                WHERE player_name ILIKE %s
+                  AND COALESCE(game_system, '40k') = %s
+                ORDER BY current_elo DESC NULLS LAST
+                LIMIT 1;
+                """,
+                (f"%{val}%", target_sys),
+            )
+            return cur.fetchone()
+
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(
-                    "SELECT * FROM player_ratings WHERE (player_id = %s OR player_name ILIKE %s) AND COALESCE(game_system, '40k') = %s LIMIT 1;",
-                    (p1_id_or_name, p1_id_or_name, target_sys)
-                )
-                p1_data = cur.fetchone()
-
-                cur.execute(
-                    "SELECT * FROM player_ratings WHERE (player_id = %s OR player_name ILIKE %s) AND COALESCE(game_system, '40k') = %s LIMIT 1;",
-                    (p2_id_or_name, p2_id_or_name, target_sys)
-                )
-                p2_data = cur.fetchone()
+                p1_data = _lookup_rating(cur, p1_str)
+                p2_data = _lookup_rating(cur, p2_str)
 
         r1 = float(p1_data["current_elo"]) if p1_data else self.initial_elo
         r2 = float(p2_data["current_elo"]) if p2_data else self.initial_elo
@@ -351,9 +390,22 @@ class EloEngine:
         d_p2_draw = round(k * (0.5 - exp2), 1)
 
         # Head-to-head encounters
-        h2h_matches = self.db.get_head_to_head(p1_id_or_name, p2_id_or_name, game_system=target_sys)
+        p1_resolved_id = str(p1_data.get("player_id") or p1_str) if isinstance(p1_data, dict) else p1_str
+        p2_resolved_id = str(p2_data.get("player_id") or p2_str) if isinstance(p2_data, dict) else p2_str
+        p1_resolved_name = str(p1_data.get("player_name") or "") if isinstance(p1_data, dict) else None
+        p2_resolved_name = str(p2_data.get("player_name") or "") if isinstance(p2_data, dict) else None
+        try:
+            h2h_matches = self.db.get_head_to_head(
+                p1_resolved_id,
+                p2_resolved_id,
+                game_system=target_sys,
+                p1_name=p1_resolved_name,
+                p2_name=p2_resolved_name,
+            )
+        except TypeError:
+            h2h_matches = self.db.get_head_to_head(p1_str, p2_str, game_system=target_sys)
 
-        return {
+        res = {
             "p1_win_prob": p1_prob,
             "p2_win_prob": p2_prob,
             "player1_win_prob": p1_prob,
@@ -371,6 +423,9 @@ class EloEngine:
             "draw_deltas": {"p1": f"{d_p1_draw:+}", "p2": f"{d_p2_draw:+}"},
             "head_to_head": h2h_matches
         }
+        if not is_mock_db:
+            PostgresDatabase.set_cached(PostgresDatabase._players_cache_dict, cache_key, res)
+        return res
 
     def reconstruct_since_date(
         self,

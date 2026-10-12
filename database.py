@@ -10477,29 +10477,51 @@ class PostgresDatabase:
                     if not lookup_str:
                         return pids
                     try:
-                        cursor.execute(
-                            """
-                            SELECT player_id, player_name
-                            FROM player_ratings
-                            WHERE player_id = %s OR LOWER(TRIM(player_name)) = LOWER(TRIM(%s))
-                            ORDER BY matches_played DESC NULLS LAST
-                            LIMIT 5;
-                            """,
-                            (rid or lookup_str, lookup_str)
-                        )
-                        rows = cursor.fetchall() or []
+                        rows = []
+                        if rid and not rname:
+                            cursor.execute(
+                                """
+                                SELECT player_id, player_name
+                                FROM player_ratings
+                                WHERE player_id = %s
+                                LIMIT 2;
+                                """,
+                                (rid,),
+                            )
+                            rows = list(cursor.fetchall() or [])
+                            if rows:
+                                first_row = rows[0]
+                                resolved_n = (
+                                    str(first_row.get("player_name") or "").strip()
+                                    if isinstance(first_row, dict)
+                                    else str(first_row[1] or "").strip()
+                                )
+                                if resolved_n:
+                                    rname = resolved_n
+                        name_to_check = rname or lookup_str
+                        if name_to_check:
+                            cursor.execute(
+                                """
+                                SELECT player_id, player_name
+                                FROM player_ratings
+                                WHERE LOWER(TRIM(player_name)) = LOWER(TRIM(%s))
+                                LIMIT 5;
+                                """,
+                                (name_to_check,),
+                            )
+                            rows.extend(cursor.fetchall() or [])
                         if not rows:
                             cursor.execute(
                                 """
                                 SELECT player_id, player_name
                                 FROM player_ratings
                                 WHERE player_name ILIKE %s
-                                ORDER BY matches_played DESC NULLS LAST
+                                ORDER BY current_elo DESC NULLS LAST
                                 LIMIT 3;
                                 """,
-                                (f"%{lookup_str}%",)
+                                (f"%{lookup_str}%",),
                             )
-                            rows = cursor.fetchall() or []
+                            rows = list(cursor.fetchall() or [])
                         for r in rows:
                             pid_val = str(r.get("player_id") or "").strip() if isinstance(r, dict) else str(r[0] or "").strip()
                             if pid_val and pid_val not in pids:

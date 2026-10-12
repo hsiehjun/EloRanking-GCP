@@ -3214,7 +3214,7 @@ async def api_faction_details(
 # API: Match Win Probability Predictor
 @router.get("/api/predict", summary="Calculate win odds and simulated Elo changes")
 @router.get("/api/predict/match", include_in_schema=False)
-def api_predict(
+async def api_predict(
     p1: Optional[str] = Query(None),
     p2: Optional[str] = Query(None),
     player1: Optional[str] = Query(None),
@@ -3225,7 +3225,9 @@ def api_predict(
     p2_name = p2 or player2 or ""
     if not p1_name or not p2_name:
         raise HTTPException(status_code=400, detail="Missing p1 (player1) or p2 (player2) parameters")
-    return get_elo_engine().predict_match_outcome(p1_name.strip(), p2_name.strip(), game_system=game_system)
+    def _run_predict():
+        return get_elo_engine().predict_match_outcome(p1_name.strip(), p2_name.strip(), game_system=game_system)
+    return await asyncio.to_thread(_run_predict)
 
 
 def _xml_escape(val: Any) -> str:
@@ -3268,7 +3270,7 @@ async def api_og_player_card_svg(sys: str, player_id: str, name: Optional[str] =
     pid = urllib.parse.unquote(player_id or "").strip()
 
     try:
-        data = await asyncio.to_thread(get_elo_engine().get_player_win_path, pid, gs, name)
+        data = await asyncio.to_thread(get_elo_engine().get_player_win_path, pid, gs, name, False)
     except Exception:
         data = {}
 
