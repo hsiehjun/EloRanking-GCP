@@ -504,8 +504,60 @@ class TestTeamPairingsPoC(unittest.TestCase):
             tp_path = Path(str(getattr(resp, "path", "")))
             self.assertTrue(tp_path.is_file(), f"Expected shared room link to serve index.html, got {resp}")
 
+    def test_all_team_pairings_apis_strict_sub_1s_latency(self):
+        """Verify every Team Pairings API operation completes well under 1000ms (1.0s)."""
+        import time
+
+        # 1. Search empty query (cold + warm)
+        t0 = time.perf_counter()
+        s1 = self.engine.search_real_teams_and_players(query="", game_system="40k", limit=24)
+        ms_s1 = (time.perf_counter() - t0) * 1000.0
+        self.assertTrue(s1["ok"])
+        self.assertLess(ms_s1, 1000.0, f"search_real_teams_and_players('') took {ms_s1:.1f}ms (> 1000ms)")
+
+        # 2. Search specific team/player query
+        t0 = time.perf_counter()
+        s2 = self.engine.search_real_teams_and_players(query="Team Zero Comp", game_system="40k", limit=24)
+        ms_s2 = (time.perf_counter() - t0) * 1000.0
+        self.assertTrue(s2["ok"])
+        self.assertLess(ms_s2, 1000.0, f"search_real_teams_and_players('Team Zero Comp') took {ms_s2:.1f}ms (> 1000ms)")
+
+        # 3. Get real team roster
+        t0 = time.perf_counter()
+        r1 = self.engine.get_real_team_roster("Team Zero Comp", game_system="40k")
+        ms_r1 = (time.perf_counter() - t0) * 1000.0
+        self.assertTrue(r1["ok"])
+        self.assertLess(ms_r1, 1000.0, f"get_real_team_roster('Team Zero Comp') took {ms_r1:.1f}ms (> 1000ms)")
+
+        # 4. Create room + get room + apply action
+        t0 = time.perf_counter()
+        created = self.engine.create_pairing_room({"format": "5v5", "ai_opponent": True})
+        ms_create = (time.perf_counter() - t0) * 1000.0
+        self.assertLess(ms_create, 1000.0, f"create_pairing_room took {ms_create:.1f}ms (> 1000ms)")
+
+        code = created["room_code"]
+        t0 = time.perf_counter()
+        raw_room = self.engine.get_pairing_room_raw(code)
+        fetched = self.engine.mask_pairing_room_for_viewer(raw_room, "captain_a", created["captain_a_token"])
+        ms_get = (time.perf_counter() - t0) * 1000.0
+        self.assertIsNotNone(fetched)
+        self.assertLess(ms_get, 1000.0, f"get_pairing_room_raw + mask_pairing_room_for_viewer took {ms_get:.1f}ms (> 1000ms)")
+
+        t0 = time.perf_counter()
+        act = self.engine.apply_pairing_action(code, {
+            "action": "claim_seat",
+            "role": "captain_a",
+            "user_id": "perf_test_u",
+            "user_name": "Perf Cap",
+            "captain_token": created["captain_a_token"],
+        })
+        ms_act = (time.perf_counter() - t0) * 1000.0
+        self.assertTrue(act["ok"])
+        self.assertLess(ms_act, 1000.0, f"apply_pairing_action took {ms_act:.1f}ms (> 1000ms)")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
