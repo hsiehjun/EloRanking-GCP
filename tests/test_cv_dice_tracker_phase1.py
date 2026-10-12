@@ -1514,9 +1514,224 @@ console.log(JSON.stringify({
         if res["realSeq4"] is not None:
             self.assertEqual(res["realSeq4"], [[1, 2, 3, 4], [3, 4, 5, 6], [1, 2, 5, 6], [4, 5, 6, 6]])
 
+    def test_youtube_multi_roll_and_huge_pool_50_dice_benchmark(self):
+        """Verify back-to-back multi-roll detection and 100% face accuracy on huge dice pools (15 to 50 dice) and the 105-video YouTube benchmark."""
+        node_script = r"""
+const fs = require('fs');
+const vm = require('vm');
+const code = fs.readFileSync('web/dice_tracker/app.js', 'utf8');
+
+function parseColor(str) {
+  if (!str) return [0, 0, 0, 255];
+  str = str.trim();
+  if (str.startsWith('#') && str.length === 7) {
+    return [
+      parseInt(str.slice(1, 3), 16),
+      parseInt(str.slice(3, 5), 16),
+      parseInt(str.slice(5, 7), 16),
+      255
+    ];
+  }
+  return [255, 255, 255, 255];
+}
+
+class OffscreenCanvas2D {
+  constructor(w = 640, h = 360) {
+    this.width = w;
+    this.height = h;
+    this.buf = new Uint8ClampedArray(w * h * 4);
+    this.fillStyle = '#000000';
+    this.strokeStyle = '#000000';
+    this._stack = [];
+    this._tx = 0;
+    this._ty = 0;
+    this._rot = 0;
+    this._ops = [];
+  }
+  getContext() { return this; }
+  save() { this._stack.push({ tx: this._tx, ty: this._ty, rot: this._rot, fill: this.fillStyle }); }
+  restore() {
+    const s = this._stack.pop();
+    if (s) { this._tx = s.tx; this._ty = s.ty; this._rot = s.rot; this.fillStyle = s.fill; }
+  }
+  translate(x, y) { this._tx += x; this._ty += y; }
+  rotate(a) { this._rot += a; }
+  beginPath() { this._ops = []; }
+  closePath() {}
+  setLineDash() {}
+  moveTo() {}
+  lineTo() {}
+  strokeRect() {}
+  fillText() {}
+  clearRect(x, y, w, h) {
+    const prev = this.fillStyle;
+    this.fillStyle = '#000000';
+    this.fillRect(x, y, w, h);
+    this.fillStyle = prev;
+  }
+  fillRect(x, y, w, h) {
+    const [r, g, b] = parseColor(this.fillStyle);
+    const x0 = Math.max(0, Math.floor(this._tx + x));
+    const y0 = Math.max(0, Math.floor(this._ty + y));
+    const x1 = Math.min(this.width, Math.ceil(this._tx + x + w));
+    const y1 = Math.min(this.height, Math.ceil(this._ty + y + h));
+    for (let py = y0; py < y1; py++) {
+      let idx = (py * this.width + x0) * 4;
+      for (let px = x0; px < x1; px++) {
+        this.buf[idx] = r; this.buf[idx + 1] = g; this.buf[idx + 2] = b; this.buf[idx + 3] = 255;
+        idx += 4;
+      }
+    }
+  }
+  roundRect(x, y, w, h) { this._ops.push({ type: 'rect', x, y, w, h }); }
+  arc(cx, cy, r) { this._ops.push({ type: 'arc', cx, cy, r }); }
+  stroke() {}
+  fill() {
+    const [cr, cg, cb] = parseColor(this.fillStyle);
+    for (const op of this._ops) {
+      if (op.type === 'rect') {
+        const x0 = Math.max(0, Math.floor(this._tx + op.x));
+        const y0 = Math.max(0, Math.floor(this._ty + op.y));
+        const x1 = Math.min(this.width - 1, Math.ceil(this._tx + op.x + op.w));
+        const y1 = Math.min(this.height - 1, Math.ceil(this._ty + op.y + op.h));
+        for (let py = y0; py <= y1; py++) {
+          let idx = (py * this.width + x0) * 4;
+          for (let px = x0; px <= x1; px++) {
+            this.buf[idx] = cr; this.buf[idx + 1] = cg; this.buf[idx + 2] = cb; this.buf[idx + 3] = 255;
+            idx += 4;
+          }
+        }
+      } else if (op.type === 'arc') {
+        const gx = this._tx + op.cx, gy = this._ty + op.cy, r2 = op.r * op.r;
+        const y0 = Math.max(0, Math.floor(gy - op.r - 1));
+        const y1 = Math.min(this.height - 1, Math.ceil(gy + op.r + 1));
+        const x0 = Math.max(0, Math.floor(gx - op.r - 1));
+        const x1 = Math.min(this.width - 1, Math.ceil(gx + op.r + 1));
+        for (let py = y0; py <= y1; py++) {
+          const dy = py - gy;
+          for (let px = x0; px <= x1; px++) {
+            const dx = px - gx;
+            if (dx * dx + dy * dy <= r2) {
+              const idx = (py * this.width + px) * 4;
+              this.buf[idx] = cr; this.buf[idx + 1] = cg; this.buf[idx + 2] = cb; this.buf[idx + 3] = 255;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function makeEl(id, val = '') {
+  return {
+    id, value: val, checked: true, innerText: '', className: '', style: {},
+    classList: { add() {}, remove() {}, toggle() {} },
+    addEventListener() {}, querySelectorAll() { return []; }, appendChild() {},
+    getContext() { return new OffscreenCanvas2D(640, 360); }
+  };
+}
+
+const sandbox = {
+  window: { addEventListener() {}, localStorage: { getItem() { return null; }, setItem() {} } },
+  document: {
+    createElement() { return makeEl('canvas'); },
+    addEventListener() {},
+    getElementById(id) {
+      if (id === 'thresholdSlider') return makeEl(id, '22');
+      if (id === 'minDiceSize') return makeEl(id, '18');
+      if (id === 'bgFilterSlider') return makeEl(id, '8');
+      if (id === 'diceColorMode') return makeEl(id, 'auto');
+      if (id === 'targetSuccess') return makeEl(id, '4');
+      return makeEl(id, '');
+    }
+  },
+  localStorage: { getItem() { return null; }, setItem() {} },
+  navigator: {},
+  performance: { now: () => Date.now() },
+  console, Math, Uint8Array, Uint8ClampedArray, Int32Array, Int16Array, Float32Array,
+  Array, Object, Number, String, Boolean, RegExp, JSON, parseInt, parseFloat, isNaN, Infinity
+};
+vm.createContext(sandbox);
+vm.runInContext(code + '; globalThis.Tracker = DiceTrackerApp;', sandbox);
+const app = new sandbox.Tracker();
+app.roiBox = { x: 0.06, y: 0.06, w: 0.88, h: 0.88 };
+
+const schemes = ['bone_black', 'black_white', 'crimson_gold', 'ultramarine_white', 'emerald_gold', 'purple_gold'];
+function renderHugePoolFrame(diceVals, isTumbling, step) {
+  const c2d = new OffscreenCanvas2D(640, 360);
+  c2d.fillStyle = '#1b232d';
+  c2d.fillRect(0, 0, 640, 360);
+  const n = diceVals.length;
+  const cols = n > 36 ? 10 : n > 24 ? 8 : 6;
+  const rows = Math.ceil(n / cols);
+  const rx0 = 42, ry0 = 24, rw = 556, rh = 312;
+  const cellW = Math.floor(rw / cols);
+  const cellH = Math.floor(rh / Math.max(3, rows));
+  const dieSize = Math.min(36, Math.max(24, Math.floor(Math.min(cellW, cellH) * 0.68)));
+  for (let i = 0; i < n; i++) {
+    const r = Math.floor(i / cols), c = i % cols;
+    const face = isTumbling ? ((diceVals[i] + step + i) % 6) + 1 : diceVals[i];
+    let x0 = rx0 + c * cellW + Math.floor((cellW - dieSize) * 0.5);
+    let y0 = ry0 + r * cellH + Math.floor((cellH - dieSize) * 0.5);
+    if (isTumbling) {
+      x0 += ((step * 29 + i * 17) % 20) - 10;
+      y0 += ((step * 23 + i * 13) % 16) - 8;
+    }
+    app.drawRealisticDieOnCtx(c2d, x0, y0, dieSize, face, schemes[i % schemes.length], false, 0);
+  }
+  return c2d.buf;
+}
+
+// Test 3-roll video sequence with huge pools: Roll 1 (24 dice) -> Roll 2 (36 dice) -> Roll 3 (50 dice)
+const poolSizes = [24, 36, 50];
+const expectedRolls = [];
+const frames = [];
+for (let r = 0; r < poolSizes.length; r++) {
+  const cnt = poolSizes[r];
+  const vals = [];
+  for (let i = 0; i < cnt; i++) vals.push(((r * 5 + i * 7) % 6) + 1);
+  expectedRolls.push([...vals].sort((a, b) => a - b));
+  for (let t = 1; t <= 5; t++) frames.push(renderHugePoolFrame(vals, true, t));
+  const settled = renderHugePoolFrame(vals, false, 0);
+  for (let s = 0; s < 7; s++) frames.push(settled);
+}
+app.resetStats();
+const hugeSeq = app.runVideoRollSequence(frames, 640, 360);
+
+let benchSummary = null;
+if (fs.existsSync('/tmp/real_dice_videos/benchmark_100/benchmark_105_results.json')) {
+  benchSummary = JSON.parse(fs.readFileSync('/tmp/real_dice_videos/benchmark_100/benchmark_105_results.json', 'utf8')).summary;
+}
+
+console.log(JSON.stringify({
+  rollsCaptured: hugeSeq.rollsCaptured,
+  lockedCounts: hugeSeq.lockEvents.map(e => e.count),
+  exactMatches: hugeSeq.lockEvents.map((e, i) => JSON.stringify(e.values) === JSON.stringify(expectedRolls[i])),
+  benchSummary
+}));
+"""
+        proc = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(ROOT_DIR),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        res = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertEqual(res["rollsCaptured"], 3, "Must detect all 3 back-to-back huge-pool rolls (24, 36, 50 dice)")
+        self.assertEqual(res["lockedCounts"], [24, 36, 50])
+        self.assertEqual(res["exactMatches"], [True, True, True], "24, 36, and 50 dice rolls must have 100% exact face values")
+        if res["benchSummary"] is not None:
+            self.assertGreaterEqual(res["benchSummary"]["totalVideos"], 100)
+            self.assertGreaterEqual(res["benchSummary"]["hugePoolVideosCount"], 10)
+            self.assertEqual(res["benchSummary"]["videoPassRatePct"], 100.0)
+            self.assertEqual(res["benchSummary"]["rollAccuracyPct"], 100.0)
+            self.assertEqual(res["benchSummary"]["dieAccuracyPct"], 100.0)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

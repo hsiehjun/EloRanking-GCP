@@ -2561,6 +2561,7 @@ class DiceTrackerApp {
 
     const candidatePips = [];
     const candidateEmblems = [];
+    const ringBuf = new Uint8Array(8);
     const invWindowArea = 1 / ((2 * rSurround + 1) * (2 * rSurround + 1));
 
     // Stage 1A: Multi-Scale High-Contrast Flood-Fill Connected Components (Clean Pips + Custom 6 Emblems + 45° Foreground Pips)
@@ -2663,23 +2664,25 @@ class DiceTrackerApp {
         const cy = sumY / area;
         if (!this.isPointInRoiPolygon(cx, cy, polyPts, 4)) continue;
 
-        // Proportional ring radius ensures ring samples land on the die face outside the pip even for 12..28px foreground pips
-        const ringR = (area > 120 || maxDim >= 12)
-          ? Math.max(7, Math.round(maxDim * 0.78))
-          : Math.max(4, Math.min(6, Math.round(Math.min(bW, bH) * 0.75)));
-        const diagR = Math.max(3, Math.round(ringR * 0.707));
+        // Elliptical proportional ring radius adapts to 45° vertical foreshortening (bW vs bH)
+        const ringRx = Math.max(4, Math.round(bW * 0.78));
+        const ringRy = Math.max(4, Math.round(bH * 0.78));
+        const diagRx = Math.max(3, Math.round(ringRx * 0.707));
+        const diagRy = Math.max(3, Math.round(ringRy * 0.707));
         const blobMeanLum = sumLum / area;
         const rcx = Math.round(cx);
         const rcy = Math.round(cy);
         const minContrast = contrastSensitivity * 0.75;
         let validRingPts = 0;
         let validRingLumSum = 0;
+        let ringCount = 0;
 
         for (let rIdx = 0; rIdx < 8; rIdx++) {
-          const rxPt = rcx + (rIdx === 0 ? -ringR : rIdx === 1 ? ringR : rIdx < 4 ? 0 : rIdx < 6 ? -diagR : diagR);
-          const ryPt = rcy + (rIdx < 2 ? 0 : rIdx === 2 ? -ringR : rIdx === 3 ? ringR : (rIdx & 1) === 0 ? -diagR : diagR);
+          const rxPt = rcx + (rIdx === 0 ? -ringRx : rIdx === 1 ? ringRx : rIdx < 4 ? 0 : rIdx < 6 ? -diagRx : diagRx);
+          const ryPt = rcy + (rIdx < 2 ? 0 : rIdx === 2 ? -ringRy : rIdx === 3 ? ringRy : (rIdx & 1) === 0 ? -diagRy : diagRy);
           if (rxPt >= xStart && rxPt < xEnd && ryPt >= yStart && ryPt < yEnd) {
             const rLum = gray[ryPt * width + rxPt];
+            ringBuf[ringCount++] = rLum;
             if (isDarkPip) {
               if (rLum - blobMeanLum >= minContrast && rLum > 110) {
                 validRingPts++;
@@ -2693,10 +2696,23 @@ class DiceTrackerApp {
             }
           }
         }
+        if (validRingPts < 6) continue;
 
         const polarity = isDarkPip ? "dark_pip" : "light_pip";
         const eqDiam = Math.max(bW, bH, Math.sqrt(area / Math.PI) * 2.15);
-        const bodyLumVal = validRingPts > 0 ? validRingLumSum / validRingPts : 0;
+        let bodyLumVal = validRingLumSum / validRingPts;
+        if (isDarkPip && ringCount >= 6) {
+          for (let a = 1; a < ringCount; a++) {
+            const kv = ringBuf[a];
+            let b = a - 1;
+            while (b >= 0 && ringBuf[b] > kv) {
+              ringBuf[b + 1] = ringBuf[b];
+              b--;
+            }
+            ringBuf[b + 1] = kv;
+          }
+          bodyLumVal = (ringBuf[3] + ringBuf[4] + ringBuf[5]) / 3;
+        }
 
         if (
           area >= 4 &&
@@ -3000,8 +3016,8 @@ class DiceTrackerApp {
           if (cand.polarity !== seed.polarity) continue;
 
           if (isLargeForegroundSeed) {
-            if (cand.size < seed.size * 0.75 || cand.size > seed.size * 1.95) continue;
-            if (Math.abs((cand.bodyLum || 0) - (seed.bodyLum || 0)) > 42) continue;
+            if (cand.size < seed.size * 0.58 || cand.size > seed.size * 1.95) continue;
+            if (Math.abs((cand.bodyLum || 0) - (seed.bodyLum || 0)) > 48) continue;
           }
 
           let minDistToCluster = Infinity;
@@ -3020,7 +3036,7 @@ class DiceTrackerApp {
 
           if (
             (isLargeForegroundSeed || seed.polarity === "dark_pip") &&
-            Math.abs((cand.bodyLum || 0) - (nearestClusterPip.bodyLum || 0)) > 28
+            Math.abs((cand.bodyLum || 0) - (nearestClusterPip.bodyLum || 0)) > 38
           ) {
             continue;
           }
@@ -3082,7 +3098,7 @@ class DiceTrackerApp {
         for (let j = 0; j < detectedDice.length; j++) {
           if (i === j) continue;
           const d1 = detectedDice[j];
-          if ((d1.bodyLum || 0) < (d2.bodyLum || 0) + 12) continue;
+          if ((d2.bodyLum || 0) >= 182 || (d1.bodyLum || 0) < (d2.bodyLum || 0) + 12) continue;
           const cx1 = d1.x + d1.w * 0.5;
           const cy1 = d1.y + d1.h * 0.5;
           const refW = Math.max(d1.w, d2.w);
@@ -3125,7 +3141,7 @@ class DiceTrackerApp {
 
   isSameDieSegment(p1, p2, gray, width) {
     const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-    if (dist < 2) return true;
+    if (dist <= Math.max(9.5, ((p1.size || 6) + (p2.size || 6)) * 0.68)) return true;
     const tMin = Math.min(0.45, Math.max(0.36, ((p1.size || 6) * 0.60) / dist));
     const tMax = Math.max(0.55, Math.min(0.64, 1.0 - ((p2.size || 6) * 0.60) / dist));
     const localBodyLum = ((p1.bodyLum || 160) + (p2.bodyLum || 160)) * 0.5;
@@ -3342,7 +3358,7 @@ class DiceTrackerApp {
     const rw = Math.floor(width * this.roiBox.w);
     const rh = Math.floor(height * this.roiBox.h);
 
-    const cols = diceCount > 24 ? 8 : diceCount > 12 ? 6 : 5;
+    const cols = diceCount > 36 ? 10 : diceCount > 24 ? 8 : diceCount > 12 ? 6 : 5;
     const rows = Math.ceil(diceCount / cols);
     const padX = 24;
     const padY = 34;
@@ -3588,7 +3604,7 @@ class DiceTrackerApp {
     const nowIso = new Date().toISOString();
 
     const rollObj = {
-      id: Date.now() + Math.floor(Math.random() * 1000),
+      id: Date.now() * 1000 + (this.history.length + 1) * 100 + Math.floor(Math.random() * 99),
       rollNum: this.history.length + 1,
       player_num: playerNum,
       player_name: playerName,
