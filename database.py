@@ -5613,8 +5613,366 @@ class PostgresDatabase:
                     if computed_is_ended and comp_persist_rows and hasattr(self, "_persist_computed_event_placings_to_db_async"):
                         self._persist_computed_event_placings_to_db_async(cache_key, comp_persist_rows, len(final_players))
 
+                try:
+                    self.enrich_event_prediction_telemetry(res, cursor=cursor)
+                except Exception as pred_err:
+                    logger.debug(f"Event prediction telemetry enrichment notice for {event_id}: {pred_err}")
+
                 PostgresDatabase.set_cached(PostgresDatabase._event_details_cache_dict, cache_key, res)
                 return res
+
+    def enrich_event_prediction_telemetry(self, event_obj: Dict[str, Any], cursor=None) -> None:
+        """Batch-enriches event players and matches with 90-day global faction meta, career faction mastery, vs-faction matrix, and prior H2H."""
+        if not isinstance(event_obj, dict) or self._is_mock_instance():
+            return
+        ev_id = str(event_obj.get("id") or "").strip()
+        ev_name_low = str(event_obj.get("name") or "").strip().lower()
+        ev_gs = str(event_obj.get("game_system") or "40k").strip().lower()
+
+        # 1. Attach 90-day global faction meta & matchup matrix from L1 cache (<0.2ms)
+        meta_90d = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, f"::{ev_gs}:90d", ttl=86400)
+        if meta_90d is None:
+            try:
+                meta_90d = self.get_faction_meta_stats(game_system=ev_gs, timeframe="90d")
+            except Exception:
+                meta_90d = None
+        if isinstance(meta_90d, dict):
+            fac_summary: Dict[str, Any] = {}
+            mu_by_fac = meta_90d.get("matchups_by_faction") if isinstance(meta_90d.get("matchups_by_faction"), dict) else {}
+            for f_row in (meta_90d.get("factions") or []):
+                if not isinstance(f_row, dict):
+                    continue
+                f_name = str(f_row.get("faction") or "").strip()
+                if not f_name:
+                    continue
+                mu_raw = mu_by_fac.get(f_name) or []
+                fac_entry = {
+                    "faction": f_name,
+                    "stats": {
+                        "total_matches": int(f_row.get("total_matches") or 0),
+                        "total_wins": int(f_row.get("wins") or 0),
+                        "total_losses": int(f_row.get("losses") or 0),
+                        "total_draws": int(f_row.get("draws") or 0),
+                        "win_rate": float(f_row.get("win_rate") or 0.0),
+                    },
+                    "matchups": [
+                        {
+                            "opponent_faction": m.get("opponent_faction", ""),
+                            "total_matches": int(m.get("total_matches") or m.get("matches") or 0),
+                            "wins": int(m.get("wins") or 0),
+                            "losses": int(m.get("losses") or 0),
+                            "draws": int(m.get("draws") or 0),
+                            "win_rate": float(m.get("win_rate") or 0.0),
+                        }
+                        for m in mu_raw
+                        if isinstance(m, dict)
+                    ],
+                }
+                f_low = f_name.lower()
+                fac_summary[f_low] = fac_entry
+                if f_low == "space marines":
+                    fac_summary["space marines (astartes)"] = fac_entry
+                    fac_summary["adeptus astartes"] = fac_entry
+            event_obj["faction_3mo_summary"] = fac_summary
+
+        # 2. Batch-compute career own-faction mastery, vs-faction mastery, and prior career H2H
+        ev_players = [p for p in (event_obj.get("players") or []) if isinstance(p, dict)]
+        ev_matches = [m for m in (event_obj.get("matches") or []) if isinstance(m, dict)]
+        if not ev_players and not ev_matches:
+            return
+
+        raw_pids_set = set()
+        raw_names_set = set()
+        for p in ev_players:
+            for pk in ("player_id", "id", "bcp_player_id"):
+                pv = str(p.get(pk) or "").strip()
+                if pv and not pv.startswith("roster-"):
+                    raw_pids_set.add(pv)
+            pnm = str(p.get("full_name") or p.get("name") or "").strip().lower()
+            if pnm and pnm not in ("player", "player 1", "player 2", "bye"):
+                raw_names_set.add(pnm)
+        for m in ev_matches:
+            for pk in ("player1_id", "player2_id"):
+                pv = str(m.get(pk) or "").strip()
+                if pv and not pv.startswith("roster-"):
+                    raw_pids_set.add(pv)
+            for nk in ("player1_name", "player2_name"):
+                pnm = str(m.get(nk) or "").strip().lower()
+                if pnm and pnm not in ("player", "player 1", "player 2", "bye"):
+                    raw_names_set.add(pnm)
+
+        if not raw_pids_set and not raw_names_set:
+            return
+
+        if not hasattr(PostgresDatabase, "_event_pred_telemetry_cache_dict"):
+            PostgresDatabase._event_pred_telemetry_cache_dict = {}
+        sig_key = f"{ev_id}:{ev_gs}:{len(raw_pids_set)}:{len(raw_names_set)}:{len(ev_matches)}"
+        cached_tel = PostgresDatabase.get_cached(PostgresDatabase._event_pred_telemetry_cache_dict, sig_key, ttl=600)
+
+        if cached_tel is None:
+            def _fetch_tel_rows(cur):
+                cur.execute("SET LOCAL statement_timeout = '350ms';")
+                pids_arr = list(raw_pids_set) if raw_pids_set else [""]
+                names_arr = list(raw_names_set) if raw_names_set else [""]
+                cur.execute(
+                    """
+                    SELECT player_id,
+                           LOWER(TRIM(player_name)) AS norm_name,
+                           COALESCE(matches_played, 0) AS matches_played,
+                           COALESCE(current_elo, 1500.0) AS current_elo,
+                           COALESCE(peak_elo, 1500.0) AS peak_elo
+                    FROM player_ratings
+                    WHERE player_id = ANY(%s)
+                      AND COALESCE(game_system, '40k') = %s
+                    UNION ALL
+                    SELECT player_id,
+                           LOWER(TRIM(player_name)) AS norm_name,
+                           COALESCE(matches_played, 0) AS matches_played,
+                           COALESCE(current_elo, 1500.0) AS current_elo,
+                           COALESCE(peak_elo, 1500.0) AS peak_elo
+                    FROM player_ratings
+                    WHERE LOWER(TRIM(player_name)) = ANY(%s)
+                      AND COALESCE(game_system, '40k') = %s
+                    ORDER BY matches_played DESC NULLS LAST;
+                    """,
+                    (pids_arr, ev_gs, names_arr, ev_gs),
+                )
+                pr_rows = [dict(r) for r in cur.fetchall()]
+                pr_by_pid_local: Dict[str, Dict[str, Any]] = {}
+                pr_by_name_local: Dict[str, Dict[str, Any]] = {}
+                for pr_r in pr_rows:
+                    pid_v = str(pr_r.get("player_id") or "").strip()
+                    nm_v = str(pr_r.get("norm_name") or "").strip()
+                    if pid_v and pid_v not in pr_by_pid_local:
+                        pr_by_pid_local[pid_v] = pr_r
+                    if nm_v and nm_v not in pr_by_name_local:
+                        pr_by_name_local[nm_v] = pr_r
+
+                lookup_pids = list(raw_pids_set | set(pr_by_pid_local.keys()) | {str(r.get("player_id")).strip() for r in pr_by_name_local.values() if r.get("player_id")})
+                if not lookup_pids:
+                    return {"pr_by_pid": pr_by_pid_local, "pr_by_name": pr_by_name_local, "hist_by_pid": {}}
+
+                cur.execute(
+                    """
+                    SELECT h.player_id,
+                           h.match_id,
+                           h.event_id,
+                           LOWER(TRIM(COALESCE(e.name, ''))) AS event_name_low,
+                           h.round,
+                           h.opponent_id,
+                           LOWER(TRIM(COALESCE(h.opponent_name, ''))) AS opp_name_low,
+                           h.result,
+                           COALESCE(h.delta_elo, 0.0) AS delta_elo,
+                           h.player_faction,
+                           h.opponent_faction,
+                           ep.ep_faction
+                    FROM rating_history h
+                    LEFT JOIN events e ON e.id = h.event_id
+                    LEFT JOIN LATERAL (
+                        SELECT ep_sub.faction AS ep_faction
+                        FROM event_participants ep_sub
+                        WHERE ep_sub.event_id = h.event_id
+                          AND ep_sub.player_id = h.player_id
+                          AND ep_sub.faction IS NOT NULL
+                          AND TRIM(ep_sub.faction) != ''
+                        LIMIT 1
+                    ) ep ON TRUE
+                    WHERE h.player_id = ANY(%s)
+                      AND COALESCE(h.game_system, '40k') = %s
+                      AND COALESCE(h.event_id, '') != %s
+                      AND COALESCE(h.is_bye, FALSE) = FALSE
+                      AND UPPER(TRIM(COALESCE(h.opponent_name, ''))) != 'BYE'
+                    ORDER BY h.match_date ASC, h.round ASC;
+                    """,
+                    (lookup_pids, ev_gs, ev_id),
+                )
+                h_rows = [dict(r) for r in cur.fetchall()]
+                hist_by_pid_local: Dict[str, List[Dict[str, Any]]] = {}
+                for hr in h_rows:
+                    hp = str(hr.get("player_id") or "").strip()
+                    if hp:
+                        hist_by_pid_local.setdefault(hp, []).append(hr)
+                return {
+                    "pr_by_pid": pr_by_pid_local,
+                    "pr_by_name": pr_by_name_local,
+                    "hist_by_pid": hist_by_pid_local,
+                }
+
+            if cursor is not None:
+                cached_tel = _fetch_tel_rows(cursor)
+            else:
+                with self.get_connection() as conn_tel:
+                    with conn_tel.cursor(cursor_factory=extras.RealDictCursor) as cur_tel:
+                        cached_tel = _fetch_tel_rows(cur_tel)
+            PostgresDatabase.set_cached(PostgresDatabase._event_pred_telemetry_cache_dict, sig_key, cached_tel, max_size=300)
+
+        pr_by_pid = cached_tel.get("pr_by_pid") or {}
+        pr_by_name = cached_tel.get("pr_by_name") or {}
+        hist_by_pid = cached_tel.get("hist_by_pid") or {}
+
+        player_dedup_hist: Dict[int, List[Dict[str, Any]]] = {}
+        player_candidate_ids: Dict[int, set] = {}
+        p_lookup_by_id: Dict[str, Dict[str, Any]] = {}
+        p_lookup_by_name: Dict[str, Dict[str, Any]] = {}
+
+        for p in ev_players:
+            p_raw_id = str(p.get("player_id") or p.get("id") or "").strip()
+            p_name_low = str(p.get("full_name") or p.get("name") or "").strip().lower()
+            canon_pr = pr_by_pid.get(p_raw_id) or pr_by_name.get(p_name_low)
+            canon_pid = str(canon_pr.get("player_id") or "").strip() if canon_pr else ""
+            if canon_pr:
+                cur_elo_val = float(p.get("current_elo") or p.get("elo") or 1500.0)
+                if abs(cur_elo_val - 1500.0) < 1e-6 and float(canon_pr.get("current_elo") or 1500.0) != 1500.0:
+                    p["current_elo"] = float(canon_pr["current_elo"])
+                    p["peak_elo"] = max(float(p.get("peak_elo") or 1500.0), float(canon_pr.get("peak_elo") or 1500.0))
+
+            c_ids = set()
+            for k in ("player_id", "id", "bcp_player_id", "bcp_event_player_id", "user_id"):
+                kv = str(p.get(k) or "").strip()
+                if kv:
+                    c_ids.add(kv)
+                    p_lookup_by_id[kv.lower()] = p
+            if canon_pid:
+                c_ids.add(canon_pid)
+                p_lookup_by_id[canon_pid.lower()] = p
+            if p_name_low:
+                p_lookup_by_name[p_name_low] = p
+            player_candidate_ids[id(p)] = c_ids
+
+            raw_h_list: List[Dict[str, Any]] = []
+            if p_raw_id and p_raw_id in hist_by_pid:
+                raw_h_list.extend(hist_by_pid[p_raw_id])
+            if canon_pid and canon_pid != p_raw_id and canon_pid in hist_by_pid:
+                raw_h_list.extend(hist_by_pid[canon_pid])
+
+            dedup_rows: List[Dict[str, Any]] = []
+            seen_mids = set()
+            seen_sigs = set()
+            for idx_r, r in enumerate(raw_h_list):
+                r_eid = str(r.get("event_id") or "").strip().lower()
+                r_ename = str(r.get("event_name_low") or "").strip()
+                if (ev_id and r_eid == ev_id.lower()) or (ev_name_low and r_ename == ev_name_low):
+                    continue
+                mid_s = str(r.get("match_id") or "").strip()
+                if mid_s and mid_s in seen_mids:
+                    continue
+                sig_s = f"{r_eid or r_ename or idx_r}__{r.get('round') or idx_r}__{r.get('opp_name_low') or ''}"
+                if sig_s in seen_sigs:
+                    continue
+                if mid_s:
+                    seen_mids.add(mid_s)
+                seen_sigs.add(sig_s)
+
+                resolved_pf = PostgresDatabase.pick_specific_faction(
+                    r.get("ep_faction"), r.get("player_faction"), default=""
+                ) or str(r.get("player_faction") or "").strip()
+                resolved_of = str(r.get("opponent_faction") or "").strip()
+                dedup_rows.append({
+                    **r,
+                    "_resolved_pf": resolved_pf,
+                    "_resolved_of": resolved_of,
+                    "_sig": sig_s,
+                })
+
+            player_dedup_hist[id(p)] = dedup_rows
+
+            has_spec_pf = any(
+                not PostgresDatabase.is_super_or_empty_faction(dr["_resolved_pf"], include_generic_sm=True)
+                for dr in dedup_rows
+            )
+            fm_by_fac: Dict[str, Dict[str, float]] = {}
+            mm_by_fac: Dict[str, Dict[str, float]] = {}
+            for dr in dedup_rows:
+                pf_s = dr["_resolved_pf"]
+                of_s = dr["_resolved_of"]
+                res_c = str(dr.get("result") or "").upper()
+                d_elo = float(dr.get("delta_elo") or 0.0)
+                if pf_s and not PostgresDatabase.is_super_or_empty_faction(pf_s, include_generic_sm=has_spec_pf):
+                    fb = fm_by_fac.setdefault(pf_s, {"games": 0, "wins": 0, "losses": 0, "draws": 0, "net_elo": 0.0})
+                    fb["games"] += 1
+                    if res_c == "W":
+                        fb["wins"] += 1
+                    elif res_c == "L":
+                        fb["losses"] += 1
+                    else:
+                        fb["draws"] += 1
+                    fb["net_elo"] += d_elo
+                if of_s and of_s.lower() != "bye" and not PostgresDatabase.is_super_or_empty_faction(of_s, include_generic_sm=False):
+                    mb = mm_by_fac.setdefault(of_s, {"total_encounters": 0, "wins": 0, "losses": 0, "draws": 0, "net_elo": 0.0})
+                    mb["total_encounters"] += 1
+                    if res_c == "W":
+                        mb["wins"] += 1
+                    elif res_c == "L":
+                        mb["losses"] += 1
+                    else:
+                        mb["draws"] += 1
+                    mb["net_elo"] += d_elo
+
+            p["faction_mastery"] = [
+                {
+                    "faction": fn,
+                    "games": int(b["games"]),
+                    "matches": int(b["games"]),
+                    "wins": int(b["wins"]),
+                    "losses": int(b["losses"]),
+                    "draws": int(b["draws"]),
+                    "win_rate": round((b["wins"] * 100.0) / b["games"], 1) if b["games"] > 0 else 0.0,
+                    "net_elo": round(float(b["net_elo"]), 1),
+                }
+                for fn, b in fm_by_fac.items()
+            ]
+            p["matchup_matrix"] = [
+                {
+                    "opponent_faction": fn,
+                    "enemy_faction": fn,
+                    "total_encounters": int(b["total_encounters"]),
+                    "games": int(b["total_encounters"]),
+                    "wins": int(b["wins"]),
+                    "losses": int(b["losses"]),
+                    "draws": int(b["draws"]),
+                    "win_rate": round((b["wins"] * 100.0) / b["total_encounters"], 1) if b["total_encounters"] > 0 else 0.0,
+                    "net_elo": round(float(b["net_elo"]), 1),
+                }
+                for fn, b in mm_by_fac.items()
+            ]
+
+        for m in ev_matches:
+            if m.get("is_bye"):
+                continue
+            p1_id_s = str(m.get("player1_id") or "").strip().lower()
+            p2_id_s = str(m.get("player2_id") or "").strip().lower()
+            p1_nm_s = str(m.get("player1_name") or "").strip().lower()
+            p2_nm_s = str(m.get("player2_name") or "").strip().lower()
+            p1_obj = p_lookup_by_id.get(p1_id_s) or p_lookup_by_name.get(p1_nm_s)
+            p2_obj = p_lookup_by_id.get(p2_id_s) or p_lookup_by_name.get(p2_nm_s)
+            if p1_obj and not m.get("player1_elo"):
+                m["player1_elo"] = float(p1_obj.get("current_elo") or 1500.0)
+            if p2_obj and not m.get("player2_elo"):
+                m["player2_elo"] = float(p2_obj.get("current_elo") or 1500.0)
+
+            p1_w = 0
+            p2_w = 0
+            d_cnt = 0
+            if p1_obj and p2_obj:
+                p2_cids = player_candidate_ids.get(id(p2_obj), set())
+                for dr in player_dedup_hist.get(id(p1_obj), []):
+                    opp_id_v = str(dr.get("opponent_id") or "").strip()
+                    opp_nm_v = str(dr.get("opp_name_low") or "").strip()
+                    if (opp_id_v and opp_id_v in p2_cids) or (p2_nm_s and opp_nm_v == p2_nm_s):
+                        rc = str(dr.get("result") or "").upper()
+                        if rc == "W":
+                            p1_w += 1
+                        elif rc == "L":
+                            p2_w += 1
+                        else:
+                            d_cnt += 1
+            m["career_h2h"] = {
+                "p1Wins": p1_w,
+                "p2Wins": p2_w,
+                "draws": d_cnt,
+                "total": p1_w + p2_w + d_cnt,
+            }
+
 
     def get_recommended_events(
         self,

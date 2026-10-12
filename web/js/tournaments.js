@@ -3346,8 +3346,23 @@ function renderEventPairingsRows(roundArg) {
       const p1HasList = Boolean((p1Record && hasPlayerSubmittedList(p1Record)) || p1ListId);
       const p2HasList = Boolean(!isBye && ((p2Record && hasPlayerSubmittedList(p2Record)) || p2ListId));
 
-      const p1Prob = m._p1_win_prob !== undefined ? m._p1_win_prob : 50;
-      const p2Prob = m._p2_win_prob !== undefined ? m._p2_win_prob : 50;
+      let p1Prob = m._p1_win_prob !== undefined ? m._p1_win_prob : 50;
+      let p2Prob = m._p2_win_prob !== undefined ? m._p2_win_prob : 50;
+      let wtcEstTitle = 'Multi-Factor Win Probability';
+      if (!isBye && typeof computeCasterMatchupPredictionSnapshot === 'function') {
+        const p1EloVal = Number(m._p1_elo || m.player1_elo || p1Record?.current_elo || p1Record?.elo || 1500);
+        const p2EloVal = Number(m._p2_elo || m.player2_elo || p2Record?.current_elo || p2Record?.elo || 1500);
+        const snapPred = computeCasterMatchupPredictionSnapshot(currentEventData, p1Record, p2Record, p1EloVal, p2EloVal, m);
+        if (snapPred) {
+          p1Prob = snapPred.p1WinProb;
+          p2Prob = snapPred.p2WinProb;
+          m._p1_win_prob = p1Prob;
+          m._p2_win_prob = p2Prob;
+          m._prediction = snapPred;
+          wtcEstTitle = `Multi-Factor Win Probability (Est. WTC ${snapPred.wtcScore1}-${snapPred.wtcScore2})`;
+        }
+      }
+      const matchProbDomKey = `${rNumInt}-${tNumInt}`;
       const matchStream = streamByTableMap.get(tNumInt) || defaultStream;
 
       let borderCol = 'rgba(255,255,255,0.09)';
@@ -3421,7 +3436,7 @@ function renderEventPairingsRows(roundArg) {
                 <span style="font-size:0.82rem; font-weight:700; color:${isP1Win ? '#4ade80' : '#f8fafc'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(p1Name)}">
                   ${escapeHtml(p1Name)}
                 </span>
-                ${!isBye ? `<span style="font-family:var(--font-mono); font-size:0.64rem; color:#38bdf8; flex-shrink:0;" title="Elo Win Probability">${p1Prob}%</span>` : ''}
+                ${!isBye ? `<span data-match-prob-p1="${escapeHtml(matchProbDomKey)}" style="font-family:var(--font-mono); font-size:0.64rem; color:#38bdf8; flex-shrink:0;" title="${escapeHtml(wtcEstTitle)}">${p1Prob}%</span>` : ''}
                 ${p1RosterBtn}
                 ${toP1CommsBtn}
               </div>
@@ -3441,7 +3456,7 @@ function renderEventPairingsRows(roundArg) {
                 <span style="font-size:0.82rem; font-weight:700; color:${isBye ? 'var(--text-muted)' : (isP2Win ? '#4ade80' : '#f8fafc')}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(p2Name)}">
                   ${escapeHtml(p2Name)}
                 </span>
-                ${!isBye ? `<span style="font-family:var(--font-mono); font-size:0.64rem; color:#f43f5e; flex-shrink:0;" title="Elo Win Probability">${p2Prob}%</span>` : ''}
+                ${!isBye ? `<span data-match-prob-p2="${escapeHtml(matchProbDomKey)}" style="font-family:var(--font-mono); font-size:0.64rem; color:#f43f5e; flex-shrink:0;" title="${escapeHtml(wtcEstTitle)}">${p2Prob}%</span>` : ''}
                 ${p2RosterBtn}
                 ${toP2CommsBtn}
               </div>
@@ -4547,6 +4562,18 @@ function getEventTierBadgeHtml(totalPlayers, eventName = '', numRounds = 0) {
 
 function computeEventPlayerEloStats(players, matches) {
   if (!Array.isArray(players)) return [];
+  if (typeof currentEventData !== 'undefined' && currentEventData && currentEventData.faction_3mo_summary && typeof currentEventData.faction_3mo_summary === 'object') {
+    const evSys = String(currentEventData.game_system || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).trim().toLowerCase();
+    Object.entries(currentEventData.faction_3mo_summary).forEach(([k, val]) => {
+      if (!val) return;
+      const fKey = `${evSys}:${String(val.faction || k).trim().toLowerCase()}`;
+      if (!casterFaction3MoCache[fKey]) casterFaction3MoCache[fKey] = val;
+      if (typeof normalizeCasterFactionKey === 'function') {
+        const normKey = `${evSys}:${normalizeCasterFactionKey(val.faction || k)}`;
+        if (normKey && !casterFaction3MoCache[normKey]) casterFaction3MoCache[normKey] = val;
+      }
+    });
+  }
   const pMap = new Map();
   players.forEach(p => {
     if (!p.current_elo && p.elo) p.current_elo = p.elo;
@@ -4633,10 +4660,17 @@ function computeEventPlayerEloStats(players, matches) {
 
       const exp1 = 1 / (1 + Math.pow(10, (elo2 - elo1) / 400));
       const exp2 = 1 - exp1;
-      m._p1_win_prob = Math.round(exp1 * 100);
-      m._p2_win_prob = Math.round(exp2 * 100);
       m._p1_elo = elo1;
       m._p2_elo = elo2;
+      if (typeof computeCasterMatchupPredictionSnapshot === 'function') {
+        const snapPred = computeCasterMatchupPredictionSnapshot(typeof currentEventData !== 'undefined' ? currentEventData : null, p1Rec, p2Rec, elo1, elo2, m);
+        m._p1_win_prob = snapPred.p1WinProb;
+        m._p2_win_prob = snapPred.p2WinProb;
+        m._prediction = snapPred;
+      } else {
+        m._p1_win_prob = Math.round(exp1 * 100);
+        m._p2_win_prob = Math.round(exp2 * 100);
+      }
 
       const outcomeStr = String(m.outcome || '').toLowerCase();
       const hasScores = m.player1_score !== null && m.player1_score !== undefined && m.player2_score !== null && m.player2_score !== undefined;
@@ -7130,8 +7164,9 @@ let currentModalStreamTable = 1;
 function buildInAppStreamHudHtml(overlayData) {
   if (!overlayData) return '';
   const { tableNum, tableBadge, roundNum, p1Name, p2Name, p1Fac, p2Fac, p1Elo, p2Elo, scoreStr, isLiveProgress } = overlayData;
-  const p1Prob = Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, ((p2Elo || 1500) - (p1Elo || 1500)) / 400)))));
-  const p2Prob = 100 - p1Prob;
+  const fallbackP1Prob = Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, ((p2Elo || 1500) - (p1Elo || 1500)) / 400)))));
+  const p1Prob = overlayData.p1Prob !== undefined ? overlayData.p1Prob : fallbackP1Prob;
+  const p2Prob = overlayData.p2Prob !== undefined ? overlayData.p2Prob : (100 - p1Prob);
 
   return `
     <div class="stream-hud-scoreboard-card" style="display: flex; align-items: stretch; justify-content: space-between; background: linear-gradient(90deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 41, 59, 0.96) 50%, rgba(15, 23, 42, 0.96) 100%); border: 1px solid rgba(56, 189, 248, 0.45); border-radius: 8px; overflow: hidden; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px);">
@@ -7984,6 +8019,11 @@ function resolveStreamTableMatchData(ev, players, matches, tableVal, curRound) {
     if (featureMatch) {
       const p1 = findPlayer(featureMatch.player1_id, featureMatch.player1_name);
       const p2 = findPlayer(featureMatch.player2_id, featureMatch.player2_name);
+      const p1Elo = Number(featureMatch.player1_elo || p1?.current_elo || 1500);
+      const p2Elo = Number(featureMatch.player2_elo || p2?.current_elo || 1500);
+      const snapPred = typeof computeCasterMatchupPredictionSnapshot === 'function'
+        ? computeCasterMatchupPredictionSnapshot(ev, p1, p2, p1Elo, p2Elo, featureMatch)
+        : null;
       const hasScore = featureMatch.player1_score !== null && featureMatch.player1_score !== undefined && featureMatch.player2_score !== null && featureMatch.player2_score !== undefined;
       const fTable = Number(featureMatch.table_number || featureMatch.table || 1);
       const trackerScore = evId ? streamLiveTrackerScoreCache[`BCP-${evId}-R${rNum}-T${fTable}`] : null;
@@ -7996,8 +8036,10 @@ function resolveStreamTableMatchData(ev, players, matches, tableVal, curRound) {
         p2Name: p2?.full_name || featureMatch.player2_name || 'Player 2',
         p1Fac: p1?.faction || featureMatch.player1_faction || 'Army',
         p2Fac: p2?.faction || featureMatch.player2_faction || 'Army',
-        p1Elo: Number(featureMatch.player1_elo || p1?.current_elo || 1500),
-        p2Elo: Number(featureMatch.player2_elo || p2?.current_elo || 1500),
+        p1Elo,
+        p2Elo,
+        p1Prob: snapPred ? snapPred.p1WinProb : featureMatch._p1_win_prob,
+        p2Prob: snapPred ? snapPred.p2WinProb : featureMatch._p2_win_prob,
         scoreStr: trackerScore || (hasScore ? `${featureMatch.player1_score} - ${featureMatch.player2_score}` : '0 - 0')
       };
     }
@@ -8012,6 +8054,8 @@ function resolveStreamTableMatchData(ev, players, matches, tableVal, curRound) {
       p2Fac: 'Coverage',
       p1Elo: 1500,
       p2Elo: 1500,
+      p1Prob: 50,
+      p2Prob: 50,
       scoreStr: 'LIVE'
     };
   }
@@ -8033,6 +8077,11 @@ function resolveStreamTableMatchData(ev, players, matches, tableVal, curRound) {
   if (exactMatch) {
     const p1 = findPlayer(exactMatch.player1_id, exactMatch.player1_name);
     const p2 = findPlayer(exactMatch.player2_id, exactMatch.player2_name);
+    const p1Elo = Number(exactMatch.player1_elo || p1?.current_elo || 1500);
+    const p2Elo = Number(exactMatch.player2_elo || p2?.current_elo || 1500);
+    const snapPred = typeof computeCasterMatchupPredictionSnapshot === 'function'
+      ? computeCasterMatchupPredictionSnapshot(ev, p1, p2, p1Elo, p2Elo, exactMatch)
+      : null;
     const hasScore = exactMatch.player1_score !== null && exactMatch.player1_score !== undefined && exactMatch.player2_score !== null && exactMatch.player2_score !== undefined;
     const trackerScore = evId ? streamLiveTrackerScoreCache[`BCP-${evId}-R${rNum}-T${tNum}`] : null;
     return {
@@ -8044,8 +8093,10 @@ function resolveStreamTableMatchData(ev, players, matches, tableVal, curRound) {
       p2Name: p2?.full_name || exactMatch.player2_name || 'Player 2',
       p1Fac: p1?.faction || exactMatch.player1_faction || 'Army',
       p2Fac: p2?.faction || exactMatch.player2_faction || 'Army',
-      p1Elo: Number(exactMatch.player1_elo || p1?.current_elo || 1500),
-      p2Elo: Number(exactMatch.player2_elo || p2?.current_elo || 1500),
+      p1Elo,
+      p2Elo,
+      p1Prob: snapPred ? snapPred.p1WinProb : exactMatch._p1_win_prob,
+      p2Prob: snapPred ? snapPred.p2WinProb : exactMatch._p2_win_prob,
       scoreStr: trackerScore || (hasScore ? `${exactMatch.player1_score} - ${exactMatch.player2_score}` : '0 - 0')
     };
   }
@@ -8675,11 +8726,18 @@ function computeCasterFaction3MoMetrics(fac1Raw, fac2Raw, matches, sys = '40k') 
   });
   const evTotal = evF1Wins + evF2Wins + evDraws;
 
-  // 2. Global 3-month faction details from cache
-  const k1 = `${sys || '40k'}:${String(fac1 || '').trim().toLowerCase()}`;
-  const k2 = `${sys || '40k'}:${String(fac2 || '').trim().toLowerCase()}`;
-  const f1Details = casterFaction3MoCache[k1] || null;
-  const f2Details = casterFaction3MoCache[k2] || null;
+  // 2. Global 3-month faction details from cache (with preloaded event summary fallback)
+  const rawF1Key = String(fac1 || '').trim().toLowerCase();
+  const rawF2Key = String(fac2 || '').trim().toLowerCase();
+  const normF1Key = normalizeCasterFactionKey(fac1);
+  const normF2Key = normalizeCasterFactionKey(fac2);
+  const k1 = `${sys || '40k'}:${rawF1Key}`;
+  const k2 = `${sys || '40k'}:${rawF2Key}`;
+  const nk1 = `${sys || '40k'}:${normF1Key}`;
+  const nk2 = `${sys || '40k'}:${normF2Key}`;
+  const evSummary = currentEventData?.faction_3mo_summary || null;
+  const f1Details = casterFaction3MoCache[k1] || casterFaction3MoCache[nk1] || (evSummary && (evSummary[rawF1Key] || evSummary[normF1Key])) || null;
+  const f2Details = casterFaction3MoCache[k2] || casterFaction3MoCache[nk2] || (evSummary && (evSummary[rawF2Key] || evSummary[normF2Key])) || null;
 
   let h2hF1Wins = 0;
   let h2hF2Wins = 0;
@@ -9363,17 +9421,25 @@ function computeCasterCareerMasteryForPrediction(playerObj, opponentObj, profile
   // Strictly exclude current event matches from prediction inputs so zero in-event stats are used
   const curEvName = String(currentEventData?.name || '').trim().toLowerCase();
   const curEvId = String(currentEventData?.id || currentOpenEventId || '').trim().toLowerCase();
-  const careerHistory = rawHistory.filter(h => {
-    const hEvId = String(h?.event_id || '').trim().toLowerCase();
-    const hEvName = String(h?.event_name || '').trim().toLowerCase();
+  const isNotCurrentEvent = (item) => {
+    const hEvId = String(item?.event_id || item?.id || '').trim().toLowerCase();
+    const hEvName = String(item?.event_name || item?.name || '').trim().toLowerCase();
     if (curEvId && hEvId && hEvId === curEvId) return false;
     if (curEvName && hEvName && hEvName === curEvName) return false;
     return true;
-  });
+  };
+  const careerHistory = rawHistory.filter(isNotCurrentEvent);
+  const careerTournaments = Array.isArray(profileData?.tournaments || profileData?.events_attended)
+    ? (profileData.tournaments || profileData.events_attended).filter(isNotCurrentEvent)
+    : [];
+  const careerTrackerHistory = Array.isArray(profileData?.tracker_history || profileData?.completed_history)
+    ? (profileData.tracker_history || profileData.completed_history).filter(isNotCurrentEvent)
+    : [];
 
   let masteryList = [];
-  if (typeof computeProfileFactionMastery === 'function' && (careerHistory.length > 0 || rawBreakdown.length > 0)) {
-    masteryList = computeProfileFactionMastery(careerHistory, rawBreakdown, profileData?.tournaments || profileData?.events_attended, profileData?.tracker_history || profileData?.completed_history);
+  if (typeof computeProfileFactionMastery === 'function' && careerHistory.length > 0) {
+    // Pass [] for rawBreakdown when careerHistory is present so in-event matches in profileData.faction_mastery never overwrite career-only counts
+    masteryList = computeProfileFactionMastery(careerHistory, [], careerTournaments, careerTrackerHistory);
   } else if (Array.isArray(rawBreakdown) && rawBreakdown.length > 0) {
     masteryList = rawBreakdown.map(f => {
       const g = Number(f.games || f.matches || (Number(f.wins || 0) + Number(f.losses || 0) + Number(f.draws || 0)) || 0);
@@ -9390,12 +9456,25 @@ function computeCasterCareerMasteryForPrediction(playerObj, opponentObj, profile
     });
   }
 
-  // 1. Career Own-Faction Mastery (strictly career stats, never in-event record)
-  const matchedOwnEntry = masteryList.find(m => isSameCasterFaction(m.faction, curFac));
-  let ownWins = matchedOwnEntry ? Number(matchedOwnEntry.wins || 0) : Number(playerObj?.own_faction_wins || 0);
-  let ownLosses = matchedOwnEntry ? Number(matchedOwnEntry.losses || 0) : Number(playerObj?.own_faction_losses || 0);
-  let ownDraws = matchedOwnEntry ? Number(matchedOwnEntry.draws || 0) : Number(playerObj?.own_faction_draws || 0);
-  let ownNetElo = matchedOwnEntry ? Number(matchedOwnEntry.net_elo || 0) : Number(playerObj?.own_faction_net_elo || 0);
+  // 1. Career Own-Faction Mastery (strictly career stats, never in-event record; sum across faction aliases)
+  const matchedOwnEntries = masteryList.filter(m => isSameCasterFaction(m.faction, curFac));
+  let ownWins = 0;
+  let ownLosses = 0;
+  let ownDraws = 0;
+  let ownNetElo = 0;
+  if (matchedOwnEntries.length > 0) {
+    matchedOwnEntries.forEach(entry => {
+      ownWins += Number(entry.wins || 0);
+      ownLosses += Number(entry.losses || 0);
+      ownDraws += Number(entry.draws || 0);
+      ownNetElo += Number(entry.net_elo || 0);
+    });
+  } else {
+    ownWins = Number(playerObj?.own_faction_wins || 0);
+    ownLosses = Number(playerObj?.own_faction_losses || 0);
+    ownDraws = Number(playerObj?.own_faction_draws || 0);
+    ownNetElo = Number(playerObj?.own_faction_net_elo || 0);
+  }
   const ownGames = ownWins + ownLosses + ownDraws;
   const ownWr = ownGames > 0 ? (ownWins / ownGames) * 100 : 50.0;
 
@@ -9427,13 +9506,13 @@ function computeCasterCareerMasteryForPrediction(playerObj, opponentObj, profile
   });
 
   if ((vsWins + vsLosses + vsDraws) === 0 && Array.isArray(rawMatrix) && rawMatrix.length > 0) {
-    const matEntry = rawMatrix.find(m => isSameCasterFaction(m.enemy_faction || m.opponent_faction || m.faction, oppFac));
-    if (matEntry) {
-      vsWins = Number(matEntry.wins || 0);
-      vsLosses = Number(matEntry.losses || 0);
-      vsDraws = Number(matEntry.draws || 0);
-      vsNetElo = Number(matEntry.net_elo || 0);
-    }
+    const matEntries = rawMatrix.filter(m => isSameCasterFaction(m.enemy_faction || m.opponent_faction || m.faction, oppFac));
+    matEntries.forEach(matEntry => {
+      vsWins += Number(matEntry.wins || 0);
+      vsLosses += Number(matEntry.losses || 0);
+      vsDraws += Number(matEntry.draws || 0);
+      vsNetElo += Number(matEntry.net_elo || 0);
+    });
   }
 
   const vsGames = vsWins + vsLosses + vsDraws;
@@ -9638,29 +9717,29 @@ function buildCasterPredictionBreakdownHtml(pred, p1Name, p2Name, fac1, fac2) {
   const favName = pred.effectiveEloDelta >= 0 ? (p1Name || 'Player 1') : (p2Name || 'Player 2');
 
   return `
-    <div style="margin-top: 0.85rem; padding: 0.7rem 0.85rem; background: rgba(9, 14, 26, 0.78); border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 10px;">
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
-        <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: #e2e8f0; display: flex; align-items: center; gap: 0.35rem;">
+    <div class="caster-pred-breakdown-wrap" style="margin-top: 0.85rem; padding: 0.75rem 0.9rem; background: rgba(9, 14, 26, 0.78); border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 10px;">
+      <div class="caster-pred-breakdown-header" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.55rem;">
+        <div style="font-size: 0.73rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: #e2e8f0; display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
           <span>🎯 Multi-Factor Prediction Breakdown</span>
-          <span style="font-size: 0.64rem; font-weight: 600; color: var(--text-muted); text-transform: none;">(Career & 3-Mo Global • Excludes In-Event Stats)</span>
+          <span style="font-size: 0.65rem; font-weight: 600; color: var(--text-muted); text-transform: none;">(Career & 3-Mo Global • Excludes In-Event Stats)</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; font-family: var(--font-mono); font-size: 0.71rem;">
-          <span style="padding: 2px 7px; border-radius: 5px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: ${effCol}; font-weight: 800;">
+        <div class="caster-pred-breakdown-badges" style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; font-family: var(--font-mono); font-size: 0.72rem;">
+          <span style="padding: 2px 8px; border-radius: 5px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: ${effCol}; font-weight: 800;">
             Eff. Edge: ${fmtShift(pred.effectiveEloDelta)} (${escapeHtml(favName)})
           </span>
-          <span style="padding: 2px 7px; border-radius: 5px; background: rgba(245, 158, 11, 0.14); border: 1px solid rgba(245, 158, 11, 0.35); color: #fbbf24; font-weight: 800;" title="Projected 20-Point WTC Team Pairings Matrix Score">
+          <span style="padding: 2px 8px; border-radius: 5px; background: rgba(245, 158, 11, 0.14); border: 1px solid rgba(245, 158, 11, 0.35); color: #fbbf24; font-weight: 800;" title="Projected 20-Point WTC Team Pairings Matrix Score">
             Est. WTC: ${pred.wtcScore1} - ${pred.wtcScore2}
           </span>
         </div>
       </div>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.4rem;">
+      <div class="caster-pred-breakdown-grid">
         ${items.map(it => `
-          <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; padding: 0.35rem 0.5rem; display: flex; flex-direction: column; gap: 1px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.25rem;">
-              <span style="font-size: 0.63rem; font-weight: 700; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(it.label)}</span>
-              <span style="font-family: var(--font-mono); font-size: 0.68rem; font-weight: 800; color: ${colShift(it.shift)}; white-space: nowrap;">${fmtShift(it.shift)}</span>
+          <div class="caster-pred-factor-card">
+            <div class="caster-pred-factor-top">
+              <span class="caster-pred-factor-label">${escapeHtml(it.label)}</span>
+              <span class="caster-pred-factor-shift" style="color: ${colShift(it.shift)};">${fmtShift(it.shift)}</span>
             </div>
-            <div style="font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            <div class="caster-pred-factor-sub">
               ${escapeHtml(it.sub)}
             </div>
           </div>
@@ -9682,18 +9761,34 @@ function computeCasterMatchupPredictionSnapshot(ev, p1, p2, p1Elo, p2Elo, select
   const fac3MoMetrics = computeCasterFaction3MoMetrics(fac1, fac2, [], sys);
 
   const h2hKey = getCasterH2hCacheKey(sys, p1Pid, p2Pid, p1Name, p2Name);
-  const cachedApiH2h = Array.isArray(casterHeadToHeadCache[h2hKey]) ? casterHeadToHeadCache[h2hKey] : [];
-  // Strictly prior events only for prediction (exclude current event matches)
-  const curEvId = String(ev?.id || currentEventData?.id || currentOpenEventId || '').trim().toLowerCase();
-  const curEvName = String(ev?.name || currentEventData?.name || '').trim().toLowerCase();
-  const careerOnlyH2hMatches = cachedApiH2h.filter(m => {
-    const mEvId = String(m?.event_id || '').trim().toLowerCase();
-    const mEvName = String(m?.event_name || '').trim().toLowerCase();
-    if (curEvId && mEvId && mEvId === curEvId) return false;
-    if (curEvName && mEvName && mEvName === curEvName) return false;
-    return true;
-  });
-  const pastH2h = computeCasterPastH2hRecord(careerOnlyH2hMatches, p1Pid, p2Pid, p1Name, p2Name);
+  let pastH2h;
+  if (Array.isArray(casterHeadToHeadCache[h2hKey])) {
+    const cachedApiH2h = casterHeadToHeadCache[h2hKey];
+    // Strictly prior events only for prediction (exclude current event matches)
+    const curEvId = String(ev?.id || currentEventData?.id || currentOpenEventId || '').trim().toLowerCase();
+    const curEvName = String(ev?.name || currentEventData?.name || '').trim().toLowerCase();
+    const careerOnlyH2hMatches = cachedApiH2h.filter(m => {
+      const mEvId = String(m?.event_id || '').trim().toLowerCase();
+      const mEvName = String(m?.event_name || '').trim().toLowerCase();
+      if (curEvId && mEvId && mEvId === curEvId) return false;
+      if (curEvName && mEvName && mEvName === curEvName) return false;
+      return true;
+    });
+    pastH2h = computeCasterPastH2hRecord(careerOnlyH2hMatches, p1Pid, p2Pid, p1Name, p2Name);
+  } else if (selectedMatch?.career_h2h && typeof selectedMatch.career_h2h === 'object') {
+    const ch = selectedMatch.career_h2h;
+    const p1W = Number(ch.p1Wins || 0);
+    const p2W = Number(ch.p2Wins || 0);
+    const dr = Number(ch.draws || 0);
+    pastH2h = {
+      p1Wins: p1W,
+      p2Wins: p2W,
+      draws: dr,
+      total: p1W + p2W + dr
+    };
+  } else {
+    pastH2h = { p1Wins: 0, p2Wins: 0, draws: 0, total: 0 };
+  }
 
   const prof1 = casterPlayerProfileCache[`${sys}:${p1Pid || p1Name.toLowerCase()}`] || null;
   const prof2 = casterPlayerProfileCache[`${sys}:${p2Pid || p2Name.toLowerCase()}`] || null;
@@ -9721,6 +9816,21 @@ function refreshCasterWinProbabilityDom(ev, p1, p2, selectedMatch) {
   const fac2 = formatEventPlayerFaction(p2?.faction || selectedMatch?.player2_faction || 'Army');
 
   const pred = computeCasterMatchupPredictionSnapshot(ev, p1, p2, p1Elo, p2Elo, selectedMatch);
+  if (selectedMatch) {
+    selectedMatch._p1_win_prob = pred.p1WinProb;
+    selectedMatch._p2_win_prob = pred.p2WinProb;
+    const rNum = Number(selectedMatch.round || selectedMatch.round_number || selectedCasterRound || 1);
+    const tNum = Number(selectedMatch.table_number || selectedMatch.table || selectedCasterTable || 0);
+    if (rNum > 0 && tNum > 0) {
+      const key = `${rNum}-${tNum}`;
+      document.querySelectorAll(`[data-match-prob-p1="${key}"]`).forEach(el => {
+        el.textContent = `${pred.p1WinProb}%`;
+      });
+      document.querySelectorAll(`[data-match-prob-p2="${key}"]`).forEach(el => {
+        el.textContent = `${pred.p2WinProb}%`;
+      });
+    }
+  }
   const p1PctEl = document.getElementById('caster-win-prob-p1');
   const p2PctEl = document.getElementById('caster-win-prob-p2');
   const fillEl = document.getElementById('caster-win-prob-fill-p1');
@@ -10461,9 +10571,11 @@ function openCasterDeskTableModal(tableNum, roundNum, matchIdx = null) {
 
   const p1Elo = Number(selectedMatch.player1_elo || p1.current_elo || 1500);
   const p2Elo = Number(selectedMatch.player2_elo || p2.current_elo || 1500);
-  const eloDiff = p2Elo - p1Elo;
-  const p1WinProb = Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, eloDiff / 400)))));
-  const p2WinProb = 100 - p1WinProb;
+  const snapPred = computeCasterMatchupPredictionSnapshot(ev, p1, p2, p1Elo, p2Elo, selectedMatch);
+  const p1WinProb = snapPred.p1WinProb;
+  const p2WinProb = snapPred.p2WinProb;
+  selectedMatch._p1_win_prob = p1WinProb;
+  selectedMatch._p2_win_prob = p2WinProb;
 
   let rawJson = (ev && ev.raw_json) || {};
   if (typeof rawJson === 'string') {

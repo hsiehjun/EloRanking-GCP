@@ -1933,6 +1933,11 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                     ev_obj["avg_field_elo"] = round(sum(elos_list) / len(elos_list), 1)
                     ev_obj["top_seed_elo"] = max(elos_list)
             _normalize_fast_path_players_and_matches(ev_obj)
+            if not is_mock_env and hasattr(db, "enrich_event_prediction_telemetry"):
+                try:
+                    db.enrich_event_prediction_telemetry(ev_obj)
+                except Exception:
+                    pass
 
         _normalize_fast_path_players_and_matches(event_details)
         plc_cached = PostgresDatabase.get_cached(PostgresDatabase._bcp_event_placings_cache_dict, event_id_str, ttl=3600)
@@ -2937,6 +2942,12 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                     pl["list_id"] = m_lid.group(1)
 
             pl["has_list"] = bool(pl.get("army_list") or pl.get("list_url") or pl.get("list_id"))
+
+    if not is_mock_env and hasattr(db, "enrich_event_prediction_telemetry"):
+        try:
+            db.enrich_event_prediction_telemetry(event_details)
+        except Exception:
+            pass
 
     event_details["sync_in_progress"] = False
     _event_details_cache[event_id_str] = {

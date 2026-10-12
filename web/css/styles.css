@@ -13047,6 +13047,58 @@ table.desktop-only,
   transition: width 0.3s ease;
 }
 
+.caster-pred-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.48rem;
+}
+
+.caster-pred-factor-card {
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  padding: 0.45rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.caster-pred-factor-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.caster-pred-factor-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+.caster-pred-factor-shift {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.25;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.caster-pred-factor-sub {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
 /* Caster Cheat Sheet Talking Points */
 .caster-cue-card {
   background: rgba(15, 23, 42, 0.65);
@@ -13076,6 +13128,9 @@ table.desktop-only,
 }
 
 @media (max-width: 900px) {
+  .caster-pred-breakdown-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .tale-of-tape-grid {
     grid-template-columns: 1fr;
     gap: 0.65rem;
@@ -13116,6 +13171,30 @@ table.desktop-only,
 }
 
 @media (max-width: 680px) {
+  .caster-pred-breakdown-wrap {
+    padding: 0.65rem 0.75rem !important;
+  }
+  .caster-pred-breakdown-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.4rem;
+  }
+  .caster-pred-factor-card {
+    padding: 0.42rem 0.52rem;
+  }
+  .caster-pred-factor-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+  .caster-pred-factor-label {
+    font-size: 0.68rem;
+  }
+  .caster-pred-factor-shift {
+    font-size: 0.74rem;
+  }
+  .caster-pred-factor-sub {
+    font-size: 0.62rem;
+  }
   #caster-desk-table-modal.caster-desk-table-modal-backdrop {
     padding: 0.45rem !important;
   }
