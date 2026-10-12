@@ -355,7 +355,7 @@ def get_default_teams_seed() -> Dict[str, Any]:
                     {"player_id": "Te1Q9lp3By", "player_name": "Junior Aflleje", "current_elo": 2190.8, "peak_elo": 2190.8, "faction": "Leagues of Votann", "role": "Top Ace", "status": "confirmed", "is_active": True, "win_rate": 83.4, "matches_played": 434, "wins": 362, "losses": 68, "draws": 4, "form": "🔥 Top Ace"},
                     {"player_id": "p_david", "player_name": "David Gaylard", "current_elo": 2120.0, "peak_elo": 2145.0, "faction": "Necrons", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 80.5, "matches_played": 148, "wins": 119, "losses": 27, "draws": 2, "form": "Core 5"},
                     {"player_id": "p_james_c", "player_name": "James Carmona", "current_elo": 1939.5, "peak_elo": 2014.9, "faction": "Adeptus Custodes", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 69.5, "matches_played": 141, "wins": 98, "losses": 40, "draws": 3, "form": "Core 5"},
-                    {"player_id": "9oEfu25ccjqE", "player_name": "John Hsieh", "current_elo": 1888.5, "peak_elo": 1888.5, "faction": "Necrons", "role": "Captain", "status": "confirmed", "is_active": True, "win_rate": 66.0, "matches_played": 94, "wins": 62, "losses": 31, "draws": 1, "form": "Captain"},
+                    {"player_id": "9oEfu25ccjqE", "player_name": "John Hsieh", "current_elo": 1894.9, "peak_elo": 1912.0, "faction": "Necrons", "role": "Captain", "status": "confirmed", "is_active": True, "win_rate": 67.0, "matches_played": 100, "wins": 67, "losses": 32, "draws": 1, "form": "Captain"},
                     {"player_id": "p_jake_n", "player_name": "Jake Nelson", "current_elo": 1865.7, "peak_elo": 1957.9, "faction": "Blood Angels", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 73.4, "matches_played": 425, "wins": 312, "losses": 99, "draws": 14, "form": "Core 5"},
                     {"player_id": "p_jesse_s", "player_name": "Jesse Sell", "current_elo": 1861.5, "peak_elo": 1916.6, "faction": "Aeldari", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 67.8, "matches_played": 214, "wins": 145, "losses": 62, "draws": 7, "form": "Core 5"},
                     {"player_id": "p_aurelio_c", "player_name": "Aurelio Correa", "current_elo": 1848.0, "peak_elo": 1875.0, "faction": "Dark Angels", "role": "Member", "status": "confirmed", "is_active": True, "win_rate": 65.5, "matches_played": 116, "wins": 76, "losses": 38, "draws": 2, "form": "Steady"},
@@ -949,6 +949,17 @@ class TeamsHubService:
                                 if any(pid.startswith("p_tzc_") for pid in roster_ids):
                                     t = seed_by_id[tid]
                                     updated = True
+                                else:
+                                    for rp in (t.get("roster") or []):
+                                        if str(rp.get("player_name") or "").strip().lower() == "john hsieh" and float(rp.get("current_elo") or 0) < 1894.0:
+                                            rp["current_elo"] = 1894.9
+                                            rp["peak_elo"] = max(float(rp.get("peak_elo") or 0), 1912.0)
+                                            rp["win_rate"] = 67.0
+                                            rp["matches_played"] = 100
+                                            rp["wins"] = 67
+                                            rp["losses"] = 32
+                                            rp["draws"] = 1
+                                            updated = True
                             cleaned_teams.append(t)
                         for tid, st in seed_by_id.items():
                             if tid not in seen_ids:
@@ -1078,10 +1089,93 @@ class TeamsHubService:
 
         return team
 
+    def _hydrate_teams_from_live_db(self, teams: List[Dict[str, Any]], game_system: str = "40k") -> None:
+        """
+        Hydrates club roster players with live `current_elo`, `peak_elo`, `win_rate`, and `matches_played`
+        from PostgreSQL `player_ratings` (cached in memory for 300s so repeat calls take 0ms).
+        """
+        sys_key = (game_system or "40k").strip().lower()
+        now_mono = time.monotonic()
+        if not hasattr(self, "_live_roster_sync_ts"):
+            self._live_roster_sync_ts: Dict[str, float] = {}
+        last_ts = self._live_roster_sync_ts.get(sys_key, 0.0)
+        if (now_mono - last_ts) < 300.0:
+            return
+        self._live_roster_sync_ts[sys_key] = now_mono
+
+        names_to_query = set()
+        for t in teams:
+            for p in t.get("roster") or []:
+                pname = str(p.get("player_name") or p.get("name") or "").strip().lower()
+                if pname:
+                    names_to_query.add(pname)
+        if not names_to_query:
+            return
+
+        try:
+            from core import get_database
+            db = get_database()
+            if db is None:
+                return
+            is_mock_db = (
+                getattr(db, "_is_mock_instance", lambda: False)()
+                or type(db).__module__.startswith("unittest.mock")
+                or not hasattr(db, "get_connection")
+            )
+            if is_mock_db:
+                return
+            import psycopg2.extras as pg_extras
+            with db.get_connection() as conn:
+                with conn.cursor(cursor_factory=pg_extras.RealDictCursor) as cur:
+                    cur.execute("SET LOCAL statement_timeout = '200ms';")
+                    cur.execute(
+                        """
+                        SELECT LOWER(TRIM(player_name)) AS name_key,
+                               player_id,
+                               COALESCE(current_elo, 1500.0) AS current_elo,
+                               COALESCE(peak_elo, current_elo, 1500.0) AS peak_elo,
+                               COALESCE(matches_played, 0) AS matches_played,
+                               COALESCE(wins, 0) AS wins,
+                               COALESCE(losses, 0) AS losses,
+                               COALESCE(draws, 0) AS draws,
+                               COALESCE(win_rate, 0.0) AS win_rate
+                        FROM player_ratings
+                        WHERE COALESCE(game_system, '40k') = %s
+                          AND COALESCE(matches_played, 0) > 0
+                          AND LOWER(TRIM(player_name)) = ANY(%s)
+                        ORDER BY matches_played DESC, current_elo DESC;
+                        """,
+                        (sys_key, list(names_to_query)),
+                    )
+                    rows = cur.fetchall() or []
+                    by_name: Dict[str, Dict[str, Any]] = {}
+                    for r in rows:
+                        nk = str(r.get("name_key") or "").strip().lower()
+                        if nk and nk not in by_name:
+                            by_name[nk] = dict(r)
+                    if by_name:
+                        for t in teams:
+                            for p in t.get("roster") or []:
+                                nk = str(p.get("player_name") or p.get("name") or "").strip().lower()
+                                live = by_name.get(nk)
+                                if live and float(live.get("current_elo") or 0) > 0:
+                                    p["current_elo"] = round(float(live["current_elo"]), 1)
+                                    p["peak_elo"] = round(max(float(p.get("peak_elo") or 0), float(live.get("peak_elo") or live["current_elo"])), 1)
+                                    if int(live.get("matches_played") or 0) > 0:
+                                        p["matches_played"] = int(live["matches_played"])
+                                        p["wins"] = int(live.get("wins") or p.get("wins") or 0)
+                                        p["losses"] = int(live.get("losses") or p.get("losses") or 0)
+                                        p["draws"] = int(live.get("draws") or p.get("draws") or 0)
+                                    if float(live.get("win_rate") or 0) > 0:
+                                        p["win_rate"] = round(float(live["win_rate"]), 1)
+        except Exception:
+            pass
+
     def get_all_teams(self, game_system: str = "40k") -> List[Dict[str, Any]]:
         sys_key = (game_system or "40k").lower()
         teams = self.state.get("teams", [])
         filtered = [t for t in teams if (t.get("game_system", "40k") or "40k").lower() == sys_key]
+        self._hydrate_teams_from_live_db(filtered, sys_key)
         for t in filtered:
             self._recalculate_team(t)
         # Sort naturally by power rating DESC
