@@ -27,6 +27,11 @@ class DiceTrackerApp {
     this.wakeLock = null;
     this.torchEnabled = false;
     this.cameraZoom = 1.0;
+    this.isWideView = false;
+    this.cameraPanX = 0.0;
+    this.cameraPanY = 0.0;
+    this._pinchStartDist = 0;
+    this._pinchStartZoom = 1.0;
 
     // Interactive Freeform 4-Corner Polygon ROI (adjusts to any camera/phone tilt angle in normalized 0..1 coords)
     // Order: [0: Top-Left, 1: Top-Right, 2: Bottom-Right, 3: Bottom-Left]
@@ -489,7 +494,7 @@ class DiceTrackerApp {
     return tensor;
   }
 
-  decodeYoloOnnxOutput(outputData, rgba, width, height, rx, ry, rw, rh, confThresh = 0.34, ignorePolygonCheck = false) {
+  decodeYoloOnnxOutput(outputData, rgba, width, height, rx, ry, rw, rh, confThresh = 0.26, ignorePolygonCheck = false) {
     const numAnchors = 8400;
     const numClasses = 6;
     const padTop = Math.floor((640 - height) / 2);
@@ -519,7 +524,7 @@ class DiceTrackerApp {
         if (cx < rx || cx > rx + rw || cy < ry || cy > ry + rh) continue;
         if (!this.isPointInRoiPolygon(cx, cy, polyPts, 2)) continue;
       }
-      if (bw < minBoxPx || bh < minBoxPx || bw > 195 || bh > 195) continue;
+      if (bw < minBoxPx || bh < minBoxPx || bw > 340 || bh > 340) continue;
       const aspect = bw / (bh || 1);
       if (aspect < 0.45 || aspect > 2.15) continue;
 
@@ -553,18 +558,21 @@ class DiceTrackerApp {
         if (inter > 0) {
           const areaA = cand.w * cand.h;
           const areaB = ex.w * ex.h;
-          if (inter / (areaA + areaB - inter + 1e-6) > 0.45) {
+          const iou = inter / (areaA + areaB - inter + 1e-6);
+          const ioMin = inter / (Math.min(areaA, areaB) + 1e-6);
+          if (iou > 0.45 || ioMin > 0.65) {
             suppressed = true;
             break;
           }
         }
         // 3D Cube Side-Face Ghost Suppression: at a 45° camera mount angle, the vertical front/side face
-        // of a cube hangs directly below (+Y) the top face. Suppress lower-confidence side-face detections!
+        // of a cube hangs directly below (+Y) the top face with foreshortened height and lower confidence.
+        // Do NOT suppress two separate physical dice that happen to touch vertically (cand.conf >= 0.58 or full height)!
         const dx = Math.abs(cand.cx - ex.cx);
         const dy = cand.cy - ex.cy;
         const refW = Math.max(cand.w, ex.w);
         const refH = Math.max(cand.h, ex.h);
-        if (dx <= refW * 0.55 && dy >= -refH * 0.15 && dy <= refH * 0.85) {
+        if (cand.conf < 0.58 && dx <= refW * 0.50 && dy >= -refH * 0.15 && (dy <= refH * 0.65 || cand.h < ex.h * 0.85)) {
           suppressed = true;
           break;
         }
@@ -611,7 +619,7 @@ class DiceTrackerApp {
           ry,
           rw,
           rh,
-          0.32
+          0.26
         );
 
         // If 45° perspective trapezoid ROI is active and raw pass missed foreshortened far-edge dice,
@@ -632,7 +640,7 @@ class DiceTrackerApp {
               16,
               dstW - 32,
               dstH - 32,
-              0.28,
+              0.26,
               true
             );
             const polyPts = this.getRoiPixelPolygon(width, height);
@@ -660,7 +668,7 @@ class DiceTrackerApp {
             const matchedLocal = localCvDice.find(
               cd => Math.hypot((cd.x + cd.w * 0.5) - ocx, (cd.y + cd.h * 0.5) - ocy) <= Math.max(od.w, cd.w) * 0.60
             );
-            if (matchedLocal && matchedLocal.isCustomSymbol) {
+            if (matchedLocal && matchedLocal.isCustomSymbol && od.conf < 0.72) {
               od.value = 6;
               od.isCustomSymbol = true;
             } else if (matchedLocal && (od.conf < 0.55 || (matchedLocal.bodyLum && matchedLocal.bodyLum >= 185 && od.conf < 0.72))) {
@@ -700,6 +708,11 @@ class DiceTrackerApp {
     this.btnPreset45Roi = document.getElementById("btnPreset45Roi");
     this.btnResetRoi = document.getElementById("btnResetRoi");
     this.btnTorchToggle = document.getElementById("btnTorchToggle");
+    this.viewfinder = document.getElementById("viewfinder");
+    this.btnWideViewToggle = document.getElementById("btnWideViewToggle");
+    this.btnZoomOut = document.getElementById("btnZoomOut");
+    this.btnZoomIn = document.getElementById("btnZoomIn");
+    this.cameraZoomBar = document.getElementById("cameraZoomBar");
     this.camZoomSlider = document.getElementById("camZoomSlider");
     this.camZoomVal = document.getElementById("camZoomVal");
 
@@ -852,6 +865,34 @@ class DiceTrackerApp {
     if (this.btnTorchToggle) {
       this.btnTorchToggle.addEventListener("click", () => this.toggleCameraTorch());
     }
+    if (this.btnWideViewToggle && typeof this.btnWideViewToggle.addEventListener === "function") {
+      this.btnWideViewToggle.addEventListener("click", () => {
+        this.setWideViewMode(!this.isWideView);
+      });
+    }
+    if (this.btnZoomOut && typeof this.btnZoomOut.addEventListener === "function") {
+      this.btnZoomOut.addEventListener("click", () => {
+        const nextZ = Math.round(Math.max(0.5, (this.cameraZoom || 1.0) - 0.25) * 20) / 20;
+        this.applyCameraZoom(nextZ);
+      });
+    }
+    if (this.btnZoomIn && typeof this.btnZoomIn.addEventListener === "function") {
+      this.btnZoomIn.addEventListener("click", () => {
+        const nextZ = Math.round(Math.min(3.0, (this.cameraZoom || 1.0) + 0.25) * 20) / 20;
+        this.applyCameraZoom(nextZ);
+      });
+    }
+    if (this.cameraZoomBar && typeof this.cameraZoomBar.querySelectorAll === "function") {
+      this.cameraZoomBar.querySelectorAll(".zoom-preset-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const z = parseFloat(btn.getAttribute("data-zoom") || "1.0") || 1.0;
+          if (z < 1.0) {
+            this.setWideViewMode(true);
+          }
+          this.applyCameraZoom(z);
+        });
+      });
+    }
     if (this.camZoomSlider) {
       this.camZoomSlider.addEventListener("input", (e) => {
         const z = parseFloat(e.target.value) || 1.0;
@@ -980,6 +1021,16 @@ class DiceTrackerApp {
     };
 
     const onPointerDown = (evt) => {
+      // Two-finger pinch-to-zoom gesture on mobile
+      if (evt.touches && evt.touches.length === 2) {
+        const dx = evt.touches[0].clientX - evt.touches[1].clientX;
+        const dy = evt.touches[0].clientY - evt.touches[1].clientY;
+        this._pinchStartDist = Math.hypot(dx, dy);
+        this._pinchStartZoom = this.cameraZoom || 1.0;
+        this.draggingRoiCorner = null;
+        return;
+      }
+
       const pt = getCanvasCoords(evt);
       const pts = this.getRoiPixelPolygon(this.canvas.width, this.canvas.height);
       const cornerRadius = 40;
@@ -1049,6 +1100,17 @@ class DiceTrackerApp {
     };
 
     const onPointerMove = (evt) => {
+      if (evt.touches && evt.touches.length === 2 && this._pinchStartDist > 10) {
+        evt.preventDefault();
+        const dx = evt.touches[0].clientX - evt.touches[1].clientX;
+        const dy = evt.touches[0].clientY - evt.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const ratio = dist / this._pinchStartDist;
+        const nextZ = Math.round(Math.max(0.5, Math.min(3.0, this._pinchStartZoom * ratio)) * 20) / 20;
+        this.applyCameraZoom(nextZ);
+        return;
+      }
+
       if (!this.draggingRoiCorner) return;
       evt.preventDefault();
       const pt = getCanvasCoords(evt);
@@ -1088,6 +1150,7 @@ class DiceTrackerApp {
     };
 
     const onPointerUp = () => {
+      this._pinchStartDist = 0;
       if (this.draggingRoiCorner) {
         this.draggingRoiCorner = null;
         this.lastRoiGray = null;
@@ -1101,6 +1164,13 @@ class DiceTrackerApp {
     this.canvas.addEventListener("touchstart", onPointerDown, { passive: false });
     this.canvas.addEventListener("touchmove", onPointerMove, { passive: false });
     window.addEventListener("touchend", onPointerUp);
+
+    this.canvas.addEventListener("wheel", (evt) => {
+      evt.preventDefault();
+      const step = evt.deltaY < 0 ? 0.15 : -0.15;
+      const nextZ = Math.round(Math.max(0.5, Math.min(3.0, (this.cameraZoom || 1.0) + step)) * 20) / 20;
+      this.applyCameraZoom(nextZ);
+    }, { passive: false });
   }
 
   // ============================================================================
@@ -1566,11 +1636,37 @@ class DiceTrackerApp {
         const opt = document.createElement("option");
         opt.value = `device:${dev.deviceId}`;
         opt.setAttribute("data-device-id", dev.deviceId);
-        opt.textContent = dev.label || `Camera Lens #${idx + 1}`;
+        const rawLabel = dev.label || `Camera Lens #${idx + 1}`;
+        const isUltraWide = /ultra[- ]?wide|0\.5x|wide[- ]?angle/i.test(rawLabel);
+        opt.textContent = isUltraWide ? `↔️ ${rawLabel} (Wide)` : rawLabel;
         this.cameraSelect.appendChild(opt);
       });
       if (currentVal) this.cameraSelect.value = currentVal;
     } catch (_e) {}
+  }
+
+  setWideViewMode(enabled) {
+    this.isWideView = Boolean(enabled);
+    const targetW = 640;
+    const targetH = this.isWideView ? 360 : 480;
+    if (this.viewfinder && this.viewfinder.classList) {
+      this.viewfinder.classList.toggle("wide-view", this.isWideView);
+    }
+    if (this.btnWideViewToggle) {
+      if (this.btnWideViewToggle.classList) {
+        this.btnWideViewToggle.classList.toggle("active-wide", this.isWideView);
+      }
+      this.btnWideViewToggle.innerText = this.isWideView ? "↔️ Wide 16:9: ON" : "↔️ Wide View (16:9)";
+    }
+    if (this.canvas.width !== targetW || this.canvas.height !== targetH) {
+      this.canvas.width = targetW;
+      this.canvas.height = targetH;
+      this.ensureCvBuffers(targetW, targetH);
+      this.lastRoiGray = null;
+    }
+    if (!this.isCameraRunning && !this.isSimulationMode) {
+      this.drawIdlePreviewCanvas();
+    }
   }
 
   async startCamera() {
@@ -1605,15 +1701,21 @@ class DiceTrackerApp {
       this.scannerOverlay.classList.add("hidden");
       this.btnCaptureRoll.disabled = false;
 
-      this.canvas.width = 640;
-      this.canvas.height = 480;
-      this.ensureCvBuffers(640, 480);
+      const targetW = 640;
+      const targetH = this.isWideView ? 360 : 480;
+      this.canvas.width = targetW;
+      this.canvas.height = targetH;
+      this.ensureCvBuffers(targetW, targetH);
       this.lastRoiGray = null;
       this.rollState = "SETTLING";
       this.cameraMotionTriggered = true;
       this.settledFrameCounter = 0;
       this.motionFramesCount = 0;
       this.postLockWarmupFrames = 0;
+
+      if (this.cameraZoom !== 1.0) {
+        await this.applyCameraZoom(this.cameraZoom);
+      }
 
       this.requestFrameProcessing();
     } catch (err) {
@@ -1638,19 +1740,42 @@ class DiceTrackerApp {
   }
 
   async applyCameraZoom(zoomVal) {
-    this.cameraZoom = Math.max(1.0, Math.min(3.0, zoomVal));
-    if (this.camZoomVal) this.camZoomVal.innerText = `${this.cameraZoom.toFixed(1)}x`;
+    const raw = Number(zoomVal);
+    this.cameraZoom = Math.max(0.5, Math.min(3.0, Number.isFinite(raw) ? raw : 1.0));
+    if (this.camZoomSlider) {
+      this.camZoomSlider.value = String(this.cameraZoom);
+    }
+    if (this.camZoomVal) {
+      this.camZoomVal.innerText = `${this.cameraZoom.toFixed(1)}x`;
+    }
+    if (this.cameraZoomBar && typeof this.cameraZoomBar.querySelectorAll === "function") {
+      this.cameraZoomBar.querySelectorAll(".zoom-preset-btn").forEach(btn => {
+        const bz = parseFloat(btn.getAttribute("data-zoom") || "1.0");
+        if (btn.classList) {
+          btn.classList.toggle("active", Math.abs(bz - this.cameraZoom) < 0.06);
+        }
+      });
+    }
+    // Automatically enable 16:9 Wide View when zooming out below 1.0x so full horizontal sensor is shown
+    if (this.cameraZoom < 0.98 && !this.isWideView) {
+      this.setWideViewMode(true);
+    }
     if (this.stream) {
       const [track] = this.stream.getVideoTracks();
       if (track && typeof track.getCapabilities === "function" && typeof track.applyConstraints === "function") {
         try {
           const caps = track.getCapabilities() || {};
           if (caps.zoom) {
-            const clamped = Math.max(caps.zoom.min || 1, Math.min(caps.zoom.max || 3, this.cameraZoom));
+            const minZ = typeof caps.zoom.min === "number" ? caps.zoom.min : 1.0;
+            const maxZ = typeof caps.zoom.max === "number" ? caps.zoom.max : 3.0;
+            const clamped = Math.max(minZ, Math.min(maxZ, this.cameraZoom));
             await track.applyConstraints({ advanced: [{ zoom: clamped }] });
           }
         } catch (_e) {}
       }
+    }
+    if (!this.isCameraRunning && !this.isSimulationMode) {
+      this.drawIdlePreviewCanvas();
     }
   }
 
@@ -1692,11 +1817,21 @@ class DiceTrackerApp {
       } else if (videoAspect < canvasAspect) {
         baseH = vw / canvasAspect;
       }
-      const zoom = Math.max(1.0, this.cameraZoom || 1.0);
-      const cropW = baseW / zoom;
-      const cropH = baseH / zoom;
-      const sx = (vw - cropW) * 0.5;
-      const sy = (vh - cropH) * 0.5;
+      const zoom = Math.max(0.5, Math.min(3.0, this.cameraZoom || 1.0));
+      let cropW, cropH;
+      if (zoom >= 1.0) {
+        cropW = baseW / zoom;
+        cropH = baseH / zoom;
+      } else {
+        // Zoom < 1.0 (0.5x..0.99x Wide): expand smoothly from center-crop (baseW, baseH) out to full sensor (vw, vh)
+        const t = Math.min(1.0, (1.0 - zoom) / 0.5);
+        cropW = baseW + (vw - baseW) * t;
+        cropH = baseH + (vh - baseH) * t;
+      }
+      const maxPanX = Math.max(0, (vw - cropW) * 0.5);
+      const maxPanY = Math.max(0, (vh - cropH) * 0.5);
+      const sx = (vw - cropW) * 0.5 + (this.cameraPanX || 0) * maxPanX;
+      const sy = (vh - cropH) * 0.5 + (this.cameraPanY || 0) * maxPanY;
       this.ctx.drawImage(this.video, sx, sy, cropW, cropH, 0, 0, this.canvas.width, this.canvas.height);
     } else {
       this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
@@ -3808,7 +3943,7 @@ class DiceTrackerApp {
     if (filtered.length === 0) {
       this.historyTableBody.innerHTML = `
         <tr>
-          <td colspan="9" class="text-center text-muted">No rolls captured yet. Roll dice inside the green tray box to record automatically!</td>
+          <td colspan="13" class="text-center text-muted">No rolls captured yet. Roll dice inside the green tray box to record automatically!</td>
         </tr>`;
       return;
     }
@@ -3822,8 +3957,12 @@ class DiceTrackerApp {
         .map(v => `<span class="dice-badge dice-${v}" style="width:22px;height:22px;font-size:0.72rem">${v}</span>`)
         .join(" ");
 
-      const critsNow = r.values.filter(v => v === 6).length;
       const onesNow = r.values.filter(v => v === 1).length;
+      const twosNow = r.values.filter(v => v === 2).length;
+      const threesNow = r.values.filter(v => v === 3).length;
+      const foursNow = r.values.filter(v => v === 4).length;
+      const fivesNow = r.values.filter(v => v === 5).length;
+      const critsNow = r.values.filter(v => v === 6).length;
 
       tr.className = "history-row";
       tr.innerHTML = `
@@ -3831,8 +3970,12 @@ class DiceTrackerApp {
         <td class="hist-col-time">${r.time}</td>
         <td class="hist-col-pool"><strong>${r.count}d</strong></td>
         <td class="hist-col-badges"><div class="history-badges-cell">${badgesHTML}</div></td>
-        <td class="hist-col-crits"><span class="mobile-stat-lbl">6s: </span><strong style="color:#c084fc">${critsNow}</strong></td>
         <td class="hist-col-ones"><span class="mobile-stat-lbl">1s: </span><strong style="color:#f87171">${onesNow}</strong></td>
+        <td class="hist-col-twos"><span class="mobile-stat-lbl">2s: </span><strong style="color:#cbd5e1">${twosNow}</strong></td>
+        <td class="hist-col-threes"><span class="mobile-stat-lbl">3s: </span><strong style="color:#cbd5e1">${threesNow}</strong></td>
+        <td class="hist-col-fours"><span class="mobile-stat-lbl">4s: </span><strong style="color:#38bdf8">${foursNow}</strong></td>
+        <td class="hist-col-fives"><span class="mobile-stat-lbl">5s: </span><strong style="color:#38bdf8">${fivesNow}</strong></td>
+        <td class="hist-col-crits"><span class="mobile-stat-lbl">6s: </span><strong style="color:#c084fc">${critsNow}</strong></td>
         <td class="hist-col-sum"><span class="mobile-stat-lbl">Sum: </span><strong>${r.sum}</strong></td>
         <td class="hist-col-avg"><span class="mobile-stat-lbl">Avg: </span><strong>${r.avg}</strong></td>
         <td class="hist-col-actions">

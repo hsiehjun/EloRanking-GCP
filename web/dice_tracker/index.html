@@ -50,6 +50,7 @@
               <option value="environment">Rear Camera</option>
               <option value="user">Front Camera</option>
             </select>
+            <button id="btnWideViewToggle" class="btn btn-sm btn-outline" type="button" title="Toggle 16:9 Wide View vs 4:3 Standard View">↔️ Wide View (16:9)</button>
             <button id="btnPreset45Roi" class="btn btn-sm btn-outline" title="Set green Dice Tray trapezoid for a 45° phone mount angle">📐 45° Mount</button>
             <button id="btnResetRoi" class="btn btn-sm btn-outline" title="Reset green Dice Tray box to default bounds">📐 Reset Tray Box</button>
           </div>
@@ -84,6 +85,24 @@
             1s: <strong id="hudOnesCount" style="color:#f87171">0</strong>
           </div>
           <span style="font-size:0.72rem;color:#94a3b8;">Drag green corners or sides to match tray angle</span>
+        </div>
+
+        <!-- Camera Zoom In/Out (0.5x Wide – 3.0x Tele) & Field-of-View Control Bar -->
+        <div class="camera-zoom-bar" id="cameraZoomBar">
+          <div class="zoom-presets-group">
+            <span class="zoom-bar-label">🔍 Zoom / FOV:</span>
+            <button type="button" class="btn btn-xs btn-outline zoom-preset-btn" data-zoom="0.5" title="Ultra-Wide 0.5x View">0.5x Wide</button>
+            <button type="button" class="btn btn-xs btn-outline zoom-preset-btn active" data-zoom="1.0" title="Standard 1.0x View">1x</button>
+            <button type="button" class="btn btn-xs btn-outline zoom-preset-btn" data-zoom="1.5" title="1.5x Zoom">1.5x</button>
+            <button type="button" class="btn btn-xs btn-outline zoom-preset-btn" data-zoom="2.0" title="2.0x Zoom">2x</button>
+            <button type="button" class="btn btn-xs btn-outline zoom-preset-btn" data-zoom="3.0" title="3.0x Close-Up Zoom">3x</button>
+          </div>
+          <div class="zoom-slider-group">
+            <button type="button" id="btnZoomOut" class="btn btn-xs btn-outline" title="Zoom Out (−)">−</button>
+            <input type="range" id="camZoomSlider" min="0.5" max="3" step="0.05" value="1" aria-label="Camera Zoom">
+            <button type="button" id="btnZoomIn" class="btn btn-xs btn-outline" title="Zoom In (+)">+</button>
+            <span id="camZoomVal" class="zoom-val-badge">1.0x</span>
+          </div>
         </div>
       </section>
 
@@ -178,8 +197,12 @@
                 <th>Time</th>
                 <th>Dice</th>
                 <th>Rolled Faces (1–6)</th>
-                <th>6s</th>
                 <th>1s</th>
+                <th>2s</th>
+                <th>3s</th>
+                <th>4s</th>
+                <th>5s</th>
+                <th>6s</th>
                 <th>Sum</th>
                 <th>Avg</th>
                 <th>Actions</th>
@@ -187,7 +210,7 @@
             </thead>
             <tbody id="historyTableBody">
               <tr>
-                <td colspan="9" class="text-center text-muted">No rolls captured yet. Roll dice inside the green tray box to record automatically!</td>
+                <td colspan="13" class="text-center text-muted">No rolls captured yet. Roll dice inside the green tray box to record automatically!</td>
               </tr>
             </tbody>
           </table>
@@ -229,8 +252,6 @@
     <button id="btnRerollHits" type="button"><span id="btnRerollCount">0</span></button>
     <button id="btnSyncToTracker" type="button"></button>
     <button id="btnTorchToggle" type="button"></button>
-    <input type="range" id="camZoomSlider" min="1" max="3" step="0.1" value="1">
-    <span id="camZoomVal">1.0x</span>
     <input type="checkbox" id="chkAutoCapture" checked>
     <input type="checkbox" id="chkScoopGuard" checked>
     <input type="checkbox" id="chkVoiceReadout">

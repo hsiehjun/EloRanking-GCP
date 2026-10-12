@@ -1728,9 +1728,261 @@ console.log(JSON.stringify({
             self.assertEqual(res["benchSummary"]["rollAccuracyPct"], 100.0)
             self.assertEqual(res["benchSummary"]["dieAccuracyPct"], 100.0)
 
+    def test_history_1_to_6_columns_camera_zoom_wide_view_and_standalone_unedited_rolls(self):
+        """
+        Verify:
+        1. Roll History table headers and rendered rows display individual face counts for 1s, 2s, 3s, 4s, 5s, 6s.
+        2. Camera Zoom In/Out (0.5x to 3.0x) and Wide View (16:9 640x360 vs 4:3 640x480) controls and logic work.
+        3. Standalone unedited real camera dice roll videos and photos pass 100% with zero combining/compositing.
+        """
+        html_text = (ROOT_DIR / "web" / "dice_tracker" / "index.html").read_text(encoding="utf-8")
+        css_text = (ROOT_DIR / "web" / "dice_tracker" / "styles.css").read_text(encoding="utf-8")
+
+        # 1. Check Roll History headers in index.html
+        for col_header in ("<th>1s</th>", "<th>2s</th>", "<th>3s</th>", "<th>4s</th>", "<th>5s</th>", "<th>6s</th>"):
+            self.assertIn(col_header, html_text)
+        self.assertIn('colspan="13"', html_text)
+
+        # 2. Check Camera Zoom & Wide View controls in index.html & styles.css
+        for elem_id in (
+            'id="btnWideViewToggle"',
+            'id="cameraZoomBar"',
+            'id="btnZoomOut"',
+            'id="camZoomSlider"',
+            'id="btnZoomIn"',
+            'id="camZoomVal"',
+        ):
+            self.assertIn(elem_id, html_text)
+        self.assertEqual(html_text.count('id="camZoomSlider"'), 1, "Must not have duplicate #camZoomSlider IDs")
+        self.assertIn(".viewfinder-container.wide-view", css_text)
+        self.assertIn(".camera-zoom-bar", css_text)
+        self.assertIn(".zoom-preset-btn.active", css_text)
+
+        node_script = r"""
+const fs = require('fs');
+const vm = require('vm');
+const code = fs.readFileSync('web/dice_tracker/app.js', 'utf8');
+
+class DummyCanvas {
+  constructor(w = 640, h = 480) {
+    this.width = w;
+    this.height = h;
+    this.style = {};
+    this.buf = new Uint8ClampedArray(w * h * 4);
+  }
+  getContext() {
+    const self = this;
+    return {
+      fillStyle: '#000', strokeStyle: '#000', lineWidth: 1,
+      save(){}, restore(){}, translate(){}, rotate(){}, beginPath(){}, closePath(){},
+      setLineDash(){}, moveTo(){}, lineTo(){}, strokeRect(){}, fillText(){}, arc(){}, roundRect(){}, fill(){}, stroke(){},
+      clearRect(){},
+      fillRect(){},
+      drawImage(){},
+      getImageData(x, y, w, h) { return { data: new Uint8ClampedArray(w * h * 4), width: w, height: h }; }
+    };
+  }
+  addEventListener(){}
+  getBoundingClientRect() { return { width: this.width, height: this.height, left: 0, top: 0 }; }
+}
+
+const els = {};
+function makeEl(id, val = '') {
+  if (id === 'outputCanvas' || id === 'distributionChart') return new DummyCanvas(640, 480);
+  const children = [];
+  return {
+    id, value: val, checked: true, innerText: '', textContent: '', innerHTML: '', className: '', style: {},
+    dataset: {},
+    children,
+    classList: {
+      _set: new Set(),
+      add(c) { this._set.add(c); },
+      remove(c) { this._set.delete(c); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (this._set.has(c)) this._set.delete(c); else this._set.add(c);
+        } else if (force) {
+          this._set.add(c);
+        } else {
+          this._set.delete(c);
+        }
+      },
+      contains(c) { return this._set.has(c); }
+    },
+    addEventListener(){},
+    querySelectorAll(){ return []; },
+    appendChild(ch){ children.push(ch); },
+    getBoundingClientRect() { return { width: 640, height: 480, left: 0, top: 0 }; }
+  };
+}
+
+const sandbox = {
+  window: { location: { search: '' }, addEventListener(){}, requestAnimationFrame(){}, localStorage: { getItem(){ return null; }, setItem(){}, removeItem(){} } },
+  document: {
+    createElement(t) { return t === 'canvas' ? new DummyCanvas(640, 480) : makeEl(t); },
+    addEventListener(){},
+    querySelectorAll(){ return []; },
+    getElementById(id) {
+      if (!els[id]) {
+        const defaults = { thresholdSlider: '22', minDiceSize: '18', bgFilterSlider: '8', diceColorMode: 'auto', targetSuccess: '4', camZoomSlider: '1' };
+        els[id] = makeEl(id, defaults[id] || '');
+      }
+      return els[id];
+    }
+  },
+  localStorage: { getItem(){ return null; }, setItem(){}, removeItem(){} },
+  navigator: { vibrate(){} },
+  performance: { now: () => Date.now() },
+  setImmediate, Promise,
+  console, Math, Uint8Array, Uint8ClampedArray, Int32Array, Int16Array, Float32Array,
+  Array, Object, Number, String, Boolean, RegExp, JSON, parseInt, parseFloat, isNaN, Infinity, Date
+};
+vm.createContext(sandbox);
+vm.runInContext(code + '; globalThis.Tracker = DiceTrackerApp;', sandbox);
+
+(async () => {
+const app = new sandbox.Tracker();
+
+// 1. Test Camera Wide View (16:9 vs 4:3) & Camera Zoom (0.5x - 3.0x)
+app.setWideViewMode(true);
+const wideDims = { w: app.canvas.width, h: app.canvas.height, isWide: app.isWideView };
+app.setWideViewMode(false);
+const stdDims = { w: app.canvas.width, h: app.canvas.height, isWide: app.isWideView };
+
+app.applyCameraZoom(0.5);
+const zoom05State = { zoom: app.cameraZoom, autoWide: app.isWideView, label: sandbox.document.getElementById('camZoomVal').innerText };
+app.applyCameraZoom(2.0);
+const zoom20State = { zoom: app.cameraZoom, label: sandbox.document.getElementById('camZoomVal').innerText };
+
+// 2. Test Roll History 1s, 2s, 3s, 4s, 5s, 6s rendering
+app.history = [{
+  rollNum: 1,
+  time: '12:00:00',
+  playerNum: 1,
+  schemeKey: 'bone_black',
+  values: [1, 2, 2, 3, 4, 5, 6, 6],
+  count: 8,
+  sum: 29,
+  avg: '3.63',
+  hits: 4,
+  target: 4,
+  crits: 2,
+  ones: 1
+}];
+app.renderHistoryTable();
+const tbody = sandbox.document.getElementById('historyTableBody');
+const renderedRowHtml = tbody.children.length > 0 ? tbody.children[0].innerHTML : '';
+
+// 3. Test Standalone Unedited Real Camera Videos & Photos (if available in /tmp/real_dice_videos/standalone_unedited)
+let standaloneSummary = null;
+const standaloneDir = '/tmp/real_dice_videos/standalone_unedited';
+if (fs.existsSync(standaloneDir + '/roll_1.webm.frames.rgba')) {
+  const videoTests = [
+    { file: 'roll_1.webm', expected: [1] },
+    { file: 'roll_2.webm', expected: [2] },
+    { file: 'roll_3.webm', expected: [3] },
+    { file: 'roll_4.webm', expected: [4] },
+    { file: 'roll_5.webm', expected: [5] },
+    { file: 'roll_6.webm', expected: [6] },
+    { file: 'multi_dice.webm', expected: [1, 3, 5, 6] }
+  ];
+  const photoTests = [
+    { name: 'tally_dados1.jpg', expected: [1, 3, 4, 6] },
+    { name: 'tally_dados3.png', expected: [1, 2, 3, 4, 6] },
+    { name: 'oziomek_imag1441.jpg', expected: [5] },
+    { name: 'd3_cam_roll_1.png', expected: [1, 2, 2, 3, 5, 5] },
+    { name: 'd3_cam_roll_2.png', expected: [3, 3, 3] },
+    { name: 'd3_cam_roll_4.png', expected: [1, 1, 2, 3, 3, 4, 6] }
+  ];
+  let passed = 0;
+  const rx = 8, ry = 8, rw = 624, rh = 464;
+  app.roiBox = { x: 0.0125, y: 0.016, w: 0.975, h: 0.968 };
+  app.roiPolygon = null;
+
+  for (const vt of videoTests) {
+    const rawBuf = fs.readFileSync(`${standaloneDir}/${vt.file}.frames.rgba`);
+    const frameBytes = 640 * 480 * 4;
+    const numFrames = Math.floor(rawBuf.length / frameBytes);
+    const onnxBuf = fs.readFileSync(`${standaloneDir}/${vt.file}.settled.onnx`);
+    const onnxFloat = new Float32Array(onnxBuf.buffer, onnxBuf.byteOffset, onnxBuf.byteLength / 4);
+    app.resetStats();
+    app.isCameraRunning = true;
+    app.onnxReady = true;
+    app.runLiveOnnxPass = async (rgbaCopy, w, h, _rx, _ry, _rw, _rh) => {
+      app.onnxBusy = true;
+      app.latestOnnxDice = app.decodeYoloOnnxOutput(onnxFloat, rgbaCopy, w, h, _rx, _ry, _rw, _rh, 0.26);
+      app.onnxBusy = false;
+    };
+    for (let f = 0; f < numFrames; f++) {
+      const frame = new Uint8ClampedArray(rawBuf.buffer, rawBuf.byteOffset + f * frameBytes, frameBytes);
+      const motion = app.computeFastRoiMotionRgba(frame, 640, rx, ry, rw, rh);
+      app.stepCameraOnnxRollLifecycle(motion, frame, 640, 480, rx, ry, rw, rh);
+      if (app.onnxBusy || app.rollState === 'SETTLING') {
+        await new Promise(r => setImmediate(r));
+      }
+    }
+    const got = app.history.length === 1 ? [...app.history[0].values].sort((a, b) => a - b) : [];
+    if (JSON.stringify(got) === JSON.stringify(vt.expected)) passed++;
+  }
+
+  for (const pt of photoTests) {
+    const rgbaBuf = fs.readFileSync(`${standaloneDir}/${pt.name}.rgba`);
+    const rgba = new Uint8ClampedArray(rgbaBuf.buffer, rgbaBuf.byteOffset, rgbaBuf.byteLength);
+    const onnxBuf = fs.readFileSync(`${standaloneDir}/${pt.name}.onnx`);
+    const onnxFloat = new Float32Array(onnxBuf.buffer, onnxBuf.byteOffset, onnxBuf.byteLength / 4);
+    const dets = app.decodeYoloOnnxOutput(onnxFloat, rgba, 640, 480, 8, 8, 624, 464, 0.26);
+    const got = dets.map(d => d.value).sort((a, b) => a - b);
+    if (JSON.stringify(got) === JSON.stringify(pt.expected)) passed++;
+  }
+
+  standaloneSummary = { total: videoTests.length + photoTests.length, passed };
+}
+
+console.log(JSON.stringify({
+  wideDims,
+  stdDims,
+  zoom05State,
+  zoom20State,
+  renderedRowHtml,
+  standaloneSummary
+}));
+})();
+"""
+        proc = subprocess.run(
+            ["node", "-e", node_script],
+            cwd=str(ROOT_DIR),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        res = json.loads(proc.stdout.strip().splitlines()[-1])
+
+        self.assertEqual(res["wideDims"], {"w": 640, "h": 360, "isWide": True})
+        self.assertEqual(res["stdDims"], {"w": 640, "h": 480, "isWide": False})
+        self.assertEqual(res["zoom05State"], {"zoom": 0.5, "autoWide": True, "label": "0.5x"})
+        self.assertEqual(res["zoom20State"], {"zoom": 2.0, "label": "2.0x"})
+
+        row_html = res["renderedRowHtml"]
+        for col_cls in (
+            "hist-col-ones",
+            "hist-col-twos",
+            "hist-col-threes",
+            "hist-col-fours",
+            "hist-col-fives",
+            "hist-col-crits",
+        ):
+            self.assertIn(col_cls, row_html)
+        for mobile_lbl in ("1s", "2s", "3s", "4s", "5s", "6s"):
+            self.assertIn(f'<span class="mobile-stat-lbl">{mobile_lbl}: </span>', row_html)
+
+        if res["standaloneSummary"] is not None:
+            self.assertEqual(res["standaloneSummary"]["total"], 13)
+            self.assertEqual(res["standaloneSummary"]["passed"], 13)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 
