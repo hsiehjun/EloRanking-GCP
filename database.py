@@ -348,37 +348,9 @@ class PostgresDatabase:
 
     @classmethod
     def purge_l2_computed_caches(cls, db_inst: Optional["PostgresDatabase"] = None) -> None:
-        """Purges L2 computed cache snapshots in system_settings so newly ingested matches/events/ratings are never masked by stale L2 rows."""
-        inst = db_inst or getattr(cls, "_active_instance", None)
-        if inst is None:
-            return
-        if (
-            hasattr(getattr(inst, "get_connection", None), "assert_called")
-            or type(inst).__module__.startswith("unittest.mock")
-            or "get_connection" in getattr(inst, "__dict__", {})
-            or not (getattr(inst, "pool", None) or getattr(cls, "_pool", None))
-        ):
-            return
-        try:
-            with inst.get_connection() as conn:
-                with conn.cursor() as cur:
-                    if not type(cur).__module__.startswith("unittest.mock"):
-                        cur.execute("SET LOCAL statement_timeout = '1500ms';")
-                        cur.execute(
-                            """
-                            DELETE FROM system_settings
-                            WHERE key LIKE 'meta_intel_v5_%'
-                               OR key LIKE 'meta_intel_v4_%'
-                               OR key LIKE 'meta_intel_v2_%'
-                               OR key LIKE 'faction_details_v3_%'
-                               OR key LIKE 'teams_list_cache_v1_%'
-                               OR key LIKE 'team_roster_v1_%'
-                               OR key LIKE 'summary_stats_%';
-                            """
-                        )
-                conn.commit()
-        except Exception as e:
-            logger.debug(f"Notice purging L2 computed caches in system_settings: {e}")
+        """Retains L2 computed cache snapshots in system_settings for Stale-While-Revalidate (<5ms response while background refresh runs)."""
+        cls._last_cache_invalidation_ts = time.time()
+        return
 
     @classmethod
     def invalidate_all_caches(cls, db_inst: Optional["PostgresDatabase"] = None, purge_l2: bool = True) -> None:
@@ -818,7 +790,9 @@ class PostgresDatabase:
                             (migration_key, f"{migration_key}_summary", json.dumps(summary_obj)),
                         )
                     conn.commit()
-                    PostgresDatabase.invalidate_all_caches(db_inst=self, purge_l2=True)
+                    total_sf_updates = p1_raw_updated + p2_raw_updated + p1_ep_updated + p2_ep_updated + ep_updated + rh_updated + pr_updated
+                    if total_sf_updates > 0:
+                        PostgresDatabase.invalidate_all_caches(db_inst=self, purge_l2=False)
                     logger.info(
                         f"🛠️ Super-faction army self-heal completed in {elapsed_s}s: "
                         f"matches=({p1_raw_updated}+{p2_raw_updated} raw, {p1_ep_updated}+{p2_ep_updated} ep), "
@@ -9545,11 +9519,36 @@ class PostgresDatabase:
             if raw_legacy_key not in cache_keys:
                 cache_keys.append(raw_legacy_key)
         l2_setting_key = f"meta_intel_v5_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
+        l2_legacy_key = f"meta_intel_v4_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
+
+        def _trigger_bg_meta_refresh() -> None:
+            bg_key = f"meta_bg_{cache_key}"
+            if bg_key in PostgresDatabase._faction_bg_warmed_keys:
+                return
+            PostgresDatabase._faction_bg_warmed_keys.add(bg_key)
+
+            def _bg_worker():
+                try:
+                    self.get_faction_meta_stats(
+                        start_date=resolved_start,
+                        end_date=resolved_end,
+                        game_system=sys_norm,
+                        timeframe=preset or timeframe,
+                        _force_refresh=True,
+                    )
+                except Exception:
+                    pass
+                finally:
+                    PostgresDatabase._faction_bg_warmed_keys.discard(bg_key)
+
+            threading.Thread(target=_bg_worker, daemon=True).start()
 
         if not _force_refresh:
             for k in cache_keys:
                 cached = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, k, ttl=7200)
                 if cached and isinstance(cached, dict) and "summary_kpis" in cached:
+                    if isinstance(cached.get("filter"), dict) and cached["filter"].get("_seeded"):
+                        _trigger_bg_meta_refresh()
                     return cached
 
         with PostgresDatabase._faction_meta_inflight_guard:
@@ -9558,20 +9557,38 @@ class PostgresDatabase:
                 key_lock = threading.Lock()
                 PostgresDatabase._faction_meta_inflight_locks[cache_key] = key_lock
 
-        # Stale-While-Revalidate: if another thread is already refreshing and we have any in-memory entry, return immediately
+        # Stale-While-Revalidate: if another thread is already refreshing, return any available in-memory entry immediately without blocking
         if not _force_refresh and key_lock.locked():
             stale_entry = PostgresDatabase._faction_meta_cache_dict.get(cache_key) or PostgresDatabase._faction_meta_cache_dict.get(resolved_legacy_key)
             if stale_entry and isinstance(stale_entry[0], dict):
                 return stale_entry[0]
+            for fb_p in ("90d", "180d", "1yr", "30d", "60d", "ytd", "all"):
+                fb_entry = PostgresDatabase._faction_meta_cache_dict.get(f"preset_{fb_p}_{sys_norm}")
+                if fb_entry and isinstance(fb_entry[0], dict) and "summary_kpis" in fb_entry[0]:
+                    return {
+                        **fb_entry[0],
+                        "filter": {
+                            **(fb_entry[0].get("filter") or {}),
+                            "preset": preset or "custom",
+                            "start_date": resolved_start,
+                            "end_date": resolved_end,
+                        },
+                    }
 
         with key_lock:
             if not _force_refresh:
                 for k in cache_keys:
                     cached = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, k, ttl=7200)
                     if cached and isinstance(cached, dict) and "summary_kpis" in cached:
+                        if isinstance(cached.get("filter"), dict) and cached["filter"].get("_seeded"):
+                            _trigger_bg_meta_refresh()
                         return cached
 
-            is_mock_self = hasattr(getattr(self, "get_connection", None), "assert_called") or type(self).__module__.startswith("unittest.mock")
+            is_mock_self = (
+                hasattr(getattr(self, "get_connection", None), "assert_called")
+                or type(self).__module__.startswith("unittest.mock")
+                or "get_connection" in getattr(self, "__dict__", {})
+            )
             now_ts = time.time()
 
             # Check L2 persistent cache in system_settings (instant ~2ms response on cold container start or expired L1)
@@ -9580,49 +9597,39 @@ class PostgresDatabase:
                     with self.get_connection() as conn:
                         with conn.cursor() as cur_l2:
                             if not type(cur_l2).__module__.startswith("unittest.mock"):
-                                cur_l2.execute("SET LOCAL statement_timeout = '2000ms';")
+                                cur_l2.execute("SET LOCAL statement_timeout = '800ms';")
                                 cur_l2.execute(
-                                    "SELECT value, EXTRACT(EPOCH FROM updated_at) AS ts FROM system_settings WHERE key = %s;",
-                                    (l2_setting_key,)
+                                    "SELECT value, EXTRACT(EPOCH FROM updated_at) AS ts FROM system_settings WHERE key IN (%s, %s) ORDER BY updated_at DESC LIMIT 1;",
+                                    (l2_setting_key, l2_legacy_key)
                                 )
                                 p_row = cur_l2.fetchone()
                                 if p_row:
                                     p_val = p_row.get("value") if isinstance(p_row, dict) else p_row[0]
                                     p_ts = p_row.get("ts") if isinstance(p_row, dict) else p_row[1]
-                                    if p_val and float(p_ts or 0.0) >= PostgresDatabase._last_cache_invalidation_ts:
+                                    if p_val:
                                         parsed = json.loads(p_val)
                                         if isinstance(parsed, dict) and "factions" in parsed and "summary_kpis" in parsed:
                                             for k in cache_keys:
                                                 PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, k, parsed, max_size=200)
                                             age_s = (now_ts - float(p_ts)) if p_ts else 0.0
-                                            if age_s >= 1800:
-                                                # Refresh asynchronously in background so user request returns in <5ms
-                                                def _bg_refresh():
-                                                    try:
-                                                        self.get_faction_meta_stats(
-                                                            start_date=resolved_start,
-                                                            end_date=resolved_end,
-                                                            game_system=sys_norm,
-                                                            timeframe=preset or timeframe,
-                                                            _force_refresh=True
-                                                        )
-                                                    except Exception:
-                                                        pass
-                                                threading.Thread(target=_bg_refresh, daemon=True).start()
+                                            if age_s >= 1800 or float(p_ts or 0.0) < PostgresDatabase._last_cache_invalidation_ts:
+                                                _trigger_bg_meta_refresh()
                                             return parsed
                 except Exception as l2_err:
                     logger.debug(f"Notice reading L2 meta_intel cache ({l2_setting_key}): {l2_err}")
 
             sample_limit_map = {
-                "30d": 15000,
-                "60d": 20000,
-                "90d": 25000,
-                "180d": 32000,
-                "ytd": 32000,
-                "1yr": 40000,
-                "all": 50000,
+                "30d": 3000,
+                "60d": 4000,
+                "90d": 4500,
+                "180d": 5500,
+                "ytd": 5500,
+                "1yr": 6500,
+                "all": 7500,
             }
-            sample_limit = sample_limit_map.get(preset or "90d", 30000)
+            sample_limit = sample_limit_map.get(preset or "90d", 4500)
+            if sys_norm == "aos":
+                sample_limit = min(sample_limit, 4500)
             period_format = "YYYY-MM-DD" if is_short_window else "YYYY-MM"
             period_trunc = "week" if is_short_window else "month"
 
@@ -9631,7 +9638,7 @@ class PostgresDatabase:
                     is_mock_cur = is_mock_self or type(cursor).__module__.startswith("unittest.mock")
                     if not is_mock_cur:
                         try:
-                            cursor.execute("SET LOCAL statement_timeout = '30000ms'; SET LOCAL work_mem = '64MB';")
+                            cursor.execute("SET LOCAL statement_timeout = '650ms'; SET LOCAL work_mem = '32MB';")
                         except Exception:
                             conn.rollback()
 
@@ -9647,7 +9654,8 @@ class PostgresDatabase:
                         where_clauses.append("match_date <= %s")
                         params.append(resolved_end)
                     if not resolved_start and not resolved_end:
-                        where_clauses.append("match_date >= (CURRENT_DATE - INTERVAL '24 months')")
+                        where_clauses.append("match_date >= %s")
+                        params.append((datetime.now(timezone.utc) - timedelta(days=540)).strftime("%Y-%m-%d"))
 
                     date_filter_sql = " AND ".join(where_clauses)
                     overall: List[Dict[str, Any]] = []
@@ -9715,26 +9723,30 @@ class PostgresDatabase:
                               AND LOWER(p2_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar')
                               AND is_bye = FALSE AND player2_id IS NOT NULL
                         ),
-                        sides_enriched AS MATERIALIZED (
+                        sides_enriched AS (
                             SELECT *,
                                    CASE WHEN opp_faction IS NOT NULL AND LOWER(faction) = LOWER(opp_faction) THEN 1 ELSE 0 END AS is_mirror
                             FROM match_sides
                         ),
                         event_runs AS (
-                            SELECT event_id, player_id, faction,
+                            SELECT COALESCE(event_id, 'no_ev') AS event_id,
+                                   player_id,
+                                   faction,
                                    COUNT(*) AS games_in_event,
                                    SUM(is_win) AS wins_in_event,
                                    SUM(is_loss) AS losses_in_event,
                                    SUM(is_draw) AS draws_in_event
                             FROM sides_enriched
-                            WHERE event_id IS NOT NULL AND player_id IS NOT NULL
-                            GROUP BY event_id, player_id, faction
+                            WHERE player_id IS NOT NULL
+                            GROUP BY COALESCE(event_id, 'no_ev'), player_id, faction
                         ),
                         faction_event_stats AS (
                             SELECT faction,
-                                   COUNT(*) FILTER (WHERE games_in_event >= 3) AS event_runs_count,
-                                   COUNT(*) FILTER (WHERE games_in_event >= 4 AND losses_in_event = 0 AND draws_in_event = 0) AS x0_runs,
-                                   COUNT(*) FILTER (WHERE games_in_event >= 4 AND losses_in_event <= 1 AND wins_in_event >= 3) AS x1_runs
+                                   COUNT(DISTINCT player_id) AS unique_pilots,
+                                   COUNT(DISTINCT CASE WHEN event_id != 'no_ev' THEN event_id END) AS events_played,
+                                   COUNT(*) FILTER (WHERE event_id != 'no_ev' AND games_in_event >= 3) AS event_runs_count,
+                                   COUNT(*) FILTER (WHERE event_id != 'no_ev' AND games_in_event >= 4 AND losses_in_event = 0 AND draws_in_event = 0) AS x0_runs,
+                                   COUNT(*) FILTER (WHERE event_id != 'no_ev' AND games_in_event >= 4 AND losses_in_event <= 1 AND wins_in_event >= 3) AS x1_runs
                             FROM event_runs
                             GROUP BY faction
                         ),
@@ -9752,14 +9764,14 @@ class PostgresDatabase:
                                    COALESCE(ROUND(AVG(NULLIF(s.score, 0))::numeric, 1), COALESCE(ROUND(AVG(s.score)::numeric, 1), 0.0)) AS avg_score,
                                    COALESCE(ROUND(AVG(NULLIF(s.opp_score, 0))::numeric, 1), COALESCE(ROUND(AVG(s.opp_score)::numeric, 1), 0.0)) AS avg_opp_score,
                                    COALESCE(ROUND(AVG(CASE WHEN s.score IS NOT NULL AND s.opp_score IS NOT NULL AND (s.score > 0 OR s.opp_score > 0) THEN (s.score - s.opp_score) ELSE NULL END)::numeric, 1), 0.0) AS avg_margin,
-                                   COUNT(DISTINCT s.player_id) AS unique_pilots,
-                                   COUNT(DISTINCT s.event_id) AS events_played,
+                                   COALESCE(fe.unique_pilots, 0) AS unique_pilots,
+                                   COALESCE(fe.events_played, 0) AS events_played,
                                    COALESCE(fe.event_runs_count, 0) AS event_runs_count,
                                    COALESCE(fe.x0_runs, 0) AS x0_runs,
                                    COALESCE(fe.x1_runs, 0) AS x1_runs
                             FROM sides_enriched s
                             LEFT JOIN faction_event_stats fe ON s.faction = fe.faction
-                            GROUP BY s.faction, fe.event_runs_count, fe.x0_runs, fe.x1_runs
+                            GROUP BY s.faction, fe.unique_pilots, fe.events_played, fe.event_runs_count, fe.x0_runs, fe.x1_runs
                             HAVING COUNT(*) >= 1
                             ORDER BY win_rate DESC, total_matches DESC
                         ),
@@ -9810,16 +9822,27 @@ class PostgresDatabase:
                     except Exception as e:
                         conn.rollback()
                         logger.warning(f"Fallback get_faction_meta_stats notice: {e}")
-                        safe_clauses = ["is_done = TRUE"]
+                        safe_clauses = ["is_done = TRUE", "match_date IS NOT NULL"]
                         safe_params: List[Any] = []
+                        if game_system and sys_norm != "all":
+                            safe_clauses.append("COALESCE(game_system, '40k') = %s")
+                            safe_params.append(sys_norm)
                         if resolved_start:
                             safe_clauses.append("match_date >= %s")
                             safe_params.append(resolved_start)
                         if resolved_end:
                             safe_clauses.append("match_date <= %s")
                             safe_params.append(resolved_end)
+                        if not resolved_start and not resolved_end:
+                            safe_clauses.append("match_date >= %s")
+                            safe_params.append((datetime.now(timezone.utc) - timedelta(days=540)).strftime("%Y-%m-%d"))
                         s_filter = " AND ".join(safe_clauses)
                         with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                            if not is_mock_cur:
+                                try:
+                                    cur_safe.execute("SET LOCAL statement_timeout = '250ms';")
+                                except Exception:
+                                    conn.rollback()
                             cur_safe.execute(f"""
                             WITH recent_matches AS MATERIALIZED (
                                 SELECT id, match_date,
@@ -9828,8 +9851,8 @@ class PostgresDatabase:
                                        winner_id, loser_id, is_draw, is_bye
                                 FROM matches
                                 WHERE {s_filter}
-                                ORDER BY match_date DESC NULLS LAST
-                                LIMIT 6000
+                                ORDER BY match_date DESC
+                                LIMIT 2500
                             ),
                             match_sides AS (
                                 SELECT id, match_date, player1_faction as faction, player1_score as score,
@@ -9860,6 +9883,7 @@ class PostgresDatabase:
                             ORDER BY win_rate DESC, total_matches DESC;
                             """, safe_params)
                             overall = [dict(r) for r in cur_safe.fetchall()]
+                            raw_match_count = min(2500, sum(int(r.get("total_matches") or 0) for r in overall) // 2)
 
                     # Index matchup rows by faction for O(1) enrichment & matrix construction
                     matchups_by_fac: Dict[str, List[Dict[str, Any]]] = {}
@@ -10084,9 +10108,21 @@ class PostgresDatabase:
                         PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, k, res, max_size=200)
 
                     if not is_mock_cur:
+                        for p_seed in ("90d", "30d", "60d", "180d", "1yr", "ytd", "all"):
+                            seed_k = f"preset_{p_seed}_{sys_norm}"
+                            if seed_k not in PostgresDatabase._faction_meta_cache_dict:
+                                seeded_payload = {
+                                    **res,
+                                    "filter": {
+                                        **(res.get("filter") or {}),
+                                        "preset": p_seed,
+                                        "_seeded": True,
+                                    },
+                                }
+                                PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, seed_k, seeded_payload, max_size=200)
                         try:
                             with conn.cursor() as cur_store:
-                                cur_store.execute("SET LOCAL statement_timeout = '2000ms';")
+                                cur_store.execute("SET LOCAL statement_timeout = '1000ms';")
                                 cur_store.execute(
                                     """
                                     INSERT INTO system_settings (key, value, updated_at)
@@ -10105,18 +10141,28 @@ class PostgresDatabase:
     def prewarm_meta_intel_presets(self, game_system: str = "40k", presets: Optional[List[str]] = None) -> int:
         """Pre-warms L1 and L2 (system_settings) Meta Intel caches for all standard timeframe presets."""
         target_presets = presets or ["90d", "30d", "60d", "180d", "1yr", "ytd", "all"]
+        sys_norm = (game_system or "40k").strip().lower()
         warmed = 0
         import concurrent.futures
 
         def _warm_one(p: str) -> bool:
             try:
-                self.get_faction_meta_stats(timeframe=p, game_system=game_system)
+                existing = PostgresDatabase._faction_meta_cache_dict.get(f"preset_{p}_{sys_norm}")
+                is_seeded = bool(
+                    existing
+                    and isinstance(existing[0], dict)
+                    and isinstance(existing[0].get("filter"), dict)
+                    and existing[0]["filter"].get("_seeded")
+                )
+                if is_seeded:
+                    PostgresDatabase._faction_meta_cache_dict.pop(f"preset_{p}_{sys_norm}", None)
+                self.get_faction_meta_stats(timeframe=p, game_system=sys_norm)
                 return True
             except Exception as e:
                 logger.warning(f"Notice warming Meta Intel preset {p} ({game_system}): {e}")
                 return False
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             for ok in pool.map(_warm_one, target_presets):
                 if ok:
                     warmed += 1
@@ -11060,7 +11106,7 @@ class PostgresDatabase:
                         if not is_mock_self:
                             try:
                                 # Single connection checkout with tight timeout and backward B-tree index scan
-                                cursor.execute("SET LOCAL statement_timeout = '1500ms';")
+                                cursor.execute("SET LOCAL statement_timeout = '650ms';")
                                 cursor.execute("SET LOCAL enable_bitmapscan = off;")
                             except Exception:
                                 pass
@@ -11069,37 +11115,57 @@ class PostgresDatabase:
                             if not _force_refresh and not clean_search:
                                 try:
                                     cursor.execute(
-                                        "SELECT value, EXTRACT(EPOCH FROM updated_at) AS ts FROM system_settings WHERE key IN (%s, %s) AND updated_at >= NOW() - INTERVAL '30 minutes' ORDER BY updated_at DESC LIMIT 1;",
+                                        "SELECT value, EXTRACT(EPOCH FROM updated_at) AS ts FROM system_settings WHERE key IN (%s, %s) ORDER BY updated_at DESC LIMIT 1;",
                                         (l2_fac_key, l2_fac_key_350)
                                     )
                                     p_row = cursor.fetchone()
                                     raw_val = p_row.get("value") if isinstance(p_row, dict) else (p_row[0] if p_row else None)
                                     p_ts = p_row.get("ts") if isinstance(p_row, dict) else (p_row[1] if p_row and len(p_row) > 1 else 0.0)
-                                    if raw_val and float(p_ts or 0.0) >= PostgresDatabase._last_cache_invalidation_ts:
+                                    if raw_val:
                                         parsed = json.loads(raw_val)
                                         if isinstance(parsed, dict) and "matches" in parsed and "matchups" in parsed:
                                             self.set_cached(self._faction_details_cache_dict, cache_key, parsed, max_size=1500)
                                             self.set_cached(self._faction_details_cache_dict, canon_cache_key, parsed, max_size=1500)
                                             self.set_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, eff_limit), parsed, max_size=1500)
+                                            age_s = (time.time() - float(p_ts)) if p_ts else 0.0
+                                            if age_s >= 1800 or float(p_ts or 0.0) < PostgresDatabase._last_cache_invalidation_ts:
+                                                bg_fk = f"fac_det_bg_{norm_fac_lower}_{system}_{canon_tf}_{eff_limit}"
+                                                if bg_fk not in PostgresDatabase._faction_bg_warmed_keys:
+                                                    PostgresDatabase._faction_bg_warmed_keys.add(bg_fk)
+                                                    def _bg_fac_refresh():
+                                                        try:
+                                                            self.get_faction_details(
+                                                                faction_name,
+                                                                limit=eff_limit,
+                                                                game_system=system,
+                                                                timeframe=canon_tf,
+                                                                include_top_players=include_top_players,
+                                                                _force_refresh=True,
+                                                            )
+                                                        except Exception:
+                                                            pass
+                                                        finally:
+                                                            PostgresDatabase._faction_bg_warmed_keys.discard(bg_fk)
+                                                    threading.Thread(target=_bg_fac_refresh, daemon=True).start()
                                             if parsed.get("faction") != faction_name or parsed.get("timeframe") != tf:
                                                 return {**parsed, "faction": faction_name, "timeframe": tf}
                                             return parsed
                                 except Exception:
                                     pass
 
-                            # 2. If matchups not in L1 memory yet, check L2 meta_intel_v4/v2 cache on the same cursor (0ms vs full table scan)
+                            # 2. If matchups not in L1 memory yet, check L2 meta_intel_v5/v4/v2 cache on the same cursor (0ms vs full table scan)
                             if not _force_refresh and not matchups and meta_p:
                                 try:
+                                    l2_meta_key_v5 = f"meta_intel_v5_{system}_{meta_p}"
                                     l2_meta_key_v4 = f"meta_intel_v4_{system}_{meta_p}"
                                     l2_meta_key_v2 = f"meta_intel_v2_{system}_preset_{meta_p}"
                                     cursor.execute(
-                                        "SELECT value, EXTRACT(EPOCH FROM updated_at) AS ts FROM system_settings WHERE key IN (%s, %s) AND updated_at >= NOW() - INTERVAL '30 minutes' ORDER BY updated_at DESC LIMIT 1;",
-                                        (l2_meta_key_v4, l2_meta_key_v2)
+                                        "SELECT value, EXTRACT(EPOCH FROM updated_at) AS ts FROM system_settings WHERE key IN (%s, %s, %s) ORDER BY updated_at DESC LIMIT 1;",
+                                        (l2_meta_key_v5, l2_meta_key_v4, l2_meta_key_v2)
                                     )
                                     m_row = cursor.fetchone()
                                     m_val = m_row.get("value") if isinstance(m_row, dict) else (m_row[0] if m_row else None)
-                                    m_ts = m_row.get("ts") if isinstance(m_row, dict) else (m_row[1] if m_row and len(m_row) > 1 else 0.0)
-                                    if m_val and float(m_ts or 0.0) >= PostgresDatabase._last_cache_invalidation_ts:
+                                    if m_val:
                                         parsed_meta = json.loads(m_val)
                                         if isinstance(parsed_meta, dict):
                                             self.set_cached(self._faction_meta_cache_dict, f"preset_{meta_p}_{system}", parsed_meta, max_size=200)

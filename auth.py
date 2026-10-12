@@ -2659,7 +2659,7 @@ class AuthManager:
         now_ts = time.time()
         hub_cache_key = (str(user_id or ""), str(target_pid or ""), target_sys)
         cached_hub = self._HUB_CACHE.get(hub_cache_key)
-        if cached_hub and (now_ts - cached_hub[0]) < 900.0:
+        if cached_hub and (now_ts - cached_hub[0]) < 3600.0:
             res_copy = copy.copy(cached_hub[1])
             if user_info:
                 res_copy["armory_vault"] = user_info.get("armory_vault") or {}
@@ -2672,10 +2672,17 @@ class AuthManager:
                 key_lock = threading.Lock()
                 self._HUB_LOCKS[hub_cache_key] = key_lock
 
+        if key_lock.locked() and cached_hub:
+            res_copy = copy.copy(cached_hub[1])
+            if user_info:
+                res_copy["armory_vault"] = user_info.get("armory_vault") or {}
+                res_copy["equipped"] = (user_info.get("armory_vault") or {}).get("equipped", {})
+            return res_copy
+
         with key_lock:
             now_ts = time.time()
             cached_hub = self._HUB_CACHE.get(hub_cache_key)
-            if cached_hub and (now_ts - cached_hub[0]) < 900.0:
+            if cached_hub and (now_ts - cached_hub[0]) < 3600.0:
                 res_copy = copy.copy(cached_hub[1])
                 if user_info:
                     res_copy["armory_vault"] = user_info.get("armory_vault") or {}
@@ -2703,7 +2710,7 @@ class AuthManager:
     ) -> Dict[str, Any]:
         total_ranked = 0
         cached_tr = self._TOTAL_RANKED_CACHE.get(target_sys)
-        if cached_tr and (now_ts - cached_tr[0]) < 300.0:
+        if cached_tr and (now_ts - cached_tr[0]) < 3600.0:
             total_ranked = cached_tr[1]
 
         from psycopg2 import extras
@@ -2787,20 +2794,26 @@ class AuthManager:
                 FROM rating_history rh
                 LEFT JOIN matches m ON rh.match_id = m.id
                 LEFT JOIN events e ON COALESCE(rh.event_id, m.event_id) = e.id
-                LEFT JOIN LATERAL (
-                    SELECT match_id, is_finished
+                LEFT JOIN (
+                    SELECT DISTINCT ON (LOWER(event_id), round_num, table_num)
+                           LOWER(event_id) AS ev_low,
+                           round_num,
+                           table_num,
+                           match_id,
+                           is_finished
                     FROM tracker_games
-                    WHERE m.event_id IS NOT NULL
-                      AND m.table_number IS NOT NULL
-                      AND event_id IS NOT NULL
-                      AND LOWER(event_id) = LOWER(m.event_id)
-                      AND round_num = m.round
-                      AND table_num = m.table_number
+                    WHERE event_id IS NOT NULL
                     ORDER BY
-                      is_finished DESC,
-                      updated_at DESC
-                    LIMIT 1
-                ) tg ON TRUE
+                           LOWER(event_id),
+                           round_num,
+                           table_num,
+                           is_finished DESC,
+                           updated_at DESC
+                ) tg ON m.event_id IS NOT NULL
+                    AND m.table_number IS NOT NULL
+                    AND LOWER(m.event_id) = tg.ev_low
+                    AND m.round = tg.round_num
+                    AND m.table_number = tg.table_num
                 WHERE rh.player_id = %s AND COALESCE(rh.game_system, '40k') = %s
                 ORDER BY rh.match_date ASC NULLS FIRST, rh.id ASC;
                 """, (target_pid, target_sys))

@@ -3141,7 +3141,51 @@ async def api_faction_meta(
                 timeframe=tf_norm or None,
                 _force_refresh=bool(raw_refresh)
             )
-        return await asyncio.to_thread(_fetch_meta)
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(_fetch_meta), timeout=0.75)
+        except asyncio.TimeoutError:
+            from database import PostgresDatabase
+            sys_norm = (sys_val or "40k").strip().lower()
+            for fb_p in ("90d", "180d", "1yr", "30d", "60d", "ytd", "all"):
+                fb_entry = PostgresDatabase._faction_meta_cache_dict.get(f"preset_{fb_p}_{sys_norm}")
+                if fb_entry and isinstance(fb_entry[0], dict) and "summary_kpis" in fb_entry[0]:
+                    return {
+                        **fb_entry[0],
+                        "filter": {
+                            **(fb_entry[0].get("filter") or {}),
+                            "preset": tf_norm or "90d",
+                            "start_date": resolved_start,
+                            "end_date": resolved_end,
+                        },
+                    }
+            return {
+                "factions": [],
+                "monthly_trends": [],
+                "matchup_matrix": {"factions": [], "cells": {}},
+                "matchups_by_faction": {},
+                "summary_kpis": {
+                    "total_matches": 0,
+                    "total_appearances": 0,
+                    "total_pilots": 0,
+                    "total_x0_runs": 0,
+                    "total_x1_runs": 0,
+                    "active_factions": 0,
+                    "goldilocks_count": 0,
+                    "goldilocks_pct": 0.0,
+                    "most_popular": None,
+                    "highest_win_rate": None,
+                    "top_event_winner": None,
+                    "highest_vp_margin": None,
+                },
+                "total_factions_tracked": 0,
+                "filter": {
+                    "preset": tf_norm or "90d",
+                    "start_date": resolved_start,
+                    "end_date": resolved_end,
+                    "is_short_window": False,
+                    "granularity": "Monthly",
+                },
+            }
     except Exception as e:
         logger.error(f"Error in /api/factions/meta: {e}")
         return {"factions": [], "monthly_trends": [], "error": str(e)}

@@ -1714,29 +1714,116 @@ class YuGiOhPairingsArena {
     };
   }
 
-  getMatchupEstimate(myPlayer, oppPlayer) {
-    if (!myPlayer || !oppPlayer) return 10;
+  getMatchupPrediction(myPlayer, oppPlayer) {
+    if (!myPlayer || !oppPlayer) {
+      return {
+        wtcScore: 10,
+        oppWtcScore: 10,
+        winProb: 50,
+        oppWinProb: 50,
+        effectiveEloDelta: 0,
+        factors: {},
+        tooltip: "Even Matchup (50% Win • 10-10 WTC)"
+      };
+    }
+
+    const fmtSigned = (n) => {
+      const r = Math.round(Number(n) || 0);
+      return r > 0 ? `+${r}` : `${r}`;
+    };
+
+    if (this.room && this.room.matchup_predictions) {
+      const mp = this.room.matchup_predictions;
+      const isCapB = this.activeRole === "captain_b";
+      const rawPred = isCapB
+        ? mp[oppPlayer.id]?.[myPlayer.id]
+        : mp[myPlayer.id]?.[oppPlayer.id];
+      if (rawPred && typeof rawPred === "object") {
+        const wtcScore = isCapB ? Number(rawPred.wtc_score_b ?? (20 - rawPred.wtc_score_a)) : Number(rawPred.wtc_score_a ?? 10);
+        const winProb = isCapB ? Number(rawPred.win_prob_b ?? (100 - rawPred.win_prob_a)) : Number(rawPred.win_prob_a ?? 50);
+        const sign = isCapB ? -1 : 1;
+        const f = rawPred.factors || {};
+        const effDelta = sign * Number(rawPred.effective_elo_delta || 0);
+        const tooltip = [
+          `6-Factor Prediction: ${winProb}% Win • Est. ${wtcScore}-${20 - wtcScore} WTC (${fmtSigned(effDelta)} Eff. Elo)`,
+          `• Base Elo: ${fmtSigned(sign * (f.base_elo_delta || 0))}`,
+          `• 3M Faction H2H: ${fmtSigned(sign * (f.fac_h2h_delta || 0))}`,
+          `• 3M Faction Meta: ${fmtSigned(sign * (f.fac_meta_delta || 0))}`,
+          `• Own-Faction Mastery: ${fmtSigned(sign * (f.own_mastery_delta || 0))}`,
+          `• Vs-Faction Mastery: ${fmtSigned(sign * (f.vs_mastery_delta || 0))}`,
+          `• Past Player H2H: ${fmtSigned(sign * (f.past_h2h_delta || 0))}`
+        ].join("\n");
+        return {
+          wtcScore,
+          oppWtcScore: 20 - wtcScore,
+          winProb,
+          oppWinProb: 100 - winProb,
+          effectiveEloDelta: effDelta,
+          factors: f,
+          tooltip
+        };
+      }
+    }
+
     if (this.room && this.room.matchup_matrix) {
       const m = this.room.matchup_matrix;
       if (this.activeRole === "captain_b") {
         const aScore = m[oppPlayer.id]?.[myPlayer.id];
-        if (typeof aScore === "number") return 20 - aScore;
+        if (typeof aScore === "number") {
+          const wtcScore = 20 - aScore;
+          const winProb = Math.max(5, Math.min(95, Math.round(50 + ((wtcScore - 10) / 14) * 100)));
+          return {
+            wtcScore,
+            oppWtcScore: aScore,
+            winProb,
+            oppWinProb: 100 - winProb,
+            effectiveEloDelta: 0,
+            factors: {},
+            tooltip: `6-Factor Prediction: ${winProb}% Win • Est. ${wtcScore}-${aScore} WTC`
+          };
+        }
       } else {
         const score = m[myPlayer.id]?.[oppPlayer.id];
-        if (typeof score === "number") return score;
+        if (typeof score === "number") {
+          const winProb = Math.max(5, Math.min(95, Math.round(50 + ((score - 10) / 14) * 100)));
+          return {
+            wtcScore: score,
+            oppWtcScore: 20 - score,
+            winProb,
+            oppWinProb: 100 - winProb,
+            effectiveEloDelta: 0,
+            factors: {},
+            tooltip: `6-Factor Prediction: ${winProb}% Win • Est. ${score}-${20 - score} WTC`
+          };
+        }
       }
     }
-    const eloDiff = Number(myPlayer.elo || 2050) - Number(oppPlayer.elo || 2050);
-    const f1 = String(myPlayer.faction || "");
-    const f2 = String(oppPlayer.faction || "");
-    let hash = 0;
-    const pairStr = `${f1}__vs__${f2}`;
-    for (let i = 0; i < pairStr.length; i++) {
-      hash = (hash * 31 + pairStr.charCodeAt(i)) % 997;
-    }
-    const facBias = (f1 === f2) ? 0 : ((hash % 7) - 3);
-    const raw = Math.round(10 + eloDiff / 45 + facBias);
-    return Math.max(4, Math.min(16, raw));
+
+    // Client-side 6-Factor fallback
+    const baseEloDelta = Math.round(Number(myPlayer.elo || 2000) - Number(oppPlayer.elo || 2000));
+    const wrA = Number(myPlayer.win_rate || 50) > 1 ? Number(myPlayer.win_rate || 50) / 100 : Number(myPlayer.win_rate || 0.5);
+    const wrB = Number(oppPlayer.win_rate || 50) > 1 ? Number(oppPlayer.win_rate || 50) / 100 : Number(oppPlayer.win_rate || 0.5);
+    const gA = Number(myPlayer.matches_played || 24);
+    const gB = Number(oppPlayer.matches_played || 24);
+    const ownShiftA = Math.max(-35, Math.min(35, Math.round((wrA - 0.5) * (gA / (gA + 10)) * 140)));
+    const ownShiftB = Math.max(-35, Math.min(35, Math.round((wrB - 0.5) * (gB / (gB + 10)) * 140)));
+    const ownMasteryDelta = Math.max(-55, Math.min(55, ownShiftA - ownShiftB));
+    const effDelta = baseEloDelta + ownMasteryDelta;
+    const winProb = Math.max(5, Math.min(95, Math.round(100 / (1 + Math.pow(10, -effDelta / 400)))));
+    const wtcScore = Math.max(3, Math.min(17, Math.round(10 + 14 * (winProb / 100 - 0.5))));
+    return {
+      wtcScore,
+      oppWtcScore: 20 - wtcScore,
+      winProb,
+      oppWinProb: 100 - winProb,
+      effectiveEloDelta: effDelta,
+      factors: { base_elo_delta: baseEloDelta, own_mastery_delta: ownMasteryDelta },
+      tooltip: `6-Factor Prediction: ${winProb}% Win • Est. ${wtcScore}-${20 - wtcScore} WTC`
+    };
+  }
+
+  getMatchupEstimate(myPlayer, oppPlayer) {
+    return this.getMatchupPrediction(myPlayer, oppPlayer).wtcScore;
   }
 
   renderAll() {
@@ -2028,12 +2115,13 @@ class YuGiOhPairingsArena {
         oppAttMount.innerHTML = p.oppAtts.map((att) => {
           const isChosen = phase === "STEP_3_CHOOSE" && (this.selectedIds.includes(att.id) || p.mySecChoice === att.id);
           const canPick = phase === "STEP_3_CHOOSE" && !p.isSpectator && !p.mySecChoiceLocked && p.isMyActionTurn;
-          const vsMyDefScore = p.myDef ? this.getMatchupEstimate(p.myDef, att) : null;
+          const vsMyDefPred = p.myDef ? this.getMatchupPrediction(p.myDef, att) : null;
           return this.buildYuGiOhCardHtml(att, {
             fieldSize: true,
             selected: isChosen,
             clashChoice: canPick,
-            matchupScore: vsMyDefScore
+            matchupScore: vsMyDefPred ? vsMyDefPred.wtcScore : null,
+            matchupPred: vsMyDefPred
           });
         }).join("");
 
@@ -2112,11 +2200,12 @@ class YuGiOhPairingsArena {
         for (let i = 0; i < 2; i++) {
           const c = cardsToShow[i];
           if (c) {
-            const mScore = p.oppDef ? this.getMatchupEstimate(c, p.oppDef) : null;
+            const mPred = p.oppDef ? this.getMatchupPrediction(c, p.oppDef) : null;
             slots.push(this.buildYuGiOhCardHtml(c, {
               fieldSize: true,
               selected: !(p.myAtts && p.myAtts.length > 0),
-              matchupScore: mScore
+              matchupScore: mPred ? mPred.wtcScore : null,
+              matchupPred: mPred
             }));
           } else {
             slots.push(`<div class="empty-zone-sigil"><span class="sigil-icon">⚔️</span><span>PICK 2ND CARD</span></div>`);
@@ -2189,12 +2278,13 @@ class YuGiOhPairingsArena {
     }
 
     myFan.innerHTML = myBench.map((card) => {
-      const mScore = (phase === "STEP_2_ATTACKERS" && p.oppDef)
-        ? this.getMatchupEstimate(card, p.oppDef)
+      const mPred = (phase === "STEP_2_ATTACKERS" && p.oppDef)
+        ? this.getMatchupPrediction(card, p.oppDef)
         : null;
       return this.buildYuGiOhCardHtml(card, {
         selected: false,
-        matchupScore: mScore
+        matchupScore: mPred ? mPred.wtcScore : null,
+        matchupPred: mPred
       });
     }).join("");
 
@@ -2571,7 +2661,9 @@ class YuGiOhPairingsArena {
     if (typeof opts.matchupScore === "number") {
       const s = opts.matchupScore;
       const color = s >= 12 ? "#4ade80" : (s <= 8 ? "#fb7185" : "#fde047");
-      matchupChipHtml = `<span class="yc-matchup-chip" style="color:${color}">${s}-${20 - s}</span>`;
+      const winPct = opts.matchupPred?.winProb ?? Math.max(5, Math.min(95, Math.round(50 + ((s - 10) / 14) * 100)));
+      const tip = opts.matchupPred?.tooltip || `6-Factor Prediction: ${winPct}% Win • Est. ${s}-${20 - s} WTC`;
+      matchupChipHtml = `<span class="yc-matchup-chip" style="color:${color}" title="${this.escapeHtml(tip)}">${s}-${20 - s} • ${winPct}%</span>`;
     }
 
     const classes = [
@@ -2661,13 +2753,16 @@ class YuGiOhPairingsArena {
           const oppP = isCapB ? m.player_a : m.player_b;
           const rawA = Number(m.est_score_a ?? m.matchup?.expected_a ?? m.a_expected ?? 10);
           const myEst = isCapB ? (20 - rawA) : rawA;
+          const rawProbA = Number(m.win_prob_a ?? m.matchup?.win_prob_a ?? Math.round(50 + ((rawA - 10) / 14) * 100));
+          const myProb = isCapB ? (100 - rawProbA) : rawProbA;
+          const pred = this.getMatchupPrediction(myP, oppP);
           const mySvg = getFactionSvgHtml(myP.faction, "armory-faction-svg");
           const oppSvg = getFactionSvgHtml(oppP.faction, "armory-faction-svg");
           return `
-            <div class="clash-mini-card">
+            <div class="clash-mini-card" title="${this.escapeHtml(pred.tooltip || "")}">
               <div class="clash-mini-top">
                 <span>TABLE #${m.table_num}</span>
-                <span>EST: ${myEst} - ${20 - myEst}</span>
+                <span>EST: ${myEst}-${20 - myEst} • ${myProb}% WIN</span>
               </div>
               <div class="clash-mini-players">
                 <div class="clash-side-a">

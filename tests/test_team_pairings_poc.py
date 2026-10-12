@@ -772,9 +772,79 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertEqual({m["player_a"]["id"] for m in r_done["pairings"]}, {"A1", "A2", "A3", "A4", "A5"})
         self.assertEqual({m["player_b"]["id"] for m in r_done["pairings"]}, {"B1", "B2", "B3", "B4", "B5"})
 
+    def test_six_factor_predict_matchup_outcome_and_zero_elo_impact(self):
+        """Verify 6-factor prediction engine uses Elo, 3M Faction H2H, 3M Meta Form, Career Mastery, and Player H2H without touching Elo or in-event stats."""
+        player_a = {
+            "id": "A_TEST",
+            "name": "John Lennon",
+            "faction": "Aeldari",
+            "elo": 1850,
+            "win_rate": 72.0,
+            "matches_played": 45,
+            "vs_faction_wr": 68.0,
+            "vs_faction_games": 15,
+            "past_h2h_wins": 4,
+            "past_h2h_losses": 1,
+            "past_h2h_draws": 0,
+        }
+        player_b = {
+            "id": "B_TEST",
+            "name": "Brian Pullen",
+            "faction": "Imperial Knights",
+            "elo": 1850,
+            "win_rate": 48.0,
+            "matches_played": 30,
+            "vs_faction_wr": 35.0,
+            "vs_faction_games": 12,
+        }
+
+        pred = self.engine.predict_matchup_outcome(player_a, player_b)
+        self.assertIn("win_prob_a", pred)
+        self.assertIn("win_prob_b", pred)
+        self.assertEqual(pred["win_prob_a"] + pred["win_prob_b"], 100)
+        self.assertEqual(pred["base_elo_delta"], 0)
+        # Even at equal 1850 Elo, Aeldari's favorable 3M H2H vs Imperial Knights + higher faction mastery + 4-1 H2H gives Player A > 55% win prob
+        self.assertGreater(pred["win_prob_a"], 55)
+        self.assertGreater(pred["wtc_score_a"], 10)
+        self.assertEqual(pred["wtc_score_a"] + pred["wtc_score_b"], 20)
+
+        factors = pred["factors"]
+        self.assertGreater(factors["fac_h2h_delta"], 0)
+        self.assertGreater(factors["own_mastery_delta"], 0)
+        self.assertGreater(factors["vs_mastery_delta"], 0)
+        self.assertGreater(factors["past_h2h_delta"], 0)
+
+        # Ensure player Elo ratings are never mutated by prediction
+        self.assertEqual(player_a["elo"], 1850)
+        self.assertEqual(player_b["elo"], 1850)
+
+        # Ensure adding arbitrary in-event stats has zero effect on prediction output
+        player_a_with_event = {**player_a, "ev_f1_wins": 99, "ev_f2_wins": 0, "in_event_wins": 5}
+        pred_with_event = self.engine.predict_matchup_outcome(player_a_with_event, player_b)
+        self.assertEqual(pred["win_prob_a"], pred_with_event["win_prob_a"])
+        self.assertEqual(pred["effective_elo_delta"], pred_with_event["effective_elo_delta"])
+
+        # Verify room payload includes matchup_predictions and paired table prediction details
+        room = self.engine.create_pairing_room(
+            format_size="5v5",
+            team_a_preset="art_of_war",
+            team_b_preset="team_zero_comp",
+            vs_ai=True,
+            created_by="hsiehjun",
+        )
+        masked = self.engine.mask_pairing_room_for_viewer(room, "captain_a")
+        self.assertIn("matchup_matrix", masked)
+        self.assertIn("matchup_predictions", masked)
+        self.assertIn("A1", masked["matchup_predictions"])
+        self.assertIn("B1", masked["matchup_predictions"]["A1"])
+        cell_pred = masked["matchup_predictions"]["A1"]["B1"]
+        self.assertIn("win_prob_a", cell_pred)
+        self.assertIn("factors", cell_pred)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

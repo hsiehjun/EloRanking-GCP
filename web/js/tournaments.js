@@ -9353,6 +9353,387 @@ function buildCasterFactionMasteryHtml(playerObj, opponentObj, profileData, acce
   `;
 }
 
+function computeCasterCareerMasteryForPrediction(playerObj, opponentObj, profileData) {
+  const curFac = formatEventPlayerFaction(playerObj?.faction || playerObj?.army_name || 'Army');
+  const oppFac = formatEventPlayerFaction(opponentObj?.faction || opponentObj?.army_name || 'Opponent Faction');
+  const rawHistory = Array.isArray(profileData?.history) ? profileData.history : (Array.isArray(profileData?.win_path) ? profileData.win_path : []);
+  const rawBreakdown = profileData?.faction_mastery || profileData?.factions_breakdown || playerObj?.faction_mastery || [];
+  const rawMatrix = profileData?.matchup_matrix || playerObj?.matchup_matrix || [];
+
+  // Strictly exclude current event matches from prediction inputs so zero in-event stats are used
+  const curEvName = String(currentEventData?.name || '').trim().toLowerCase();
+  const curEvId = String(currentEventData?.id || currentOpenEventId || '').trim().toLowerCase();
+  const careerHistory = rawHistory.filter(h => {
+    const hEvId = String(h?.event_id || '').trim().toLowerCase();
+    const hEvName = String(h?.event_name || '').trim().toLowerCase();
+    if (curEvId && hEvId && hEvId === curEvId) return false;
+    if (curEvName && hEvName && hEvName === curEvName) return false;
+    return true;
+  });
+
+  let masteryList = [];
+  if (typeof computeProfileFactionMastery === 'function' && (careerHistory.length > 0 || rawBreakdown.length > 0)) {
+    masteryList = computeProfileFactionMastery(careerHistory, rawBreakdown, profileData?.tournaments || profileData?.events_attended, profileData?.tracker_history || profileData?.completed_history);
+  } else if (Array.isArray(rawBreakdown) && rawBreakdown.length > 0) {
+    masteryList = rawBreakdown.map(f => {
+      const g = Number(f.games || f.matches || (Number(f.wins || 0) + Number(f.losses || 0) + Number(f.draws || 0)) || 0);
+      const w = Number(f.wins || 0);
+      return {
+        faction: f.faction || curFac,
+        games: g,
+        wins: w,
+        losses: Number(f.losses || 0),
+        draws: Number(f.draws || 0),
+        net_elo: Number(f.net_elo || 0),
+        win_rate: g > 0 ? (w / g) * 100 : 0
+      };
+    });
+  }
+
+  // 1. Career Own-Faction Mastery (strictly career stats, never in-event record)
+  const matchedOwnEntry = masteryList.find(m => isSameCasterFaction(m.faction, curFac));
+  let ownWins = matchedOwnEntry ? Number(matchedOwnEntry.wins || 0) : Number(playerObj?.own_faction_wins || 0);
+  let ownLosses = matchedOwnEntry ? Number(matchedOwnEntry.losses || 0) : Number(playerObj?.own_faction_losses || 0);
+  let ownDraws = matchedOwnEntry ? Number(matchedOwnEntry.draws || 0) : Number(playerObj?.own_faction_draws || 0);
+  let ownNetElo = matchedOwnEntry ? Number(matchedOwnEntry.net_elo || 0) : Number(playerObj?.own_faction_net_elo || 0);
+  const ownGames = ownWins + ownLosses + ownDraws;
+  const ownWr = ownGames > 0 ? (ownWins / ownGames) * 100 : 50.0;
+
+  // 2. Career Matchup Mastery vs. Opponent's Faction (strictly career history / matrix, never in-event)
+  let vsWins = 0;
+  let vsLosses = 0;
+  let vsDraws = 0;
+  let vsNetElo = 0;
+  const seenVsKeys = new Set();
+
+  careerHistory.forEach((h, idx) => {
+    const hOppFac = h.opponent_faction || h.enemy_faction || h.opp_faction || '';
+    if (!isSameCasterFaction(hOppFac, oppFac)) return;
+    const key = `${String(h.event_id || h.event_name || idx).toLowerCase()}__${String(h.round || idx).toLowerCase()}__${String(h.opponent_name || '').toLowerCase()}`;
+    if (seenVsKeys.has(key)) return;
+    seenVsKeys.add(key);
+
+    const resStr = String(h.result || h.outcome || '').toUpperCase();
+    const pSc = h.player_score !== undefined ? Number(h.player_score) : NaN;
+    const oSc = h.opponent_score !== undefined ? Number(h.opponent_score) : NaN;
+    if (resStr === 'W' || resStr === 'WIN' || (!resStr && !isNaN(pSc) && !isNaN(oSc) && pSc > oSc)) {
+      vsWins++;
+    } else if (resStr === 'L' || resStr === 'LOSS' || (!resStr && !isNaN(pSc) && !isNaN(oSc) && oSc > pSc)) {
+      vsLosses++;
+    } else {
+      vsDraws++;
+    }
+    vsNetElo += Number(h.delta_elo || h.elo_change || 0);
+  });
+
+  if ((vsWins + vsLosses + vsDraws) === 0 && Array.isArray(rawMatrix) && rawMatrix.length > 0) {
+    const matEntry = rawMatrix.find(m => isSameCasterFaction(m.enemy_faction || m.opponent_faction || m.faction, oppFac));
+    if (matEntry) {
+      vsWins = Number(matEntry.wins || 0);
+      vsLosses = Number(matEntry.losses || 0);
+      vsDraws = Number(matEntry.draws || 0);
+      vsNetElo = Number(matEntry.net_elo || 0);
+    }
+  }
+
+  const vsGames = vsWins + vsLosses + vsDraws;
+  const vsWr = vsGames > 0 ? (vsWins / vsGames) * 100 : 50.0;
+
+  return {
+    curFac,
+    oppFac,
+    ownWins,
+    ownLosses,
+    ownDraws,
+    ownGames,
+    ownNetElo,
+    ownWr,
+    vsWins,
+    vsLosses,
+    vsDraws,
+    vsGames,
+    vsNetElo,
+    vsWr
+  };
+}
+
+/**
+ * Multi-Factor Win Probability & WTC Expected Score Prediction Engine.
+ * Strictly read-only prediction: NEVER modifies player Elo or Elo stakes, and
+ * NEVER uses any in-event stats (excludes In-Event Faction Clash & current-event W/L).
+ */
+function computeMultiFactorMatchupPrediction(opts = {}) {
+  const clamp = (val, minV, maxV) => Math.min(maxV, Math.max(minV, val));
+  const p1Elo = Number(opts.p1Elo ?? opts.p1?.current_elo ?? opts.p1?.elo ?? 1500);
+  const p2Elo = Number(opts.p2Elo ?? opts.p2?.current_elo ?? opts.p2?.elo ?? 1500);
+
+  // 1. Base Elo Delta (~55-60% weight anchor)
+  const baseEloDelta = p1Elo - p2Elo;
+
+  // 2. Global 3-Month Faction-vs-Faction Direct Matchup (K = 35, cap ±75 Elo; excludes In-Event Clash)
+  const facMetrics = opts.fac3MoMetrics || {};
+  const isMirror = Boolean(facMetrics.isMirror);
+  const h2hF1W = Number(facMetrics.h2hF1Wins || 0);
+  const h2hF2W = Number(facMetrics.h2hF2Wins || 0);
+  const h2hD = Number(facMetrics.h2hDraws || 0);
+  const h2hTotal = h2hF1W + h2hF2W + h2hD;
+  let facH2hDelta = 0;
+  if (!isMirror && h2hTotal > 0) {
+    const shrunkEdge = ((h2hF1W + 0.5 * h2hD) - 0.5 * h2hTotal) / (h2hTotal + 35);
+    facH2hDelta = clamp(shrunkEdge * 350, -75, 75);
+  }
+
+  // 3. Global 3-Month Faction Overall Meta Form (K = 100, cap ±40 Elo)
+  const f1MetaGames = Number(facMetrics.f1GlobalGames || 0);
+  const f2MetaGames = Number(facMetrics.f2GlobalGames || 0);
+  const f1MetaWr = Number(facMetrics.f1GlobalWr || 50);
+  const f2MetaWr = Number(facMetrics.f2GlobalWr || 50);
+  let facMetaDelta = 0;
+  if (!isMirror && (f1MetaGames > 0 || f2MetaGames > 0)) {
+    const adjWr1 = 0.50 + ((f1MetaWr / 100) - 0.50) * (f1MetaGames / (f1MetaGames + 100));
+    const adjWr2 = 0.50 + ((f2MetaWr / 100) - 0.50) * (f2MetaGames / (f2MetaGames + 100));
+    facMetaDelta = clamp((adjWr1 - adjWr2) * 250, -40, 40);
+  }
+
+  // 4. Player Own-Faction Mastery (K = 10, cap ±55 Elo; career only)
+  const m1 = opts.p1Mastery || {};
+  const m2 = opts.p2Mastery || {};
+  const calcOwnScore = (m) => {
+    const g = Number(m.ownGames || 0);
+    if (g <= 0) return 0;
+    const w = Number(m.ownWins || 0);
+    const d = Number(m.ownDraws || 0);
+    const netElo = Number(m.ownNetElo || 0);
+    const wrPart = (((w + 0.5 * d) - 0.5 * g) / (g + 10)) * 140;
+    const netPart = clamp((netElo / 6.0) * (g / (g + 10)), -20, 20);
+    return wrPart + netPart;
+  };
+  const ownMasteryDelta = clamp(calcOwnScore(m1) - calcOwnScore(m2), -55, 55);
+
+  // 5. Player Matchup Mastery vs. Opponent's Faction (K = 10, cap ±45 Elo; career only)
+  const calcVsScore = (m) => {
+    const g = Number(m.vsGames || 0);
+    if (g <= 0) return 0;
+    const w = Number(m.vsWins || 0);
+    const d = Number(m.vsDraws || 0);
+    const netElo = Number(m.vsNetElo || 0);
+    const wrPart = (((w + 0.5 * d) - 0.5 * g) / (g + 10)) * 130;
+    const netPart = clamp((netElo / 6.0) * (g / (g + 10)), -15, 15);
+    return wrPart + netPart;
+  };
+  const vsMasteryDelta = clamp(calcVsScore(m1) - calcVsScore(m2), -45, 45);
+
+  // 6. Past Player Head-to-Head (K = 4, cap ±35 Elo; prior career meetings only)
+  const h2h = opts.pastH2h || {};
+  const p1H2hW = Number(h2h.p1Wins || 0);
+  const p2H2hW = Number(h2h.p2Wins || 0);
+  const h2hDraws = Number(h2h.draws || 0);
+  const h2hGames = p1H2hW + p2H2hW + h2hDraws;
+  let pastH2hDelta = 0;
+  if (h2hGames > 0) {
+    pastH2hDelta = clamp(((p1H2hW - p2H2hW) / (h2hGames + 4)) * 90, -35, 35);
+  }
+
+  const effectiveEloDelta =
+    baseEloDelta +
+    facH2hDelta +
+    facMetaDelta +
+    ownMasteryDelta +
+    vsMasteryDelta +
+    pastH2hDelta;
+
+  const rawProb1 = 100 / (1 + Math.pow(10, -effectiveEloDelta / 400));
+  const p1WinProb = clamp(Math.round(rawProb1), 5, 95);
+  const p2WinProb = 100 - p1WinProb;
+
+  const wtcScore1 = clamp(Math.round(10 + 14 * ((rawProb1 / 100) - 0.50)), 3, 17);
+  const wtcScore2 = 20 - wtcScore1;
+
+  return {
+    p1WinProb,
+    p2WinProb,
+    wtcScore1,
+    wtcScore2,
+    baseEloDelta,
+    facH2hDelta,
+    facMetaDelta,
+    ownMasteryDelta,
+    vsMasteryDelta,
+    pastH2hDelta,
+    effectiveEloDelta,
+    details: {
+      h2hF1W,
+      h2hF2W,
+      h2hD,
+      h2hTotal,
+      f1MetaGames,
+      f2MetaGames,
+      f1MetaWr,
+      f2MetaWr,
+      p1OwnGames: Number(m1.ownGames || 0),
+      p1OwnWr: Number(m1.ownWr || 50),
+      p2OwnGames: Number(m2.ownGames || 0),
+      p2OwnWr: Number(m2.ownWr || 50),
+      p1VsGames: Number(m1.vsGames || 0),
+      p1VsWr: Number(m1.vsWr || 50),
+      p2VsGames: Number(m2.vsGames || 0),
+      p2VsWr: Number(m2.vsWr || 50),
+      p1H2hW,
+      p2H2hW,
+      h2hGames
+    }
+  };
+}
+window.computeMultiFactorMatchupPrediction = computeMultiFactorMatchupPrediction;
+
+function buildCasterPredictionBreakdownHtml(pred, p1Name, p2Name, fac1, fac2) {
+  if (!pred) return '';
+  const fmtShift = (val) => {
+    const r = Math.round(val * 10) / 10;
+    if (Math.abs(r) < 0.05) return '0.0 Elo';
+    return `${r > 0 ? '+' : ''}${r.toFixed(1)} Elo`;
+  };
+  const colShift = (val) => {
+    if (val > 0.5) return '#38bdf8';
+    if (val < -0.5) return '#f43f5e';
+    return '#94a3b8';
+  };
+  const d = pred.details || {};
+  const items = [
+    {
+      label: '1. Base Elo Anchor',
+      shift: pred.baseEloDelta,
+      sub: `Raw ±${Math.abs(pred.baseEloDelta).toFixed(1)} Elo gap`
+    },
+    {
+      label: '2. 3-Mo Faction H2H',
+      shift: pred.facH2hDelta,
+      sub: d.h2hTotal > 0 ? `${d.h2hF1W}W-${d.h2hF2W}L (${d.h2hTotal}G)` : 'Mirror / 0 Global G'
+    },
+    {
+      label: '3. 3-Mo Faction Meta',
+      shift: pred.facMetaDelta,
+      sub: (d.f1MetaGames > 0 || d.f2MetaGames > 0)
+        ? `${d.f1MetaWr.toFixed(1)}% vs ${d.f2MetaWr.toFixed(1)}% WR`
+        : 'Neutral 90d Meta'
+    },
+    {
+      label: '4. Faction Mastery',
+      shift: pred.ownMasteryDelta,
+      sub: `${d.p1OwnGames}G (${d.p1OwnWr.toFixed(0)}%) vs ${d.p2OwnGames}G (${d.p2OwnWr.toFixed(0)}%)`
+    },
+    {
+      label: '5. Vs-Faction Mastery',
+      shift: pred.vsMasteryDelta,
+      sub: `${d.p1VsGames}G (${d.p1VsWr.toFixed(0)}%) vs ${d.p2VsGames}G (${d.p2VsWr.toFixed(0)}%)`
+    },
+    {
+      label: '6. Past Head-to-Head',
+      shift: pred.pastH2hDelta,
+      sub: d.h2hGames > 0 ? `${d.p1H2hW}W - ${d.p2H2hW}L Career` : 'No Prior Meetings'
+    }
+  ];
+
+  const effCol = colShift(pred.effectiveEloDelta);
+  const favName = pred.effectiveEloDelta >= 0 ? (p1Name || 'Player 1') : (p2Name || 'Player 2');
+
+  return `
+    <div style="margin-top: 0.85rem; padding: 0.7rem 0.85rem; background: rgba(9, 14, 26, 0.78); border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 10px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
+        <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: #e2e8f0; display: flex; align-items: center; gap: 0.35rem;">
+          <span>🎯 Multi-Factor Prediction Breakdown</span>
+          <span style="font-size: 0.64rem; font-weight: 600; color: var(--text-muted); text-transform: none;">(Career & 3-Mo Global • Excludes In-Event Stats)</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; font-family: var(--font-mono); font-size: 0.71rem;">
+          <span style="padding: 2px 7px; border-radius: 5px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: ${effCol}; font-weight: 800;">
+            Eff. Edge: ${fmtShift(pred.effectiveEloDelta)} (${escapeHtml(favName)})
+          </span>
+          <span style="padding: 2px 7px; border-radius: 5px; background: rgba(245, 158, 11, 0.14); border: 1px solid rgba(245, 158, 11, 0.35); color: #fbbf24; font-weight: 800;" title="Projected 20-Point WTC Team Pairings Matrix Score">
+            Est. WTC: ${pred.wtcScore1} - ${pred.wtcScore2}
+          </span>
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.4rem;">
+        ${items.map(it => `
+          <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px; padding: 0.35rem 0.5rem; display: flex; flex-direction: column; gap: 1px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.25rem;">
+              <span style="font-size: 0.63rem; font-weight: 700; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(it.label)}</span>
+              <span style="font-family: var(--font-mono); font-size: 0.68rem; font-weight: 800; color: ${colShift(it.shift)}; white-space: nowrap;">${fmtShift(it.shift)}</span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${escapeHtml(it.sub)}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function computeCasterMatchupPredictionSnapshot(ev, p1, p2, p1Elo, p2Elo, selectedMatch) {
+  const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+  const p1Pid = String(p1?.player_id || p1?.id || selectedMatch?.player1_id || '').trim();
+  const p2Pid = String(p2?.player_id || p2?.id || selectedMatch?.player2_id || '').trim();
+  const p1Name = String(p1?.full_name || selectedMatch?.player1_name || 'Player 1').trim();
+  const p2Name = String(p2?.full_name || selectedMatch?.player2_name || 'Player 2').trim();
+
+  const fac1 = formatEventPlayerFaction(p1?.faction || selectedMatch?.player1_faction || 'Army');
+  const fac2 = formatEventPlayerFaction(p2?.faction || selectedMatch?.player2_faction || 'Army');
+  const fac3MoMetrics = computeCasterFaction3MoMetrics(fac1, fac2, [], sys);
+
+  const h2hKey = getCasterH2hCacheKey(sys, p1Pid, p2Pid, p1Name, p2Name);
+  const cachedApiH2h = Array.isArray(casterHeadToHeadCache[h2hKey]) ? casterHeadToHeadCache[h2hKey] : [];
+  // Strictly prior events only for prediction (exclude current event matches)
+  const curEvId = String(ev?.id || currentEventData?.id || currentOpenEventId || '').trim().toLowerCase();
+  const curEvName = String(ev?.name || currentEventData?.name || '').trim().toLowerCase();
+  const careerOnlyH2hMatches = cachedApiH2h.filter(m => {
+    const mEvId = String(m?.event_id || '').trim().toLowerCase();
+    const mEvName = String(m?.event_name || '').trim().toLowerCase();
+    if (curEvId && mEvId && mEvId === curEvId) return false;
+    if (curEvName && mEvName && mEvName === curEvName) return false;
+    return true;
+  });
+  const pastH2h = computeCasterPastH2hRecord(careerOnlyH2hMatches, p1Pid, p2Pid, p1Name, p2Name);
+
+  const prof1 = casterPlayerProfileCache[`${sys}:${p1Pid || p1Name.toLowerCase()}`] || null;
+  const prof2 = casterPlayerProfileCache[`${sys}:${p2Pid || p2Name.toLowerCase()}`] || null;
+  const p1Mastery = computeCasterCareerMasteryForPrediction(p1, p2, prof1);
+  const p2Mastery = computeCasterCareerMasteryForPrediction(p2, p1, prof2);
+
+  return computeMultiFactorMatchupPrediction({
+    p1,
+    p2,
+    p1Elo,
+    p2Elo,
+    fac3MoMetrics,
+    p1Mastery,
+    p2Mastery,
+    pastH2h
+  });
+}
+
+function refreshCasterWinProbabilityDom(ev, p1, p2, selectedMatch) {
+  const p1Elo = Number(selectedMatch?.player1_elo || p1?.current_elo || 1500);
+  const p2Elo = Number(selectedMatch?.player2_elo || p2?.current_elo || 1500);
+  const p1Name = String(p1?.full_name || selectedMatch?.player1_name || 'Player 1').trim();
+  const p2Name = String(p2?.full_name || selectedMatch?.player2_name || 'Player 2').trim();
+  const fac1 = formatEventPlayerFaction(p1?.faction || selectedMatch?.player1_faction || 'Army');
+  const fac2 = formatEventPlayerFaction(p2?.faction || selectedMatch?.player2_faction || 'Army');
+
+  const pred = computeCasterMatchupPredictionSnapshot(ev, p1, p2, p1Elo, p2Elo, selectedMatch);
+  const p1PctEl = document.getElementById('caster-win-prob-p1');
+  const p2PctEl = document.getElementById('caster-win-prob-p2');
+  const fillEl = document.getElementById('caster-win-prob-fill-p1');
+  const breakdownEl = document.getElementById('caster-prediction-breakdown-bar');
+
+  if (p1PctEl) p1PctEl.textContent = `${pred.p1WinProb}%`;
+  if (p2PctEl) p2PctEl.textContent = `${pred.p2WinProb}%`;
+  if (fillEl) fillEl.style.width = `${pred.p1WinProb}%`;
+  if (breakdownEl) {
+    breakdownEl.innerHTML = buildCasterPredictionBreakdownHtml(pred, p1Name, p2Name, fac1, fac2);
+  }
+}
+
 async function hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch) {
   const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
   const evMatches = Array.isArray(ev?.matches) ? ev.matches : (Array.isArray(currentEventData?.matches) ? currentEventData.matches : []);
@@ -9381,6 +9762,7 @@ async function hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch) {
     if (cardEl) {
       cardEl.innerHTML = buildCasterPastH2hCardHtml(pastMatches, p1Pid, p2Pid, p1Name, p2Name, false);
     }
+    refreshCasterWinProbabilityDom(ev, p1, p2, selectedMatch);
   };
 
   if (window.api && typeof window.api.getHeadToHead === 'function' && (p1Pid || p1Name) && (p2Pid || p2Name)) {
@@ -9417,6 +9799,7 @@ async function hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch) {
         facSummaryEl.innerHTML = `📊 <strong>Faction Matchup (Event):</strong> ${escapeHtml(m.fac1)} ${wr}% WR vs ${escapeHtml(m.fac2)} (${m.evF1Wins}W-${m.evF2Wins}L)`;
       }
     }
+    refreshCasterWinProbabilityDom(ev, p1, p2, selectedMatch);
   };
 
   if (window.api && typeof window.api.getFactionDetails === 'function') {
@@ -9456,12 +9839,14 @@ async function hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch) {
       if (casterPlayerProfileCache[cacheKey]) {
         const el = document.getElementById(`caster-dossier-mastery-${item.side}`);
         if (el) el.innerHTML = buildCasterFactionMasteryHtml(item.obj, item.oppObj, casterPlayerProfileCache[cacheKey], item.color, evMatches);
+        refreshCasterWinProbabilityDom(ev, p1, p2, selectedMatch);
       } else {
         window.api.getPlayerProfile(pid || 'unknown', sys, pname).then(data => {
           if (data && !data.error) {
             casterPlayerProfileCache[cacheKey] = data;
             const el = document.getElementById(`caster-dossier-mastery-${item.side}`);
             if (el) el.innerHTML = buildCasterFactionMasteryHtml(item.obj, item.oppObj, data, item.color, evMatches);
+            refreshCasterWinProbabilityDom(ev, p1, p2, selectedMatch);
           }
         }).catch(() => {});
       }
@@ -9740,10 +10125,15 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
     facMatchupText = `${escapeHtml(fac3MoMetrics.fac1)} Mirror Match`;
   }
 
-  // Dynamic Elo stakes
+  // Dynamic Elo stakes (strictly pure Elo — never impacted by prediction factors)
   const expectedP1 = 1 / (1 + Math.pow(10, (p2Elo - p1Elo) / 400));
   const p1GainOnWin = Math.round(32 * (1 - expectedP1));
   const p2GainOnWin = Math.round(32 * expectedP1);
+
+  // Multi-Factor Win Probability Prediction (strictly career & 3-month global stats; excludes in-event stats)
+  const multiFactorPred = computeCasterMatchupPredictionSnapshot(ev, p1Info?.record || p1, p2Info?.record || p2, p1Elo, p2Elo, selectedMatch);
+  p1WinProb = multiFactorPred.p1WinProb;
+  p2WinProb = multiFactorPred.p2WinProb;
 
   const hasScore = selectedMatch?.player1_score !== null && selectedMatch?.player1_score !== undefined && selectedMatch?.player2_score !== null && selectedMatch?.player2_score !== undefined;
   const scoreDisplay = hasScore ? `${selectedMatch.player1_score} - ${selectedMatch.player2_score}` : 'Live in Progress';
@@ -9911,12 +10301,12 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
               <span class="win-prob-label">Win Probability</span>
             </div>
             <div class="win-prob-header-row">
-              <span class="win-prob-pct p1" style="color: #38bdf8;">${p1WinProb}%</span>
+              <span id="caster-win-prob-p1" class="win-prob-pct p1" style="color: #38bdf8;">${p1WinProb}%</span>
               <span class="win-prob-vs">VS</span>
-              <span class="win-prob-pct p2" style="color: #f43f5e;">${p2WinProb}%</span>
+              <span id="caster-win-prob-p2" class="win-prob-pct p2" style="color: #f43f5e;">${p2WinProb}%</span>
             </div>
             <div class="win-prob-track">
-              <div class="win-prob-fill-p1" style="width: ${p1WinProb}%;"></div>
+              <div id="caster-win-prob-fill-p1" class="win-prob-fill-p1" style="width: ${p1WinProb}%;"></div>
             </div>
             <div class="win-prob-footer-row">
               <span class="win-prob-elo-pill">
@@ -9956,6 +10346,11 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
               </button>
             </div>
           </div>
+        </div>
+
+        <!-- 6-Factor Prediction Breakdown Strip (Career & 3-Mo Global • Excludes In-Event Stats) -->
+        <div id="caster-prediction-breakdown-bar">
+          ${buildCasterPredictionBreakdownHtml(multiFactorPred, p1Name, p2Name, fac1, fac2)}
         </div>
 
         <!-- Matchup Context & History Sub-strip -->

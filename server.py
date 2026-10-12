@@ -304,16 +304,25 @@ async def _prewarm_meta_intel_cache():
         start_str = d90.strftime("%Y-%m-%d")
         end_str = now.strftime("%Y-%m-%d")
         db = await asyncio.to_thread(get_database)
-        await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k")
-        await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos")
+        await asyncio.gather(
+            asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k"),
+            asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos"),
+            return_exceptions=True,
+        )
         if hasattr(db, "prewarm_meta_intel_presets"):
-            await asyncio.to_thread(db.prewarm_meta_intel_presets, "40k")
-            await asyncio.to_thread(db.prewarm_meta_intel_presets, "aos")
-        await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 6)
-        await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "all", 4)
-        await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "6mo", 4)
-        await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "1yr", 4)
-        await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "6mo", 2)
+            await asyncio.gather(
+                asyncio.to_thread(db.prewarm_meta_intel_presets, "40k"),
+                asyncio.to_thread(db.prewarm_meta_intel_presets, "aos"),
+                return_exceptions=True,
+            )
+        await asyncio.gather(
+            asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 6),
+            asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "all", 4),
+            asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "6mo", 4),
+            asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "1yr", 4),
+            asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "6mo", 2),
+            return_exceptions=True,
+        )
         logger.info(f"🔥 Meta Intel (all presets) & Faction Details caches pre-warmed for 40k and AoS ({start_str} to {end_str})")
     except Exception as me:
         logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
@@ -347,15 +356,27 @@ async def on_server_startup():
 
     async def _deferred_startup_tasks():
         global SERVER_PREWARM_COMPLETE
+        db = None
+        try:
+            from newrecruit_integration import get_nr_detachments_catalog, get_nr_aos_formations_catalog
+            await asyncio.gather(
+                asyncio.to_thread(get_nr_detachments_catalog, False),
+                asyncio.to_thread(get_nr_aos_formations_catalog, False),
+                return_exceptions=True,
+            )
+            logger.info("🔥 NewRecruit detachments & AoS formations catalogs pre-warmed from local bundle")
+        except Exception as nr_err:
+            logger.warning(f"Notice during NR detachments pre-warming: {nr_err}")
         try:
             db_for_repair = await asyncio.to_thread(get_database)
+            db = db_for_repair
             if hasattr(db_for_repair, "repair_super_factions_in_db"):
                 await asyncio.to_thread(db_for_repair.repair_super_factions_in_db)
         except Exception as sf_err:
             logger.warning(f"Notice during startup super-faction self-heal: {sf_err}")
         await _prewarm_meta_intel_cache()
         try:
-            db = await asyncio.to_thread(get_database)
+            db = db or await asyncio.to_thread(get_database)
             from services.places_service import PlacesService
             from leagues_hub_service import get_leagues_hub_service
             lh_svc = get_leagues_hub_service()
@@ -367,9 +388,16 @@ async def on_server_startup():
                 lambda: db.get_top_ranked_players(page=1, page_size=25, min_matches=3, faction="All", sort_by="current_elo", order="DESC", game_system="40k", active_only=True),
                 lambda: db.get_top_ranked_players(page=1, page_size=25, min_matches=3, faction="All", sort_by="current_elo", order="DESC", game_system="aos", active_only=True),
                 lambda: db.get_players_directory(page=1, page_size=25, min_matches=0, faction="All", sort_by="current_elo", order="DESC", game_system="40k", active_only=False),
+                lambda: db.get_players_directory(page=1, page_size=25, min_matches=0, faction="All", sort_by="current_elo", order="DESC", game_system="aos", active_only=False),
                 lambda: db.get_events_list(page=1, page_size=25, status="all", sort_by="event_date", order="DESC", game_system="40k"),
                 lambda: db.get_events_list(page=1, page_size=25, status="completed", sort_by="event_date", order="DESC", game_system="40k"),
+                lambda: db.get_events_list(page=1, page_size=25, status="upcoming", sort_by="event_date", order="DESC", game_system="40k"),
                 lambda: db.get_events_list(page=1, page_size=25, status="all", sort_by="event_date", order="DESC", game_system="aos"),
+                lambda: db.get_recommended_events(lat=32.7157, lng=-117.1611, radius_miles=50.0, game_system="40k"),
+                lambda: db.get_event_details("AFKEKlCznJYg"),
+                lambda: db.get_event_details("i5xrw1YYvhvk"),
+                lambda: db.get_faction_details("Aeldari", game_system="40k"),
+                lambda: db.get_faction_details("Space Marines (Astartes)", game_system="40k"),
                 lambda: db._get_all_teams_list(game_system="40k"),
                 lambda: db._get_all_teams_list(game_system="aos"),
                 lambda: db.get_team_roster("Art of War", game_system="40k"),
@@ -387,9 +415,11 @@ async def on_server_startup():
                 lambda: elo_eng.get_player_win_path("xcaFfMZt5b", game_system="40k"),
                 lambda: elo_eng.get_player_win_path("CF1MBH6T87", game_system="40k"),
                 lambda: auth_mgr.get_user_competitor_hub(player_id="MEV83VFANA", user_id=None, game_system="40k"),
+                lambda: auth_mgr.get_user_competitor_hub(player_id="xcaFfMZt5b", user_id=None, game_system="40k"),
                 lambda: db.fetch_and_cache_bcp_event_placings("7ohG0RuDqC1k", timeout=3.0, persist_async=True),
                 lambda: db.fetch_and_cache_bcp_event_placings("DAVY7pZIVACh", timeout=3.0, persist_async=True),
                 lambda: db.get_player_tournaments("MEV83VFANA", game_system="40k"),
+                lambda: db.get_player_tournaments("xcaFfMZt5b", game_system="40k"),
                 lambda: db.get_player_tournaments("Te1Q9Ip3By", game_system="40k"),
                 lambda: db.get_player_tournaments("M7EJ7VW2K3", game_system="40k"),
                 lambda: db.get_player_tournaments("CF1MBH6T87", game_system="40k"),
@@ -408,21 +438,19 @@ async def on_server_startup():
                 lambda: get_room_engine().get_real_team_roster("Team Zero Comp", "40k"),
                 lambda: get_room_engine().get_real_team_roster("Art of War", "40k"),
             ]
-            for fn in core_tasks:
-                try:
-                    await asyncio.to_thread(fn)
-                except Exception as inner_cw_err:
-                    logger.warning(f"Notice during individual cache pre-warm step: {inner_cw_err}")
+            sem = asyncio.Semaphore(6)
+
+            async def _run_bounded(task_fn):
+                async with sem:
+                    try:
+                        await asyncio.to_thread(task_fn)
+                    except Exception as inner_cw_err:
+                        logger.warning(f"Notice during individual cache pre-warm step: {inner_cw_err}")
+
+            await asyncio.gather(*(_run_bounded(fn) for fn in core_tasks))
             logger.info("🔥 Core leaderboard, stats, events, teams, stores & community caches pre-warmed")
         except Exception as cw_err:
             logger.warning(f"Notice during core cache pre-warming: {cw_err}")
-        try:
-            from newrecruit_integration import get_nr_detachments_catalog, get_nr_aos_formations_catalog
-            await asyncio.to_thread(get_nr_detachments_catalog, False)
-            await asyncio.to_thread(get_nr_aos_formations_catalog, False)
-            logger.info("🔥 NewRecruit detachments & AoS formations catalogs pre-warmed from local bundle")
-        except Exception as nr_err:
-            logger.warning(f"Notice during NR detachments pre-warming: {nr_err}")
         finally:
             SERVER_PREWARM_COMPLETE = True
             try:

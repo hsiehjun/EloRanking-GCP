@@ -920,14 +920,14 @@ def repair_historical_matches_and_elo(
                     except Exception as ing_err:
                         logger.warning(f"[RepairMatchesElo] Failed refreshing roster for {rep_eid}: {ing_err}")
 
+        total_repaired_or_inserted = len(updates_to_apply) + len(inserted_matches_to_apply)
         super_faction_repair_summary = None
         if hasattr(db, "repair_super_factions_in_db"):
             try:
-                super_faction_repair_summary = db.repair_super_factions_in_db(force=True)
+                super_faction_repair_summary = db.repair_super_factions_in_db(force=bool(total_repaired_or_inserted > 0))
             except Exception as sf_err:
                 logger.warning(f"[RepairMatchesElo] Super-faction repair notice: {sf_err}")
 
-        total_repaired_or_inserted = len(updates_to_apply) + len(inserted_matches_to_apply)
         elo_summary = None
         should_reconstruct = bool(reconstruct and (total_repaired_or_inserted > 0 or force_reconstruct))
         if should_reconstruct:
@@ -945,17 +945,18 @@ def repair_historical_matches_and_elo(
                 )
             elo_engine.invalidate_caches()
 
-        # Invalidate all caches (DB + Leaderboard router caches)
-        if hasattr(db, "invalidate_all_caches"):
-            db.invalidate_all_caches()
-        try:
-            from routers import leaderboard as lb_router
-            if hasattr(lb_router, "_EVENT_DETAILS_CACHE"):
-                lb_router._EVENT_DETAILS_CACHE.clear()
-            if hasattr(lb_router, "_event_details_cache"):
-                lb_router._event_details_cache.clear()
-        except Exception:
-            pass
+        # Invalidate caches only when matches were actually repaired/inserted or Elo was reconstructed
+        if total_repaired_or_inserted > 0 or should_reconstruct:
+            if hasattr(db, "invalidate_all_caches"):
+                db.invalidate_all_caches(purge_l2=False)
+            try:
+                from routers import leaderboard as lb_router
+                if hasattr(lb_router, "_EVENT_DETAILS_CACHE"):
+                    lb_router._EVENT_DETAILS_CACHE.clear()
+                if hasattr(lb_router, "_event_details_cache"):
+                    lb_router._event_details_cache.clear()
+            except Exception:
+                pass
 
         elapsed = round(time.time() - t0, 2)
         result = {
@@ -1034,7 +1035,7 @@ def ensure_startup_elo_repair_migration(db: Optional[Database] = None) -> bool:
                 res = repair_historical_matches_and_elo(
                     db=db,
                     reconstruct=True,
-                    force_reconstruct=True,
+                    force_reconstruct=False,
                 )
                 if res.get("status") == "success":
                     _db_set_setting(db, REPAIR_MIGRATION_KEY, "completed")
