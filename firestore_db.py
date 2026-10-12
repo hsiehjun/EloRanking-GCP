@@ -2774,6 +2774,8 @@ class FirestoreRoomEngine:
         req: Dict[str, Any] = {}
         if isinstance(payload, dict):
             req.update(payload)
+            if isinstance(payload.get("payload"), dict):
+                req.update(payload["payload"])
         req.update(kwargs)
 
         act = str(action or req.get("action") or "").strip().lower()
@@ -2782,6 +2784,49 @@ class FirestoreRoomEngine:
 
         if "vs_ai" in req and req["vs_ai"] is not None:
             room["vs_ai"] = bool(req["vs_ai"])
+
+        if act == "claim_seat":
+            seat = str(req.get("seat") or force_role or "spectator").strip().lower()
+            cap_name = str(req.get("captain_name") or "").strip()
+            if seat == "captain_a":
+                if cap_name:
+                    room["captain_a_name"] = cap_name
+                    room["team_a"]["captain_name"] = cap_name
+                room["captain_a_claimed"] = True
+                self._save_pairing_room_doc(room["room_code"], room)
+                return {
+                    "ok": True,
+                    "success": True,
+                    "status_code": 200,
+                    "role": "captain_a",
+                    "captain_token": room["captain_a_token"],
+                    "room": self.mask_pairing_room_for_viewer(room, force_role="captain_a"),
+                }
+            if seat == "captain_b":
+                room["vs_ai"] = False
+                room["captain_b_claimed"] = True
+                if cap_name:
+                    room["captain_b_name"] = cap_name
+                    room["team_b"]["captain_name"] = cap_name
+                self._save_pairing_room_doc(room["room_code"], room)
+                return {
+                    "ok": True,
+                    "success": True,
+                    "status_code": 200,
+                    "role": "captain_b",
+                    "captain_token": room["captain_b_token"],
+                    "room": self.mask_pairing_room_for_viewer(room, force_role="captain_b"),
+                }
+            room["spectator_count"] = int(room.get("spectator_count") or 0) + 1
+            self._save_pairing_room_doc(room["room_code"], room)
+            return {
+                "ok": True,
+                "success": True,
+                "status_code": 200,
+                "role": "spectator",
+                "captain_token": "",
+                "room": self.mask_pairing_room_for_viewer(room, force_role="spectator"),
+            }
 
         viewer_role = self.resolve_viewer_role(room, role_token=role_token, force_role=force_role)
         if viewer_role not in ("captain_a", "captain_b"):
@@ -2795,6 +2840,67 @@ class FirestoreRoomEngine:
         is_cap_a = viewer_role == "captain_a"
         side_suffix = "a" if is_cap_a else "b"
         phase = room.get("phase")
+
+        if act == "set_team_roster":
+            import copy
+            team_key = "team_a" if is_cap_a else "team_b"
+            id_prefix = "A" if is_cap_a else "B"
+            team_size = int(room.get("team_size") or 5)
+            raw_roster = req.get("roster") or []
+            if not isinstance(raw_roster, list) or len(raw_roster) < 1:
+                return {"ok": False, "success": False, "status_code": 400, "error": "Roster must contain at least 1 player."}
+            new_roster = []
+            for idx, item in enumerate(raw_roster[:team_size]):
+                if not isinstance(item, dict):
+                    continue
+                role_label = str(item.get("role_tag") or item.get("role") or "All-Rounder").strip()
+                new_roster.append({
+                    "id": f"{id_prefix}{idx + 1}",
+                    "name": str(item.get("name") or f"Player {idx + 1}").strip(),
+                    "faction": str(item.get("faction") or "Space Marines").strip(),
+                    "detachment": str(item.get("detachment") or "Index / Strike Force").strip(),
+                    "elo": int(float(item.get("elo") or 2000)),
+                    "role": role_label,
+                    "role_tag": role_label,
+                    "team": id_prefix,
+                    "status": "bench",
+                })
+            # Pad from existing roster if fewer than team_size were provided
+            existing_roster = room[team_key].get("roster") or []
+            while len(new_roster) < team_size and len(existing_roster) > len(new_roster):
+                idx = len(new_roster)
+                fallback_p = copy.deepcopy(existing_roster[idx])
+                fallback_p["id"] = f"{id_prefix}{idx + 1}"
+                fallback_p["team"] = id_prefix
+                fallback_p["status"] = "bench"
+                new_roster.append(fallback_p)
+
+            if req.get("team_name"):
+                room[team_key]["name"] = str(req["team_name"]).strip()
+            if req.get("team_tag"):
+                tag_val = str(req["team_tag"]).strip().upper()[:4]
+                room[team_key]["tag"] = tag_val
+                room[team_key]["short_tag"] = tag_val
+            if new_roster:
+                room[team_key]["captain_name"] = new_roster[0]["name"]
+                room[f"captain_{side_suffix}_name"] = new_roster[0]["name"]
+
+            room[team_key]["roster"] = new_roster
+            room[f"bench_{side_suffix}"] = [p["id"] for p in new_roster]
+            room[f"secret_defender_{side_suffix}"] = None
+            room[f"defender_{side_suffix}"] = None
+            room[f"secret_attackers_{side_suffix}"] = []
+            room[f"attackers_{side_suffix}"] = []
+            room[f"secret_choice_{side_suffix}"] = None
+            room[f"locked_{side_suffix}"] = False
+            self._sync_roster_statuses(room)
+            self._save_pairing_room_doc(room["room_code"], room)
+            return {
+                "ok": True,
+                "success": True,
+                "status_code": 200,
+                "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+            }
 
         if act == "toggle_ai":
             room["vs_ai"] = bool(req.get("vs_ai", not room.get("vs_ai")))

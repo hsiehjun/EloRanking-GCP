@@ -1,1202 +1,1570 @@
 /**
- * OmniTactica • Warhammer 40K Team Pairings Minigame (Admin PoC)
- *
- * Implements the WTC Simultaneous Secret Card Pairing Protocol:
- *   Step 1: Put Defender (1 secret card from each Captain's bench) -> Simultaneous Reveal
- *   Step 2: Send 2 Attackers (2 secret cards from each Captain's bench vs opponent's Defender) -> Simultaneous Reveal
- *   Step 3: Defender Picks 1 of the 2 Attackers -> Locks 2 Tables + Returns Rejected Attackers to Bench
- *   Final Cycle: Auto-pairs remaining players (Table 5 in 5v5, Tables 7 & 8 Rejected-vs-Forgotten in 8v8)
- *
- * Access & Role Enforcement:
- *   - Page route (/admin/team-pairings) is Admin-only.
- *   - Inside a Firestore Pairing Room: anyone can join as Spectator (read-only),
- *     while only Captain A (1 player) and Captain B (1 player) can select and lock cards.
+ * OmniTactica — 40K Team Pairings Duel Arena (Yu-Gi-Oh! First-Person Card Game UI)
+ * - Player-specific perspective: Your Team Hand is ALWAYS at the bottom; Opponent is across the top.
+ * - Room Entry Lobby: Select your Seat (Team A Captain, Team B Captain, Spectator) & search players to build your hand.
+ * - Zero walls of text: Visual Yu-Gi-Oh card frames, Left Card Inspector, 3D Playmat slots, and Right Paired Tables stack.
  */
-(function () {
-  'use strict';
 
-  const FACTION_META = {
-    'T\'au Empire': { icon: '🎯', color: '#38bdf8' },
-    'Adeptus Custodes': { icon: '🦅', color: '#f59e0b' },
-    'Aeldari': { icon: '🔮', color: '#a855f7' },
-    'World Eaters': { icon: '🩸', color: '#ef4444' },
-    'Necrons': { icon: '💀', color: '#10b981' },
-    'Astra Militarum': { icon: '🛡️', color: '#84cc16' },
-    'Grey Knights': { icon: '⚔️', color: '#94a3b8' },
-    'Tyranids': { icon: '🦂', color: '#ec4899' },
-    'Chaos Space Marines': { icon: '🔥', color: '#f97316' },
-    'Thousand Sons': { icon: '👁️', color: '#6366f1' },
-    'Orks': { icon: '🪓', color: '#22c55e' },
-    'Space Marines': { icon: '⚡', color: '#3b82f6' },
-    'Death Guard': { icon: '☣️', color: '#65a30d' },
-    'Blood Angels': { icon: '🩸', color: '#dc2626' },
-    'Dark Angels': { icon: '🗡️', color: '#15803d' },
-    'Drukhari': { icon: '🕷️', color: '#c026d3' },
-    'Sisters of Battle': { icon: '⚜️', color: '#e11d48' },
-    'Chaos Daemons': { icon: '👹', color: '#9333ea' },
-    'Chaos Knights': { icon: '🤖', color: '#ea580c' },
-    'Imperial Knights': { icon: '🏰', color: '#0284c7' },
-    'Leagues of Votann': { icon: '⛏️', color: '#eab308' },
-    'Adeptus Mechanicus': { icon: '⚙️', color: '#dc2626' },
-    'Black Templars': { icon: '✝️', color: '#cbd5e1' },
-    'Space Wolves': { icon: '🐺', color: '#60a5fa' },
-    'Genestealer Cults': { icon: '🧬', color: '#a21caf' },
-  };
+const FACTION_META = {
+  "Aeldari": { icon: "🔮", accent: "rgba(56, 189, 248, 0.45)", detachment: "Warhost" },
+  "Necrons": { icon: "💀", accent: "rgba(16, 185, 129, 0.45)", detachment: "Canoptek Court" },
+  "Adeptus Custodes": { icon: "🦅", accent: "rgba(245, 185, 66, 0.50)", detachment: "Shield Host" },
+  "Space Marines": { icon: "⚡", accent: "rgba(59, 130, 246, 0.45)", detachment: "Gladius Task Force" },
+  "Blood Angels": { icon: "🩸", accent: "rgba(239, 68, 68, 0.48)", detachment: "Liberator Assault" },
+  "Dark Angels": { icon: "🗡️", accent: "rgba(5, 150, 105, 0.45)", detachment: "Inner Circle" },
+  "World Eaters": { icon: "🩸", accent: "rgba(220, 38, 38, 0.52)", detachment: "Berzerker Warband" },
+  "Thousand Sons": { icon: "👁️", accent: "rgba(139, 92, 246, 0.48)", detachment: "Cult of Magic" },
+  "Death Guard": { icon: "☣️", accent: "rgba(132, 204, 22, 0.42)", detachment: "Plague Company" },
+  "T'au Empire": { icon: "🎯", accent: "rgba(14, 165, 233, 0.45)", detachment: "Kauyon" },
+  "Orks": { icon: "🪓", accent: "rgba(34, 197, 94, 0.45)", detachment: "War Horde" },
+  "Tyranids": { icon: "🦂", accent: "rgba(168, 85, 247, 0.45)", detachment: "Invasion Fleet" },
+  "Astra Militarum": { icon: "🛡️", accent: "rgba(148, 163, 184, 0.42)", detachment: "Combined Regiment" },
+  "Chaos Daemons": { icon: "👹", accent: "rgba(244, 63, 94, 0.45)", detachment: "Daemonic Incursion" },
+  "Chaos Space Marines": { icon: "🔥", accent: "rgba(249, 115, 22, 0.45)", detachment: "Pactbound Zealots" },
+  "Drukhari": { icon: "🕷️", accent: "rgba(217, 70, 239, 0.45)", detachment: "Skysplinter Assault" },
+  "Grey Knights": { icon: "⚔️", accent: "rgba(148, 163, 184, 0.48)", detachment: "Teleport Strike" },
+  "Sisters of Battle": { icon: "⚜️", accent: "rgba(251, 191, 36, 0.45)", detachment: "Hallowed Martyrs" },
+  "Imperial Knights": { icon: "🏰", accent: "rgba(59, 130, 246, 0.45)", detachment: "Noble Lance" },
+  "Chaos Knights": { icon: "🤖", accent: "rgba(239, 68, 68, 0.45)", detachment: "Traitoris Lance" },
+  "Leagues of Votann": { icon: "⛏️", accent: "rgba(20, 184, 166, 0.45)", detachment: "Oathband" },
+  "Genestealer Cults": { icon: "🧬", accent: "rgba(192, 132, 252, 0.45)", detachment: "Host of Ascension" },
+  "Adeptus Mechanicus": { icon: "⚙️", accent: "rgba(239, 68, 68, 0.45)", detachment: "Skitarii Hunter" }
+};
 
-  const FACTION_MATCHUP_EDGES = {
-    'T\'au Empire': { 'Death Guard': 3, 'World Eaters': 2, 'Aeldari': -2, 'Imperial Knights': 2, 'Orks': 2 },
-    'Adeptus Custodes': { 'World Eaters': 3, 'Orks': 2, 'T\'au Empire': -2, 'Thousand Sons': -3, 'Chaos Knights': 2 },
-    'Aeldari': { 'T\'au Empire': 2, 'Thousand Sons': 2, 'Astra Militarum': -2, 'Necrons': 2, 'Imperial Knights': 3 },
-    'World Eaters': { 'Necrons': 2, 'Chaos Space Marines': 2, 'Adeptus Custodes': -3, 'Blood Angels': 1, 'T\'au Empire': -2 },
-    'Necrons': { 'Astra Militarum': 2, 'Space Marines': 2, 'World Eaters': -2, 'Aeldari': -2, 'Tyranids': 2 },
-    'Thousand Sons': { 'Adeptus Custodes': 3, 'Death Guard': 3, 'Aeldari': -2, 'Sisters of Battle': 2, 'Grey Knights': -2 },
-    'Chaos Space Marines': { 'Space Marines': 2, 'Tyranids': 2, 'World Eaters': -2, 'Astra Militarum': 2 },
-    'Orks': { 'Tyranids': 2, 'Drukhari': 3, 'Adeptus Custodes': -2, 'T\'au Empire': -2 },
-    'Astra Militarum': { 'Aeldari': 2, 'Chaos Daemons': 2, 'Necrons': -2, 'Chaos Space Marines': -2 },
-    'Space Marines': { 'Tyranids': 2, 'Orks': 1, 'Chaos Space Marines': -2, 'Necrons': -2 },
-    'Death Guard': { 'World Eaters': 2, 'Orks': 3, 'T\'au Empire': -3, 'Thousand Sons': -3 },
-    'Blood Angels': { 'Aeldari': 2, 'Drukhari': 2, 'Death Guard': -2, 'Adeptus Custodes': -2 },
-    'Dark Angels': { 'Chaos Daemons': 2, 'World Eaters': 2, 'T\'au Empire': -2 },
-    'Drukhari': { 'Imperial Knights': 3, 'Chaos Knights': 3, 'Orks': -3, 'Blood Angels': -2 },
-    'Sisters of Battle': { 'Chaos Daemons': 2, 'Grey Knights': 2, 'Thousand Sons': -2 },
-    'Chaos Daemons': { 'Imperial Knights': 2, 'Necrons': 2, 'Grey Knights': -3, 'Sisters of Battle': -2 },
-    'Grey Knights': { 'Chaos Daemons': 3, 'Thousand Sons': 2, 'Sisters of Battle': -2 },
-    'Tyranids': { 'Astra Militarum': 2, 'Genestealer Cults': 2, 'Space Marines': -2, 'Necrons': -2 },
-  };
+// Instant searchable pool of top 40K tournament players (augmented live via /api/leaderboard)
+const SEARCHABLE_PLAYERS_POOL = [
+  { name: "Richard Siegler", faction: "Aeldari", detachment: "Warhost", elo: 2185, role_tag: "Blunt / Defender" },
+  { name: "John Lennon", faction: "Space Marines", detachment: "Gladius Task Force", elo: 2170, role_tag: "All-Rounder" },
+  { name: "Jack Harpster", faction: "Blood Angels", detachment: "Liberator Assault", elo: 2135, role_tag: "Spear / Attacker" },
+  { name: "Nick Nanavati", faction: "Chaos Daemons", detachment: "Daemonic Incursion", elo: 2110, role_tag: "Spear / Attacker" },
+  { name: "Brad Chester", faction: "Astra Militarum", detachment: "Combined Regiment", elo: 2125, role_tag: "Blunt / Defender" },
+  { name: "Mani Cheema", faction: "Necrons", detachment: "Canoptek Court", elo: 2150, role_tag: "Blunt / Defender" },
+  { name: "Innes Wilson", faction: "Genestealer Cults", detachment: "Host of Ascension", elo: 2180, role_tag: "All-Rounder" },
+  { name: "Liam VSL", faction: "World Eaters", detachment: "Berzerker Warband", elo: 2165, role_tag: "Spear / Attacker" },
+  { name: "nassick", faction: "Death Guard", detachment: "Plague Company", elo: 2115, role_tag: "Blunt / Defender" },
+  { name: "David Gaylard", faction: "Thousand Sons", detachment: "Cult of Magic", elo: 2130, role_tag: "Spear / Attacker" },
+  { name: "Nemo", faction: "Adeptus Custodes", detachment: "Shield Host", elo: 2145, role_tag: "All-Rounder" },
+  { name: "Alex Harrison", faction: "Drukhari", detachment: "Skysplinter Assault", elo: 2095, role_tag: "Spear / Attacker" },
+  { name: "Sean Nayden", faction: "Aeldari", detachment: "Ynnead", elo: 2105, role_tag: "Spear / Attacker" },
+  { name: "Folger Pyles", faction: "Adeptus Custodes", detachment: "Talons", elo: 2140, role_tag: "Blunt / Defender" },
+  { name: "conankun", faction: "T'au Empire", detachment: "Kauyon", elo: 2120, role_tag: "All-Rounder" },
+  { name: "Anthony Vanella", faction: "Orks", detachment: "War Horde", elo: 2100, role_tag: "Spear / Attacker" },
+  { name: "Ben Jurek", faction: "Imperial Knights", detachment: "Noble Lance", elo: 2088, role_tag: "Blunt / Defender" },
+  { name: "dcummins", faction: "Tyranids", detachment: "Invasion Fleet", elo: 2092, role_tag: "Blunt / Defender" },
+  { name: "Vik Vijay", faction: "Grey Knights", detachment: "Teleport Strike", elo: 2112, role_tag: "All-Rounder" },
+  { name: "Thomas Byrd", faction: "Sisters of Battle", detachment: "Hallowed Martyrs", elo: 2108, role_tag: "Spear / Attacker" },
+  { name: "Luka", faction: "Dark Angels", detachment: "Inner Circle", elo: 2098, role_tag: "Blunt / Defender" },
+  { name: "Marshall Peterson", faction: "Chaos Space Marines", detachment: "Pactbound Zealots", elo: 2085, role_tag: "Spear / Attacker" },
+  { name: "Mitch Pelham", faction: "Chaos Knights", detachment: "Traitoris Lance", elo: 2075, role_tag: "Blunt / Defender" },
+  { name: "Sam Pope", faction: "Leagues of Votann", detachment: "Oathband", elo: 2090, role_tag: "All-Rounder" },
+  { name: "Brian Seipp", faction: "Necrons", detachment: "Hypercrypt Legion", elo: 2104, role_tag: "All-Rounder" }
+];
 
-  function getFactionMeta(faction) {
-    return FACTION_META[faction] || { icon: '⚔️', color: '#38bdf8' };
+class YuGiOhPairingsArena {
+  constructor() {
+    this.room = null;
+    this.roomCode = "";
+    this.activeRole = "captain_a"; // 'captain_a' | 'captain_b' | 'spectator'
+    this.captainTokens = {
+      captain_a: "",
+      captain_b: ""
+    };
+    this.selectedIds = [];
+    this.inspectedPlayer = null;
+    this.pollTimer = null;
+
+    // Lobby state
+    this.lobbyDraftTeam = {
+      captain_a: [],
+      captain_b: []
+    };
+    this.lobbyTeamNames = {
+      captain_a: "Art of War",
+      captain_b: "Team Zero Comp"
+    };
+    this.searchPool = [...SEARCHABLE_PLAYERS_POOL];
+
+    this.bindEvents();
+    this.bootstrap();
   }
 
-  function estimateWtcMatchup(playerA, playerB) {
-    if (!playerA || !playerB) {
-      return { expected_a: 10, expected_b: 10, label: '10 - 10 (Even)', tier: 'even' };
+  bindEvents() {
+    // Topbar role pills
+    document.querySelectorAll("#roleSelectorPills .seat-chip").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const role = btn.getAttribute("data-role");
+        if (role) this.switchRole(role);
+      });
+    });
+
+    // Open / Close Lobby Modal
+    const btnOpenLobby = document.getElementById("btnOpenLobbyModal");
+    if (btnOpenLobby) {
+      btnOpenLobby.addEventListener("click", () => this.openLobbyModal());
     }
-    const fa = playerA.faction || '';
-    const fb = playerB.faction || '';
-    let edge = 0;
-    if (FACTION_MATCHUP_EDGES[fa] && typeof FACTION_MATCHUP_EDGES[fa][fb] === 'number') {
-      edge = FACTION_MATCHUP_EDGES[fa][fb];
-    } else if (FACTION_MATCHUP_EDGES[fb] && typeof FACTION_MATCHUP_EDGES[fb][fa] === 'number') {
-      edge = -FACTION_MATCHUP_EDGES[fb][fa];
+    const btnCloseLobby = document.getElementById("btnCloseLobbyModal");
+    if (btnCloseLobby) {
+      btnCloseLobby.addEventListener("click", () => this.closeLobbyModal());
     }
-    const eloA = Number(playerA.elo || 1800);
-    const eloB = Number(playerB.elo || 1800);
-    const eloShift = Math.round((eloA - eloB) / 55);
-    const expA = Math.max(4, Math.min(16, 10 + edge + eloShift));
-    const expB = 20 - expA;
-    let tier = 'even';
-    let verdict = 'Even Clash';
-    if (expA >= 13) {
-      tier = 'favored_a';
-      verdict = 'Favored';
-    } else if (expA >= 11) {
-      tier = 'slight_a';
-      verdict = 'Slight Edge';
-    } else if (expA <= 7) {
-      tier = 'favored_b';
-      verdict = 'Rough Matchup';
-    } else if (expA <= 9) {
-      tier = 'slight_b';
-      verdict = 'Disfavored';
+
+    // Lobby Seat Cards
+    document.querySelectorAll(".lobby-seat-card").forEach((card) => {
+      card.addEventListener("click", () => {
+        const seat = card.getAttribute("data-seat");
+        if (seat) this.selectLobbySeat(seat);
+      });
+    });
+
+    // Lobby Team Name & Format
+    const teamNameInput = document.getElementById("lobbyTeamNameInput");
+    if (teamNameInput) {
+      teamNameInput.addEventListener("input", () => {
+        if (this.activeRole === "captain_a" || this.activeRole === "captain_b") {
+          this.lobbyTeamNames[this.activeRole] = teamNameInput.value.trim() || "Custom Team";
+        }
+      });
     }
+
+    const selectFormat = document.getElementById("selectFormat");
+    if (selectFormat) {
+      selectFormat.addEventListener("change", () => {
+        this.trimOrPadLobbyDraft();
+        this.renderLobbyDeckBuilder();
+      });
+    }
+
+    const btnQuickFill = document.getElementById("btnQuickFillTeam");
+    if (btnQuickFill) {
+      btnQuickFill.addEventListener("click", () => this.autoFillLobbyHand());
+    }
+
+    const btnClearHand = document.getElementById("btnClearTeamHand");
+    if (btnClearHand) {
+      btnClearHand.addEventListener("click", () => {
+        if (this.activeRole === "captain_a" || this.activeRole === "captain_b") {
+          this.lobbyDraftTeam[this.activeRole] = [];
+          this.renderLobbyDeckBuilder();
+        }
+      });
+    }
+
+    // Player Search Input
+    const searchInput = document.getElementById("playerSearchInput");
+    if (searchInput) {
+      searchInput.addEventListener("input", () => {
+        this.onPlayerSearchInput(searchInput.value);
+      });
+    }
+
+    // Start Duel from Lobby
+    const btnStartDuel = document.getElementById("btnStartDuelFromLobby");
+    if (btnStartDuel) {
+      btnStartDuel.addEventListener("click", () => this.confirmLobbyAndEnterArena());
+    }
+
+    // Main Duel Confirm Button
+    const btnLock = document.getElementById("btnLockSelection");
+    if (btnLock) {
+      btnLock.addEventListener("click", () => this.submitStagedSelection());
+    }
+
+    // Auto-Duel / New Room / Join / Copy
+    const btnAutoFinish = document.getElementById("btnAutoFinish");
+    if (btnAutoFinish) {
+      btnAutoFinish.addEventListener("click", () => this.autoCompleteRemainingPhases());
+    }
+
+    const btnNewMatch = document.getElementById("btnNewMatch");
+    if (btnNewMatch) {
+      btnNewMatch.addEventListener("click", () => {
+        this.createNewRoom({ openLobby: true });
+      });
+    }
+
+    const btnJoinRoom = document.getElementById("btnJoinRoom");
+    if (btnJoinRoom) {
+      btnJoinRoom.addEventListener("click", () => {
+        const inp = document.getElementById("joinRoomInput");
+        const code = (inp ? inp.value : "").trim().toUpperCase();
+        if (code) this.joinExistingRoom(code);
+      });
+    }
+
+    const btnCopyRoomLink = document.getElementById("btnCopyRoomLink");
+    if (btnCopyRoomLink) {
+      btnCopyRoomLink.addEventListener("click", () => this.copyShareUrl());
+    }
+
+    const btnCopyPairings = document.getElementById("btnCopyPairings");
+    if (btnCopyPairings) {
+      btnCopyPairings.addEventListener("click", () => this.copyPairingsSummary());
+    }
+  }
+
+  async bootstrap() {
+    // Load live leaderboard players in background to enrich player search
+    this.fetchLiveLeaderboardPool();
+
+    const params = new URLSearchParams(window.location.search);
+    const urlRoom = (params.get("room") || "").trim().toUpperCase();
+    const urlRole = (params.get("role") || "").trim().toLowerCase();
+    const demoState = (params.get("demo_state") || "").trim().toLowerCase();
+
+    if (urlRole === "captain_a" || urlRole === "captain_b" || urlRole === "spectator") {
+      this.activeRole = urlRole;
+    }
+
+    if (urlRoom) {
+      await this.joinExistingRoom(urlRoom);
+    } else {
+      await this.createNewRoom({ openLobby: !demoState || demoState === "lobby" });
+    }
+
+    if (demoState) {
+      await this.applyDemoState(demoState);
+    }
+
+    this.pollTimer = setInterval(() => this.pollRoomState(), 2500);
+  }
+
+  async fetchLiveLeaderboardPool() {
+    try {
+      const resp = await fetch("/api/leaderboard?limit=60");
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const rows = Array.isArray(data) ? data : (data.players || data.leaderboard || []);
+      const seen = new Set(this.searchPool.map((p) => p.name.toLowerCase()));
+      const factions = Object.keys(FACTION_META);
+      rows.forEach((r, idx) => {
+        const name = (r.player_name || r.name || "").trim();
+        if (!name || seen.has(name.toLowerCase())) return;
+        seen.add(name.toLowerCase());
+        const fac = r.faction || r.primary_faction || factions[idx % factions.length];
+        const meta = FACTION_META[fac] || FACTION_META["Space Marines"];
+        this.searchPool.push({
+          name,
+          faction: fac in FACTION_META ? fac : "Space Marines",
+          detachment: meta.detachment,
+          elo: Math.round(Number(r.elo || r.rating || 2050)),
+          role_tag: idx % 2 === 0 ? "Spear / Attacker" : "Blunt / Defender"
+        });
+      });
+      this.renderSearchResults(document.getElementById("playerSearchInput")?.value || "");
+    } catch (_) {
+      // Offline or local mode: fallback pool already loaded
+    }
+  }
+
+  getTargetHandSize() {
+    const sel = document.getElementById("selectFormat");
+    const fmt = sel ? sel.value : (this.room?.format_size || "5v5");
+    return fmt === "8v8" ? 8 : 5;
+  }
+
+  syncLobbyDraftFromRoom() {
+    if (!this.room) return;
+    if (this.room.team_a && Array.isArray(this.room.team_a.roster)) {
+      this.lobbyDraftTeam.captain_a = this.room.team_a.roster.map((p) => ({
+        name: p.name,
+        faction: p.faction,
+        detachment: p.detachment || (FACTION_META[p.faction]?.detachment || "Index"),
+        elo: p.elo || 2100,
+        role_tag: p.role_tag || "All-Rounder"
+      }));
+      this.lobbyTeamNames.captain_a = this.room.team_a.name || "Art of War";
+    }
+    if (this.room.team_b && Array.isArray(this.room.team_b.roster)) {
+      this.lobbyDraftTeam.captain_b = this.room.team_b.roster.map((p) => ({
+        name: p.name,
+        faction: p.faction,
+        detachment: p.detachment || (FACTION_META[p.faction]?.detachment || "Index"),
+        elo: p.elo || 2100,
+        role_tag: p.role_tag || "All-Rounder"
+      }));
+      this.lobbyTeamNames.captain_b = this.room.team_b.name || "Team Zero Comp";
+    }
+  }
+
+  trimOrPadLobbyDraft() {
+    const target = this.getTargetHandSize();
+    ["captain_a", "captain_b"].forEach((roleKey, sideIdx) => {
+      const list = this.lobbyDraftTeam[roleKey] || [];
+      if (list.length > target) {
+        this.lobbyDraftTeam[roleKey] = list.slice(0, target);
+      } else if (list.length < target) {
+        const offset = sideIdx * 5;
+        for (let i = list.length; i < target; i++) {
+          const fallback = this.searchPool[(offset + i) % this.searchPool.length];
+          list.push({ ...fallback });
+        }
+        this.lobbyDraftTeam[roleKey] = list;
+      }
+    });
+  }
+
+  openLobbyModal() {
+    const modal = document.getElementById("lobbyModalBackdrop");
+    if (modal) modal.classList.remove("hidden");
+    this.selectLobbySeat(this.activeRole);
+  }
+
+  closeLobbyModal() {
+    const modal = document.getElementById("lobbyModalBackdrop");
+    if (modal) modal.classList.add("hidden");
+  }
+
+  selectLobbySeat(seat) {
+    this.activeRole = seat;
+    this.selectedIds = [];
+
+    document.querySelectorAll(".lobby-seat-card").forEach((c) => {
+      c.classList.toggle("active", c.getAttribute("data-seat") === seat);
+    });
+    document.querySelectorAll("#roleSelectorPills .seat-chip").forEach((b) => {
+      b.classList.toggle("active", b.getAttribute("data-role") === seat);
+    });
+
+    const builderSec = document.getElementById("lobbyDeckBuilderSection");
+    const statusHint = document.getElementById("lobbyStatusHint");
+    const startBtn = document.getElementById("btnStartDuelFromLobby");
+
+    if (seat === "spectator") {
+      if (builderSec) builderSec.classList.add("hidden");
+      if (statusHint) statusHint.textContent = "Spectator Seat selected — you will watch the live card duel in read-only mode.";
+      if (startBtn) startBtn.textContent = "👁️ WATCH DUEL FIELD";
+    } else {
+      if (builderSec) builderSec.classList.remove("hidden");
+      const teamNameInput = document.getElementById("lobbyTeamNameInput");
+      if (teamNameInput) {
+        teamNameInput.value = this.lobbyTeamNames[seat] || (seat === "captain_a" ? "Art of War" : "Team Zero Comp");
+      }
+      this.renderLobbyDeckBuilder();
+      if (startBtn) startBtn.textContent = "⚔️ ENTER DUEL ARENA";
+    }
+
+    this.renderAll();
+  }
+
+  onPlayerSearchInput(query) {
+    this.renderSearchResults(query);
+  }
+
+  renderSearchResults(query = "") {
+    const container = document.getElementById("playerSearchResults");
+    if (!container) return;
+
+    const q = (query || "").trim().toLowerCase();
+    const roleKey = this.activeRole === "captain_b" ? "captain_b" : "captain_a";
+    const currentHand = this.lobbyDraftTeam[roleKey] || [];
+    const inHandNames = new Set(currentHand.map((p) => p.name.toLowerCase()));
+
+    let matches = this.searchPool.filter((p) => {
+      if (!q) return true;
+      return (
+        p.name.toLowerCase().includes(q) ||
+        p.faction.toLowerCase().includes(q) ||
+        (p.detachment || "").toLowerCase().includes(q)
+      );
+    });
+
+    // If user typed a custom player name not in pool, offer instant custom player creation!
+    if (q.length >= 2 && !matches.some((p) => p.name.toLowerCase() === q)) {
+      const customName = query.trim();
+      matches = [
+        {
+          name: customName,
+          faction: "Space Marines",
+          detachment: "Gladius Task Force",
+          elo: 2050,
+          role_tag: "All-Rounder",
+          isCustom: true
+        },
+        ...matches
+      ];
+    }
+
+    container.innerHTML = matches.slice(0, 14).map((p, idx) => {
+      const meta = FACTION_META[p.faction] || FACTION_META["Space Marines"];
+      const alreadyIn = inHandNames.has(p.name.toLowerCase());
+      return `
+        <div class="search-result-pill ${alreadyIn ? "in-hand" : ""}" data-search-idx="${idx}">
+          <span class="srp-ico">${meta.icon}</span>
+          <div class="srp-main">
+            <span class="srp-name">${this.escapeHtml(p.name)}</span>
+            <span class="srp-sub">${this.escapeHtml(p.faction)} • ${p.elo}</span>
+          </div>
+          <span class="srp-add">${alreadyIn ? "✓ IN HAND" : "+ ADD"}</span>
+        </div>
+      `;
+    }).join("");
+
+    container.querySelectorAll(".search-result-pill").forEach((pill, i) => {
+      pill.addEventListener("click", () => {
+        const picked = matches[i];
+        if (picked) this.addPlayerToLobbyHand(picked);
+      });
+    });
+  }
+
+  addPlayerToLobbyHand(playerObj) {
+    if (this.activeRole !== "captain_a" && this.activeRole !== "captain_b") return;
+    const targetSize = this.getTargetHandSize();
+    const list = this.lobbyDraftTeam[this.activeRole] || [];
+
+    const overrideSel = document.getElementById("playerSearchFactionOverride");
+    const chosenFaction = (overrideSel && overrideSel.value) ? overrideSel.value : playerObj.faction;
+    const meta = FACTION_META[chosenFaction] || FACTION_META["Space Marines"];
+
+    const existingIdx = list.findIndex((p) => p.name.toLowerCase() === playerObj.name.toLowerCase());
+    if (existingIdx >= 0) {
+      // Update faction if already in hand
+      list[existingIdx].faction = chosenFaction;
+      list[existingIdx].detachment = meta.detachment;
+      this.showToast(`Updated ${playerObj.name} (${chosenFaction})`);
+    } else if (list.length < targetSize) {
+      list.push({
+        name: playerObj.name,
+        faction: chosenFaction,
+        detachment: meta.detachment,
+        elo: playerObj.elo || 2080,
+        role_tag: playerObj.role_tag || "All-Rounder"
+      });
+    } else {
+      // Replace the last slot if hand is full
+      list[targetSize - 1] = {
+        name: playerObj.name,
+        faction: chosenFaction,
+        detachment: meta.detachment,
+        elo: playerObj.elo || 2080,
+        role_tag: playerObj.role_tag || "All-Rounder"
+      };
+      this.showToast(`Swapped ${playerObj.name} into slot #${targetSize}`);
+    }
+
+    this.lobbyDraftTeam[this.activeRole] = list;
+    this.renderLobbyDeckBuilder();
+  }
+
+  autoFillLobbyHand() {
+    if (this.activeRole !== "captain_a" && this.activeRole !== "captain_b") return;
+    const targetSize = this.getTargetHandSize();
+    const offset = this.activeRole === "captain_a" ? 0 : 5;
+    const filled = [];
+    for (let i = 0; i < targetSize; i++) {
+      const p = this.searchPool[(offset + i) % this.searchPool.length];
+      filled.push({ ...p });
+    }
+    this.lobbyDraftTeam[this.activeRole] = filled;
+    this.renderLobbyDeckBuilder();
+    this.showToast(`Auto-filled ${targetSize} pro player cards!`);
+  }
+
+  renderLobbyDeckBuilder() {
+    const roleKey = this.activeRole === "captain_b" ? "captain_b" : "captain_a";
+    const targetSize = this.getTargetHandSize();
+    const hand = this.lobbyDraftTeam[roleKey] || [];
+
+    const countLbl = document.getElementById("lobbyDeckCountLabel");
+    if (countLbl) countLbl.textContent = `${hand.length} / ${targetSize}`;
+
+    const statusHint = document.getElementById("lobbyStatusHint");
+    if (statusHint) {
+      if (hand.length < targetSize) {
+        statusHint.textContent = `Select ${targetSize - hand.length} more player card(s) via search above, or click Auto-Fill.`;
+      } else {
+        statusHint.textContent = `Ready! ${targetSize}/${targetSize} Player Cards in your hand. Click ENTER DUEL ARENA.`;
+      }
+    }
+
+    const searchInput = document.getElementById("playerSearchInput");
+    this.renderSearchResults(searchInput ? searchInput.value : "");
+
+    const tray = document.getElementById("lobbyHandTray");
+    if (!tray) return;
+
+    const slotsHtml = [];
+    for (let i = 0; i < targetSize; i++) {
+      const p = hand[i];
+      if (p) {
+        slotsHtml.push(`
+          <div class="lobby-card-slot-wrap">
+            <button type="button" class="lobby-remove-card-btn" data-remove-idx="${i}" title="Remove Player">✕</button>
+            ${this.buildYuGiOhCardHtml({
+              id: `DRAFT_${i + 1}`,
+              name: p.name,
+              faction: p.faction,
+              detachment: p.detachment,
+              elo: p.elo,
+              role_tag: p.role_tag
+            })}
+          </div>
+        `);
+      } else {
+        slotsHtml.push(`
+          <div class="lobby-empty-slot">
+            <span style="font-size:1.3rem;">➕</span>
+            <span>EMPTY CARD SLOT #${i + 1}</span>
+            <span>Click a player above</span>
+          </div>
+        `);
+      }
+    }
+    tray.innerHTML = slotsHtml.join("");
+
+    tray.querySelectorAll(".lobby-remove-card-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const idx = Number(btn.getAttribute("data-remove-idx"));
+        const arr = this.lobbyDraftTeam[roleKey] || [];
+        arr.splice(idx, 1);
+        this.lobbyDraftTeam[roleKey] = arr;
+        this.renderLobbyDeckBuilder();
+      });
+    });
+  }
+
+  async confirmLobbyAndEnterArena() {
+    if (this.activeRole === "spectator") {
+      this.closeLobbyModal();
+      this.renderAll();
+      return;
+    }
+
+    const targetSize = this.getTargetHandSize();
+    const hand = this.lobbyDraftTeam[this.activeRole] || [];
+    if (hand.length < targetSize) {
+      this.autoFillLobbyHand();
+    }
+
+    const finalHand = this.lobbyDraftTeam[this.activeRole];
+    const teamName = (document.getElementById("lobbyTeamNameInput")?.value || "").trim() ||
+      (this.activeRole === "captain_a" ? "Art of War" : "Team Zero Comp");
+    const tag = teamName
+      .split(/\s+/)
+      .map((w) => w[0] || "")
+      .join("")
+      .toUpperCase()
+      .slice(0, 4) || (this.activeRole === "captain_a" ? "TMA" : "TMB");
+
+    if (this.roomCode) {
+      try {
+        const tok = this.captainTokens[this.activeRole] || "";
+        const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            role: this.activeRole,
+            captain_token: tok,
+            action: "set_team_roster",
+            payload: {
+              team_name: teamName,
+              team_tag: tag,
+              roster: finalHand
+            }
+          })
+        });
+        const data = await resp.json();
+        if (data && (data.ok || data.success) && data.room) {
+          this.room = data.room;
+          if (data.captain_token) {
+            this.captainTokens[this.activeRole] = data.captain_token;
+          }
+        }
+      } catch (_) {
+        // Ignore network error in offline mode
+      }
+    }
+
+    this.closeLobbyModal();
+    this.renderAll();
+    this.showToast(`Seated as ${this.activeRole === "captain_a" ? "Team A Captain" : "Team B Captain"} — Your cards are at the bottom!`);
+  }
+
+  async createNewRoom({ openLobby = false } = {}) {
+    const fmt = document.getElementById("selectFormat")?.value || "5v5";
+    const vsAi = document.getElementById("chkVsAi")?.checked ?? true;
+
+    try {
+      const resp = await fetch("/api/team-pairings/room", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          format_size: fmt,
+          team_a_preset: "art_of_war",
+          team_b_preset: "team_zero_comp",
+          vs_ai: vsAi
+        })
+      });
+      const data = await resp.json();
+      if (data && (data.ok || data.success) && data.room) {
+        this.room = data.room;
+        this.roomCode = data.room.room_code;
+        this.captainTokens.captain_a = data.captain_a_token || data.room.captain_a_token || "";
+        this.captainTokens.captain_b = data.captain_b_token || data.room.captain_b_token || "";
+        this.selectedIds = [];
+        this.syncLobbyDraftFromRoom();
+
+        const lobbyCodeEl = document.getElementById("lobbyRoomCodeText");
+        if (lobbyCodeEl) lobbyCodeEl.textContent = this.roomCode;
+
+        if (openLobby) {
+          this.openLobbyModal();
+        } else {
+          this.closeLobbyModal();
+        }
+        this.renderAll();
+      }
+    } catch (err) {
+      console.error("Failed to create pairing room:", err);
+    }
+  }
+
+  async joinExistingRoom(code) {
+    try {
+      const resp = await fetch(
+        `/api/team-pairings/room/${encodeURIComponent(code)}?role=${encodeURIComponent(this.activeRole)}`
+      );
+      const data = await resp.json();
+      if (data && (data.ok || data.success) && data.room) {
+        this.room = data.room;
+        this.roomCode = data.room.room_code;
+        if (data.room.captain_a_token) this.captainTokens.captain_a = data.room.captain_a_token;
+        if (data.room.captain_b_token) this.captainTokens.captain_b = data.room.captain_b_token;
+        this.selectedIds = [];
+        this.syncLobbyDraftFromRoom();
+        const lobbyCodeEl = document.getElementById("lobbyRoomCodeText");
+        if (lobbyCodeEl) lobbyCodeEl.textContent = this.roomCode;
+        this.renderAll();
+      } else {
+        this.showToast(`Room ${code} not found`);
+      }
+    } catch (err) {
+      console.error("Failed to join room:", err);
+    }
+  }
+
+  async pollRoomState() {
+    if (!this.roomCode) return;
+    try {
+      const resp = await fetch(
+        `/api/team-pairings/room/${encodeURIComponent(this.roomCode)}?role=${encodeURIComponent(this.activeRole)}`
+      );
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data && (data.ok || data.success) && data.room) {
+        const oldRev = this.room?.revision;
+        this.room = data.room;
+        if (oldRev !== this.room.revision) {
+          this.renderAll();
+        }
+      }
+    } catch (_) {
+      // Ignore transient poll errors
+    }
+  }
+
+  async switchRole(newRole) {
+    this.activeRole = newRole;
+    this.selectedIds = [];
+    document.querySelectorAll("#roleSelectorPills .seat-chip").forEach((btn) => {
+      btn.classList.toggle("active", btn.getAttribute("data-role") === newRole);
+    });
+    if (this.roomCode) {
+      await this.joinExistingRoom(this.roomCode);
+    } else {
+      this.renderAll();
+    }
+  }
+
+  /**
+   * Player-Specific Perspective Helper:
+   * Maps `my` (Bottom of Playmat) and `opp` (Top of Playmat) based on `this.activeRole`.
+   */
+  getPerspective() {
+    const r = this.room;
+    if (!r) return null;
+    const isCapB = this.activeRole === "captain_b";
     return {
-      expected_a: expA,
-      expected_b: expB,
-      label: `${expA} - ${expB} (${verdict})`,
-      tier: tier,
+      isCapB,
+      isSpectator: this.activeRole === "spectator",
+      myTeam: isCapB ? r.team_b : r.team_a,
+      oppTeam: isCapB ? r.team_a : r.team_b,
+      myDef: isCapB ? r.active_defender_b : r.active_defender_a,
+      oppDef: isCapB ? r.active_defender_a : r.active_defender_b,
+      myAtts: isCapB ? (r.active_attackers_b || []) : (r.active_attackers_a || []),
+      oppAtts: isCapB ? (r.active_attackers_a || []) : (r.active_attackers_b || []),
+      mySecDef: isCapB ? r.secret_defender_b : r.secret_defender_a,
+      oppSecDefLocked: isCapB ? r.secret_defender_a_locked : r.secret_defender_b_locked,
+      mySecDefLocked: isCapB ? r.secret_defender_b_locked : r.secret_defender_a_locked,
+      mySecAtts: isCapB ? (r.secret_attackers_b || []) : (r.secret_attackers_a || []),
+      oppSecAttsLocked: isCapB ? r.secret_attackers_a_locked : r.secret_attackers_b_locked,
+      mySecAttsLocked: isCapB ? r.secret_attackers_b_locked : r.secret_attackers_a_locked,
+      mySecChoice: isCapB ? r.secret_choice_b : r.secret_choice_a,
+      oppSecChoiceLocked: isCapB ? r.secret_choice_a_locked : r.secret_choice_b_locked,
+      mySecChoiceLocked: isCapB ? r.secret_choice_b_locked : r.secret_choice_a_locked
     };
   }
 
-  function escapeHtml(str) {
-    return String(str == null ? '' : str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+  getMatchupEstimate(myPlayer, oppPlayer) {
+    if (!myPlayer || !oppPlayer) return 10;
+    if (this.room && this.room.matchup_matrix) {
+      const m = this.room.matchup_matrix;
+      if (this.activeRole === "captain_b") {
+        const aScore = m[oppPlayer.id]?.[myPlayer.id];
+        if (typeof aScore === "number") return 20 - aScore;
+      } else {
+        const score = m[myPlayer.id]?.[oppPlayer.id];
+        if (typeof score === "number") return score;
+      }
+    }
+    const eloDiff = Number(myPlayer.elo || 2050) - Number(oppPlayer.elo || 2050);
+    const f1 = String(myPlayer.faction || "");
+    const f2 = String(oppPlayer.faction || "");
+    let hash = 0;
+    const pairStr = `${f1}__vs__${f2}`;
+    for (let i = 0; i < pairStr.length; i++) {
+      hash = (hash * 31 + pairStr.charCodeAt(i)) % 997;
+    }
+    const facBias = (f1 === f2) ? 0 : ((hash % 7) - 3);
+    const raw = Math.round(10 + eloDiff / 45 + facBias);
+    return Math.max(4, Math.min(16, raw));
   }
 
-  class TeamPairingsApp {
-    constructor() {
-      this.roomState = null;
-      this.roomCode = null;
-      this.activeRole = 'captain_a'; // 'captain_a' | 'captain_b' | 'spectator'
-      this.tokens = {
-        captain_a: null,
-        captain_b: null,
-      };
-      this.selectedPlayerIds = [];
-      this.pollTimer = null;
-      this.isBusy = false;
+  renderAll() {
+    if (!this.room) return;
+    const p = this.getPerspective();
+    if (!p) return;
+
+    // Topbar Room Code
+    const roomBadge = document.getElementById("roomCodeBadge");
+    if (roomBadge) roomBadge.textContent = `ROOM: ${this.room.room_code}`;
+
+    // Spectator Banner
+    const specBanner = document.getElementById("spectatorBanner");
+    if (specBanner) {
+      specBanner.classList.toggle("hidden", !p.isSpectator);
     }
 
-    async init() {
-      this.bindEvents();
-      const params = new URLSearchParams(window.location.search);
-      const urlRoom = (params.get('room') || '').trim().toUpperCase();
-      const urlRole = (params.get('role') || '').trim().toLowerCase();
-      if (urlRole === 'captain_a' || urlRole === 'captain_b' || urlRole === 'spectator') {
-        this.activeRole = urlRole;
-      }
+    // Update Right Duelist HUD
+    this.renderDuelistHud(p);
 
-      if (urlRoom) {
-        const joinInput = document.getElementById('joinRoomInput');
-        if (joinInput) joinInput.value = urlRoom;
-        await this.joinRoom(urlRoom);
+    // Update Center Battle Line Phase Tokens & Action Button
+    this.renderBattleLine(p);
+
+    // Update 3D Playmat Slots (Opponent Top Half + Your Bottom Half)
+    this.renderPlaymatZones(p);
+
+    // Update Opponent's Fanned Face-Down Hand (Top) & Your Upright Player Card Hand (Bottom)
+    this.renderHands(p);
+
+    // Update Paired Tables Stack on Right Panel
+    this.renderPairedTables();
+
+    // Ensure Left Card Inspector displays a relevant card
+    if (!this.inspectedPlayer) {
+      const bench = (p.myTeam.roster || []).filter((c) => c.status === "bench");
+      this.inspectCard(bench[0] || p.myDef || p.myTeam.roster?.[0], p.oppDef);
+    } else {
+      this.inspectCard(this.inspectedPlayer, p.oppDef);
+    }
+  }
+
+  renderDuelistHud(p) {
+    const oppTag = document.getElementById("oppHudTag");
+    const oppName = document.getElementById("oppHudTeamName");
+    const oppCap = document.getElementById("oppHudCaptain");
+    const oppStatus = document.getElementById("capBStatusPill");
+
+    if (oppTag) oppTag.textContent = p.oppTeam.tag || "OPP";
+    if (oppName) oppName.textContent = p.oppTeam.name || "Opponent Team";
+    if (oppCap) oppCap.textContent = `Cap: ${p.oppTeam.captain_name || "Opponent"}`;
+
+    const myTag = document.getElementById("myHudTag");
+    const myName = document.getElementById("myHudTeamName");
+    const myCap = document.getElementById("myHudCaptain");
+    const myStatus = document.getElementById("capAStatusPill");
+
+    if (myTag) myTag.textContent = p.myTeam.tag || "YOU";
+    if (myName) myName.textContent = p.myTeam.name || "Your Team";
+    if (myCap) myCap.textContent = `Cap: ${p.myTeam.captain_name || "You"} (${p.isSpectator ? "Spectating" : "YOU"})`;
+
+    const phase = this.room.phase;
+    let oppLocked = false;
+    let myLocked = false;
+    if (phase === "STEP_1_DEFENDER") {
+      oppLocked = !!p.oppSecDefLocked;
+      myLocked = !!p.mySecDefLocked;
+    } else if (phase === "STEP_2_ATTACKERS") {
+      oppLocked = !!p.oppSecAttsLocked;
+      myLocked = !!p.mySecAttsLocked;
+    } else if (phase === "STEP_3_CHOOSE") {
+      oppLocked = !!p.oppSecChoiceLocked;
+      myLocked = !!p.mySecChoiceLocked;
+    } else if (phase === "COMPLETED") {
+      oppLocked = true;
+      myLocked = true;
+    }
+
+    if (oppStatus) {
+      oppStatus.textContent = oppLocked ? "✓ CARD SET" : "⏳ THINKING";
+      oppStatus.classList.toggle("ready", oppLocked);
+    }
+    if (myStatus) {
+      myStatus.textContent = myLocked ? "✓ LOCKED IN" : (p.isSpectator ? "👁️ VIEWING" : "⚡ YOUR TURN");
+      myStatus.classList.toggle("ready", myLocked);
+    }
+  }
+
+  renderBattleLine(p) {
+    const phase = this.room.phase;
+    const cycleBadge = document.getElementById("cycleBadge");
+    if (cycleBadge) {
+      cycleBadge.textContent = phase === "COMPLETED"
+        ? "DUEL COMPLETE"
+        : `CYCLE ${this.room.cycle}/${this.room.max_cycles}`;
+    }
+
+    const pDef = document.getElementById("stepPillDefender");
+    const pAtt = document.getElementById("stepPillAttackers");
+    const pCho = document.getElementById("stepPillChoose");
+    const pCom = document.getElementById("stepPillComplete");
+
+    [pDef, pAtt, pCho, pCom].forEach((el) => {
+      if (el) el.classList.remove("active", "done");
+    });
+
+    if (phase === "STEP_1_DEFENDER") {
+      pDef?.classList.add("active");
+    } else if (phase === "STEP_2_ATTACKERS") {
+      pDef?.classList.add("done");
+      pAtt?.classList.add("active");
+    } else if (phase === "STEP_3_CHOOSE") {
+      pDef?.classList.add("done");
+      pAtt?.classList.add("done");
+      pCho?.classList.add("active");
+    } else if (phase === "COMPLETED") {
+      pDef?.classList.add("done");
+      pAtt?.classList.add("done");
+      pCho?.classList.add("done");
+      pCom?.classList.add("active");
+    }
+
+    const promptEl = document.getElementById("phasePromptText");
+    const btnLock = document.getElementById("btnLockSelection");
+    const hintBadge = document.getElementById("selectionHintBadge");
+
+    if (p.isSpectator) {
+      if (promptEl) promptEl.textContent = "SPECTATOR MODE — WATCHING CAPTAINS PLACE CARDS";
+      if (btnLock) {
+        btnLock.disabled = true;
+        btnLock.textContent = "👁️ SPECTATING";
+      }
+      if (hintBadge) hintBadge.textContent = "VIEW";
+      return;
+    }
+
+    if (phase === "STEP_1_DEFENDER") {
+      const ready = this.selectedIds.length === 1;
+      if (hintBadge) hintBadge.textContent = `${this.selectedIds.length}/1`;
+      if (p.mySecDefLocked) {
+        if (promptEl) promptEl.textContent = "DEFENDER SET FACE-DOWN — WAITING FOR OPPONENT";
+        if (btnLock) {
+          btnLock.disabled = true;
+          btnLock.textContent = "✓ DEFENDER LOCKED";
+        }
       } else {
-        await this.createNewRoom();
-      }
-
-      const demoState = (params.get('demo_state') || '').trim().toLowerCase();
-      if (demoState && this.roomState) {
-        if (demoState === 'step2') {
-          this.toggleCardSelection('A1', 'A', 'bench');
-          await this.lockCurrentSelection();
-          const benchA = (this.roomState.team_a?.roster || []).filter((p) => p.status === 'bench');
-          if (benchA.length >= 2) {
-            this.toggleCardSelection(benchA[0].id, 'A', 'bench');
-            this.toggleCardSelection(benchA[1].id, 'A', 'bench');
-          }
-        } else if (demoState === 'step3_spectator') {
-          this.toggleCardSelection('A1', 'A', 'bench');
-          await this.lockCurrentSelection();
-          const benchA = (this.roomState.team_a?.roster || []).filter((p) => p.status === 'bench');
-          if (benchA.length >= 2) {
-            this.toggleCardSelection(benchA[0].id, 'A', 'bench');
-            this.toggleCardSelection(benchA[1].id, 'A', 'bench');
-            await this.lockCurrentSelection();
-          }
-          await this.switchRole('spectator');
-        } else if (demoState === 'completed') {
-          await this.autoCompleteRemainingPairings();
+        if (promptEl) {
+          promptEl.textContent = ready
+            ? "DEFENDER PLACED ON FIELD — CLICK LOCK IN DEFENDER!"
+            : "PHASE 1: CLICK 1 CARD IN YOUR BOTTOM HAND TO PLACE AS DEFENDER";
+        }
+        if (btnLock) {
+          btnLock.disabled = !ready;
+          btnLock.textContent = "🔒 LOCK IN DEFENDER";
         }
       }
-
-      this.startRoomSyncTimer();
-    }
-
-    bindEvents() {
-      const btnNewMatch = document.getElementById('btnNewMatch');
-      if (btnNewMatch) {
-        btnNewMatch.addEventListener('click', () => this.createNewRoom());
-      }
-
-      const btnAutoFinish = document.getElementById('btnAutoFinish');
-      if (btnAutoFinish) {
-        btnAutoFinish.addEventListener('click', () => this.autoCompleteRemainingPairings());
-      }
-
-      const btnJoinRoom = document.getElementById('btnJoinRoom');
-      if (btnJoinRoom) {
-        btnJoinRoom.addEventListener('click', () => {
-          const input = document.getElementById('joinRoomInput');
-          const code = (input ? input.value : '').trim().toUpperCase();
-          if (code) this.joinRoom(code);
-        });
-      }
-
-      const btnCopyRoomLink = document.getElementById('btnCopyRoomLink');
-      if (btnCopyRoomLink) {
-        btnCopyRoomLink.addEventListener('click', () => this.copyShareRoomInfo());
-      }
-
-      const btnLockSelection = document.getElementById('btnLockSelection');
-      if (btnLockSelection) {
-        btnLockSelection.addEventListener('click', () => this.lockCurrentSelection());
-      }
-
-      const btnCopyPairings = document.getElementById('btnCopyPairings');
-      if (btnCopyPairings) {
-        btnCopyPairings.addEventListener('click', () => this.copyPairingsSummary());
-      }
-
-      const rolePills = document.querySelectorAll('#roleSelectorPills .role-pill');
-      rolePills.forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const role = btn.getAttribute('data-role') || 'spectator';
-          this.switchRole(role);
-        });
-      });
-
-      const selectFormat = document.getElementById('selectFormat');
-      const selectTeamA = document.getElementById('selectTeamA');
-      const selectTeamB = document.getElementById('selectTeamB');
-      if (selectFormat) selectFormat.addEventListener('change', () => this.createNewRoom());
-      if (selectTeamA) selectTeamA.addEventListener('change', () => this.createNewRoom());
-      if (selectTeamB) selectTeamB.addEventListener('change', () => this.createNewRoom());
-    }
-
-    startRoomSyncTimer() {
-      if (this.pollTimer) clearInterval(this.pollTimer);
-      this.pollTimer = setInterval(async () => {
-        if (!this.roomCode || this.isBusy) return;
-        if (this.roomState && this.roomState.phase === 'COMPLETED') return;
-        // Poll Firestore room state when viewing as Spectator or waiting for the opposing Captain
-        const myLocked = this.isCurrentRoleAlreadyLocked();
-        if (this.activeRole === 'spectator' || myLocked) {
-          await this.fetchRoomState({ silent: true });
+    } else if (phase === "STEP_2_ATTACKERS") {
+      const ready = this.selectedIds.length === 2;
+      if (hintBadge) hintBadge.textContent = `${this.selectedIds.length}/2`;
+      if (p.mySecAttsLocked) {
+        if (promptEl) promptEl.textContent = "2 ATTACKERS SET — WAITING FOR OPPONENT";
+        if (btnLock) {
+          btnLock.disabled = true;
+          btnLock.textContent = "✓ ATTACKERS LOCKED";
         }
-      }, 2000);
-    }
-
-    getActiveCaptainToken() {
-      if (this.activeRole === 'captain_a') return this.tokens.captain_a || '';
-      if (this.activeRole === 'captain_b') return this.tokens.captain_b || '';
-      return '';
-    }
-
-    async switchRole(role) {
-      this.activeRole = role;
-      this.selectedPlayerIds = [];
-      this.updateRoleButtonsUI();
-      if (this.roomCode) {
-        await this.fetchRoomState({ silent: true });
       } else {
-        this.renderAll();
-      }
-      const roleLabels = {
-        captain_a: '👑 Team A Captain (Interactive)',
-        captain_b: '👑 Team B Captain (Interactive)',
-        spectator: '👁️ Spectator (Read-Only)',
-      };
-      this.showToast(`Switched seat to ${roleLabels[role] || role}`);
-    }
-
-    updateRoleButtonsUI() {
-      const rolePills = document.querySelectorAll('#roleSelectorPills .role-pill');
-      rolePills.forEach((btn) => {
-        const r = btn.getAttribute('data-role');
-        btn.classList.toggle('active', r === this.activeRole);
-      });
-      const spectatorBanner = document.getElementById('spectatorBanner');
-      if (spectatorBanner) {
-        spectatorBanner.classList.toggle('hidden', this.activeRole !== 'spectator');
-      }
-    }
-
-    async createNewRoom() {
-      if (this.isBusy) return;
-      this.isBusy = true;
-      try {
-        const formatEl = document.getElementById('selectFormat');
-        const teamAEl = document.getElementById('selectTeamA');
-        const teamBEl = document.getElementById('selectTeamB');
-        const vsAiEl = document.getElementById('chkVsAi');
-
-        const formatSize = formatEl ? formatEl.value : '5v5';
-        const teamAPreset = teamAEl ? teamAEl.value : 'art_of_war';
-        let teamBPreset = teamBEl ? teamBEl.value : 'team_zero_comp';
-        if (teamBPreset === teamAPreset) {
-          teamBPreset = teamAPreset === 'art_of_war' ? 'team_zero_comp' : 'art_of_war';
-          if (teamBEl) teamBEl.value = teamBPreset;
+        if (promptEl) {
+          promptEl.textContent = ready
+            ? "2 ATTACKERS PLACED ON FIELD — CLICK LOCK IN 2 ATTACKERS!"
+            : "PHASE 2: CLICK 2 CARDS IN YOUR BOTTOM HAND TO ATTACK ENEMY DEFENDER";
         }
-        const vsAi = vsAiEl ? Boolean(vsAiEl.checked) : true;
-
-        const resp = await fetch('/api/team-pairings/room', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            format_size: formatSize,
-            team_a_preset: teamAPreset,
-            team_b_preset: teamBPreset,
-            vs_ai: vsAi,
-          }),
-        });
-        if (!resp.ok) {
-          throw new Error(`HTTP ${resp.status}`);
-        }
-        const data = await resp.json();
-        this.roomCode = data.room_code;
-        this.tokens.captain_a = data.captain_a_token || '';
-        this.tokens.captain_b = data.captain_b_token || '';
-        this.roomState = data.room;
-        this.selectedPlayerIds = [];
-
-        if (this.activeRole !== 'captain_a' && this.activeRole !== 'captain_b' && this.activeRole !== 'spectator') {
-          this.activeRole = 'captain_a';
-        }
-        if (this.activeRole !== 'captain_a') {
-          await this.fetchRoomState({ silent: true });
-        } else {
-          this.renderAll();
-        }
-        this.showToast(`Created Pairing Room ${this.roomCode} (${formatSize})`);
-      } catch (err) {
-        console.error('Failed to create pairing room:', err);
-        this.showToast('Failed to create pairing room. Check console.');
-      } finally {
-        this.isBusy = false;
-      }
-    }
-
-    async joinRoom(roomCode) {
-      if (!roomCode) return;
-      this.roomCode = roomCode.trim().toUpperCase();
-      this.selectedPlayerIds = [];
-      await this.fetchRoomState({ silent: false });
-    }
-
-    async fetchRoomState({ silent = false } = {}) {
-      if (!this.roomCode) return;
-      try {
-        const token = this.getActiveCaptainToken();
-        const qs = new URLSearchParams({
-          role: this.activeRole,
-        });
-        if (token) qs.set('captain_token', token);
-
-        const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}?${qs.toString()}`);
-        if (!resp.ok) {
-          if (!silent) this.showToast(`Room ${this.roomCode} not found`);
-          return;
-        }
-        const data = await resp.json();
-        if (data && data.room) {
-          this.roomState = data.room;
-          this.renderAll();
-        }
-      } catch (err) {
-        if (!silent) {
-          console.error('Error fetching room state:', err);
+        if (btnLock) {
+          btnLock.disabled = !ready;
+          btnLock.textContent = "🔒 LOCK IN 2 ATTACKERS";
         }
       }
-    }
-
-    getRequiredSelectionCount() {
-      if (!this.roomState) return 0;
-      const phase = this.roomState.phase;
-      if (phase === 'STEP_1_DEFENDER') return 1;
-      if (phase === 'STEP_2_ATTACKERS') return 2;
-      if (phase === 'STEP_3_CHOOSE') return 1;
-      return 0;
-    }
-
-    isCurrentRoleAlreadyLocked() {
-      if (!this.roomState) return false;
-      const phase = this.roomState.phase;
-      if (phase === 'COMPLETED') return true;
-      if (this.activeRole === 'captain_a') {
-        if (phase === 'STEP_1_DEFENDER') return Boolean(this.roomState.secret_defender_a_locked);
-        if (phase === 'STEP_2_ATTACKERS') return Boolean(this.roomState.secret_attackers_a_locked);
-        if (phase === 'STEP_3_CHOOSE') return Boolean(this.roomState.secret_choice_a_locked);
-      } else if (this.activeRole === 'captain_b') {
-        if (phase === 'STEP_1_DEFENDER') return Boolean(this.roomState.secret_defender_b_locked);
-        if (phase === 'STEP_2_ATTACKERS') return Boolean(this.roomState.secret_attackers_b_locked);
-        if (phase === 'STEP_3_CHOOSE') return Boolean(this.roomState.secret_choice_b_locked);
-      }
-      return false;
-    }
-
-    canInteractWithCard(teamSide, contextZone) {
-      if (!this.roomState || this.activeRole === 'spectator') return false;
-      if (this.isCurrentRoleAlreadyLocked()) return false;
-      const phase = this.roomState.phase;
-      if (phase === 'STEP_1_DEFENDER' || phase === 'STEP_2_ATTACKERS') {
-        if (contextZone !== 'bench') return false;
-        if (this.activeRole === 'captain_a' && teamSide === 'A') return true;
-        if (this.activeRole === 'captain_b' && teamSide === 'B') return true;
-        return false;
-      }
-      if (phase === 'STEP_3_CHOOSE') {
-        if (contextZone !== 'pod_attackers') return false;
-        // In Step 3:
-        // Captain A's Defender is in Pod A and chooses 1 of Team B's 2 Attackers (in Pod A).
-        // Captain B's Defender is in Pod B and chooses 1 of Team A's 2 Attackers (in Pod B).
-        if (this.activeRole === 'captain_a' && teamSide === 'B') return true;
-        if (this.activeRole === 'captain_b' && teamSide === 'A') return true;
-        return false;
-      }
-      return false;
-    }
-
-    toggleCardSelection(playerId, teamSide, contextZone) {
-      if (this.activeRole === 'spectator') {
-        this.showToast('👁️ Spectator Mode is Read-Only — Only Team Captains can select cards');
-        return;
-      }
-      if (!this.canInteractWithCard(teamSide, contextZone)) {
-        return;
-      }
-      const reqCount = this.getRequiredSelectionCount();
-      if (reqCount <= 0) return;
-
-      const idx = this.selectedPlayerIds.indexOf(playerId);
-      if (idx >= 0) {
-        this.selectedPlayerIds.splice(idx, 1);
+    } else if (phase === "STEP_3_CHOOSE") {
+      const ready = this.selectedIds.length === 1;
+      if (hintBadge) hintBadge.textContent = `${this.selectedIds.length}/1`;
+      if (p.mySecChoiceLocked) {
+        if (promptEl) promptEl.textContent = "CLASH LOCKED — WAITING FOR OPPONENT";
+        if (btnLock) {
+          btnLock.disabled = true;
+          btnLock.textContent = "✓ CLASH LOCKED";
+        }
       } else {
-        if (reqCount === 1) {
-          this.selectedPlayerIds = [playerId];
-        } else {
-          if (this.selectedPlayerIds.length >= reqCount) {
-            this.selectedPlayerIds.shift();
-          }
-          this.selectedPlayerIds.push(playerId);
+        if (promptEl) {
+          promptEl.textContent = ready
+            ? "ENEMY ATTACKER TARGETED — CLICK LOCK IN CLASH!"
+            : "PHASE 3: CLICK 1 PULSING ENEMY ATTACKER ON THE TOP FIELD FOR YOUR DEFENDER";
+        }
+        if (btnLock) {
+          btnLock.disabled = !ready;
+          btnLock.textContent = "🔒 LOCK IN CLASH";
         }
       }
-      this.renderAll();
+    } else {
+      if (hintBadge) hintBadge.textContent = "DONE";
+      if (promptEl) promptEl.textContent = "ALL MATCH PAIRINGS COMPLETE!";
+      if (btnLock) {
+        btnLock.disabled = true;
+        btnLock.textContent = "🏆 ALL TABLES SET";
+      }
+    }
+  }
+
+  renderPlaymatZones(p) {
+    const phase = this.room.phase;
+    const myBench = (p.myTeam.roster || []).filter((c) => c.status === "bench");
+    const oppBench = (p.oppTeam.roster || []).filter((c) => c.status === "bench");
+
+    const oppCountEl = document.getElementById("oppBenchCountBadge");
+    if (oppCountEl) oppCountEl.textContent = String(oppBench.length);
+
+    const stagedCount = (phase === "STEP_1_DEFENDER" || phase === "STEP_2_ATTACKERS") ? this.selectedIds.length : 0;
+    const myCountEl = document.getElementById("myBenchCountBadge");
+    if (myCountEl) myCountEl.textContent = String(Math.max(0, myBench.length - stagedCount));
+
+    const pairedTop = document.getElementById("matPairedCountTop");
+    if (pairedTop) {
+      pairedTop.textContent = `${(this.room.pairings || []).length}/${this.room.total_tables || 5}`;
     }
 
-    async lockCurrentSelection() {
-      if (!this.roomState || !this.roomCode || this.isBusy) return;
-      if (this.activeRole === 'spectator') {
-        this.showToast('👁️ Spectators cannot lock pairings');
-        return;
-      }
-      const reqCount = this.getRequiredSelectionCount();
-      if (this.selectedPlayerIds.length !== reqCount) {
-        this.showToast(`Select ${reqCount} card${reqCount > 1 ? 's' : ''} before locking in`);
-        return;
-      }
+    // Highlight active target slot on playmat
+    const myDefSlot = document.getElementById("myDefenderSlot");
+    const myAttSlot = document.getElementById("myAttackersSlot");
+    const oppAttSlot = document.getElementById("oppAttackersSlot");
+    myDefSlot?.classList.toggle("active-target-zone", phase === "STEP_1_DEFENDER" && !p.isSpectator);
+    myAttSlot?.classList.toggle("active-target-zone", phase === "STEP_2_ATTACKERS" && !p.isSpectator);
+    oppAttSlot?.classList.toggle("active-target-zone", phase === "STEP_3_CHOOSE" && !p.isSpectator);
 
-      const phase = this.roomState.phase;
-      let actionType = '';
-      const payload = {
-        role: this.activeRole,
-        captain_token: this.getActiveCaptainToken(),
-        vs_ai: Boolean(document.getElementById('chkVsAi')?.checked),
-      };
-
-      if (phase === 'STEP_1_DEFENDER') {
-        actionType = 'lock_defender';
-        payload.action = actionType;
-        payload.player_id = this.selectedPlayerIds[0];
-      } else if (phase === 'STEP_2_ATTACKERS') {
-        actionType = 'lock_attackers';
-        payload.action = actionType;
-        payload.player_ids = this.selectedPlayerIds.slice(0, 2);
-      } else if (phase === 'STEP_3_CHOOSE') {
-        actionType = 'lock_choice';
-        payload.action = actionType;
-        payload.player_id = this.selectedPlayerIds[0];
+    // 1. OPPONENT DEFENDER MOUNT
+    const oppDefMount = document.getElementById("oppDefenderMount");
+    if (oppDefMount) {
+      if (p.oppDef) {
+        oppDefMount.innerHTML = this.buildYuGiOhCardHtml(p.oppDef, { fieldSize: true });
+        this.attachCardInspectHandler(oppDefMount, p.oppDef);
+      } else if (p.oppSecDefLocked) {
+        oppDefMount.innerHTML = this.buildFaceDownFieldCardHtml("ENEMY DEF SET");
       } else {
-        return;
-      }
-
-      this.isBusy = true;
-      try {
-        const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const data = await resp.json();
-        if (!resp.ok) {
-          this.showToast(data.error || `Action rejected (${resp.status})`);
-          return;
-        }
-        this.selectedPlayerIds = [];
-        this.roomState = data.room;
-        this.renderAll();
-      } catch (err) {
-        console.error('Failed to lock selection:', err);
-        this.showToast('Error locking selection');
-      } finally {
-        this.isBusy = false;
+        oppDefMount.innerHTML = `<div class="empty-zone-sigil"><span class="sigil-icon">🛡️</span><span>DEFENDER</span></div>`;
       }
     }
 
-    async autoCompleteRemainingPairings() {
-      if (!this.roomState || !this.roomCode || this.isBusy) return;
-      if (this.roomState.phase === 'COMPLETED') {
-        this.showToast('All match pairings are already set!');
-        return;
-      }
-
-      // Ensure we act as Captain A with AI Captain B enabled to step through remaining rounds automatically
-      if (this.activeRole === 'spectator') {
-        this.activeRole = 'captain_a';
-        this.updateRoleButtonsUI();
-      }
-      const chkVsAi = document.getElementById('chkVsAi');
-      if (chkVsAi) chkVsAi.checked = true;
-
-      let safetySteps = 0;
-      while (this.roomState && this.roomState.phase !== 'COMPLETED' && safetySteps < 12) {
-        safetySteps += 1;
-        const phase = this.roomState.phase;
-        const benchA = (this.roomState.team_a?.roster || []).filter((p) => p.status === 'bench');
-        const payload = {
-          role: 'captain_a',
-          captain_token: this.tokens.captain_a || '',
-          vs_ai: true,
-        };
-
-        if (phase === 'STEP_1_DEFENDER') {
-          if (!benchA.length) break;
-          const defPick = benchA.find((p) => p.role.includes('Blunt')) || benchA[0];
-          payload.action = 'lock_defender';
-          payload.player_id = defPick.id;
-        } else if (phase === 'STEP_2_ATTACKERS') {
-          if (benchA.length < 2) break;
-          const defB = this.roomState.active_defender_b;
-          const sorted = benchA.slice().sort((x, y) => {
-            const mX = estimateWtcMatchup(x, defB).expected_a;
-            const mY = estimateWtcMatchup(y, defB).expected_a;
-            return mY - mX;
+    // 2. OPPONENT 2 ATTACKERS MOUNT (In Phase 3, YOU click 1 of these 2 to fight your Defender!)
+    const oppAttMount = document.getElementById("oppAttackersMount");
+    if (oppAttMount) {
+      if (p.oppAtts && p.oppAtts.length > 0) {
+        oppAttMount.innerHTML = p.oppAtts.map((att) => {
+          const isChosen = phase === "STEP_3_CHOOSE" && (this.selectedIds.includes(att.id) || p.mySecChoice === att.id);
+          const canPick = phase === "STEP_3_CHOOSE" && !p.isSpectator && !p.mySecChoiceLocked;
+          const vsMyDefScore = p.myDef ? this.getMatchupEstimate(p.myDef, att) : null;
+          return this.buildYuGiOhCardHtml(att, {
+            fieldSize: true,
+            selected: isChosen,
+            clashChoice: canPick,
+            matchupScore: vsMyDefScore
           });
-          payload.action = 'lock_attackers';
-          payload.player_ids = [sorted[0].id, sorted[1].id];
-        } else if (phase === 'STEP_3_CHOOSE') {
-          const attB = this.roomState.active_attackers_b || [];
-          if (!attB.length) break;
-          const defA = this.roomState.active_defender_a;
-          const sorted = attB.slice().sort((x, y) => {
-            const mX = estimateWtcMatchup(defA, x).expected_a;
-            const mY = estimateWtcMatchup(defA, y).expected_a;
-            return mY - mX;
-          });
-          payload.action = 'lock_choice';
-          payload.player_id = sorted[0].id;
-        } else {
-          break;
-        }
+        }).join("");
 
-        const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (!resp.ok) break;
-        const data = await resp.json();
-        this.roomState = data.room;
-      }
-
-      this.selectedPlayerIds = [];
-      this.renderAll();
-      this.showToast('⚡ All Match Pairings Set!');
-    }
-
-    renderAll() {
-      if (!this.roomState) return;
-      this.updateRoleButtonsUI();
-      this.renderRoomHeader();
-      this.renderPhaseBanner();
-      this.renderBenchColumn('A');
-      this.renderBenchColumn('B');
-      this.renderClashArena();
-      this.renderProtocolLog();
-      this.renderLockedPairingsTable();
-    }
-
-    renderRoomHeader() {
-      const r = this.roomState;
-      const badge = document.getElementById('roomCodeBadge');
-      if (badge) {
-        badge.textContent = `ROOM: ${r.room_code || '----'}`;
-      }
-      const joinInput = document.getElementById('joinRoomInput');
-      if (joinInput && !joinInput.value) {
-        joinInput.value = r.room_code || '';
-      }
-    }
-
-    renderPhaseBanner() {
-      const r = this.roomState;
-      const phase = r.phase;
-      const cycleBadge = document.getElementById('cycleBadge');
-      if (cycleBadge) {
-        if (phase === 'COMPLETED') {
-          cycleBadge.textContent = `ALL ${r.total_tables} TABLES SET`;
-        } else {
-          cycleBadge.textContent = `CYCLE ${r.cycle} OF ${r.max_cycles}`;
-        }
-      }
-
-      const s1 = document.getElementById('stepPillDefender');
-      const s2 = document.getElementById('stepPillAttackers');
-      const s3 = document.getElementById('stepPillChoose');
-      const s4 = document.getElementById('stepPillComplete');
-      [s1, s2, s3, s4].forEach((el) => {
-        if (el) el.classList.remove('active', 'done');
-      });
-
-      if (phase === 'STEP_1_DEFENDER') {
-        if (s1) s1.classList.add('active');
-      } else if (phase === 'STEP_2_ATTACKERS') {
-        if (s1) s1.classList.add('done');
-        if (s2) s2.classList.add('active');
-      } else if (phase === 'STEP_3_CHOOSE') {
-        if (s1) s1.classList.add('done');
-        if (s2) s2.classList.add('done');
-        if (s3) s3.classList.add('active');
-      } else if (phase === 'COMPLETED') {
-        if (s1) s1.classList.add('done');
-        if (s2) s2.classList.add('done');
-        if (s3) s3.classList.add('done');
-        if (s4) s4.classList.add('active', 'done');
-      }
-
-      // Captain lock status pills
-      const capAPill = document.getElementById('capAStatusPill');
-      const capBPill = document.getElementById('capBStatusPill');
-      const tagA = r.team_a?.tag || 'Team A';
-      const tagB = r.team_b?.tag || 'Team B';
-      let lockA = false;
-      let lockB = false;
-      if (phase === 'STEP_1_DEFENDER') {
-        lockA = Boolean(r.secret_defender_a_locked);
-        lockB = Boolean(r.secret_defender_b_locked);
-      } else if (phase === 'STEP_2_ATTACKERS') {
-        lockA = Boolean(r.secret_attackers_a_locked);
-        lockB = Boolean(r.secret_attackers_b_locked);
-      } else if (phase === 'STEP_3_CHOOSE') {
-        lockA = Boolean(r.secret_choice_a_locked);
-        lockB = Boolean(r.secret_choice_b_locked);
-      } else if (phase === 'COMPLETED') {
-        lockA = true;
-        lockB = true;
-      }
-
-      if (capAPill) {
-        capAPill.textContent = `${tagA} Cap: ${lockA ? '🔒 Locked In' : '⏳ Selecting'}`;
-        capAPill.classList.toggle('locked', lockA);
-      }
-      if (capBPill) {
-        capBPill.textContent = `${tagB} Cap: ${lockB ? '🔒 Locked In' : '⏳ Selecting'}`;
-        capBPill.classList.toggle('locked', lockB);
-      }
-
-      // Instructional prompt & lock button
-      const promptEl = document.getElementById('phasePromptText');
-      const hintBadge = document.getElementById('selectionHintBadge');
-      const btnLock = document.getElementById('btnLockSelection');
-      const reqCount = this.getRequiredSelectionCount();
-      const myLocked = this.isCurrentRoleAlreadyLocked();
-
-      if (promptEl) {
-        if (phase === 'STEP_1_DEFENDER') {
-          promptEl.innerHTML =
-            '<strong>Step 1 — Blind Defender Nomination:</strong> Each Captain secretly selects <strong>1 Defender Card</strong> from their bench. Cards stay face-down until both Captains lock in!';
-        } else if (phase === 'STEP_2_ATTACKERS') {
-          const oppDef =
-            this.activeRole === 'captain_b'
-              ? r.active_defender_a?.name || 'Team A Defender'
-              : r.active_defender_b?.name || 'Team B Defender';
-          promptEl.innerHTML =
-            `<strong>Step 2 — Blind Attacker Nomination:</strong> Defenders are revealed! Select <strong>2 Attacker Cards</strong> from your bench to challenge <strong>${escapeHtml(oppDef)}</strong>.`;
-        } else if (phase === 'STEP_3_CHOOSE') {
-          const podName = this.activeRole === 'captain_b' ? 'Duel Pod B' : 'Duel Pod A';
-          promptEl.innerHTML =
-            `<strong>Step 3 — Defender's Choice:</strong> Attackers are revealed! Click <strong>1 of the 2 opposing Attacker Cards</strong> inside <strong>${podName}</strong> for your Defender to face.`;
-        } else {
-          promptEl.innerHTML =
-            `<strong>✅ All ${r.total_tables} Match Pairings Locked!</strong> Review the finalized table matchups and projected WTC team score below.`;
-        }
-      }
-
-      if (hintBadge && btnLock) {
-        if (phase === 'COMPLETED') {
-          hintBadge.textContent = 'Pairings Complete';
-          btnLock.disabled = true;
-          btnLock.textContent = '✅ All Pairings Locked';
-        } else if (this.activeRole === 'spectator') {
-          hintBadge.textContent = 'Spectator (View Only)';
-          btnLock.disabled = true;
-          btnLock.textContent = '👁️ Captains Only';
-        } else if (myLocked) {
-          hintBadge.textContent = 'Waiting for Opponent Captain...';
-          btnLock.disabled = true;
-          btnLock.textContent = '🔒 Selection Locked';
-        } else {
-          const curCount = this.selectedPlayerIds.length;
-          hintBadge.textContent = `Selected: ${curCount} / ${reqCount}`;
-          btnLock.disabled = curCount !== reqCount;
-          if (phase === 'STEP_1_DEFENDER') {
-            btnLock.textContent = '🔒 Lock In Defender (1)';
-          } else if (phase === 'STEP_2_ATTACKERS') {
-            btnLock.textContent = '🔒 Lock In 2 Attackers';
-          } else if (phase === 'STEP_3_CHOOSE') {
-            btnLock.textContent = '🔒 Lock In Matchup Choice';
-          }
-        }
-      }
-    }
-
-    renderBenchColumn(side) {
-      const r = this.roomState;
-      const team = side === 'A' ? r.team_a : r.team_b;
-      if (!team) return;
-
-      const tagEl = document.getElementById(side === 'A' ? 'teamATagBadge' : 'teamBTagBadge');
-      const nameEl = document.getElementById(side === 'A' ? 'teamANameTitle' : 'teamBNameTitle');
-      const capEl = document.getElementById(side === 'A' ? 'teamACaptainLabel' : 'teamBCaptainLabel');
-      const countEl = document.getElementById(side === 'A' ? 'teamABenchCount' : 'teamBBenchCount');
-      const container = document.getElementById(side === 'A' ? 'teamABenchCards' : 'teamBBenchCards');
-
-      if (tagEl) tagEl.textContent = team.tag || side;
-      if (nameEl) nameEl.textContent = team.name || `Team ${side}`;
-      if (capEl) capEl.textContent = `👑 Captain: ${team.captain_name || 'Captain'}`;
-
-      const roster = team.roster || [];
-      const benchPlayers = roster.filter((p) => p.status === 'bench');
-      if (countEl) countEl.textContent = `${benchPlayers.length} on Bench`;
-
-      if (!container) return;
-      container.innerHTML = '';
-
-      // Determine if we should show contextual Est. WTC matchup badge against opponent's revealed Defender
-      let targetDefender = null;
-      if (r.phase === 'STEP_2_ATTACKERS') {
-        targetDefender = side === 'A' ? r.active_defender_b : r.active_defender_a;
-      }
-
-      const canInteract = this.canInteractWithCard(side, 'bench');
-
-      // Show available bench cards first, then paired/active cards below so roster is clear
-      const sortedRoster = roster.slice().sort((a, b) => {
-        const order = { bench: 0, defender: 1, attacker: 2, paired: 3 };
-        return (order[a.status] ?? 9) - (order[b.status] ?? 9);
-      });
-
-      sortedRoster.forEach((player) => {
-        const isBench = player.status === 'bench';
-        const isSelected = this.selectedPlayerIds.includes(player.id);
-        let matchupObj = null;
-        if (isBench && targetDefender) {
-          matchupObj = estimateWtcMatchup(player, targetDefender);
-        }
-
-        const cardEl = this.createPlayerCardElement(player, {
-          teamSide: side,
-          isSelected,
-          isInteractive: isBench && canInteract,
-          isPairedOrBusy: !isBench,
-          matchupObj,
-          matchupLabelPrefix: targetDefender ? `vs ${targetDefender.name.split(' ')[0]}` : '',
-          onClick: () => {
-            if (isBench) {
-              this.toggleCardSelection(player.id, side, 'bench');
+        oppAttMount.querySelectorAll(".ygo-card").forEach((cardEl, idx) => {
+          const attObj = p.oppAtts[idx];
+          cardEl.addEventListener("mouseenter", () => this.inspectCard(attObj, p.myDef));
+          cardEl.addEventListener("click", () => {
+            this.inspectCard(attObj, p.myDef);
+            if (phase === "STEP_3_CHOOSE" && !p.isSpectator && !p.mySecChoiceLocked) {
+              this.selectedIds = [attObj.id];
+              this.renderAll();
             }
-          },
-        });
-        container.appendChild(cardEl);
-      });
-    }
-
-    createPlayerCardElement(player, opts = {}) {
-      const {
-        isSelected = false,
-        isInteractive = false,
-        isPairedOrBusy = false,
-        matchupObj = null,
-        matchupLabelPrefix = '',
-        statusPillOverride = null,
-        onClick = null,
-      } = opts;
-
-      const meta = getFactionMeta(player.faction);
-      const card = document.createElement('div');
-      card.className = 'player-card';
-      card.style.setProperty('--faction-color', meta.color);
-      card.setAttribute('data-player-id', player.id);
-
-      if (isSelected) card.classList.add('selected');
-      if (!isInteractive) card.classList.add('disabled-card');
-      if (isPairedOrBusy) card.classList.add('paired-card');
-
-      let roleClass = '';
-      const roleLower = (player.role || '').toLowerCase();
-      if (roleLower.includes('blunt') || roleLower.includes('defender')) {
-        roleClass = 'role-blunt';
-      } else if (roleLower.includes('spear') || roleLower.includes('slayer')) {
-        roleClass = 'role-spear';
-      }
-
-      let statusHtml = '';
-      if (statusPillOverride) {
-        statusHtml = `<span class="role-tag">${escapeHtml(statusPillOverride)}</span>`;
-      } else if (player.status === 'defender') {
-        statusHtml = `<span class="role-tag role-blunt">🛡️ ACTIVE DEFENDER</span>`;
-      } else if (player.status === 'attacker') {
-        statusHtml = `<span class="role-tag role-spear">⚔️ ACTIVE ATTACKER</span>`;
-      } else if (player.status === 'paired') {
-        statusHtml = `<span class="role-tag">✅ PAIRED</span>`;
-      }
-
-      let matchupHtml = '';
-      if (matchupObj) {
-        const expA = matchupObj.expected_a;
-        let cls = 'even';
-        if (expA >= 11) cls = 'favored';
-        else if (expA <= 9) cls = 'unfavored';
-        const prefix = matchupLabelPrefix ? `${escapeHtml(matchupLabelPrefix)}: ` : 'Est. WTC: ';
-        matchupHtml = `<span class="matchup-pill ${cls}" title="Projected WTC 0-20 Score">${prefix}${expA}-${matchupObj.expected_b}</span>`;
-      }
-
-      card.innerHTML = `
-        <div class="card-top-row">
-          <div class="player-identity">
-            <span class="faction-icon-box">${meta.icon}</span>
-            <div class="player-name-wrap">
-              <div class="player-name" title="${escapeHtml(player.name)}">${escapeHtml(player.name)}</div>
-              <div class="player-faction">${escapeHtml(player.faction)}</div>
-            </div>
-          </div>
-          <span class="elo-pill">${escapeHtml(player.elo)} ELO</span>
-        </div>
-        <div class="card-bottom-row">
-          <span class="detachment-tag" title="${escapeHtml(player.detachment)}">${escapeHtml(player.detachment)}</span>
-          <div class="card-badges-right">
-            ${statusHtml || `<span class="role-tag ${roleClass}">${escapeHtml(player.role)}</span>`}
-            ${matchupHtml}
-          </div>
-        </div>
-      `;
-
-      if (onClick && isInteractive) {
-        card.addEventListener('click', onClick);
-      }
-      return card;
-    }
-
-    createMysteryOrEmptySlot({ isLockedSecret = false, title = 'Awaiting Card', subtitle = 'Not yet locked' } = {}) {
-      const box = document.createElement('div');
-      if (isLockedSecret) {
-        box.className = 'mystery-card';
-        box.innerHTML = `
-          <div class="mystery-icon">🔒</div>
-          <div class="mystery-title">${escapeHtml(title)}</div>
-          <div class="mystery-sub">${escapeHtml(subtitle)}</div>
-        `;
-      } else {
-        box.className = 'empty-slot-placeholder';
-        box.innerHTML = `<div>${escapeHtml(title)}</div>`;
-      }
-      return box;
-    }
-
-    renderClashArena() {
-      const r = this.roomState;
-      const phase = r.phase;
-      const tagA = r.team_a?.tag || 'Team A';
-      const tagB = r.team_b?.tag || 'Team B';
-
-      const podALabel = document.getElementById('duelPodALabel');
-      const podBLabel = document.getElementById('duelPodBLabel');
-      if (podALabel) podALabel.textContent = `${tagA} Defender vs. ${tagB} Attackers`;
-      if (podBLabel) podBLabel.textContent = `${tagB} Defender vs. ${tagA} Attackers`;
-
-      const podADefSlot = document.getElementById('podADefenderSlot');
-      const podAAttSlot = document.getElementById('podAAttackersSlot');
-      const podBDefSlot = document.getElementById('podBDefenderSlot');
-      const podBAttSlot = document.getElementById('podBAttackersSlot');
-
-      if (!podADefSlot || !podAAttSlot || !podBDefSlot || !podBAttSlot) return;
-      podADefSlot.innerHTML = '';
-      podAAttSlot.innerHTML = '';
-      podBDefSlot.innerHTML = '';
-      podBAttSlot.innerHTML = '';
-
-      if (phase === 'COMPLETED') {
-        podADefSlot.appendChild(
-          this.createMysteryOrEmptySlot({
-            isLockedSecret: false,
-            title: `✅ All ${r.total_tables} Match Tables Locked`,
-          })
-        );
-        podAAttSlot.appendChild(
-          this.createMysteryOrEmptySlot({
-            isLockedSecret: false,
-            title: 'See Finalized Match Pairings Table Below',
-          })
-        );
-        podBDefSlot.appendChild(
-          this.createMysteryOrEmptySlot({
-            isLockedSecret: false,
-            title: `✅ All ${r.total_tables} Match Tables Locked`,
-          })
-        );
-        podBAttSlot.appendChild(
-          this.createMysteryOrEmptySlot({
-            isLockedSecret: false,
-            title: 'See Finalized Match Pairings Table Below',
-          })
-        );
-        return;
-      }
-
-      // 1. Render Pod A Defender (Team A Defender)
-      if (r.active_defender_a) {
-        podADefSlot.appendChild(
-          this.createPlayerCardElement(r.active_defender_a, {
-            isInteractive: false,
-            statusPillOverride: '🛡️ DEFENDER',
-          })
-        );
-      } else if (r.secret_defender_a_locked) {
-        podADefSlot.appendChild(
-          this.createMysteryOrEmptySlot({
-            isLockedSecret: true,
-            title: `${tagA} DEFENDER LOCKED`,
-            subtitle: 'Hidden until both Captains lock in',
-          })
-        );
-      } else {
-        podADefSlot.appendChild(
-          this.createMysteryOrEmptySlot({
-            isLockedSecret: false,
-            title: `⏳ Awaiting ${tagA} Defender (Step 1)`,
-          })
-        );
-      }
-
-      // 2. Render Pod B Defender (Team B Defender)
-      if (r.active_defender_b) {
-        podBDefSlot.appendChild(
-          this.createPlayerCardElement(r.active_defender_b, {
-            isInteractive: false,
-            statusPillOverride: '🛡️ DEFENDER',
-          })
-        );
-      } else if (r.secret_defender_b_locked) {
-        podBDefSlot.appendChild(
-          this.createMysteryOrEmptySlot({
-            isLockedSecret: true,
-            title: `${tagB} DEFENDER LOCKED`,
-            subtitle: 'Hidden until both Captains lock in',
-          })
-        );
-      } else {
-        podBDefSlot.appendChild(
-          this.createMysteryOrEmptySlot({
-            isLockedSecret: false,
-            title: `⏳ Awaiting ${tagB} Defender (Step 1)`,
-          })
-        );
-      }
-
-      // 3. Render Pod A Attackers (Team B's 2 Attackers sent against Team A's Defender)
-      const attB = r.active_attackers_b || [];
-      if (attB.length > 0) {
-        const canCapAPick = this.canInteractWithCard('B', 'pod_attackers');
-        attB.forEach((attPlayer) => {
-          const isSelected = this.selectedPlayerIds.includes(attPlayer.id);
-          const m = r.active_defender_a ? estimateWtcMatchup(r.active_defender_a, attPlayer) : null;
-          const cardEl = this.createPlayerCardElement(attPlayer, {
-            isSelected,
-            isInteractive: canCapAPick,
-            matchupObj: m,
-            matchupLabelPrefix: `${tagA} Def Est`,
-            statusPillOverride: canCapAPick ? '🎯 CLICK TO FACE' : '⚔️ ATTACKER',
-            onClick: () => this.toggleCardSelection(attPlayer.id, 'B', 'pod_attackers'),
           });
-          podAAttSlot.appendChild(cardEl);
         });
-      } else if (r.secret_attackers_b_locked) {
-        podAAttSlot.appendChild(
-          this.createMysteryOrEmptySlot({
-            isLockedSecret: true,
-            title: `${tagB} 2 ATTACKERS LOCKED`,
-            subtitle: 'Simultaneous reveal pending',
-          })
-        );
+      } else if (p.oppSecAttsLocked) {
+        oppAttMount.innerHTML =
+          this.buildFaceDownFieldCardHtml("ATTACKER 1") +
+          this.buildFaceDownFieldCardHtml("ATTACKER 2");
       } else {
-        podAAttSlot.appendChild(
-          this.createMysteryOrEmptySlot({
-            isLockedSecret: false,
-            title: `⏳ Awaiting 2 ${tagB} Attackers (Step 2)`,
-          })
-        );
-      }
-
-      // 4. Render Pod B Attackers (Team A's 2 Attackers sent against Team B's Defender)
-      const attA = r.active_attackers_a || [];
-      if (attA.length > 0) {
-        const canCapBPick = this.canInteractWithCard('A', 'pod_attackers');
-        attA.forEach((attPlayer) => {
-          const isSelected = this.selectedPlayerIds.includes(attPlayer.id);
-          const m = r.active_defender_b ? estimateWtcMatchup(r.active_defender_b, attPlayer) : null;
-          const cardEl = this.createPlayerCardElement(attPlayer, {
-            isSelected,
-            isInteractive: canCapBPick,
-            matchupObj: m,
-            matchupLabelPrefix: `${tagB} Def Est`,
-            statusPillOverride: canCapBPick ? '🎯 CLICK TO FACE' : '⚔️ ATTACKER',
-            onClick: () => this.toggleCardSelection(attPlayer.id, 'A', 'pod_attackers'),
-          });
-          podBAttSlot.appendChild(cardEl);
-        });
-      } else if (r.secret_attackers_a_locked) {
-        podBAttSlot.appendChild(
-          this.createMysteryOrEmptySlot({
-            isLockedSecret: true,
-            title: `${tagA} 2 ATTACKERS LOCKED`,
-            subtitle: 'Simultaneous reveal pending',
-          })
-        );
-      } else {
-        podBAttSlot.appendChild(
-          this.createMysteryOrEmptySlot({
-            isLockedSecret: false,
-            title: `⏳ Awaiting 2 ${tagA} Attackers (Step 2)`,
-          })
-        );
-      }
-    }
-
-    renderProtocolLog() {
-      const listEl = document.getElementById('protocolLogList');
-      if (!listEl || !this.roomState) return;
-      const logs = (this.roomState.log || []).slice().reverse();
-      listEl.innerHTML = logs
-        .map(
-          (entry) => `
-          <li class="protocol-log-item">
-            <span class="log-time">${escapeHtml(entry.ts || '--:--')}</span>
-            <span class="log-msg">${escapeHtml(entry.msg || '')}</span>
-          </li>
-        `
-        )
-        .join('');
-    }
-
-    renderLockedPairingsTable() {
-      const r = this.roomState;
-      const pairings = r.pairings || [];
-      const totalTables = r.total_tables || 5;
-      const countLabel = document.getElementById('lockedCountLabel');
-      if (countLabel) {
-        countLabel.textContent = `${pairings.length} / ${totalTables}`;
-      }
-
-      const tbody = document.getElementById('pairingsTableBody');
-      const scoreValEl = document.getElementById('projectedScoreValue');
-      const verdictEl = document.getElementById('projectedVerdictBadge');
-
-      if (!tbody) return;
-      if (pairings.length === 0) {
-        tbody.innerHTML = `
-          <tr>
-            <td colspan="6" class="empty-pairings-cell">
-              No pairings locked yet. Complete Step 1 → Step 2 → Step 3 above (or click <strong>⚡ Auto-Pair Rest</strong>) to lock all ${totalTables} tables!
-            </td>
-          </tr>
+        oppAttMount.innerHTML = `
+          <div class="empty-zone-sigil"><span class="sigil-icon">⚔️</span><span>ATK 1</span></div>
+          <div class="empty-zone-sigil"><span class="sigil-icon">⚔️</span><span>ATK 2</span></div>
         `;
-        if (scoreValEl) scoreValEl.textContent = '0 – 0';
-        if (verdictEl) verdictEl.textContent = 'Awaiting Pairings';
-        return;
       }
+    }
 
-      let sumA = 0;
-      let sumB = 0;
-      tbody.innerHTML = pairings
-        .map((m) => {
-          const pa = m.player_a || {};
-          const pb = m.player_b || {};
-          const metaA = getFactionMeta(pa.faction);
-          const metaB = getFactionMeta(pb.faction);
-          const est = m.matchup || estimateWtcMatchup(pa, pb);
-          const expA = Number(est.expected_a ?? 10);
-          const expB = Number(est.expected_b ?? 10);
-          sumA += expA;
-          sumB += expB;
-
-          let pillCls = 'even';
-          if (expA >= 11) pillCls = 'favored';
-          else if (expA <= 9) pillCls = 'unfavored';
-
-          return `
-            <tr>
-              <td><span class="table-num-badge">Table ${escapeHtml(m.table)}</span></td>
-              <td><span class="pairing-type-tag">${escapeHtml(m.pairing_type)}</span></td>
-              <td>
-                <div class="table-player-cell">
-                  <span class="faction-icon-box">${metaA.icon}</span>
-                  <div>
-                    <div class="tp-name">${escapeHtml(pa.name)} <span class="elo-pill">${escapeHtml(pa.elo)}</span></div>
-                    <div class="tp-sub">${escapeHtml(pa.faction)} • ${escapeHtml(pa.detachment)}</div>
-                  </div>
-                </div>
-              </td>
-              <td><span class="pod-vs-divider">VS</span></td>
-              <td>
-                <div class="table-player-cell">
-                  <span class="faction-icon-box">${metaB.icon}</span>
-                  <div>
-                    <div class="tp-name">${escapeHtml(pb.name)} <span class="elo-pill">${escapeHtml(pb.elo)}</span></div>
-                    <div class="tp-sub">${escapeHtml(pb.faction)} • ${escapeHtml(pb.detachment)}</div>
-                  </div>
-                </div>
-              </td>
-              <td>
-                <span class="matchup-pill ${pillCls}">${expA} – ${expB}</span>
-              </td>
-            </tr>
-          `;
-        })
-        .join('');
-
-      if (scoreValEl) {
-        scoreValEl.textContent = `${sumA} – ${sumB}`;
-      }
-      if (verdictEl) {
-        const tagA = r.team_a?.tag || 'Team A';
-        const tagB = r.team_b?.tag || 'Team B';
-        const diff = sumA - sumB;
-        if (diff > 5) {
-          verdictEl.textContent = `${tagA} Projected Win (+${diff} WTC pts)`;
-        } else if (diff < -5) {
-          verdictEl.textContent = `${tagB} Projected Win (+${Math.abs(diff)} WTC pts)`;
-        } else {
-          verdictEl.textContent = `Razor-Close Draw Window (${sumA}-${sumB})`;
+    // 3. YOUR DEFENDER MOUNT (Shows revealed defender, or your staged card during STEP_1_DEFENDER!)
+    const myDefMount = document.getElementById("myDefenderMount");
+    if (myDefMount) {
+      let stagedDef = null;
+      if (phase === "STEP_1_DEFENDER") {
+        const targetId = p.mySecDef || this.selectedIds[0];
+        if (targetId) {
+          stagedDef = (p.myTeam.roster || []).find((c) => c.id === targetId);
         }
       }
+      const cardToShow = p.myDef || stagedDef;
+      if (cardToShow) {
+        myDefMount.innerHTML = this.buildYuGiOhCardHtml(cardToShow, {
+          fieldSize: true,
+          selected: !p.myDef
+        });
+        const cardEl = myDefMount.querySelector(".ygo-card");
+        if (cardEl) {
+          cardEl.addEventListener("mouseenter", () => this.inspectCard(cardToShow, p.oppDef));
+          cardEl.addEventListener("click", () => {
+            this.inspectCard(cardToShow, p.oppDef);
+            if (phase === "STEP_1_DEFENDER" && !p.mySecDefLocked) {
+              this.toggleHandCardSelection(cardToShow.id);
+            }
+          });
+        }
+      } else if (p.mySecDefLocked) {
+        myDefMount.innerHTML = this.buildFaceDownFieldCardHtml("LOCKED DEF");
+      } else {
+        myDefMount.innerHTML = `<div class="empty-zone-sigil"><span class="sigil-icon">🛡️</span><span>CLICK HAND CARD</span></div>`;
+      }
     }
 
-    copyShareRoomInfo() {
-      if (!this.roomCode) return;
-      const shareUrl = `${window.location.origin}/admin/team-pairings?room=${encodeURIComponent(this.roomCode)}&role=spectator`;
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(shareUrl).catch(() => {});
+    // 4. YOUR 2 ATTACKERS MOUNT (Shows revealed attackers, or your 1-2 staged cards during STEP_2_ATTACKERS!)
+    const myAttMount = document.getElementById("myAttackersMount");
+    if (myAttMount) {
+      let cardsToShow = [];
+      if (p.myAtts && p.myAtts.length > 0) {
+        cardsToShow = p.myAtts;
+      } else if (phase === "STEP_2_ATTACKERS") {
+        const ids = (p.mySecAtts && p.mySecAtts.length > 0) ? p.mySecAtts : this.selectedIds;
+        cardsToShow = ids
+          .map((id) => (p.myTeam.roster || []).find((c) => c.id === id))
+          .filter(Boolean);
       }
-      this.showToast(`📋 Copied Room Link (${this.roomCode})`);
-    }
 
-    copyPairingsSummary() {
-      if (!this.roomState || !(this.roomState.pairings || []).length) {
-        this.showToast('No locked pairings to copy yet');
-        return;
+      if (cardsToShow.length > 0) {
+        const slots = [];
+        for (let i = 0; i < 2; i++) {
+          const c = cardsToShow[i];
+          if (c) {
+            const mScore = p.oppDef ? this.getMatchupEstimate(c, p.oppDef) : null;
+            slots.push(this.buildYuGiOhCardHtml(c, {
+              fieldSize: true,
+              selected: !(p.myAtts && p.myAtts.length > 0),
+              matchupScore: mScore
+            }));
+          } else {
+            slots.push(`<div class="empty-zone-sigil"><span class="sigil-icon">⚔️</span><span>PICK 2ND CARD</span></div>`);
+          }
+        }
+        myAttMount.innerHTML = slots.join("");
+        myAttMount.querySelectorAll(".ygo-card").forEach((el, idx) => {
+          const cObj = cardsToShow[idx];
+          if (cObj) {
+            el.addEventListener("mouseenter", () => this.inspectCard(cObj, p.oppDef));
+            el.addEventListener("click", () => {
+              if (phase === "STEP_2_ATTACKERS" && !p.mySecAttsLocked) {
+                this.toggleHandCardSelection(cObj.id);
+              }
+            });
+          }
+        });
+      } else if (p.mySecAttsLocked) {
+        myAttMount.innerHTML =
+          this.buildFaceDownFieldCardHtml("LOCKED ATK 1") +
+          this.buildFaceDownFieldCardHtml("LOCKED ATK 2");
+      } else {
+        myAttMount.innerHTML = `
+          <div class="empty-zone-sigil"><span class="sigil-icon">⚔️</span><span>ATTACKER 1</span></div>
+          <div class="empty-zone-sigil"><span class="sigil-icon">⚔️</span><span>ATTACKER 2</span></div>
+        `;
       }
-      const r = this.roomState;
-      const lines = [
-        `=== ${r.team_a?.name} (${r.team_a?.tag}) vs ${r.team_b?.name} (${r.team_b?.tag}) [${r.format_size}] ===`,
-      ];
-      r.pairings.forEach((m) => {
-        const pa = m.player_a || {};
-        const pb = m.player_b || {};
-        const est = m.matchup || { expected_a: 10, expected_b: 10 };
-        lines.push(
-          `Table ${m.table} (${m.pairing_type}): ${pa.name} (${pa.faction}) vs ${pb.name} (${pb.faction}) [Est. ${est.expected_a}-${est.expected_b}]`
-        );
-      });
-      const text = lines.join('\n');
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).catch(() => {});
-      }
-      this.showToast('📋 Copied Match Pairings to Clipboard!');
-    }
-
-    showToast(msg) {
-      const toast = document.getElementById('toastNotification');
-      if (!toast) return;
-      toast.textContent = msg;
-      toast.classList.remove('hidden');
-      clearTimeout(this._toastTimer);
-      this._toastTimer = setTimeout(() => {
-        toast.classList.add('hidden');
-      }, 2800);
     }
   }
 
-  window.TeamPairingsApp = TeamPairingsApp;
-  window.estimateWtcMatchup = estimateWtcMatchup;
+  renderHands(p) {
+    const phase = this.room.phase;
+    const oppBench = (p.oppTeam.roster || []).filter((c) => c.status === "bench");
+    const rawMyBench = (p.myTeam.roster || []).filter((c) => c.status === "bench");
+    // Cards currently placed onto a playmat slot leave the bottom hand fan until clicked back!
+    const stagedOnMatIds = new Set(
+      (phase === "STEP_1_DEFENDER" || phase === "STEP_2_ATTACKERS") ? this.selectedIds : []
+    );
+    const myBench = rawMyBench.filter((c) => !stagedOnMatIds.has(c.id));
 
-  if (typeof document !== 'undefined') {
-    document.addEventListener('DOMContentLoaded', () => {
-      const app = new TeamPairingsApp();
-      window.teamPairingsApp = app;
-      app.init();
+    // Top: Opponent's Fanned Face-Down Hand
+    const oppFan = document.getElementById("oppHandFan");
+    if (oppFan) {
+      oppFan.innerHTML = oppBench.map((_, i) => {
+        const mid = (oppBench.length - 1) / 2;
+        const deg = (i - mid) * 4;
+        return `<div class="opp-card-back" style="transform: rotate(${deg}deg);"></div>`;
+      }).join("");
+    }
+
+    // Bottom: Your Upright Collectible Player Card Hand
+    const handTitle = document.getElementById("myHandOwnerTitle");
+    if (handTitle) {
+      handTitle.textContent = p.isSpectator
+        ? `${p.myTeam.name.toUpperCase()} HAND (${myBench.length} CARDS REMAINING)`
+        : `YOUR HAND — ${p.myTeam.name.toUpperCase()} (${myBench.length} CARDS IN HAND • CLICK TO PLACE ON FIELD)`;
+    }
+
+    const myFan = document.getElementById("myHandFan");
+    if (!myFan) return;
+
+    if (myBench.length === 0) {
+      myFan.innerHTML = `<div style="color:var(--text-dim);font-family:var(--font-mono);font-size:0.75rem;align-self:center;">ALL CARDS PLACED ON FIELD</div>`;
+      return;
+    }
+
+    myFan.innerHTML = myBench.map((card) => {
+      const mScore = (phase === "STEP_2_ATTACKERS" && p.oppDef)
+        ? this.getMatchupEstimate(card, p.oppDef)
+        : null;
+      return this.buildYuGiOhCardHtml(card, {
+        selected: false,
+        matchupScore: mScore
+      });
+    }).join("");
+
+    myFan.querySelectorAll(".ygo-card").forEach((cardEl, idx) => {
+      const cardObj = myBench[idx];
+      cardEl.addEventListener("mouseenter", () => this.inspectCard(cardObj, p.oppDef));
+      cardEl.addEventListener("click", () => {
+        this.inspectCard(cardObj, p.oppDef);
+        if (!p.isSpectator) {
+          this.toggleHandCardSelection(cardObj.id);
+        }
+      });
     });
   }
-})();
+
+  toggleHandCardSelection(cardId) {
+    if (!this.room) return;
+    const phase = this.room.phase;
+    const p = this.getPerspective();
+    if (!p || p.isSpectator) return;
+
+    if (phase === "STEP_1_DEFENDER" && !p.mySecDefLocked) {
+      if (this.selectedIds.includes(cardId)) {
+        this.selectedIds = [];
+      } else {
+        this.selectedIds = [cardId];
+      }
+      this.renderAll();
+    } else if (phase === "STEP_2_ATTACKERS" && !p.mySecAttsLocked) {
+      if (this.selectedIds.includes(cardId)) {
+        this.selectedIds = this.selectedIds.filter((id) => id !== cardId);
+      } else if (this.selectedIds.length < 2) {
+        this.selectedIds.push(cardId);
+      } else {
+        this.selectedIds = [this.selectedIds[1], cardId];
+      }
+      this.renderAll();
+    }
+  }
+
+  async submitStagedSelection() {
+    if (!this.room || !this.roomCode) return;
+    const phase = this.room.phase;
+    const p = this.getPerspective();
+    if (!p || p.isSpectator) return;
+
+    const vsAi = document.getElementById("chkVsAi")?.checked ?? true;
+    const tok = this.captainTokens[this.activeRole] || "";
+
+    let action = "";
+    let payload = { vs_ai: vsAi };
+
+    if (phase === "STEP_1_DEFENDER" && this.selectedIds.length === 1) {
+      action = "lock_defender";
+      payload.player_id = this.selectedIds[0];
+    } else if (phase === "STEP_2_ATTACKERS" && this.selectedIds.length === 2) {
+      action = "lock_attackers";
+      payload.player_ids = [...this.selectedIds];
+    } else if (phase === "STEP_3_CHOOSE" && this.selectedIds.length === 1) {
+      action = "lock_choice";
+      payload.player_id = this.selectedIds[0];
+    } else {
+      return;
+    }
+
+    try {
+      const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: this.activeRole,
+          captain_token: tok,
+          action,
+          payload
+        })
+      });
+      const data = await resp.json();
+      if (data && data.ok && data.room) {
+        this.room = data.room;
+        this.selectedIds = [];
+        this.renderAll();
+      } else if (data && data.error) {
+        this.showToast(data.error);
+      }
+    } catch (err) {
+      console.error("Failed to submit card action:", err);
+    }
+  }
+
+  async autoCompleteRemainingPhases() {
+    if (!this.room || !this.roomCode) return;
+    const roleToUse = this.activeRole === "spectator" ? "captain_a" : this.activeRole;
+    const tok = this.captainTokens[roleToUse] || this.captainTokens.captain_a || "";
+
+    for (let guard = 0; guard < 12; guard++) {
+      if (!this.room || this.room.phase === "COMPLETED") break;
+      const isCapB = roleToUse === "captain_b";
+      const myTeam = isCapB ? this.room.team_b : this.room.team_a;
+      const oppAtts = isCapB ? (this.room.active_attackers_a || []) : (this.room.active_attackers_b || []);
+      const bench = (myTeam.roster || []).filter((c) => c.status === "bench");
+
+      let action = "";
+      let payload = { vs_ai: true };
+
+      if (this.room.phase === "STEP_1_DEFENDER" && bench.length >= 1) {
+        action = "lock_defender";
+        payload.player_id = bench[0].id;
+      } else if (this.room.phase === "STEP_2_ATTACKERS" && bench.length >= 2) {
+        action = "lock_attackers";
+        payload.player_ids = [bench[0].id, bench[1].id];
+      } else if (this.room.phase === "STEP_3_CHOOSE" && oppAtts.length >= 1) {
+        action = "lock_choice";
+        payload.player_id = oppAtts[0].id;
+      } else {
+        break;
+      }
+
+      const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: roleToUse,
+          captain_token: tok,
+          action,
+          payload
+        })
+      });
+      const data = await resp.json();
+      if (!data || !data.ok || !data.room) break;
+      this.room = data.room;
+    }
+
+    this.selectedIds = [];
+    this.renderAll();
+  }
+
+  inspectCard(player, opponentContextCard = null) {
+    if (!player) return;
+    this.inspectedPlayer = player;
+    const meta = FACTION_META[player.faction] || FACTION_META["Space Marines"];
+    const starsCount = Math.max(4, Math.min(10, Math.round(((player.elo || 2050) - 1800) / 45)));
+
+    const nameEl = document.getElementById("inspCardName");
+    const iconEl = document.getElementById("inspCardIcon");
+    const starsEl = document.getElementById("inspCardStars");
+    const emblemEl = document.getElementById("inspBigEmblem");
+    const facEl = document.getElementById("inspCardFaction");
+    const typeEl = document.getElementById("inspCardTypeLine");
+    const descEl = document.getElementById("inspCardDesc");
+    const eloEl = document.getElementById("inspCardElo");
+    const roleShortEl = document.getElementById("inspCardRoleShort");
+    const matchupBox = document.getElementById("inspMatchupBox");
+    const matchupVal = document.getElementById("inspMatchupVal");
+
+    if (nameEl) nameEl.textContent = player.name;
+    if (iconEl) iconEl.textContent = meta.icon;
+    if (starsEl) starsEl.textContent = "★".repeat(starsCount);
+    if (emblemEl) emblemEl.textContent = meta.icon;
+    if (facEl) facEl.textContent = player.faction;
+    if (typeEl) typeEl.textContent = `[ ${player.faction} / ${player.detachment || meta.detachment} ]`;
+    if (descEl) {
+      descEl.innerHTML = `Tactical Role: <strong>${this.escapeHtml(player.role_tag || "All-Rounder")}</strong>. Click this card in your bottom hand to place it onto the glowing field zone.`;
+    }
+    if (eloEl) eloEl.textContent = String(player.elo || 2100);
+    if (roleShortEl) {
+      const rTag = (player.role_tag || "").toUpperCase();
+      roleShortEl.textContent = rTag.includes("DEF") ? "DEF" : (rTag.includes("ATK") || rTag.includes("SPEAR") ? "ATK" : "FLEX");
+    }
+
+    if (matchupBox && matchupVal) {
+      if (opponentContextCard && opponentContextCard.id && player.id) {
+        const est = this.getMatchupEstimate(player, opponentContextCard);
+        matchupBox.classList.remove("hidden");
+        const verdict = est >= 12 ? "FAVORED" : (est <= 8 ? "UNFAVORED" : "EVEN CLASH");
+        matchupVal.textContent = `${est} - ${20 - est} (${verdict} vs ${opponentContextCard.name})`;
+      } else {
+        matchupBox.classList.add("hidden");
+      }
+    }
+  }
+
+  attachCardInspectHandler(container, cardObj, oppCard = null) {
+    const el = container.querySelector(".ygo-card");
+    if (el && cardObj) {
+      el.addEventListener("mouseenter", () => this.inspectCard(cardObj, oppCard));
+      el.addEventListener("click", () => this.inspectCard(cardObj, oppCard));
+    }
+  }
+
+  buildYuGiOhCardHtml(player, opts = {}) {
+    const meta = FACTION_META[player.faction] || FACTION_META["Space Marines"];
+    const starsCount = Math.max(4, Math.min(9, Math.round(((player.elo || 2050) - 1800) / 48)));
+    const rTag = (player.role_tag || "").toUpperCase();
+    const shortRole = rTag.includes("DEF") ? "DEF" : (rTag.includes("ATK") || rTag.includes("SPEAR") ? "ATK" : "FLEX");
+
+    let matchupChipHtml = "";
+    if (typeof opts.matchupScore === "number") {
+      const s = opts.matchupScore;
+      const color = s >= 12 ? "#4ade80" : (s <= 8 ? "#fb7185" : "#fde047");
+      matchupChipHtml = `<span class="yc-matchup-chip" style="color:${color}">${s}-${20 - s}</span>`;
+    }
+
+    const classes = [
+      "ygo-card",
+      opts.fieldSize ? "field-size" : "",
+      opts.selected ? "selected" : "",
+      opts.clashChoice ? "clash-choice" : ""
+    ].filter(Boolean).join(" ");
+
+    return `
+      <div class="${classes}" data-card-id="${this.escapeHtml(player.id || "")}" style="--card-accent: ${meta.accent}">
+        <div class="yc-top">
+          <span class="yc-name">${this.escapeHtml(player.name)}</span>
+          <span class="yc-attr">${meta.icon}</span>
+        </div>
+        <div class="yc-stars">${"★".repeat(starsCount)}</div>
+        <div class="yc-art">
+          ${matchupChipHtml}
+          <span class="yc-emblem">${meta.icon}</span>
+          <span class="yc-faction">${this.escapeHtml(player.faction)}</span>
+        </div>
+        <div class="yc-bottom">
+          <span>ELO <strong>${player.elo || 2100}</strong></span>
+          <span>${shortRole}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  buildFaceDownFieldCardHtml(label = "SET CARD") {
+    return `
+      <div class="ygo-card field-size face-down-field">
+        <div class="face-down-vortex">
+          <span class="vortex-ico">🌀</span>
+          <span class="vortex-lbl">${this.escapeHtml(label)}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  renderPairedTables() {
+    const pairings = this.room?.pairings || [];
+    const total = this.room?.total_tables || 5;
+
+    const countLbl = document.getElementById("lockedCountLabel");
+    if (countLbl) countLbl.textContent = `${pairings.length} / ${total}`;
+
+    let sumA = 0;
+    let sumB = 0;
+    pairings.forEach((m) => {
+      const estA = Number(m.est_score_a ?? m.matchup?.expected_a ?? m.a_expected ?? 10);
+      sumA += estA;
+      sumB += (20 - estA);
+    });
+
+    const isCapB = this.activeRole === "captain_b";
+    const myScore = isCapB ? sumB : sumA;
+    const oppScore = isCapB ? sumA : sumB;
+
+    const scoreEl = document.getElementById("projectedScoreValue");
+    if (scoreEl) scoreEl.textContent = `${myScore} – ${oppScore}`;
+
+    const verdictEl = document.getElementById("projectedVerdictBadge");
+    if (verdictEl) {
+      if (pairings.length === 0) {
+        verdictEl.textContent = "No Tables Locked";
+      } else if (myScore > oppScore + 3) {
+        verdictEl.textContent = "Advantaged";
+      } else if (myScore < oppScore - 3) {
+        verdictEl.textContent = "Trailing";
+      } else {
+        verdictEl.textContent = "Tight Round";
+      }
+    }
+
+    const listEl = document.getElementById("pairedClashesList");
+    const tbody = document.getElementById("pairingsTableBody");
+
+    if (listEl) {
+      if (pairings.length === 0) {
+        listEl.innerHTML = `
+          <div style="text-align:center;color:var(--text-muted);font-family:var(--font-mono);font-size:0.68rem;padding:18px 8px;">
+            Locked table clashes will stack here as cards are paired.
+          </div>
+        `;
+      } else {
+        listEl.innerHTML = pairings.map((m) => {
+          const myP = isCapB ? m.player_b : m.player_a;
+          const oppP = isCapB ? m.player_a : m.player_b;
+          const rawA = Number(m.est_score_a ?? m.matchup?.expected_a ?? m.a_expected ?? 10);
+          const myEst = isCapB ? (20 - rawA) : rawA;
+          return `
+            <div class="clash-mini-card">
+              <div class="clash-mini-top">
+                <span>TABLE #${m.table_num}</span>
+                <span>EST: ${myEst} - ${20 - myEst}</span>
+              </div>
+              <div class="clash-mini-players">
+                <div class="clash-side-a">
+                  ${this.escapeHtml(myP.name)}
+                  <span class="clash-side-sub">${this.escapeHtml(myP.faction)}</span>
+                </div>
+                <span class="clash-vs-pill">⚡ VS</span>
+                <div class="clash-side-b">
+                  ${this.escapeHtml(oppP.name)}
+                  <span class="clash-side-sub">${this.escapeHtml(oppP.faction)}</span>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+
+    if (tbody) {
+      tbody.innerHTML = pairings.map((m) => `
+        <tr>
+          <td>#${m.table_num}</td>
+          <td>${this.escapeHtml(m.player_a.name)} (${this.escapeHtml(m.player_a.faction)})</td>
+          <td>vs</td>
+          <td>${this.escapeHtml(m.player_b.name)} (${this.escapeHtml(m.player_b.faction)})</td>
+        </tr>
+      `).join("");
+    }
+  }
+
+  async applyDemoState(demoState) {
+    if (!this.room) return;
+    if (demoState === "lobby") {
+      this.openLobbyModal();
+      const sInp = document.getElementById("playerSearchInput");
+      if (sInp) {
+        sInp.value = "Innes";
+        this.renderSearchResults("Innes");
+      }
+      return;
+    }
+
+    // For active duel field demo states, close the Lobby Modal so the 3D playmat is front-and-center
+    this.closeLobbyModal();
+
+    if (demoState === "step2") {
+      // Lock Defender A1 so both Defenders reveal and we enter STEP_2_ATTACKERS, then stage A2 on mat
+      await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: "captain_a",
+          captain_token: this.captainTokens.captain_a,
+          action: "lock_defender",
+          payload: { player_id: "A1", vs_ai: true }
+        })
+      }).then((r) => r.json()).then((d) => {
+        if (d && d.ok) this.room = d.room;
+      });
+      this.selectedIds = ["A2"];
+      this.renderAll();
+    } else if (demoState === "step3_spectator") {
+      await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: "captain_a",
+          captain_token: this.captainTokens.captain_a,
+          action: "lock_defender",
+          payload: { player_id: "A1", vs_ai: true }
+        })
+      });
+      const r2 = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: "captain_a",
+          captain_token: this.captainTokens.captain_a,
+          action: "lock_attackers",
+          payload: { player_ids: ["A2", "A3"], vs_ai: true }
+        })
+      }).then((r) => r.json());
+      if (r2 && r2.ok) this.room = r2.room;
+      await this.switchRole("spectator");
+    } else if (demoState === "completed") {
+      await this.autoCompleteRemainingPhases();
+    }
+  }
+
+  copyShareUrl() {
+    if (!this.roomCode) return;
+    const url = `${window.location.origin}/admin/team-pairings?room=${encodeURIComponent(this.roomCode)}&role=spectator`;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).catch(() => {});
+    }
+    this.showToast(`Copied room link (${this.roomCode})!`);
+  }
+
+  copyPairingsSummary() {
+    if (!this.room || !this.room.pairings) return;
+    const lines = this.room.pairings.map(
+      (m) => `Table ${m.table_num}: ${m.player_a.name} (${m.player_a.faction}) vs ${m.player_b.name} (${m.player_b.faction})`
+    );
+    const txt = lines.join("\n") || "No tables paired yet.";
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(txt).catch(() => {});
+    }
+    this.showToast("Copied pairings summary to clipboard!");
+  }
+
+  showToast(msg) {
+    const el = document.getElementById("toastNotification");
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove("hidden");
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => {
+      el.classList.add("hidden");
+    }, 2800);
+  }
+
+  escapeHtml(str) {
+    return String(str ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  window.ygoPairingsArena = new YuGiOhPairingsArena();
+});

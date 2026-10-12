@@ -1990,6 +1990,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             fs_eng = get_firestore_engine()
             raw_room = fs_eng.create_pairing_room(p_load if isinstance(p_load, dict) else {})
             res = {
+                "ok": True,
                 "success": True,
                 "room_code": raw_room["room_code"],
                 "captain_a_token": raw_room["captain_a_token"],
@@ -7744,7 +7745,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps({"success": True, "room": masked}).encode("utf-8"))
+                self.wfile.write(json.dumps({"ok": True, "success": True, "room": masked}).encode("utf-8"))
             return
 
         if clean_path.startswith("api/"):

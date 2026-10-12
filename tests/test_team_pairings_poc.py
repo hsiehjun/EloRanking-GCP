@@ -336,6 +336,58 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertEqual(revealed_room["active_defender_a"]["id"], "A1")
         self.assertEqual(revealed_room["active_defender_b"]["id"], "B1")
 
+    def test_seat_selection_and_custom_searched_team_roster_builder(self):
+        """Verify Captains can claim seats and build custom 5-card team hands via player search."""
+        room = self.engine.create_pairing_room(
+            format_size="5v5",
+            team_a_preset="art_of_war",
+            team_b_preset="team_zero_comp",
+            vs_ai=True,
+            created_by="hsiehjun",
+        )
+        code = room["room_code"]
+        tok_a = room["captain_a_token"]
+
+        # Claim Captain A seat
+        seat_res = self.engine.apply_pairing_action(
+            code,
+            role="captain_a",
+            captain_token="",
+            action="claim_seat",
+            payload={},
+        )
+        self.assertTrue(seat_res["ok"])
+        self.assertEqual(seat_res["captain_token"], tok_a)
+
+        # Build custom 5-player hand from searched players
+        custom_players = [
+            {"name": "Nemo", "faction": "Adeptus Custodes", "elo": 2145, "role_tag": "Blunt / Defender"},
+            {"name": "conankun", "faction": "T'au Empire", "elo": 2120, "role_tag": "All-Rounder"},
+            {"name": "Innes Wilson", "faction": "Genestealer Cults", "elo": 2180, "role_tag": "Spear / Attacker"},
+            {"name": "Folger Pyles", "faction": "Adeptus Custodes", "elo": 2140, "role_tag": "Blunt / Defender"},
+            {"name": "Vik Vijay", "faction": "Grey Knights", "elo": 2112, "role_tag": "All-Rounder"},
+        ]
+        roster_res = self.engine.apply_pairing_action(
+            code,
+            role="captain_a",
+            captain_token=tok_a,
+            action="set_team_roster",
+            payload={
+                "team_name": "SoCal Vanguard",
+                "team_tag": "SCV",
+                "roster": custom_players,
+            },
+        )
+        self.assertTrue(roster_res["ok"])
+        updated_room = roster_res["room"]
+        self.assertEqual(updated_room["team_a"]["name"], "SoCal Vanguard")
+        self.assertEqual(updated_room["team_a"]["tag"], "SCV")
+        self.assertEqual(
+            [p["name"] for p in updated_room["team_a"]["roster"]],
+            ["Nemo", "conankun", "Innes Wilson", "Folger Pyles", "Vik Vijay"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
+

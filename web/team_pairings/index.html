@@ -3,253 +3,378 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#070b14">
-  <title>OmniTactica • 40K Team Pairings Minigame (Admin PoC)</title>
+  <meta name="theme-color" content="#050811">
+  <title>OmniTactica • Team Pairings Duel Arena (Admin PoC)</title>
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/team-pairings/styles.css">
 </head>
 <body>
-  <div class="pairings-app-shell">
-    <!-- Top Header -->
-    <header class="top-bar">
-      <div class="brand">
+  <div class="ygo-app-shell">
+    <!-- Compact Top Bar -->
+    <header class="ygo-topbar">
+      <div class="brand-group">
         <a href="/app" class="brand-logo-link">
           <img src="/assets/logo.svg" alt="OmniTactica" class="brand-logo" onerror="this.style.display='none'">
         </a>
-        <div>
-          <h1>OmniTactica <span class="accent">Team Pairings Lab</span></h1>
-          <span class="subtitle-tag">WTC 40K Captain Pairing Minigame • Firestore Live Room PoC (Admin Only)</span>
+        <div class="brand-titles">
+          <h1>Team Pairings Lab <span class="gold-tag">CARD DUEL ARENA</span></h1>
         </div>
       </div>
 
-      <div class="room-bar">
-        <span class="room-code-pill" id="roomCodeBadge" title="Active Firestore Pairing Room Code">ROOM: ----</span>
-        <div class="room-join-group">
-          <input type="text" id="joinRoomInput" class="room-input" placeholder="Room Code (e.g. WTC-A1)" maxlength="14">
-          <button type="button" id="btnJoinRoom" class="btn btn-sm btn-outline">Join Room</button>
-          <button type="button" id="btnCopyRoomLink" class="btn btn-sm btn-outline" title="Copy Spectator / Captain Room Code">📋 Share</button>
-        </div>
+      <!-- Quick Seat Pills & Room Code -->
+      <div class="topbar-center" id="roleSelectorPills">
+        <span class="room-code-pill" id="roomCodeBadge">ROOM: ----</span>
+        <button type="button" class="seat-chip active" id="btnRoleCapA" data-role="captain_a">👑 Team A Cap</button>
+        <button type="button" class="seat-chip" id="btnRoleCapB" data-role="captain_b">👑 Team B Cap</button>
+        <button type="button" class="seat-chip" id="btnRoleSpectator" data-role="spectator">👁️ Spectator</button>
+        <button type="button" class="btn-lobby-open" id="btnOpenLobbyModal">🪑 Seats &amp; Build Team</button>
       </div>
 
-      <div class="nav-actions">
-        <a href="/admin/dice-tracker" class="nav-link-btn" title="Open CV Dice Lab">📹 CV Dice</a>
-        <a href="/admin" class="nav-link-btn" title="Open Admin Governance Cockpit">🛡️ Admin</a>
-        <a href="/app" class="nav-link-btn" title="Return to Main App">🏠 App</a>
+      <div class="topbar-right">
+        <label class="ai-quick-toggle" title="Auto-play opposing Captain">
+          <input type="checkbox" id="chkVsAi" checked>
+          <span>🤖 vs AI</span>
+        </label>
+        <button type="button" id="btnAutoFinish" class="top-action-btn accent">⚡ Auto-Duel</button>
+        <button type="button" id="btnNewMatch" class="top-action-btn">🔄 New Room</button>
+        <a href="/admin/dice-tracker" class="top-action-btn">📹 CV Dice</a>
+        <a href="/admin" class="top-action-btn">🛡️ Admin</a>
+        <a href="/app" class="top-action-btn">🏠 App</a>
       </div>
     </header>
 
-    <!-- Role & Match Setup Control Strip -->
-    <section class="control-strip">
-      <div class="role-switcher-group">
-        <span class="control-label">Active Seat / View:</span>
-        <div class="role-pills" id="roleSelectorPills">
-          <button type="button" class="role-pill active" id="btnRoleCapA" data-role="captain_a">
-            👑 Team A Captain <span class="role-perm-tag">CAN ACT</span>
-          </button>
-          <button type="button" class="role-pill" id="btnRoleCapB" data-role="captain_b">
-            👑 Team B Captain <span class="role-perm-tag">CAN ACT</span>
-          </button>
-          <button type="button" class="role-pill" id="btnRoleSpectator" data-role="spectator">
-            👁️ Spectator <span class="role-perm-tag readonly">VIEW ONLY</span>
-          </button>
-        </div>
-      </div>
-
-      <div class="match-setup-group">
-        <label class="setup-field">
-          <span>Format</span>
-          <select id="selectFormat" class="setup-select">
-            <option value="5v5" selected>5v5 Standard (5 Tables)</option>
-            <option value="8v8">8v8 WTC National (8 Tables)</option>
-          </select>
-        </label>
-        <label class="setup-field">
-          <span>Team A</span>
-          <select id="selectTeamA" class="setup-select">
-            <option value="art_of_war" selected>Art of War (AOW)</option>
-            <option value="team_zero_comp">Team Zero Comp (TZC)</option>
-            <option value="stat_check">Stat Check (STC)</option>
-            <option value="team_ignite">Team Ignite (IGN)</option>
-          </select>
-        </label>
-        <label class="setup-field">
-          <span>Team B</span>
-          <select id="selectTeamB" class="setup-select">
-            <option value="team_zero_comp" selected>Team Zero Comp (TZC)</option>
-            <option value="art_of_war">Art of War (AOW)</option>
-            <option value="stat_check">Stat Check (STC)</option>
-            <option value="team_ignite">Team Ignite (IGN)</option>
-          </select>
-        </label>
-        <label class="setup-toggle" title="When enabled, Team B Captain automatically locks smart WTC picks so you can play solo">
-          <input type="checkbox" id="chkVsAi" checked>
-          <span>🤖 Smart AI Captain B</span>
-        </label>
-        <button type="button" id="btnNewMatch" class="btn btn-sm btn-primary">🔄 New Pairing Room</button>
-        <button type="button" id="btnAutoFinish" class="btn btn-sm btn-accent" title="Simulate the remaining pairing steps to inspect full match pairings">⚡ Auto-Pair Rest</button>
-      </div>
-    </section>
-
-    <!-- Spectator Read-Only Notice Banner (Shown only when viewing as Spectator) -->
-    <div id="spectatorBanner" class="spectator-banner hidden">
-      <span>👁️ <strong>SPECTATOR MODE (READ-ONLY)</strong> — Anyone with the room code can watch live pairings, but only the <strong>Team A Captain</strong> (1 player) and <strong>Team B Captain</strong> (1 player) can select or lock cards.</span>
+    <!-- Spectator Read-Only Banner -->
+    <div id="spectatorBanner" class="spectator-strip hidden">
+      👁️ <strong>SPECTATOR VIEW (READ-ONLY)</strong> — Watching live duel field. Only the 2 Team Captains can place or flip cards.
     </div>
 
-    <!-- WTC Pairing Protocol Stepper & Phase Instruction Banner -->
-    <section class="phase-banner" id="phaseBanner">
-      <div class="phase-steps-row">
-        <div class="cycle-badge" id="cycleBadge">CYCLE 1 OF 2</div>
-        <div class="stepper-track">
-          <div class="step-pill active" id="stepPillDefender">
-            <span class="step-num">1</span>
-            <span class="step-txt">Put Defender (1 Card)</span>
+    <!-- Main 3-Zone Yu-Gi-Oh! Duel Screen -->
+    <div class="ygo-duel-stage">
+      <!-- 1. LEFT PANEL: Card Inspector (Yu-Gi-Oh style full card detail view) -->
+      <aside class="ygo-inspector-panel" id="cardInspectorPanel">
+        <div class="inspector-card-frame" id="inspectorCardFrame">
+          <div class="insp-header">
+            <span class="insp-name" id="inspCardName">Richard Siegler</span>
+            <span class="insp-attribute" id="inspCardIcon">🔮</span>
           </div>
-          <span class="step-arrow">→</span>
-          <div class="step-pill" id="stepPillAttackers">
-            <span class="step-num">2</span>
-            <span class="step-txt">Send 2 Attackers (2 Cards)</span>
+          <div class="insp-stars" id="inspCardStars">★★★★★★★★</div>
+          <div class="insp-art-box" id="inspCardArtBox">
+            <div class="insp-art-glow"></div>
+            <div class="insp-big-emblem" id="inspBigEmblem">🔮</div>
+            <div class="insp-faction-banner" id="inspCardFaction">Aeldari</div>
           </div>
-          <span class="step-arrow">→</span>
-          <div class="step-pill" id="stepPillChoose">
-            <span class="step-num">3</span>
-            <span class="step-txt">Defender Picks Matchup</span>
-          </div>
-          <span class="step-arrow">→</span>
-          <div class="step-pill" id="stepPillComplete">
-            <span class="step-num">✓</span>
-            <span class="step-txt">All Pairings Set</span>
-          </div>
-        </div>
-        <div class="captain-status-pills">
-          <span class="cap-lock-pill" id="capAStatusPill">AOW Cap: ⏳ Selecting</span>
-          <span class="cap-lock-pill" id="capBStatusPill">TZC Cap: ⏳ Selecting</span>
-        </div>
-      </div>
-      <div class="phase-instruction-bar">
-        <div class="phase-prompt" id="phasePromptText">
-          Step 1 (Blind Defender): Select <strong>1 Defender Card</strong> from your bench to put forward. Both Defenders reveal simultaneously once locked!
-        </div>
-        <div class="captain-action-buttons">
-          <span id="selectionHintBadge" class="selection-hint-badge">Selected: 0 / 1</span>
-          <button type="button" id="btnLockSelection" class="btn btn-lock" disabled>🔒 Lock In Selection</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- Main 3-Column Tactical Pairing Arena -->
-    <main class="pairing-board">
-      <!-- Left Column: Team A Available Bench -->
-      <section class="bench-column team-a-col">
-        <div class="bench-header">
-          <div>
-            <div class="team-title-row">
-              <span class="team-tag-badge team-a-tag" id="teamATagBadge">AOW</span>
-              <h2 id="teamANameTitle">Art of War</h2>
+          <div class="insp-type-box">
+            <div class="insp-type-line" id="inspCardTypeLine">[ Aeldari / Warhost ]</div>
+            <div class="insp-desc-text" id="inspCardDesc">
+              Tactical Role: <strong>Blunt / Defender</strong>. Click this card in your hand at the bottom to place it onto the glowing field slot.
             </div>
-            <div class="captain-sub" id="teamACaptainLabel">👑 Captain: Richard Siegler</div>
-          </div>
-          <span class="bench-count-badge" id="teamABenchCount">5 Available</span>
-        </div>
-        <div class="cards-list" id="teamABenchCards"></div>
-      </section>
-
-      <!-- Center Column: Active WTC Clash Arena (Duel Pods A & B) -->
-      <section class="clash-arena-column">
-        <div class="arena-header">
-          <h3>⚔️ Active Pairing Clash Arena</h3>
-          <span class="arena-sub" id="arenaStatusSub">Simultaneous Blind Reveal • Cards flip when both Captains lock in</span>
-        </div>
-
-        <!-- Duel Pod 1: Team A Defender vs Team B Attackers -->
-        <div class="duel-pod pod-team-a" id="duelPodA">
-          <div class="duel-pod-title">
-            <span class="pod-badge team-a-pod-badge">DUEL POD A</span>
-            <span id="duelPodALabel">Team A Defender vs. Team B Attackers</span>
-          </div>
-          <div class="duel-pod-grid">
-            <div class="pod-defender-slot" id="podADefenderSlot"></div>
-            <div class="pod-vs-divider"><span>VS</span></div>
-            <div class="pod-attackers-slot" id="podAAttackersSlot"></div>
-          </div>
-        </div>
-
-        <!-- Duel Pod 2: Team B Defender vs Team A Attackers -->
-        <div class="duel-pod pod-team-b" id="duelPodB">
-          <div class="duel-pod-title">
-            <span class="pod-badge team-b-pod-badge">DUEL POD B</span>
-            <span id="duelPodBLabel">Team B Defender vs. Team A Attackers</span>
-          </div>
-          <div class="duel-pod-grid">
-            <div class="pod-attackers-slot" id="podBAttackersSlot"></div>
-            <div class="pod-vs-divider"><span>VS</span></div>
-            <div class="pod-defender-slot" id="podBDefenderSlot"></div>
-          </div>
-        </div>
-
-        <!-- Live Pairing Protocol Log -->
-        <div class="protocol-log-card">
-          <div class="protocol-log-header">
-            <span>📜 Live WTC Pairing Feed</span>
-            <span class="firestore-sync-dot">🟢 Firestore Room Synced</span>
-          </div>
-          <ul class="protocol-log-list" id="protocolLogList"></ul>
-        </div>
-      </section>
-
-      <!-- Right Column: Team B Available Bench -->
-      <section class="bench-column team-b-col">
-        <div class="bench-header">
-          <div>
-            <div class="team-title-row">
-              <span class="team-tag-badge team-b-tag" id="teamBTagBadge">TZC</span>
-              <h2 id="teamBNameTitle">Team Zero Comp</h2>
+            <div class="insp-matchup-box hidden" id="inspMatchupBox">
+              <span>VS ENEMY DEFENDER:</span>
+              <strong id="inspMatchupVal">12 - 8 (FAVORED)</strong>
             </div>
-            <div class="captain-sub" id="teamBCaptainLabel">👑 Captain: Mani Cheema</div>
+            <div class="insp-stats-bar">
+              <span>ELO / <strong id="inspCardElo">2185</strong></span>
+              <span>ROLE / <strong id="inspCardRoleShort">DEF</strong></span>
+            </div>
           </div>
-          <span class="bench-count-badge" id="teamBBenchCount">5 Available</span>
         </div>
-        <div class="cards-list" id="teamBBenchCards"></div>
-      </section>
-    </main>
 
-    <!-- Bottom Section: Finalized Round Pairings Table & Projected Team Score -->
-    <section class="locked-pairings-section" id="lockedPairingsSection">
-      <div class="pairings-header">
-        <div>
-          <h2>🏆 Locked Match Pairings (<span id="lockedCountLabel">0 / 5</span> Tables Set)</h2>
-          <p class="pairings-sub">Each locked Defender-vs-Attacker choice and endgame remainder auto-populates below.</p>
+        <!-- Room Join / Share Mini Box under Inspector -->
+        <div class="inspector-room-box">
+          <div class="room-box-row">
+            <input type="text" id="joinRoomInput" class="room-code-input" placeholder="Room Code" maxlength="14">
+            <button type="button" id="btnJoinRoom" class="room-mini-btn">Join</button>
+            <button type="button" id="btnCopyRoomLink" class="room-mini-btn">📋 Share</button>
+          </div>
         </div>
-        <div class="projected-score-box" id="projectedScoreBox">
-          <span class="proj-label">Projected WTC Round Score:</span>
-          <span class="proj-val" id="projectedScoreValue">0 – 0</span>
-          <span class="proj-verdict" id="projectedVerdictBadge">Awaiting Pairings</span>
-          <button type="button" id="btnCopyPairings" class="btn btn-sm btn-outline">📋 Copy Pairings</button>
+      </aside>
+
+      <!-- 2. CENTER PANEL: First-Person 3D Tactical Playmat (Opponent Top, Field Center, Your Hand Bottom) -->
+      <main class="ygo-field-center">
+        <!-- TOP EDGE: Opponent's Fanned Face-Down Hand -->
+        <div class="opp-hand-area">
+          <div class="opp-hand-fan" id="oppHandFan"></div>
+        </div>
+
+        <!-- 3D PERSPECTIVE PLAYMAT -->
+        <div class="ygo-playmat-3d" id="duelPodA">
+          <div class="playmat-grid-lines" id="duelPodB"></div>
+
+          <!-- OPPONENT'S FIELD ROW (Top Half of Mat) -->
+          <div class="field-row opponent-field-row">
+            <div class="deck-zone opp-deck-zone" title="Opponent Remaining Bench">
+              <div class="deck-stack">
+                <span class="deck-count" id="oppBenchCountBadge">5</span>
+                <span class="deck-lbl">HAND</span>
+              </div>
+            </div>
+
+            <div class="main-zones-group">
+              <!-- Opponent Defender Slot -->
+              <div class="field-slot defender-slot opp-def-slot" id="oppDefenderSlot">
+                <div class="slot-zone-label">ENEMY DEFENDER</div>
+                <div class="slot-card-mount" id="oppDefenderMount"></div>
+              </div>
+
+              <!-- Opponent 2 Attackers Slots (Attacking YOUR Defender!) -->
+              <div class="field-slot attackers-double-slot opp-att-slot" id="oppAttackersSlot">
+                <div class="slot-zone-label">ENEMY ATTACKERS (VS YOUR DEFENDER)</div>
+                <div class="double-card-mounts" id="oppAttackersMount"></div>
+              </div>
+            </div>
+
+            <div class="deck-zone opp-paired-zone" title="Locked Tables">
+              <div class="deck-stack">
+                <span class="deck-count" id="matPairedCountTop">0/5</span>
+                <span class="deck-lbl">PAIRED</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- CENTER BATTLE LINE: Yu-Gi-Oh Phase Tokens + Single Action Callout + Confirm Button -->
+          <div class="battle-line-strip" id="phaseBanner">
+            <div class="ygo-phase-tokens">
+              <span class="cycle-chip" id="cycleBadge">CYCLE 1/2</span>
+              <div class="phase-token active" id="stepPillDefender" title="Phase 1: Place 1 Defender Face-Down">
+                <span class="pt-code">DP</span>
+                <span class="pt-name">1. DEFENDER</span>
+              </div>
+              <div class="phase-token" id="stepPillAttackers" title="Phase 2: Place 2 Attackers Face-Down">
+                <span class="pt-code">AP</span>
+                <span class="pt-name">2. ATTACKERS</span>
+              </div>
+              <div class="phase-token" id="stepPillChoose" title="Phase 3: Pick 1 Enemy Attacker for Your Defender">
+                <span class="pt-code">BP</span>
+                <span class="pt-name">3. CLASH PICK</span>
+              </div>
+              <div class="phase-token" id="stepPillComplete" title="All Match Pairings Set">
+                <span class="pt-code">EP</span>
+                <span class="pt-name">DONE</span>
+              </div>
+            </div>
+
+            <div class="battle-action-center">
+              <span class="action-callout-pill" id="phasePromptText">YOUR TURN: CLICK 1 CARD IN YOUR HAND TO SET AS DEFENDER</span>
+              <button type="button" id="btnLockSelection" class="ygo-confirm-btn" disabled>
+                🔒 LOCK IN CARD
+              </button>
+            </div>
+          </div>
+
+          <!-- YOUR FIELD ROW (Bottom Half of Mat — Always Your Perspective!) -->
+          <div class="field-row player-field-row">
+            <div class="deck-zone my-paired-zone">
+              <div class="deck-stack">
+                <span class="deck-count" id="selectionHintBadge">0/1</span>
+                <span class="deck-lbl">READY</span>
+              </div>
+            </div>
+
+            <div class="main-zones-group">
+              <!-- Your Defender Slot -->
+              <div class="field-slot defender-slot my-def-slot" id="myDefenderSlot">
+                <div class="slot-zone-label">YOUR DEFENDER ZONE</div>
+                <div class="slot-card-mount" id="myDefenderMount"></div>
+              </div>
+
+              <!-- Your 2 Attackers Slots (Attacking Enemy Defender!) -->
+              <div class="field-slot attackers-double-slot my-att-slot" id="myAttackersSlot">
+                <div class="slot-zone-label">YOUR 2 ATTACKERS (VS ENEMY DEFENDER)</div>
+                <div class="double-card-mounts" id="myAttackersMount"></div>
+              </div>
+            </div>
+
+            <div class="deck-zone my-deck-zone" title="Your Remaining Hand">
+              <div class="deck-stack">
+                <span class="deck-count" id="myBenchCountBadge">5</span>
+                <span class="deck-lbl">HAND</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- BOTTOM EDGE: YOUR HAND OF UPRIGHT COLLECTIBLE PLAYER CARDS -->
+        <div class="my-hand-area">
+          <div class="my-hand-label-pill">
+            <span id="myHandOwnerTitle">YOUR HAND (CLICK A CARD TO PLACE ON FIELD)</span>
+          </div>
+          <div class="my-hand-fan" id="myHandFan"></div>
+        </div>
+      </main>
+
+      <!-- 3. RIGHT PANEL: Duelist HUD Counters + Paired Matchups Stack -->
+      <aside class="ygo-right-hud">
+        <!-- Opponent Duelist LP/Status Box -->
+        <div class="duelist-lp-box opponent-box">
+          <div class="duelist-avatar opp-avatar">👹</div>
+          <div class="duelist-info">
+            <div class="duelist-team-row">
+              <span class="duelist-tag opp-tag" id="oppHudTag">TZC</span>
+              <span class="duelist-name" id="oppHudTeamName">Team Zero Comp</span>
+            </div>
+            <div class="duelist-sub" id="oppHudCaptain">Cap: Mani Cheema</div>
+            <div class="duelist-status-pill" id="capBStatusPill">⏳ THINKING</div>
+          </div>
+        </div>
+
+        <!-- Your Duelist LP/Status Box -->
+        <div class="duelist-lp-box player-box">
+          <div class="duelist-avatar my-avatar">👑</div>
+          <div class="duelist-info">
+            <div class="duelist-team-row">
+              <span class="duelist-tag my-tag" id="myHudTag">AOW</span>
+              <span class="duelist-name" id="myHudTeamName">Art of War</span>
+            </div>
+            <div class="duelist-sub" id="myHudCaptain">Cap: Richard Siegler</div>
+            <div class="duelist-status-pill" id="capAStatusPill">⏳ YOUR MOVE</div>
+          </div>
+        </div>
+
+        <!-- Paired Matchups Dock (Shows each locked Table 1..5) -->
+        <div class="paired-tables-dock" id="lockedPairingsSection">
+          <div class="dock-header">
+            <div>
+              <h3>⚔️ PAIRED TABLES (<span id="lockedCountLabel">0 / 5</span>)</h3>
+            </div>
+            <button type="button" id="btnCopyPairings" class="dock-copy-btn" title="Copy Pairings">📋</button>
+          </div>
+          <div class="proj-score-strip">
+            <span>EST. SCORE:</span>
+            <strong id="projectedScoreValue">0 – 0</strong>
+            <span class="proj-badge" id="projectedVerdictBadge">In Progress</span>
+          </div>
+
+          <!-- Visual Card Clash List -->
+          <div class="paired-clashes-list" id="pairedClashesList"></div>
+
+          <!-- Hidden compatibility table for unit tests -->
+          <table class="hidden">
+            <tbody id="pairingsTableBody"></tbody>
+          </table>
+        </div>
+      </aside>
+    </div>
+
+    <!-- ROOM ENTRY LOBBY & PLAYER SEARCH DECK BUILDER MODAL -->
+    <div class="lobby-modal-backdrop" id="lobbyModalBackdrop">
+      <div class="lobby-modal-card">
+        <div class="lobby-modal-header">
+          <div>
+            <h2>⚔️ ENTER DUEL ROOM &amp; SELECT YOUR SEAT</h2>
+            <p>Choose your seat below. Captains can search and select any 5 players to build their Team Card Hand!</p>
+          </div>
+          <button type="button" class="lobby-close-btn" id="btnCloseLobbyModal" title="Return to Duel Field">✕</button>
+        </div>
+
+        <!-- Step 1: Select Your Seat -->
+        <div class="lobby-section">
+          <div class="lobby-step-title">1. SELECT YOUR SEAT IN ROOM <span class="lobby-room-pill" id="lobbyRoomCodeText">WTC-NEW</span></div>
+          <div class="lobby-seats-grid">
+            <div class="lobby-seat-card active" id="lobbySeatCapA" data-seat="captain_a">
+              <div class="seat-icon">👑</div>
+              <div class="seat-title">Team A Captain</div>
+              <div class="seat-desc">1 Player Seat • Build Team A Hand &amp; Place Cards from Bottom View</div>
+              <span class="seat-badge can-act">INTERACTIVE SEAT</span>
+            </div>
+            <div class="lobby-seat-card" id="lobbySeatCapB" data-seat="captain_b">
+              <div class="seat-icon">🔥</div>
+              <div class="seat-title">Team B Captain</div>
+              <div class="seat-desc">1 Player Seat • Build Team B Hand &amp; Place Cards from Bottom View</div>
+              <span class="seat-badge can-act">INTERACTIVE SEAT</span>
+            </div>
+            <div class="lobby-seat-card" id="lobbySeatSpectator" data-seat="spectator">
+              <div class="seat-icon">👁️</div>
+              <div class="seat-title">Spectator</div>
+              <div class="seat-desc">Unlimited Viewers • Watch the Card Duel Live (Cannot Touch Cards)</div>
+              <span class="seat-badge view-only">VIEW ONLY</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2: Build Your Team Hand via Player Search (Shown for Captain A or Captain B) -->
+        <div class="lobby-section" id="lobbyDeckBuilderSection">
+          <div class="lobby-builder-top">
+            <div class="lobby-step-title">
+              2. BUILD YOUR 5-CARD TEAM HAND (<span id="lobbyDeckCountLabel">5 / 5</span> CARDS)
+            </div>
+            <div class="lobby-team-meta">
+              <label>
+                <span>Team Name:</span>
+                <input type="text" id="lobbyTeamNameInput" class="lobby-input" value="Art of War" maxlength="28">
+              </label>
+              <label>
+                <span>Format:</span>
+                <select id="selectFormat" class="lobby-select">
+                  <option value="5v5" selected>5v5 (5 Cards)</option>
+                  <option value="8v8">8v8 (8 Cards)</option>
+                </select>
+              </label>
+              <button type="button" id="btnQuickFillTeam" class="lobby-mini-btn">⚡ Auto-Fill Pro Team</button>
+              <button type="button" id="btnClearTeamHand" class="lobby-mini-btn danger">🗑️ Clear Hand</button>
+            </div>
+          </div>
+
+          <!-- Player Search Bar + Faction Picker -->
+          <div class="player-search-bar-wrap">
+            <div class="search-input-box">
+              <span class="search-icon">🔍</span>
+              <input
+                type="text"
+                id="playerSearchInput"
+                class="player-search-input"
+                placeholder="Search players by name or faction (e.g. Siegler, Innes, Lennon, Mani, Necrons, Aeldari)..."
+                autocomplete="off"
+              >
+            </div>
+            <select id="playerSearchFactionOverride" class="lobby-select" title="Optional Faction Override when adding player">
+              <option value="">Default Player Faction</option>
+              <option value="Aeldari">🔮 Aeldari</option>
+              <option value="Necrons">💀 Necrons</option>
+              <option value="Adeptus Custodes">🦅 Adeptus Custodes</option>
+              <option value="Space Marines">⚡ Space Marines</option>
+              <option value="Blood Angels">🩸 Blood Angels</option>
+              <option value="Dark Angels">🗡️ Dark Angels</option>
+              <option value="World Eaters">🩸 World Eaters</option>
+              <option value="Thousand Sons">👁️ Thousand Sons</option>
+              <option value="Death Guard">☣️ Death Guard</option>
+              <option value="T'au Empire">🎯 T'au Empire</option>
+              <option value="Orks">🪓 Orks</option>
+              <option value="Tyranids">🦂 Tyranids</option>
+              <option value="Astra Militarum">🛡️ Astra Militarum</option>
+              <option value="Chaos Daemons">👹 Chaos Daemons</option>
+              <option value="Chaos Space Marines">🔥 Chaos Space Marines</option>
+              <option value="Drukhari">🕷️ Drukhari</option>
+              <option value="Grey Knights">⚔️ Grey Knights</option>
+              <option value="Sisters of Battle">⚜️ Sisters of Battle</option>
+              <option value="Imperial Knights">🏰 Imperial Knights</option>
+              <option value="Chaos Knights">🤖 Chaos Knights</option>
+              <option value="Leagues of Votann">⛏️ Leagues of Votann</option>
+            </select>
+          </div>
+
+          <!-- Search Results Strip (Click a player to add to your 5-card hand) -->
+          <div class="search-results-strip" id="playerSearchResults"></div>
+
+          <!-- Your 5-Card Hand Slot Tray -->
+          <div class="lobby-hand-tray" id="lobbyHandTray"></div>
+        </div>
+
+        <!-- Lobby Footer Actions -->
+        <div class="lobby-modal-footer">
+          <div class="lobby-footer-left">
+            <span id="lobbyStatusHint">Ready! Click Enter Duel Arena to start placing cards.</span>
+          </div>
+          <div class="lobby-footer-actions">
+            <button type="button" class="ygo-confirm-btn large" id="btnStartDuelFromLobby">
+              ⚔️ ENTER DUEL ARENA
+            </button>
+          </div>
         </div>
       </div>
-
-      <div class="pairings-table-wrap">
-        <table class="pairings-table">
-          <thead>
-            <tr>
-              <th>Table</th>
-              <th>Pairing Source</th>
-              <th>Team A Player</th>
-              <th>Matchup</th>
-              <th>Team B Player</th>
-              <th>Est. WTC (0–20)</th>
-            </tr>
-          </thead>
-          <tbody id="pairingsTableBody">
-            <tr>
-              <td colspan="6" class="empty-pairings-cell">No pairings locked yet. Complete Step 1 → Step 2 → Step 3 above to lock tables!</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
+    </div>
   </div>
 
   <div id="toastNotification" class="toast-notification hidden"></div>
