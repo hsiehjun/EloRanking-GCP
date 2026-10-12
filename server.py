@@ -228,6 +228,8 @@ async def add_security_cache_and_rate_limit(request: Request, call_next):
         path.startswith("/11th") or
         path.startswith("/dice-tracker") or
         path.startswith("/admin/dice-tracker") or
+        path.startswith("/team-pairings") or
+        path.startswith("/admin/team-pairings") or
         path.startswith("/scorecard") or
         path.startswith("/aos") or
         path.startswith("/40k") or
@@ -1048,6 +1050,115 @@ def serve_dice_tracker_onnx():
             headers={"Cache-Control": "public, max-age=86400"},
         )
     raise HTTPException(status_code=404, detail="dice_tracker/yolov8n_dice.onnx not found")
+
+
+@app.get("/admin/team-pairings", include_in_schema=False)
+@app.get("/admin/team-pairings.html", include_in_schema=False)
+@app.get("/team-pairings", include_in_schema=False)
+@app.get("/team-pairings/", include_in_schema=False)
+def serve_admin_team_pairings(request: Request, token: Optional[str] = Query(None)):
+    auth_mgr = get_auth_manager()
+    auth_header = request.headers.get("Authorization", "")
+    session_token = (
+        token
+        or request.cookies.get("session_token")
+        or request.cookies.get("elo_auth_token")
+        or request.cookies.get("native_session_token")
+        or (auth_header[7:].strip() if auth_header.startswith("Bearer ") else None)
+    )
+    user = auth_mgr.get_session(session_token) if session_token else None
+    user_email = ((user.get("email") or "") if user else "").strip().lower()
+    user_role = ((user.get("role") or "") if user else "").strip().lower()
+    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
+    is_admin = bool(user) and (
+        user.get("is_admin") is True
+        or user_role in ("admin", "superuser", "developer", "owner")
+        or (bool(superadmin_email) and user_email == superadmin_email)
+    )
+    if not is_admin:
+        if not user:
+            return _clear_stale_auth_cookies(
+                RedirectResponse(url="/login?redirect=/admin/team-pairings", status_code=303, headers=NO_CACHE_HEADERS)
+            )
+        return RedirectResponse(url="/", status_code=303, headers=NO_CACHE_HEADERS)
+    tp_file = web_dir / "team_pairings" / "index.html"
+    if tp_file.exists():
+        return FileResponse(str(tp_file), media_type="text/html", headers=NO_CACHE_HEADERS)
+    raise HTTPException(status_code=404, detail="team_pairings/index.html not found")
+
+
+@app.get("/team-pairings/styles.css", include_in_schema=False)
+@app.get("/admin/team-pairings/styles.css", include_in_schema=False)
+def serve_team_pairings_css():
+    css_file = web_dir / "team_pairings" / "styles.css"
+    if css_file.exists():
+        return FileResponse(str(css_file), media_type="text/css", headers=NO_CACHE_HEADERS)
+    raise HTTPException(status_code=404, detail="team_pairings/styles.css not found")
+
+
+@app.get("/team-pairings/app.js", include_in_schema=False)
+@app.get("/admin/team-pairings/app.js", include_in_schema=False)
+def serve_team_pairings_js():
+    js_file = web_dir / "team_pairings" / "app.js"
+    if js_file.exists():
+        return FileResponse(str(js_file), media_type="application/javascript", headers=NO_CACHE_HEADERS)
+    raise HTTPException(status_code=404, detail="team_pairings/app.js not found")
+
+
+@app.post("/api/team-pairings/room", include_in_schema=False)
+async def api_create_team_pairing_room(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    fs_engine = get_firestore_engine()
+    raw_room = fs_engine.create_pairing_room(body if isinstance(body, dict) else {})
+    return JSONResponse(
+        {
+            "success": True,
+            "room_code": raw_room["room_code"],
+            "captain_a_token": raw_room["captain_a_token"],
+            "captain_b_token": raw_room["captain_b_token"],
+            "room": fs_engine.mask_pairing_room_for_viewer(raw_room, force_role="captain_a"),
+        },
+        headers=NO_CACHE_HEADERS,
+    )
+
+
+@app.get("/api/team-pairings/room/{room_code}", include_in_schema=False)
+def api_get_team_pairing_room(
+    room_code: str,
+    role: Optional[str] = Query(None),
+    force_role: Optional[str] = Query(None),
+    captain_token: Optional[str] = Query(None),
+    role_token: Optional[str] = Query(None),
+):
+    fs_engine = get_firestore_engine()
+    raw_room = fs_engine.get_pairing_room_raw(room_code)
+    if not raw_room:
+        raise HTTPException(status_code=404, detail=f"Pairing room '{room_code}' not found")
+    masked = fs_engine.mask_pairing_room_for_viewer(
+        raw_room,
+        role_token=captain_token or role_token,
+        force_role=role or force_role,
+    )
+    return JSONResponse({"success": True, "room": masked}, headers=NO_CACHE_HEADERS)
+
+
+@app.post("/api/team-pairings/room/{room_code}/action", include_in_schema=False)
+async def api_action_team_pairing_room(room_code: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    fs_engine = get_firestore_engine()
+    res = fs_engine.apply_pairing_action(room_code, body if isinstance(body, dict) else {})
+    if isinstance(res, tuple):
+        status_code, resp_data = res
+    else:
+        resp_data = res
+        status_code = int(resp_data.get("status_code", 200))
+    return JSONResponse(resp_data, status_code=status_code, headers=NO_CACHE_HEADERS)
 
 
 

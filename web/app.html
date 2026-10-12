@@ -91,6 +91,10 @@
         window.location.href = '/admin/dice-tracker';
         return;
       }
+      if (val === 'team-pairings') {
+        window.location.href = '/admin/team-pairings';
+        return;
+      }
       if (val === 'settings') {
         if (typeof openUserSettingsModal === 'function') openUserSettingsModal();
         var mob = document.getElementById('mobile-nav-select');
@@ -414,6 +418,7 @@
           <option value="search">🔍 Search Directory</option>
           <option disabled id="mobile-opt-divider">──────────</option>
           <option value="dice-tracker" id="mobile-opt-dice-tracker" style="display: none;">📹 CV Dice Lab (Admin)</option>
+          <option value="team-pairings" id="mobile-opt-team-pairings" style="display: none;">⚔️ Team Pairings (Admin)</option>
           <option value="feedback" id="mobile-opt-feedback">💬 Send Feedback</option>
           <option value="settings" id="mobile-opt-settings">⚙️ Account Settings</option>
           <option value="logout" id="mobile-opt-logout">🚪 Sign Out</option>
@@ -4574,6 +4579,14 @@
           <div class="menu-text">
             <div class="menu-title">CV Dice Lab <span class="to-pill" style="color:#a78bfa; border-color:rgba(139,92,246,0.45); background:rgba(139,92,246,0.18);">ADMIN</span></div>
             <div class="menu-desc">Camera & simulated real-time dice tracker</div>
+          </div>
+          <span class="menu-chevron">›</span>
+        </button>
+        <button type="button" class="mobile-menu-row" id="mobile-sheet-team-pairings-btn" onclick="closeMobileMoreSheet(); window.location.href='/admin/team-pairings';" style="display: none;">
+          <span class="menu-icon">⚔️</span>
+          <div class="menu-text">
+            <div class="menu-title">Team Pairings Lab <span class="to-pill" style="color:#38bdf8; border-color:rgba(56,189,248,0.45); background:rgba(56,189,248,0.18);">ADMIN</span></div>
+            <div class="menu-desc">WTC 5v5 & 8v8 captain pairing minigame</div>
           </div>
           <span class="menu-chevron">›</span>
         </button>

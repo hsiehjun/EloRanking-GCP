@@ -68,6 +68,7 @@ class FirestoreRoomEngine:
         self._discarded_rooms: Dict[str, float] = {}
         self._fallback_tournaments: Dict[str, Any] = {}
         self._fallback_judge_calls: Dict[str, Dict[str, Any]] = {}
+        self._fallback_pairing_rooms: Dict[str, Dict[str, Any]] = {}
         self._init_client()
 
     def _init_client(self):
@@ -2161,6 +2162,723 @@ class FirestoreRoomEngine:
             logger.warning(f"Notice during rooms cleanup: {e}")
 
         return deleted_counts
+
+    # =========================================================================
+    # WARHAMMER 40,000 TEAM PAIRING MINIGAME ROOM ENGINE (WTC 5v5 & 8v8)
+    # =========================================================================
+
+    TEAM_PAIRING_PRESETS: Dict[str, Dict[str, Any]] = {
+        "art_of_war": {
+            "id": "art_of_war",
+            "name": "Art of War",
+            "short_tag": "AOW",
+            "captain_name": "Richard Siegler",
+            "roster": [
+                {"id": "aow_1", "name": "Richard Siegler", "faction": "Aeldari", "detachment": "Warhost", "elo": 2185, "role": "Blunt / Defender", "win_rate": 82},
+                {"id": "aow_2", "name": "John Lennon", "faction": "Space Marines", "detachment": "Gladius Task Force", "elo": 2152, "role": "All-Rounder", "win_rate": 79},
+                {"id": "aow_3", "name": "Jack Harpster", "faction": "Blood Angels", "detachment": "Liberator Assault Group", "elo": 2118, "role": "Spear / Slayer", "win_rate": 76},
+                {"id": "aow_4", "name": "Nick Nanavati", "faction": "World Eaters", "detachment": "Berzerker Warband", "elo": 2084, "role": "Spear / Slayer", "win_rate": 74},
+                {"id": "aow_5", "name": "Brad Chester", "faction": "Chaos Daemons", "detachment": "Daemonic Incursion", "elo": 2061, "role": "Blunt / Defender", "win_rate": 73},
+                {"id": "aow_6", "name": "Quinton Johnson", "faction": "Necrons", "detachment": "Starshatter Arsenal", "elo": 2045, "role": "Blunt / Defender", "win_rate": 72},
+                {"id": "aow_7", "name": "Alex Macdougall", "faction": "Astra Militarum", "detachment": "Combined Regiment", "elo": 2028, "role": "Blunt / Defender", "win_rate": 71},
+                {"id": "aow_8", "name": "Thomas Byrd", "faction": "Drukhari", "detachment": "Skysplinter Assault", "elo": 2012, "role": "Spear / Slayer", "win_rate": 70},
+            ],
+        },
+        "team_zero_comp": {
+            "id": "team_zero_comp",
+            "name": "Team Zero Comp",
+            "short_tag": "TZC",
+            "captain_name": "Mani Cheema",
+            "roster": [
+                {"id": "tzc_1", "name": "Mani Cheema", "faction": "Necrons", "detachment": "Starshatter Arsenal", "elo": 2148, "role": "Blunt / Defender", "win_rate": 80},
+                {"id": "tzc_2", "name": "Vik Vijay", "faction": "Adeptus Custodes", "detachment": "Shield Host", "elo": 2124, "role": "Blunt / Defender", "win_rate": 78},
+                {"id": "tzc_3", "name": "Liam VSL", "faction": "T'au Empire", "detachment": "Mont'ka", "elo": 2110, "role": "Spear / Slayer", "win_rate": 77},
+                {"id": "tzc_4", "name": "Nassim Fouchane", "faction": "Orks", "detachment": "War Horde", "elo": 2079, "role": "Spear / Slayer", "win_rate": 75},
+                {"id": "tzc_5", "name": "Ed Watts", "faction": "Thousand Sons", "detachment": "Cult of Magic", "elo": 2055, "role": "All-Rounder", "win_rate": 73},
+                {"id": "tzc_6", "name": "Malik Amin", "faction": "Death Guard", "detachment": "Plague Company", "elo": 2034, "role": "Blunt / Defender", "win_rate": 71},
+                {"id": "tzc_7", "name": "David Gaylard", "faction": "Chaos Knights", "detachment": "Traitoris Lance", "elo": 2020, "role": "Spear / Slayer", "win_rate": 70},
+                {"id": "tzc_8", "name": "Kieran Harper", "faction": "Adepta Sororitas", "detachment": "Bringers of Flame", "elo": 2005, "role": "All-Rounder", "win_rate": 69},
+            ],
+        },
+        "stat_check": {
+            "id": "stat_check",
+            "name": "Stat Check",
+            "short_tag": "STC",
+            "captain_name": "Anthony Vanella",
+            "roster": [
+                {"id": "stc_1", "name": "Anthony Vanella", "faction": "Deathwatch", "detachment": "Black Spear Task Force", "elo": 2135, "role": "All-Rounder", "win_rate": 78},
+                {"id": "stc_2", "name": "Cliff Thomas", "faction": "Imperial Knights", "detachment": "Noble Lance", "elo": 2092, "role": "Blunt / Defender", "win_rate": 75},
+                {"id": "stc_3", "name": "Sam Pope", "faction": "Tyranids", "detachment": "Invasion Fleet", "elo": 2076, "role": "Blunt / Defender", "win_rate": 74},
+                {"id": "stc_4", "name": "Jeremy Atk", "faction": "Dark Angels", "detachment": "Gladius Task Force", "elo": 2058, "role": "Blunt / Defender", "win_rate": 73},
+                {"id": "stc_5", "name": "Ben Jurek", "faction": "Genestealer Cults", "detachment": "Host of Ascension", "elo": 2042, "role": "Spear / Slayer", "win_rate": 72},
+                {"id": "stc_6", "name": "Colin McDade", "faction": "Adeptus Mechanicus", "detachment": "Skitarii Hunter Cohort", "elo": 2025, "role": "Blunt / Defender", "win_rate": 70},
+                {"id": "stc_7", "name": "Trevy", "faction": "T'au Empire", "detachment": "Retaliation Cadre", "elo": 2011, "role": "Spear / Slayer", "win_rate": 69},
+                {"id": "stc_8", "name": "Nathan D", "faction": "Grey Knights", "detachment": "Teleport Strike Force", "elo": 1998, "role": "All-Rounder", "win_rate": 68},
+            ],
+        },
+        "team_ignite": {
+            "id": "team_ignite",
+            "name": "Team Ignite",
+            "short_tag": "IGN",
+            "captain_name": "Sean Nayden",
+            "roster": [
+                {"id": "ign_1", "name": "Sean Nayden", "faction": "Aeldari", "detachment": "Aspect Host", "elo": 2128, "role": "Spear / Slayer", "win_rate": 77},
+                {"id": "ign_2", "name": "Brian Pullen", "faction": "Leagues of Votann", "detachment": "Oathband", "elo": 2088, "role": "Blunt / Defender", "win_rate": 75},
+                {"id": "ign_3", "name": "Folger P", "faction": "Chaos Space Marines", "detachment": "Pactbound Zealots", "elo": 2070, "role": "Spear / Slayer", "win_rate": 74},
+                {"id": "ign_4", "name": "Matt Robertson", "faction": "Astra Militarum", "detachment": "Bridgehead Strike", "elo": 2052, "role": "Blunt / Defender", "win_rate": 72},
+                {"id": "ign_5", "name": "Mark Perry", "faction": "Black Templars", "detachment": "Righteous Crusaders", "elo": 2038, "role": "Blunt / Defender", "win_rate": 71},
+                {"id": "ign_6", "name": "Kyle McCord", "faction": "Orks", "detachment": "Bully Boyz", "elo": 2021, "role": "Spear / Slayer", "win_rate": 70},
+                {"id": "ign_7", "name": "Ryan Snyder", "faction": "Tyranids", "detachment": "Vanguard Onslaught", "elo": 2009, "role": "All-Rounder", "win_rate": 69},
+                {"id": "ign_8", "name": "Dan Sammons", "faction": "Imperial Knights", "detachment": "Noble Lance", "elo": 1995, "role": "Blunt / Defender", "win_rate": 68},
+            ],
+        },
+    }
+
+    FACTION_MATCHUP_EDGES: Dict[Tuple[str, str], int] = {
+        ("Aeldari", "Necrons"): 2,
+        ("Aeldari", "Death Guard"): 3,
+        ("Aeldari", "Imperial Knights"): 2,
+        ("Necrons", "Orks"): 2,
+        ("Necrons", "World Eaters"): 2,
+        ("Space Marines", "T'au Empire"): 1,
+        ("Space Marines", "Orks"): 2,
+        ("Blood Angels", "T'au Empire"): 3,
+        ("Blood Angels", "Thousand Sons"): 2,
+        ("World Eaters", "Adeptus Custodes"): -2,
+        ("World Eaters", "T'au Empire"): 3,
+        ("World Eaters", "Imperial Knights"): 2,
+        ("Adeptus Custodes", "World Eaters"): 2,
+        ("Adeptus Custodes", "Blood Angels"): 2,
+        ("Adeptus Custodes", "Orks"): 2,
+        ("T'au Empire", "Adeptus Custodes"): 2,
+        ("T'au Empire", "Death Guard"): 3,
+        ("Thousand Sons", "Adeptus Custodes"): 3,
+        ("Thousand Sons", "Space Marines"): 2,
+        ("Chaos Daemons", "Thousand Sons"): 2,
+        ("Chaos Daemons", "Imperial Knights"): 2,
+        ("Orks", "Aeldari"): 2,
+        ("Orks", "Thousand Sons"): -2,
+    }
+
+    @classmethod
+    def estimate_wtc_matchup(cls, player_a: Dict[str, Any], player_b: Dict[str, Any]) -> int:
+        """Estimates WTC 0-20 points for player_a vs player_b based on faction matchup & Elo."""
+        fac_a = str(player_a.get("faction") or "")
+        fac_b = str(player_b.get("faction") or "")
+        edge = cls.FACTION_MATCHUP_EDGES.get((fac_a, fac_b), 0)
+        if edge == 0 and (fac_b, fac_a) in cls.FACTION_MATCHUP_EDGES:
+            edge = -cls.FACTION_MATCHUP_EDGES[(fac_b, fac_a)]
+        elo_a = float(player_a.get("elo") or 2000)
+        elo_b = float(player_b.get("elo") or 2000)
+        elo_shift = round((elo_a - elo_b) / 45.0)
+        score_a = max(3, min(17, int(10 + edge + elo_shift)))
+        return score_a
+
+    def _save_pairing_room_doc(self, room_code: str, room_data: Dict[str, Any]) -> None:
+        code = str(room_code).strip().upper()
+        room_data["updatedAt"] = int(datetime.now(timezone.utc).timestamp() * 1000)
+        self._fallback_pairing_rooms[code] = room_data
+        if self._client:
+            try:
+                self._client.collection("pairing_rooms").document(code).set(room_data)
+            except Exception as err:
+                logger.warning(f"Notice syncing pairing_room {code} to Firestore: {err}")
+
+    def get_pairing_room_raw(self, room_code: str) -> Optional[Dict[str, Any]]:
+        if not room_code:
+            return None
+        code = str(room_code).strip().upper()
+        if code in self._fallback_pairing_rooms:
+            return self._fallback_pairing_rooms[code]
+        if self._client:
+            try:
+                doc = self._client.collection("pairing_rooms").document(code).get()
+                if doc.exists:
+                    data = doc.to_dict() or {}
+                    self._fallback_pairing_rooms[code] = data
+                    return data
+            except Exception as err:
+                logger.warning(f"Notice reading pairing_room {code} from Firestore: {err}")
+        return None
+
+    def _sync_roster_statuses(self, room: Dict[str, Any]) -> None:
+        bench_a = set(room.get("bench_a") or [])
+        bench_b = set(room.get("bench_b") or [])
+        def_a = room.get("defender_a")
+        def_b = room.get("defender_b")
+        att_a = set(room.get("attackers_a") or [])
+        att_b = set(room.get("attackers_b") or [])
+        for p in room.get("team_a", {}).get("roster", []):
+            pid = p.get("id")
+            if pid == def_a:
+                p["status"] = "defender"
+            elif pid in att_a:
+                p["status"] = "attacker"
+            elif pid in bench_a:
+                p["status"] = "bench"
+            else:
+                p["status"] = "paired"
+        for p in room.get("team_b", {}).get("roster", []):
+            pid = p.get("id")
+            if pid == def_b:
+                p["status"] = "defender"
+            elif pid in att_b:
+                p["status"] = "attacker"
+            elif pid in bench_b:
+                p["status"] = "bench"
+            else:
+                p["status"] = "paired"
+
+    def create_pairing_room(self, payload: Optional[Dict[str, Any]] = None, **kwargs: Any) -> Dict[str, Any]:
+        import copy
+        import secrets
+
+        req: Dict[str, Any] = {}
+        if isinstance(payload, dict):
+            req.update(payload)
+        req.update(kwargs)
+
+        fmt = str(req.get("format_size") or req.get("format") or "5v5").strip().lower()
+        team_size = 8 if fmt == "8v8" else 5
+        fmt = "8v8" if team_size == 8 else "5v5"
+        max_cycles = 3 if team_size == 8 else 2
+
+        preset_a_key = str(req.get("team_a_preset") or "art_of_war").strip().lower()
+        preset_b_key = str(req.get("team_b_preset") or "team_zero_comp").strip().lower()
+        if preset_a_key not in self.TEAM_PAIRING_PRESETS:
+            preset_a_key = "art_of_war"
+        if preset_b_key not in self.TEAM_PAIRING_PRESETS:
+            preset_b_key = "team_zero_comp"
+
+        preset_a = copy.deepcopy(self.TEAM_PAIRING_PRESETS[preset_a_key])
+        preset_b = copy.deepcopy(self.TEAM_PAIRING_PRESETS[preset_b_key])
+
+        if isinstance(req.get("team_a_roster"), list) and len(req["team_a_roster"]) >= team_size:
+            roster_a = copy.deepcopy(req["team_a_roster"][:team_size])
+        else:
+            roster_a = preset_a["roster"][:team_size]
+        if isinstance(req.get("team_b_roster"), list) and len(req["team_b_roster"]) >= team_size:
+            roster_b = copy.deepcopy(req["team_b_roster"][:team_size])
+        else:
+            roster_b = preset_b["roster"][:team_size]
+
+        # Ensure clean IDs A1..An and B1..Bn
+        for idx, p in enumerate(roster_a):
+            p["id"] = f"A{idx + 1}"
+            p["team"] = "A"
+            p["status"] = "bench"
+        for idx, p in enumerate(roster_b):
+            p["id"] = f"B{idx + 1}"
+            p["team"] = "B"
+            p["status"] = "bench"
+
+        raw_code = str(req.get("room_code") or "").strip().upper()
+        if not raw_code:
+            raw_code = f"WTC-{secrets.token_hex(2).upper()}"
+
+        cap_a_token = str(req.get("captain_a_token") or f"capA_{secrets.token_hex(6)}")
+        cap_b_token = str(req.get("captain_b_token") or f"capB_{secrets.token_hex(6)}")
+        vs_ai = bool(req.get("vs_ai", True))
+
+        now_dt = datetime.now(timezone.utc)
+        now_ts = int(now_dt.timestamp() * 1000)
+        ts_str = now_dt.strftime("%H:%M:%S")
+        team_a_name = str(req.get("team_a_name") or preset_a["name"]).strip()
+        team_b_name = str(req.get("team_b_name") or preset_b["name"]).strip()
+        tag_a = str(req.get("team_a_tag") or preset_a["short_tag"])
+        tag_b = str(req.get("team_b_tag") or preset_b["short_tag"])
+        cap_a_name = str(req.get("captain_a_name") or preset_a["captain_name"])
+        cap_b_name = str(req.get("captain_b_name") or (f"{preset_b['captain_name']} (AI Bot)" if vs_ai else preset_b["captain_name"]))
+
+        room_data: Dict[str, Any] = {
+            "room_code": raw_code,
+            "format": fmt,
+            "format_size": fmt,
+            "team_size": team_size,
+            "total_tables": team_size,
+            "max_cycles": max_cycles,
+            "vs_ai": vs_ai,
+            "captain_a_token": cap_a_token,
+            "captain_b_token": cap_b_token,
+            "captain_a_name": cap_a_name,
+            "captain_b_name": cap_b_name,
+            "captain_a_claimed": True,
+            "captain_b_claimed": bool(vs_ai),
+            "spectator_count": 0,
+            "team_a": {
+                "name": team_a_name,
+                "tag": tag_a,
+                "short_tag": tag_a,
+                "captain_name": cap_a_name,
+                "roster": roster_a,
+            },
+            "team_b": {
+                "name": team_b_name,
+                "tag": tag_b,
+                "short_tag": tag_b,
+                "captain_name": cap_b_name,
+                "roster": roster_b,
+            },
+            "bench_a": [p["id"] for p in roster_a],
+            "bench_b": [p["id"] for p in roster_b],
+            "cycle": 1,
+            "phase": "STEP_1_DEFENDER",
+            "secret_defender_a": None,
+            "secret_defender_b": None,
+            "defender_a": None,
+            "defender_b": None,
+            "secret_attackers_a": [],
+            "secret_attackers_b": [],
+            "attackers_a": [],
+            "attackers_b": [],
+            "secret_choice_a": None,
+            "secret_choice_b": None,
+            "locked_a": False,
+            "locked_b": False,
+            "pairings": [],
+            "history_log": [
+                f"Room {raw_code} initialized ({fmt} WTC Pairing Protocol): {team_a_name} vs {team_b_name}.",
+                "Cycle 1 — Step 1: Both Captains secretly put forward 1 Defender card.",
+            ],
+            "log": [
+                {"ts": ts_str, "msg": f"Room {raw_code} initialized ({fmt} WTC Pairing Protocol): {team_a_name} vs {team_b_name}."},
+                {"ts": ts_str, "msg": "Cycle 1 — Step 1: Both Captains secretly put forward 1 Defender card."},
+            ],
+            "createdAt": now_ts,
+            "updatedAt": now_ts,
+        }
+
+        self._save_pairing_room_doc(raw_code, room_data)
+        return room_data
+
+    def resolve_viewer_role(
+        self,
+        room: Dict[str, Any],
+        role_token: Optional[str] = None,
+        force_role: Optional[str] = None,
+    ) -> str:
+        if force_role in ("captain_a", "captain_b", "spectator"):
+            return force_role
+        if role_token in ("captain_a", "captain_b", "spectator"):
+            return role_token
+        tok = (role_token or "").strip()
+        if tok and tok == room.get("captain_a_token"):
+            return "captain_a"
+        if tok and tok == room.get("captain_b_token"):
+            return "captain_b"
+        return "spectator"
+
+    def mask_pairing_room_for_viewer(
+        self,
+        room: Dict[str, Any],
+        role_token: Optional[str] = None,
+        force_role: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        import copy
+
+        self._sync_roster_statuses(room)
+        viewer_role = self.resolve_viewer_role(room, role_token=role_token, force_role=force_role)
+        masked = copy.deepcopy(room)
+        masked.pop("captain_a_token", None)
+        masked.pop("captain_b_token", None)
+        masked["viewer_role"] = viewer_role
+        masked["can_interact_a"] = viewer_role == "captain_a"
+        masked["can_interact_b"] = viewer_role == "captain_b"
+
+        phase = masked.get("phase")
+        locked_a = bool(masked.get("locked_a"))
+        locked_b = bool(masked.get("locked_b"))
+
+        masked["secret_defender_a_locked"] = locked_a if phase == "STEP_1_DEFENDER" else bool(masked.get("defender_a"))
+        masked["secret_defender_b_locked"] = locked_b if phase == "STEP_1_DEFENDER" else bool(masked.get("defender_b"))
+        masked["secret_attackers_a_locked"] = locked_a if phase == "STEP_2_ATTACKERS" else bool(masked.get("attackers_a"))
+        masked["secret_attackers_b_locked"] = locked_b if phase == "STEP_2_ATTACKERS" else bool(masked.get("attackers_b"))
+        masked["secret_choice_a_locked"] = locked_a if phase == "STEP_3_CHOOSE" else False
+        masked["secret_choice_b_locked"] = locked_b if phase == "STEP_3_CHOOSE" else False
+
+        def_a_id = masked.get("defender_a")
+        def_b_id = masked.get("defender_b")
+        masked["active_defender_a"] = copy.deepcopy(self._find_player(room, def_a_id)) if def_a_id else None
+        masked["active_defender_b"] = copy.deepcopy(self._find_player(room, def_b_id)) if def_b_id else None
+        masked["active_attackers_a"] = [
+            copy.deepcopy(self._find_player(room, pid))
+            for pid in (masked.get("attackers_a") or [])
+            if self._find_player(room, pid)
+        ]
+        masked["active_attackers_b"] = [
+            copy.deepcopy(self._find_player(room, pid))
+            for pid in (masked.get("attackers_b") or [])
+            if self._find_player(room, pid)
+        ]
+
+        if viewer_role != "captain_a":
+            masked["secret_defender_a"] = None
+            masked["secret_attackers_a"] = []
+            masked["secret_choice_a"] = None
+        if viewer_role != "captain_b":
+            masked["secret_defender_b"] = None
+            masked["secret_attackers_b"] = []
+            masked["secret_choice_b"] = None
+
+        return masked
+
+    def _find_player(self, room: Dict[str, Any], player_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not player_id:
+            return None
+        for p in room["team_a"]["roster"]:
+            if p["id"] == player_id:
+                return p
+        for p in room["team_b"]["roster"]:
+            if p["id"] == player_id:
+                return p
+        return None
+
+    def _append_log(self, room: Dict[str, Any], msg: str) -> None:
+        ts_str = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        room.setdefault("history_log", []).append(msg)
+        room.setdefault("log", []).append({"ts": ts_str, "msg": msg})
+
+    def _run_ai_captain_b_decision(self, room: Dict[str, Any]) -> None:
+        """Smart AI Captain for Team B: selects and locks Defender, 2 Attackers, or Attacker Choice."""
+        if not room.get("vs_ai") or room.get("locked_b") or room.get("phase") == "COMPLETED":
+            return
+
+        phase = room.get("phase")
+        bench_b_ids = list(room.get("bench_b") or [])
+        bench_b_players = [self._find_player(room, pid) for pid in bench_b_ids if self._find_player(room, pid)]
+
+        if phase in ("STEP_1_DEFENDER", "PICK_DEFENDER") and bench_b_players:
+            def _def_score(p: Dict[str, Any]) -> float:
+                role_bonus = 35.0 if ("Defender" in str(p.get("role", "")) or "Blunt" in str(p.get("role", ""))) else (15.0 if "All-Rounder" in str(p.get("role", "")) else 0.0)
+                return float(p.get("elo", 2000)) * 0.05 + role_bonus
+            best_def = sorted(bench_b_players, key=_def_score, reverse=True)[0]
+            room["secret_defender_b"] = best_def["id"]
+            room["locked_b"] = True
+
+        elif phase in ("STEP_2_ATTACKERS", "PICK_ATTACKERS") and len(bench_b_players) >= 2:
+            def_a = self._find_player(room, room.get("defender_a"))
+            if def_a:
+                scored = sorted(
+                    bench_b_players,
+                    key=lambda pb: (20 - self.estimate_wtc_matchup(def_a, pb), float(pb.get("elo", 2000))),
+                    reverse=True,
+                )
+                room["secret_attackers_b"] = [scored[0]["id"], scored[1]["id"]]
+            else:
+                room["secret_attackers_b"] = [bench_b_players[0]["id"], bench_b_players[1]["id"]]
+            room["locked_b"] = True
+
+        elif phase in ("STEP_3_CHOOSE", "CHOOSE_OPPONENT"):
+            def_b = self._find_player(room, room.get("defender_b"))
+            att_a_ids = list(room.get("attackers_a") or [])
+            att_a_players = [self._find_player(room, pid) for pid in att_a_ids if self._find_player(room, pid)]
+            if def_b and att_a_players:
+                best_target = sorted(
+                    att_a_players,
+                    key=lambda pa: (self.estimate_wtc_matchup(pa, def_b), float(pa.get("elo", 2000))),
+                )[0]
+                room["secret_choice_b"] = best_target["id"]
+                room["locked_b"] = True
+            elif att_a_players:
+                room["secret_choice_b"] = att_a_players[0]["id"]
+                room["locked_b"] = True
+
+    def _append_pairing(
+        self,
+        room: Dict[str, Any],
+        player_a_id: str,
+        player_b_id: str,
+        pairing_type: str,
+    ) -> None:
+        pa = self._find_player(room, player_a_id) or {"id": player_a_id, "name": player_a_id, "faction": "Unknown", "elo": 2000}
+        pb = self._find_player(room, player_b_id) or {"id": player_b_id, "name": player_b_id, "faction": "Unknown", "elo": 2000}
+        table_num = len(room["pairings"]) + 1
+        est_a = self.estimate_wtc_matchup(pa, pb)
+        est_b = 20 - est_a
+        room["pairings"].append({
+            "table": table_num,
+            "table_num": table_num,
+            "cycle": room["cycle"],
+            "pairing_type": pairing_type,
+            "player_a": pa,
+            "player_b": pb,
+            "est_score_a": est_a,
+            "est_score_b": est_b,
+            "matchup": {
+                "expected_a": est_a,
+                "expected_b": est_b,
+                "label": f"{est_a} - {est_b}",
+            },
+        })
+
+    def _advance_phase_if_both_locked(self, room: Dict[str, Any]) -> None:
+        if not (room.get("locked_a") and room.get("locked_b")):
+            return
+
+        phase = room.get("phase")
+        cycle = int(room.get("cycle") or 1)
+
+        if phase in ("STEP_1_DEFENDER", "PICK_DEFENDER"):
+            def_a_id = room.get("secret_defender_a")
+            def_b_id = room.get("secret_defender_b")
+            room["defender_a"] = def_a_id
+            room["defender_b"] = def_b_id
+            room["secret_defender_a"] = None
+            room["secret_defender_b"] = None
+            if def_a_id in room["bench_a"]:
+                room["bench_a"].remove(def_a_id)
+            if def_b_id in room["bench_b"]:
+                room["bench_b"].remove(def_b_id)
+            room["locked_a"] = False
+            room["locked_b"] = False
+
+            pa = self._find_player(room, def_a_id)
+            pb = self._find_player(room, def_b_id)
+            self._append_log(
+                room,
+                f"Cycle {cycle} Defenders Revealed: {pa['name'] if pa else def_a_id} ({pa['faction'] if pa else ''}) vs {pb['name'] if pb else def_b_id} ({pb['faction'] if pb else ''}).",
+            )
+
+            # Endgame fast-forward: if exactly 2 players remain on each bench (Cycle 2 in 5v5),
+            # they automatically step forward as the 2 Attackers!
+            if len(room["bench_a"]) == 2 and len(room["bench_b"]) == 2:
+                room["attackers_a"] = list(room["bench_a"])
+                room["attackers_b"] = list(room["bench_b"])
+                room["bench_a"] = []
+                room["bench_b"] = []
+                room["phase"] = "STEP_3_CHOOSE"
+                self._append_log(
+                    room,
+                    f"Cycle {cycle} Endgame: Remaining 2 bench players on each team automatically step forward as Attackers! Captains now choose 1 Attacker for their Defender.",
+                )
+            else:
+                room["phase"] = "STEP_2_ATTACKERS"
+                self._append_log(
+                    room,
+                    f"Cycle {cycle} — Step 2: Both Captains secretly nominate 2 Attackers to challenge the opponent's Defender.",
+                )
+
+        elif phase in ("STEP_2_ATTACKERS", "PICK_ATTACKERS"):
+            att_a = list(room.get("secret_attackers_a") or [])
+            att_b = list(room.get("secret_attackers_b") or [])
+            room["attackers_a"] = att_a
+            room["attackers_b"] = att_b
+            room["secret_attackers_a"] = []
+            room["secret_attackers_b"] = []
+            room["bench_a"] = [pid for pid in room["bench_a"] if pid not in att_a]
+            room["bench_b"] = [pid for pid in room["bench_b"] if pid not in att_b]
+            room["locked_a"] = False
+            room["locked_b"] = False
+            room["phase"] = "STEP_3_CHOOSE"
+
+            names_a = ", ".join((self._find_player(room, pid) or {}).get("name", pid) for pid in att_a)
+            names_b = ", ".join((self._find_player(room, pid) or {}).get("name", pid) for pid in att_b)
+            self._append_log(
+                room,
+                f"Cycle {cycle} Attackers Revealed! {room['team_a']['short_tag']} sends [{names_a}]; {room['team_b']['short_tag']} sends [{names_b}].",
+            )
+
+        elif phase in ("STEP_3_CHOOSE", "CHOOSE_OPPONENT"):
+            def_a_id = room.get("defender_a")
+            def_b_id = room.get("defender_b")
+            chosen_b_id = room.get("secret_choice_a")
+            chosen_a_id = room.get("secret_choice_b")
+            att_b_list = list(room.get("attackers_b") or [])
+            att_a_list = list(room.get("attackers_a") or [])
+
+            if chosen_b_id not in att_b_list and att_b_list:
+                chosen_b_id = att_b_list[0]
+            if chosen_a_id not in att_a_list and att_a_list:
+                chosen_a_id = att_a_list[0]
+
+            rejected_b_ids = [pid for pid in att_b_list if pid != chosen_b_id]
+            rejected_a_ids = [pid for pid in att_a_list if pid != chosen_a_id]
+
+            # Match 1: Team A Defender vs Chosen Team B Attacker
+            self._append_pairing(room, def_a_id, chosen_b_id, f"Cycle {cycle} • {room['team_a']['short_tag']} Defender Choice")
+            # Match 2: Chosen Team A Attacker vs Team B Defender
+            self._append_pairing(room, chosen_a_id, def_b_id, f"Cycle {cycle} • {room['team_b']['short_tag']} Defender Choice")
+
+            room["defender_a"] = None
+            room["defender_b"] = None
+            room["attackers_a"] = []
+            room["attackers_b"] = []
+            room["secret_choice_a"] = None
+            room["secret_choice_b"] = None
+            room["locked_a"] = False
+            room["locked_b"] = False
+
+            # Check WTC 8v8 Cycle 3 Forgotten/Rejected rule (1 player stayed on bench + 1 rejected attacker)
+            if len(room["bench_a"]) == 1 and len(room["bench_b"]) == 1 and len(rejected_a_ids) == 1 and len(rejected_b_ids) == 1:
+                forgotten_a = room["bench_a"][0]
+                forgotten_b = room["bench_b"][0]
+                rej_a = rejected_a_ids[0]
+                rej_b = rejected_b_ids[0]
+                self._append_pairing(room, rej_a, forgotten_b, f"Cycle {cycle} • Rejected vs Forgotten")
+                self._append_pairing(room, forgotten_a, rej_b, f"Cycle {cycle} • Forgotten vs Rejected")
+                room["bench_a"] = []
+                room["bench_b"] = []
+                room["phase"] = "COMPLETED"
+                self._append_log(room, "All 8 WTC Match Pairings Locked! Final Rejected vs. Forgotten tables assigned.")
+                self._sync_roster_statuses(room)
+                return
+
+            # Return rejected attackers to bench
+            room["bench_a"].extend(rejected_a_ids)
+            room["bench_b"].extend(rejected_b_ids)
+
+            # Check 5v5 Endgame Remainder (1 rejected attacker left on each bench -> automatic Match #5)
+            if len(room["bench_a"]) == 1 and len(room["bench_b"]) == 1:
+                last_a = room["bench_a"][0]
+                last_b = room["bench_b"][0]
+                self._append_pairing(room, last_a, last_b, f"Cycle {cycle} • Final Remainder (Forsaken)")
+                room["bench_a"] = []
+                room["bench_b"] = []
+                room["phase"] = "COMPLETED"
+                self._append_log(
+                    room,
+                    f"All {len(room['pairings'])} WTC Match Pairings Locked! Final two remaining players automatically paired on Table #{len(room['pairings'])}.",
+                )
+            elif len(room["bench_a"]) == 0 and len(room["bench_b"]) == 0:
+                room["phase"] = "COMPLETED"
+                self._append_log(room, "All WTC Match Pairings Locked!")
+            else:
+                room["cycle"] = cycle + 1
+                room["phase"] = "STEP_1_DEFENDER"
+                self._append_log(
+                    room,
+                    f"Cycle {cycle} Pairings Locked! Unchosen attackers returned to bench ({len(room['bench_a'])} players remaining per team). Starting Cycle {cycle + 1} — Pick Defenders.",
+                )
+
+        self._sync_roster_statuses(room)
+
+    def apply_pairing_action(
+        self,
+        room_code: str,
+        payload: Optional[Dict[str, Any]] = None,
+        *,
+        role: Optional[str] = None,
+        captain_token: Optional[str] = None,
+        action: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """
+        Applies a Captain or room action.
+        Enforces that ONLY Captain A can interact for Team A and ONLY Captain B can interact for Team B.
+        Spectators cannot perform pairing actions (403).
+        """
+        room = self.get_pairing_room_raw(room_code)
+        if not room:
+            return {"ok": False, "success": False, "status_code": 404, "error": f"Pairing room '{room_code}' not found."}
+
+        req: Dict[str, Any] = {}
+        if isinstance(payload, dict):
+            req.update(payload)
+        req.update(kwargs)
+
+        act = str(action or req.get("action") or "").strip().lower()
+        role_token = str(captain_token if captain_token is not None else (req.get("captain_token") or req.get("role_token") or "")).strip()
+        force_role = role or req.get("role") or req.get("force_role")
+
+        if "vs_ai" in req and req["vs_ai"] is not None:
+            room["vs_ai"] = bool(req["vs_ai"])
+
+        viewer_role = self.resolve_viewer_role(room, role_token=role_token, force_role=force_role)
+        if viewer_role not in ("captain_a", "captain_b"):
+            return {
+                "ok": False,
+                "success": False,
+                "status_code": 403,
+                "error": "Spectators are read-only. Only Team A Captain and Team B Captain can submit pairing actions.",
+            }
+
+        is_cap_a = viewer_role == "captain_a"
+        side_suffix = "a" if is_cap_a else "b"
+        phase = room.get("phase")
+
+        if act == "toggle_ai":
+            room["vs_ai"] = bool(req.get("vs_ai", not room.get("vs_ai")))
+            if room["vs_ai"]:
+                self._run_ai_captain_b_decision(room)
+                self._advance_phase_if_both_locked(room)
+            self._save_pairing_room_doc(room["room_code"], room)
+            return {
+                "ok": True,
+                "success": True,
+                "status_code": 200,
+                "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+            }
+
+        if phase == "COMPLETED":
+            return {"ok": False, "success": False, "status_code": 400, "error": "All pairings in this room are already finalized."}
+
+        if phase in ("STEP_1_DEFENDER", "PICK_DEFENDER"):
+            player_id = str(req.get("player_id") or "").strip()
+            bench = room[f"bench_{side_suffix}"]
+            if player_id not in bench:
+                return {
+                    "ok": False,
+                    "success": False,
+                    "status_code": 400,
+                    "error": f"Player '{player_id}' is not available on Team {'A' if is_cap_a else 'B'} bench.",
+                }
+            room[f"secret_defender_{side_suffix}"] = player_id
+            if bool(req.get("lock", True)):
+                room[f"locked_{side_suffix}"] = True
+
+        elif phase in ("STEP_2_ATTACKERS", "PICK_ATTACKERS"):
+            player_ids = req.get("player_ids") or []
+            if not isinstance(player_ids, list):
+                player_ids = []
+            bench = room[f"bench_{side_suffix}"]
+            clean_ids = []
+            for pid in player_ids:
+                s_pid = str(pid).strip()
+                if s_pid in bench and s_pid not in clean_ids:
+                    clean_ids.append(s_pid)
+            if bool(req.get("lock", True)) and len(clean_ids) != 2:
+                return {
+                    "ok": False,
+                    "success": False,
+                    "status_code": 400,
+                    "error": "You must select exactly 2 Attackers from your bench before locking in.",
+                }
+            room[f"secret_attackers_{side_suffix}"] = clean_ids[:2]
+            if bool(req.get("lock", True)):
+                room[f"locked_{side_suffix}"] = True
+
+        elif phase in ("STEP_3_CHOOSE", "CHOOSE_OPPONENT"):
+            player_id = str(req.get("player_id") or "").strip()
+            opp_suffix = "b" if is_cap_a else "a"
+            opp_attackers = room[f"attackers_{opp_suffix}"]
+            if player_id not in opp_attackers:
+                return {
+                    "ok": False,
+                    "success": False,
+                    "status_code": 400,
+                    "error": f"Player '{player_id}' is not one of the 2 nominated Attackers.",
+                }
+            room[f"secret_choice_{side_suffix}"] = player_id
+            if bool(req.get("lock", True)):
+                room[f"locked_{side_suffix}"] = True
+        else:
+            return {"ok": False, "success": False, "status_code": 400, "error": f"Unsupported action '{act}' in phase '{phase}'."}
+
+        # If vs_ai is enabled, let AI Captain B lock in its decision for the current phase
+        if room.get("vs_ai"):
+            self._run_ai_captain_b_decision(room)
+
+        # If both captains have locked in, reveal simultaneously and advance phase
+        self._advance_phase_if_both_locked(room)
+
+        self._save_pairing_room_doc(room["room_code"], room)
+        return {
+            "ok": True,
+            "success": True,
+            "status_code": 200,
+            "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+        }
+
 
 # Singleton instance
 _firestore_engine_instance = None

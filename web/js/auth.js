@@ -226,13 +226,18 @@ function syncMobileNavDropdown() {
   // Auth-state options: dynamically add/remove to ensure compatibility with iOS native pickers
   let loginOpt = document.getElementById('mobile-opt-login');
   let diceTrackerOpt = document.getElementById('mobile-opt-dice-tracker');
+  let teamPairingsOpt = document.getElementById('mobile-opt-team-pairings');
   let feedbackOpt = document.getElementById('mobile-opt-feedback');
   let settingsOpt = document.getElementById('mobile-opt-settings');
   let logoutOpt = document.getElementById('mobile-opt-logout');
+  const sheetDiceBtn = document.getElementById('mobile-sheet-dice-tracker-btn');
+  const sheetPairingsBtn = document.getElementById('mobile-sheet-team-pairings-btn');
 
   if (currentUser) {
     if (loginOpt) loginOpt.remove();
     const isAdminUser = currentUser.role === 'admin' || Boolean(currentUser.is_admin);
+    if (sheetDiceBtn) sheetDiceBtn.style.display = isAdminUser ? '' : 'none';
+    if (sheetPairingsBtn) sheetPairingsBtn.style.display = isAdminUser ? '' : 'none';
     if (isAdminUser) {
       if (!diceTrackerOpt) {
         diceTrackerOpt = document.createElement('option');
@@ -241,8 +246,16 @@ function syncMobileNavDropdown() {
         diceTrackerOpt.textContent = '📹 CV Dice Lab (Admin)';
         select.appendChild(diceTrackerOpt);
       }
-    } else if (diceTrackerOpt) {
-      diceTrackerOpt.remove();
+      if (!teamPairingsOpt) {
+        teamPairingsOpt = document.createElement('option');
+        teamPairingsOpt.value = 'team-pairings';
+        teamPairingsOpt.id = 'mobile-opt-team-pairings';
+        teamPairingsOpt.textContent = '⚔️ Team Pairings (Admin)';
+        select.appendChild(teamPairingsOpt);
+      }
+    } else {
+      if (diceTrackerOpt) diceTrackerOpt.remove();
+      if (teamPairingsOpt) teamPairingsOpt.remove();
     }
 
     if (!feedbackOpt) {
@@ -267,7 +280,10 @@ function syncMobileNavDropdown() {
       select.appendChild(logoutOpt);
     }
   } else {
+    if (sheetDiceBtn) sheetDiceBtn.style.display = 'none';
+    if (sheetPairingsBtn) sheetPairingsBtn.style.display = 'none';
     if (diceTrackerOpt) diceTrackerOpt.remove();
+    if (teamPairingsOpt) teamPairingsOpt.remove();
     if (feedbackOpt) feedbackOpt.remove();
     if (settingsOpt) settingsOpt.remove();
     if (logoutOpt) logoutOpt.remove();
@@ -1039,6 +1055,9 @@ function renderHeaderAuth() {
       </a>
       <a href="/admin/dice-tracker" id="header-admin-cv-dice-btn" style="display:inline-flex; align-items:center; gap:3px; background:rgba(168,85,247,0.16); border:1px solid rgba(168,85,247,0.45); color:#c084fc; font-weight:800; font-size:0.7rem; padding:2px 6px; border-radius:6px; text-decoration:none; white-space:nowrap; flex-shrink:0;" title="Admin CV Dice Tracker Sandbox">
         <span>📹</span> CV Dice
+      </a>
+      <a href="/admin/team-pairings" id="header-admin-team-pairings-btn" style="display:inline-flex; align-items:center; gap:3px; background:rgba(56,189,248,0.16); border:1px solid rgba(56,189,248,0.45); color:#38bdf8; font-weight:800; font-size:0.7rem; padding:2px 6px; border-radius:6px; text-decoration:none; white-space:nowrap; flex-shrink:0;" title="Admin 40k Team Pairing Minigame Sandbox">
+        <span>⚔️</span> Pairings
       </a>
     ` : '';
     container.innerHTML = `

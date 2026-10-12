@@ -1981,6 +1981,44 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": True, "message": "Armory vault reset successfully"}).encode("utf-8"))
                 return
 
+        if clean_path == "api/team-pairings/room":
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            from firestore_db import get_firestore_engine
+            fs_eng = get_firestore_engine()
+            raw_room = fs_eng.create_pairing_room(p_load if isinstance(p_load, dict) else {})
+            res = {
+                "success": True,
+                "room_code": raw_room["room_code"],
+                "captain_a_token": raw_room["captain_a_token"],
+                "captain_b_token": raw_room["captain_b_token"],
+                "room": fs_eng.mask_pairing_room_for_viewer(raw_room, force_role="captain_a"),
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/team-pairings/room/") and clean_path.endswith("/action"):
+            parts = clean_path.split("/")
+            r_code = parts[3] if len(parts) >= 5 else ""
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            from firestore_db import get_firestore_engine
+            fs_eng = get_firestore_engine()
+            act_res = fs_eng.apply_pairing_action(r_code, p_load if isinstance(p_load, dict) else {})
+            status_code = int(act_res.get("status_code", 200))
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(act_res).encode("utf-8"))
+            return
+
         if clean_path == "api/tracker/room/create":
             try:
                 p_load = json.loads(body.decode("utf-8")) if body else {}
@@ -7686,6 +7724,29 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 }).encode("utf-8"))
             return
 
+        if clean_path.startswith("api/team-pairings/room/"):
+            parts = clean_path.split("/")
+            r_code = parts[3] if len(parts) >= 4 else ""
+            from firestore_db import get_firestore_engine
+            fs_eng = get_firestore_engine()
+            raw_room = fs_eng.get_pairing_room_raw(r_code)
+            if not raw_room:
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps({"error": "Room not found"}).encode("utf-8"))
+                return
+            role_q = (query_params.get("role") or query_params.get("force_role") or [None])[0]
+            tok_q = (query_params.get("captain_token") or query_params.get("role_token") or [None])[0]
+            masked = fs_eng.mask_pairing_room_for_viewer(raw_room, role_token=tok_q, force_role=role_q)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"success": True, "room": masked}).encode("utf-8"))
+            return
+
         if clean_path.startswith("api/"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -7724,6 +7785,18 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path in ("dice-tracker/yolov8n_dice.onnx", "admin/dice-tracker/yolov8n_dice.onnx"):
             self._serve_file(WEB_DIR / "dice_tracker" / "yolov8n_dice.onnx", "application/octet-stream", is_head)
+            return
+
+        if clean_path in ("admin/team-pairings", "admin/team-pairings.html", "team-pairings", "team-pairings/index.html"):
+            self._serve_html_with_auth(WEB_DIR / "team_pairings" / "index.html", is_head)
+            return
+
+        if clean_path in ("team-pairings/styles.css", "admin/team-pairings/styles.css"):
+            self._serve_file(WEB_DIR / "team_pairings" / "styles.css", "text/css; charset=utf-8", is_head)
+            return
+
+        if clean_path in ("team-pairings/app.js", "admin/team-pairings/app.js"):
+            self._serve_file(WEB_DIR / "team_pairings" / "app.js", "application/javascript; charset=utf-8", is_head)
             return
 
         if clean_path in ("login", "login.html", "tracker/login", "tracker/login.html"):

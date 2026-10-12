@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#070b14">
+  <title>OmniTactica • 40K Team Pairings Minigame (Admin PoC)</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/team-pairings/styles.css">
+</head>
+<body>
+  <div class="pairings-app-shell">
+    <!-- Top Header -->
+    <header class="top-bar">
+      <div class="brand">
+        <a href="/app" class="brand-logo-link">
+          <img src="/assets/logo.svg" alt="OmniTactica" class="brand-logo" onerror="this.style.display='none'">
+        </a>
+        <div>
+          <h1>OmniTactica <span class="accent">Team Pairings Lab</span></h1>
+          <span class="subtitle-tag">WTC 40K Captain Pairing Minigame • Firestore Live Room PoC (Admin Only)</span>
+        </div>
+      </div>
+
+      <div class="room-bar">
+        <span class="room-code-pill" id="roomCodeBadge" title="Active Firestore Pairing Room Code">ROOM: ----</span>
+        <div class="room-join-group">
+          <input type="text" id="joinRoomInput" class="room-input" placeholder="Room Code (e.g. WTC-A1)" maxlength="14">
+          <button type="button" id="btnJoinRoom" class="btn btn-sm btn-outline">Join Room</button>
+          <button type="button" id="btnCopyRoomLink" class="btn btn-sm btn-outline" title="Copy Spectator / Captain Room Code">📋 Share</button>
+        </div>
+      </div>
+
+      <div class="nav-actions">
+        <a href="/admin/dice-tracker" class="nav-link-btn" title="Open CV Dice Lab">📹 CV Dice</a>
+        <a href="/admin" class="nav-link-btn" title="Open Admin Governance Cockpit">🛡️ Admin</a>
+        <a href="/app" class="nav-link-btn" title="Return to Main App">🏠 App</a>
+      </div>
+    </header>
+
+    <!-- Role & Match Setup Control Strip -->
+    <section class="control-strip">
+      <div class="role-switcher-group">
+        <span class="control-label">Active Seat / View:</span>
+        <div class="role-pills" id="roleSelectorPills">
+          <button type="button" class="role-pill active" id="btnRoleCapA" data-role="captain_a">
+            👑 Team A Captain <span class="role-perm-tag">CAN ACT</span>
+          </button>
+          <button type="button" class="role-pill" id="btnRoleCapB" data-role="captain_b">
+            👑 Team B Captain <span class="role-perm-tag">CAN ACT</span>
+          </button>
+          <button type="button" class="role-pill" id="btnRoleSpectator" data-role="spectator">
+            👁️ Spectator <span class="role-perm-tag readonly">VIEW ONLY</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="match-setup-group">
+        <label class="setup-field">
+          <span>Format</span>
+          <select id="selectFormat" class="setup-select">
+            <option value="5v5" selected>5v5 Standard (5 Tables)</option>
+            <option value="8v8">8v8 WTC National (8 Tables)</option>
+          </select>
+        </label>
+        <label class="setup-field">
+          <span>Team A</span>
+          <select id="selectTeamA" class="setup-select">
+            <option value="art_of_war" selected>Art of War (AOW)</option>
+            <option value="team_zero_comp">Team Zero Comp (TZC)</option>
+            <option value="stat_check">Stat Check (STC)</option>
+            <option value="team_ignite">Team Ignite (IGN)</option>
+          </select>
+        </label>
+        <label class="setup-field">
+          <span>Team B</span>
+          <select id="selectTeamB" class="setup-select">
+            <option value="team_zero_comp" selected>Team Zero Comp (TZC)</option>
+            <option value="art_of_war">Art of War (AOW)</option>
+            <option value="stat_check">Stat Check (STC)</option>
+            <option value="team_ignite">Team Ignite (IGN)</option>
+          </select>
+        </label>
+        <label class="setup-toggle" title="When enabled, Team B Captain automatically locks smart WTC picks so you can play solo">
+          <input type="checkbox" id="chkVsAi" checked>
+          <span>🤖 Smart AI Captain B</span>
+        </label>
+        <button type="button" id="btnNewMatch" class="btn btn-sm btn-primary">🔄 New Pairing Room</button>
+        <button type="button" id="btnAutoFinish" class="btn btn-sm btn-accent" title="Simulate the remaining pairing steps to inspect full match pairings">⚡ Auto-Pair Rest</button>
+      </div>
+    </section>
+
+    <!-- Spectator Read-Only Notice Banner (Shown only when viewing as Spectator) -->
+    <div id="spectatorBanner" class="spectator-banner hidden">
+      <span>👁️ <strong>SPECTATOR MODE (READ-ONLY)</strong> — Anyone with the room code can watch live pairings, but only the <strong>Team A Captain</strong> (1 player) and <strong>Team B Captain</strong> (1 player) can select or lock cards.</span>
+    </div>
+
+    <!-- WTC Pairing Protocol Stepper & Phase Instruction Banner -->
+    <section class="phase-banner" id="phaseBanner">
+      <div class="phase-steps-row">
+        <div class="cycle-badge" id="cycleBadge">CYCLE 1 OF 2</div>
+        <div class="stepper-track">
+          <div class="step-pill active" id="stepPillDefender">
+            <span class="step-num">1</span>
+            <span class="step-txt">Put Defender (1 Card)</span>
+          </div>
+          <span class="step-arrow">→</span>
+          <div class="step-pill" id="stepPillAttackers">
+            <span class="step-num">2</span>
+            <span class="step-txt">Send 2 Attackers (2 Cards)</span>
+          </div>
+          <span class="step-arrow">→</span>
+          <div class="step-pill" id="stepPillChoose">
+            <span class="step-num">3</span>
+            <span class="step-txt">Defender Picks Matchup</span>
+          </div>
+          <span class="step-arrow">→</span>
+          <div class="step-pill" id="stepPillComplete">
+            <span class="step-num">✓</span>
+            <span class="step-txt">All Pairings Set</span>
+          </div>
+        </div>
+        <div class="captain-status-pills">
+          <span class="cap-lock-pill" id="capAStatusPill">AOW Cap: ⏳ Selecting</span>
+          <span class="cap-lock-pill" id="capBStatusPill">TZC Cap: ⏳ Selecting</span>
+        </div>
+      </div>
+      <div class="phase-instruction-bar">
+        <div class="phase-prompt" id="phasePromptText">
+          Step 1 (Blind Defender): Select <strong>1 Defender Card</strong> from your bench to put forward. Both Defenders reveal simultaneously once locked!
+        </div>
+        <div class="captain-action-buttons">
+          <span id="selectionHintBadge" class="selection-hint-badge">Selected: 0 / 1</span>
+          <button type="button" id="btnLockSelection" class="btn btn-lock" disabled>🔒 Lock In Selection</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main 3-Column Tactical Pairing Arena -->
+    <main class="pairing-board">
+      <!-- Left Column: Team A Available Bench -->
+      <section class="bench-column team-a-col">
+        <div class="bench-header">
+          <div>
+            <div class="team-title-row">
+              <span class="team-tag-badge team-a-tag" id="teamATagBadge">AOW</span>
+              <h2 id="teamANameTitle">Art of War</h2>
+            </div>
+            <div class="captain-sub" id="teamACaptainLabel">👑 Captain: Richard Siegler</div>
+          </div>
+          <span class="bench-count-badge" id="teamABenchCount">5 Available</span>
+        </div>
+        <div class="cards-list" id="teamABenchCards"></div>
+      </section>
+
+      <!-- Center Column: Active WTC Clash Arena (Duel Pods A & B) -->
+      <section class="clash-arena-column">
+        <div class="arena-header">
+          <h3>⚔️ Active Pairing Clash Arena</h3>
+          <span class="arena-sub" id="arenaStatusSub">Simultaneous Blind Reveal • Cards flip when both Captains lock in</span>
+        </div>
+
+        <!-- Duel Pod 1: Team A Defender vs Team B Attackers -->
+        <div class="duel-pod pod-team-a" id="duelPodA">
+          <div class="duel-pod-title">
+            <span class="pod-badge team-a-pod-badge">DUEL POD A</span>
+            <span id="duelPodALabel">Team A Defender vs. Team B Attackers</span>
+          </div>
+          <div class="duel-pod-grid">
+            <div class="pod-defender-slot" id="podADefenderSlot"></div>
+            <div class="pod-vs-divider"><span>VS</span></div>
+            <div class="pod-attackers-slot" id="podAAttackersSlot"></div>
+          </div>
+        </div>
+
+        <!-- Duel Pod 2: Team B Defender vs Team A Attackers -->
+        <div class="duel-pod pod-team-b" id="duelPodB">
+          <div class="duel-pod-title">
+            <span class="pod-badge team-b-pod-badge">DUEL POD B</span>
+            <span id="duelPodBLabel">Team B Defender vs. Team A Attackers</span>
+          </div>
+          <div class="duel-pod-grid">
+            <div class="pod-attackers-slot" id="podBAttackersSlot"></div>
+            <div class="pod-vs-divider"><span>VS</span></div>
+            <div class="pod-defender-slot" id="podBDefenderSlot"></div>
+          </div>
+        </div>
+
+        <!-- Live Pairing Protocol Log -->
+        <div class="protocol-log-card">
+          <div class="protocol-log-header">
+            <span>📜 Live WTC Pairing Feed</span>
+            <span class="firestore-sync-dot">🟢 Firestore Room Synced</span>
+          </div>
+          <ul class="protocol-log-list" id="protocolLogList"></ul>
+        </div>
+      </section>
+
+      <!-- Right Column: Team B Available Bench -->
+      <section class="bench-column team-b-col">
+        <div class="bench-header">
+          <div>
+            <div class="team-title-row">
+              <span class="team-tag-badge team-b-tag" id="teamBTagBadge">TZC</span>
+              <h2 id="teamBNameTitle">Team Zero Comp</h2>
+            </div>
+            <div class="captain-sub" id="teamBCaptainLabel">👑 Captain: Mani Cheema</div>
+          </div>
+          <span class="bench-count-badge" id="teamBBenchCount">5 Available</span>
+        </div>
+        <div class="cards-list" id="teamBBenchCards"></div>
+      </section>
+    </main>
+
+    <!-- Bottom Section: Finalized Round Pairings Table & Projected Team Score -->
+    <section class="locked-pairings-section" id="lockedPairingsSection">
+      <div class="pairings-header">
+        <div>
+          <h2>🏆 Locked Match Pairings (<span id="lockedCountLabel">0 / 5</span> Tables Set)</h2>
+          <p class="pairings-sub">Each locked Defender-vs-Attacker choice and endgame remainder auto-populates below.</p>
+        </div>
+        <div class="projected-score-box" id="projectedScoreBox">
+          <span class="proj-label">Projected WTC Round Score:</span>
+          <span class="proj-val" id="projectedScoreValue">0 – 0</span>
+          <span class="proj-verdict" id="projectedVerdictBadge">Awaiting Pairings</span>
+          <button type="button" id="btnCopyPairings" class="btn btn-sm btn-outline">📋 Copy Pairings</button>
+        </div>
+      </div>
+
+      <div class="pairings-table-wrap">
+        <table class="pairings-table">
+          <thead>
+            <tr>
+              <th>Table</th>
+              <th>Pairing Source</th>
+              <th>Team A Player</th>
+              <th>Matchup</th>
+              <th>Team B Player</th>
+              <th>Est. WTC (0–20)</th>
+            </tr>
+          </thead>
+          <tbody id="pairingsTableBody">
+            <tr>
+              <td colspan="6" class="empty-pairings-cell">No pairings locked yet. Complete Step 1 → Step 2 → Step 3 above to lock tables!</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div id="toastNotification" class="toast-notification hidden"></div>
+  <script src="/team-pairings/app.js"></script>
+</body>
+</html>
