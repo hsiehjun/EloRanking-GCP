@@ -2559,18 +2559,6 @@
                   <button id="gt-lobby-create-btn" onclick="window.__handleCreateRoom('selected')" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0a0c10; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:11px 12px; border-radius:10px; cursor:pointer; letter-spacing:0.05em; font-family:'JetBrains Mono',monospace; transition:opacity 0.2s;">
                     ${hostBtnText}
                   </button>
-                  <!-- 1-Click Quick Launch Bar -->
-                  <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                    <button id="gt-quick-launch-pairings-btn" type="button" onclick="window.__handleCreateRoom('pairings_5v5', 5)" style="flex:1; background:rgba(168,85,247,0.16); border:1px solid rgba(168,85,247,0.45); color:#e9d5ff; font-weight:800; font-size:10px; padding:7px 10px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; justify-content:center; gap:4px;" title="1-Click Quick Launch WTC Team Pairings Minigame">
-                      ⚔️ Quick Launch Team Pairings
-                    </button>
-                    <button id="gt-quick-launch-tcg-btn" type="button" onclick="window.location.href='/team-pairings?tcg=deck&from_lobby=1'" style="background:linear-gradient(135deg, rgba(245,158,11,0.22), rgba(168,85,247,0.22)); border:1px solid rgba(251,191,36,0.55); color:#fde68a; font-weight:800; font-size:10px; padding:7px 10px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;" title="Open OmniTactica TCG Player Card Vault, Glory Pack Store &amp; Deck Builder">
-                      🃏 TCG Cards &amp; Decks
-                    </button>
-                    <button id="gt-quick-launch-aos-btn" type="button" onclick="window.__handleCreateRoom('${isAosMode ? '40k' : 'aos'}')" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.35); color:#38bdf8; font-weight:800; font-size:10px; padding:7px 10px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;" title="1-Click Quick Launch ${isAosMode ? '40K' : 'AoS'} Game Tracker">
-                      ${isAosMode ? '🦅 40K Tracker' : '⚡ AoS Tracker'}
-                    </button>
-                  </div>
                 </div>
               </div>
 

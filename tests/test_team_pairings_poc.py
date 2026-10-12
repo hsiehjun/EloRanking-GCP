@@ -1018,7 +1018,9 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertIn('id="gt-mode-btn-40k"', ts_js)
         self.assertIn('id="gt-mode-btn-pairings-5v5"', ts_js)
         self.assertIn('id="gt-mode-btn-pairings-8v8"', ts_js)
-        self.assertIn('id="gt-quick-launch-pairings-btn"', ts_js)
+        self.assertNotIn('id="gt-quick-launch-pairings-btn"', ts_js)
+        self.assertNotIn('id="gt-quick-launch-aos-btn"', ts_js)
+        self.assertNotIn("Quick Launch Team Pairings", ts_js)
         self.assertIn('id="gt-lobby-spectate-btn"', ts_js)
         self.assertIn("/team-pairings?room=${encodeURIComponent(targetMid)}&role=spectator", ts_js)
 
