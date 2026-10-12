@@ -1,9 +1,9 @@
 /**
  * OmniTactica — 40K Team Pairings Duel Arena (Yu-Gi-Oh! First-Person Card Game UI)
  * - Player-specific perspective: Your Team Hand is ALWAYS at the bottom; Opponent is across the top.
- * - Game Tracker-style Room Lobby: Shareable room code/link, Locked vs Unlocked room access, and individual Captain Seat Locking.
- * - Real Team & Real Player Search: Queries live backend (/api/team-pairings/search & /api/team-pairings/team/{name}) with ZERO mock/hardcoded data.
- *   Searching or clicking a Team populates its real players underneath!
+ * - Clean Lobby & Roster Builder: Starts completely empty (no pre-populated teams or players in search or hand).
+ * - Real Player Search: Queries live backend (/api/team-pairings/search) by player name or team name and displays ONLY matching players.
+ * - Game Tracker Share Match Room Pop-up Modal (#gt-share-room-modal): Identical Share Room & Lock modal to Game Tracker.
  * - Authentic Retribution Armory Faction Sigils: Uses window.getArmoryAvatarSvg(avatarId) from /js/armory_svgs.js.
  */
 
@@ -86,26 +86,31 @@ class YuGiOhPairingsArena {
     this.inspectedPlayer = null;
     this.pollTimer = null;
     this._searchDebounce = null;
+    this._shareChatThreadsCache = [];
+    this._shareUserSearchTimer = null;
 
-    // Persistent Game Tracker-style User Identity for Seat Locking
+    // Persistent User / Guest Identity for Seat Locking
     this.userId = this.initGuestUserId();
     this.userName = this.initUserName();
 
-    // Lobby draft state
+    // Lobby draft state starts completely EMPTY (nothing pre-populated!)
     this.lobbyDraftTeam = {
       captain_a: [],
       captain_b: []
     };
     this.lobbyTeamNames = {
-      captain_a: "Art of War",
-      captain_b: "Team Zero Comp"
+      captain_a: "",
+      captain_b: ""
     };
 
-    // Real Search State (populated exclusively from live backend /api/team-pairings/search & /api/team-pairings/team/{name})
-    this.searchResultsTeams = [];
+    // Real Player Search State (populated only when user types in #playerSearchInput)
     this.searchResultsPlayers = [];
-    this.selectedTeamName = "";
-    this.selectedTeamRosterPlayers = [];
+
+    // Expose Game Tracker-compatible global helpers for the Share Room modal
+    window.__openShareRoomModal = (mid) => this.openShareRoomModal(mid);
+    window.__copyRoomShareLink = (mid, btn) => this.copyRoomShareLink(mid, btn);
+    window.__toggleRoomLock = (mid, nextLocked, btn) => this.toggleRoomLock(nextLocked, btn);
+    window.__sendRoomInviteToChat = (mid, opts, btn) => this.sendRoomInviteToChat(mid, opts, btn);
 
     this.bindEvents();
     this.bootstrap();
@@ -113,6 +118,11 @@ class YuGiOhPairingsArena {
 
   initGuestUserId() {
     try {
+      const rawUser = localStorage.getItem("omnitactica_user") || localStorage.getItem("currentUser");
+      if (rawUser) {
+        const parsed = JSON.parse(rawUser);
+        if (parsed && (parsed.id || parsed.user_id)) return String(parsed.id || parsed.user_id);
+      }
       let id = localStorage.getItem("gt_guest_id");
       if (!id) {
         id = "cap_" + Math.random().toString(36).slice(2, 10);
@@ -126,18 +136,23 @@ class YuGiOhPairingsArena {
 
   initUserName() {
     try {
-      const saved = localStorage.getItem("gt_user_name");
-      if (saved && saved.trim()) return saved.trim();
+      const rawUser = localStorage.getItem("omnitactica_user") || localStorage.getItem("currentUser");
+      if (rawUser) {
+        const parsed = JSON.parse(rawUser);
+        if (parsed && (parsed.display_name || parsed.username)) {
+          return String(parsed.display_name || parsed.username).trim();
+        }
+      }
     } catch (_) {}
-    return "Captain";
+    return "";
   }
 
-  saveUserName(name) {
-    const clean = (name || "").trim() || "Captain";
-    this.userName = clean;
+  getAuthToken() {
     try {
-      localStorage.setItem("gt_user_name", clean);
-    } catch (_) {}
+      return localStorage.getItem("omnitactica_token") || localStorage.getItem("auth_token") || "";
+    } catch (_) {
+      return "";
+    }
   }
 
   saveRoomTokenToStorage(roomCode, role, token) {
@@ -175,26 +190,14 @@ class YuGiOhPairingsArena {
       btnLobbyLock.addEventListener("click", () => this.toggleRoomLock());
     }
 
-    // Lobby Share Link & Join Room buttons
-    const btnLobbyCopy = document.getElementById("btnLobbyCopyLink");
-    if (btnLobbyCopy) {
-      btnLobbyCopy.addEventListener("click", () => this.copyShareUrl());
+    // Topbar & Lobby Share Modal buttons (opens Game Tracker Share Match Room modal)
+    const btnTopShare = document.getElementById("btnTopbarShareModal");
+    if (btnTopShare) {
+      btnTopShare.addEventListener("click", () => this.openShareRoomModal());
     }
-    const btnLobbyJoin = document.getElementById("btnLobbyJoinRoom");
-    if (btnLobbyJoin) {
-      btnLobbyJoin.addEventListener("click", () => {
-        const inp = document.getElementById("lobbyJoinCodeInput");
-        const code = (inp ? inp.value : "").trim().toUpperCase();
-        if (code) this.joinExistingRoom(code, { openLobby: true });
-      });
-    }
-
-    const userNameInput = document.getElementById("lobbyUserNameInput");
-    if (userNameInput) {
-      userNameInput.value = this.userName;
-      userNameInput.addEventListener("change", () => {
-        this.saveUserName(userNameInput.value);
-      });
+    const btnLobbyShare = document.getElementById("btnLobbyShareModal");
+    if (btnLobbyShare) {
+      btnLobbyShare.addEventListener("click", () => this.openShareRoomModal());
     }
 
     // Open / Close Lobby Modal
@@ -230,7 +233,7 @@ class YuGiOhPairingsArena {
     if (teamNameInput) {
       teamNameInput.addEventListener("input", () => {
         if (this.activeRole === "captain_a" || this.activeRole === "captain_b") {
-          this.lobbyTeamNames[this.activeRole] = teamNameInput.value.trim() || "Art of War";
+          this.lobbyTeamNames[this.activeRole] = teamNameInput.value.trim();
         }
       });
     }
@@ -238,14 +241,9 @@ class YuGiOhPairingsArena {
     const selectFormat = document.getElementById("selectFormat");
     if (selectFormat) {
       selectFormat.addEventListener("change", () => {
-        this.trimOrPadLobbyDraft();
+        this.trimLobbyDraftToFormat();
         this.renderLobbyDeckBuilder();
       });
-    }
-
-    const btnQuickFill = document.getElementById("btnQuickFillTeam");
-    if (btnQuickFill) {
-      btnQuickFill.addEventListener("click", () => this.loadRealTeamIntoHand());
     }
 
     const btnClearHand = document.getElementById("btnClearTeamHand");
@@ -258,30 +256,20 @@ class YuGiOhPairingsArena {
       });
     }
 
-    // Real Team & Player Search Input
+    // Real Player Search Input (only populates players when user types!)
     const searchInput = document.getElementById("playerSearchInput");
     if (searchInput) {
       searchInput.addEventListener("input", () => {
         clearTimeout(this._searchDebounce);
         const val = searchInput.value;
+        if (!val || !val.trim()) {
+          this.searchResultsPlayers = [];
+          this.renderSearchResults();
+          return;
+        }
         this._searchDebounce = setTimeout(() => {
           this.performRealSearch(val);
-        }, 120);
-      });
-    }
-
-    // Team Roster Drawer buttons
-    const btnLoadFullTeam = document.getElementById("btnLoadFullTeamRoster");
-    if (btnLoadFullTeam) {
-      btnLoadFullTeam.addEventListener("click", () => {
-        this.loadSelectedTeamRosterIntoHand();
-      });
-    }
-    const btnCloseDrawer = document.getElementById("btnCloseTeamRosterDrawer");
-    if (btnCloseDrawer) {
-      btnCloseDrawer.addEventListener("click", () => {
-        const drawer = document.getElementById("teamRosterPlayersSection");
-        if (drawer) drawer.classList.add("hidden");
+        }, 100);
       });
     }
 
@@ -297,7 +285,7 @@ class YuGiOhPairingsArena {
       btnLock.addEventListener("click", () => this.submitStagedSelection());
     }
 
-    // Auto-Duel / New Room / Join / Copy
+    // Auto-Duel / New Room / Copy Pairings
     const btnAutoFinish = document.getElementById("btnAutoFinish");
     if (btnAutoFinish) {
       btnAutoFinish.addEventListener("click", () => this.autoCompleteRemainingPhases());
@@ -306,22 +294,8 @@ class YuGiOhPairingsArena {
     const btnNewMatch = document.getElementById("btnNewMatch");
     if (btnNewMatch) {
       btnNewMatch.addEventListener("click", () => {
-        this.createNewRoom({ openLobby: true });
+        this.createNewRoom({ openLobby: true, emptyRosters: true });
       });
-    }
-
-    const btnJoinRoom = document.getElementById("btnJoinRoom");
-    if (btnJoinRoom) {
-      btnJoinRoom.addEventListener("click", () => {
-        const inp = document.getElementById("joinRoomInput");
-        const code = (inp ? inp.value : "").trim().toUpperCase();
-        if (code) this.joinExistingRoom(code, { openLobby: true });
-      });
-    }
-
-    const btnCopyRoomLink = document.getElementById("btnCopyRoomLink");
-    if (btnCopyRoomLink) {
-      btnCopyRoomLink.addEventListener("click", () => this.copyShareUrl());
     }
 
     const btnCopyPairings = document.getElementById("btnCopyPairings");
@@ -331,9 +305,6 @@ class YuGiOhPairingsArena {
   }
 
   async bootstrap() {
-    // Perform initial real search so real teams & players are ready immediately
-    await this.performRealSearch("");
-
     const params = new URLSearchParams(window.location.search);
     const urlRoom = (params.get("room") || "").trim().toUpperCase();
     const urlRole = (params.get("role") || "").trim().toLowerCase();
@@ -343,10 +314,16 @@ class YuGiOhPairingsArena {
       this.activeRole = urlRole;
     }
 
+    // Do NOT pre-populate teams or players unless demo_state specifically tests mid-duel field steps
+    const needsFieldDemoPreset = demoState === "step2" || demoState === "step3_spectator" || demoState === "completed";
+
     if (urlRoom) {
       await this.joinExistingRoom(urlRoom, { openLobby: !demoState || demoState === "lobby" });
     } else {
-      await this.createNewRoom({ openLobby: !demoState || demoState === "lobby" });
+      await this.createNewRoom({
+        openLobby: !demoState || demoState === "lobby",
+        emptyRosters: !needsFieldDemoPreset
+      });
     }
 
     if (demoState) {
@@ -357,47 +334,24 @@ class YuGiOhPairingsArena {
   }
 
   /**
-   * Queries live backend `/api/team-pairings/search` for real Teams and real Players.
-   * Zero mock or custom placeholder players!
+   * Queries live backend `/api/team-pairings/search` for real Players (matching player name OR team name).
+   * When query is empty, nothing is shown under the search bar!
    */
   async performRealSearch(query = "") {
     const q = String(query || "").trim();
+    if (!q) {
+      this.searchResultsPlayers = [];
+      this.renderSearchResults();
+      return;
+    }
     try {
       const resp = await fetch(`/api/team-pairings/search?q=${encodeURIComponent(q)}&limit=24`);
       if (!resp.ok) return;
       const data = await resp.json();
-      this.searchResultsTeams = Array.isArray(data.teams) ? data.teams : [];
       this.searchResultsPlayers = Array.isArray(data.players) ? data.players : [];
       this.renderSearchResults();
-
-      // If the user searched for a team name and at least 1 real team matched, automatically populate its players underneath!
-      if (q.length >= 2 && this.searchResultsTeams.length > 0) {
-        const topTeam = this.searchResultsTeams[0];
-        if (topTeam && topTeam.team_name) {
-          await this.fetchAndShowTeamRosterUnderneath(topTeam.team_name, { silentToast: true });
-        }
-      }
     } catch (err) {
-      console.error("Real team/player search failed:", err);
-    }
-  }
-
-  async fetchAndShowTeamRosterUnderneath(teamName, { silentToast = false } = {}) {
-    if (!teamName) return;
-    try {
-      const resp = await fetch(`/api/team-pairings/team/${encodeURIComponent(teamName)}`);
-      if (!resp.ok) return;
-      const data = await resp.json();
-      const players = Array.isArray(data.players) ? data.players : [];
-      this.selectedTeamName = data.team_name || teamName;
-      this.selectedTeamRosterPlayers = players;
-      this.renderTeamRosterDrawer();
-      this.renderSearchResults();
-      if (!silentToast) {
-        this.showToast(`Loaded ${players.length} real players from ${this.selectedTeamName}`);
-      }
-    } catch (err) {
-      console.error("Failed to fetch real team roster:", err);
+      console.error("Real player search failed:", err);
     }
   }
 
@@ -405,26 +359,24 @@ class YuGiOhPairingsArena {
     const container = document.getElementById("playerSearchResults");
     if (!container) return;
 
+    const searchInput = document.getElementById("playerSearchInput");
+    const q = (searchInput ? searchInput.value : "").trim();
+
+    // Do NOT populate anything underneath the search bar when search input is empty!
+    if (!q) {
+      container.innerHTML = "";
+      container.classList.add("hidden");
+      return;
+    }
+
+    container.classList.remove("hidden");
+
     const roleKey = this.activeRole === "captain_b" ? "captain_b" : "captain_a";
     const currentHand = this.lobbyDraftTeam[roleKey] || [];
     const inHandNames = new Set(currentHand.map((p) => String(p.name || "").toLowerCase()));
 
-    const teamsHtml = this.searchResultsTeams.slice(0, 6).map((t, idx) => {
-      const isSelected = this.selectedTeamName && this.selectedTeamName.toLowerCase() === String(t.team_name || "").toLowerCase();
-      const iconSvg = getFactionSvgHtml("Adeptus Custodes", "armory-faction-svg");
-      return `
-        <div class="search-result-pill team-pill ${isSelected ? "active-team" : ""}" data-team-idx="${idx}" title="Click to populate ${this.escapeHtml(t.team_name)} players underneath">
-          <span class="srp-ico">${iconSvg}</span>
-          <div class="srp-main">
-            <span class="srp-name"><span class="srp-team-badge">TEAM</span>${this.escapeHtml(t.team_name)}</span>
-            <span class="srp-sub">${t.member_count || 5} Players • Avg Elo ${t.avg_elo || 2050}</span>
-          </div>
-          <span class="srp-add">${isSelected ? "▼ ROSTER OPEN" : "▼ VIEW PLAYERS"}</span>
-        </div>
-      `;
-    });
-
-    const playersHtml = this.searchResultsPlayers.slice(0, 14).map((p, idx) => {
+    // Render ONLY Players (never Team pills or a separate Team Roster drawer)
+    const playersHtml = this.searchResultsPlayers.slice(0, 24).map((p, idx) => {
       const alreadyIn = inHandNames.has(String(p.name || "").toLowerCase());
       const iconSvg = getFactionSvgHtml(p.faction, "armory-faction-svg");
       const teamLabel = p.team_name ? ` • ${p.team_name}` : "";
@@ -440,27 +392,16 @@ class YuGiOhPairingsArena {
       `;
     });
 
-    const combined = [...teamsHtml, ...playersHtml];
-    if (combined.length === 0) {
+    if (playersHtml.length === 0) {
       container.innerHTML = `
-        <div style="color:var(--text-dim);font-family:var(--font-mono);font-size:0.72rem;padding:10px 6px;">
-          No matching real teams or players found in database. Try searching a partial name or team (e.g. Art of War, Team Zero Comp, Siegler, Innes).
+        <div style="color:var(--text-dim);font-family:var(--font-mono);font-size:0.72rem;padding:8px 6px;">
+          No matching players found for "${this.escapeHtml(q)}".
         </div>
       `;
       return;
     }
 
-    container.innerHTML = combined.join("");
-
-    container.querySelectorAll(".search-result-pill.team-pill").forEach((pill) => {
-      pill.addEventListener("click", () => {
-        const idx = Number(pill.getAttribute("data-team-idx"));
-        const teamObj = this.searchResultsTeams[idx];
-        if (teamObj && teamObj.team_name) {
-          this.fetchAndShowTeamRosterUnderneath(teamObj.team_name);
-        }
-      });
-    });
+    container.innerHTML = playersHtml.join("");
 
     container.querySelectorAll(".search-result-pill.player-pill").forEach((pill) => {
       pill.addEventListener("click", () => {
@@ -471,89 +412,6 @@ class YuGiOhPairingsArena {
         }
       });
     });
-  }
-
-  renderTeamRosterDrawer() {
-    const drawer = document.getElementById("teamRosterPlayersSection");
-    const titleEl = document.getElementById("selectedTeamRosterTitle");
-    const metaEl = document.getElementById("selectedTeamRosterMeta");
-    const listEl = document.getElementById("teamRosterPlayersList");
-    if (!drawer || !listEl) return;
-
-    if (!this.selectedTeamName || !this.selectedTeamRosterPlayers.length) {
-      drawer.classList.add("hidden");
-      return;
-    }
-
-    drawer.classList.remove("hidden");
-    if (titleEl) titleEl.textContent = this.selectedTeamName;
-    if (metaEl) metaEl.textContent = `(${this.selectedTeamRosterPlayers.length} real team players — click any player to add to your hand)`;
-
-    const roleKey = this.activeRole === "captain_b" ? "captain_b" : "captain_a";
-    const currentHand = this.lobbyDraftTeam[roleKey] || [];
-    const inHandNames = new Set(currentHand.map((p) => String(p.name || "").toLowerCase()));
-
-    listEl.innerHTML = this.selectedTeamRosterPlayers.map((p, idx) => {
-      const alreadyIn = inHandNames.has(String(p.name || "").toLowerCase());
-      const iconSvg = getFactionSvgHtml(p.faction, "armory-faction-svg");
-      return `
-        <div class="search-result-pill team-member-pill ${alreadyIn ? "in-hand" : ""}" data-roster-idx="${idx}">
-          <span class="srp-ico">${iconSvg}</span>
-          <div class="srp-main">
-            <span class="srp-name">${this.escapeHtml(p.name)}</span>
-            <span class="srp-sub">${this.escapeHtml(p.faction)} • Elo ${p.elo || 2050}</span>
-          </div>
-          <span class="srp-add">${alreadyIn ? "✓ IN HAND" : "+ ADD"}</span>
-        </div>
-      `;
-    }).join("");
-
-    listEl.querySelectorAll(".team-member-pill").forEach((pill) => {
-      pill.addEventListener("click", () => {
-        const idx = Number(pill.getAttribute("data-roster-idx"));
-        const playerObj = this.selectedTeamRosterPlayers[idx];
-        if (playerObj) {
-          this.addPlayerToLobbyHand(playerObj);
-        }
-      });
-    });
-  }
-
-  loadSelectedTeamRosterIntoHand() {
-    if (this.activeRole !== "captain_a" && this.activeRole !== "captain_b") return;
-    if (!this.selectedTeamRosterPlayers.length) return;
-
-    const targetSize = this.getTargetHandSize();
-    const loaded = this.selectedTeamRosterPlayers.slice(0, targetSize).map((p) => {
-      const meta = resolveFactionMeta(p.faction);
-      return {
-        name: p.name,
-        faction: p.faction || "Space Marines",
-        detachment: p.detachment || meta.detachment,
-        elo: p.elo || 2080,
-        role_tag: p.role_tag || "All-Rounder"
-      };
-    });
-
-    this.lobbyDraftTeam[this.activeRole] = loaded;
-    this.lobbyTeamNames[this.activeRole] = this.selectedTeamName;
-    const teamNameInput = document.getElementById("lobbyTeamNameInput");
-    if (teamNameInput) teamNameInput.value = this.selectedTeamName;
-
-    this.renderLobbyDeckBuilder();
-    this.renderTeamRosterDrawer();
-    this.showToast(`Loaded ${loaded.length} players from ${this.selectedTeamName}!`);
-  }
-
-  async loadRealTeamIntoHand() {
-    if (this.activeRole !== "captain_a" && this.activeRole !== "captain_b") return;
-    const typedTeam = (document.getElementById("lobbyTeamNameInput")?.value || "").trim() ||
-      this.selectedTeamName ||
-      (this.activeRole === "captain_a" ? "Art of War" : "Team Zero Comp");
-    await this.fetchAndShowTeamRosterUnderneath(typedTeam, { silentToast: true });
-    if (this.selectedTeamRosterPlayers.length > 0) {
-      this.loadSelectedTeamRosterIntoHand();
-    }
   }
 
   getTargetHandSize() {
@@ -575,7 +433,8 @@ class YuGiOhPairingsArena {
           role_tag: p.role_tag || "All-Rounder"
         };
       });
-      this.lobbyTeamNames.captain_a = this.room.team_a.name || "Art of War";
+      const nameA = this.room.team_a.name || "";
+      this.lobbyTeamNames.captain_a = (nameA === "Team A" && this.lobbyDraftTeam.captain_a.length === 0) ? "" : nameA;
     }
     if (this.room.team_b && Array.isArray(this.room.team_b.roster)) {
       this.lobbyDraftTeam.captain_b = this.room.team_b.roster.map((p) => {
@@ -588,26 +447,17 @@ class YuGiOhPairingsArena {
           role_tag: p.role_tag || "All-Rounder"
         };
       });
-      this.lobbyTeamNames.captain_b = this.room.team_b.name || "Team Zero Comp";
+      const nameB = this.room.team_b.name || "";
+      this.lobbyTeamNames.captain_b = (nameB === "Team B" && this.lobbyDraftTeam.captain_b.length === 0) ? "" : nameB;
     }
   }
 
-  trimOrPadLobbyDraft() {
+  trimLobbyDraftToFormat() {
     const target = this.getTargetHandSize();
-    const realPool = this.selectedTeamRosterPlayers.length > 0
-      ? this.selectedTeamRosterPlayers
-      : this.searchResultsPlayers;
-    ["captain_a", "captain_b"].forEach((roleKey, sideIdx) => {
+    ["captain_a", "captain_b"].forEach((roleKey) => {
       const list = this.lobbyDraftTeam[roleKey] || [];
       if (list.length > target) {
         this.lobbyDraftTeam[roleKey] = list.slice(0, target);
-      } else if (list.length < target && realPool.length > 0) {
-        const offset = sideIdx * 5;
-        for (let i = list.length; i < target; i++) {
-          const fallback = realPool[(offset + i) % realPool.length];
-          if (fallback) list.push({ ...fallback });
-        }
-        this.lobbyDraftTeam[roleKey] = list;
       }
     });
   }
@@ -644,11 +494,7 @@ class YuGiOhPairingsArena {
       return;
     }
 
-    const nameInp = document.getElementById("lobbyUserNameInput");
-    if (nameInp && nameInp.value.trim()) {
-      this.saveUserName(nameInp.value.trim());
-    }
-
+    const defaultCapLabel = seat === "captain_a" ? "Team A Captain" : "Team B Captain";
     const savedTok = this.captainTokens[seat] || this.loadRoomTokenFromStorage(this.roomCode, seat);
     try {
       const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
@@ -658,7 +504,7 @@ class YuGiOhPairingsArena {
           action: "claim_seat",
           role: seat,
           user_id: this.userId,
-          user_name: this.userName,
+          user_name: this.userName || defaultCapLabel,
           captain_token: savedTok
         })
       });
@@ -674,7 +520,7 @@ class YuGiOhPairingsArena {
         }
         this.selectLobbySeatUI(seat);
         this.renderLobbySeatLockState();
-        this.showToast(`🔒 Seat locked as ${seat === "captain_a" ? "Team A Captain" : "Team B Captain"}!`);
+        this.showToast(`🔒 Seat locked as ${defaultCapLabel}!`);
       } else {
         this.showToast(data?.error || "That Captain seat is locked by another player.");
         this.renderLobbySeatLockState();
@@ -715,14 +561,20 @@ class YuGiOhPairingsArena {
     }
   }
 
-  async toggleRoomLock() {
+  async toggleRoomLock(nextLocked, btnEl) {
     if (!this.roomCode || !this.room) return;
+    const desired = typeof nextLocked === "boolean" ? nextLocked : !this.room.is_locked;
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.style.opacity = "0.65";
+    }
     try {
       const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "toggle_room_lock",
+          is_locked: desired,
           user_id: this.userId,
           captain_token: this.captainTokens.captain_a || this.captainTokens.captain_b || ""
         })
@@ -732,6 +584,9 @@ class YuGiOhPairingsArena {
         this.room = data.room;
         this.renderLobbySeatLockState();
         this.renderAll();
+        if (document.getElementById("gt-share-room-modal")) {
+          this.openShareRoomModal(this.roomCode);
+        }
         this.showToast(
           this.room.is_locked
             ? "🔒 Room Locked — Unclaimed seats cannot be taken by new visitors."
@@ -739,10 +594,323 @@ class YuGiOhPairingsArena {
         );
       } else {
         this.showToast(data?.error || "Only the room owner or a seated Captain can toggle room lock.");
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.style.opacity = "1";
+        }
       }
     } catch (err) {
       console.error("Failed to toggle room lock:", err);
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.style.opacity = "1";
+      }
     }
+  }
+
+  /**
+   * Exact Game Tracker Share Match Room Pop-Up Modal (#gt-share-room-modal)
+   */
+  getCleanRoomShareUrl(mid) {
+    const targetId = mid || this.roomCode || "";
+    return targetId
+      ? `${window.location.origin}/team-pairings?room=${encodeURIComponent(targetId)}`
+      : `${window.location.origin}/team-pairings`;
+  }
+
+  copyRoomShareLink(mid, silentBtn) {
+    const shareUrl = this.getCleanRoomShareUrl(mid);
+    try {
+      navigator.clipboard.writeText(shareUrl);
+    } catch (_) {}
+    if (silentBtn && silentBtn.tagName) {
+      const orig = silentBtn.innerHTML;
+      silentBtn.innerHTML = "✅ COPIED!";
+      setTimeout(() => { silentBtn.innerHTML = orig; }, 1800);
+      return;
+    }
+    this.showToast("🔗 Room Link Copied! Share with the opposing Team Captain.");
+  }
+
+  async sendRoomInviteToChat(matchId, opts, btnEl) {
+    const targetMid = matchId || this.roomCode;
+    if (!targetMid) return;
+    const token = this.getAuthToken();
+    if (!token) {
+      this.showToast("Sign in to OmniTactica to send invites in Chat, or use Copy Link above.");
+      return;
+    }
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.textContent = "Sending...";
+    }
+    try {
+      const resp = await fetch(`/api/tracker/room/${encodeURIComponent(targetMid)}/share_chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          token: token,
+          request_id: (opts && opts.requestId) || undefined,
+          receiver_id: (opts && opts.receiverId) || undefined
+        })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.success) {
+        if (btnEl) {
+          btnEl.style.background = "#10b981";
+          btnEl.style.color = "#070b14";
+          btnEl.style.borderColor = "#10b981";
+          btnEl.textContent = "✅ Sent in Chat!";
+        }
+        const statusBanner = document.getElementById("gt-share-modal-status");
+        if (statusBanner) {
+          statusBanner.style.display = "block";
+          statusBanner.style.background = "rgba(16,185,129,0.14)";
+          statusBanner.style.border = "1px solid rgba(16,185,129,0.4)";
+          statusBanner.style.color = "#34d399";
+          statusBanner.innerHTML = `✅ Room <b>#${this.escapeHtml(targetMid)}</b> invite sent to <b>${this.escapeHtml((opts && opts.targetLabel) || data.target_label || "Chat")}</b>!`;
+        }
+      } else {
+        throw new Error(data.detail || "Could not send invite");
+      }
+    } catch (err) {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = "📨 Send Invite";
+      }
+      const statusBanner = document.getElementById("gt-share-modal-status");
+      if (statusBanner) {
+        statusBanner.style.display = "block";
+        statusBanner.style.background = "rgba(239,68,68,0.14)";
+        statusBanner.style.border = "1px solid rgba(239,68,68,0.4)";
+        statusBanner.style.color = "#f87171";
+        statusBanner.textContent = `⚠️ ${err.message || "Error sending chat invite"}`;
+      }
+    }
+  }
+
+  renderShareChatTargets(matchId, threads, searchedUsers, queryStr) {
+    const listEl = document.getElementById("gt-share-chat-list");
+    if (!listEl) return;
+    const token = this.getAuthToken();
+    if (!token) {
+      listEl.innerHTML = `
+        <div style="padding:14px; text-align:center; color:#94a3b8; font-size:12px; background:#070b14; border:1px dashed #334155; border-radius:10px;">
+          🔒 Sign in to an OmniTactica account to send interactive room cards in Chat, or use <b>Copy Link</b> above to share with anyone!
+        </div>
+      `;
+      return;
+    }
+
+    const q = (queryStr || "").trim().toLowerCase();
+    const myUid = this.userId || "";
+    const items = [];
+    const seenUserIds = new Set();
+
+    (threads || []).forEach((r) => {
+      if (!r || r.status === "declined") return;
+      const isGroup = r.is_group || String(r.id || "").startsWith("grp_");
+      const isOut = r.sender_id === myUid;
+      const peerId = isGroup ? null : (isOut ? r.receiver_id : r.sender_id);
+      if (peerId) seenUserIds.add(peerId);
+      const name = isGroup
+        ? (r.receiver_name || "Group Chat")
+        : ((isOut ? r.receiver_name : r.sender_name) || "Player");
+      const sub = isGroup
+        ? (r.group_type === "league" ? "🏆 League Chat" : "⚔️ Pod Group Chat")
+        : ((isOut ? r.receiver_factions : r.sender_factions) || "OmniTactica Player Chat");
+      if (q && !name.toLowerCase().includes(q) && !sub.toLowerCase().includes(q)) return;
+      items.push({
+        requestId: r.id,
+        receiverId: peerId,
+        name,
+        subtitle: sub,
+        badge: isGroup ? "GROUP" : "CHAT"
+      });
+    });
+
+    (searchedUsers || []).forEach((u) => {
+      if (!u || !u.id || u.id === myUid || seenUserIds.has(u.id)) return;
+      seenUserIds.add(u.id);
+      items.push({
+        requestId: null,
+        receiverId: u.id,
+        name: u.display_name || "Player",
+        subtitle: [u.factions, u.location_name].filter(Boolean).join(" • ") || "OmniTactica Player",
+        badge: "PLAYER"
+      });
+    });
+
+    if (items.length === 0) {
+      listEl.innerHTML = `
+        <div style="padding:14px; text-align:center; color:#94a3b8; font-size:12px; background:#070b14; border:1px solid #1e293b; border-radius:10px;">
+          ${q ? `No players or chats matching "${this.escapeHtml(queryStr)}".` : "No active chats yet. Type a player name above to search OmniTactica players!"}
+        </div>
+      `;
+      return;
+    }
+
+    listEl.innerHTML = items.slice(0, 15).map((item) => `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; background:#070b14; border:1px solid #1e293b; border-radius:10px; padding:9px 12px;">
+        <div style="min-width:0; text-align:left;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span style="font-size:12.5px; font-weight:800; color:#f8fafc; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${this.escapeHtml(item.name)}</span>
+            <span style="font-size:9.5px; font-weight:800; padding:1px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace; background:${item.badge === "GROUP" ? "rgba(245,158,11,0.16)" : "rgba(56,189,248,0.14)"}; color:${item.badge === "GROUP" ? "#fbbf24" : "#38bdf8"};">${item.badge}</span>
+          </div>
+          <div style="font-size:11px; color:#64748b; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px;">${this.escapeHtml(item.subtitle)}</div>
+        </div>
+        <button type="button" onclick="window.__sendRoomInviteToChat('${this.escapeHtml(matchId)}', { requestId: '${this.escapeHtml(item.requestId || "")}', receiverId: '${this.escapeHtml(item.receiverId || "")}', targetLabel: '${this.escapeHtml(item.name)}' }, this)" style="background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:8px; padding:6px 11px; font-size:11px; font-weight:800; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; flex-shrink:0;">
+          📨 Send Invite
+        </button>
+      </div>
+    `).join("");
+  }
+
+  async openShareRoomModal(mid) {
+    const matchId = mid || this.roomCode || "";
+    if (!matchId) return;
+
+    const shareUrl = this.getCleanRoomShareUrl(matchId);
+    const spectatorUrl = `${shareUrl}&role=spectator`;
+    const isRoomLocked = Boolean(this.room && this.room.is_locked);
+
+    let modal = document.getElementById("gt-share-room-modal");
+    if (modal) modal.remove();
+
+    modal = document.createElement("div");
+    modal.id = "gt-share-room-modal";
+    modal.style.cssText = "position:fixed; inset:0; z-index:1000000; background:rgba(4,7,14,0.92); backdrop-filter:blur(14px); display:flex; align-items:center; justify-content:center; padding:14px; font-family:'Inter',sans-serif; box-sizing:border-box;";
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+    const lockSectionHtml = `
+      <div style="background:#090f1e; border:1px solid ${isRoomLocked ? "rgba(244,63,94,0.45)" : "rgba(16,185,129,0.4)"}; border-radius:14px; padding:13px 14px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:210px; text-align:left;">
+          <div style="display:flex; align-items:center; gap:7px; margin-bottom:4px;">
+            <span style="font-size:14px;">${isRoomLocked ? "🔒" : "🔓"}</span>
+            <span style="font-size:11.5px; font-weight:800; color:${isRoomLocked ? "#fb7185" : "#34d399"}; font-family:'JetBrains Mono',monospace; text-transform:uppercase;">
+              ${isRoomLocked ? "ROOM LOCKED (Owners Only)" : "ROOM UNLOCKED (Guests & Link Allowed)"}
+            </span>
+          </div>
+          <div style="font-size:11px; color:#94a3b8; line-height:1.4;">
+            ${isRoomLocked
+              ? "Only the <b>seated Team Captains</b> can act. New visitors opening the link are routed to Spectator Mode."
+              : "Anyone with the room link (including <b>Guests without an account</b>) can join an open Captain seat."}
+          </div>
+        </div>
+        <button type="button" id="gt-room-lock-toggle-btn" onclick="window.__toggleRoomLock('${this.escapeHtml(matchId)}', ${!isRoomLocked}, this)" style="background:${isRoomLocked ? "#10b981" : "#e11d48"}; color:${isRoomLocked ? "#071318" : "#fff"}; border:none; border-radius:9px; padding:8px 13px; font-size:11px; font-weight:800; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; flex-shrink:0;">
+          ${isRoomLocked ? "🔓 UNLOCK FOR GUESTS" : "🔒 LOCK ROOM"}
+        </button>
+      </div>
+    `;
+
+    modal.innerHTML = `
+      <div style="background:#0e1526; border:1px solid #1e293b; border-radius:20px; width:100%; max-width:520px; max-height:92vh; display:flex; flex-direction:column; box-shadow:0 25px 70px rgba(0,0,0,0.88); overflow:hidden; color:#f8fafc; box-sizing:border-box;">
+        <div style="padding:16px 20px; background:#090f1e; border-bottom:1px solid #1e293b; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:22px;">🔗</span>
+            <div style="text-align:left;">
+              <h2 style="font-size:16px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; margin:0; letter-spacing:0.03em;">SHARE MATCH ROOM</h2>
+              <div style="font-size:11px; color:#38bdf8; font-family:'JetBrains Mono',monospace;">${isRoomLocked ? "🔒 Locked (Owners Only)" : "🔓 Unlocked (Guest Ready)"}</div>
+            </div>
+          </div>
+          <button type="button" onclick="document.getElementById('gt-share-room-modal').remove()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; width:30px; height:30px; border-radius:8px; cursor:pointer; font-size:15px;">✕</button>
+        </div>
+
+        <div style="padding:18px 20px; overflow-y:auto; display:flex; flex-direction:column; gap:16px;">
+          <!-- Room Lock & Guest Access Control -->
+          ${lockSectionHtml}
+
+          <!-- Option 1: Share via Direct Link (No Account Needed) -->
+          <div style="background:#090f1e; border:1px solid rgba(245,158,11,0.35); border-radius:14px; padding:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+              <span style="font-size:11.5px; font-weight:800; color:#f59e0b; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">1. Share via Direct Link</span>
+              <span style="font-size:10px; font-weight:700; color:${isRoomLocked ? "#fb7185" : "#10b981"}; background:${isRoomLocked ? "rgba(244,63,94,0.12)" : "rgba(16,185,129,0.12)"}; border:1px solid ${isRoomLocked ? "rgba(244,63,94,0.35)" : "rgba(16,185,129,0.3)"}; padding:2px 7px; border-radius:999px;">
+                ${isRoomLocked ? "🔒 Locked • Owners Only" : "✓ No Account Required for Opponent"}
+              </span>
+            </div>
+            <p style="font-size:11.5px; color:#94a3b8; margin:0 0 10px; line-height:1.45; text-align:left;">
+              ${isRoomLocked
+                ? "This room is currently <b>Locked</b>. Unlock the room above if you want an unauthenticated <b>Guest Captain</b> to join via this link."
+                : "Your opponent can open this link in any browser without signing in to join as <b>Team B Captain (Guest)</b>. Once both seats are filled, any 3rd+ person opening the link is automatically routed to <b>Spectator Mode</b>."}
+            </p>
+            <div style="display:flex; gap:8px; margin-bottom:8px;">
+              <input id="gt-share-modal-url-input" readonly value="${shareUrl}" style="flex:1; min-width:0; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 10px; font-size:11px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; outline:none;" onclick="this.select()" />
+              <button type="button" id="gt-share-copy-link-btn" onclick="window.__copyRoomShareLink('${this.escapeHtml(matchId)}', this)" style="background:#f59e0b; color:#090d16; font-weight:800; font-size:11px; border:none; padding:9px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">
+                📋 COPY LINK
+              </button>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" id="gt-share-copy-spectator-btn" onclick="navigator.clipboard.writeText('${spectatorUrl}'); this.innerHTML='✅ SPECTATOR LINK COPIED!'; setTimeout(()=>this.innerHTML='👀 Copy Spectator Link', 1600);" style="flex:1; background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.35); border-radius:8px; padding:7px 10px; font-size:11px; font-weight:700; cursor:pointer; font-family:'JetBrains Mono',monospace;">
+                👀 Copy Spectator Link
+              </button>
+            </div>
+          </div>
+
+          <!-- Option 2: Share in OmniTactica Chat -->
+          <div style="background:#090f1e; border:1px solid rgba(56,189,248,0.35); border-radius:14px; padding:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+              <span style="font-size:11.5px; font-weight:800; color:#38bdf8; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">2. Share in OmniTactica Chat</span>
+              <span style="font-size:10px; color:#94a3b8;">Direct &amp; League/Pod Chats</span>
+            </div>
+            <div id="gt-share-modal-status" style="display:none; margin-bottom:10px; padding:8px 11px; border-radius:8px; font-size:11.5px; font-weight:600; text-align:left;"></div>
+            <div style="margin-bottom:10px;">
+              <input id="gt-share-chat-search" type="text" placeholder="Search opponent name, active chat, or league group..." style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; border-radius:8px; padding:8px 11px; font-size:12px; color:#f8fafc; outline:none;" />
+            </div>
+            <div id="gt-share-chat-list" style="display:flex; flex-direction:column; gap:7px; max-height:210px; overflow-y:auto;">
+              <div style="padding:12px; text-align:center; color:#94a3b8; font-size:12px;">Loading your OmniTactica chats...</div>
+            </div>
+          </div>
+
+          <!-- Multi-Device Same-Player Info Banner -->
+          <div style="background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.22); border-radius:10px; padding:10px 12px; font-size:11px; color:#cbd5e1; line-height:1.45; text-align:left;">
+            📱 <b>Using an iPad + Phone?</b> Sign into the same OmniTactica account on both devices and open this room. Both devices sync live as <b>your Captain seat</b> without taking the opponent's slot.
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const token = this.getAuthToken();
+    const searchInput = document.getElementById("gt-share-chat-search");
+    if (searchInput) {
+      searchInput.addEventListener("input", () => {
+        const q = searchInput.value || "";
+        this.renderShareChatTargets(matchId, this._shareChatThreadsCache, [], q);
+        if (this._shareUserSearchTimer) clearTimeout(this._shareUserSearchTimer);
+        if (q.trim().length >= 1 && token) {
+          this._shareUserSearchTimer = setTimeout(async () => {
+            try {
+              const uResp = await fetch(`/api/connect/users/search?q=${encodeURIComponent(q.trim())}`, {
+                headers: { "Authorization": `Bearer ${token}` }
+              });
+              if (uResp.ok) {
+                const uData = await uResp.json();
+                this.renderShareChatTargets(matchId, this._shareChatThreadsCache, uData.users || [], q);
+              }
+            } catch (_) {}
+          }, 220);
+        }
+      });
+    }
+
+    if (!token) {
+      this.renderShareChatTargets(matchId, [], [], "");
+      return;
+    }
+
+    try {
+      const resp = await fetch("/api/connect/requests", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        this._shareChatThreadsCache = (data && data.requests) ? data.requests : [];
+      }
+    } catch (_) {}
+    this.renderShareChatTargets(matchId, this._shareChatThreadsCache, [], searchInput ? searchInput.value : "");
   }
 
   renderLobbySeatLockState() {
@@ -754,7 +922,7 @@ class YuGiOhPairingsArena {
     if (topLockBtn) {
       topLockBtn.classList.toggle("locked", isRoomLocked);
       topLockBtn.classList.toggle("unlocked", !isRoomLocked);
-      topLockBtn.textContent = isRoomLocked ? "🔒 LOCKED" : "🔓 UNLOCKED";
+      topLockBtn.textContent = isRoomLocked ? "🔒 Locked" : "🔓 Unlocked";
     }
 
     // Lobby lock toggle button & status badge
@@ -762,9 +930,7 @@ class YuGiOhPairingsArena {
     if (lobbyLockBtn) {
       lobbyLockBtn.classList.toggle("locked", isRoomLocked);
       lobbyLockBtn.classList.toggle("unlocked", !isRoomLocked);
-      lobbyLockBtn.textContent = isRoomLocked
-        ? "🔒 Room Locked (Spectators Only)"
-        : "🔓 Room Unlocked (Open Access)";
+      lobbyLockBtn.textContent = isRoomLocked ? "🔒 Locked" : "🔓 Unlocked";
     }
 
     const accessStatus = document.getElementById("lobbyRoomAccessStatusBadge");
@@ -787,7 +953,7 @@ class YuGiOhPairingsArena {
         unlockBtnId: "btnUnlockSeatA",
         isLocked: !!this.room.seat_a_locked,
         ownerId: this.room.user_id_cap_a,
-        ownerName: this.room.seat_a_owner_name || this.room.team_a?.captain_name || "Captain A",
+        ownerName: this.room.seat_a_owner_name || this.room.team_a?.captain_name || "Team A Captain",
         hasToken: !!(this.captainTokens.captain_a || this.loadRoomTokenFromStorage(this.roomCode, "captain_a"))
       },
       {
@@ -800,7 +966,7 @@ class YuGiOhPairingsArena {
         unlockBtnId: "btnUnlockSeatB",
         isLocked: !!this.room.seat_b_locked,
         ownerId: this.room.user_id_cap_b,
-        ownerName: this.room.seat_b_owner_name || this.room.team_b?.captain_name || "Captain B",
+        ownerName: this.room.seat_b_owner_name || this.room.team_b?.captain_name || "Team B Captain",
         hasToken: !!(this.captainTokens.captain_b || this.loadRoomTokenFromStorage(this.roomCode, "captain_b"))
       }
     ];
@@ -836,7 +1002,7 @@ class YuGiOhPairingsArena {
 
       if (ownerText) {
         if (isMine) {
-          ownerText.textContent = `Seated: ${s.ownerName} (You)`;
+          ownerText.textContent = "Seated: You";
         } else if (isTakenByOther) {
           ownerText.textContent = `Taken by: ${s.ownerName}`;
         } else {
@@ -894,7 +1060,7 @@ class YuGiOhPairingsArena {
       if (builderSec) builderSec.classList.remove("hidden");
       const teamNameInput = document.getElementById("lobbyTeamNameInput");
       if (teamNameInput) {
-        teamNameInput.value = this.lobbyTeamNames[seat] || (seat === "captain_a" ? "Art of War" : "Team Zero Comp");
+        teamNameInput.value = this.lobbyTeamNames[seat] || "";
       }
       this.renderLobbyDeckBuilder();
       if (startBtn) startBtn.textContent = "⚔️ ENTER DUEL ARENA";
@@ -936,9 +1102,17 @@ class YuGiOhPairingsArena {
       this.showToast(`Swapped ${playerObj.name} into slot #${targetSize}`);
     }
 
+    // Auto-fill Team Name input if blank and player belongs to a known team
+    if (playerObj.team_name && !this.lobbyTeamNames[this.activeRole]) {
+      this.lobbyTeamNames[this.activeRole] = playerObj.team_name;
+      const teamNameInput = document.getElementById("lobbyTeamNameInput");
+      if (teamNameInput && !teamNameInput.value.trim()) {
+        teamNameInput.value = playerObj.team_name;
+      }
+    }
+
     this.lobbyDraftTeam[this.activeRole] = list;
     this.renderLobbyDeckBuilder();
-    this.renderTeamRosterDrawer();
   }
 
   renderLobbyDeckBuilder() {
@@ -951,10 +1125,12 @@ class YuGiOhPairingsArena {
 
     const statusHint = document.getElementById("lobbyStatusHint");
     if (statusHint) {
-      if (hand.length < targetSize) {
-        statusHint.textContent = `Select ${targetSize - hand.length} more real player(s) via search or Team Roster above.`;
+      if (hand.length === 0) {
+        statusHint.textContent = `Search players or a team name above to add ${targetSize} cards to your hand.`;
+      } else if (hand.length < targetSize) {
+        statusHint.textContent = `Select ${targetSize - hand.length} more player(s) via search above.`;
       } else {
-        statusHint.textContent = `Ready! ${targetSize}/${targetSize} Real Player Cards in your hand. Click ENTER DUEL ARENA.`;
+        statusHint.textContent = `Ready! ${targetSize}/${targetSize} Player Cards in your hand. Click ENTER DUEL ARENA.`;
       }
     }
 
@@ -985,7 +1161,7 @@ class YuGiOhPairingsArena {
           <div class="lobby-empty-slot">
             <span style="font-size:1.3rem;">➕</span>
             <span>EMPTY CARD SLOT #${i + 1}</span>
-            <span>Search a team or player above</span>
+            <span>Search player above</span>
           </div>
         `);
       }
@@ -1000,7 +1176,6 @@ class YuGiOhPairingsArena {
         arr.splice(idx, 1);
         this.lobbyDraftTeam[roleKey] = arr;
         this.renderLobbyDeckBuilder();
-        this.renderTeamRosterDrawer();
       });
     });
   }
@@ -1012,15 +1187,17 @@ class YuGiOhPairingsArena {
       return;
     }
 
-    const targetSize = this.getTargetHandSize();
-    const hand = this.lobbyDraftTeam[this.activeRole] || [];
-    if (hand.length < targetSize) {
-      await this.loadRealTeamIntoHand();
+    const finalHand = this.lobbyDraftTeam[this.activeRole] || [];
+    if (finalHand.length === 0) {
+      this.closeLobbyModal();
+      this.renderAll();
+      return;
     }
 
-    const finalHand = this.lobbyDraftTeam[this.activeRole];
+    const defaultTeamLbl = this.activeRole === "captain_a" ? "Team A" : "Team B";
     const teamName = (document.getElementById("lobbyTeamNameInput")?.value || "").trim() ||
-      (this.activeRole === "captain_a" ? "Art of War" : "Team Zero Comp");
+      this.lobbyTeamNames[this.activeRole] ||
+      defaultTeamLbl;
     const tag = teamName
       .split(/\s+/)
       .map((w) => w[0] || "")
@@ -1037,7 +1214,7 @@ class YuGiOhPairingsArena {
           body: JSON.stringify({
             role: this.activeRole,
             user_id: this.userId,
-            user_name: this.userName,
+            user_name: this.userName || finalHand[0]?.name || `${defaultTeamLbl} Captain`,
             captain_token: tok,
             action: "set_team_roster",
             payload: {
@@ -1060,10 +1237,10 @@ class YuGiOhPairingsArena {
 
     this.closeLobbyModal();
     this.renderAll();
-    this.showToast(`Seated & Locked as ${this.activeRole === "captain_a" ? "Team A Captain" : "Team B Captain"}!`);
+    this.showToast(`Locked ${finalHand.length} players for ${teamName}!`);
   }
 
-  async createNewRoom({ openLobby = false } = {}) {
+  async createNewRoom({ openLobby = false, emptyRosters = true } = {}) {
     const fmt = document.getElementById("selectFormat")?.value || "5v5";
     const vsAi = document.getElementById("chkVsAi")?.checked ?? true;
 
@@ -1073,12 +1250,11 @@ class YuGiOhPairingsArena {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           format_size: fmt,
-          team_a_preset: "art_of_war",
-          team_b_preset: "team_zero_comp",
+          empty_rosters: emptyRosters,
           vs_ai: vsAi,
           owner_id: this.userId,
           user_id: this.userId,
-          user_name: this.userName,
+          user_name: this.userName || "Team A Captain",
           claim_role: "captain_a"
         })
       });
@@ -1090,10 +1266,13 @@ class YuGiOhPairingsArena {
         this.captainTokens.captain_b = data.captain_b_token || data.room.captain_b_token || "";
         this.saveRoomTokenToStorage(this.roomCode, "captain_a", this.captainTokens.captain_a);
         this.selectedIds = [];
+        this.inspectedPlayer = null;
         this.syncLobbyDraftFromRoom();
 
-        const lobbyCodeEl = document.getElementById("lobbyRoomCodeText");
-        if (lobbyCodeEl) lobbyCodeEl.textContent = this.roomCode;
+        const searchInp = document.getElementById("playerSearchInput");
+        if (searchInp) searchInp.value = "";
+        this.searchResultsPlayers = [];
+        this.renderSearchResults();
 
         this.renderLobbySeatLockState();
         if (openLobby) {
@@ -1148,8 +1327,6 @@ class YuGiOhPairingsArena {
 
         this.selectedIds = [];
         this.syncLobbyDraftFromRoom();
-        const lobbyCodeEl = document.getElementById("lobbyRoomCodeText");
-        if (lobbyCodeEl) lobbyCodeEl.textContent = this.roomCode;
         this.renderLobbySeatLockState();
         if (openLobby) this.openLobbyModal();
         this.renderAll();
@@ -1240,9 +1417,6 @@ class YuGiOhPairingsArena {
     const p = this.getPerspective();
     if (!p) return;
 
-    const roomBadge = document.getElementById("roomCodeBadge");
-    if (roomBadge) roomBadge.textContent = `ROOM: ${this.room.room_code}`;
-
     const specBanner = document.getElementById("spectatorBanner");
     if (specBanner) {
       specBanner.classList.toggle("hidden", !p.isSpectator);
@@ -1255,12 +1429,9 @@ class YuGiOhPairingsArena {
     this.renderHands(p);
     this.renderPairedTables();
 
-    if (!this.inspectedPlayer) {
-      const bench = (p.myTeam.roster || []).filter((c) => c.status === "bench");
-      this.inspectCard(bench[0] || p.myDef || p.myTeam.roster?.[0], p.oppDef);
-    } else {
-      this.inspectCard(this.inspectedPlayer, p.oppDef);
-    }
+    const bench = (p.myTeam.roster || []).filter((c) => c.status === "bench");
+    const candidate = this.inspectedPlayer || bench[0] || p.myDef || p.myTeam.roster?.[0] || null;
+    this.inspectCard(candidate, p.oppDef);
   }
 
   renderDuelistHud(p) {
@@ -1270,9 +1441,9 @@ class YuGiOhPairingsArena {
     const oppStatus = document.getElementById("capBStatusPill");
     const oppAvatar = document.getElementById("oppHudAvatar");
 
-    if (oppTag) oppTag.textContent = p.oppTeam.tag || "OPP";
-    if (oppName) oppName.textContent = p.oppTeam.name || "Opponent Team";
-    if (oppCap) oppCap.textContent = `Cap: ${p.oppTeam.captain_name || "Opponent"}`;
+    if (oppTag) oppTag.textContent = p.oppTeam.tag || "TMB";
+    if (oppName) oppName.textContent = p.oppTeam.name || "Team B";
+    if (oppCap) oppCap.textContent = `Cap: ${p.oppTeam.captain_name || "Waiting..."}`;
     if (oppAvatar) {
       const oppLeadFac = p.oppDef?.faction || p.oppTeam.roster?.[0]?.faction || "Necrons";
       oppAvatar.innerHTML = getFactionSvgHtml(oppLeadFac, "armory-faction-svg");
@@ -1284,8 +1455,8 @@ class YuGiOhPairingsArena {
     const myStatus = document.getElementById("capAStatusPill");
     const myAvatar = document.getElementById("myHudAvatar");
 
-    if (myTag) myTag.textContent = p.myTeam.tag || "YOU";
-    if (myName) myName.textContent = p.myTeam.name || "Your Team";
+    if (myTag) myTag.textContent = p.myTeam.tag || "TMA";
+    if (myName) myName.textContent = p.myTeam.name || "Team A";
     if (myCap) myCap.textContent = `Cap: ${p.myTeam.captain_name || "You"} (${p.isSpectator ? "Spectating" : "LOCKED"})`;
     if (myAvatar) {
       const myLeadFac = p.myDef?.faction || p.myTeam.roster?.[0]?.faction || "Aeldari";
@@ -1619,13 +1790,19 @@ class YuGiOhPairingsArena {
 
     const handTitle = document.getElementById("myHandOwnerTitle");
     if (handTitle) {
+      const teamLabel = (p.myTeam.name || "YOUR TEAM").toUpperCase();
       handTitle.textContent = p.isSpectator
-        ? `${p.myTeam.name.toUpperCase()} HAND (${myBench.length} CARDS REMAINING)`
-        : `YOUR HAND — ${p.myTeam.name.toUpperCase()} (${myBench.length} CARDS IN HAND • CLICK TO PLACE ON FIELD)`;
+        ? `${teamLabel} HAND (${myBench.length} CARDS REMAINING)`
+        : `YOUR HAND — ${teamLabel} (${myBench.length} CARDS IN HAND • CLICK TO PLACE ON FIELD)`;
     }
 
     const myFan = document.getElementById("myHandFan");
     if (!myFan) return;
+
+    if ((p.myTeam.roster || []).length === 0) {
+      myFan.innerHTML = "";
+      return;
+    }
 
     if (myBench.length === 0) {
       myFan.innerHTML = `<div style="color:var(--text-dim);font-family:var(--font-mono);font-size:0.75rem;align-self:center;">ALL CARDS PLACED ON FIELD</div>`;
@@ -1731,6 +1908,10 @@ class YuGiOhPairingsArena {
 
   async autoCompleteRemainingPhases() {
     if (!this.room || !this.roomCode) return;
+    // If rosters are empty when Auto-Duel is clicked, initialize a room with rosters first
+    if (!(this.room.team_a?.roster?.length) || !(this.room.team_b?.roster?.length)) {
+      await this.createNewRoom({ openLobby: false, emptyRosters: false });
+    }
     const roleToUse = this.activeRole === "spectator" ? "captain_a" : this.activeRole;
     const tok = this.captainTokens[roleToUse] || this.captainTokens.captain_a || "";
 
@@ -1778,12 +1959,6 @@ class YuGiOhPairingsArena {
   }
 
   inspectCard(player, opponentContextCard = null) {
-    if (!player) return;
-    this.inspectedPlayer = player;
-    const meta = resolveFactionMeta(player.faction);
-    const starsCount = Math.max(4, Math.min(10, Math.round(((player.elo || 2050) - 1800) / 45)));
-    const svgHtml = getFactionSvgHtml(player.faction, "armory-faction-svg");
-
     const nameEl = document.getElementById("inspCardName");
     const iconEl = document.getElementById("inspCardIcon");
     const starsEl = document.getElementById("inspCardStars");
@@ -1795,6 +1970,25 @@ class YuGiOhPairingsArena {
     const roleShortEl = document.getElementById("inspCardRoleShort");
     const matchupBox = document.getElementById("inspMatchupBox");
     const matchupVal = document.getElementById("inspMatchupVal");
+
+    if (!player) {
+      if (nameEl) nameEl.textContent = "Select a Player Card";
+      if (iconEl) iconEl.innerHTML = "";
+      if (starsEl) starsEl.textContent = "☆☆☆☆☆☆☆☆";
+      if (emblemEl) emblemEl.innerHTML = "";
+      if (facEl) facEl.textContent = "No Card Selected";
+      if (typeEl) typeEl.textContent = "[ Awaiting Roster ]";
+      if (descEl) descEl.textContent = "Search players or a team in the Lobby to add cards to your hand, then click any card to inspect or place it on the field.";
+      if (eloEl) eloEl.textContent = "----";
+      if (roleShortEl) roleShortEl.textContent = "---";
+      if (matchupBox) matchupBox.classList.add("hidden");
+      return;
+    }
+
+    this.inspectedPlayer = player;
+    const meta = resolveFactionMeta(player.faction);
+    const starsCount = Math.max(4, Math.min(10, Math.round(((player.elo || 2050) - 1800) / 45)));
+    const svgHtml = getFactionSvgHtml(player.faction, "armory-faction-svg");
 
     if (nameEl) nameEl.textContent = player.name;
     if (iconEl) iconEl.innerHTML = svgHtml;
@@ -1975,14 +2169,24 @@ class YuGiOhPairingsArena {
     if (!this.room) return;
     if (demoState === "lobby") {
       this.openLobbyModal();
-      const sInp = document.getElementById("playerSearchInput");
-      if (sInp) {
-        sInp.value = "Team Zero Comp";
-        await this.performRealSearch("Team Zero Comp");
-      }
+      return;
+    }
+    if (demoState === "lobby_search") {
+      this.openLobbyModal();
+      const inp = document.getElementById("playerSearchInput");
+      if (inp) inp.value = "Team Zero Comp";
+      await this.performRealSearch("Team Zero Comp");
+      return;
+    }
+    if (demoState === "share_modal") {
+      this.openLobbyModal();
+      this.openShareRoomModal(this.roomCode);
       return;
     }
 
+    if (!(this.room.team_a?.roster?.length) || !(this.room.team_b?.roster?.length)) {
+      await this.createNewRoom({ openLobby: false, emptyRosters: false });
+    }
     this.closeLobbyModal();
 
     if (demoState === "step2") {
@@ -2029,15 +2233,6 @@ class YuGiOhPairingsArena {
     } else if (demoState === "completed") {
       await this.autoCompleteRemainingPhases();
     }
-  }
-
-  copyShareUrl() {
-    if (!this.roomCode) return;
-    const url = `${window.location.origin}/admin/team-pairings?room=${encodeURIComponent(this.roomCode)}`;
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(url).catch(() => {});
-    }
-    this.showToast(`📋 Copied shareable room link (${this.roomCode})!`);
   }
 
   copyPairingsSummary() {

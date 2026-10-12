@@ -388,31 +388,46 @@ class TestTeamPairingsPoC(unittest.TestCase):
         )
 
     def test_real_teams_and_players_search_and_zero_mock_data(self):
-        """Verify search_real_teams_and_players & get_real_team_roster return real data and app.js has zero mock player pools."""
+        """Verify search_real_teams_and_players returns real players for both team and player queries, and empty query returns no pre-populated items."""
         app_js = (ROOT_DIR / "web" / "team_pairings" / "app.js").read_text(encoding="utf-8")
         self.assertNotIn("SEARCHABLE_PLAYERS_POOL", app_js)
         self.assertNotIn("isCustom: true", app_js)
         self.assertIn("/api/team-pairings/search", app_js)
-        self.assertIn("/api/team-pairings/team/", app_js)
+        self.assertNotIn("teamRosterPlayersSection", app_js)
 
-        search_res = self.engine.search_real_teams_and_players(query="Art of War", game_system="40k")
-        self.assertTrue(search_res["success"])
-        self.assertGreaterEqual(len(search_res["teams"]), 1)
-        self.assertTrue(any("Art of War" in t["team_name"] for t in search_res["teams"]))
+        # Empty query must return empty lists (never pre-populate bottom search tray)
+        empty_res = self.engine.search_real_teams_and_players(query="", game_system="40k")
+        self.assertTrue(empty_res["ok"])
+        self.assertEqual(empty_res["players"], [])
+        self.assertEqual(empty_res["teams"], [])
 
-        roster_res = self.engine.get_real_team_roster("Team Zero Comp", game_system="40k")
-        roster = roster_res["players"] if isinstance(roster_res, dict) else roster_res
-        self.assertGreaterEqual(len(roster), 5)
-        self.assertTrue(any(p["name"] == "Mani Cheema" or p["name"] == "Liam VSL" or p["elo"] >= 1500 for p in roster))
+        # Searching a team name returns all matching players directly in `players`
+        search_res = self.engine.search_real_teams_and_players(query="Team Zero Comp", game_system="40k")
+        self.assertTrue(search_res["ok"])
+        self.assertGreaterEqual(len(search_res["players"]), 5)
+        self.assertTrue(any("Team Zero Comp" in p.get("team", "") for p in search_res["players"]))
 
-    def test_retribution_armory_faction_svgs_wired(self):
-        """Verify Retribution Armory faction SVGs (/js/armory_svgs.js & window.getArmoryAvatarSvg) are wired."""
+        # Creating a room with empty_rosters=True starts with empty rosters (0 / 5 cards in hand)
+        empty_room = self.engine.create_pairing_room({"format": "5v5", "empty_rosters": True, "ai_opponent": True})
+        self.assertEqual(empty_room["team_a"]["roster"], [])
+        self.assertEqual(empty_room["team_b"]["roster"], [])
+        self.assertEqual(empty_room["bench_a"], [])
+        self.assertEqual(empty_room["bench_b"], [])
+
+    def test_retribution_armory_faction_svgs_and_clean_lobby_modal_wired(self):
+        """Verify Retribution Armory faction SVGs, Game Tracker Share Room modal, and removal of Team Roster drawer / Your Name / Room Code."""
         html = (ROOT_DIR / "web" / "team_pairings" / "index.html").read_text(encoding="utf-8")
         self.assertIn('/js/armory_svgs.js', html)
-        self.assertIn('id="teamRosterPlayersSection"', html)
+        self.assertNotIn('id="teamRosterPlayersSection"', html)
+        self.assertNotIn('id="lobbyUserNameInput"', html)
+        self.assertNotIn('id="lobbyRoomCodeText"', html)
+        self.assertNotIn('id="roomCodeBadge"', html)
+        self.assertIn('id="btnLobbyShareModal"', html)
+        self.assertIn('id="btnTopbarShareModal"', html)
 
         app_js = (ROOT_DIR / "web" / "team_pairings" / "app.js").read_text(encoding="utf-8")
         self.assertIn("getArmoryAvatarSvg", app_js)
+        self.assertIn("gt-share-room-modal", app_js)
         self.assertIn("avatar_aeldari", app_js)
         self.assertIn("avatar_necrons", app_js)
         self.assertIn("avatar_adeptus_custodes", app_js)

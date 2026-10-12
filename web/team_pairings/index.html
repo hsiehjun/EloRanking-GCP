@@ -26,9 +26,11 @@
 
       <!-- Quick Seat Pills & Room Access Status -->
       <div class="topbar-center" id="roleSelectorPills">
-        <span class="room-code-pill" id="roomCodeBadge" title="Room Code">ROOM: ----</span>
         <button type="button" class="room-lock-pill unlocked" id="btnTopbarRoomLock" title="Toggle Room Lock (Unlocked vs Locked)">
-          🔓 UNLOCKED
+          🔓 Unlocked
+        </button>
+        <button type="button" class="top-share-pill" id="btnTopbarShareModal" title="Share Match Room (Link or OmniTactica Chat)">
+          🔗 Share
         </button>
         <button type="button" class="seat-chip active" id="btnRoleCapA" data-role="captain_a">👑 Team A Cap</button>
         <button type="button" class="seat-chip" id="btnRoleCapB" data-role="captain_b">👑 Team B Cap</button>
@@ -60,37 +62,28 @@
       <aside class="ygo-inspector-panel" id="cardInspectorPanel">
         <div class="inspector-card-frame" id="inspectorCardFrame">
           <div class="insp-header">
-            <span class="insp-name" id="inspCardName">Richard Siegler</span>
+            <span class="insp-name" id="inspCardName">Select a Player Card</span>
             <span class="insp-attribute" id="inspCardIcon"></span>
           </div>
-          <div class="insp-stars" id="inspCardStars">★★★★★★★★</div>
+          <div class="insp-stars" id="inspCardStars">☆☆☆☆☆☆☆☆</div>
           <div class="insp-art-box" id="inspCardArtBox">
             <div class="insp-art-glow"></div>
             <div class="insp-big-emblem" id="inspBigEmblem"></div>
-            <div class="insp-faction-banner" id="inspCardFaction">Aeldari</div>
+            <div class="insp-faction-banner" id="inspCardFaction">No Card Selected</div>
           </div>
           <div class="insp-type-box">
-            <div class="insp-type-line" id="inspCardTypeLine">[ Aeldari / Warhost ]</div>
+            <div class="insp-type-line" id="inspCardTypeLine">[ Awaiting Roster ]</div>
             <div class="insp-desc-text" id="inspCardDesc">
-              Tactical Role: <strong>Blunt / Defender</strong>. Click this card in your hand at the bottom to place it onto the glowing field slot.
+              Search players or a team in the Lobby to add cards to your hand, then click any card to inspect or place it on the field.
             </div>
             <div class="insp-matchup-box hidden" id="inspMatchupBox">
               <span>VS ENEMY DEFENDER:</span>
-              <strong id="inspMatchupVal">12 - 8 (FAVORED)</strong>
+              <strong id="inspMatchupVal">--</strong>
             </div>
             <div class="insp-stats-bar">
-              <span>ELO / <strong id="inspCardElo">2185</strong></span>
-              <span>ROLE / <strong id="inspCardRoleShort">DEF</strong></span>
+              <span>ELO / <strong id="inspCardElo">----</strong></span>
+              <span>ROLE / <strong id="inspCardRoleShort">---</strong></span>
             </div>
-          </div>
-        </div>
-
-        <!-- Room Join / Share Mini Box under Inspector -->
-        <div class="inspector-room-box">
-          <div class="room-box-row">
-            <input type="text" id="joinRoomInput" class="room-code-input" placeholder="Room Code" maxlength="14">
-            <button type="button" id="btnJoinRoom" class="room-mini-btn">Join</button>
-            <button type="button" id="btnCopyRoomLink" class="room-mini-btn">📋 Share</button>
           </div>
         </div>
       </aside>
@@ -215,11 +208,11 @@
           <div class="duelist-avatar opp-avatar" id="oppHudAvatar"></div>
           <div class="duelist-info">
             <div class="duelist-team-row">
-              <span class="duelist-tag opp-tag" id="oppHudTag">TZC</span>
-              <span class="duelist-name" id="oppHudTeamName">Team Zero Comp</span>
+              <span class="duelist-tag opp-tag" id="oppHudTag">TMB</span>
+              <span class="duelist-name" id="oppHudTeamName">Team B</span>
             </div>
-            <div class="duelist-sub" id="oppHudCaptain">Cap: Mani Cheema</div>
-            <div class="duelist-status-pill" id="capBStatusPill">⏳ THINKING</div>
+            <div class="duelist-sub" id="oppHudCaptain">Cap: Waiting...</div>
+            <div class="duelist-status-pill" id="capBStatusPill">⏳ WAITING</div>
           </div>
         </div>
 
@@ -228,10 +221,10 @@
           <div class="duelist-avatar my-avatar" id="myHudAvatar"></div>
           <div class="duelist-info">
             <div class="duelist-team-row">
-              <span class="duelist-tag my-tag" id="myHudTag">AOW</span>
-              <span class="duelist-name" id="myHudTeamName">Art of War</span>
+              <span class="duelist-tag my-tag" id="myHudTag">TMA</span>
+              <span class="duelist-name" id="myHudTeamName">Team A</span>
             </div>
-            <div class="duelist-sub" id="myHudCaptain">Cap: Richard Siegler</div>
+            <div class="duelist-sub" id="myHudCaptain">Cap: Team A Captain</div>
             <div class="duelist-status-pill" id="capAStatusPill">⏳ YOUR MOVE</div>
           </div>
         </div>
@@ -261,36 +254,22 @@
       </aside>
     </div>
 
-    <!-- GAME TRACKER-STYLE ROOM LOBBY, SEAT LOCKING & REAL TEAM/PLAYER SEARCH MODAL -->
+    <!-- TEAM PAIRINGS ROOM LOBBY, SEAT LOCKING & PLAYER SEARCH MODAL -->
     <div class="lobby-modal-backdrop" id="lobbyModalBackdrop">
       <div class="lobby-modal-card">
         <div class="lobby-modal-header">
           <div>
-            <h2>⚔️ TEAM PAIRINGS ROOM LOBBY &amp; ROSTER BUILDER</h2>
-            <p>Share the room link or code like the Game Tracker Lobby. Claim &amp; lock your Captain seat, then search real Teams or Players!</p>
+            <h2>⚔️ TEAM PAIRINGS LOBBY &amp; ROSTER BUILDER</h2>
+            <p>Claim your Captain seat and search players or a team name to build your hand.</p>
           </div>
-          <button type="button" class="lobby-close-btn" id="btnCloseLobbyModal" title="Return to Duel Field">✕</button>
-        </div>
-
-        <!-- Game Tracker-Style Room Sharing & Access Control Bar -->
-        <div class="gt-room-access-bar">
-          <div class="gt-room-code-group">
-            <span class="gt-access-lbl">ROOM CODE:</span>
-            <span class="lobby-room-pill" id="lobbyRoomCodeText">WTC-NEW</span>
-            <button type="button" class="gt-access-btn" id="btnLobbyCopyLink" title="Copy shareable room URL">
-              📋 Share Room Link
+          <div class="lobby-header-actions">
+            <button type="button" class="room-lock-pill unlocked" id="btnLobbyToggleLock" title="Toggle Room Lock (Unlocked vs Locked)">
+              🔓 Unlocked
             </button>
-            <button type="button" class="gt-access-btn lock-toggle unlocked" id="btnLobbyToggleLock" title="Lock or Unlock Room Access">
-              🔓 Room Unlocked (Open Access)
+            <button type="button" class="top-share-pill" id="btnLobbyShareModal" title="Share Match Room (Link or OmniTactica Chat)">
+              🔗 Share
             </button>
-          </div>
-          <div class="gt-room-join-group">
-            <label class="gt-name-label">
-              <span>Your Name:</span>
-              <input type="text" id="lobbyUserNameInput" class="lobby-input compact" placeholder="Captain Name" maxlength="24">
-            </label>
-            <input type="text" id="lobbyJoinCodeInput" class="lobby-input compact mono" placeholder="Enter Room Code..." maxlength="14">
-            <button type="button" class="gt-access-btn primary" id="btnLobbyJoinRoom">Join Room</button>
+            <button type="button" class="lobby-close-btn" id="btnCloseLobbyModal" title="Return to Duel Field">✕</button>
           </div>
         </div>
 
@@ -298,7 +277,7 @@
         <div class="lobby-section">
           <div class="lobby-step-title">
             <span>1. CLAIM YOUR LOBBY SEAT (SEATS LOCK WHEN TAKEN)</span>
-            <span class="gt-room-lock-status" id="lobbyRoomAccessStatusBadge">🟢 UNLOCKED LOBBY — Anyone with link can join</span>
+            <span class="gt-room-lock-status" id="lobbyRoomAccessStatusBadge">🟢 UNLOCKED LOBBY — Anyone with link can claim open seat</span>
           </div>
           <div class="lobby-seats-grid">
             <div class="lobby-seat-card active" id="lobbySeatCapA" data-seat="captain_a">
@@ -308,7 +287,7 @@
               </div>
               <div class="seat-title">Team A Captain</div>
               <div class="seat-owner-line" id="seatOwnerTextCapA">Available to claim</div>
-              <div class="seat-desc">1 Captain Seat • Search real teams/players &amp; play from Bottom Hand</div>
+              <div class="seat-desc">1 Captain Seat • Search players &amp; play from Bottom Hand</div>
               <div class="seat-card-actions">
                 <span class="seat-badge can-act" id="seatActionBadgeCapA">CLAIM &amp; LOCK SEAT</span>
                 <button type="button" class="seat-unlock-btn hidden" id="btnUnlockSeatA" data-unlock-seat="captain_a">🔓 Leave Seat</button>
@@ -322,7 +301,7 @@
               </div>
               <div class="seat-title">Team B Captain</div>
               <div class="seat-owner-line" id="seatOwnerTextCapB">Available to claim</div>
-              <div class="seat-desc">1 Captain Seat • Search real teams/players &amp; play from Bottom Hand</div>
+              <div class="seat-desc">1 Captain Seat • Search players &amp; play from Bottom Hand</div>
               <div class="seat-card-actions">
                 <span class="seat-badge can-act" id="seatActionBadgeCapB">CLAIM &amp; LOCK SEAT</span>
                 <button type="button" class="seat-unlock-btn hidden" id="btnUnlockSeatB" data-unlock-seat="captain_b">🔓 Leave Seat</button>
@@ -344,16 +323,16 @@
           </div>
         </div>
 
-        <!-- Step 2: Build Your Team Hand via Real Team / Player Search -->
+        <!-- Step 2: Build Your Team Hand via Real Player Search -->
         <div class="lobby-section" id="lobbyDeckBuilderSection">
           <div class="lobby-builder-top">
             <div class="lobby-step-title">
-              2. SEARCH REAL TEAMS OR PLAYERS (<span id="lobbyDeckCountLabel">5 / 5</span> CARDS IN HAND)
+              2. BUILD YOUR TEAM HAND (<span id="lobbyDeckCountLabel">0 / 5</span> CARDS IN HAND)
             </div>
             <div class="lobby-team-meta">
               <label>
                 <span>Team Name:</span>
-                <input type="text" id="lobbyTeamNameInput" class="lobby-input" value="Art of War" maxlength="32">
+                <input type="text" id="lobbyTeamNameInput" class="lobby-input" value="" placeholder="Team Name (optional)..." maxlength="32">
               </label>
               <label>
                 <span>Format:</span>
@@ -362,12 +341,11 @@
                   <option value="8v8">8v8 (8 Cards)</option>
                 </select>
               </label>
-              <button type="button" id="btnQuickFillTeam" class="lobby-mini-btn">⚡ Load Real Team Roster</button>
               <button type="button" id="btnClearTeamHand" class="lobby-mini-btn danger">🗑️ Clear Hand</button>
             </div>
           </div>
 
-          <!-- Real Team & Player Search Bar + Faction Override -->
+          <!-- Real Player Search Bar + Faction Override -->
           <div class="player-search-bar-wrap">
             <div class="search-input-box">
               <span class="search-icon">🔍</span>
@@ -375,7 +353,7 @@
                 type="text"
                 id="playerSearchInput"
                 class="player-search-input"
-                placeholder="Search REAL Teams (e.g. Art of War, Team Zero Comp, Stat Check) or Players (e.g. Siegler, Innes, Lennon)..."
+                placeholder="Search Players or Team Name (e.g. Siegler, Innes, Art of War, Team Zero Comp)..."
                 autocomplete="off"
               >
             </div>
@@ -412,26 +390,8 @@
             </select>
           </div>
 
-          <!-- Search Results Strip: Shows Real Teams & Real Players -->
-          <div class="search-results-strip" id="playerSearchResults"></div>
-
-          <!-- Team Roster Drawer: Populates underneath when a Team is searched or clicked! -->
-          <div class="team-roster-drawer hidden" id="teamRosterPlayersSection">
-            <div class="team-roster-drawer-header">
-              <div class="trd-title-group">
-                <span class="trd-badge">🛡️ TEAM ROSTER</span>
-                <strong id="selectedTeamRosterTitle">Art of War</strong>
-                <span class="trd-sub" id="selectedTeamRosterMeta">(0 real players)</span>
-              </div>
-              <div class="trd-actions">
-                <button type="button" class="lobby-mini-btn accent" id="btnLoadFullTeamRoster">
-                  ⚡ Load Top Roster into Hand
-                </button>
-                <button type="button" class="lobby-mini-btn" id="btnCloseTeamRosterDrawer">✕</button>
-              </div>
-            </div>
-            <div class="team-roster-players-grid" id="teamRosterPlayersList"></div>
-          </div>
+          <!-- Search Results Strip: Shows ONLY Matching Players when user types -->
+          <div class="search-results-strip hidden" id="playerSearchResults"></div>
 
           <!-- Your 5-Card Hand Slot Tray -->
           <div class="lobby-hand-tray" id="lobbyHandTray"></div>
@@ -440,7 +400,7 @@
         <!-- Lobby Footer Actions -->
         <div class="lobby-modal-footer">
           <div class="lobby-footer-left">
-            <span id="lobbyStatusHint">Ready! Click Enter Duel Arena to start placing cards.</span>
+            <span id="lobbyStatusHint">Search players above to add cards to your hand.</span>
           </div>
           <div class="lobby-footer-actions">
             <button type="button" class="ygo-confirm-btn large" id="btnStartDuelFromLobby">

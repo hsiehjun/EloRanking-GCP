@@ -2551,6 +2551,16 @@ class FirestoreRoomEngine:
         sys_key = str(game_system or "40k").strip().lower()
         lim = max(1, min(60, int(limit or 24)))
 
+        if not q_raw:
+            return {
+                "ok": True,
+                "success": True,
+                "query": "",
+                "game_system": sys_key,
+                "teams": [],
+                "players": [],
+            }
+
         now_mono = time.monotonic()
         if not hasattr(self, "_pairing_search_cache"):
             self._pairing_search_cache: Dict[Tuple[str, str, int], Tuple[float, Dict[str, Any]]] = {}
@@ -2663,11 +2673,50 @@ class FirestoreRoomEngine:
 
                 raw_players = []
                 if q_raw:
-                    if hasattr(db, "search_players"):
-                        raw_players.extend(db.search_players(q_raw, limit=lim, game_system=sys_key) or [])
-                    if is_mock_db and len(raw_players) < lim and hasattr(db, "get_players_directory"):
-                        dir_res = db.get_players_directory(page=1, page_size=lim, query=q_raw, game_system=sys_key)
-                        raw_players.extend(dir_res.get("items") or [])
+                    if is_mock_db:
+                        if hasattr(db, "search_players"):
+                            raw_players.extend(db.search_players(q_raw, limit=lim, game_system=sys_key) or [])
+                        if len(raw_players) < lim and hasattr(db, "get_players_directory"):
+                            dir_res = db.get_players_directory(page=1, page_size=lim, query=q_raw, game_system=sys_key)
+                            raw_players.extend(dir_res.get("items") or [])
+                    else:
+                        try:
+                            import psycopg2.extras as pg_extras
+                            tokens = [t for t in q_raw.split() if t]
+                            if tokens:
+                                token_clauses = " AND ".join(
+                                    ["(player_name ILIKE %s OR COALESCE(team, '') ILIKE %s)"] * len(tokens)
+                                )
+                                token_params: List[Any] = []
+                                for t in tokens:
+                                    pat = f"%{t}%"
+                                    token_params.extend([pat, pat])
+                                with db.get_connection() as conn:
+                                    with conn.cursor(cursor_factory=pg_extras.RealDictCursor) as cur:
+                                        cur.execute("SET LOCAL statement_timeout = '250ms';")
+                                        cur.execute(
+                                            f"""
+                                            SELECT player_id,
+                                                   COALESCE(player_name, 'Player') AS player_name,
+                                                   COALESCE(current_elo, 1500.0) AS current_elo,
+                                                   COALESCE(top_faction, 'Unknown') AS top_faction,
+                                                   COALESCE(team, '') AS team,
+                                                   COALESCE(matches_played, 0) AS matches_played,
+                                                   COALESCE(win_rate, 0.0) AS win_rate
+                                            FROM player_ratings
+                                            WHERE COALESCE(game_system, '40k') = %s
+                                              AND COALESCE(matches_played, 0) > 0
+                                              AND ({token_clauses})
+                                            ORDER BY current_elo DESC NULLS LAST
+                                            LIMIT %s;
+                                            """,
+                                            tuple([sys_key] + token_params + [lim]),
+                                        )
+                                        raw_players.extend(dict(r) for r in cur.fetchall())
+                        except Exception as p_search_err:
+                            logger.debug(f"Fast SQL player/team search notice for '{q_raw}': {p_search_err}")
+                            if hasattr(db, "search_players"):
+                                raw_players.extend(db.search_players(q_raw, limit=lim, game_system=sys_key) or [])
                 else:
                     if is_mock_db and hasattr(db, "get_top_ranked_players"):
                         top_res = db.get_top_ranked_players(page=1, page_size=lim, min_matches=1, game_system=sys_key)
@@ -2758,7 +2807,7 @@ class FirestoreRoomEngine:
                         "top_player_name": str(t.get("top_player_name") or ""),
                     })
 
-            if len(players_out) < limit:
+            if len(players_out) < lim or q_low:
                 all_hub_teams = svc.get_teams_leaderboard(game_system=game_system, page=1, page_size=50, min_roster=1).get("items") or []
                 for t_summary in all_hub_teams:
                     tname = str(t_summary.get("team") or t_summary.get("name") or "").strip()
@@ -2790,15 +2839,11 @@ class FirestoreRoomEngine:
                             "win_rate": float(p.get("win_rate") or 0.0),
                             "role_tag": str(p.get("role") or "All-Rounder"),
                         })
-                        if len(players_out) >= limit:
-                            break
-                    if len(players_out) >= limit:
-                        break
         except Exception as err:
             logger.debug(f"Notice searching TeamsHubService for '{q_raw}': {err}")
 
         # 3. Enrich player search from real SD40K League player careers (data/sd40k_player_careers.json)
-        if len(players_out) < limit and game_system == "40k":
+        if len(players_out) < lim and game_system == "40k":
             try:
                 import json
                 from pathlib import Path
@@ -2839,7 +2884,7 @@ class FirestoreRoomEngine:
                             "win_rate": wr,
                             "role_tag": "All-Rounder",
                         })
-                        if len(players_out) >= limit:
+                        if len(players_out) >= lim:
                             break
             except Exception as err:
                 logger.debug(f"Notice searching sd40k_player_careers.json for '{q_raw}': {err}")
@@ -2869,6 +2914,8 @@ class FirestoreRoomEngine:
         fmt = "8v8" if team_size == 8 else "5v5"
         max_cycles = 3 if team_size == 8 else 2
 
+        empty_rosters = bool(req.get("empty_rosters", False))
+
         preset_a_key = str(req.get("team_a_preset") or "art_of_war").strip().lower()
         preset_b_key = str(req.get("team_b_preset") or "team_zero_comp").strip().lower()
         if preset_a_key not in self.TEAM_PAIRING_PRESETS:
@@ -2879,14 +2926,18 @@ class FirestoreRoomEngine:
         preset_a = copy.deepcopy(self.TEAM_PAIRING_PRESETS[preset_a_key])
         preset_b = copy.deepcopy(self.TEAM_PAIRING_PRESETS[preset_b_key])
 
-        if isinstance(req.get("team_a_roster"), list) and len(req["team_a_roster"]) >= team_size:
-            roster_a = copy.deepcopy(req["team_a_roster"][:team_size])
+        if empty_rosters:
+            roster_a = copy.deepcopy(req.get("team_a_roster") or [])[:team_size]
+            roster_b = copy.deepcopy(req.get("team_b_roster") or [])[:team_size]
         else:
-            roster_a = preset_a["roster"][:team_size]
-        if isinstance(req.get("team_b_roster"), list) and len(req["team_b_roster"]) >= team_size:
-            roster_b = copy.deepcopy(req["team_b_roster"][:team_size])
-        else:
-            roster_b = preset_b["roster"][:team_size]
+            if isinstance(req.get("team_a_roster"), list) and len(req["team_a_roster"]) >= team_size:
+                roster_a = copy.deepcopy(req["team_a_roster"][:team_size])
+            else:
+                roster_a = preset_a["roster"][:team_size]
+            if isinstance(req.get("team_b_roster"), list) and len(req["team_b_roster"]) >= team_size:
+                roster_b = copy.deepcopy(req["team_b_roster"][:team_size])
+            else:
+                roster_b = preset_b["roster"][:team_size]
 
         # Ensure clean IDs A1..An and B1..Bn
         for idx, p in enumerate(roster_a):
@@ -2914,12 +2965,19 @@ class FirestoreRoomEngine:
         now_dt = datetime.now(timezone.utc)
         now_ts = int(now_dt.timestamp() * 1000)
         ts_str = now_dt.strftime("%H:%M:%S")
-        team_a_name = str(req.get("team_a_name") or preset_a["name"]).strip()
-        team_b_name = str(req.get("team_b_name") or preset_b["name"]).strip()
-        tag_a = str(req.get("team_a_tag") or preset_a["short_tag"])
-        tag_b = str(req.get("team_b_tag") or preset_b["short_tag"])
-        cap_a_name = str(req.get("captain_a_name") or req.get("user_name") or preset_a["captain_name"])
-        cap_b_name = str(req.get("captain_b_name") or (f"{preset_b['captain_name']} (AI Bot)" if vs_ai else preset_b["captain_name"]))
+        default_name_a = "Team A" if empty_rosters else preset_a["name"]
+        default_name_b = "Team B" if empty_rosters else preset_b["name"]
+        default_tag_a = "TMA" if empty_rosters else preset_a["short_tag"]
+        default_tag_b = "TMB" if empty_rosters else preset_b["short_tag"]
+        default_cap_a = "Team A Captain" if empty_rosters else preset_a["captain_name"]
+        default_cap_b = ("AI Opponent" if vs_ai else "Team B Captain") if empty_rosters else (f"{preset_b['captain_name']} (AI Bot)" if vs_ai else preset_b["captain_name"])
+
+        team_a_name = str(req.get("team_a_name") or default_name_a).strip()
+        team_b_name = str(req.get("team_b_name") or default_name_b).strip()
+        tag_a = str(req.get("team_a_tag") or default_tag_a)
+        tag_b = str(req.get("team_b_tag") or default_tag_b)
+        cap_a_name = str(req.get("captain_a_name") or req.get("user_name") or default_cap_a)
+        cap_b_name = str(req.get("captain_b_name") or default_cap_b)
 
         room_data: Dict[str, Any] = {
             "room_code": raw_code,
@@ -3577,6 +3635,23 @@ class FirestoreRoomEngine:
             room[f"attackers_{side_suffix}"] = []
             room[f"secret_choice_{side_suffix}"] = None
             room[f"locked_{side_suffix}"] = False
+
+            # If vs_ai is active and Team B has no human captain and an empty roster, populate AI opponent roster now
+            if is_cap_a and room.get("vs_ai") and not room.get("seat_b_locked") and not (room.get("team_b") or {}).get("roster"):
+                preset_b = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get("team_zero_comp") or next(iter(self.TEAM_PAIRING_PRESETS.values())))
+                ai_roster = preset_b["roster"][:team_size]
+                for idx, p in enumerate(ai_roster):
+                    p["id"] = f"B{idx + 1}"
+                    p["team"] = "B"
+                    p["status"] = "bench"
+                room["team_b"]["name"] = preset_b["name"]
+                room["team_b"]["tag"] = preset_b["short_tag"]
+                room["team_b"]["short_tag"] = preset_b["short_tag"]
+                room["team_b"]["captain_name"] = f"{preset_b['captain_name']} (AI Bot)"
+                room["captain_b_name"] = f"{preset_b['captain_name']} (AI Bot)"
+                room["team_b"]["roster"] = ai_roster
+                room["bench_b"] = [p["id"] for p in ai_roster]
+
             self._sync_roster_statuses(room)
             self._save_pairing_room_doc(room["room_code"], room)
             return {
