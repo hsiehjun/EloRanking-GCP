@@ -1862,10 +1862,11 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertLessEqual(upsets_in_400, 1, "5% underdog on 5d20 bell curve should have ~0% win rate")
 
     def test_firestore_pairing_rooms_sync_and_top_of_history_sorting(self):
-        """Verify Firestore pairing_rooms are synced into list_pairing_rooms_for_user, abandoned tombstones are deleted, completed rooms are repaired, and WTC Pairings sort newest-first at the top of Game Tracker history."""
+        """Verify Firestore pairing_rooms are never considered completed, legacy rooms (WTC-C012, WTC-ABE0, WTC-38F9, WTC-B3B3) are purged, and only clicking Finish saves to backend PostgreSQL DB and marks completed."""
         from routers.tracker import _history_item_sort_ts
 
         deleted_codes = []
+        saved_pg_games = []
 
         class _MockDoc:
             def __init__(self, doc_id, data):
@@ -1923,15 +1924,32 @@ class TestTeamPairingsPoC(unittest.TestCase):
                 "revision": 999999999,
                 "updatedAt": 1760372756455,
             },
-            "WTC-93D8": {
-                "room_code": "WTC-93D8",
-                "status": "abandoned",
-                "is_abandoned": True,
-                "revision": 999999999,
-                "updatedAt": 1760372185021,
+            "WTC-C012": {
+                "room_code": "WTC-C012",
+                "status": "completed",
+                "is_finished": True,
+                "updatedAt": 1791916500000,
+            },
+            "WTC-ABE0": {
+                "room_code": "WTC-ABE0",
+                "status": "completed",
+                "is_finished": True,
+                "updatedAt": 1791916400000,
             },
             "WTC-38F9": {
                 "room_code": "WTC-38F9",
+                "status": "completed",
+                "is_finished": True,
+                "updatedAt": 1791916192615,
+            },
+            "WTC-B3B3": {
+                "room_code": "WTC-B3B3",
+                "status": "completed",
+                "is_finished": True,
+                "updatedAt": 1791915673923,
+            },
+            "WTC-LIVE1": {
+                "room_code": "WTC-LIVE1",
                 "format_size": "5v5",
                 "total_tables": 5,
                 "phase": "COMPLETED",
@@ -1953,41 +1971,17 @@ class TestTeamPairingsPoC(unittest.TestCase):
                 "bench_a": ["A1", "A2", "A3", "A4", "A5"],
                 "bench_b": [],
                 "pairings": [
-                    {"table_num": i, "cycle": (i + 1) // 2, "est_score_a": 10, "est_score_b": 10, "sim_score_a": s_a, "sim_score_b": 20 - s_a}
-                    for i, s_a in enumerate([8, 9, 10, 12, 11], 1)
+                    {"table_num": i, "cycle": (i + 1) // 2, "est_score_a": 11, "est_score_b": 9, "sim_score_a": s_a, "sim_score_b": 20 - s_a}
+                    for i, s_a in enumerate([12, 11, 10, 11, 10], 1)
                 ],
-                "createdAt": 1791916048419,
-                "updatedAt": 1791916192615,
+                "createdAt": 1791917048419,
+                "updatedAt": 1791917192615,
                 "revision": 12,
-            },
-            "WTC-B3B3": {
-                "room_code": "WTC-B3B3",
-                "format_size": "5v5",
-                "total_tables": 5,
-                "phase": "COMPLETED",
-                "status": "completed",
-                "is_finished": True,
-                "owner_id": "2c8d1f35-7209-4989-9306-b62c8f73e918",
-                "user_id_cap_a": "2c8d1f35-7209-4989-9306-b62c8f73e918",
-                "seat_a_owner_name": "John Hsieh",
-                "captain_a_name": "John Hsieh",
-                "captain_b_name": "Team B Captain (AI Bot)",
-                "team_a": {"name": "Art of War", "roster": []},
-                "team_b": {"name": "Team Zero Comp (AI)", "roster": []},
-                "bench_a": [],
-                "bench_b": [],
-                "pairings": [
-                    {"table_num": i, "cycle": (i + 1) // 2, "est_score_a": 9, "est_score_b": 11, "sim_score_a": s_a, "sim_score_b": 20 - s_a}
-                    for i, s_a in enumerate([9, 11, 8, 9, 9], 1)
-                ],
-                "createdAt": 1791915479769,
-                "updatedAt": 1791915673923,
-                "revision": 9,
             },
         }
 
-        # Simulate fresh Cloud Run worker where _fallback_pairing_rooms is initially empty
         self.engine._fallback_pairing_rooms.clear()
+        self.engine._completed_pairing_rooms_db_fallback = {}
         self.engine._discarded_pairing_rooms = set()
         self.engine._pairing_rooms_sync_ts = 0.0
         orig_client = self.engine._client
@@ -1997,46 +1991,83 @@ class TestTeamPairingsPoC(unittest.TestCase):
                 user_id="2c8d1f35-7209-4989-9306-b62c8f73e918",
                 user_name="John Hsieh",
             )
-            # Abandoned tombstones must be purged from Firestore
-            self.assertIn("WTC-0B17", deleted_codes)
-            self.assertIn("WTC-93D8", deleted_codes)
-            self.assertNotIn("WTC-0B17", mock_store)
-            self.assertNotIn("WTC-93D8", mock_store)
+            # Legacy / bogus Firestore rooms must be purged from Firestore and NEVER appear in completed
+            for purged_code in ("WTC-0B17", "WTC-C012", "WTC-ABE0", "WTC-38F9", "WTC-B3B3"):
+                self.assertIn(purged_code, deleted_codes)
+                self.assertNotIn(purged_code, mock_store)
 
-            # Both WTC-38F9 and WTC-B3B3 must appear in completed (newest first)
-            comp_ids = [c["match_id"] for c in res["completed"]]
-            self.assertEqual(comp_ids[:2], ["WTC-38F9", "WTC-B3B3"])
-            self.assertEqual(res["completed"][0]["edition_label"], "WTC Pairing")
-            self.assertTrue(res["completed"][0]["is_finished"])
+            # Anything still in Firestore (like WTC-LIVE1 with 5/5 tables paired) is ACTIVE, never completed!
+            self.assertEqual(res["completed"], [])
+            active_ids = [a["match_id"] for a in res["active"]]
+            self.assertIn("WTC-LIVE1", active_ids)
+            self.assertFalse(mock_store["WTC-LIVE1"]["is_finished"])
+            self.assertEqual(mock_store["WTC-LIVE1"]["status"], "active")
+            self.assertEqual(mock_store["WTC-LIVE1"]["bench_a"], [])
 
-            # WTC-38F9 must also be repaired in Firestore (is_finished=True, bench_a=[])
-            self.assertTrue(mock_store["WTC-38F9"]["is_finished"])
-            self.assertEqual(mock_store["WTC-38F9"]["status"], "completed")
-            self.assertEqual(mock_store["WTC-38F9"]["bench_a"], [])
+            # Now user clicks "🏁 Finish & Save" -> finish_pairing_room("WTC-LIVE1") saves to PostgreSQL and deletes from Firestore
+            mock_db = MagicMock()
+            mock_db.save_tracker_game.side_effect = lambda **kw: saved_pg_games.append(kw) or True
+            with patch("core.get_database", return_value=mock_db):
+                finished_rm = self.engine.finish_pairing_room("WTC-LIVE1")
 
-            # Calling set_setup_mode on completed WTC-38F9 must NOT overwrite bench_a
-            act_res = self.engine.apply_pairing_action("WTC-38F9", {
-                "role": "captain_a",
-                "user_id": "2c8d1f35-7209-4989-9306-b62c8f73e918",
-                "action": "set_setup_mode",
-                "payload": {"setup_mode": "vs_player", "format_size": "5v5"},
-            })
-            self.assertTrue(act_res["ok"])
-            self.assertEqual(act_res["room"]["bench_a"], [])
+            self.assertIsNotNone(finished_rm)
+            self.assertTrue(finished_rm["is_finished"])
+            self.assertTrue(finished_rm["saved_to_postgres"])
+            self.assertEqual(finished_rm["status"], "completed")
+            # Deleted from Firestore active rooms
+            self.assertIn("WTC-LIVE1", deleted_codes)
+            self.assertNotIn("WTC-LIVE1", mock_store)
+            # Saved to PostgreSQL backend DB
+            self.assertEqual(len(saved_pg_games), 1)
+            self.assertEqual(saved_pg_games[0]["match_id"], "WTC-LIVE1")
+            self.assertTrue(saved_pg_games[0]["is_finished"])
+            self.assertEqual(saved_pg_games[0]["state"]["p1_score"], 54)
+            self.assertEqual(saved_pg_games[0]["state"]["p2_score"], 46)
 
-            # Verify merging with older PostgreSQL matches (e.g. Oct 8, 2026) sorts WTC-38F9 and WTC-B3B3 to index 0 and 1
+            # Now list_pairing_rooms_for_user returns WTC-LIVE1 in completed (and not in active)
+            res_after = self.engine.list_pairing_rooms_for_user(
+                user_id="2c8d1f35-7209-4989-9306-b62c8f73e918",
+                user_name="John Hsieh",
+            )
+            self.assertEqual([a["match_id"] for a in res_after["active"]], [])
+            self.assertEqual([c["match_id"] for c in res_after["completed"]], ["WTC-LIVE1"])
+            self.assertTrue(res_after["completed"][0]["is_finished"])
+            self.assertTrue(res_after["completed"][0]["saved_to_postgres"])
+
+            # Verify merging with older PostgreSQL matches sorts WTC-LIVE1 to index 0
             older_pg_matches = [
                 {"match_id": "WH40K-OCT8", "is_finished": True, "game_date": "2026-10-08T18:00:00+00:00"},
                 {"match_id": "WH40K-OCT2", "is_finished": True, "game_date": "2026-10-02T15:00:00+00:00"},
             ]
-            merged = older_pg_matches + res["completed"]
+            merged = older_pg_matches + res_after["completed"]
             merged.sort(key=_history_item_sort_ts, reverse=True)
             self.assertEqual(
-                [m["match_id"] for m in merged[:4]],
-                ["WTC-38F9", "WTC-B3B3", "WH40K-OCT8", "WH40K-OCT2"],
+                [m["match_id"] for m in merged[:3]],
+                ["WTC-LIVE1", "WH40K-OCT8", "WH40K-OCT2"],
             )
         finally:
             self.engine._client = orig_client
+
+    def test_mobile_tables_popup_modal_and_single_line_empty_hand_wired(self):
+        """Verify mobile-only popup modal for paired tables (#mobileTablesSummaryBar, .mobile-tables-popup-open) and full-width empty hand placeholder."""
+        html = (ROOT_DIR / "web" / "team_pairings" / "index.html").read_text(encoding="utf-8")
+        app_js = (ROOT_DIR / "web" / "team_pairings" / "app.js").read_text(encoding="utf-8")
+        css = (ROOT_DIR / "web" / "team_pairings" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="mobileTablesSummaryBar"', html)
+        self.assertIn('id="btnOpenMobileTablesModal"', html)
+        self.assertIn('id="mobileTablesPopupBackdrop"', html)
+        self.assertIn('id="btnCloseMobileTablesModal"', html)
+        self.assertIn('id="btnDockSaveCompletedMatch"', html)
+
+        self.assertIn("openMobileTablesModal", app_js)
+        self.assertIn("closeMobileTablesModal", app_js)
+        self.assertIn("mobile-tables-popup-open", app_js)
+        self.assertIn("empty-hand-placeholder", app_js)
+
+        self.assertIn(".paired-tables-dock.mobile-tables-popup-open", css)
+        self.assertIn(".empty-hand-placeholder", css)
+        self.assertIn("grid-column: 1 / -1 !important", css)
 
 
 if __name__ == "__main__":

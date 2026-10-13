@@ -5,6 +5,7 @@ PostgreSQL is strictly cold storage for finalized verified scorecards.
 """
 
 import os
+import copy
 import logging
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timezone, timedelta
@@ -2680,31 +2681,45 @@ class FirestoreRoomEngine:
             except Exception as err:
                 logger.warning(f"Notice syncing pairing_room {code} to Firestore: {err}")
 
+    _PURGED_LEGACY_PAIRING_ROOMS = {
+        "WTC-C012",
+        "WTC-ABE0",
+        "WTC-38F9",
+        "WTC-B3B3",
+        "WTC-0B17",
+        "WTC-93D8",
+    }
+
     def _repair_completed_pairing_room(self, room: Dict[str, Any]) -> bool:
-        """Ensures completed WTC Pairing rooms have status='completed', is_finished=True, and empty benches."""
+        """
+        Normalizes active WTC Pairing rooms when all tables are paired on the board.
+        IMPORTANT: Rooms in Firestore are NEVER automatically marked as completed/finished games
+        (is_finished=True / status='completed'). Only explicit finish_pairing_room() saves to PostgreSQL.
+        """
         if not isinstance(room, dict):
             return False
         fmt = str(room.get("format_size") or room.get("format") or "5v5").upper()
         total_tables = int(room.get("total_tables") or room.get("team_size") or (8 if fmt == "8V8" else 5))
         pairings_list = room.get("pairings") or []
-        is_completed = bool(
-            room.get("is_finished")
-            or room.get("status") == "completed"
-            or room.get("phase") in ("COMPLETED", "COMPLETE")
+        all_tables_paired = bool(
+            room.get("phase") in ("COMPLETED", "COMPLETE")
             or (total_tables > 0 and len(pairings_list) >= total_tables)
         )
-        if not is_completed:
-            return False
-        needs_save = bool(
-            not room.get("is_finished")
-            or room.get("status") != "completed"
-            or room.get("phase") != "COMPLETED"
+        needs_save = False
+        if not room.get("saved_to_postgres"):
+            if room.get("is_finished") or room.get("status") == "completed":
+                room["is_finished"] = False
+                room["status"] = "active"
+                needs_save = True
+        if not all_tables_paired:
+            return needs_save
+        if (
+            room.get("phase") != "COMPLETED"
             or room.get("bench_a")
             or room.get("bench_b")
-        )
+        ):
+            needs_save = True
         room["phase"] = "COMPLETED"
-        room["is_finished"] = True
-        room["status"] = "completed"
         room["bench_a"] = []
         room["bench_b"] = []
         room["defender_a"] = None
@@ -2718,9 +2733,19 @@ class FirestoreRoomEngine:
         if not room_code:
             return None
         code = str(room_code).strip().upper()
-        if code in getattr(self, "_discarded_pairing_rooms", set()):
+        if code in self._PURGED_LEGACY_PAIRING_ROOMS or code in getattr(self, "_discarded_pairing_rooms", set()):
             self._fallback_pairing_rooms.pop(code, None)
+            if self._client and code in self._PURGED_LEGACY_PAIRING_ROOMS:
+                try:
+                    self._client.collection("pairing_rooms").document(code).delete()
+                except Exception:
+                    pass
             return None
+
+        if not hasattr(self, "_completed_pairing_rooms_db_fallback"):
+            self._completed_pairing_rooms_db_fallback: Dict[str, Dict[str, Any]] = {}
+        if code in self._completed_pairing_rooms_db_fallback:
+            return copy.deepcopy(self._completed_pairing_rooms_db_fallback[code])
 
         cached = self._fallback_pairing_rooms.get(code)
         if cached and (cached.get("is_abandoned") or cached.get("status") == "abandoned"):
@@ -2757,13 +2782,33 @@ class FirestoreRoomEngine:
                     return best
                 elif code not in ("WTC-DEV1", "WTC-FIN8"):
                     self._fallback_pairing_rooms.pop(code, None)
-                    return None
             except Exception as err:
                 logger.warning(f"Notice reading pairing_room {code} from Firestore: {err}")
 
         if cached:
             self._repair_completed_pairing_room(cached)
-        return cached
+            return cached
+
+        # Check PostgreSQL backend database for finalized WTC Pairing games
+        try:
+            from core import get_database
+            db = get_database()
+            if db is not None and hasattr(db, "get_tracker_game"):
+                saved = db.get_tracker_game(code)
+                if isinstance(saved, dict):
+                    st = saved.get("state") if isinstance(saved.get("state"), dict) else {}
+                    pr = st.get("pairing_room") if isinstance(st.get("pairing_room"), dict) else None
+                    if pr:
+                        pr["is_finished"] = True
+                        pr["status"] = "completed"
+                        pr["phase"] = "COMPLETED"
+                        pr["saved_to_postgres"] = True
+                        self._completed_pairing_rooms_db_fallback[code] = copy.deepcopy(pr)
+                        return copy.deepcopy(pr)
+        except Exception as db_err:
+            logger.debug(f"Notice checking PostgreSQL for completed pairing_room {code}: {db_err}")
+
+        return None
 
     def discard_pairing_room(self, room_code: str) -> bool:
         """Deletes a discarded/abandoned WTC Team Pairings room from Firestore and memory."""
@@ -2771,6 +2816,8 @@ class FirestoreRoomEngine:
             return False
         code = str(room_code).strip().upper()
         existing = self._fallback_pairing_rooms.pop(code, None)
+        if hasattr(self, "_completed_pairing_rooms_db_fallback"):
+            self._completed_pairing_rooms_db_fallback.pop(code, None)
         if not hasattr(self, "_discarded_pairing_rooms"):
             self._discarded_pairing_rooms = set()
         self._discarded_pairing_rooms.add(code)
@@ -2783,19 +2830,99 @@ class FirestoreRoomEngine:
         return existing is not None or True
 
     def finish_pairing_room(self, room_code: str) -> Optional[Dict[str, Any]]:
-        """Marks a WTC Team Pairings room as completed/finished so it appears in Completed History."""
-        room = self.get_pairing_room_raw(room_code)
+        """
+        Finalizes a WTC Team Pairings room when the user clicks the 'Finished' button:
+        saves the completed match to the PostgreSQL backend database (`tracker_games`)
+        and removes the active session from Firestore (`pairing_rooms`).
+        """
+        if not room_code:
+            return None
+        code = str(room_code).strip().upper()
+        room = self.get_pairing_room_raw(code)
         if not room:
             return None
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         room["is_finished"] = True
         room["status"] = "completed"
         room["phase"] = "COMPLETED"
+        room["saved_to_postgres"] = True
         room["bench_a"] = []
         room["bench_b"] = []
-        room["completedAt"] = int(datetime.now(timezone.utc).timestamp() * 1000)
+        room["defender_a"] = None
+        room["defender_b"] = None
+        room["attackers_a"] = []
+        room["attackers_b"] = []
+        room["completedAt"] = now_ms
+        room["updatedAt"] = now_ms
         self._sync_roster_statuses(room)
-        self._append_log(room, "🏁 Pairing Minigame concluded and saved to Match History.")
-        self._save_pairing_room_doc(room["room_code"], room)
+        self._append_log(room, "🏁 Pairing Minigame concluded and saved to Backend Match History.")
+
+        item = self.format_pairing_room_session_item(room)
+        state_payload = {
+            "match_id": code,
+            "room_code": code,
+            "game_system": "pairings",
+            "game_mode": "pairings",
+            "edition": "wtc_pairings",
+            "edition_label": "WTC Pairing",
+            "format_label": item.get("format_label", "5v5"),
+            "format_size": item.get("format_size", "5v5"),
+            "total_tables": item.get("total_tables", 5),
+            "tables_locked": item.get("tables_locked", 5),
+            "p1_name": item.get("p1_name", "Team A"),
+            "p2_name": item.get("p2_name", "Team B"),
+            "p1_faction": item.get("p1_faction", "⚔️ Team Roster"),
+            "p2_faction": item.get("p2_faction", "⚔️ Team Roster"),
+            "p1_score": item.get("p1_score", 0),
+            "p2_score": item.get("p2_score", 0),
+            "p1Score": item.get("p1_score", 0),
+            "p2Score": item.get("p2_score", 0),
+            "primary_mission": item.get("primary_mission", "WTC Pairing Duel"),
+            "round": item.get("round", 1),
+            "current_round": item.get("current_round", 1),
+            "phase": "COMPLETED",
+            "is_finished": True,
+            "isFinished": True,
+            "status": "completed",
+            "created_at": room.get("createdAt") or now_ms,
+            "updated_at": now_ms,
+            "completed_at": now_ms,
+            "date": item.get("date"),
+            "game_date": item.get("game_date"),
+            "pairings_url": f"/team-pairings?room={code}&role=spectator",
+            "spectator_url": f"/team-pairings?room={code}&role=spectator",
+            "game": item.get("game", {}),
+            "pairing_room": copy.deepcopy(room),
+        }
+
+        try:
+            from core import get_database
+            db = get_database()
+            if db is not None and hasattr(db, "save_tracker_game"):
+                db.save_tracker_game(
+                    match_id=code,
+                    state=state_payload,
+                    user_id_p1=room.get("user_id_cap_a") or room.get("owner_id"),
+                    user_id_p2=room.get("user_id_cap_b"),
+                    is_locked=True,
+                    is_finished=True,
+                )
+        except Exception as db_err:
+            logger.warning(f"Notice saving completed WTC Pairing room {code} to PostgreSQL: {db_err}")
+
+        if not hasattr(self, "_completed_pairing_rooms_db_fallback"):
+            self._completed_pairing_rooms_db_fallback = {}
+        self._completed_pairing_rooms_db_fallback[code] = copy.deepcopy(room)
+
+        # Remove from active Firestore pairing_rooms collection & active fallback dict
+        self._fallback_pairing_rooms.pop(code, None)
+        self._pairing_rooms_sync_ts = 0.0
+        if self._client:
+            try:
+                self._client.collection("pairing_rooms").document(code).delete()
+            except Exception as err:
+                logger.debug(f"Notice deleting finalized pairing_room {code} from Firestore: {err}")
+
         return room
 
     def format_pairing_room_session_item(self, room: Dict[str, Any]) -> Dict[str, Any]:
@@ -2835,20 +2962,24 @@ class FirestoreRoomEngine:
         cap_a = str(room.get("seat_a_owner_name") or room.get("captain_a_name") or team_a.get("captain_name") or "Captain A").strip()
         cap_b = str(room.get("seat_b_owner_name") or room.get("captain_b_name") or team_b.get("captain_name") or "Captain B").strip()
 
-        is_fin = bool(
-            room.get("is_finished")
-            or room.get("status") == "completed"
-            or room.get("phase") in ("COMPLETED", "COMPLETE")
+        is_fin = bool(room.get("saved_to_postgres") and (room.get("is_finished") or room.get("status") == "completed"))
+        all_tables_paired = bool(
+            room.get("phase") in ("COMPLETED", "COMPLETE")
             or (total_tables > 0 and tables_locked >= total_tables)
         )
         created_ts = int(room.get("createdAt") or int(datetime.now(timezone.utc).timestamp() * 1000))
-        updated_ts = int(room.get("updatedAt") or created_ts)
+        updated_ts = int(room.get("completedAt") or room.get("updatedAt") or created_ts)
         dt_updated = datetime.fromtimestamp(updated_ts / 1000.0, tz=timezone.utc)
         date_iso = dt_updated.strftime("%Y-%m-%d")
         game_date_iso = dt_updated.isoformat()
 
-        phase_str = "COMPLETED" if is_fin else str(room.get("phase") or "STEP_1_DEFENDER")
-        progress_str = f"All {total_tables} Tables Paired" if is_fin else f"{tables_locked}/{total_tables} Tables Paired • Cycle {room.get('cycle', 1)}"
+        phase_str = "COMPLETED" if (is_fin or all_tables_paired) else str(room.get("phase") or "STEP_1_DEFENDER")
+        if is_fin:
+            progress_str = f"All {total_tables} Tables Paired"
+        elif all_tables_paired:
+            progress_str = f"All {total_tables} Tables Paired • Ready to Finish"
+        else:
+            progress_str = f"{tables_locked}/{total_tables} Tables Paired • Cycle {room.get('cycle', 1)}"
 
         return {
             "id": code,
@@ -2879,6 +3010,7 @@ class FirestoreRoomEngine:
             "is_locked": bool(room.get("is_locked", False)),
             "is_finished": is_fin,
             "isFinished": is_fin,
+            "saved_to_postgres": is_fin,
             "status": "completed" if is_fin else "active",
             "is_abandoned": bool(room.get("is_abandoned") or room.get("status") == "abandoned"),
             "created_at": created_ts,
@@ -2904,9 +3036,15 @@ class FirestoreRoomEngine:
         guest_id: Optional[str] = None,
         limit: int = 50,
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """Returns active and completed WTC Team Pairings rooms from Firestore + L1 cache."""
+        """
+        Returns active WTC Team Pairings rooms from Firestore + L1 cache.
+        Anything in Firestore (`pairing_rooms`) is strictly an active/unfinished session.
+        Completed WTC Pairing games are persisted to the PostgreSQL backend database via `finish_pairing_room`.
+        """
         if not hasattr(self, "_discarded_pairing_rooms"):
             self._discarded_pairing_rooms = set()
+        if not hasattr(self, "_completed_pairing_rooms_db_fallback"):
+            self._completed_pairing_rooms_db_fallback = {}
         discarded = self._discarded_pairing_rooms
         u_id = str(user_id or "").strip()
         g_id = str(guest_id or "").strip()
@@ -2922,7 +3060,15 @@ class FirestoreRoomEngine:
                     code = str(d.get("room_code") or doc.id or "").strip().upper()
                     if not code:
                         continue
-                    if code in discarded or d.get("is_abandoned") or d.get("status") == "abandoned":
+                    # Purge legacy/test rooms or rooms that were auto-marked completed in Firestore
+                    if (
+                        code in self._PURGED_LEGACY_PAIRING_ROOMS
+                        or code in discarded
+                        or d.get("is_abandoned")
+                        or d.get("status") == "abandoned"
+                        or d.get("is_finished")
+                        or d.get("status") == "completed"
+                    ):
                         discarded.add(code)
                         self._fallback_pairing_rooms.pop(code, None)
                         try:
@@ -2952,6 +3098,34 @@ class FirestoreRoomEngine:
             except Exception as err:
                 logger.warning(f"Notice syncing pairing_rooms collection from Firestore: {err}")
 
+        def _room_matches_user(rm: Dict[str, Any]) -> bool:
+            if not (u_id or g_id or u_name):
+                return True
+            owner_uid = str(rm.get("owner_id") or "").strip()
+            rm_guest_id = str(rm.get("guest_id") or "").strip()
+            cap_a_uid = str(rm.get("user_id_cap_a") or "").strip()
+            cap_b_uid = str(rm.get("user_id_cap_b") or "").strip()
+            cap_a_nm = str(rm.get("seat_a_owner_name") or rm.get("captain_a_name") or "").strip().lower()
+            cap_b_nm = str(rm.get("seat_b_owner_name") or rm.get("captain_b_name") or "").strip().lower()
+            roster_names = {
+                str(p.get("name") or "").strip().lower()
+                for side in ("team_a", "team_b")
+                for p in ((rm.get(side) or {}).get("roster") or [])
+                if isinstance(p, dict) and p.get("name")
+            }
+            all_uids = {x for x in (owner_uid, rm_guest_id, cap_a_uid, cap_b_uid) if x}
+            has_any_owner = bool(all_uids)
+            is_guest_owned_only = bool(all_uids) and all(x.startswith(("guest_", "cap_")) for x in all_uids)
+            if u_id and u_id in all_uids:
+                return True
+            if g_id and g_id in all_uids:
+                return True
+            if u_name and (u_name in cap_a_nm or u_name in cap_b_nm or u_name in roster_names):
+                return True
+            if not has_any_owner or is_guest_owned_only:
+                return True
+            return False
+
         active_items: List[Dict[str, Any]] = []
         completed_items: List[Dict[str, Any]] = []
 
@@ -2962,47 +3136,38 @@ class FirestoreRoomEngine:
             if not isinstance(rm, dict):
                 continue
             code = str(rm.get("room_code") or "").strip().upper()
-            if not code or code in discarded or rm.get("is_abandoned") or rm.get("status") == "abandoned":
+            if (
+                not code
+                or code in self._PURGED_LEGACY_PAIRING_ROOMS
+                or code in discarded
+                or rm.get("is_abandoned")
+                or rm.get("status") == "abandoned"
+            ):
+                self._fallback_pairing_rooms.pop(code, None)
                 continue
 
             self._repair_completed_pairing_room(rm)
-
-            if u_id or g_id or u_name:
-                owner_uid = str(rm.get("owner_id") or "").strip()
-                rm_guest_id = str(rm.get("guest_id") or "").strip()
-                cap_a_uid = str(rm.get("user_id_cap_a") or "").strip()
-                cap_b_uid = str(rm.get("user_id_cap_b") or "").strip()
-                cap_a_nm = str(rm.get("seat_a_owner_name") or rm.get("captain_a_name") or "").strip().lower()
-                cap_b_nm = str(rm.get("seat_b_owner_name") or rm.get("captain_b_name") or "").strip().lower()
-                roster_names = {
-                    str(p.get("name") or "").strip().lower()
-                    for side in ("team_a", "team_b")
-                    for p in ((rm.get(side) or {}).get("roster") or [])
-                    if isinstance(p, dict) and p.get("name")
-                }
-                all_uids = {x for x in (owner_uid, rm_guest_id, cap_a_uid, cap_b_uid) if x}
-                has_any_owner = bool(all_uids)
-                is_guest_owned_only = bool(all_uids) and all(x.startswith(("guest_", "cap_")) for x in all_uids)
-                matches_user = False
-                if u_id and u_id in all_uids:
-                    matches_user = True
-                elif g_id and g_id in all_uids:
-                    matches_user = True
-                elif u_name and (u_name in cap_a_nm or u_name in cap_b_nm or u_name in roster_names):
-                    matches_user = True
-                elif not has_any_owner or is_guest_owned_only:
-                    # Include local/guest pairing rooms created in the same browser/session
-                    matches_user = True
-                if not matches_user:
-                    continue
+            if not _room_matches_user(rm):
+                continue
 
             item = self.format_pairing_room_session_item(rm)
-            if item["is_finished"]:
-                if len(completed_items) < limit:
-                    completed_items.append(item)
-            else:
-                if len(active_items) < limit:
-                    active_items.append(item)
+            if len(active_items) < limit:
+                active_items.append(item)
+
+        # Include explicitly finished rooms from in-memory DB fallback (for offline/test environments)
+        comp_snapshot = list(self._completed_pairing_rooms_db_fallback.values())
+        comp_snapshot.sort(key=lambda r: int(r.get("completedAt") or r.get("updatedAt") or r.get("createdAt") or 0), reverse=True)
+        for crm in comp_snapshot:
+            if not isinstance(crm, dict):
+                continue
+            code = str(crm.get("room_code") or "").strip().upper()
+            if not code or code in self._PURGED_LEGACY_PAIRING_ROOMS or code in discarded:
+                continue
+            if not _room_matches_user(crm):
+                continue
+            c_item = self.format_pairing_room_session_item(crm)
+            if len(completed_items) < limit:
+                completed_items.append(c_item)
 
         return {
             "active": active_items,
@@ -3020,8 +3185,6 @@ class FirestoreRoomEngine:
             or (total_tables > 0 and len(pairings_list) >= total_tables)
         ):
             room["phase"] = "COMPLETED"
-            room["is_finished"] = True
-            room["status"] = "completed"
             room["bench_a"] = []
             room["bench_b"] = []
             room["defender_a"] = None
@@ -3970,7 +4133,7 @@ class FirestoreRoomEngine:
         masked["guarantees_remaining_b"] = int(room.get("guarantees_remaining_b", 2))
         masked["guarantee_armed_a"] = bool(room.get("guarantee_armed_a", False))
         masked["guarantee_armed_b"] = bool(room.get("guarantee_armed_b", False))
-        masked["is_finished"] = bool(room.get("is_finished") or room.get("status") == "completed" or room.get("phase") == "COMPLETED")
+        masked["is_finished"] = bool(room.get("saved_to_postgres") and (room.get("is_finished") or room.get("status") == "completed"))
         masked["status"] = "completed" if masked["is_finished"] else str(room.get("status") or "active")
 
         phase = masked.get("phase")
@@ -5860,13 +6023,13 @@ class FirestoreRoomEngine:
             }
 
         if act in ("finish_room", "complete_room", "finalize_room"):
-            self.finish_pairing_room(room["room_code"])
+            finished_room = self.finish_pairing_room(room["room_code"]) or room
             return {
                 "ok": True,
                 "success": True,
                 "status_code": 200,
                 "is_finished": True,
-                "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+                "room": self.mask_pairing_room_for_viewer(finished_room, force_role=viewer_role),
             }
 
         if act in ("discard_room", "abandon_room"):

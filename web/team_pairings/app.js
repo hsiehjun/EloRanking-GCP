@@ -685,8 +685,43 @@ class YuGiOhPairingsArena {
       if (e.key === "Escape") {
         this.hideInfoPopover();
         this.closeCardMetaPopup();
+        this.closeMobileTablesModal();
       }
     });
+
+    // Mobile Paired Tables Popup Modal controls (<= 900px)
+    const btnOpenMobileTables = document.getElementById("btnOpenMobileTablesModal");
+    if (btnOpenMobileTables) {
+      btnOpenMobileTables.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.openMobileTablesModal();
+      });
+    }
+    const mobileSummaryBar = document.getElementById("mobileTablesSummaryBar");
+    if (mobileSummaryBar) {
+      mobileSummaryBar.addEventListener("click", () => {
+        this.openMobileTablesModal();
+      });
+    }
+    const btnCloseMobileTables = document.getElementById("btnCloseMobileTablesModal");
+    if (btnCloseMobileTables) {
+      btnCloseMobileTables.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.closeMobileTablesModal();
+      });
+    }
+    const mobileTablesBackdrop = document.getElementById("mobileTablesPopupBackdrop");
+    if (mobileTablesBackdrop) {
+      mobileTablesBackdrop.addEventListener("click", () => {
+        this.closeMobileTablesModal();
+      });
+    }
+    const btnDockSaveCompleted = document.getElementById("btnDockSaveCompletedMatch");
+    if (btnDockSaveCompleted) {
+      btnDockSaveCompleted.addEventListener("click", () => {
+        this.finishPairingRoom();
+      });
+    }
 
     // Card Meta Stats Popup controls (triggered via "i" icon on top-right of each card)
     const btnCloseMetaPopup = document.getElementById("btnCloseCardMetaPopup");
@@ -796,6 +831,7 @@ class YuGiOhPairingsArena {
       demoState === "step2" ||
       demoState === "step3_spectator" ||
       demoState === "completed" ||
+      demoState === "completed_tables_popup" ||
       demoState === "clash_modal" ||
       demoState === "on_field_combat" ||
       demoState === "on_field_combat_mid_roll" ||
@@ -2759,20 +2795,33 @@ class YuGiOhPairingsArena {
       }
     }
 
-    const isDone = Boolean(
-      this.room.is_finished ||
-      this.room.status === "completed" ||
-      this.room.phase === "COMPLETED"
-    );
+    const isSavedToBackend = Boolean(this.room.is_finished || this.room.status === "completed");
+    const isAllTablesPaired = Boolean(this.room.phase === "COMPLETED" || ((this.room.pairings || []).length >= (this.room.total_tables || 5)));
     const btnFinish = document.getElementById("btnFinishPairingRoom");
     if (btnFinish) {
-      btnFinish.classList.toggle("completed-state", Boolean(this.room.is_finished || this.room.status === "completed"));
-      if (this.room.is_finished || this.room.status === "completed") {
+      btnFinish.classList.toggle("completed-state", isSavedToBackend);
+      btnFinish.classList.toggle("ready-to-save-state", !isSavedToBackend && isAllTablesPaired);
+      if (isSavedToBackend) {
         btnFinish.textContent = "✅ Saved";
-      } else if (isDone) {
-        btnFinish.textContent = "🏁 Save & Exit";
+      } else if (isAllTablesPaired) {
+        btnFinish.textContent = "🏁 Finish & Save";
       } else {
         btnFinish.textContent = "🏁 Finish";
+      }
+    }
+    const btnDockFinish = document.getElementById("btnDockFinishRoom");
+    if (btnDockFinish) {
+      const dockLbl = btnDockFinish.querySelector(".gt-dock-lbl");
+      const dockIco = btnDockFinish.querySelector(".gt-dock-ico");
+      if (isSavedToBackend) {
+        if (dockIco) dockIco.textContent = "✅";
+        if (dockLbl) dockLbl.textContent = "Saved";
+      } else if (isAllTablesPaired) {
+        if (dockIco) dockIco.textContent = "🏁";
+        if (dockLbl) dockLbl.textContent = "Save";
+      } else {
+        if (dockIco) dockIco.textContent = "🏁";
+        if (dockLbl) dockLbl.textContent = "Finish";
       }
     }
 
@@ -3002,11 +3051,16 @@ class YuGiOhPairingsArena {
         }
       }
     } else {
-      if (hintBadge) hintBadge.textContent = "DONE";
-      if (promptEl) promptEl.textContent = "🏆 All Pairings Complete!";
+      const isSavedToBackend = Boolean(this.room.is_finished || this.room.status === "completed");
+      if (hintBadge) hintBadge.textContent = isSavedToBackend ? "SAVED" : "DONE";
+      if (promptEl) {
+        promptEl.textContent = isSavedToBackend
+          ? "✅ Match Saved to History!"
+          : "🏆 All Tables Paired — Click Finish to Save!";
+      }
       if (btnLock) {
-        btnLock.disabled = true;
-        btnLock.textContent = "🏆 DONE";
+        btnLock.disabled = false;
+        btnLock.textContent = isSavedToBackend ? "🏠 EXIT TO LOBBY" : "🏁 FINISH & SAVE";
       }
     }
   }
@@ -3263,7 +3317,7 @@ class YuGiOhPairingsArena {
       if ((p.oppTeam.roster || []).length === 0) {
         oppFan.innerHTML = "";
       } else if (oppBench.length === 0) {
-        oppFan.innerHTML = `<div style="color:var(--text-dim);font-family:var(--font-mono);font-size:0.7rem;align-self:center;">ALL OPPONENT CARDS ON FIELD / PAIRED</div>`;
+        oppFan.innerHTML = `<div class="empty-hand-placeholder">ALL OPPONENT CARDS ON FIELD / PAIRED</div>`;
       } else {
         oppFan.innerHTML = oppBench.map((oppCard) => {
           const mPred = myRefCard ? this.getMatchupPrediction(myRefCard, oppCard) : null;
@@ -3318,7 +3372,7 @@ class YuGiOhPairingsArena {
     }
 
     if (myBench.length === 0) {
-      myFan.innerHTML = `<div style="color:var(--text-dim);font-family:var(--font-mono);font-size:0.75rem;align-self:center;">ALL CARDS PLACED ON FIELD</div>`;
+      myFan.innerHTML = `<div class="empty-hand-placeholder">ALL CARDS PLACED ON FIELD</div>`;
       return;
     }
 
@@ -3466,6 +3520,10 @@ class YuGiOhPairingsArena {
   async submitStagedSelection() {
     if (!this.room || !this.roomCode) return;
     let phase = this.room.phase;
+    if (phase === "COMPLETED") {
+      await this.finishPairingRoom();
+      return;
+    }
     const p = this.getPerspective();
     if (!p || p.isSpectator) return;
 
@@ -4011,6 +4069,20 @@ class YuGiOhPairingsArena {
     `;
   }
 
+  openMobileTablesModal() {
+    const dock = document.getElementById("lockedPairingsSection");
+    const backdrop = document.getElementById("mobileTablesPopupBackdrop");
+    if (dock) dock.classList.add("mobile-tables-popup-open");
+    if (backdrop) backdrop.classList.remove("hidden");
+  }
+
+  closeMobileTablesModal() {
+    const dock = document.getElementById("lockedPairingsSection");
+    const backdrop = document.getElementById("mobileTablesPopupBackdrop");
+    if (dock) dock.classList.remove("mobile-tables-popup-open");
+    if (backdrop) backdrop.classList.add("hidden");
+  }
+
   renderPairedTables() {
     const pairings = this.room?.pairings || [];
     const total = this.room?.total_tables || 5;
@@ -4025,6 +4097,8 @@ class YuGiOhPairingsArena {
 
     const countLbl = document.getElementById("lockedCountLabel");
     if (countLbl) countLbl.textContent = `${pairings.length} / ${total}`;
+    const mobCountLbl = document.getElementById("mobileLockedCountLabel");
+    if (mobCountLbl) mobCountLbl.textContent = `${pairings.length} / ${total}`;
 
     let expSumA = 0;
     let expSumB = 0;
@@ -4057,6 +4131,8 @@ class YuGiOhPairingsArena {
 
     const scoreEl = document.getElementById("projectedScoreValue");
     if (scoreEl) scoreEl.textContent = `${myActiveScore} – ${oppActiveScore}`;
+    const mobScoreEl = document.getElementById("mobileProjectedScoreValue");
+    if (mobScoreEl) mobScoreEl.textContent = `${myActiveScore} – ${oppActiveScore}`;
 
     const expSubEl = document.getElementById("expectedScoreSubLine");
     if (expSubEl) {
@@ -4067,17 +4143,25 @@ class YuGiOhPairingsArena {
       }
     }
 
+    let verdictText = "Even";
+    if (pairings.length === 0) {
+      verdictText = "0 Locked";
+    } else if (myActiveScore > oppActiveScore + 5) {
+      verdictText = pairings.length >= total ? "🏆 Victory" : "Leading";
+    } else if (myActiveScore < oppActiveScore - 5) {
+      verdictText = pairings.length >= total ? "⚠️ Defeat" : "Trailing";
+    } else if (myActiveScore !== oppActiveScore && pairings.length >= total) {
+      verdictText = myActiveScore > oppActiveScore ? "🏆 Edge" : "⚠️ Edge";
+    }
+
     const verdictEl = document.getElementById("projectedVerdictBadge");
-    if (verdictEl) {
-      if (pairings.length === 0) {
-        verdictEl.textContent = "0 Locked";
-      } else if (myActiveScore > oppActiveScore + 5) {
-        verdictEl.textContent = pairings.length >= total ? "🏆 Victory" : "Leading";
-      } else if (myActiveScore < oppActiveScore - 5) {
-        verdictEl.textContent = pairings.length >= total ? "⚠️ Defeat" : "Trailing";
-      } else {
-        verdictEl.textContent = "Even";
-      }
+    if (verdictEl) verdictEl.textContent = verdictText;
+    const mobVerdictEl = document.getElementById("mobileProjectedVerdictBadge");
+    if (mobVerdictEl) mobVerdictEl.textContent = verdictText;
+
+    const mobOpenBtn = document.getElementById("btnOpenMobileTablesModal");
+    if (mobOpenBtn) {
+      mobOpenBtn.textContent = pairings.length > 0 ? `📋 View Tables (${pairings.length})` : "📋 View Tables";
     }
 
     // Round-by-Round Progression Strip (T1 .. T5)
@@ -4113,13 +4197,18 @@ class YuGiOhPairingsArena {
       rbrStrip.querySelectorAll("[data-rbr-table]").forEach((el) => {
         el.addEventListener("click", () => {
           const tbl = Number(el.getAttribute("data-rbr-table"));
-          if (tbl) this.playOnFieldCombatAnimation(tbl, []);
+          if (tbl) {
+            this.closeMobileTablesModal();
+            this.playOnFieldCombatAnimation(tbl, []);
+          }
         });
       });
     }
 
     // Final Team Winner Prediction Verdict Banner when all tables are locked
     const finalBanner = document.getElementById("finalMatchVerdictBanner");
+    const btnDockSave = document.getElementById("btnDockSaveCompletedMatch");
+    const isSavedToBackend = Boolean(this.room?.is_finished || this.room?.status === "completed");
     if (finalBanner) {
       if (pairings.length >= total && total > 0) {
         finalBanner.classList.remove("hidden");
@@ -4142,6 +4231,18 @@ class YuGiOhPairingsArena {
         `;
       } else {
         finalBanner.classList.add("hidden");
+      }
+    }
+
+    if (btnDockSave) {
+      if (pairings.length >= total && total > 0 && this.activeRole !== "spectator") {
+        btnDockSave.classList.remove("hidden");
+        btnDockSave.classList.toggle("saved-state", isSavedToBackend);
+        btnDockSave.textContent = isSavedToBackend
+          ? "✅ Saved to Match History — Return to Lobby"
+          : "🏁 Finish & Save Match to History";
+      } else {
+        btnDockSave.classList.add("hidden");
       }
     }
 
@@ -4217,7 +4318,10 @@ class YuGiOhPairingsArena {
           btn.addEventListener("click", (e) => {
             e.stopPropagation();
             const tbl = Number(btn.getAttribute("data-open-clash-table"));
-            if (tbl) this.playOnFieldCombatAnimation(tbl, []);
+            if (tbl) {
+              this.closeMobileTablesModal();
+              this.playOnFieldCombatAnimation(tbl, []);
+            }
           });
         });
       }
@@ -4822,6 +4926,9 @@ class YuGiOhPairingsArena {
       await this.switchRole("spectator");
     } else if (demoState === "completed") {
       await this.autoCompleteRemainingPhases();
+    } else if (demoState === "completed_tables_popup") {
+      await this.autoCompleteRemainingPhases();
+      this.openMobileTablesModal();
     } else if (demoState === "clash_modal" || demoState === "on_field_combat" || demoState === "on_field_combat_mid_roll") {
       await this.autoCompleteRemainingPhases();
       if (this.room?.pairings?.length) {
@@ -4952,6 +5059,11 @@ class YuGiOhPairingsArena {
       window.location.href = "/11th/tracker";
       return;
     }
+    const lockedCount = (this.room?.pairings || []).length;
+    if (lockedCount === 0) {
+      this.showToast("⚠️ Pair at least 1 table before saving to Match History, or click 🎲 Lobby to exit.");
+      return;
+    }
     try {
       const tok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(this.roomCode, this.activeRole);
       const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
@@ -4969,7 +5081,7 @@ class YuGiOhPairingsArena {
       if (data && (data.ok || data.success) && data.room) {
         this.room = data.room;
         this.renderAll();
-        this.showToast("🏁 Team Pairings finalized & saved to Completed Matches in Lobby! Click again to exit to Lobby.");
+        this.showToast("🏁 Match saved to Backend DB & Completed Matches! Click again to exit to Lobby.");
       } else {
         this.showToast(data.error || "Could not finalize room");
       }

@@ -11853,10 +11853,19 @@ class PostgresDatabase:
             str(state.get("game_system") or state.get("gameSystem") or "").lower() == "aos"
             or match_id.startswith("AOS-")
         )
+        is_pairings = (
+            str(state.get("game_system") or state.get("gameSystem") or "").lower() == "pairings"
+            or match_id.startswith("WTC-")
+            or str(state.get("edition") or "").lower() in ("wtc_pairings", "pairings", "wtc")
+        )
         edition = str(
-            state.get("edition")
-            or game_data.get("edition")
-            or ("aos_4e" if is_aos else ("10th" if state.get("imported_source") else "11th"))
+            "wtc_pairings"
+            if is_pairings
+            else (
+                state.get("edition")
+                or game_data.get("edition")
+                or ("aos_4e" if is_aos else ("10th" if state.get("imported_source") else "11th"))
+            )
         ).strip().lower()
 
         def calc_vp(p_obj):
@@ -11970,12 +11979,27 @@ class PostgresDatabase:
             p_obj["totalScore"] = tot_val
             return tot_val
 
-        p1_score = calc_vp(state.get("p1"))
-        p2_score = calc_vp(state.get("p2"))
-        if (p1_score == 0 or state.get("imported_source")) and "p1Score" in state and state["p1Score"] is not None:
-            p1_score = int(state["p1Score"])
-        if (p2_score == 0 or state.get("imported_source")) and "p2Score" in state and state["p2Score"] is not None:
-            p2_score = int(state["p2Score"])
+        if is_pairings:
+            p1_score = int(
+                state.get("p1_score")
+                if state.get("p1_score") is not None
+                else (state.get("p1Score") if state.get("p1Score") is not None else 0)
+            )
+            p2_score = int(
+                state.get("p2_score")
+                if state.get("p2_score") is not None
+                else (state.get("p2Score") if state.get("p2Score") is not None else 0)
+            )
+            state["game_system"] = "pairings"
+            state["edition"] = "wtc_pairings"
+            state["edition_label"] = "WTC Pairing"
+        else:
+            p1_score = calc_vp(state.get("p1"))
+            p2_score = calc_vp(state.get("p2"))
+            if (p1_score == 0 or state.get("imported_source")) and "p1Score" in state and state["p1Score"] is not None:
+                p1_score = int(state["p1Score"])
+            if (p2_score == 0 or state.get("imported_source")) and "p2Score" in state and state["p2Score"] is not None:
+                p2_score = int(state["p2Score"])
         state["p1Score"] = p1_score
         state["p2Score"] = p2_score
         state["p1_score"] = p1_score
@@ -12255,8 +12279,13 @@ class PostgresDatabase:
             str(st_obj.get("game_system") or st_obj.get("gameSystem") or d.get("game_system") or "").lower() == "aos"
             or str(d.get("match_id") or "").upper().startswith("AOS-")
         )
+        is_pairings_game = (
+            str(st_obj.get("game_system") or st_obj.get("gameSystem") or d.get("game_system") or "").lower() == "pairings"
+            or raw_ed in ("wtc_pairings", "pairings", "wtc")
+            or str(d.get("match_id") or "").upper().startswith("WTC-")
+        )
         is_8th_game = raw_ed in ("8th_itc", "8th", "8e", "itc")
-        if is_aos_game or is_8th_game:
+        if is_aos_game or is_8th_game or is_pairings_game:
             return False
 
         is_11th_game = raw_ed in ("11th", "11e") or (not raw_ed and not st_obj.get("imported_source"))
@@ -12504,12 +12533,21 @@ class PostgresDatabase:
                         "11th": "11th Edition",
                         "aos_3e": "AoS 3rd Edition",
                         "aos_4e": "AoS 4th Edition",
+                        "wtc_pairings": "WTC Pairing",
                     }
                     res = []
                     for r in rows:
                         d = dict(r)
+                        mid_upper = str(d.get("match_id") or "").strip().upper()
+                        if mid_upper in ("WTC-C012", "WTC-ABE0", "WTC-38F9", "WTC-B3B3", "WTC-0B17", "WTC-93D8"):
+                            continue
                         if not d.get("game_system"):
-                            d["game_system"] = "aos" if str(d.get("match_id") or "").upper().startswith("AOS-") else "40k"
+                            if mid_upper.startswith("WTC-") or str(d.get("edition") or "").lower() == "wtc_pairings":
+                                d["game_system"] = "pairings"
+                            elif mid_upper.startswith("AOS-"):
+                                d["game_system"] = "aos"
+                            else:
+                                d["game_system"] = "40k"
 
                         # 1. Normalize game_date first (handle numeric epoch-ms strings like "1791010800000")
                         sort_iso = ""
@@ -12544,7 +12582,13 @@ class PostgresDatabase:
                         ]).lower()
                         ymd = sort_iso[:10] if (len(sort_iso) >= 10 and sort_iso[:4].isdigit()) else ""
 
-                        if d["game_system"] == "aos":
+                        if d["game_system"] == "pairings" or mid_upper.startswith("WTC-"):
+                            d["game_system"] = "pairings"
+                            d["edition"] = "wtc_pairings"
+                            d["edition_label"] = "WTC Pairing"
+                            d["pairings_url"] = f"/team-pairings?room={mid_upper}&from_lobby=1"
+                            d["spectator_url"] = f"/team-pairings?room={mid_upper}&role=spectator"
+                        elif d["game_system"] == "aos":
                             if any(k in pack_text for k in ("2021", "2022", "2023", "pb23", "pb_23", "andtor", "gallet", "ghur", "thondia", "dawnbringers", "3rd", "3e")):
                                 d["edition"] = "aos_3e"
                             elif not d.get("edition"):

@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/team-pairings/styles.css?v=30">
+  <link rel="stylesheet" href="/team-pairings/styles.css?v=31">
 </head>
 <body>
   <div class="ygo-app-shell">
@@ -359,14 +359,32 @@
           </div>
         </div>
 
-        <!-- Paired Matchups Dock (Shows each locked Table 1..5 + Round-by-Round WTC Score) -->
+        <!-- Mobile-Only Paired Tables Summary Bar (Opens Popup Modal on <= 900px) -->
+        <div class="mobile-tables-summary-bar" id="mobileTablesSummaryBar">
+          <div class="mtsb-left">
+            <span class="mtsb-title">⚔️ TABLES (<span id="mobileLockedCountLabel">0 / 5</span>)</span>
+            <span class="mtsb-score-pill">WTC: <strong id="mobileProjectedScoreValue">0 – 0</strong></span>
+            <span class="proj-badge" id="mobileProjectedVerdictBadge">0 Locked</span>
+          </div>
+          <button type="button" class="mtsb-open-btn" id="btnOpenMobileTablesModal">
+            📋 View Tables
+          </button>
+        </div>
+
+        <!-- Backdrop for Mobile Paired Tables Popup Modal -->
+        <div class="mobile-tables-popup-backdrop hidden" id="mobileTablesPopupBackdrop"></div>
+
+        <!-- Paired Matchups Dock (Right Sidebar on Desktop; Popup Modal on Mobile <= 900px) -->
         <div class="paired-tables-dock" id="lockedPairingsSection">
           <div class="dock-header">
             <div style="display:flex; align-items:center; gap:6px;">
               <h3>⚔️ TABLES (<span id="lockedCountLabel">0 / 5</span>)</h3>
               <button type="button" class="info-tip-btn" data-info-title="WTC Scoring & Predictions" data-info-body="Each table is scored 0–20 WTC points (51+ pts wins a 5v5 round; 81+ pts wins 8v8).&#10;• 6-Factor Expected: Uses live Elo, 3M Faction H2H, 3M Meta Form, Career Mastery, and Player H2H.&#10;• Click any T1–T5 pill to replay the on-field clash.">i</button>
             </div>
-            <button type="button" id="btnCopyPairings" class="dock-copy-btn" title="Copy Pairings">📋</button>
+            <div style="display:inline-flex; align-items:center; gap:6px;">
+              <button type="button" id="btnCopyPairings" class="dock-copy-btn" title="Copy Pairings">📋</button>
+              <button type="button" id="btnCloseMobileTablesModal" class="cmi-popup-close-btn mobile-tables-close-btn" title="Close Paired Tables">✕</button>
+            </div>
           </div>
 
           <!-- Live WTC Team Scoreboard -->
@@ -383,6 +401,9 @@
             <div class="round-progression-strip" id="roundByRoundProgressionStrip"></div>
             <!-- Final Team Winner Prediction Banner (Displayed when pairings complete) -->
             <div class="final-verdict-banner hidden" id="finalMatchVerdictBanner"></div>
+            <button type="button" class="dock-finish-save-btn hidden" id="btnDockSaveCompletedMatch">
+              🏁 Finish &amp; Save Match to History
+            </button>
           </div>
 
           <!-- Visual Card Clash List -->
@@ -898,6 +919,6 @@
 
   <div id="toastNotification" class="toast-notification hidden"></div>
   <script src="/js/armory_svgs.js"></script>
-  <script src="/team-pairings/app.js?v=22"></script>
+  <script src="/team-pairings/app.js?v=23"></script>
 </body>
 </html>

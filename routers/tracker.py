@@ -1410,7 +1410,7 @@ def _api_tracker_check_room_sync(match_id: str, request: Request):
         if p_room:
             p_code = p_room["room_code"]
             p_locked = bool(p_room.get("is_locked", False))
-            p_fin = bool(p_room.get("is_finished") or p_room.get("status") == "completed" or p_room.get("phase") == "COMPLETED")
+            p_fin = bool(p_room.get("saved_to_postgres") and (p_room.get("is_finished") or p_room.get("status") == "completed"))
             cap_a_uid = p_room.get("user_id_cap_a")
             cap_b_uid = p_room.get("user_id_cap_b")
             seat_a_locked = bool(p_room.get("seat_a_locked", False))
@@ -1695,7 +1695,7 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
             )
             granted_role = res.get("role") or ("spectator" if not res.get("ok") else desired_seat)
             cap_tok = res.get("captain_token") or ""
-            p_fin = bool(p_room.get("is_finished") or p_room.get("status") == "completed" or p_room.get("phase") == "COMPLETED")
+            p_fin = bool(p_room.get("saved_to_postgres") and (p_room.get("is_finished") or p_room.get("status") == "completed"))
             return {
                 "success": True,
                 "match_id": p_code,

@@ -8828,5 +8828,194 @@ html, body {
   }
 }
 
+/* ==========================================================================
+   EMPTY HAND PLACEHOLDER & MOBILE PAIRED TABLES POPUP MODAL (<= 900px)
+   ========================================================================== */
+.empty-hand-placeholder {
+  grid-column: 1 / -1 !important;
+  width: 100%;
+  text-align: center;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 10px 8px;
+  align-self: center;
+  justify-self: center;
+  box-sizing: border-box;
+}
+
+.mobile-tables-summary-bar,
+.mobile-tables-popup-backdrop,
+.mobile-tables-close-btn {
+  display: none !important;
+}
+
+.dock-finish-save-btn {
+  margin-top: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1.5px solid #10b981;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #020617;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+  transition: transform 0.14s ease, filter 0.14s ease;
+}
+
+.dock-finish-save-btn:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.dock-finish-save-btn.saved-state {
+  border-color: rgba(56, 189, 248, 0.65);
+  background: rgba(14, 165, 233, 0.2);
+  color: #7dd3fc;
+  box-shadow: none;
+}
+
+.dock-finish-save-btn.hidden {
+  display: none !important;
+}
+
+.gt-hud-finish-btn.ready-to-save-state {
+  background: linear-gradient(135deg, #10b981, #059669) !important;
+  color: #020617 !important;
+  border-color: #34d399 !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.45) !important;
+}
+
+@media (max-width: 900px) {
+  .empty-hand-placeholder {
+    padding: 5px 8px !important;
+    font-size: 0.62rem !important;
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px dashed rgba(148, 163, 184, 0.25);
+    border-radius: 7px;
+  }
+
+  /* Compact Mobile Summary Bar that triggers the Paired Tables Popup Modal */
+  .mobile-tables-summary-bar {
+    display: flex !important;
+    grid-column: 1 / -1 !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    padding: 8px 10px !important;
+    border-radius: 10px !important;
+    background: linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(9, 14, 27, 0.98)) !important;
+    border: 1.5px solid rgba(56, 189, 248, 0.45) !important;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55) !important;
+    cursor: pointer !important;
+    box-sizing: border-box !important;
+  }
+
+  .mobile-tables-summary-bar .mtsb-left {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    min-width: 0 !important;
+    flex-wrap: wrap !important;
+  }
+
+  .mobile-tables-summary-bar .mtsb-title {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.72rem !important;
+    font-weight: 900 !important;
+    color: #f8fafc !important;
+    letter-spacing: 0.03em !important;
+    white-space: nowrap !important;
+  }
+
+  .mobile-tables-summary-bar .mtsb-score-pill {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.68rem !important;
+    font-weight: 800 !important;
+    color: #cbd5e1 !important;
+    background: rgba(2, 6, 23, 0.75) !important;
+    border: 1px solid rgba(56, 189, 248, 0.35) !important;
+    border-radius: 6px !important;
+    padding: 2px 7px !important;
+    white-space: nowrap !important;
+  }
+
+  .mobile-tables-summary-bar .mtsb-score-pill strong {
+    color: #fde047 !important;
+    font-weight: 900 !important;
+  }
+
+  .mobile-tables-summary-bar .mtsb-open-btn {
+    flex-shrink: 0 !important;
+    padding: 6px 11px !important;
+    border-radius: 8px !important;
+    border: 1px solid #38bdf8 !important;
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.28), rgba(56, 189, 248, 0.16)) !important;
+    color: #7dd3fc !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.68rem !important;
+    font-weight: 800 !important;
+    white-space: nowrap !important;
+    cursor: pointer !important;
+  }
+
+  /* Hide inline Paired Tables Dock on mobile unless opened as popup modal */
+  .paired-tables-dock {
+    display: none !important;
+  }
+
+  .mobile-tables-popup-backdrop:not(.hidden) {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    background: rgba(3, 7, 18, 0.84) !important;
+    backdrop-filter: blur(6px) !important;
+    z-index: 9790 !important;
+  }
+
+  .paired-tables-dock.mobile-tables-popup-open {
+    display: flex !important;
+    flex-direction: column !important;
+    position: fixed !important;
+    top: 46px !important;
+    left: 8px !important;
+    right: 8px !important;
+    bottom: 64px !important;
+    max-height: none !important;
+    height: auto !important;
+    z-index: 9800 !important;
+    background: rgba(9, 14, 27, 0.98) !important;
+    border: 1.5px solid #38bdf8 !important;
+    border-radius: 14px !important;
+    padding: 12px !important;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.92), 0 0 24px rgba(56, 189, 248, 0.28) !important;
+    overflow: hidden !important;
+  }
+
+  .paired-tables-dock.mobile-tables-popup-open .mobile-tables-close-btn {
+    display: inline-flex !important;
+  }
+
+  .paired-tables-dock.mobile-tables-popup-open .wtc-live-scoreboard {
+    flex-shrink: 0 !important;
+  }
+
+  .paired-tables-dock.mobile-tables-popup-open .paired-clashes-list {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+    padding-right: 2px !important;
+    gap: 8px !important;
+  }
+}
+
+
 
 
