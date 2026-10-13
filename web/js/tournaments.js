@@ -10327,7 +10327,7 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
     return `
       <div class="caster-dossier-player-card" style="background: rgba(15, 23, 42, 0.78); border: 1px solid ${borderAccent}; border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0;">
         <!-- Dossier Header -->
-        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem; flex-wrap: wrap;">
+        <div class="caster-dossier-header" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem; flex-wrap: wrap;">
           <div style="min-width: 0; flex: 1;">
             <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
               <span class="player-link" onclick="openPlayerModal('${escapeHtml(safePid)}', '${escapeHtml(safeName)}')" style="font-size: 1.05rem; font-weight: 800; color: #fff; cursor: pointer; text-decoration: underline; text-decoration-color: ${accentColor}; text-underline-offset: 3px;" title="Click to open ${escapeHtml(pname)}'s Quick Profile">
@@ -10340,7 +10340,7 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
               ${playerObj?.team ? ` • 👥 ${escapeHtml(playerObj.team)}` : ''}
             </div>
           </div>
-          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+          <div class="caster-dossier-actions" style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
             <button type="button" class="btn-sm btn-outline" onclick="openPlayerModal('${escapeHtml(safePid)}', '${escapeHtml(safeName)}')" style="font-size: 0.72rem; padding: 3px 8px; color: #f8fafc; border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); cursor: pointer; font-weight: 700;">
               👤 Quick Profile
             </button>

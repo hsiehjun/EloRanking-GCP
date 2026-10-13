@@ -13189,66 +13189,156 @@ table.desktop-only,
 }
 
 @media (max-width: 680px) {
-  .caster-pred-breakdown-wrap {
-    padding: 0.65rem 0.75rem !important;
-  }
-  .caster-pred-breakdown-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.4rem;
-  }
-  .caster-pred-factor-card {
-    padding: 0.42rem 0.52rem;
-  }
-  .caster-pred-factor-top {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1px;
-  }
-  .caster-pred-factor-label {
-    font-size: 0.68rem;
-  }
-  .caster-pred-factor-shift {
-    font-size: 0.74rem;
-  }
-  .caster-pred-factor-sub {
-    font-size: 0.62rem;
-  }
   #caster-desk-table-modal.caster-desk-table-modal-backdrop {
-    padding: 0.45rem !important;
+    padding: 0.35rem !important;
   }
   .caster-desk-table-modal-card {
-    padding: 0.75rem !important;
-    border-radius: 12px !important;
+    padding: 0.7rem !important;
+    border-radius: 14px !important;
     max-height: 94vh !important;
   }
   .caster-table-details-stack {
     gap: 0.75rem !important;
   }
   .caster-table-section-card {
-    padding: 0.8rem 0.85rem !important;
+    padding: 0.78rem 0.82rem !important;
     border-radius: 10px !important;
   }
+  #caster-desk-table-modal .caster-table-details-stack > .caster-table-section-card:first-child {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0.1rem 0.05rem 0.25rem !important;
+  }
   .fighter-card {
-    padding: 0.8rem 0.85rem !important;
-    gap: 0.45rem !important;
+    padding: 0.78rem 0.85rem !important;
+    gap: 0.48rem !important;
+    background: rgba(15, 23, 42, 0.92) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  }
+  .fighter-card.p1 {
+    border-left: 3.5px solid #38bdf8 !important;
+  }
+  .fighter-card.p2 {
+    border-left: 3.5px solid #f43f5e !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.12) !important;
   }
   .fighter-name {
-    font-size: 1.05rem;
+    font-size: 1.14rem !important;
+    line-height: 1.22 !important;
+  }
+  .fighter-badges {
+    gap: 0.35rem !important;
+  }
+  .fighter-badges .badge {
+    font-size: 0.74rem !important;
+    padding: 3px 8px !important;
+    color: #f1f5f9 !important;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .fighter-stats-box {
+    padding: 0.44rem 0.65rem !important;
+    font-size: 0.82rem !important;
+    color: #f8fafc !important;
+    background: rgba(2, 6, 23, 0.65) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .fighter-actions {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 0.45rem !important;
+    width: 100%;
+  }
+  .fighter-actions button {
+    width: 100% !important;
+    justify-content: center !important;
+    padding: 6px 10px !important;
+    font-size: 0.76rem !important;
+    display: inline-flex !important;
+    align-items: center !important;
+  }
+  .win-prob-container {
+    padding: 0.72rem 0.85rem !important;
+    gap: 0.45rem !important;
+    background: rgba(9, 14, 26, 0.92) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  }
+  .win-prob-label {
+    font-size: 0.72rem !important;
+    color: #cbd5e1 !important;
+  }
+  .win-prob-pct {
+    font-size: 1.26rem !important;
+    font-weight: 900 !important;
+  }
+  .win-prob-track {
+    height: 12px !important;
+  }
+  .win-prob-elo-pill {
+    font-size: 0.76rem !important;
+    color: #f8fafc !important;
+    padding: 4px 10px !important;
+  }
+  .win-prob-scorecard-btn {
+    font-size: 0.76rem !important;
+    padding: 5px 12px !important;
+  }
+  .caster-pred-breakdown-wrap {
+    padding: 0.75rem 0.8rem !important;
+    background: rgba(9, 14, 26, 0.92) !important;
+    border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  }
+  .caster-pred-breakdown-badges {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.35rem !important;
+    font-size: 0.74rem !important;
+  }
+  .caster-pred-breakdown-grid {
+    grid-template-columns: 1fr !important;
+    gap: 0.38rem !important;
+  }
+  .caster-pred-factor-card {
+    padding: 0.5rem 0.68rem !important;
+    background: rgba(15, 23, 42, 0.94) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  }
+  .caster-pred-factor-top {
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.5rem !important;
+  }
+  .caster-pred-factor-label {
+    font-size: 0.8rem !important;
+    font-weight: 700 !important;
+    color: #f8fafc !important;
+  }
+  .caster-pred-factor-shift {
+    font-size: 0.82rem !important;
+    font-weight: 800 !important;
+  }
+  .caster-pred-factor-sub {
+    font-size: 0.73rem !important;
+    color: #cbd5e1 !important;
   }
   .caster-matchup-context-strip {
     flex-direction: column !important;
     align-items: stretch !important;
     justify-content: flex-start !important;
-    gap: 0.4rem !important;
+    gap: 0.42rem !important;
     margin-top: 0.75rem !important;
     padding-top: 0.7rem !important;
-    font-size: 0.76rem !important;
+    font-size: 0.78rem !important;
+    color: #e2e8f0 !important;
   }
   .caster-matchup-context-strip .caster-context-item {
-    background: rgba(0, 0, 0, 0.22);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 6px;
-    padding: 0.38rem 0.55rem;
+    background: rgba(15, 23, 42, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 7px;
+    padding: 0.45rem 0.65rem;
   }
   .caster-matchup-context-strip .caster-context-score-row {
     justify-content: space-between;
@@ -13264,6 +13354,25 @@ table.desktop-only,
   }
   .caster-dossier-player-card {
     padding: 0.8rem !important;
+  }
+  .caster-dossier-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.55rem !important;
+  }
+  .caster-dossier-actions {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 0.45rem !important;
+    width: 100% !important;
+  }
+  .caster-dossier-actions button {
+    width: 100% !important;
+    justify-content: center !important;
+    padding: 6px 10px !important;
+    font-size: 0.76rem !important;
+    display: inline-flex !important;
+    align-items: center !important;
   }
 }
 
