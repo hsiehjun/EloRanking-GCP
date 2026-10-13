@@ -798,6 +798,7 @@ class YuGiOhPairingsArena {
       demoState === "completed" ||
       demoState === "clash_modal" ||
       demoState === "on_field_combat" ||
+      demoState === "on_field_combat_mid_roll" ||
       demoState === "8v8_field" ||
       demoState === "coin_flip" ||
       demoState === "attacker_view" ||
@@ -4190,9 +4191,8 @@ class YuGiOhPairingsArena {
               <div class="clash-history-play ${playInfo.badgeClass}">
                 <div class="clash-play-head">
                   <span class="clash-play-badge ${playInfo.badgeClass}">${playInfo.badgeText}</span>
-                  <span class="clash-play-dice">${playInfo.isGuaranteed ? "⚡ LOCKED" : `🎲 D100: ${playInfo.rawRoll}/100`}</span>
+                  <span class="clash-play-dice">${playInfo.isGuaranteed ? "⚡ LOCKED" : `🎲 5d20: ${playInfo.d20Rolls.join("+")} = ${playInfo.rawRoll}`}</span>
                 </div>
-                <div class="clash-play-story">${playInfo.storyHtml}</div>
               </div>
               ` : ""}
               <div class="clash-mini-sim-row">
@@ -4228,6 +4228,21 @@ class YuGiOhPairingsArena {
     }
   }
 
+  decomposeSumTo5d20(targetSum) {
+    const s = Math.max(5, Math.min(100, Math.round(Number(targetSum) || 52)));
+    const base = Math.floor(s / 5);
+    const rem = s % 5;
+    const dice = [0, 1, 2, 3, 4].map((i) => base + (i < rem ? 1 : 0));
+    const swaps = [[0, 1, 2], [2, 3, -1], [1, 4, 1]];
+    for (const [ia, ib, delta] of swaps) {
+      if (dice[ia] + delta >= 1 && dice[ia] + delta <= 20 && dice[ib] - delta >= 1 && dice[ib] - delta <= 20) {
+        dice[ia] += delta;
+        dice[ib] -= delta;
+      }
+    }
+    return dice;
+  }
+
   buildTableBattleBreakdown(m, isCapB) {
     const myP = isCapB ? m.player_b : m.player_a;
     const oppP = isCapB ? m.player_a : m.player_b;
@@ -4243,16 +4258,24 @@ class YuGiOhPairingsArena {
     const mySim = isCapB ? (20 - simA) : simA;
     const oppSim = 20 - mySim;
 
-    const isGuaranteed = Boolean(btl.is_guaranteed || btl.guaranteed || btl.mode === "guaranteed");
+    const isGuaranteed = Boolean(btl.is_guaranteed || btl.guaranteed || btl.mode === "guaranteed" || btl.mode === "guarantee");
     const winnerSide = btl.winner || (simA >= 10 ? "A" : "B");
     const didIWin = isCapB ? (winnerSide === "B") : (winnerSide === "A");
-    const winnerP = winnerSide === "B" ? m.player_b : m.player_a;
     const winnerProb = winnerSide === "B" ? (100 - rawProbA) : rawProbA;
 
     const fallbackRoll = winnerSide === "A"
-      ? Math.max(1, Math.min(rawProbA, Math.round(rawProbA * 0.45)))
-      : Math.min(100, Math.max(rawProbA + 1, rawProbA + Math.round((100 - rawProbA) * 0.65)));
-    const rawRoll = Number(btl.dice_roll ?? btl.d100_roll ?? fallbackRoll);
+      ? Math.max(5, Math.min(rawProbA, Math.round(rawProbA * 0.85)))
+      : Math.min(100, Math.max(rawProbA + 1, rawProbA + Math.round((100 - rawProbA) * 0.35)));
+    let d20Rolls = Array.isArray(btl.d20_rolls) && btl.d20_rolls.length === 5
+      ? btl.d20_rolls.map((x) => Math.max(1, Math.min(20, Number(x) || 10)))
+      : null;
+    const rawRoll = d20Rolls
+      ? d20Rolls.reduce((a, b) => a + b, 0)
+      : Number(btl.dice_roll ?? btl.d100_roll ?? fallbackRoll);
+    if (!d20Rolls) {
+      d20Rolls = this.decomposeSumTo5d20(rawRoll);
+    }
+
     const wtcVar = Number(btl.wtc_variance ?? btl.variance ?? 0);
     const varLabel = wtcVar > 0 ? `+${wtcVar} surge` : (wtcVar < 0 ? `${wtcVar} drag` : "0 var");
 
@@ -4260,38 +4283,26 @@ class YuGiOhPairingsArena {
 
     let badgeClass = "favored-win";
     let badgeText = "";
-    let storyHtml = "";
-    let shortOverlayText = "";
-
-    const rangeNote = `1–${rawProbA} ${this.escapeHtml(m.player_a.faction)} (${rawProbA}%) • ${rawProbA + 1}–100 ${this.escapeHtml(m.player_b.faction)} (${100 - rawProbA}%)`;
 
     if (isGuaranteed) {
       badgeClass = "stratagem-lock";
       badgeText = `⚡ STRATAGEM LOCKED (${mySim}–${oppSim})`;
-      storyHtml = `Pre-game Est <strong>${myEst}–${oppEst}</strong> (${myProb}% Win / ${oppProb}% Loss) bypassed by Tactical Stratagem ➔ Locked <strong>${mySim}–${oppSim}</strong>.`;
-      shortOverlayText = `⚡ Stratagem Locked • Est ${myEst}–${oppEst} (${myProb}% Win) ➔ ${mySim}–${oppSim}`;
     } else if (isUpset) {
       if (didIWin) {
         badgeClass = "upset-win";
-        badgeText = `🔥 UNDERDOG UPSET WIN! (${myProb}% Hit)`;
-        storyHtml = `Est <strong>${myEst}–${oppEst}</strong> gave you a <strong>${myProb}%</strong> upset chance vs ${oppProb}% favorite. 🎲 D100 rolled <strong>${rawRoll}/100</strong> (${rangeNote}, ${varLabel}) ➔ You pulled the upset for <strong>${mySim}–${oppSim}</strong>!`;
+        badgeText = `🔥 UNDERDOG UPSET WIN! (${myProb}% Odds)`;
       } else {
         badgeClass = "upset-loss";
-        badgeText = `🔥 UNDERDOG UPSET! (${this.escapeHtml(oppP.faction)} hit ${oppProb}% odds)`;
-        storyHtml = `Est <strong>${myEst}–${oppEst}</strong> means <strong>${myProb}% Win / ${oppProb}% Loss</strong>. 🎲 D100 rolled <strong>${rawRoll}/100</strong> (${rangeNote}, ${varLabel}) ➔ ${this.escapeHtml(oppP.faction)} hit their <strong>${oppProb}%</strong> underdog window to flip ${myEst}–${oppEst} into <strong>${mySim}–${oppSim}</strong>!`;
+        badgeText = `🔥 UNDERDOG UPSET! (${this.escapeHtml(oppP.faction)} ${oppProb}% Odds)`;
       }
-      shortOverlayText = `🎲 D100: ${rawRoll}/100 • 🔥 ${this.escapeHtml(winnerP.faction)} hit ${winnerProb}% Underdog Upset (${varLabel}) • Est ${myEst}–${oppEst} ➔ ${mySim}–${oppSim}`;
     } else {
       if (didIWin) {
         badgeClass = "favored-win";
-        badgeText = `✅ FAVORED WIN (${myProb}% Odds Held)`;
-        storyHtml = `Est <strong>${myEst}–${oppEst}</strong> (${myProb}% Win / ${oppProb}% Loss). 🎲 D100 rolled <strong>${rawRoll}/100</strong> (${rangeNote}, ${varLabel}) ➔ ${this.escapeHtml(myP.faction)} held the ${myProb}% edge for <strong>${mySim}–${oppSim}</strong>.`;
+        badgeText = `✅ FAVORED WIN (${myProb}% Held)`;
       } else {
         badgeClass = "favored-loss";
-        badgeText = `🛡️ FAVORED LOSS (${this.escapeHtml(oppP.faction)} held ${oppProb}% edge)`;
-        storyHtml = `Est <strong>${myEst}–${oppEst}</strong> (${myProb}% Win / ${oppProb}% Loss). 🎲 D100 rolled <strong>${rawRoll}/100</strong> (${rangeNote}, ${varLabel}) ➔ ${this.escapeHtml(oppP.faction)} held their ${oppProb}% favorite odds for <strong>${mySim}–${oppSim}</strong>.`;
+        badgeText = `🛡️ FAVORED LOSS (${this.escapeHtml(oppP.faction)} ${oppProb}% Held)`;
       }
-      shortOverlayText = `🎲 D100: ${rawRoll}/100 • ✅ ${this.escapeHtml(winnerP.faction)} held ${winnerProb}% Favorite Odds (${varLabel}) • Est ${myEst}–${oppEst} ➔ ${mySim}–${oppSim}`;
     }
 
     const netSwing = mySim - myEst;
@@ -4299,6 +4310,10 @@ class YuGiOhPairingsArena {
 
     return {
       rawRoll,
+      d20Rolls,
+      rawProbA,
+      myProb,
+      oppProb,
       wtcVar,
       varLabel,
       isGuaranteed,
@@ -4306,8 +4321,6 @@ class YuGiOhPairingsArena {
       didIWin,
       badgeClass,
       badgeText,
-      storyHtml,
-      shortOverlayText,
       swingStr,
       netSwing
     };
@@ -4354,7 +4367,7 @@ class YuGiOhPairingsArena {
     this.clearCombatTimers();
     const stage = document.getElementById("onFieldCombatStage");
     if (stage) {
-      stage.classList.remove("phase-rise", "phase-strike", "phase-score");
+      stage.classList.remove("phase-rise", "phase-dice", "phase-strike", "phase-score");
       stage.classList.add("hidden");
     }
     const mat = document.getElementById("duelPodA");
@@ -4374,11 +4387,11 @@ class YuGiOhPairingsArena {
   }
 
   /**
-   * Yu-Gi-Oh! Master Duel Style On-Field Combat Animation (NO Popup Modal!):
+   * Yu-Gi-Oh! Master Duel Style On-Field Combat + 5d20 Sequential Dice Roll Animation:
    * 1. Brings the two paired cards to the front of the playmat (`#onFieldCombatStage`) and scales them larger (`phase-rise`).
-   * 2. Performs an attack lunge + diagonal slash beam + shockwave ring right on the playmat (`phase-strike`).
-   * 3. Reveals the behind-the-scenes computed WTC Score (`13 – 7`) right between the two enlarged cards (`phase-score`),
-   *    then smoothly advances to the next table or settles back into the playmat.
+   * 2. Rolls 5 D20 dice (`5d20`, each 1..20) one at a time and sums them up one at a time (`phase-dice`) for suspense.
+   * 3. Once the 5th D20 lands, performs an attack lunge + diagonal slash beam + shockwave ring (`phase-strike`)
+   *    and reveals the final WTC Score (`13 – 7`) right below the 5 landed D20 dice (`phase-score`).
    */
   playOnFieldCombatAnimation(tableNum, queueRest = [], opts = {}) {
     if (!this.room) return;
@@ -4407,6 +4420,7 @@ class YuGiOhPairingsArena {
     const simA = Number(match.sim_score_a ?? btl.final_score_a ?? rawEstA);
     const myScore = isSimOn ? (isCapB ? (20 - simA) : simA) : myEst;
     const oppScore = 20 - myScore;
+    const playInfo = this.buildTableBattleBreakdown(match, isCapB);
 
     const bannerEl = document.getElementById("ofcTableBanner");
     if (bannerEl) {
@@ -4441,71 +4455,255 @@ class YuGiOhPairingsArena {
       });
     }
 
+    const kickerEl = document.getElementById("ofcWtcKicker");
     const scoreNumsEl = document.getElementById("ofcWtcScoreNums");
-    if (scoreNumsEl) {
-      scoreNumsEl.textContent = `${myScore} – ${oppScore}`;
-      scoreNumsEl.classList.remove("score-win", "score-loss", "score-even");
-      if (myScore > oppScore) {
-        scoreNumsEl.classList.add("score-win");
-      } else if (myScore < oppScore) {
-        scoreNumsEl.classList.add("score-loss");
-      } else {
-        scoreNumsEl.classList.add("score-even");
-      }
-    }
-
     const verdictEl = document.getElementById("ofcWtcWinnerTag");
-    if (verdictEl) {
-      if (myScore > oppScore) {
-        verdictEl.textContent = `🏆 ${myP.name.toUpperCase()} PREVAILS`;
-      } else if (oppScore > myScore) {
-        verdictEl.textContent = `💥 ${oppP.name.toUpperCase()} PREVAILS`;
-      } else {
-        verdictEl.textContent = `⚖️ DEADLOCK 10–10 CLASH`;
-      }
-    }
+    const diceStageEl = document.getElementById("ofcDiceStage");
+    const formulaPillEl = document.getElementById("ofcDiceFormulaPill");
+    const targetPillEl = document.getElementById("ofcDiceTargetPill");
+    const d20RowEl = document.getElementById("ofcD20Row");
+    const eqEl = document.getElementById("ofcDiceEquation");
+    const sumNumEl = document.getElementById("ofcDiceSumNumber");
+    const sumWrapEl = document.getElementById("ofcDiceSumTotal");
+    const meterFillEl = document.getElementById("ofcDiceMeterFill");
+    const meterThreshEl = document.getElementById("ofcDiceMeterThreshold");
+    const revealBlockEl = document.getElementById("ofcScoreRevealBlock");
 
-    const rollExplainEl = document.getElementById("ofcWtcRollExplain");
-    if (rollExplainEl) {
-      if (isSimOn) {
-        const playInfo = this.buildTableBattleBreakdown(match, isCapB);
-        rollExplainEl.textContent = playInfo.shortOverlayText;
-        rollExplainEl.style.display = "block";
-      } else {
-        rollExplainEl.textContent = "";
-        rollExplainEl.style.display = "none";
+    const applyFinalScoreUI = () => {
+      if (revealBlockEl) {
+        revealBlockEl.classList.remove("awaiting-dice");
       }
-    }
+      if (kickerEl) {
+        if (!isSimOn) {
+          kickerEl.textContent = "ESTIMATED WTC SCORE";
+        } else if (playInfo.isGuaranteed) {
+          kickerEl.textContent = "⚡ STRATAGEM LOCKED WTC";
+        } else if (playInfo.isUpset) {
+          kickerEl.textContent = "🔥 UNDERDOG UPSET • WTC SCORE";
+        } else {
+          kickerEl.textContent = "⚔️ WTC SCORE";
+        }
+      }
+      if (scoreNumsEl) {
+        scoreNumsEl.textContent = `${myScore} – ${oppScore}`;
+        scoreNumsEl.classList.remove("score-win", "score-loss", "score-even", "score-pending");
+        if (myScore > oppScore) {
+          scoreNumsEl.classList.add("score-win");
+        } else if (myScore < oppScore) {
+          scoreNumsEl.classList.add("score-loss");
+        } else {
+          scoreNumsEl.classList.add("score-even");
+        }
+      }
+      if (verdictEl) {
+        if (myScore > oppScore) {
+          verdictEl.textContent = `🏆 ${myP.name.toUpperCase()} PREVAILS`;
+        } else if (oppScore > myScore) {
+          verdictEl.textContent = `💥 ${oppP.name.toUpperCase()} PREVAILS`;
+        } else {
+          verdictEl.textContent = `⚖️ DEADLOCK 10–10 CLASH`;
+        }
+      }
+    };
 
     // Reset classes & launch Phase 1: Cards brought to front & scale larger on the playmat
-    stage.classList.remove("hidden", "phase-rise", "phase-strike", "phase-score");
+    stage.classList.remove("hidden", "phase-rise", "phase-dice", "phase-strike", "phase-score");
     void stage.offsetWidth;
     stage.classList.add("phase-rise");
 
     const mat = document.getElementById("duelPodA");
 
-    // Phase 2 (340ms): Attack Lunge + Energy Slash + Shockwave Impact on the playmat
-    const tStrike = setTimeout(() => {
-      stage.classList.add("phase-strike");
+    if (!isSimOn || playInfo.isGuaranteed) {
+      if (diceStageEl) {
+        diceStageEl.classList.toggle("hidden", !isSimOn);
+      }
+      if (isSimOn && playInfo.isGuaranteed) {
+        if (formulaPillEl) formulaPillEl.textContent = "⚡ STRATAGEM";
+        if (targetPillEl) targetPillEl.textContent = "NO DICE ROLL";
+        if (eqEl) eqEl.textContent = "Locked Predicted WTC Score";
+        if (sumNumEl) sumNumEl.textContent = "LOCKED";
+      }
+      applyFinalScoreUI();
+      const tStrike = setTimeout(() => {
+        stage.classList.add("phase-strike", "phase-score");
+        if (mat) {
+          mat.classList.remove("playmat-combat-shake");
+          void mat.offsetWidth;
+          mat.classList.add("playmat-combat-shake");
+        }
+      }, 320);
+      this._combatTimers.push(tStrike);
+
+      if (!opts.holdScore) {
+        const tDone = setTimeout(() => {
+          this.advanceOrHideOnFieldCombat();
+        }, 2350);
+        this._combatTimers.push(tDone);
+      }
+      return;
+    }
+
+    // 5d20 Sequential Dice Roll Animation (1 die at a time, summing up 1 at a time for suspense)
+    if (diceStageEl) diceStageEl.classList.remove("hidden");
+    stage.classList.add("phase-dice");
+
+    const d20Rolls = playInfo.d20Rolls || [10, 11, 9, 12, 10];
+    const rawProbA = playInfo.rawProbA;
+    const myProb = playInfo.myProb;
+
+    if (formulaPillEl) {
+      formulaPillEl.textContent = "🎲 5d20 BELL ROLL";
+    }
+    if (targetPillEl) {
+      targetPillEl.textContent = isCapB
+        ? `WIN ≥ ${rawProbA + 1} (${myProb}%)`
+        : `WIN ≤ ${rawProbA} (${myProb}%)`;
+    }
+    if (meterThreshEl) {
+      meterThreshEl.style.left = `${Math.max(4, Math.min(96, rawProbA))}%`;
+    }
+    if (meterFillEl) {
+      meterFillEl.style.width = "0%";
+      meterFillEl.classList.remove("fill-win", "fill-loss", "fill-warn");
+    }
+    if (sumWrapEl) {
+      sumWrapEl.classList.remove("sum-win", "sum-loss", "sum-pop");
+    }
+    if (sumNumEl) {
+      sumNumEl.textContent = "0";
+    }
+    if (eqEl) {
+      eqEl.textContent = "Rolling 5 × D20...";
+    }
+
+    // Put WTC Score block into suspense / awaiting state while the 5 dice roll
+    if (revealBlockEl) {
+      revealBlockEl.classList.add("awaiting-dice");
+    }
+    if (kickerEl) {
+      kickerEl.textContent = `EST ${myEst} – ${oppEst} • ROLLING 5d20...`;
+    }
+    if (scoreNumsEl) {
+      scoreNumsEl.textContent = "? – ?";
+      scoreNumsEl.classList.remove("score-win", "score-loss", "score-even");
+      scoreNumsEl.classList.add("score-pending");
+    }
+    if (verdictEl) {
+      verdictEl.textContent = "⏳ SUMMING 5 × D20...";
+    }
+
+    const dieEls = d20RowEl ? Array.from(d20RowEl.querySelectorAll(".ofc-d20-die")) : [];
+    dieEls.forEach((el, idx) => {
+      el.classList.remove("rolling", "landed", "crit-high", "crit-low");
+      el.classList.add("waiting");
+      const valSpan = el.querySelector(".d20-val");
+      if (valSpan) valSpan.textContent = "•";
+      const idxSpan = el.querySelector(".d20-idx");
+      if (idxSpan) idxSpan.textContent = `D${idx + 1}`;
+    });
+
+    const stopAfterDieIdx = typeof opts.stopAfterDieIdx === "number" ? opts.stopAfterDieIdx : 4;
+    const spinCycles = [17, 6, 19, 11, 14, 3, 20, 8, 15, 12];
+
+    for (let i = 0; i < 5; i++) {
+      if (i > stopAfterDieIdx) break;
+      const startMs = 140 + i * 300;
+      const landMs = startMs + 210;
+      const dieEl = dieEls[i];
+      const valSpan = dieEl ? dieEl.querySelector(".d20-val") : null;
+
+      // Start spinning Die #i
+      const tStart = setTimeout(() => {
+        if (dieEl) {
+          dieEl.classList.remove("waiting", "landed");
+          dieEl.classList.add("rolling");
+        }
+        const prevSlice = d20Rolls.slice(0, i);
+        if (eqEl) {
+          eqEl.textContent = prevSlice.length > 0
+            ? `${prevSlice.join(" + ")} + 🎲...`
+            : `🎲 Rolling D1...`;
+        }
+      }, startMs);
+      this._combatTimers.push(tStart);
+
+      // Rapidly cycle D20 faces while spinning
+      for (let tick = 1; tick <= 3; tick++) {
+        const tTick = setTimeout(() => {
+          if (valSpan) {
+            const fakeVal = spinCycles[(i * 3 + tick) % spinCycles.length];
+            valSpan.textContent = String(fakeVal);
+          }
+        }, startMs + tick * 50);
+        this._combatTimers.push(tTick);
+      }
+
+      // Land Die #i & add to Running Sum!
+      const tLand = setTimeout(() => {
+        const rolledVal = d20Rolls[i];
+        if (dieEl) {
+          dieEl.classList.remove("waiting", "rolling");
+          dieEl.classList.add("landed");
+          if (rolledVal >= 18) dieEl.classList.add("crit-high");
+          else if (rolledVal <= 3) dieEl.classList.add("crit-low");
+        }
+        if (valSpan) {
+          valSpan.textContent = String(rolledVal);
+        }
+
+        const landedSlice = d20Rolls.slice(0, i + 1);
+        const runningSum = landedSlice.reduce((acc, v) => acc + v, 0);
+
+        if (sumNumEl) {
+          sumNumEl.textContent = String(runningSum);
+        }
+        if (sumWrapEl) {
+          sumWrapEl.classList.remove("sum-pop");
+          void sumWrapEl.offsetWidth;
+          sumWrapEl.classList.add("sum-pop");
+          if (i === 4) {
+            sumWrapEl.classList.add(playInfo.didIWin ? "sum-win" : "sum-loss");
+          }
+        }
+        if (eqEl) {
+          eqEl.textContent = landedSlice.join(" + ");
+        }
+        if (meterFillEl) {
+          meterFillEl.style.width = `${Math.min(100, runningSum)}%`;
+          if (i === 4) {
+            meterFillEl.classList.remove("fill-warn");
+            meterFillEl.classList.add(playInfo.didIWin ? "fill-win" : "fill-loss");
+          } else if (!isCapB && runningSum > rawProbA) {
+            meterFillEl.classList.add("fill-loss");
+          } else if (!isCapB && runningSum >= rawProbA - 12) {
+            meterFillEl.classList.add("fill-warn");
+          }
+        }
+      }, landMs);
+      this._combatTimers.push(tLand);
+    }
+
+    if (stopAfterDieIdx < 4) {
+      return;
+    }
+
+    // Phase 2 & 3 (1700ms — right after 5th D20 lands at 1550ms): Attack Lunge + Energy Slash + WTC Score Reveal!
+    const tStrikeAndScore = setTimeout(() => {
+      applyFinalScoreUI();
+      stage.classList.add("phase-strike", "phase-score");
       if (mat) {
         mat.classList.remove("playmat-combat-shake");
         void mat.offsetWidth;
         mat.classList.add("playmat-combat-shake");
       }
-    }, 340);
-    this._combatTimers.push(tStrike);
-
-    // Phase 3 (820ms): Behind-the-scenes WTC Score pops in between the two enlarged cards
-    const tScore = setTimeout(() => {
-      stage.classList.add("phase-score");
-    }, 820);
-    this._combatTimers.push(tScore);
+    }, 1700);
+    this._combatTimers.push(tStrikeAndScore);
 
     // Auto-advance or dismiss after showing the WTC score (unless holdScore is set for screenshot inspection)
     if (!opts.holdScore) {
       const tDone = setTimeout(() => {
         this.advanceOrHideOnFieldCombat();
-      }, 2450);
+      }, 3450);
       this._combatTimers.push(tDone);
     }
   }
@@ -4617,10 +4815,13 @@ class YuGiOhPairingsArena {
       await this.switchRole("spectator");
     } else if (demoState === "completed") {
       await this.autoCompleteRemainingPhases();
-    } else if (demoState === "clash_modal" || demoState === "on_field_combat") {
+    } else if (demoState === "clash_modal" || demoState === "on_field_combat" || demoState === "on_field_combat_mid_roll") {
       await this.autoCompleteRemainingPhases();
       if (this.room?.pairings?.length) {
-        this.playOnFieldCombatAnimation(1, [], { holdScore: true });
+        this.playOnFieldCombatAnimation(1, [], {
+          holdScore: true,
+          stopAfterDieIdx: demoState === "on_field_combat_mid_roll" ? 2 : 4
+        });
       }
     }
   }

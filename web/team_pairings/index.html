@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/team-pairings/styles.css?v=27">
+  <link rel="stylesheet" href="/team-pairings/styles.css?v=29">
 </head>
 <body>
   <div class="ygo-app-shell">
@@ -272,16 +272,41 @@
                 <div class="ofc-card-mount" id="ofcLeftCardMount"></div>
               </div>
 
-              <!-- Center Attack Impact Slash + Post-Fight WTC Score Reveal -->
+              <!-- Center 5d20 Sequential Dice Roll + Attack Impact Slash + Post-Fight WTC Score Reveal -->
               <div class="ofc-impact-fx" id="ofcImpactCenter">
                 <div class="ofc-slash-beam" id="ofcSlashBeam"></div>
                 <div class="ofc-shockwave-ring" id="ofcShockwaveRing"></div>
 
                 <div class="ofc-wtc-score-card" id="ofcWtcScoreCard">
-                  <span class="ofc-wtc-kicker" id="ofcWtcKicker">WTC SCORE</span>
-                  <div class="ofc-wtc-nums" id="ofcWtcScoreNums">13 – 7</div>
-                  <span class="ofc-wtc-verdict" id="ofcWtcWinnerTag">🏆 VICTORY</span>
-                  <div class="ofc-wtc-roll-explain" id="ofcWtcRollExplain"></div>
+                  <!-- 5d20 Sequential Dice Roll Stage (Rolls 1 D20 at a time & sums up for suspense) -->
+                  <div class="ofc-dice-stage" id="ofcDiceStage">
+                    <div class="ofc-dice-header">
+                      <span class="ofc-dice-formula-pill" id="ofcDiceFormulaPill">🎲 5d20 ROLL</span>
+                      <span class="ofc-dice-target-pill" id="ofcDiceTargetPill">WIN ≤ 55</span>
+                    </div>
+                    <div class="ofc-d20-row" id="ofcD20Row">
+                      <div class="ofc-d20-die waiting" data-die-idx="0"><span class="d20-idx">D1</span><span class="d20-val">?</span></div>
+                      <div class="ofc-d20-die waiting" data-die-idx="1"><span class="d20-idx">D2</span><span class="d20-val">?</span></div>
+                      <div class="ofc-d20-die waiting" data-die-idx="2"><span class="d20-idx">D3</span><span class="d20-val">?</span></div>
+                      <div class="ofc-d20-die waiting" data-die-idx="3"><span class="d20-idx">D4</span><span class="d20-val">?</span></div>
+                      <div class="ofc-d20-die waiting" data-die-idx="4"><span class="d20-idx">D5</span><span class="d20-val">?</span></div>
+                    </div>
+                    <div class="ofc-dice-sum-row">
+                      <span class="ofc-dice-equation" id="ofcDiceEquation">Rolling 5 × D20...</span>
+                      <span class="ofc-dice-sum-total" id="ofcDiceSumTotal">SUM: <strong id="ofcDiceSumNumber">0</strong><small>/100</small></span>
+                    </div>
+                    <div class="ofc-dice-meter-track" id="ofcDiceMeterTrack">
+                      <div class="ofc-dice-meter-fill" id="ofcDiceMeterFill" style="width: 0%;"></div>
+                      <div class="ofc-dice-meter-threshold" id="ofcDiceMeterThreshold" style="left: 55%;"></div>
+                    </div>
+                  </div>
+
+                  <!-- WTC Score Reveal Block (Reveals once the 5th D20 lands!) -->
+                  <div class="ofc-score-reveal-block" id="ofcScoreRevealBlock">
+                    <span class="ofc-wtc-kicker" id="ofcWtcKicker">WTC SCORE</span>
+                    <div class="ofc-wtc-nums" id="ofcWtcScoreNums">13 – 7</div>
+                    <span class="ofc-wtc-verdict" id="ofcWtcWinnerTag">🏆 VICTORY</span>
+                  </div>
                 </div>
               </div>
 
@@ -873,6 +898,6 @@
 
   <div id="toastNotification" class="toast-notification hidden"></div>
   <script src="/js/armory_svgs.js"></script>
-  <script src="/team-pairings/app.js?v=20"></script>
+  <script src="/team-pairings/app.js?v=22"></script>
 </body>
 </html>

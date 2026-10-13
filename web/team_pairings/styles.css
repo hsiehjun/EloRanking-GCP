@@ -8072,21 +8072,6 @@ html, body {
   color: #94a3b8;
 }
 
-.ofc-wtc-roll-explain {
-  margin-top: 6px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: rgba(2, 6, 23, 0.84);
-  border: 1px solid rgba(148, 163, 184, 0.32);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.58rem;
-  font-weight: 700;
-  color: #e2e8f0;
-  text-align: center;
-  max-width: 340px;
-  line-height: 1.35;
-}
-
 .tcg-mode-switcher-strip.hidden,
 .tournament-builder-strip.hidden {
   display: none !important;
@@ -8097,4 +8082,324 @@ html, body {
   border: 2px solid #fbbf24 !important;
   box-shadow: 0 0 20px rgba(245, 185, 66, 0.32) !important;
 }
+
+/* ============================================================================
+   10. ON-FIELD 5d20 SEQUENTIAL DICE ROLL & RUNNING SUM ANIMATION
+   ============================================================================ */
+.ofc-impact-fx {
+  min-width: 248px !important;
+  height: auto !important;
+  min-height: 190px !important;
+}
+
+.ofc-wtc-score-card {
+  width: 248px !important;
+  min-width: 236px !important;
+  padding: 10px 12px !important;
+  gap: 6px !important;
+}
+
+.on-field-combat-stage.phase-rise .ofc-wtc-score-card,
+.on-field-combat-stage.phase-dice .ofc-wtc-score-card,
+.on-field-combat-stage.phase-score .ofc-wtc-score-card {
+  opacity: 1 !important;
+  transform: scale(1) !important;
+}
+
+.ofc-dice-stage {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 7px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.28);
+}
+
+.ofc-dice-stage.hidden {
+  display: none !important;
+}
+
+.ofc-dice-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+}
+
+.ofc-dice-formula-pill {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.54rem;
+  font-weight: 900;
+  color: #fde047;
+  background: rgba(250, 204, 21, 0.14);
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  border-radius: 5px;
+  padding: 1px 6px;
+  letter-spacing: 0.04em;
+}
+
+.ofc-dice-target-pill {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.54rem;
+  font-weight: 800;
+  color: #7dd3fc;
+  background: rgba(14, 165, 233, 0.16);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+.ofc-d20-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+  width: 100%;
+  margin: 2px 0;
+}
+
+.ofc-d20-die {
+  position: relative;
+  height: 40px;
+  border-radius: 9px;
+  background: #070b14;
+  border: 1.5px solid #334155;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.8);
+  transition: border-color 0.14s ease, background 0.14s ease, transform 0.14s ease;
+}
+
+.ofc-d20-die .d20-idx {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.44rem;
+  font-weight: 800;
+  color: #64748b;
+  line-height: 1;
+  margin-bottom: 1px;
+}
+
+.ofc-d20-die .d20-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.84rem;
+  font-weight: 900;
+  color: #f8fafc;
+  line-height: 1.05;
+}
+
+.ofc-d20-die.waiting {
+  opacity: 0.48;
+  border-style: dashed;
+}
+
+.ofc-d20-die.waiting .d20-val {
+  color: #475569;
+}
+
+@keyframes d20SpinTumble {
+  0% { transform: translateY(0) rotate(0deg) scale(1.04); }
+  25% { transform: translateY(-3px) rotate(-10deg) scale(1.1); }
+  50% { transform: translateY(1px) rotate(10deg) scale(1.12); }
+  75% { transform: translateY(-2px) rotate(-6deg) scale(1.08); }
+  100% { transform: translateY(0) rotate(0deg) scale(1.04); }
+}
+
+.ofc-d20-die.rolling {
+  opacity: 1;
+  border-color: #fde047;
+  background: radial-gradient(circle at 50% 45%, rgba(250, 204, 21, 0.25), #09101f 80%);
+  box-shadow: 0 0 14px rgba(250, 204, 21, 0.55);
+  animation: d20SpinTumble 0.18s infinite ease-in-out;
+}
+
+.ofc-d20-die.rolling .d20-val {
+  color: #fde047;
+}
+
+@keyframes d20LandPop {
+  0% { transform: scale(1.28); }
+  65% { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+
+.ofc-d20-die.landed {
+  opacity: 1;
+  border-color: #38bdf8;
+  background: linear-gradient(160deg, rgba(14, 165, 233, 0.24), rgba(15, 23, 42, 0.95));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.65), 0 0 10px rgba(56, 189, 248, 0.35);
+  animation: d20LandPop 0.18s cubic-bezier(0.22, 1.25, 0.36, 1) forwards;
+}
+
+.ofc-d20-die.landed .d20-idx {
+  color: #7dd3fc;
+}
+
+.ofc-d20-die.landed.crit-high {
+  border-color: #fbbf24;
+  background: linear-gradient(160deg, rgba(245, 158, 11, 0.28), rgba(15, 23, 42, 0.95));
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.45);
+}
+
+.ofc-d20-die.landed.crit-high .d20-val {
+  color: #fde047;
+}
+
+.ofc-d20-die.landed.crit-low {
+  border-color: #34d399;
+}
+
+.ofc-d20-die.landed.crit-low .d20-val {
+  color: #6ee7b7;
+}
+
+.ofc-dice-sum-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  background: rgba(2, 6, 23, 0.85);
+  border: 1px solid rgba(51, 65, 85, 0.75);
+  border-radius: 7px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+}
+
+.ofc-dice-equation {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.56rem;
+  font-weight: 700;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ofc-dice-sum-total {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: #e2e8f0;
+  white-space: nowrap;
+}
+
+.ofc-dice-sum-total strong {
+  font-size: 0.78rem;
+  font-weight: 900;
+  color: #38bdf8;
+}
+
+.ofc-dice-sum-total small {
+  font-size: 0.52rem;
+  color: #64748b;
+  margin-left: 1px;
+}
+
+.ofc-dice-sum-total.sum-win strong {
+  color: #4ade80;
+  text-shadow: 0 0 10px rgba(74, 222, 128, 0.55);
+}
+
+.ofc-dice-sum-total.sum-loss strong {
+  color: #fb7185;
+  text-shadow: 0 0 10px rgba(251, 113, 133, 0.55);
+}
+
+@keyframes ofcSumPop {
+  0% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+.ofc-dice-sum-total.sum-pop {
+  animation: ofcSumPop 0.16s ease-out;
+}
+
+.ofc-dice-meter-track {
+  position: relative;
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(51, 65, 85, 0.85);
+  overflow: visible;
+}
+
+.ofc-dice-meter-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #0ea5e9, #38bdf8);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.55);
+  transition: width 0.18s cubic-bezier(0.22, 1, 0.36, 1), background 0.18s ease;
+}
+
+.ofc-dice-meter-fill.fill-warn {
+  background: linear-gradient(90deg, #0ea5e9, #fbbf24);
+}
+
+.ofc-dice-meter-fill.fill-win {
+  background: linear-gradient(90deg, #10b981, #4ade80);
+  box-shadow: 0 0 10px rgba(74, 222, 128, 0.65);
+}
+
+.ofc-dice-meter-fill.fill-loss {
+  background: linear-gradient(90deg, #f59e0b, #f43f5e);
+  box-shadow: 0 0 10px rgba(244, 63, 94, 0.65);
+}
+
+.ofc-dice-meter-threshold {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2.5px;
+  background: #fde047;
+  box-shadow: 0 0 6px #fde047;
+  border-radius: 2px;
+  z-index: 3;
+  transform: translateX(-50%);
+}
+
+.ofc-score-reveal-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  transition: opacity 0.2s ease, transform 0.22s cubic-bezier(0.22, 1.25, 0.36, 1);
+}
+
+.ofc-score-reveal-block.awaiting-dice {
+  opacity: 0.62;
+  transform: scale(0.94);
+}
+
+.ofc-wtc-nums.score-pending {
+  color: #64748b !important;
+  text-shadow: none !important;
+  font-size: 1.25rem !important;
+}
+
+@media (max-width: 768px) {
+  .ofc-impact-fx {
+    min-width: 182px !important;
+  }
+  .ofc-wtc-score-card {
+    width: 184px !important;
+    min-width: 176px !important;
+    padding: 8px 8px !important;
+  }
+  .ofc-d20-die {
+    height: 32px;
+  }
+  .ofc-d20-die .d20-val {
+    font-size: 0.72rem;
+  }
+}
+
 

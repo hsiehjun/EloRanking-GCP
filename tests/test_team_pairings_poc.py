@@ -1829,6 +1829,38 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertEqual(len(rm_tourney["team_a"]["roster"]), 0)
         self.assertEqual(len(rm_tourney["team_b"]["roster"]), 0)
 
+    def test_5d20_bell_curve_dice_combat_and_sequential_rolls(self):
+        """Verify resolve_table_dice_battle rolls 5d20 (5 × D20, each 1..20) with a bell-curve sum so a 5% underdog has ~0% win probability."""
+        pred_95_vs_5 = {"win_prob_a": 95, "wtc_score_a": 20}
+        res = self.engine.resolve_table_dice_battle(pred_95_vs_5, mode="dice")
+        self.assertEqual(res["dice_formula"], "5d20")
+        self.assertIsInstance(res["d20_rolls"], list)
+        self.assertEqual(len(res["d20_rolls"]), 5)
+        for die_val in res["d20_rolls"]:
+            self.assertGreaterEqual(die_val, 1)
+            self.assertLessEqual(die_val, 20)
+        self.assertEqual(res["dice_roll"], sum(res["d20_rolls"]))
+
+        # Verify explicit forced_rolls sums the 5 D20 dice accurately
+        custom_res = self.engine.resolve_table_dice_battle(
+            {"win_prob_a": 55, "wtc_score_a": 12},
+            mode="dice",
+            forced_rolls=[11, 14, 9, 12, 8],
+            forced_variance=0,
+        )
+        self.assertEqual(custom_res["d20_rolls"], [11, 14, 9, 12, 8])
+        self.assertEqual(custom_res["dice_roll"], 54)
+        self.assertEqual(custom_res["winner"], "A")
+        self.assertFalse(custom_res["is_upset"])
+
+        # Verify 5% underdog (needing > 95 on 5d20, i.e. 96..100, probability 126 / 3,200,000 = 0.0039%) has virtually 0% chance to win
+        upsets_in_400 = 0
+        for _ in range(400):
+            r = self.engine.resolve_table_dice_battle(pred_95_vs_5, mode="dice")
+            if r["winner"] == "B":
+                upsets_in_400 += 1
+        self.assertLessEqual(upsets_in_400, 1, "5% underdog on 5d20 bell curve should have ~0% win rate")
+
 
 if __name__ == "__main__":
     unittest.main()

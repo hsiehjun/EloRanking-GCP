@@ -2520,12 +2520,28 @@ class FirestoreRoomEngine:
         """Estimates WTC 0-20 points for player_a vs player_b using the unified 6-Factor Prediction Engine."""
         return cls.predict_matchup_outcome(player_a, player_b)["wtc_score_a"]
 
+    @staticmethod
+    def _decompose_sum_to_5d20(target_sum: int) -> List[int]:
+        """Decomposes a target sum (5..100) into 5 valid D20 dice (1..20 each) that add up to `max(5, min(100, target_sum))`."""
+        s = max(5, min(100, int(target_sum)))
+        base = s // 5
+        rem = s % 5
+        dice = [base + (1 if i < rem else 0) for i in range(5)]
+        # Add natural deterministic variation across the 5 dice while preserving the exact sum and [1..20] bounds
+        swaps = [(0, 1, 2), (2, 3, -1), (1, 4, 1)]
+        for i_a, i_b, delta in swaps:
+            if 1 <= dice[i_a] + delta <= 20 and 1 <= dice[i_b] - delta <= 20:
+                dice[i_a] += delta
+                dice[i_b] -= delta
+        return dice
+
     @classmethod
     def resolve_table_dice_battle(
         cls,
         pred: Dict[str, Any],
         mode: str = "dice",
         forced_roll: Optional[int] = None,
+        forced_rolls: Optional[List[int]] = None,
         forced_variance: Optional[int] = None,
         guaranteed_by: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -2533,9 +2549,11 @@ class FirestoreRoomEngine:
         Resolves a paired table matchup for the Prediction Scoring Minigame:
         - If mode == 'guarantee': Skips dice rolling completely and locks in the predicted WTC score
           (e.g. 80% win prob locks 20-0 directly with zero risk of an underdog upset or negative variance).
-        - If mode == 'dice': Rolls a D100 (1..100) against win_prob_a (1..win_prob_a => Player A wins;
-          win_prob_a+1..100 => Player B wins, allowing low-probability underdogs to pull upsets!),
-          then estimates the WTC 0-20 score from the prediction % with a bounded +/- 1 WTC variation.
+        - If mode == 'dice': Rolls 5 D20 dice (5d20, each 1..20, sum 5..100) and compares the sum
+          against win_prob_a (sum <= win_prob_a => Player A wins; sum > win_prob_a => Player B wins).
+          Because 5d20 follows a bell-curve distribution centered around 52.5, close matchups (40%-60%)
+          are decided in the heart of the bell curve, while extreme underdogs (e.g. 5% win chance) have
+          virtually 0% chance to win.
         """
         import secrets
 
@@ -2562,6 +2580,8 @@ class FirestoreRoomEngine:
                 "is_guaranteed": True,
                 "guaranteed": True,
                 "guaranteed_by": g_by,
+                "dice_formula": "5d20",
+                "d20_rolls": None,
                 "dice_roll": None,
                 "d100_roll": None,
                 "win_threshold_a": win_prob_a,
@@ -2580,8 +2600,21 @@ class FirestoreRoomEngine:
                 "headline": f"⚡ TACTICAL GUARANTEE LOCKED ({sim_a} - {sim_b})",
             }
 
-        # D100 Dice Roll (1..100): 1..win_prob_a => Player A wins; (win_prob_a+1)..100 => Player B wins
-        d100 = _clamp_int(int(forced_roll), 1, 100) if forced_roll is not None else (secrets.randbelow(100) + 1)
+        # 5d20 Bell-Curve Dice Roll (5 × D20, each 1..20, sum 5..100):
+        # sum <= win_prob_a => Player A wins; sum > win_prob_a => Player B wins
+        if forced_rolls and isinstance(forced_rolls, (list, tuple)) and len(forced_rolls) > 0:
+            d20_rolls = [_clamp_int(int(x), 1, 20) for x in list(forced_rolls)[:5]]
+            while len(d20_rolls) < 5:
+                d20_rolls.append(10)
+            d100 = sum(d20_rolls)
+        elif forced_roll is not None:
+            raw_forced = _clamp_int(int(forced_roll), 1, 100)
+            d20_rolls = cls._decompose_sum_to_5d20(raw_forced)
+            d100 = raw_forced if raw_forced < 5 else sum(d20_rolls)
+        else:
+            d20_rolls = [secrets.randbelow(20) + 1 for _ in range(5)]
+            d100 = sum(d20_rolls)
+
         variance = _clamp_int(int(forced_variance), -1, 1) if forced_variance is not None else secrets.choice([-1, 0, 1])
 
         if d100 <= win_prob_a:
@@ -2607,11 +2640,14 @@ class FirestoreRoomEngine:
 
         var_label = f"+{variance}" if variance > 0 else str(variance)
         upset_tag = " • 🔥 UNDERDOG UPSET!" if is_upset else ""
+        rolls_str = "+".join(str(x) for x in d20_rolls)
         return {
             "mode": "dice",
             "is_guaranteed": False,
             "guaranteed": False,
             "guaranteed_by": None,
+            "dice_formula": "5d20",
+            "d20_rolls": d20_rolls,
             "dice_roll": d100,
             "d100_roll": d100,
             "win_threshold_a": win_prob_a,
@@ -2627,7 +2663,7 @@ class FirestoreRoomEngine:
             "sim_score_b": sim_b,
             "final_score_a": sim_a,
             "final_score_b": sim_b,
-            "headline": f"🎲 D100 Roll: {d100} (Target ≤{win_prob_a}%) • Var {var_label} ➔ {sim_a} - {sim_b}{upset_tag}",
+            "headline": f"🎲 5d20 ({rolls_str} = {d100}, Target ≤{win_prob_a}) • Var {var_label} ➔ {sim_a} - {sim_b}{upset_tag}",
         }
 
     def _save_pairing_room_doc(self, room_code: str, room_data: Dict[str, Any]) -> None:
@@ -3890,6 +3926,9 @@ class FirestoreRoomEngine:
                 pred_obj = m.get("prediction") or self.predict_matchup_outcome(m.get("player_a") or {}, m.get("player_b") or {})
                 b_res = self.resolve_table_dice_battle(pred_obj, mode="dice", forced_roll=50, forced_variance=0)
                 m["battle_result"] = b_res
+            elif b_res.get("mode") != "guarantee" and not b_res.get("d20_rolls") and b_res.get("dice_roll") is not None:
+                b_res["d20_rolls"] = self._decompose_sum_to_5d20(int(b_res["dice_roll"]))
+                b_res["dice_formula"] = "5d20"
             sim_a = int(m.get("sim_score_a", b_res.get("sim_score_a", est_a)))
             sim_b = int(m.get("sim_score_b", b_res.get("sim_score_b", 20 - sim_a)))
             m["sim_score_a"] = sim_a
@@ -3912,6 +3951,8 @@ class FirestoreRoomEngine:
                 "cum_sim_b": sim_tot_b,
                 "mode": b_res.get("mode", "dice"),
                 "guaranteed_by": b_res.get("guaranteed_by"),
+                "dice_formula": b_res.get("dice_formula", "5d20"),
+                "d20_rolls": b_res.get("d20_rolls"),
                 "dice_roll": b_res.get("dice_roll"),
                 "win_threshold_a": b_res.get("win_threshold_a", m.get("win_prob_a", 50)),
                 "wtc_variance": b_res.get("wtc_variance", 0),
