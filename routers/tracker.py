@@ -284,7 +284,7 @@ def normalize_tracker_match_id(raw: str) -> str:
         return f"{prefix}{system}-{event_id}-R{r_num}-T{t_num}"
 
     s = clean.upper()
-    if s.startswith("WH40K-") or s.startswith("BCP-") or s.startswith("ES-") or s.startswith("AOS-"):
+    if s.startswith("WH40K-") or s.startswith("BCP-") or s.startswith("ES-") or s.startswith("AOS-") or s.startswith("WTC-"):
         return s
     s_clean = s.replace("-", "")
     if len(s_clean) == 8:
@@ -2363,6 +2363,38 @@ def _format_firestore_session_item(doc: Dict[str, Any]) -> Dict[str, Any]:
         "version": doc.get("version", 1)
     }
 
+def _history_item_sort_ts(item: Dict[str, Any]) -> float:
+    """Extracts a comparable UTC epoch timestamp (seconds) so merged PostgreSQL and WTC Pairing items sort newest-first."""
+    if not isinstance(item, dict):
+        return 0.0
+    for key in ("game_date", "updated_at", "created_at", "date"):
+        val = item.get(key)
+        if val is None or val == "":
+            continue
+        if isinstance(val, (int, float)):
+            fval = float(val)
+            return fval / 1000.0 if fval > 1e11 else fval
+        if hasattr(val, "timestamp"):
+            try:
+                return float(val.timestamp())
+            except Exception:
+                pass
+        sval = str(val).strip()
+        if not sval:
+            continue
+        if sval.isdigit() or re.match(r"^\d{9,16}(?:\.\d+)?$", sval):
+            fval = float(sval)
+            return fval / 1000.0 if fval > 1e11 else fval
+        try:
+            dt = datetime.fromisoformat(sval.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return float(dt.timestamp())
+        except Exception:
+            pass
+    return 0.0
+
+
 @router.get("/api/tracker/history", summary="Get persistent history of tracker games")
 def api_tracker_history(request: Request, limit: int = 500, search: Optional[str] = None, token: Optional[str] = Query(None), game_system: Optional[str] = Query(None)):
     try:
@@ -2385,11 +2417,13 @@ def api_tracker_history(request: Request, limit: int = 500, search: Optional[str
             except Exception as p_err:
                 logger.debug(f"Pairing history fetch notice: {p_err}")
         active_sessions.extend(pairing_lists.get("active", []))
+        active_sessions.sort(key=_history_item_sort_ts, reverse=True)
 
         db = get_database()
         completed = (db.get_tracker_history(limit=limit, search=search, user_id=user_id, user_name=user_name) or []) + pairing_lists.get("completed", [])
         seen = {a["match_id"] for a in active_sessions}
         filtered_completed = [c for c in completed if c.get("match_id") not in seen]
+        filtered_completed.sort(key=_history_item_sort_ts, reverse=True)
         
         all_history = active_sessions + filtered_completed
         if game_system:
@@ -2522,11 +2556,13 @@ def _api_tracker_user_sessions_sync(
         else:
             active_sessions = [s for s in active_sessions if s.get("game_system") != "aos" and not str(s.get("match_id", "")).upper().startswith("AOS-")]
                 
+    active_sessions.sort(key=_history_item_sort_ts, reverse=True)
     primary_active = active_sessions[0] if active_sessions else None
     primary_mid = (primary_active.get("match_id") or primary_active.get("id") or "").strip().upper() if primary_active else ""
     unfinished_sessions = [s for s in active_sessions[1:] if (s.get("match_id") or s.get("id") or "").strip().upper() != primary_mid]
     
     completed_history = [g for g in raw_completed_history if g.get("is_finished", True) and (g.get("match_id") or "").strip().upper() not in seen_matches]
+    completed_history.sort(key=_history_item_sort_ts, reverse=True)
     if game_system:
         sys_filter = "aos" if "aos" in game_system.lower() else ("pairings" if "pair" in game_system.lower() or "wtc" in game_system.lower() else "40k")
         if sys_filter == "aos":

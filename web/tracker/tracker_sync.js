@@ -2871,8 +2871,24 @@
       });
     };
 
-    const scopedActiveList = filterBySystem(activeList);
-    const scopedCompleted = filterBySystem(completed);
+    const itemSortMs = (it) => {
+      if (!it) return 0;
+      const cand = it.date || it.game_date || it.updated_at || it.created_at;
+      if (typeof cand === 'number' && !isNaN(cand)) return cand > 1e11 ? cand : cand * 1000;
+      if (cand) {
+        const s = String(cand).trim();
+        if (/^\d{9,16}(?:\.\d+)?$/.test(s)) {
+          const n = parseFloat(s);
+          return n > 1e11 ? n : n * 1000;
+        }
+        const t = new Date(s).getTime();
+        if (!isNaN(t)) return t;
+      }
+      return 0;
+    };
+
+    const scopedActiveList = filterBySystem(activeList).sort((a, b) => itemSortMs(b) - itemSortMs(a));
+    const scopedCompleted = filterBySystem(completed).sort((a, b) => itemSortMs(b) - itemSortMs(a));
 
     const totalCount = scopedActiveList.length + scopedCompleted.length;
     if (countEl) {
@@ -3316,7 +3332,7 @@
               } else if (typeof item.state === 'object') {
                 s = item.state || {};
               }
-              const rawGdVal = item.game_date || s.game_date || item.updated_at || item.created_at || null;
+              const rawGdVal = item.game_date || s.game_date || item.updated_at || item.created_at || item.date || null;
               let parsedDateMs = Date.now();
               if (rawGdVal) {
                 const sGd = String(rawGdVal).trim();
@@ -3327,6 +3343,9 @@
                   const tMs = new Date(rawGdVal).getTime();
                   if (!isNaN(tMs)) parsedDateMs = tMs;
                 }
+              }
+              if (typeof item.updated_at === 'number' && item.updated_at > 1e11 && (!item.game_date || /^\d{4}-\d{2}-\d{2}$/.test(String(item.game_date).trim()))) {
+                parsedDateMs = item.updated_at;
               }
               const calcP1S = (s.p1 && typeof s.p1 === 'object') ? computeTrackerPlayerVp(s.p1, s) : 0;
               const calcP2S = (s.p2 && typeof s.p2 === 'object') ? computeTrackerPlayerVp(s.p2, s) : 0;
@@ -3354,6 +3373,13 @@
                 imported_app: item.imported_app || s.imported_app || null,
                 game_date: rawGdVal ? new Date(parsedDateMs).toISOString() : null,
                 date: parsedDateMs,
+                created_at: item.created_at || parsedDateMs,
+                updated_at: item.updated_at || parsedDateMs,
+                primary_mission: item.primary_mission || s.primary_mission || null,
+                user_id_p1: item.user_id_p1 || s.user_id_p1 || null,
+                user_id_p2: item.user_id_p2 || s.user_id_p2 || null,
+                status: item.status || (item.is_finished ? 'completed' : 'active'),
+                is_finished: Boolean(item.is_finished || item.isFinished),
                 p1_name: item.p1_name || s.game?.p1Name || 'Player 1',
                 p2_name: item.p2_name || s.game?.p2Name || 'Player 2',
                 p1_faction: item.p1_faction || s.game?.p1Faction || '',
@@ -3515,13 +3541,7 @@
         const db = firebase.firestore();
         db.collection('rooms').doc(matchId).delete();
         if (cleanId.startsWith('WTC-')) {
-          db.collection('pairing_rooms').doc(cleanId).set({
-            room_code: cleanId,
-            status: 'abandoned',
-            is_abandoned: true,
-            revision: 999999999,
-            updatedAt: Date.now()
-          });
+          db.collection('pairing_rooms').doc(cleanId).delete();
         }
       } catch(e) {}
     }

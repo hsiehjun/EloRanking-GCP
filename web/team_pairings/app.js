@@ -2308,8 +2308,15 @@ class YuGiOhPairingsArena {
         let myRoster = this.activeRole === "captain_b"
           ? (this.room.team_b?.roster || [])
           : (this.room.team_a?.roster || []);
+        const isRoomCompleted = Boolean(
+          this.room.phase === "COMPLETED" ||
+          this.room.phase === "COMPLETE" ||
+          this.room.is_finished ||
+          this.room.status === "completed"
+        );
         const shouldOpenLobbyModal = Boolean(
-          openLobby || fromLobby || (this.activeRole !== "spectator" && myRoster.length === 0)
+          !isRoomCompleted &&
+          (openLobby || fromLobby || (this.activeRole !== "spectator" && myRoster.length === 0))
         );
         if (shouldOpenLobbyModal) {
           if (

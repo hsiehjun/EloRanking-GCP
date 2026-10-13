@@ -5945,13 +5945,7 @@ function discardTrackerSession(matchId) {
       db.collection('rooms').doc(matchId).delete();
       const upperMid = String(matchId || '').trim().toUpperCase();
       if (upperMid.startsWith('WTC-')) {
-        db.collection('pairing_rooms').doc(upperMid).set({
-          room_code: upperMid,
-          status: 'abandoned',
-          is_abandoned: true,
-          revision: 999999999,
-          updatedAt: Date.now()
-        });
+        db.collection('pairing_rooms').doc(upperMid).delete();
       }
     } catch(e) {}
   }
