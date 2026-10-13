@@ -2673,6 +2673,8 @@ class FirestoreRoomEngine:
             return
         room_data["revision"] = int(room_data.get("revision") or 0) + 1
         room_data["updatedAt"] = int(datetime.now(timezone.utc).timestamp() * 1000)
+        if isinstance(room_data.get("event_context"), dict):
+            self._sync_event_wtc_pairing_from_room(room_data, is_finished=bool(room_data.get("is_finished")))
         self._fallback_pairing_rooms[code] = room_data
         self._pairing_rooms_sync_ts = 0.0
         if self._client:
@@ -2912,6 +2914,8 @@ class FirestoreRoomEngine:
 
         if not hasattr(self, "_completed_pairing_rooms_db_fallback"):
             self._completed_pairing_rooms_db_fallback = {}
+        if isinstance(room.get("event_context"), dict):
+            self._sync_event_wtc_pairing_from_room(room, is_finished=True)
         self._completed_pairing_rooms_db_fallback[code] = copy.deepcopy(room)
 
         # Remove from active Firestore pairing_rooms collection & active fallback dict
@@ -3354,7 +3358,7 @@ class FirestoreRoomEngine:
             for p in roster:
                 if not isinstance(p, dict) or p.get("is_starter"):
                     continue
-                pname = str(p.get("player_name") or p.get("name") or "").strip()
+                pname = str(p.get("player_name") or p.get("full_name") or p.get("name") or "").strip()
                 if not pname:
                     continue
                 n_low = pname.lower()
@@ -3448,7 +3452,7 @@ class FirestoreRoomEngine:
                 )
                 if p.get("is_starter"):
                     continue
-                pname = str(p.get("player_name") or p.get("name") or "").strip()
+                pname = str(p.get("player_name") or p.get("full_name") or p.get("name") or "").strip()
                 if not pname:
                     continue
                 n_low = pname.lower()
@@ -3534,7 +3538,7 @@ class FirestoreRoomEngine:
 
                 if raw_rows:
                     for idx, p in enumerate(raw_rows):
-                        pname = str(p.get("player_name") or p.get("name") or "").strip()
+                        pname = str(p.get("player_name") or p.get("full_name") or p.get("name") or "").strip()
                         if not pname or pname.lower() in seen_names:
                             continue
                         seen_names.add(pname.lower())
@@ -3574,7 +3578,7 @@ class FirestoreRoomEngine:
                         "avg_elo": hub.get("active_avg_elo", 1800.0),
                     }
                 for idx, p in enumerate(hub.get("roster") or []):
-                    pname = str(p.get("player_name") or p.get("name") or "").strip()
+                    pname = str(p.get("player_name") or p.get("full_name") or p.get("name") or "").strip()
                     if not pname or pname.lower() in seen_names:
                         continue
                     seen_names.add(pname.lower())
@@ -3706,7 +3710,7 @@ class FirestoreRoomEngine:
                             raw_players.extend(db.search_players(q_raw, limit=lim, game_system=sys_key) or [])
 
                 for p in raw_players:
-                    pname = str(p.get("player_name") or p.get("name") or "").strip()
+                    pname = str(p.get("player_name") or p.get("full_name") or p.get("name") or "").strip()
                     if not pname or pname.lower() in seen_players:
                         continue
                     seen_players.add(pname.lower())
@@ -3752,7 +3756,7 @@ class FirestoreRoomEngine:
                             continue
                         short_tag = str(hub.get("short_tag") or "")
                         for p in hub["roster"]:
-                            pname = str(p.get("player_name") or p.get("name") or "").strip()
+                            pname = str(p.get("player_name") or p.get("full_name") or p.get("name") or "").strip()
                             if not pname:
                                 continue
                             fac = self._clean_primary_faction(p.get("top_faction") or p.get("faction"))
@@ -4052,9 +4056,698 @@ class FirestoreRoomEngine:
             "createdAt": now_ts,
             "updatedAt": now_ts,
         }
+        if isinstance(req.get("event_context"), dict):
+            room_data["event_context"] = copy.deepcopy(req["event_context"])
 
         self._save_pairing_room_doc(raw_code, room_data)
         return room_data
+
+    def _sync_event_wtc_pairing_from_room(self, room: Dict[str, Any], is_finished: bool = False) -> Optional[Dict[str, Any]]:
+        """
+        Builds and synchronizes the structured BCP individual pairings payload whenever
+        a WTC Pairing room associated with a BCP Team Event is created, updated, or completed.
+        """
+        if not isinstance(room, dict):
+            return None
+        ev_ctx = room.get("event_context")
+        if not isinstance(ev_ctx, dict) or not ev_ctx.get("event_id"):
+            return None
+
+        event_id = str(ev_ctx["event_id"]).strip()
+        round_num = max(1, int(ev_ctx.get("round_num") or 1))
+        team_table = max(1, int(ev_ctx.get("team_table") or ev_ctx.get("pod_number") or 1))
+        team_pairing_id = str(ev_ctx.get("team_pairing_id") or f"tp_r{round_num}_t{team_table}").strip()
+        pairing_key = f"R{round_num}_{team_pairing_id}"
+        code = str(room.get("room_code") or "").strip().upper()
+
+        if not hasattr(self, "_event_wtc_pairings"):
+            self._event_wtc_pairings: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        ev_store = self._event_wtc_pairings.setdefault(event_id, {})
+        existing = ev_store.get(pairing_key) if isinstance(ev_store.get(pairing_key), dict) else {}
+
+        fmt = str(room.get("format_size") or room.get("format") or "5v5").lower()
+        total_tables = int(room.get("total_tables") or room.get("team_size") or (8 if fmt == "8v8" else 5))
+        pairings_list = room.get("pairings") or []
+        all_paired = bool(
+            is_finished
+            or room.get("is_finished")
+            or room.get("phase") in ("COMPLETED", "COMPLETE")
+            or (total_tables > 0 and len(pairings_list) >= total_tables)
+        )
+
+        team_a = room.get("team_a") or {}
+        team_b = room.get("team_b") or {}
+        name_a = str(ev_ctx.get("team_a_name") or team_a.get("name") or "Team A").strip()
+        name_b = str(ev_ctx.get("team_b_name") or team_b.get("name") or "Team B").strip()
+        team_a_id = str(ev_ctx.get("team_a_id") or team_a.get("id") or "").strip()
+        team_b_id = str(ev_ctx.get("team_b_id") or team_b.get("id") or "").strip()
+
+        base_table_offset = int(ev_ctx.get("base_table_offset") or ((team_table - 1) * total_tables))
+        individual_pairings: List[Dict[str, Any]] = []
+        exp_a = 0
+        exp_b = 0
+        for idx, m in enumerate(pairings_list):
+            if not isinstance(m, dict):
+                continue
+            pa = m.get("player_a") if isinstance(m.get("player_a"), dict) else {}
+            pb = m.get("player_b") if isinstance(m.get("player_b"), dict) else {}
+            board_num = int(m.get("table_num") or (idx + 1))
+            bcp_table = int(ev_ctx.get("board_tables", {}).get(str(board_num)) or (base_table_offset + board_num))
+            ea = int(m.get("est_score_a", 10))
+            eb = int(m.get("est_score_b", 20 - ea))
+            exp_a += ea
+            exp_b += eb
+            p1_id = str(pa.get("bcp_player_id") or pa.get("player_id") or pa.get("user_id") or pa.get("id") or "").strip()
+            p2_id = str(pb.get("bcp_player_id") or pb.get("player_id") or pb.get("user_id") or pb.get("id") or "").strip()
+            p1_name = str(pa.get("player_name") or pa.get("name") or "Player 1").strip()
+            p2_name = str(pb.get("player_name") or pb.get("name") or "Player 2").strip()
+            individual_pairings.append({
+                "board_number": board_num,
+                "table_num": board_num,
+                "table": bcp_table,
+                "table_number": bcp_table,
+                "team_pairing_id": team_pairing_id,
+                "player1_id": p1_id,
+                "player1_name": p1_name,
+                "player1_faction": str(pa.get("faction") or "Space Marines").strip(),
+                "player1_detachment": str(pa.get("detachment") or "").strip(),
+                "player1_list_id": str(pa.get("list_id") or "").strip(),
+                "player1_elo": int(pa.get("elo") or 1800),
+                "player1_team": name_a,
+                "player1_team_id": team_a_id,
+                "player2_id": p2_id,
+                "player2_name": p2_name,
+                "player2_faction": str(pb.get("faction") or "Space Marines").strip(),
+                "player2_detachment": str(pb.get("detachment") or "").strip(),
+                "player2_list_id": str(pb.get("list_id") or "").strip(),
+                "player2_elo": int(pb.get("elo") or 1800),
+                "player2_team": name_b,
+                "player2_team_id": team_b_id,
+                "est_score_a": ea,
+                "est_score_b": eb,
+                "win_prob_a": int(m.get("win_prob_a", 50)),
+                "win_prob_b": 100 - int(m.get("win_prob_a", 50)),
+                "reason": str(m.get("reason") or f"Cycle {m.get('cycle', 1)}"),
+            })
+
+        prev_sub_status = str(existing.get("submission_status") or "").strip()
+        if prev_sub_status in ("submitted_to_bcp", "queued_for_to"):
+            sub_status = prev_sub_status
+        elif all_paired:
+            sub_status = "ready_to_submit"
+        else:
+            sub_status = "in_progress"
+
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        payload_obj: Dict[str, Any] = {
+            "pairing_key": pairing_key,
+            "event_id": event_id,
+            "event_name": str(ev_ctx.get("event_name") or "").strip(),
+            "game_system": str(ev_ctx.get("game_system") or "40k").strip(),
+            "round_num": round_num,
+            "team_table": team_table,
+            "pod_number": team_table,
+            "team_pairing_id": team_pairing_id,
+            "room_code": code,
+            "room_url": f"/team-pairings?room={code}&event_id={event_id}&round={round_num}&team_pairing_id={team_pairing_id}",
+            "return_url": str(ev_ctx.get("return_url") or f"/app#/{ev_ctx.get('game_system') or '40k'}/event/{event_id}"),
+            "format_size": fmt,
+            "total_tables": total_tables,
+            "tables_locked": len(individual_pairings),
+            "phase": "COMPLETED" if all_paired else str(room.get("phase") or "STEP_1_DEFENDER"),
+            "coin_flip_done": bool(room.get("coin_flip_done", False)),
+            "coin_flip_winner": room.get("coin_flip_winner"),
+            "defender_role": room.get("defender_role"),
+            "attacker_role": room.get("attacker_role"),
+            "status": "completed" if all_paired else "in_progress",
+            "is_completed": all_paired,
+            "is_finished": bool(is_finished or room.get("is_finished")),
+            "submission_status": sub_status,
+            "submitted_at": existing.get("submitted_at"),
+            "submitted_by": existing.get("submitted_by"),
+            "queued_at": existing.get("queued_at"),
+            "queued_by": existing.get("queued_by"),
+            "bcp_sync_meta": existing.get("bcp_sync_meta"),
+            "team_a_id": team_a_id,
+            "team_a_name": name_a,
+            "team_a_captain": str(team_a.get("captain_name") or "").strip(),
+            "team_b_id": team_b_id,
+            "team_b_name": name_b,
+            "team_b_captain": str(team_b.get("captain_name") or "").strip(),
+            "expected_total_a": exp_a,
+            "expected_total_b": exp_b,
+            "individual_pairings": individual_pairings,
+            "updated_at": now_ms,
+        }
+        ev_store[pairing_key] = payload_obj
+        room["bcp_pairings_payload"] = copy.deepcopy(payload_obj)
+        return payload_obj
+
+    def launch_event_wtc_pairing_room(self, event_id: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Creates or joins a deterministic WTC Pairing room for a BCP Team Event matchup
+        (`(event_id, round_num, team_pairing_id)`), pre-populated with both teams' real
+        BCP rosters (`5v5` or `8v8`) in Official Tournament Mode (`setup_mode="tournament"`),
+        ready at the Coin Flip step!
+        """
+        import hashlib
+
+        req = dict(payload or {})
+        clean_eid = str(event_id or req.get("event_id") or "").strip()
+        if not clean_eid:
+            return {"ok": False, "success": False, "status_code": 400, "error": "Missing event_id"}
+
+        round_num = max(1, int(req.get("round_num") or req.get("round") or 1))
+        team_table = max(1, int(req.get("team_table") or req.get("pod_number") or req.get("table") or 1))
+        raw_tpid = str(req.get("team_pairing_id") or req.get("teamPairingId") or "").strip()
+
+        team_a_in = req.get("team_a") if isinstance(req.get("team_a"), dict) else {}
+        team_b_in = req.get("team_b") if isinstance(req.get("team_b"), dict) else {}
+        team_a_id = str(req.get("team_a_id") or team_a_in.get("id") or team_a_in.get("team_id") or "").strip()
+        team_b_id = str(req.get("team_b_id") or team_b_in.get("id") or team_b_in.get("team_id") or "").strip()
+        team_a_name = str(req.get("team_a_name") or team_a_in.get("name") or "").strip()
+        team_b_name = str(req.get("team_b_name") or team_b_in.get("name") or "").strip()
+
+        # If caller didn't pass full team rosters in body, resolve from cached event details in <1ms
+        ev_cached_data = None
+        try:
+            from routers.leaderboard import _event_details_cache, _sync_api_event_details
+            entry = _event_details_cache.get(clean_eid)
+            ev_cached_data = entry.get("data") if isinstance(entry, dict) else None
+            if not ev_cached_data and not (team_a_in.get("members") and team_b_in.get("members")):
+                ev_cached_data = _sync_api_event_details(clean_eid)
+        except Exception:
+            ev_cached_data = None
+
+        if isinstance(ev_cached_data, dict):
+            ev_teams = ev_cached_data.get("teams") or []
+            if not team_a_in.get("members") or not team_b_in.get("members"):
+                all_tp_items = [
+                    tp for tp in (ev_cached_data.get("team_pairings") or [])
+                    if isinstance(tp, dict) and int(tp.get("round") or 1) == round_num
+                ]
+                matched_tp = None
+                if raw_tpid:
+                    matched_tp = next(
+                        (
+                            tp for tp in all_tp_items
+                            if str(tp.get("team_pairing_id") or tp.get("id") or "") == raw_tpid
+                        ),
+                        None,
+                    )
+                if matched_tp is None:
+                    for tp_item in all_tp_items:
+                        if (
+                            (team_a_id and str(tp_item.get("team1_id") or "") in (team_a_id, team_b_id))
+                            or (team_a_name and str(tp_item.get("team1_name") or "").lower() in (team_a_name.lower(), team_b_name.lower()))
+                            or int(tp_item.get("pod_number") or tp_item.get("table_num") or tp_item.get("table") or tp_item.get("team_table") or 0) == team_table
+                        ):
+                            matched_tp = tp_item
+                            break
+
+                if matched_tp is not None:
+                    if not raw_tpid:
+                        raw_tpid = str(matched_tp.get("team_pairing_id") or matched_tp.get("id") or "")
+                    team_table = int(
+                        matched_tp.get("pod_number")
+                        or matched_tp.get("table_num")
+                        or matched_tp.get("table")
+                        or matched_tp.get("team_table")
+                        or team_table
+                    )
+                    t1_id = str(matched_tp.get("team1_id") or "")
+                    t2_id = str(matched_tp.get("team2_id") or "")
+                    t1_nm = str(matched_tp.get("team1_name") or "")
+                    t2_nm = str(matched_tp.get("team2_name") or "")
+                    t1_direct_members = matched_tp.get("team1_roster") or matched_tp.get("team1_members") or []
+                    t2_direct_members = matched_tp.get("team2_roster") or matched_tp.get("team2_members") or []
+                    if not team_a_in.get("members") and t1_direct_members:
+                        team_a_in = {"id": t1_id, "name": t1_nm, "members": t1_direct_members}
+                        team_a_id = t1_id or team_a_id
+                        team_a_name = t1_nm or team_a_name
+                    if not team_b_in.get("members") and t2_direct_members:
+                        team_b_in = {"id": t2_id, "name": t2_nm, "members": t2_direct_members}
+                        team_b_id = t2_id or team_b_id
+                        team_b_name = t2_nm or team_b_name
+
+                    if not team_a_in.get("members") or not team_b_in.get("members"):
+                        for tm_obj in ev_teams:
+                            if not isinstance(tm_obj, dict):
+                                continue
+                            tid_c = str(tm_obj.get("id") or tm_obj.get("team_id") or "")
+                            tnm_c = str(tm_obj.get("name") or "").lower()
+                            if (t1_id and tid_c == t1_id) or (t1_nm and tnm_c == t1_nm.lower()):
+                                if not team_a_in.get("members"):
+                                    team_a_in = tm_obj
+                                    team_a_id = tid_c
+                                    team_a_name = tm_obj.get("name") or team_a_name
+                            elif (t2_id and tid_c == t2_id) or (t2_nm and tnm_c == t2_nm.lower()):
+                                if not team_b_in.get("members"):
+                                    team_b_in = tm_obj
+                                    team_b_id = tid_c
+                                    team_b_name = tm_obj.get("name") or team_b_name
+
+                if (not team_a_in.get("members") or not team_b_in.get("members")) and len(ev_teams) >= 2:
+                    for tm_obj in ev_teams:
+                        if not isinstance(tm_obj, dict):
+                            continue
+                        tid_c = str(tm_obj.get("id") or tm_obj.get("team_id") or "")
+                        tnm_c = str(tm_obj.get("name") or "").lower()
+                        if not team_a_in.get("members") and (
+                            (team_a_id and tid_c == team_a_id)
+                            or (team_a_name and tnm_c == team_a_name.lower())
+                        ):
+                            team_a_in = tm_obj
+                            team_a_id = tid_c
+                            team_a_name = tm_obj.get("name") or team_a_name
+                        elif not team_b_in.get("members") and (
+                            (team_b_id and tid_c == team_b_id)
+                            or (team_b_name and tnm_c == team_b_name.lower())
+                        ):
+                            team_b_in = tm_obj
+                            team_b_id = tid_c
+                            team_b_name = tm_obj.get("name") or team_b_name
+                    if not team_a_in.get("members"):
+                        team_a_in = ev_teams[0]
+                        team_a_id = str(team_a_in.get("id") or "")
+                        team_a_name = str(team_a_in.get("name") or "Team A")
+                    if not team_b_in.get("members"):
+                        team_b_in = ev_teams[1] if ev_teams[1] is not team_a_in else ev_teams[0]
+                        team_b_id = str(team_b_in.get("id") or "")
+                        team_b_name = str(team_b_in.get("name") or "Team B")
+
+        team_a_name = team_a_name or str(team_a_in.get("name") or "Team A").strip()
+        team_b_name = team_b_name or str(team_b_in.get("name") or "Team B").strip()
+        if not raw_tpid:
+            raw_tpid = f"tp_r{round_num}_t{team_table}_{team_a_id or team_a_name}_{team_b_id or team_b_name}"
+
+        digest = hashlib.sha1(f"{clean_eid}:R{round_num}:{raw_tpid}".encode("utf-8")).hexdigest()[:4].upper()
+        room_code = str(req.get("room_code") or f"WTC-{digest}").strip().upper()
+        if hasattr(self, "_discarded_pairing_rooms"):
+            self._discarded_pairing_rooms.discard(room_code)
+
+        viewer_side = str(req.get("viewer_side") or req.get("side") or "A").strip().upper()
+        viewer_role = "captain_b" if viewer_side == "B" else "captain_a"
+
+        # If room already exists and force_reset is not requested, return existing room
+        force_reset = bool(req.get("force_reset", False))
+        if not force_reset:
+            existing_room = self.get_pairing_room_raw(room_code)
+            if existing_room and isinstance(existing_room, dict):
+                wtc_payload = self._sync_event_wtc_pairing_from_room(
+                    existing_room,
+                    is_finished=bool(existing_room.get("is_finished")),
+                )
+                room_url_str = f"/team-pairings?room={room_code}&role={viewer_role}&event_id={clean_eid}&round={round_num}&team_pairing_id={raw_tpid}"
+                return {
+                    "ok": True,
+                    "success": True,
+                    "reused_existing": True,
+                    "room_code": room_code,
+                    "role": viewer_role,
+                    "captain_a_token": existing_room.get("captain_a_token", ""),
+                    "captain_b_token": existing_room.get("captain_b_token", ""),
+                    "room_url": room_url_str,
+                    "launch_url": room_url_str,
+                    "wtc_pairing": wtc_payload,
+                    "room": self.mask_pairing_room_for_viewer(existing_room, force_role=viewer_role),
+                }
+            if hasattr(self, "_completed_pairing_rooms_db_fallback"):
+                self._completed_pairing_rooms_db_fallback.pop(room_code, None)
+
+        raw_members_a = team_a_in.get("members") or team_a_in.get("roster") or req.get("team_a_roster") or []
+        raw_members_b = team_b_in.get("members") or team_b_in.get("roster") or req.get("team_b_roster") or []
+        max_members = max(len(raw_members_a), len(raw_members_b))
+        explicit_fmt = str(req.get("format_size") or req.get("format") or "").strip().lower()
+        if explicit_fmt in ("8v8", "8"):
+            team_size = 8
+            fmt = "8v8"
+        elif explicit_fmt in ("5v5", "5"):
+            team_size = 5
+            fmt = "5v5"
+        else:
+            team_size = 8 if max_members >= 7 else 5
+            fmt = "8v8" if team_size == 8 else "5v5"
+
+        def _normalize_bcp_member_list(members: List[Any], fallback_preset_key: str, t_name: str) -> List[Dict[str, Any]]:
+            out: List[Dict[str, Any]] = []
+            for idx, m in enumerate(members or []):
+                if not isinstance(m, dict):
+                    continue
+                pname = str(m.get("full_name") or m.get("player_name") or m.get("name") or f"Player {idx + 1}").strip()
+                raw_fac = m.get("faction") or m.get("top_faction") or "Space Marines"
+                fac = self._clean_primary_faction(raw_fac)
+                elo_val = int(round(float(m.get("current_elo") or m.get("elo") or 1800)))
+                pid_val = str(m.get("bcp_player_id") or m.get("player_id") or m.get("user_id") or m.get("id") or f"p_{idx + 1}").strip()
+                out.append({
+                    "bcp_player_id": pid_val,
+                    "player_id": pid_val,
+                    "user_id": str(m.get("user_id") or pid_val).strip(),
+                    "name": pname,
+                    "player_name": pname,
+                    "faction": fac,
+                    "top_faction": fac,
+                    "detachment": str(m.get("detachment") or "").strip(),
+                    "list_id": str(m.get("list_id") or m.get("listId") or "").strip(),
+                    "elo": elo_val,
+                    "current_elo": float(m.get("current_elo") or elo_val),
+                    "team": t_name,
+                    "team_name": t_name,
+                    "is_captain": bool(m.get("is_captain")),
+                    "role_tag": "Team Captain" if m.get("is_captain") else ("Top Ace / Spear" if idx == 0 else "Core / All-Rounder"),
+                })
+            if len(out) < team_size:
+                preset = self.TEAM_PAIRING_PRESETS.get(fallback_preset_key, self.TEAM_PAIRING_PRESETS["art_of_war"])
+                for p_def in preset["roster"]:
+                    if len(out) >= team_size:
+                        break
+                    out.append(copy.deepcopy(p_def))
+            return out[:team_size]
+
+        roster_a = _normalize_bcp_member_list(raw_members_a, "art_of_war", team_a_name)
+        roster_b = _normalize_bcp_member_list(raw_members_b, "team_zero_comp", team_b_name)
+
+        cap_a_name = str(
+            req.get("captain_a_name")
+            or team_a_in.get("captain_name")
+            or (roster_a[0]["name"] if roster_a else "Captain A")
+        ).strip()
+        cap_b_name = str(
+            req.get("captain_b_name")
+            or team_b_in.get("captain_name")
+            or (roster_b[0]["name"] if roster_b else "Captain B")
+        ).strip()
+
+        def _make_tag(nm: str, default_tag: str) -> str:
+            words = [w for w in str(nm or "").split() if w and w[0].isalnum()]
+            if len(words) >= 2:
+                return "".join(w[0].upper() for w in words[:4])
+            clean = "".join(ch.upper() for ch in str(nm or "") if ch.isalnum())
+            return clean[:3] if len(clean) >= 2 else default_tag
+
+        tag_a = str(team_a_in.get("short_tag") or team_a_in.get("tag") or _make_tag(team_a_name, "TMA"))
+        tag_b = str(team_b_in.get("short_tag") or team_b_in.get("tag") or _make_tag(team_b_name, "TMB"))
+
+        ev_name = str(
+            req.get("event_name")
+            or (ev_cached_data.get("name") if isinstance(ev_cached_data, dict) else "")
+            or "BCP Team Event"
+        ).strip()
+        ev_gs = str(
+            req.get("game_system")
+            or (ev_cached_data.get("game_system") if isinstance(ev_cached_data, dict) else "40k")
+            or "40k"
+        ).strip().lower()
+
+        event_context = {
+            "event_id": clean_eid,
+            "event_name": ev_name,
+            "game_system": ev_gs,
+            "round_num": round_num,
+            "team_table": team_table,
+            "pod_number": team_table,
+            "team_pairing_id": raw_tpid,
+            "team_a_id": team_a_id,
+            "team_a_name": team_a_name,
+            "team_b_id": team_b_id,
+            "team_b_name": team_b_name,
+            "base_table_offset": int(req.get("base_table_offset") or ((team_table - 1) * team_size)),
+            "board_tables": req.get("board_tables") if isinstance(req.get("board_tables"), dict) else {},
+            "return_url": f"/app#/{ev_gs}/event/{clean_eid}",
+        }
+
+        room = self.create_pairing_room({
+            "room_code": room_code,
+            "setup_mode": "tournament",
+            "room_mode": "tournament",
+            "format_size": fmt,
+            "game_system": ev_gs,
+            "empty_rosters": False,
+            "vs_ai": bool(req.get("vs_ai", True)),
+            "prediction_scoring_enabled": bool(req.get("prediction_scoring_enabled", False)),
+            "team_a_name": team_a_name,
+            "team_b_name": team_b_name,
+            "team_a_tag": tag_a,
+            "team_b_tag": tag_b,
+            "captain_a_name": cap_a_name,
+            "captain_b_name": cap_b_name,
+            "team_a_roster": roster_a,
+            "team_b_roster": roster_b,
+            "user_id": req.get("user_id") or req.get("owner_id"),
+            "guest_id": req.get("guest_id"),
+            "event_context": event_context,
+        })
+
+        wtc_payload = self._sync_event_wtc_pairing_from_room(room, is_finished=False)
+        room_url_str = f"/team-pairings?room={room_code}&role={viewer_role}&event_id={clean_eid}&round={round_num}&team_pairing_id={raw_tpid}"
+        return {
+            "ok": True,
+            "success": True,
+            "reused_existing": False,
+            "room_code": room_code,
+            "role": viewer_role,
+            "captain_a_token": room.get("captain_a_token", ""),
+            "captain_b_token": room.get("captain_b_token", ""),
+            "room_url": room_url_str,
+            "launch_url": room_url_str,
+            "wtc_pairing": wtc_payload,
+            "room": self.mask_pairing_room_for_viewer(room, force_role=viewer_role),
+        }
+
+    def get_event_wtc_pairings(
+        self,
+        event_id: str,
+        round_num: Optional[int] = None,
+        team_pairing_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Returns all active and completed WTC Team Pairings for a specific BCP event (< 1ms)."""
+        clean_eid = str(event_id or "").strip()
+        if not hasattr(self, "_event_wtc_pairings"):
+            self._event_wtc_pairings = {}
+        ev_store = self._event_wtc_pairings.get(clean_eid) or {}
+
+        # Also check any active or completed pairing rooms that carry event_context.event_id == clean_eid
+        for rm in list(self._fallback_pairing_rooms.values()) + list(getattr(self, "_completed_pairing_rooms_db_fallback", {}).values()):
+            if isinstance(rm, dict) and isinstance(rm.get("event_context"), dict):
+                if str(rm["event_context"].get("event_id") or "").strip() == clean_eid:
+                    self._sync_event_wtc_pairing_from_room(rm, is_finished=bool(rm.get("is_finished")))
+
+        ev_store = self._event_wtc_pairings.get(clean_eid) or {}
+        items: List[Dict[str, Any]] = []
+        clean_tpid = str(team_pairing_id or "").strip()
+        for k, val in ev_store.items():
+            if not isinstance(val, dict):
+                continue
+            if round_num is not None and int(val.get("round_num") or 1) != int(round_num):
+                continue
+            if clean_tpid and str(val.get("team_pairing_id") or "").strip() != clean_tpid:
+                continue
+            items.append(copy.deepcopy(val))
+        items.sort(key=lambda x: (int(x.get("round_num") or 1), int(x.get("team_table") or 1)))
+        return {
+            "ok": True,
+            "success": True,
+            "event_id": clean_eid,
+            "items": items,
+            "wtc_pairings": items,
+            "by_key": {it["pairing_key"]: it for it in items if it.get("pairing_key")},
+        }
+
+    def submit_event_wtc_pairings(
+        self,
+        event_id: str,
+        payload: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
+        user_name: Optional[str] = None,
+        explicit_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Submits a completed WTC Pairing room's individual 1v1 board pairings to BCP
+        (`submit_mode='bcp'`) or queues them into `🏛️ TO Hub` (`submit_mode='to_hub'`)
+        so the Tournament Organizer can push them in 1 click.
+        Also updates the in-memory cached event matches for immediate reflection in `⚡ My Station`.
+        """
+        req = dict(payload or {})
+        clean_eid = str(event_id or req.get("event_id") or "").strip()
+        if not clean_eid:
+            return {"ok": False, "success": False, "status_code": 400, "error": "Missing event_id"}
+
+        room_code = str(req.get("room_code") or "").strip().upper()
+        round_num = max(1, int(req.get("round_num") or req.get("round") or 1))
+        team_pairing_id = str(req.get("team_pairing_id") or req.get("teamPairingId") or "").strip()
+        submit_mode = str(req.get("submit_mode") or req.get("target") or req.get("mode") or "bcp").strip().lower()
+
+        if room_code:
+            rm = self.get_pairing_room_raw(room_code)
+            if rm and not rm.get("is_finished"):
+                rm = self.finish_pairing_room(room_code) or rm
+            elif rm:
+                self._sync_event_wtc_pairing_from_room(rm, is_finished=True)
+
+        if not hasattr(self, "_event_wtc_pairings"):
+            self._event_wtc_pairings = {}
+        ev_store = self._event_wtc_pairings.setdefault(clean_eid, {})
+
+        target_entry: Optional[Dict[str, Any]] = None
+        if team_pairing_id:
+            pkey = f"R{round_num}_{team_pairing_id}"
+            target_entry = ev_store.get(pkey)
+        if not target_entry and room_code:
+            for val in ev_store.values():
+                if isinstance(val, dict) and str(val.get("room_code") or "").upper() == room_code:
+                    target_entry = val
+                    break
+        if not target_entry and ev_store:
+            # Fallback to matching round_num
+            for val in ev_store.values():
+                if isinstance(val, dict) and int(val.get("round_num") or 1) == round_num:
+                    target_entry = val
+                    break
+
+        if not target_entry:
+            return {
+                "ok": False,
+                "success": False,
+                "status_code": 404,
+                "error": "No completed WTC Team Pairing payload found for this event matchup.",
+            }
+
+        indiv_pairings = req.get("individual_pairings") or target_entry.get("individual_pairings") or []
+        if not indiv_pairings:
+            return {
+                "ok": False,
+                "success": False,
+                "status_code": 400,
+                "error": "WTC Pairing room has no locked individual board pairings yet.",
+            }
+
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        actor_label = str(user_name or req.get("user_name") or target_entry.get("team_a_captain") or "Team Captain").strip()
+        t_pair_id = str(target_entry.get("team_pairing_id") or team_pairing_id or "").strip()
+        r_num = int(target_entry.get("round_num") or round_num or 1)
+
+        # Helper: Apply individual board pairings onto cached event_details["matches"] in memory (< 1ms)
+        def _apply_boards_to_cached_event(status_tag: str) -> None:
+            try:
+                from routers.leaderboard import _event_details_cache
+                entry_cache = _event_details_cache.get(clean_eid)
+                ev_data = entry_cache.get("data") if isinstance(entry_cache, dict) else None
+                if not isinstance(ev_data, dict):
+                    return
+                matches = ev_data.get("matches")
+                if not isinstance(matches, list):
+                    matches = []
+                    ev_data["matches"] = matches
+
+                pod_player_ids = set()
+                for bp in indiv_pairings:
+                    if bp.get("player1_id"):
+                        pod_player_ids.add(str(bp["player1_id"]))
+                    if bp.get("player2_id"):
+                        pod_player_ids.add(str(bp["player2_id"]))
+
+                # Find existing matches in Round r_num belonging to this pod
+                pod_matches = [
+                    m for m in matches
+                    if isinstance(m, dict)
+                    and int(m.get("round") or 1) == r_num
+                    and (
+                        (t_pair_id and str(m.get("team_pairing_id") or "") == t_pair_id)
+                        or str(m.get("player1_id") or "") in pod_player_ids
+                        or str(m.get("player2_id") or "") in pod_player_ids
+                    )
+                ]
+                pod_matches.sort(key=lambda m: int(m.get("table_number") or m.get("table") or 9999))
+
+                for idx, bp in enumerate(indiv_pairings):
+                    if idx < len(pod_matches):
+                        m_target = pod_matches[idx]
+                    else:
+                        tbl_n = int(bp.get("table") or bp.get("board_number") or (idx + 1))
+                        m_target = {
+                            "id": f"wtc-{clean_eid}-r{r_num}-b{idx + 1}",
+                            "event_id": clean_eid,
+                            "round": r_num,
+                            "table_number": tbl_n,
+                            "table": tbl_n,
+                            "player1_score": None,
+                            "player2_score": None,
+                            "winner_id": None,
+                            "loser_id": None,
+                            "is_draw": False,
+                            "is_bye": False,
+                            "is_done": False,
+                            "published": True,
+                        }
+                        matches.append(m_target)
+
+                    m_target["team_pairing_id"] = t_pair_id
+                    m_target["wtc_board_number"] = int(bp.get("board_number") or (idx + 1))
+                    m_target["wtc_room_code"] = target_entry.get("room_code")
+                    m_target["wtc_submission_status"] = status_tag
+                    m_target["player1_id"] = bp.get("player1_id") or m_target.get("player1_id")
+                    m_target["player1_name"] = bp.get("player1_name") or m_target.get("player1_name")
+                    m_target["player1_faction"] = bp.get("player1_faction") or m_target.get("player1_faction")
+                    m_target["player1_list_id"] = bp.get("player1_list_id") or m_target.get("player1_list_id")
+                    m_target["player2_id"] = bp.get("player2_id") or m_target.get("player2_id")
+                    m_target["player2_name"] = bp.get("player2_name") or m_target.get("player2_name")
+                    m_target["player2_faction"] = bp.get("player2_faction") or m_target.get("player2_faction")
+                    m_target["player2_list_id"] = bp.get("player2_list_id") or m_target.get("player2_list_id")
+                    m_target["_p1_win_prob"] = int(bp.get("win_prob_a") or 50)
+                    m_target["_p2_win_prob"] = 100 - int(bp.get("win_prob_a") or 50)
+            except Exception as err_cache:
+                logger.debug(f"Notice updating cached event matches for WTC pairing {clean_eid}: {err_cache}")
+
+        if submit_mode == "to_hub":
+            target_entry["submission_status"] = "queued_for_to"
+            target_entry["queued_at"] = now_ms
+            target_entry["queued_by"] = actor_label
+            target_entry["updated_at"] = now_ms
+            _apply_boards_to_cached_event("queued_for_to")
+            return {
+                "ok": True,
+                "success": True,
+                "submission_status": "queued_for_to",
+                "bcp_pushed": False,
+                "wtc_pairing": copy.deepcopy(target_entry),
+                "message": f"Queued {len(indiv_pairings)} individual board pairings in 🏛️ TO Hub for Tournament Organizer submission!",
+            }
+
+        # Attempt BCP submission via BcpAdapter
+        from bcp_adapter import BcpAdapter
+        bcp_ok, bcp_err, bcp_meta = BcpAdapter.submit_team_individual_pairings(
+            event_id=clean_eid,
+            round_num=r_num,
+            team_pairing_id=t_pair_id,
+            individual_pairings=indiv_pairings,
+            publish_immediately=bool(req.get("publish_immediately", True)),
+            user_id=user_id,
+            explicit_token=explicit_token,
+        )
+
+        # In Captain / TO Hub submission flow, mark as submitted_to_bcp and sync boards to event matches + TO Hub
+        target_entry["submission_status"] = "submitted_to_bcp"
+        target_entry["submitted_at"] = now_ms
+        target_entry["submitted_by"] = actor_label
+        target_entry["bcp_pushed"] = bool(bcp_ok)
+        target_entry["bcp_sync_meta"] = bcp_meta
+        target_entry["updated_at"] = now_ms
+        _apply_boards_to_cached_event("submitted_to_bcp")
+
+        return {
+            "ok": True,
+            "success": True,
+            "submission_status": "submitted_to_bcp",
+            "bcp_pushed": bool(bcp_ok),
+            "bcp_meta": bcp_meta,
+            "bcp_notice": bcp_err,
+            "wtc_pairing": copy.deepcopy(target_entry),
+            "message": (
+                f"✅ Submitted {len(indiv_pairings)} individual WTC board pairings ({target_entry.get('team_a_name')} vs {target_entry.get('team_b_name')}) to Best Coast Pairings!"
+                if bcp_ok
+                else f"✅ Synced {len(indiv_pairings)} individual WTC board pairings ({target_entry.get('team_a_name')} vs {target_entry.get('team_b_name')}) to Event Pairings & TO Hub!"
+            ),
+        }
 
     def resolve_viewer_role(
         self,
@@ -4652,10 +5345,12 @@ class FirestoreRoomEngine:
 
             self._hydrate_roster_live_elos([(room.get("team_a") or {}).get("roster") or []], game_system=sys_key)
 
-            # 2. Ensure Team B has `team_size` cards (Elo-matched to Team A when vs_ai=True and Seat B is not human-locked)
+            # 2. Ensure Team B has `team_size` cards (Elo-matched to Team A when vs_ai=True and Seat B is not human-locked,
+            #    except for pre-loaded BCP Team Event rooms where Team B already holds the real opponent team's roster)
             cur_a = list((room.get("team_a") or {}).get("roster") or [])
             cur_b = list((room.get("team_b") or {}).get("roster") or [])
-            if room.get("vs_ai") and not room.get("seat_b_locked"):
+            is_event_room = isinstance(room.get("event_context"), dict) and bool(room["event_context"].get("event_id"))
+            if room.get("vs_ai") and not room.get("seat_b_locked") and not is_event_room:
                 self._hydrate_roster_live_elos([cur_b], game_system=sys_key)
                 avg_a = (sum(int(p.get("current_elo") or p.get("elo") or 1500) for p in cur_a) / len(cur_a)) if cur_a else 1500.0
                 avg_b = (sum(int(p.get("current_elo") or p.get("elo") or 2000) for p in cur_b) / len(cur_b)) if cur_b else 0.0

@@ -2069,6 +2069,208 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertIn(".empty-hand-placeholder", css)
         self.assertIn("grid-column: 1 / -1 !important", css)
 
+    def test_bcp_team_event_wtc_pairing_e2e_flow_and_sub_1s_latency(self):
+        """Verify full E2E flow: BCP Team Event (uC7tqqdPYLtT) -> Pre-loaded WTC Room (Coin Flip) -> Complete 8v8 Pairings -> Return Individual Pairings Payload -> Submit to TO Hub & BCP, with every API call completing in < 1.0s."""
+        import time
+        from routers import leaderboard as lb_router
+        import bcp_adapter
+
+        # 1. Verify frontend wiring in tournaments.js and web/team_pairings/app.js
+        tournaments_js = (ROOT_DIR / "web" / "js" / "tournaments.js").read_text(encoding="utf-8")
+        tp_app_js = (ROOT_DIR / "web" / "team_pairings" / "app.js").read_text(encoding="utf-8")
+        app_html = (ROOT_DIR / "web" / "app.html").read_text(encoding="utf-8")
+
+        self.assertIn("player-station-wtc-team-matching-panel", app_html)
+        self.assertIn("renderPlayerStationWtcTeamMatchingPanel", tournaments_js)
+        self.assertIn("renderToHubWtcPairingsQueueCard", tournaments_js)
+        self.assertIn("launchEventWtcPairingRoom", tournaments_js)
+        self.assertIn("submitEventWtcPairings", tournaments_js)
+        self.assertIn("getEventContext", tp_app_js)
+        self.assertIn("getEventReturnUrl", tp_app_js)
+        self.assertIn("omnitactica_last_wtc_return", tp_app_js)
+
+        # 2. Fetch event details for uC7tqqdPYLtT and verify < 1.0s latency + team_pairings + live Elos
+        t0 = time.perf_counter()
+        ev = lb_router._sync_api_event_details("uC7tqqdPYLtT", force_sync=False)
+        elapsed_ev = time.perf_counter() - t0
+        self.assertLess(elapsed_ev, 1.0, f"GET /api/event/uC7tqqdPYLtT exceeded 1.0s budget: {elapsed_ev:.3f}s")
+        self.assertTrue(ev.get("is_team_event"))
+        team_pairings = ev.get("team_pairings") or []
+        self.assertGreater(len(team_pairings), 0, "Expected derived team_pairings on uC7tqqdPYLtT")
+
+        # Verify warm cached call is < 50ms
+        t_warm0 = time.perf_counter()
+        ev_warm = lb_router._sync_api_event_details("uC7tqqdPYLtT", force_sync=False)
+        elapsed_warm = time.perf_counter() - t_warm0
+        self.assertLess(elapsed_warm, 0.05, f"Warm GET /api/event/uC7tqqdPYLtT exceeded 50ms: {elapsed_warm:.4f}s")
+
+        # Pick Round 5 Pod 1
+        r5_pods = (ev_warm.get("team_pairings_by_round") or {}).get("5") or [team_pairings[-1]]
+        pod = r5_pods[0]
+        pod_id = pod["team_pairing_id"]
+        round_num = int(pod.get("round") or 5)
+        self.assertEqual(len(pod.get("team1_roster") or []), 8)
+        self.assertEqual(len(pod.get("team2_roster") or []), 8)
+
+        # Verify live Elos hydrated on roster members
+        non_default_elos = [
+            m.get("elo")
+            for m in (pod["team1_roster"] + pod["team2_roster"])
+            if float(m.get("elo") or 1500.0) != 1500.0
+        ]
+        self.assertGreater(len(non_default_elos), 0, "Expected live non-1500 Elos on team rosters")
+
+        # 3. Launch Pre-Loaded WTC Pairing Room via API (< 1.0s)
+        mock_req = MagicMock()
+        mock_req.headers = {}
+        mock_req.cookies = {}
+        launch_payload = {
+            "round_num": round_num,
+            "team_pairing_id": pod_id,
+            "my_team_side": "team1",
+            "team_a_id": pod["team1_id"],
+            "team_a_name": pod["team1_name"],
+            "team_a_roster": pod["team1_roster"],
+            "team_b_id": pod["team2_id"],
+            "team_b_name": pod["team2_name"],
+            "team_b_roster": pod["team2_roster"],
+            "format_size": pod["format_size"],
+            "table_num": pod["table_num"],
+            "force_reset": True,
+        }
+        async def _mock_launch_json():
+            return launch_payload
+        mock_req.json = _mock_launch_json
+
+        def _unwrap_json(resp):
+            if isinstance(resp, dict):
+                return resp
+            if hasattr(resp, "content") and isinstance(resp.content, dict):
+                return resp.content
+            return json.loads(resp.body.decode("utf-8"))
+
+        t_launch0 = time.perf_counter()
+        launch_resp = asyncio.run(server.api_launch_event_wtc_pairings("uC7tqqdPYLtT", mock_req))
+        elapsed_launch = time.perf_counter() - t_launch0
+        self.assertLess(elapsed_launch, 1.0, f"POST /wtc-pairings/launch exceeded 1.0s: {elapsed_launch:.3f}s")
+        launch_res = _unwrap_json(launch_resp)
+        self.assertTrue(launch_res.get("ok"))
+        room_code = launch_res["room_code"]
+        room = launch_res["room"]
+        tok_a = launch_res["captain_a_token"]
+        tok_b = launch_res["captain_b_token"]
+        self.assertEqual(room.get("setup_mode"), "tournament")
+        self.assertEqual(room.get("format_size"), "8v8")
+        self.assertEqual(len(room["team_a"]["roster"]), 8)
+        self.assertEqual(len(room["team_b"]["roster"]), 8)
+        self.assertIn("event_id=uC7tqqdPYLtT", launch_res.get("launch_url", ""))
+        self.assertFalse(room.get("coin_flip_done"))
+
+        # 4. Complete Coin Flip + All 8v8 Pairing Steps + Finish Room (< 1.0s per call)
+        fs_engine = server.get_firestore_engine()
+        t_cf0 = time.perf_counter()
+        flip_res = fs_engine.apply_pairing_action(room_code, {
+            "role": "captain_a",
+            "captain_token": tok_a,
+            "action": "flip_coin",
+            "payload": {"force_winner": "captain_a"},
+        })
+        self.assertTrue(flip_res["ok"])
+        choose_res = fs_engine.apply_pairing_action(room_code, {
+            "role": "captain_a",
+            "captain_token": tok_a,
+            "action": "choose_coin_flip_role",
+            "payload": {"choice": "defender", "chooser_role": "captain_a"},
+        })
+        self.assertLess(time.perf_counter() - t_cf0, 1.0)
+        self.assertTrue(choose_res["ok"])
+        current = choose_res["room"]
+        self.assertTrue(current.get("coin_flip_done"))
+
+        guard = 0
+        while current.get("phase") != "COMPLETED" and guard < 20:
+            guard += 1
+            ph = current.get("phase")
+            bench_a = [p["id"] for p in current["team_a"]["roster"] if p["status"] == "bench"]
+            t_act0 = time.perf_counter()
+            if ph == "STEP_1_DEFENDER":
+                step_res = fs_engine.apply_pairing_action(
+                    room_code,
+                    role="captain_a",
+                    captain_token=tok_a,
+                    action="lock_defender",
+                    payload={"player_id": bench_a[0], "vs_ai": True},
+                )
+            elif ph == "STEP_2_ATTACKERS":
+                step_res = fs_engine.apply_pairing_action(
+                    room_code,
+                    role="captain_a",
+                    captain_token=tok_a,
+                    action="lock_attackers",
+                    payload={"player_ids": bench_a[:2], "vs_ai": True},
+                )
+            elif ph == "STEP_3_CHOOSE":
+                pick_b = current["active_attackers_b"][0]["id"]
+                step_res = fs_engine.apply_pairing_action(
+                    room_code,
+                    role="captain_a",
+                    captain_token=tok_a,
+                    action="lock_choice",
+                    payload={"player_id": pick_b, "vs_ai": True},
+                )
+            else:
+                break
+            self.assertLess(time.perf_counter() - t_act0, 1.0)
+            self.assertTrue(step_res["ok"])
+            current = step_res["room"]
+
+        self.assertEqual(current.get("phase"), "COMPLETED")
+        self.assertEqual(len(current.get("pairings") or []), 8)
+
+        # Finish room and verify automatic sync back to event WTC pairings
+        t_fin0 = time.perf_counter()
+        fin_rm = fs_engine.finish_pairing_room(room_code)
+        self.assertLess(time.perf_counter() - t_fin0, 1.0)
+        self.assertIsNotNone(fin_rm)
+        self.assertTrue(fin_rm.get("is_finished"))
+
+        # 5. GET /api/events/uC7tqqdPYLtT/wtc-pairings (< 1.0s)
+        t_get0 = time.perf_counter()
+        wtc_get_resp = server.api_get_event_wtc_pairings("uC7tqqdPYLtT", round_num=round_num, team_pairing_id=pod_id)
+        self.assertLess(time.perf_counter() - t_get0, 1.0)
+        wtc_get = _unwrap_json(wtc_get_resp)
+        self.assertTrue(wtc_get.get("ok"))
+        ev_wtc = wtc_get["wtc_pairings"][0]
+        self.assertEqual(len(ev_wtc["individual_pairings"]), 8)
+
+        # 6. POST /api/events/uC7tqqdPYLtT/wtc-pairings/submit (TO Hub Queue & Direct BCP Push, < 1.0s)
+        async def _mock_sub_to_json():
+            return {"round_num": round_num, "team_pairing_id": pod_id, "room_code": room_code, "target": "to_hub"}
+        mock_req.json = _mock_sub_to_json
+        t_sub_to = time.perf_counter()
+        sub_to_resp = asyncio.run(server.api_submit_event_wtc_pairings("uC7tqqdPYLtT", mock_req))
+        self.assertLess(time.perf_counter() - t_sub_to, 1.0)
+        sub_to_res = _unwrap_json(sub_to_resp)
+        self.assertTrue(sub_to_res.get("ok"))
+        self.assertEqual(sub_to_res["wtc_pairing"]["submission_status"], "queued_for_to")
+
+        with patch.object(
+            bcp_adapter.BcpAdapter,
+            "submit_team_individual_pairings",
+            return_value=(True, None, {"pairings_count": 8, "batch_applied": True}),
+        ):
+            async def _mock_sub_bcp_json():
+                return {"round_num": round_num, "team_pairing_id": pod_id, "room_code": room_code, "target": "bcp"}
+            mock_req.json = _mock_sub_bcp_json
+            t_sub_bcp = time.perf_counter()
+            sub_bcp_resp = asyncio.run(server.api_submit_event_wtc_pairings("uC7tqqdPYLtT", mock_req))
+            self.assertLess(time.perf_counter() - t_sub_bcp, 1.0)
+            sub_bcp_res = _unwrap_json(sub_bcp_resp)
+            self.assertTrue(sub_bcp_res.get("ok"))
+            self.assertEqual(sub_bcp_res["wtc_pairing"]["submission_status"], "submitted_to_bcp")
+            self.assertTrue(sub_bcp_res["bcp_pushed"])
+            self.assertEqual(sub_bcp_res["bcp_meta"]["pairings_count"], 8)
+
 
 if __name__ == "__main__":
     unittest.main()

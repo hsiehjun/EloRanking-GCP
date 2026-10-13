@@ -1423,7 +1423,9 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     );
 
     const subtabPlayer = document.getElementById('event-subtab-player');
-    const isRegisteredPlayer = Boolean((userRegData && userRegData.is_registered) || (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor'));
+    const isWtcTeam = Boolean(isTeamEvent && !isDoublesEvent);
+    const isSpectatorPersona = Boolean(typeof currentDevPersona !== 'undefined' && currentDevPersona === 'spectator');
+    const isRegisteredPlayer = Boolean((userRegData && userRegData.is_registered) || (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor') || (isWtcTeam && !isSpectatorPersona));
     const shouldShowMyStation = Boolean(isRegisteredPlayer || canAccessToHub || isCC);
 
     if (userRegData && userRegData.is_registered) {
@@ -5178,6 +5180,33 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
   }
 
   const heroSection = document.getElementById('event-hub-hero-section');
+  let returningFromWtcRoom = false;
+  try {
+    const rawWtcReturn = sessionStorage.getItem('omnitactica_last_wtc_return');
+    if (rawWtcReturn) {
+      const parsedWtc = JSON.parse(rawWtcReturn);
+      if (parsedWtc && String(parsedWtc.event_id || '') === String(eventId)) {
+        returningFromWtcRoom = true;
+        window._lastWtcReturnPayload = parsedWtc;
+        window._stationWtcSelectedRoundByEvent = window._stationWtcSelectedRoundByEvent || {};
+        window._stationWtcSelectedPodByEvent = window._stationWtcSelectedPodByEvent || {};
+        if (parsedWtc.round_num) window._stationWtcSelectedRoundByEvent[String(eventId)] = Number(parsedWtc.round_num);
+        if (parsedWtc.team_pairing_id) window._stationWtcSelectedPodByEvent[String(eventId)] = String(parsedWtc.team_pairing_id);
+        sessionStorage.removeItem('omnitactica_last_wtc_return');
+        if (window.api && window.api._cache) {
+          window.api._cache.delete(`/api/event/${encodeURIComponent(eventId)}`);
+        }
+        if (currentEventData && String(currentEventData.id) === String(eventId)) {
+          currentEventData = null;
+        }
+        if (!options.initialTab) {
+          options.initialTab = 'player';
+        }
+        _currentMyStationSubtab = 'match';
+      }
+    }
+  } catch (e) {}
+
   const clientCached = (window.api && window.api._cache && window.api._cache.get(`/api/event/${encodeURIComponent(eventId)}`))?.data;
   const candidateCached = (currentEventData && String(currentEventData.id) === String(eventId)) ? currentEventData : clientCached;
   const isCandidateIncomplete = Boolean(
@@ -5186,7 +5215,7 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
       ((candidateCached.is_team_event || Number(candidateCached.total_teams || 0) > 0) && (!Array.isArray(candidateCached.teams) || candidateCached.teams.length === 0))
     )
   );
-  const hasCached = Boolean(!options.forceSync && candidateCached && !isCandidateIncomplete);
+  const hasCached = Boolean(!options.forceSync && !returningFromWtcRoom && candidateCached && !isCandidateIncomplete);
 
   if (!hasCached && heroSection) {
     heroSection.innerHTML = `
@@ -5292,8 +5321,10 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
     }
 
     const ended = isEventEnded(ev, userRegData);
+    const isWtcTeam = Boolean(isTeamEvent && !isDoublesEvent);
+    const isSpectatorPersona = Boolean(typeof currentDevPersona !== 'undefined' && currentDevPersona === 'spectator');
     const isRegisteredPlayer = Boolean((userRegData && userRegData.is_registered) || (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor'));
-    const shouldShowMyStation = Boolean(isRegisteredPlayer || canAccessToHub || isCC);
+    const shouldShowMyStation = Boolean(isRegisteredPlayer || canAccessToHub || isCC || (isWtcTeam && !isSpectatorPersona));
     const subtabPlayer = document.getElementById('event-subtab-player');
     if (subtabPlayer) {
       subtabPlayer.style.setProperty('display', shouldShowMyStation ? 'inline-flex' : 'none', 'important');
@@ -5780,12 +5811,148 @@ function renderPersonalEventScorecard(ev, userRegData) {
 
 let _currentMyStationSubtab = 'match'; // 'match' | 'clock' | 'announcements' | 'roster' | 'stream'
 
+window._stationWtcSelectedRoundByEvent = window._stationWtcSelectedRoundByEvent || {};
+window._stationWtcSelectedPodByEvent = window._stationWtcSelectedPodByEvent || {};
+window._stationSelectedTeamMemberByEvent = window._stationSelectedTeamMemberByEvent || {};
+
+function isWtcTeamEvent(ev) {
+  if (!ev || ev.is_doubles_event) return false;
+  return Boolean(
+    ev.is_team_event ||
+    (Array.isArray(ev.teams) && ev.teams.length > 0) ||
+    (Array.isArray(ev.team_standings) && ev.team_standings.length > 0) ||
+    (Array.isArray(ev.team_pairings) && ev.team_pairings.length > 0)
+  );
+}
+window.isWtcTeamEvent = isWtcTeamEvent;
+
+function resolveTeamEventStationRegistration(ev, regData) {
+  if (!isWtcTeamEvent(ev)) return regData;
+  const evId = String(ev.id || ev.event_id || currentOpenEventId || '');
+  const players = Array.isArray(ev.players) && ev.players.length > 0
+    ? ev.players
+    : (Array.isArray(eventPlayersCache) ? eventPlayersCache : []);
+  const teams = (Array.isArray(ev.teams) && ev.teams.length > 0)
+    ? ev.teams
+    : (Array.isArray(ev.team_standings) ? ev.team_standings : []);
+
+  const selectedMemberId = window._stationSelectedTeamMemberByEvent?.[evId] || '';
+
+  // Check if current regData actually matches a real competitor in this event (and wasn't just auto-bound from a previous pod)
+  let matchedPlayer = null;
+  if (!selectedMemberId && regData && regData.is_registered && !regData.is_team_station_bound) {
+    const preg = regData.player_registration || regData.player || {};
+    const rPid = String(preg.player_id || preg.bcp_player_id || '').trim().toLowerCase();
+    const rName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
+    if (rPid && rPid !== 'p_innes') {
+      matchedPlayer = players.find(p => {
+        const pid = String(p.player_id || p.id || p.bcp_event_player_id || p.user_id || '').trim().toLowerCase();
+        return pid && pid === rPid;
+      });
+    }
+    if (!matchedPlayer && rName && rName !== 'innes wilson') {
+      matchedPlayer = players.find(p => {
+        const pn = String(p.full_name || p.name || `${p.first_name || ''} ${p.last_name || ''}`).trim().toLowerCase();
+        return pn && pn === rName;
+      });
+    }
+    if (matchedPlayer) return regData;
+  }
+
+  // Resolve target player from explicit switcher selection or default to Captain of Pod 1 / Team 1
+  if (selectedMemberId) {
+    const selClean = String(selectedMemberId).trim().toLowerCase();
+    matchedPlayer = players.find(p => {
+      const ids = [p.player_id, p.id, p.bcp_event_player_id, p.user_id, p.full_name, p.name]
+        .filter(Boolean)
+        .map(x => String(x).trim().toLowerCase());
+      return ids.includes(selClean);
+    });
+    if (!matchedPlayer) {
+      for (const t of teams) {
+        for (const m of (t.members || [])) {
+          const ids = [m.player_id, m.id, m.user_id, m.full_name, m.name]
+            .filter(Boolean)
+            .map(x => String(x).trim().toLowerCase());
+          if (ids.includes(selClean)) {
+            matchedPlayer = Object.assign({}, m, { team: m.team || t.name });
+            break;
+          }
+        }
+        if (matchedPlayer) break;
+      }
+    }
+  }
+
+  if (!matchedPlayer) {
+    const teamPairings = Array.isArray(ev.team_pairings) ? ev.team_pairings : [];
+    const selectedPodId = window._stationWtcSelectedPodByEvent?.[evId] || '';
+    const pod = (selectedPodId && teamPairings.find(tp => String(tp.team_pairing_id) === String(selectedPodId)))
+      || teamPairings[teamPairings.length - 1]
+      || teamPairings[0]
+      || null;
+    if (pod && Array.isArray(pod.team1_roster) && pod.team1_roster.length > 0) {
+      const capOrFirst = pod.team1_roster.find(m => m.is_captain) || pod.team1_roster[0];
+      matchedPlayer = Object.assign({}, capOrFirst, { team: pod.team1_name || capOrFirst.team || '' });
+    } else if (teams.length > 0 && Array.isArray(teams[0].members) && teams[0].members.length > 0) {
+      const capOrFirst = teams[0].members.find(m => m.is_captain) || teams[0].members[0];
+      matchedPlayer = Object.assign({}, capOrFirst, { team: teams[0].name || '' });
+    } else if (players.length > 0) {
+      matchedPlayer = players[0];
+    }
+  }
+
+  if (!matchedPlayer) return regData;
+
+  const fullName = String(matchedPlayer.full_name || matchedPlayer.name || `${matchedPlayer.first_name || ''} ${matchedPlayer.last_name || ''}`).trim() || 'Team Captain';
+  const parts = fullName.split(' ');
+  const firstName = matchedPlayer.first_name || parts[0] || 'Captain';
+  const lastName = matchedPlayer.last_name || parts.slice(1).join(' ') || '';
+  const pid = String(matchedPlayer.player_id || matchedPlayer.id || matchedPlayer.bcp_event_player_id || matchedPlayer.user_id || fullName).trim();
+
+  // Also check full player record in `players` for army_list / faction / detachment
+  const fullRec = players.find(p => {
+    const pPid = String(p.player_id || p.id || p.bcp_event_player_id || '').trim().toLowerCase();
+    const pName = String(p.full_name || p.name || '').trim().toLowerCase();
+    return (pid && pPid === pid.toLowerCase()) || (fullName && pName === fullName.toLowerCase());
+  }) || matchedPlayer;
+
+  return {
+    is_registered: true,
+    is_team_station_bound: true,
+    event_id: evId,
+    player_registration: {
+      player_id: pid,
+      bcp_player_id: String(fullRec.bcp_event_player_id || pid),
+      first_name: firstName,
+      last_name: lastName,
+      full_name: fullName,
+      team_name: String(matchedPlayer.team || fullRec.team || ''),
+      faction: String(fullRec.faction || fullRec.army_name || matchedPlayer.faction || 'Unassigned'),
+      detachment: String(fullRec.detachment || matchedPlayer.detachment || ''),
+      checked_in: fullRec.checked_in !== false,
+      dropped: Boolean(fullRec.dropped),
+      has_list_submitted: Boolean(fullRec.has_list || fullRec.list_id || fullRec.army_list),
+      list_id: String(fullRec.list_id || ''),
+      army_list: String(fullRec.army_list || ''),
+    },
+    user_profile: {
+      first_name: firstName,
+      last_name: lastName,
+      display_name: fullName,
+    },
+  };
+}
+
 function getMyStationAvailableSubtabs(ev, userRegData) {
   const eventObj = ev || currentEventData || {};
+  const isWtcTeam = isWtcTeamEvent(eventObj);
+  const isSpectatorPersona = Boolean(typeof currentDevPersona !== 'undefined' && currentDevPersona === 'spectator');
   const isPlayer = Boolean(
     (userRegData && userRegData.is_registered) ||
     (currentEventRegistration && currentEventRegistration.is_registered) ||
-    (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor')
+    (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor') ||
+    (isWtcTeam && !isSpectatorPersona)
   );
   const isTO = Boolean(typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(eventObj));
   const isCC = Boolean(
@@ -5807,28 +5974,36 @@ function getMyStationAvailableSubtabs(ev, userRegData) {
 
   const tabs = [];
   if (isPlayer) {
+    const wtcCompletedCount = Array.isArray(eventObj.wtc_pairings)
+      ? eventObj.wtc_pairings.filter(w => Array.isArray(w.individual_pairings) && w.individual_pairings.length > 0).length
+      : 0;
     tabs.push({
       key: 'match',
       icon: '⚔️',
-      label: 'My Match & Roster',
+      label: isWtcTeam ? 'Team Matchup & WTC Pairing' : 'My Match & Roster',
       accent: '#38bdf8',
       accentBg: 'rgba(56,189,248,0.16)',
       accentBorder: 'rgba(56,189,248,0.48)',
-      badge: '',
+      badge: isWtcTeam ? (wtcCompletedCount > 0 ? 'PAIRED' : 'WTC') : '',
+      badgeBg: wtcCompletedCount > 0 ? 'rgba(16,185,129,0.25)' : 'rgba(56,189,248,0.22)',
+      badgeColor: wtcCompletedCount > 0 ? '#34d399' : '#38bdf8',
     });
   }
   if (isTO) {
+    const wtcQueuedCount = Array.isArray(eventObj.wtc_pairings)
+      ? eventObj.wtc_pairings.filter(w => Array.isArray(w.individual_pairings) && w.individual_pairings.length > 0 && w.status !== 'submitted_bcp').length
+      : 0;
     tabs.push(
       {
         key: 'roster',
         icon: '📋',
-        label: 'Roster & Audit',
+        label: isWtcTeam ? 'TO Hub & WTC BCP Push' : 'Roster & Audit',
         accent: '#fbbf24',
         accentBg: 'rgba(245,158,11,0.16)',
         accentBorder: 'rgba(245,158,11,0.48)',
-        badge: missingListCount > 0 ? String(missingListCount) : '',
-        badgeBg: 'rgba(239,68,68,0.22)',
-        badgeColor: '#fca5a5',
+        badge: wtcQueuedCount > 0 ? `${wtcQueuedCount} WTC` : (missingListCount > 0 ? String(missingListCount) : ''),
+        badgeBg: wtcQueuedCount > 0 ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.22)',
+        badgeColor: wtcQueuedCount > 0 ? '#34d399' : '#fca5a5',
       },
       {
         key: 'clock',
@@ -5881,6 +6056,766 @@ function switchMyStationSubtab(subtabKey) {
 }
 window.switchMyStationSubtab = switchMyStationSubtab;
 
+function switchStationWtcRound(eventId, roundNum) {
+  const evId = String(eventId || currentOpenEventId || '');
+  window._stationWtcSelectedRoundByEvent[evId] = Number(roundNum || 1);
+  delete window._stationWtcSelectedPodByEvent[evId];
+  if (currentEventData) {
+    renderPlayerStation(currentEventData, currentEventRegistration);
+  }
+}
+window.switchStationWtcRound = switchStationWtcRound;
+
+function switchStationWtcPod(eventId, teamPairingId) {
+  const evId = String(eventId || currentOpenEventId || '');
+  window._stationWtcSelectedPodByEvent[evId] = String(teamPairingId || '');
+  delete window._stationSelectedTeamMemberByEvent[evId];
+  if (currentEventData) {
+    renderPlayerStation(currentEventData, currentEventRegistration);
+  }
+}
+window.switchStationWtcPod = switchStationWtcPod;
+
+function switchStationTeamMember(eventId, playerId) {
+  const evId = String(eventId || currentOpenEventId || '');
+  window._stationSelectedTeamMemberByEvent[evId] = String(playerId || '');
+  if (currentEventData) {
+    currentEventRegistration = resolveTeamEventStationRegistration(currentEventData, null);
+    renderPlayerStation(currentEventData, currentEventRegistration);
+  }
+}
+window.switchStationTeamMember = switchStationTeamMember;
+
+async function launchEventWtcPairingRoom(eventId, roundNum, teamPairingId, myTeamSide = 'team1') {
+  const evId = String(eventId || currentOpenEventId || (currentEventData && currentEventData.id) || '').trim();
+  if (!evId) return;
+  const btn = document.getElementById('btn-launch-event-wtc-pairing-room');
+  const origHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳ Opening Pre-Loaded WTC Room...</span>';
+  }
+  try {
+    const resp = await fetch(`/api/events/${encodeURIComponent(evId)}/wtc-pairings/launch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        round_num: Number(roundNum || 1),
+        team_pairing_id: String(teamPairingId || ''),
+        my_team_side: String(myTeamSide || 'team1'),
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data || !data.launch_url) {
+      throw new Error((data && (data.detail || data.error)) || 'Failed to launch WTC Pairing room');
+    }
+    window.location.href = data.launch_url;
+  } catch (err) {
+    console.error('Error launching WTC Pairing room:', err);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+    alert('Unable to launch WTC Pairing room: ' + (err.message || err));
+  }
+}
+window.launchEventWtcPairingRoom = launchEventWtcPairingRoom;
+
+async function autoCompleteEventWtcPairingDemo(eventId, roundNum, teamPairingId, myTeamSide = 'team1') {
+  const evId = String(eventId || currentOpenEventId || (currentEventData && currentEventData.id) || '').trim();
+  if (!evId) return;
+  const btn = document.getElementById('btn-demo-complete-event-wtc-pairing');
+  const origHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span>⚡ Completing WTC Pairing...</span>';
+  }
+  try {
+    const launchResp = await fetch(`/api/events/${encodeURIComponent(evId)}/wtc-pairings/launch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        round_num: Number(roundNum || 1),
+        team_pairing_id: String(teamPairingId || ''),
+        my_team_side: String(myTeamSide || 'team1'),
+        force_reset: true,
+      }),
+    });
+    const launchData = await launchResp.json();
+    if (!launchResp.ok || !launchData || !launchData.room_code) {
+      throw new Error('Failed to initialize WTC room');
+    }
+    const code = launchData.room_code;
+    const tokA = launchData.captain_a_token || '';
+    let room = launchData.room || {};
+
+    if (!room.coin_flip_done) {
+      await fetch(`/api/team-pairings/room/${encodeURIComponent(code)}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: 'captain_a',
+          captain_token: tokA,
+          action: 'flip_coin',
+          payload: { force_winner: 'captain_a' },
+        }),
+      });
+      const cfResp = await fetch(`/api/team-pairings/room/${encodeURIComponent(code)}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: 'captain_a',
+          captain_token: tokA,
+          action: 'choose_coin_flip_role',
+          payload: { choice: 'defender', chooser_role: 'captain_a' },
+        }),
+      });
+      const cfData = await cfResp.json();
+      if (cfData && cfData.room) room = cfData.room;
+    }
+
+    let guard = 0;
+    while (room && room.phase !== 'COMPLETED' && guard < 24) {
+      guard++;
+      const ph = room.phase;
+      const benchA = ((room.team_a && room.team_a.roster) || []).filter(p => p.status === 'bench').map(p => p.id);
+      let actionName = '';
+      let actionPayload = {};
+      if (ph === 'STEP_1_DEFENDER') {
+        actionName = 'lock_defender';
+        actionPayload = { player_id: benchA[0], vs_ai: true };
+      } else if (ph === 'STEP_2_ATTACKERS') {
+        actionName = 'lock_attackers';
+        actionPayload = { player_ids: benchA.slice(0, 2), vs_ai: true };
+      } else if (ph === 'STEP_3_CHOOSE') {
+        const oppAtk = (room.active_attackers_b || [])[0];
+        actionName = 'lock_choice';
+        actionPayload = { player_id: oppAtk ? oppAtk.id : '', vs_ai: true };
+      } else {
+        break;
+      }
+      const stepResp = await fetch(`/api/team-pairings/room/${encodeURIComponent(code)}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: 'captain_a',
+          captain_token: tokA,
+          action: actionName,
+          payload: actionPayload,
+        }),
+      });
+      const stepData = await stepResp.json();
+      if (stepData && stepData.room) room = stepData.room;
+    }
+
+    const finResp = await fetch(`/api/team-pairings/room/${encodeURIComponent(code)}/finish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const finData = await finResp.json();
+    if (finData && finData.event_wtc_pairing) {
+      window._lastWtcReturnPayload = finData.event_wtc_pairing;
+    }
+
+    // Refresh event details from backend (<2ms warm enriched)
+    if (window.api && window.api._cache) {
+      window.api._cache.delete(`/api/event/${encodeURIComponent(evId)}`);
+    }
+    const freshEv = await window.api.getTournamentDetails(evId, false);
+    if (freshEv && !freshEv.error) {
+      currentEventData = freshEv;
+      eventMatchesCache = freshEv.matches || [];
+      eventPlayersCache = freshEv.players || [];
+    }
+    await renderPlayerStation(currentEventData, currentEventRegistration);
+  } catch (err) {
+    console.error('Error auto-completing WTC pairing:', err);
+    alert('Failed to auto-complete WTC pairing: ' + (err.message || err));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+  }
+}
+window.autoCompleteEventWtcPairingDemo = autoCompleteEventWtcPairingDemo;
+
+async function submitEventWtcPairings(eventId, roundNum, teamPairingId, submitMode = 'bcp', fromToHub = false) {
+  const evId = String(eventId || currentOpenEventId || (currentEventData && currentEventData.id) || '').trim();
+  if (!evId) return;
+  const feedbackEl = document.getElementById(fromToHub ? `to-hub-wtc-feedback-${roundNum}-${teamPairingId}` : 'wtc-pairing-submit-feedback');
+  if (feedbackEl) {
+    feedbackEl.style.display = 'block';
+    feedbackEl.style.background = 'rgba(56, 189, 248, 0.14)';
+    feedbackEl.style.border = '1px solid rgba(56, 189, 248, 0.4)';
+    feedbackEl.style.color = '#7dd3fc';
+    feedbackEl.innerHTML = submitMode === 'bcp'
+      ? '⏳ Submitting individual 1v1 board pairings to Best Coast Pairings...'
+      : '⏳ Sending individual 1v1 board pairings to TO Hub queue...';
+  }
+
+  try {
+    const resp = await fetch(`/api/events/${encodeURIComponent(evId)}/wtc-pairings/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        round_num: Number(roundNum || 1),
+        team_pairing_id: String(teamPairingId || ''),
+        submit_mode: String(submitMode || 'bcp'),
+        publish_immediately: true,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data || !data.success) {
+      throw new Error((data && (data.detail || data.error)) || 'Failed to submit WTC pairings');
+    }
+
+    // Update local event state immediately
+    if (window.api && window.api._cache) {
+      window.api._cache.delete(`/api/event/${encodeURIComponent(evId)}`);
+    }
+    const freshEv = await window.api.getTournamentDetails(evId, false).catch(() => null);
+    if (freshEv && !freshEv.error) {
+      currentEventData = freshEv;
+      eventMatchesCache = freshEv.matches || [];
+      eventPlayersCache = freshEv.players || [];
+    }
+
+    await renderPlayerStation(currentEventData, currentEventRegistration);
+    if (fromToHub && typeof renderEventToHub === 'function') {
+      renderEventToHub(currentEventData, true);
+    }
+
+    const updatedFeedbackEl = document.getElementById(fromToHub ? `to-hub-wtc-feedback-${roundNum}-${teamPairingId}` : 'wtc-pairing-submit-feedback');
+    if (updatedFeedbackEl) {
+      updatedFeedbackEl.style.display = 'block';
+      updatedFeedbackEl.style.background = 'rgba(16, 185, 129, 0.16)';
+      updatedFeedbackEl.style.border = '1px solid rgba(16, 185, 129, 0.45)';
+      updatedFeedbackEl.style.color = '#34d399';
+      updatedFeedbackEl.innerHTML = `✅ ${escapeHtml(data.message || 'Individual pairings submitted successfully!')}`;
+    }
+  } catch (err) {
+    console.error('Error submitting WTC pairings:', err);
+    if (feedbackEl) {
+      feedbackEl.style.display = 'block';
+      feedbackEl.style.background = 'rgba(239, 68, 68, 0.16)';
+      feedbackEl.style.border = '1px solid rgba(239, 68, 68, 0.45)';
+      feedbackEl.style.color = '#fca5a5';
+      feedbackEl.innerHTML = `⚠️ ${escapeHtml(err.message || String(err))}`;
+    }
+  }
+}
+window.submitEventWtcPairings = submitEventWtcPairings;
+
+function renderPlayerStationWtcTeamMatchingPanel(ev, regData) {
+  let panel = document.getElementById('player-station-wtc-team-matching-panel');
+  const playerPanel = document.getElementById('my-station-panel-player');
+  if (!panel && playerPanel) {
+    panel = document.createElement('div');
+    panel.id = 'player-station-wtc-team-matching-panel';
+    playerPanel.insertBefore(panel, playerPanel.firstChild);
+  }
+  if (!panel) return;
+
+  if (!isWtcTeamEvent(ev)) {
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+
+  const evId = String(ev.id || ev.event_id || currentOpenEventId || '');
+  const teamPairings = Array.isArray(ev.team_pairings) ? ev.team_pairings : [];
+  if (teamPairings.length === 0) {
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+
+  panel.style.display = 'block';
+
+  // Available rounds with team pairings
+  const roundSet = new Set();
+  teamPairings.forEach(tp => roundSet.add(Number(tp.round || 1)));
+  const availableRounds = Array.from(roundSet).sort((a, b) => a - b);
+
+  // Determine selected round
+  let selectedRound = Number(window._stationWtcSelectedRoundByEvent?.[evId] || 0);
+  if (!selectedRound || !roundSet.has(selectedRound)) {
+    const roundWithActiveWtc = teamPairings.find(tp => tp.wtc_pairing && Array.isArray(tp.wtc_pairing.individual_pairings) && tp.wtc_pairing.individual_pairings.length > 0);
+    selectedRound = roundWithActiveWtc ? Number(roundWithActiveWtc.round) : (availableRounds[availableRounds.length - 1] || 1);
+    window._stationWtcSelectedRoundByEvent[evId] = selectedRound;
+  }
+
+  const roundPods = teamPairings.filter(tp => Number(tp.round || 1) === selectedRound);
+  const preg = (regData && (regData.player_registration || regData.player)) || {};
+  const myPid = String(preg.player_id || preg.bcp_player_id || '').trim().toLowerCase();
+  const myName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
+  const myTeamName = String(preg.team_name || '').trim().toLowerCase();
+
+  // Determine active pod
+  let selectedPodId = String(window._stationWtcSelectedPodByEvent?.[evId] || '');
+  let activePod = roundPods.find(tp => String(tp.team_pairing_id) === selectedPodId);
+  if (!activePod) {
+    activePod = roundPods.find(tp => {
+      const t1n = String(tp.team1_name || '').trim().toLowerCase();
+      const t2n = String(tp.team2_name || '').trim().toLowerCase();
+      if (myTeamName && (t1n === myTeamName || t2n === myTeamName)) return true;
+      const allMembers = [...(tp.team1_roster || []), ...(tp.team2_roster || [])];
+      return allMembers.some(m => {
+        const mPid = String(m.player_id || m.id || '').trim().toLowerCase();
+        const mName = String(m.full_name || m.name || '').trim().toLowerCase();
+        return (myPid && mPid === myPid) || (myName && mName === myName);
+      });
+    }) || roundPods[0];
+  }
+
+  if (!activePod) {
+    panel.style.display = 'none';
+    return;
+  }
+
+  const podId = String(activePod.team_pairing_id || `r${selectedRound}_pod1`);
+  window._stationWtcSelectedPodByEvent[evId] = podId;
+
+  const t1Roster = Array.isArray(activePod.team1_roster) ? activePod.team1_roster : [];
+  const t2Roster = Array.isArray(activePod.team2_roster) ? activePod.team2_roster : [];
+  const boardCount = Math.max(t1Roster.length, t2Roster.length, Number(activePod.board_count || 5));
+  const formatType = boardCount >= 7 ? '8v8' : '5v5';
+
+  // Determine which side current player is on
+  const isOnTeam2 = Boolean(
+    (myTeamName && String(activePod.team2_name || '').trim().toLowerCase() === myTeamName) ||
+    t2Roster.some(m => {
+      const mPid = String(m.player_id || m.id || '').trim().toLowerCase();
+      const mName = String(m.full_name || m.name || '').trim().toLowerCase();
+      return (myPid && mPid === myPid) || (myName && mName === myName);
+    })
+  );
+  const mySide = isOnTeam2 ? 'team2' : 'team1';
+
+  // Resolve WTC pairing state for this pod
+  const wtcKey = `${selectedRound}:${podId}`;
+  let wtcPairing = activePod.wtc_pairing
+    || (ev.wtc_pairings_by_key && ev.wtc_pairings_by_key[wtcKey])
+    || (Array.isArray(ev.wtc_pairings) && ev.wtc_pairings.find(w => Number(w.round_num) === selectedRound && String(w.team_pairing_id) === podId))
+    || null;
+
+  if (
+    window._lastWtcReturnPayload &&
+    String(window._lastWtcReturnPayload.event_id || evId) === evId &&
+    Number(window._lastWtcReturnPayload.round_num || selectedRound) === selectedRound &&
+    String(window._lastWtcReturnPayload.team_pairing_id || podId) === podId
+  ) {
+    if (!wtcPairing || !Array.isArray(wtcPairing.individual_pairings) || wtcPairing.individual_pairings.length === 0) {
+      wtcPairing = window._lastWtcReturnPayload;
+    }
+  }
+
+  const indivPairings = (wtcPairing && Array.isArray(wtcPairing.individual_pairings)) ? wtcPairing.individual_pairings : [];
+  const wtcStatus = String((wtcPairing && wtcPairing.status) || 'not_started');
+  const roomCode = (wtcPairing && wtcPairing.room_code) || '';
+
+  // Status badge styling
+  let statusBadgeHtml = `<span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.45); font-size:0.73rem; font-weight:800; padding:3px 9px;">🪙 READY FOR COIN FLIP</span>`;
+  if (wtcStatus === 'submitted_bcp') {
+    statusBadgeHtml = `<span class="badge" style="background:rgba(16,185,129,0.22); color:#34d399; border:1px solid rgba(16,185,129,0.5); font-size:0.73rem; font-weight:800; padding:3px 9px;">🚀 SUBMITTED TO BCP</span>`;
+  } else if (wtcStatus === 'queued_to_hub') {
+    statusBadgeHtml = `<span class="badge" style="background:rgba(168,85,247,0.22); color:#c084fc; border:1px solid rgba(168,85,247,0.5); font-size:0.73rem; font-weight:800; padding:3px 9px;">🏛️ QUEUED IN TO HUB</span>`;
+  } else if (indivPairings.length > 0 || wtcStatus === 'completed') {
+    statusBadgeHtml = `<span class="badge" style="background:rgba(16,185,129,0.2); color:#34d399; border:1px solid rgba(16,185,129,0.45); font-size:0.73rem; font-weight:800; padding:3px 9px;">✅ ${indivPairings.length}/${boardCount} BOARDS PAIRED</span>`;
+  } else if (wtcStatus === 'in_progress') {
+    statusBadgeHtml = `<span class="badge" style="background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.45); font-size:0.73rem; font-weight:800; padding:3px 9px;">⚔️ PAIRING IN PROGRESS</span>`;
+  }
+
+  // Round pills HTML
+  const roundPillsHtml = availableRounds.map(rNum => {
+    const isAct = rNum === selectedRound;
+    return `
+      <button type="button" onclick="switchStationWtcRound('${escapeHtml(evId)}', ${rNum})" style="padding:3px 9px; border-radius:6px; font-size:0.72rem; font-weight:800; cursor:pointer; border:1px solid ${isAct ? '#38bdf8' : 'rgba(255,255,255,0.12)'}; background:${isAct ? 'rgba(56,189,248,0.2)' : 'rgba(15,23,42,0.7)'}; color:${isAct ? '#38bdf8' : '#94a3b8'};">
+        R${rNum}
+      </button>
+    `;
+  }).join('');
+
+  // Pod switcher options
+  const podOptionsHtml = roundPods.map((tp, idx) => {
+    const pid = String(tp.team_pairing_id || '');
+    const sel = pid === podId ? 'selected' : '';
+    const tbl = tp.table_num || (idx + 1);
+    return `<option value="${escapeHtml(pid)}" ${sel}>Pod ${tbl}: ${escapeHtml(tp.team1_name || 'Team 1')} vs ${escapeHtml(tp.team2_name || 'Team 2')}</option>`;
+  }).join('');
+
+  // Player perspective switcher options (all players on both teams in this pod)
+  const podMembers = [
+    ...t1Roster.map(m => Object.assign({}, m, { _teamLabel: activePod.team1_name || 'Team 1' })),
+    ...t2Roster.map(m => Object.assign({}, m, { _teamLabel: activePod.team2_name || 'Team 2' })),
+  ];
+  const memberOptionsHtml = podMembers.map(m => {
+    const mId = String(m.player_id || m.id || m.full_name || '');
+    const mName = String(m.full_name || m.name || 'Player');
+    const isMe = (myPid && mId.toLowerCase() === myPid) || (myName && mName.toLowerCase() === myName);
+    const capTag = m.is_captain ? ' (Captain)' : '';
+    return `<option value="${escapeHtml(mId)}" ${isMe ? 'selected' : ''}>👤 ${escapeHtml(mName)}${capTag} • ${escapeHtml(m._teamLabel)} (${escapeHtml(m.faction || 'Army')})</option>`;
+  }).join('');
+
+  // Find current player's assigned 1v1 board if pairings are completed
+  const myAssignedBoard = indivPairings.find(bp => {
+    const p1Id = String(bp.player1_id || '').trim().toLowerCase();
+    const p2Id = String(bp.player2_id || '').trim().toLowerCase();
+    const p1Name = String(bp.player1_name || '').trim().toLowerCase();
+    const p2Name = String(bp.player2_name || '').trim().toLowerCase();
+    return (myPid && (p1Id === myPid || p2Id === myPid)) || (myName && (p1Name === myName || p2Name === myName));
+  });
+
+  // Render helper for a team roster card
+  const renderRosterColumn = (teamName, avgElo, roster, accentColor, borderRgba, isMyTeam) => {
+    const rows = roster.map((m, idx) => {
+      const mId = String(m.player_id || m.id || '');
+      const mName = String(m.full_name || m.name || `Player ${idx + 1}`);
+      const mFac = formatEventPlayerFaction(m.faction || 'Unassigned');
+      const mDet = String(m.detachment || '');
+      const mElo = Math.round(Number(m.elo || m.current_elo || 1500));
+      const isMe = (myPid && mId.toLowerCase() === myPid) || (myName && mName.toLowerCase() === myName);
+      const hasList = Boolean(m.has_list || m.list_id || m.army_list);
+      return `
+        <div onclick="switchStationTeamMember('${escapeHtml(evId)}', '${escapeHtml(mId || mName)}')" style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.48rem 0.65rem; border-radius:8px; background:${isMe ? 'rgba(56,189,248,0.14)' : 'rgba(9,14,26,0.65)'}; border:1px solid ${isMe ? 'rgba(56,189,248,0.5)' : 'rgba(255,255,255,0.06)'}; cursor:pointer; transition:all 0.15s ease;" title="Click to view station as ${escapeHtml(mName)}">
+          <div style="min-width:0; flex:1;">
+            <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+              <span style="font-weight:800; font-size:0.82rem; color:${isMe ? '#38bdf8' : '#f8fafc'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(mName)}</span>
+              ${m.is_captain ? `<span style="font-size:0.62rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(245,158,11,0.2); color:#fbbf24; border:1px solid rgba(245,158,11,0.4);">👑 CAPTAIN</span>` : ''}
+              ${isMe ? `<span style="font-size:0.62rem; font-weight:800; padding:1px 5px; border-radius:4px; background:#38bdf8; color:#090d16;">YOU</span>` : ''}
+            </div>
+            <div style="font-size:0.72rem; color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px;">
+              <span style="color:#cbd5e1; font-weight:600;">${escapeHtml(mFac)}</span>${mDet ? ` • ${escapeHtml(mDet)}` : ''}
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:0.4rem; flex-shrink:0;">
+            ${hasList ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(mId || mName)}', '${escapeHtml(m.list_id || '')}')" style="font-size:0.66rem; padding:2px 6px; border-radius:5px; color:#38bdf8; border:1px solid rgba(56,189,248,0.35); background:rgba(56,189,248,0.08); cursor:pointer;">📋</button>` : ''}
+            <span style="font-family:var(--font-mono); font-size:0.74rem; font-weight:800; padding:2px 7px; border-radius:5px; background:rgba(255,255,255,0.06); color:${accentColor}; border:1px solid ${borderRgba};">${mElo}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div style="background:rgba(15,23,42,0.75); border:1px solid ${borderRgba}; border-radius:10px; padding:0.85rem; display:flex; flex-direction:column; gap:0.55rem; min-width:0;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding-bottom:0.45rem; border-bottom:1px solid rgba(255,255,255,0.08); flex-wrap:wrap;">
+          <div style="min-width:0; flex:1;">
+            <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+              <span style="font-size:0.66rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:${accentColor};">${isMyTeam ? '🛡️ YOUR TEAM' : '⚔️ OPPONENT TEAM'}</span>
+              <span style="font-size:0.65rem; color:#94a3b8; font-family:var(--font-mono);">(${roster.length} Players)</span>
+            </div>
+            <div style="font-size:0.98rem; font-weight:900; color:#fff; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(teamName)}">${escapeHtml(teamName)}</div>
+          </div>
+          <div style="text-align:right; flex-shrink:0;">
+            <div style="font-family:var(--font-mono); font-size:0.88rem; font-weight:900; color:${accentColor};">${Number(avgElo || 1500).toFixed(1)}</div>
+            <div style="font-size:0.64rem; color:#94a3b8; text-transform:uppercase;">Avg Team Elo</div>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:0.35rem;">
+          ${rows}
+        </div>
+      </div>
+    `;
+  };
+
+  // Completed Individual Board Pairings Payload Section
+  let completedBoardsHtml = '';
+  if (indivPairings.length > 0) {
+    const boardRowsHtml = indivPairings.map((bp, idx) => {
+      const bNum = bp.board_num || bp.board_number || (idx + 1);
+      const tblNum = bp.table_num || bp.table || bNum;
+      const p1Id = String(bp.player1_id || '').trim().toLowerCase();
+      const p2Id = String(bp.player2_id || '').trim().toLowerCase();
+      const p1Name = String(bp.player1_name || 'Player 1');
+      const p2Name = String(bp.player2_name || 'Player 2');
+      const isMyBoard = (myPid && (p1Id === myPid || p2Id === myPid)) ||
+                        (myName && (p1Name.toLowerCase() === myName || p2Name.toLowerCase() === myName));
+      const roleStr = String(bp.role || bp.pairing_role || 'Paired').replace(/_/g, ' ').toUpperCase();
+      return `
+        <tr style="background:${isMyBoard ? 'rgba(16,185,129,0.14)' : 'transparent'}; border-bottom:1px solid rgba(255,255,255,0.06);">
+          <td style="padding:0.5rem 0.6rem; font-family:var(--font-mono); font-weight:800; font-size:0.78rem; color:${isMyBoard ? '#34d399' : '#cbd5e1'}; white-space:nowrap;">
+            Board #${bNum} <span style="color:#64748b; font-size:0.7rem;">(T${tblNum})</span>
+            ${isMyBoard ? `<span class="badge" style="margin-left:4px; background:#10b981; color:#052e16; font-size:0.62rem; font-weight:900; padding:1px 5px;">⭐ YOUR BOARD</span>` : ''}
+          </td>
+          <td style="padding:0.5rem 0.6rem;">
+            <div style="font-weight:800; font-size:0.82rem; color:#38bdf8; margin-right:6px;">${escapeHtml(p1Name)}</div>
+            <div style="font-size:0.7rem; color:#94a3b8;">${escapeHtml(bp.player1_faction || 'Army')} • <span style="font-family:var(--font-mono); color:#cbd5e1;">${Math.round(Number(bp.player1_elo || 1500))} Elo</span></div>
+          </td>
+          <td style="padding:0.5rem 0.4rem; text-align:center; font-family:var(--font-mono); font-size:0.68rem; font-weight:800; color:#fbbf24; white-space:nowrap;">
+            VS<br><span style="font-size:0.6rem; color:#94a3b8;">${escapeHtml(roleStr)}</span>
+          </td>
+          <td style="padding:0.5rem 0.6rem; text-align:right;">
+            <div style="font-weight:800; font-size:0.82rem; color:#f43f5e; margin-right:6px;">${escapeHtml(p2Name)}</div>
+            <div style="font-size:0.7rem; color:#94a3b8;">${escapeHtml(bp.player2_faction || 'Army')} • <span style="font-family:var(--font-mono); color:#cbd5e1;">${Math.round(Number(bp.player2_elo || 1500))} Elo</span></div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    const myBoardNum = myAssignedBoard ? (myAssignedBoard.board_num || myAssignedBoard.board_number || 1) : 1;
+    const myTableNum = myAssignedBoard ? (myAssignedBoard.table_num || myAssignedBoard.table || myBoardNum) : 1;
+    const myBoardBannerHtml = myAssignedBoard ? `
+      <div style="margin-bottom:0.75rem; padding:0.7rem 0.9rem; border-radius:9px; background:linear-gradient(135deg, rgba(16,185,129,0.18), rgba(15,23,42,0.9)); border:1px solid rgba(16,185,129,0.5); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.65rem;">
+        <div>
+          <div style="font-size:0.68rem; font-weight:900; text-transform:uppercase; letter-spacing:0.05em; color:#34d399;">⭐ Your Assigned 1v1 Matchup • Board #${myBoardNum} (Table ${myTableNum})</div>
+          <div style="font-size:0.9rem; font-weight:800; color:#fff; margin-top:2px;">
+            <span style="color:#38bdf8;">${escapeHtml(myAssignedBoard.player1_name)}</span> <span style="color:#94a3b8; font-size:0.78rem;">(${escapeHtml(myAssignedBoard.player1_faction)})</span>
+            <span style="color:#fbbf24; margin:0 6px;">VS</span>
+            <span style="color:#f43f5e;">${escapeHtml(myAssignedBoard.player2_name)}</span> <span style="color:#94a3b8; font-size:0.78rem;">(${escapeHtml(myAssignedBoard.player2_faction)})</span>
+          </div>
+        </div>
+        <a href="/11th/tracker?event_id=${encodeURIComponent(evId)}&round=${selectedRound}&table=${myTableNum}" class="btn btn-primary" style="background:#10b981; border-color:#059669; color:#052e16; font-weight:900; font-size:0.76rem; padding:0.42rem 0.85rem; border-radius:7px; text-decoration:none; white-space:nowrap;">
+          🎲 Launch 1v1 Game Tracker
+        </a>
+      </div>
+    ` : '';
+
+    completedBoardsHtml = `
+      <div id="wtc-completed-individual-pairings-card" style="margin-top:0.85rem; background:rgba(9,14,26,0.85); border:1px solid rgba(16,185,129,0.45); border-radius:10px; padding:0.9rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.65rem;">
+          <div>
+            <div style="font-size:0.88rem; font-weight:900; color:#fff; display:flex; align-items:center; gap:0.4rem;">
+              <span>🏁 Completed WTC Individual 1v1 Board Pairings (${indivPairings.length}/${boardCount} Boards)</span>
+              ${roomCode ? `<span style="font-family:var(--font-mono); font-size:0.68rem; color:#38bdf8; background:rgba(56,189,248,0.12); padding:2px 6px; border-radius:4px;">Room ${escapeHtml(roomCode)}</span>` : ''}
+            </div>
+            <div style="font-size:0.74rem; color:#94a3b8; margin-top:2px;">
+              Ready to push individual 1v1 pairings (${escapeHtml(activePod.team1_name)} vs ${escapeHtml(activePod.team2_name)}) directly to Best Coast Pairings or queue for the Tournament Organizer in TO Hub.
+            </div>
+          </div>
+        </div>
+
+        ${myBoardBannerHtml}
+
+        <div class="table-container" style="margin-bottom:0.75rem; max-height:340px; overflow-y:auto;">
+          <table style="width:100%; border-collapse:collapse;">
+            <thead>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.1); font-size:0.68rem; text-transform:uppercase; color:#94a3b8;">
+                <th style="text-align:left; padding:0.4rem 0.6rem;">Board / Table</th>
+                <th style="text-align:left; padding:0.4rem 0.6rem;">${escapeHtml(activePod.team1_name || 'Team 1')}</th>
+                <th style="text-align:center; padding:0.4rem;">Role</th>
+                <th style="text-align:right; padding:0.4rem 0.6rem;">${escapeHtml(activePod.team2_name || 'Team 2')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${boardRowsHtml}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Step 4: Submit Individual Pairings to BCP or TO Hub -->
+        <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.6rem; padding-top:0.65rem; border-top:1px solid rgba(255,255,255,0.08);">
+          <div style="font-size:0.74rem; color:#cbd5e1; font-weight:600;">
+            📤 Push finalized ${indivPairings.length}-board 1v1 pairings payload:
+          </div>
+          <div style="display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap;">
+            <button type="button" id="btn-submit-wtc-pairings-bcp" onclick="submitEventWtcPairings('${escapeHtml(evId)}', ${selectedRound}, '${escapeHtml(podId)}', 'bcp', false)" class="btn btn-primary" style="background:linear-gradient(135deg, #10b981, #059669); border:1px solid #34d399; color:#052e16; font-weight:900; font-size:0.78rem; padding:0.5rem 1rem; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:0.4rem;">
+              <span>🚀 Submit Individual Pairings to BCP</span>
+            </button>
+            <button type="button" id="btn-submit-wtc-pairings-to-hub" onclick="submitEventWtcPairings('${escapeHtml(evId)}', ${selectedRound}, '${escapeHtml(podId)}', 'to_hub', false)" class="btn btn-outline" style="background:rgba(168,85,247,0.14); border:1px solid rgba(168,85,247,0.45); color:#e9d5ff; font-weight:800; font-size:0.78rem; padding:0.5rem 0.95rem; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:0.4rem;">
+              <span>🏛️ Send to TO Hub Queue</span>
+            </button>
+          </div>
+        </div>
+        <div id="wtc-pairing-submit-feedback" style="display:none; margin-top:0.6rem; padding:0.55rem 0.8rem; border-radius:7px; font-size:0.78rem; font-weight:700;"></div>
+      </div>
+    `;
+  }
+
+  panel.innerHTML = `
+    <div class="card" style="background:linear-gradient(135deg, rgba(15,23,42,0.96), rgba(30,41,59,0.92)); border:1px solid rgba(56,189,248,0.42); border-radius:12px; padding:1.1rem; box-shadow:0 12px 32px rgba(0,0,0,0.45);">
+      <!-- Top Control & Status Header -->
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; padding-bottom:0.8rem; border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div style="min-width:0; flex:1;">
+          <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap; margin-bottom:0.3rem;">
+            <span class="badge" style="background:rgba(56,189,248,0.18); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-size:0.7rem; font-weight:900; padding:2px 8px;">🛡️ TEAM MATCHING & WTC PAIRING</span>
+            <span class="badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.38); font-size:0.7rem; font-weight:800; padding:2px 8px;">${formatType} FORMAT</span>
+            <span class="badge" style="background:rgba(255,255,255,0.07); color:#e2e8f0; font-family:var(--font-mono); font-size:0.7rem; font-weight:800; padding:2px 8px;">ROUND ${selectedRound} • POD #${activePod.table_num || 1}</span>
+            ${statusBadgeHtml}
+          </div>
+          <h3 style="margin:0; font-size:1.08rem; font-weight:900; color:#fff; line-height:1.3;">
+            ${escapeHtml(activePod.team1_name || 'Team 1')} <span style="color:#38bdf8; font-weight:800;">vs</span> ${escapeHtml(activePod.team2_name || 'Team 2')}
+          </h3>
+          <div style="font-size:0.76rem; color:#94a3b8; margin-top:2px;">
+            All players on both teams see their live round team matchup below. Captains click <strong>Enter WTC Pairing Room</strong> with both rosters pre-loaded to roll the coin and pair boards.
+          </div>
+        </div>
+
+        <!-- Round, Pod & Teammate Switchers -->
+        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.45rem; flex-shrink:0; max-width:100%;">
+          <div style="display:flex; align-items:center; gap:0.3rem; flex-wrap:wrap;">
+            <span style="font-size:0.68rem; font-weight:700; color:#94a3b8; text-transform:uppercase; margin-right:2px;">Round:</span>
+            ${roundPillsHtml}
+          </div>
+          <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; width:100%; justify-content:flex-end;">
+            ${roundPods.length > 1 ? `
+              <select id="station-wtc-pod-select" aria-label="Select Team Matchup Pod" onchange="switchStationWtcPod('${escapeHtml(evId)}', this.value)" style="background:#090d16; color:#e2e8f0; border:1px solid rgba(56,189,248,0.35); border-radius:6px; padding:4px 8px; font-size:0.73rem; font-weight:700; max-width:220px; cursor:pointer;">
+                ${podOptionsHtml}
+              </select>
+            ` : ''}
+            <select id="station-wtc-member-select" aria-label="Switch Teammate Station Perspective" onchange="switchStationTeamMember('${escapeHtml(evId)}', this.value)" style="background:#090d16; color:#38bdf8; border:1px solid rgba(56,189,248,0.45); border-radius:6px; padding:4px 8px; font-size:0.73rem; font-weight:800; max-width:250px; cursor:pointer;">
+              ${memberOptionsHtml}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Primary CTA Bar: Enter Pre-Loaded WTC Pairing Room -->
+      <div style="margin-top:0.85rem; padding:0.8rem 0.95rem; border-radius:10px; background:linear-gradient(135deg, rgba(2,132,199,0.2), rgba(15,23,42,0.9)); border:1px solid rgba(56,189,248,0.45); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
+        <div style="min-width:200px; flex:1;">
+          <div style="font-size:0.84rem; font-weight:900; color:#fff; display:flex; align-items:center; gap:0.4rem;">
+            <span>🪙 Pre-Loaded ${formatType} WTC Pairing Room</span>
+            <span style="font-size:0.68rem; font-weight:800; color:#34d399; background:rgba(16,185,129,0.16); padding:1px 7px; border-radius:999px;">Rosters & Factions Synced</span>
+          </div>
+          <div style="font-size:0.74rem; color:#cbd5e1; margin-top:2px;">
+            Both teams' ${t1Roster.length}-player rosters and live OmniTactica Elos are pre-loaded in Tournament Mode. Opens straight to the <strong>Coin Flip</strong>!
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+          <button type="button" id="btn-launch-event-wtc-pairing-room" onclick="launchEventWtcPairingRoom('${escapeHtml(evId)}', ${selectedRound}, '${escapeHtml(podId)}', '${escapeHtml(mySide)}')" class="btn btn-primary" style="background:linear-gradient(135deg, #f59e0b, #d97706); border:1px solid #fbbf24; color:#090d16; font-weight:900; font-size:0.82rem; padding:0.55rem 1.1rem; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:0.45rem; box-shadow:0 4px 14px rgba(245,158,11,0.3);">
+            <span>⚔️ ${indivPairings.length > 0 ? 'Re-Open WTC Pairing Room' : 'Enter WTC Pairing Room (Roll Coin)'}</span>
+          </button>
+          <button type="button" id="btn-demo-complete-event-wtc-pairing" onclick="autoCompleteEventWtcPairingDemo('${escapeHtml(evId)}', ${selectedRound}, '${escapeHtml(podId)}', '${escapeHtml(mySide)}')" class="btn btn-outline" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; font-weight:800; font-size:0.75rem; padding:0.52rem 0.85rem; border-radius:8px; cursor:pointer;" title="Simulate coin flip and all pairing steps to preview the completed 1v1 board payload">
+            <span>⚡ Simulate Completed Pairing</span>
+          </button>
+        </div>
+      </div>
+
+      ${completedBoardsHtml}
+
+      <!-- Side-by-Side Team Rosters (Team 1 vs Team 2) -->
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:0.85rem; margin-top:0.85rem;">
+        ${renderRosterColumn(activePod.team1_name || 'Team 1', activePod.team1_avg_elo, t1Roster, '#38bdf8', 'rgba(56,189,248,0.35)', mySide === 'team1')}
+        ${renderRosterColumn(activePod.team2_name || 'Team 2', activePod.team2_avg_elo, t2Roster, '#f43f5e', 'rgba(244,63,94,0.35)', mySide === 'team2')}
+      </div>
+    </div>
+  `;
+}
+window.renderPlayerStationWtcTeamMatchingPanel = renderPlayerStationWtcTeamMatchingPanel;
+
+function renderToHubWtcPairingsQueueCard(eventId, eventObj) {
+  if (!isWtcTeamEvent(eventObj)) return '';
+  const evId = String(eventId || eventObj.id || currentOpenEventId || '');
+  const wtcList = Array.isArray(eventObj.wtc_pairings) ? eventObj.wtc_pairings : [];
+  const teamPairings = Array.isArray(eventObj.team_pairings) ? eventObj.team_pairings : [];
+
+  // Combine completed/queued WTC pairings + latest round pods so TO sees everything
+  const maxRound = teamPairings.length > 0 ? Math.max(...teamPairings.map(tp => Number(tp.round || 1))) : 1;
+  const latestPods = teamPairings.filter(tp => Number(tp.round || 1) === maxRound);
+
+  const items = [];
+  const seenKeys = new Set();
+
+  wtcList.forEach(w => {
+    const key = `${w.round_num}:${w.team_pairing_id}`;
+    seenKeys.add(key);
+    items.push({
+      round_num: Number(w.round_num || 1),
+      team_pairing_id: String(w.team_pairing_id || ''),
+      table_num: w.table_num || w.team_table || w.pod_number || 1,
+      team1_name: w.team1_name || w.team_a_name || 'Team 1',
+      team2_name: w.team2_name || w.team_b_name || 'Team 2',
+      status: w.status || w.submission_status || 'completed',
+      room_code: w.room_code || '',
+      individual_pairings: Array.isArray(w.individual_pairings) ? w.individual_pairings : [],
+    });
+  });
+
+  latestPods.slice(0, 6).forEach(tp => {
+    const key = `${tp.round}:${tp.team_pairing_id}`;
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    const w = tp.wtc_pairing || {};
+    items.push({
+      round_num: Number(tp.round || 1),
+      team_pairing_id: String(tp.team_pairing_id || ''),
+      table_num: tp.table_num || 1,
+      team1_name: tp.team1_name || 'Team 1',
+      team2_name: tp.team2_name || 'Team 2',
+      status: w.status || 'not_started',
+      room_code: w.room_code || '',
+      individual_pairings: Array.isArray(w.individual_pairings) ? w.individual_pairings : [],
+    });
+  });
+
+  if (items.length === 0) return '';
+
+  const rowsHtml = items.map(item => {
+    const indiv = item.individual_pairings || [];
+    const hasBoards = indiv.length > 0;
+    let badgeHtml = `<span class="badge" style="background:rgba(148,163,184,0.16); color:#94a3b8; font-size:0.68rem; font-weight:800;">⏳ Awaiting Captains</span>`;
+    if (item.status === 'submitted_bcp') {
+      badgeHtml = `<span class="badge" style="background:rgba(16,185,129,0.22); color:#34d399; border:1px solid rgba(16,185,129,0.45); font-size:0.68rem; font-weight:800;">🚀 Pushed to BCP (${indiv.length} Boards)</span>`;
+    } else if (item.status === 'queued_to_hub') {
+      badgeHtml = `<span class="badge" style="background:rgba(168,85,247,0.22); color:#c084fc; border:1px solid rgba(168,85,247,0.45); font-size:0.68rem; font-weight:800;">🏛️ Queued for TO Push (${indiv.length} Boards)</span>`;
+    } else if (hasBoards) {
+      badgeHtml = `<span class="badge" style="background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.45); font-size:0.68rem; font-weight:800;">✅ Ready to Push (${indiv.length} Boards)</span>`;
+    }
+
+    const miniBoardsHtml = hasBoards ? `
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:0.35rem; margin-top:0.5rem; padding-top:0.5rem; border-top:1px solid rgba(255,255,255,0.06);">
+        ${indiv.map((bp, idx) => `
+          <div style="font-size:0.72rem; padding:4px 8px; border-radius:6px; background:rgba(9,14,26,0.75); border:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:space-between; gap:4px;">
+            <span style="font-family:var(--font-mono); color:#94a3b8; font-weight:700;">B${bp.board_num || bp.board_number || (idx + 1)}:</span>
+            <span style="color:#38bdf8; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(bp.player1_name)}</span>
+            <span style="color:#fbbf24; font-weight:800;">vs</span>
+            <span style="color:#f43f5e; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(bp.player2_name)}</span>
+          </div>
+        `).join('')}
+      </div>
+    ` : '';
+
+    return `
+      <div style="padding:0.75rem 0.9rem; border-radius:9px; background:rgba(9,14,26,0.7); border:1px solid ${hasBoards ? 'rgba(16,185,129,0.38)' : 'rgba(255,255,255,0.08)'};">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.6rem; flex-wrap:wrap;">
+          <div>
+            <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+              <span style="font-family:var(--font-mono); font-size:0.72rem; font-weight:800; color:#fbbf24;">Round ${item.round_num} • Pod #${item.table_num}</span>
+              ${badgeHtml}
+            </div>
+            <div style="font-size:0.9rem; font-weight:800; color:#fff; margin-top:2px;">
+              ${escapeHtml(item.team1_name)} <span style="color:#94a3b8;">vs</span> ${escapeHtml(item.team2_name)}
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
+            ${hasBoards ? `
+              <button type="button" onclick="submitEventWtcPairings('${escapeHtml(evId)}', ${item.round_num}, '${escapeHtml(item.team_pairing_id)}', 'bcp', true)" class="btn btn-primary" style="background:linear-gradient(135deg, #10b981, #059669); border:1px solid #34d399; color:#052e16; font-weight:900; font-size:0.74rem; padding:0.4rem 0.85rem; border-radius:7px; cursor:pointer;">
+                🚀 Push Individual Pairings to BCP
+              </button>
+            ` : `
+              <button type="button" onclick="launchEventWtcPairingRoom('${escapeHtml(evId)}', ${item.round_num}, '${escapeHtml(item.team_pairing_id)}', 'team1')" class="btn btn-outline" style="font-size:0.72rem; padding:0.35rem 0.75rem; border-radius:7px; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:700;">
+                ⚔️ Open WTC Room
+              </button>
+            `}
+          </div>
+        </div>
+        ${miniBoardsHtml}
+        <div id="to-hub-wtc-feedback-${item.round_num}-${escapeHtml(item.team_pairing_id)}" style="display:none; margin-top:0.5rem; padding:0.45rem 0.7rem; border-radius:6px; font-size:0.74rem; font-weight:700;"></div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div id="to-hub-wtc-pairings-queue-panel" class="card" style="background:linear-gradient(135deg, rgba(15,23,42,0.96), rgba(30,41,59,0.9)); border:1px solid rgba(245,158,11,0.45); border-radius:12px; padding:1rem;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+        <div>
+          <div style="font-size:0.95rem; font-weight:900; color:#fbbf24; display:flex; align-items:center; gap:0.45rem;">
+            <span>🏛️ WTC Team Pairings — TO Queue & 1-Click BCP Push</span>
+          </div>
+          <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">
+            Review finalized captain WTC 1v1 board pairings and push individual table assignments directly to Best Coast Pairings.
+          </div>
+        </div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:0.6rem;">
+        ${rowsHtml}
+      </div>
+    </div>
+  `;
+}
+window.renderToHubWtcPairingsQueueCard = renderToHubWtcPairingsQueueCard;
+
 async function renderPlayerStation(ev, userRegData) {
   const subtabPlayer = document.getElementById('event-subtab-player');
   const subtabLabel = document.getElementById('event-subtab-player-label');
@@ -5923,6 +6858,14 @@ async function renderPlayerStation(ev, userRegData) {
           display_name: "Innes Wilson"
         }
       };
+      currentEventRegistration = regData;
+    }
+  }
+
+  // For WTC Team Events, bind station registration to the active or selected team member
+  if (isWtcTeamEvent(eventObj) && (typeof currentDevPersona === 'undefined' || currentDevPersona !== 'spectator')) {
+    regData = resolveTeamEventStationRegistration(eventObj, regData);
+    if (regData && regData.is_registered) {
       currentEventRegistration = regData;
     }
   }
@@ -6069,6 +7012,9 @@ async function renderPlayerStation(ev, userRegData) {
   } else {
     if (subtabBadge) subtabBadge.style.display = 'none';
   }
+
+  // 1.5. Render WTC Team Matching & Pairing Room Station (for WTC Team Events)
+  renderPlayerStationWtcTeamMatchingPanel(eventObj, regData);
 
   // 2. Render Lifecycle Hero
   if (ended) {
@@ -13678,8 +14624,11 @@ async function renderEventToHub(ev, skipFetch = false) {
     subtabBodyHtml = renderToHubRosterAuditSubtab(eventId, eventObj, players);
   }
 
+  const wtcQueueHtml = isWtcTeamEvent(eventObj) ? renderToHubWtcPairingsQueueCard(eventId, eventObj) : '';
+
   container.innerHTML = `
     <div class="to-hub-shell" style="display:flex; flex-direction:column; gap:0.9rem;">
+      ${wtcQueueHtml}
       <div class="to-hub-subtab-body">
         ${subtabBodyHtml}
       </div>

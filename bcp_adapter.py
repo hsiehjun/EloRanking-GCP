@@ -1829,6 +1829,178 @@ class BcpAdapter:
 
         return False, (err or "Failed to configure BCP registration"), None
 
+    @classmethod
+    def submit_team_individual_pairings(
+        cls,
+        event_id: str,
+        round_num: int,
+        team_pairing_id: str,
+        individual_pairings: List[Dict[str, Any]],
+        publish_immediately: bool = False,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str], Dict[str, Any]]:
+        """
+        Submits finalized WTC 1v1 individual board pairings for a specific TeamPairing pod
+        to Best Coast Pairings (via batch endpoint or minimal swap permutation on child Pairings).
+        """
+        clean_eid = str(event_id or "").strip()
+        clean_tpid = str(team_pairing_id or "").strip()
+        r_num = max(1, int(round_num or 1))
+        if not clean_eid:
+            return False, "Missing event_id", {}
+        if not individual_pairings:
+            return False, "No individual board pairings provided", {}
+
+        target_pairings: List[Dict[str, Any]] = []
+        for idx, bp in enumerate(individual_pairings):
+            if not isinstance(bp, dict):
+                continue
+            b_num = int(bp.get("board_number") or bp.get("table_num") or (idx + 1))
+            t_num = int(bp.get("table") or bp.get("table_number") or b_num)
+            p1_id = str(bp.get("player1_id") or bp.get("p1_id") or "").strip()
+            p2_id = str(bp.get("player2_id") or bp.get("p2_id") or "").strip()
+            target_pairings.append({
+                "board_number": b_num,
+                "table": t_num,
+                "tableNumber": t_num,
+                "teamPairingId": clean_tpid,
+                "player1Id": p1_id,
+                "player2Id": p2_id,
+                "p1_id": p1_id,
+                "p2_id": p2_id,
+                "player1_id": p1_id,
+                "player2_id": p2_id,
+                "player1_name": str(bp.get("player1_name") or "").strip(),
+                "player2_name": str(bp.get("player2_name") or "").strip(),
+                "player1_faction": str(bp.get("player1_faction") or "").strip(),
+                "player2_faction": str(bp.get("player2_faction") or "").strip(),
+            })
+
+        tok = explicit_token
+        if not tok and user_id:
+            try:
+                from core import get_auth_manager
+                auth_mgr = get_auth_manager()
+                tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
+                tok = tok_dict.get("id_token") or tok_dict.get("access_token")
+            except Exception:
+                tok = None
+
+        if not tok:
+            return (
+                False,
+                "No BCP organizer/captain token linked — queued in TO Hub for 1-click BCP push",
+                {
+                    "event_id": clean_eid,
+                    "round": r_num,
+                    "team_pairing_id": clean_tpid,
+                    "pairings_count": len(target_pairings),
+                    "batch_applied": False,
+                    "swaps_performed": 0,
+                    "queued_for_to": True,
+                },
+            )
+
+        # Strategy 1: Direct TeamPairing child pairings endpoint
+        batch_succeeded = False
+        batch_err = None
+        if clean_tpid:
+            tp_url = f"{BCP_API_BASE}/pairings/{clean_tpid}/pairings"
+            tp_data, tp_err = cls.execute_call(
+                url=tp_url,
+                method="POST",
+                json_data={"round": r_num, "teamPairingId": clean_tpid, "pairings": target_pairings},
+                user_id=user_id,
+                explicit_token=tok,
+            )
+            if tp_data is not None or not tp_err:
+                batch_succeeded = True
+            else:
+                batch_err = tp_err
+
+        if not batch_succeeded:
+            ev_tp_url = f"{BCP_API_BASE}/events/{clean_eid}/rounds/{r_num}/pairings"
+            ev_data, ev_err = cls.execute_call(
+                url=ev_tp_url,
+                method="POST",
+                json_data={"teamPairingId": clean_tpid, "pairings": target_pairings},
+                user_id=user_id,
+                explicit_token=tok,
+            )
+            if ev_data is not None or not ev_err:
+                batch_succeeded = True
+            else:
+                batch_err = ev_err or batch_err
+
+        # Strategy 2: Minimal Swap Permutation on child Pairing records belonging to this TeamPairing
+        swaps_performed = 0
+        if not batch_succeeded:
+            _, _, current_bcp_pairings = cls.fetch_event_pairings(
+                event_id=clean_eid,
+                round_num=r_num,
+                pairing_type="Pairing",
+                user_id=user_id,
+                explicit_token=tok,
+            )
+            if current_bcp_pairings:
+                pod_pairings = [
+                    p for p in current_bcp_pairings
+                    if isinstance(p, dict) and (not clean_tpid or str(p.get("teamPairingId") or "") == clean_tpid)
+                ]
+                if not pod_pairings:
+                    pod_pairings = current_bcp_pairings
+                pod_pairings.sort(key=lambda x: int(x.get("table") or x.get("tableNumber") or 9999))
+                # Align target table numbers with existing pod table numbers
+                aligned_targets = []
+                for idx, tp in enumerate(target_pairings):
+                    tp_copy = dict(tp)
+                    if idx < len(pod_pairings):
+                        existing_tbl = pod_pairings[idx].get("table") or pod_pairings[idx].get("tableNumber")
+                        if existing_tbl is not None:
+                            tp_copy["table"] = int(existing_tbl)
+                            tp_copy["tableNumber"] = int(existing_tbl)
+                    aligned_targets.append(tp_copy)
+
+                minimal_swaps = cls.compute_minimal_swaps(pod_pairings, aligned_targets)
+                for sw in minimal_swaps:
+                    pair_id = sw.get("pairing_id")
+                    if pair_id:
+                        s_ok, s_err = cls.swap_pairing_players(
+                            pairing_id=pair_id,
+                            is_player_one=sw.get("is_player_one", True),
+                            player_id=sw.get("player_id"),
+                            user_id=user_id,
+                            explicit_token=tok,
+                        )
+                        if s_ok:
+                            swaps_performed += 1
+                        elif s_err and not batch_err:
+                            batch_err = s_err
+                if len(minimal_swaps) == 0 and len(pod_pairings) >= len(target_pairings):
+                    batch_succeeded = True
+
+        if publish_immediately and (batch_succeeded or swaps_performed > 0):
+            cls.publish_pairings(clean_eid, round_num=r_num, user_id=user_id, explicit_token=tok)
+
+        ok = bool(batch_succeeded or swaps_performed > 0)
+        summary_meta = {
+            "event_id": clean_eid,
+            "round": r_num,
+            "team_pairing_id": clean_tpid,
+            "pairings_count": len(target_pairings),
+            "batch_applied": batch_succeeded,
+            "swaps_performed": swaps_performed,
+            "published": bool(publish_immediately and ok),
+            "message": (
+                f"Round {r_num} WTC individual pairings ({len(target_pairings)} boards) pushed to Best Coast Pairings."
+                if ok
+                else (batch_err or "Queued in TO Hub for organizer confirmation.")
+            ),
+        }
+        return ok, (None if ok else batch_err), summary_meta
+
+
 # Module-level instance
 bcp_adapter = BcpAdapter()
 

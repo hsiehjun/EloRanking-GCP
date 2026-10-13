@@ -2109,6 +2109,64 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(act_res).encode("utf-8"))
             return
 
+        if clean_path.startswith("api/team-pairings/room/") and clean_path.endswith("/finish"):
+            parts = clean_path.split("/")
+            r_code = parts[3] if len(parts) >= 5 else ""
+            from firestore_db import get_firestore_engine
+            fs_eng = get_firestore_engine()
+            finished_rm = fs_eng.finish_pairing_room(r_code)
+            if not finished_rm:
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": False, "error": "Room not found"}).encode("utf-8"))
+                return
+            ev_wtc = None
+            if isinstance(finished_rm.get("event_context"), dict):
+                ev_wtc = fs_eng._sync_event_wtc_pairing_from_room(finished_rm, is_finished=True)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "ok": True,
+                "success": True,
+                "room": fs_eng.mask_pairing_room_for_viewer(finished_rm, force_role="spectator"),
+                "event_wtc_pairing": ev_wtc,
+            }).encode("utf-8"))
+            return
+
+        if (clean_path.startswith("api/events/") or clean_path.startswith("api/event/")) and clean_path.endswith("/wtc-pairings/launch"):
+            parts = clean_path.split("/")
+            ev_id = urllib.parse.unquote(parts[2]) if len(parts) >= 3 else ""
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            from firestore_db import get_firestore_engine
+            fs_eng = get_firestore_engine()
+            res = fs_eng.launch_event_wtc_pairing_room(ev_id, p_load if isinstance(p_load, dict) else {})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if (clean_path.startswith("api/events/") or clean_path.startswith("api/event/")) and clean_path.endswith("/wtc-pairings/submit"):
+            parts = clean_path.split("/")
+            ev_id = urllib.parse.unquote(parts[2]) if len(parts) >= 3 else ""
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            from firestore_db import get_firestore_engine
+            fs_eng = get_firestore_engine()
+            res = fs_eng.submit_event_wtc_pairings(ev_id, p_load if isinstance(p_load, dict) else {})
+            self.send_response(200 if res.get("ok") else 400)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
         if clean_path in ("api/tcg/buy-pack", "api/team-pairings/tcg/buy-pack"):
             try:
                 p_load = json.loads(body.decode("utf-8")) if body else {}
@@ -5174,15 +5232,49 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 } if league_data else {"success": False, "error": "League not found"}).encode("utf-8"))
             return
 
+        if (clean_path.startswith("api/events/") or clean_path.startswith("api/event/")) and clean_path.endswith("/wtc-pairings"):
+            parts = clean_path.split("/")
+            ev_id = urllib.parse.unquote(parts[2]) if len(parts) >= 3 else ""
+            from firestore_db import get_firestore_engine
+            fs_eng = get_firestore_engine()
+            r_param = (query_params.get("round_num") or query_params.get("round") or [None])[0]
+            r_int = int(r_param) if r_param and str(r_param).isdigit() else None
+            tp_param = (query_params.get("team_pairing_id") or [None])[0]
+            res = fs_eng.get_event_wtc_pairings(ev_id, round_num=r_int, team_pairing_id=tp_param)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
         if clean_path.startswith("api/event/"):
             ev_param = clean_path.replace("api/event/", "").split("/")[0].strip()
             force_sync_q = ("force_sync=true" in str(self.path).lower())
+            from routers.leaderboard import _enrich_event_team_pairings, _load_event_l2_cache, _event_details_cache
             if not force_sync_q and ev_param in DEV_EVENT_CACHE:
+                enriched_cached = _enrich_event_team_pairings(DEV_EVENT_CACHE[ev_param], ev_param)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
                 if not is_head:
-                    self.wfile.write(json.dumps(DEV_EVENT_CACHE[ev_param]).encode("utf-8"))
+                    self.wfile.write(json.dumps(enriched_cached).encode("utf-8"))
+                return
+
+            l2_cached = _load_event_l2_cache(ev_param, time.time())
+            if l2_cached and isinstance(l2_cached, dict):
+                enriched_l2 = _enrich_event_team_pairings(l2_cached, ev_param)
+                DEV_EVENT_CACHE[ev_param] = enriched_l2
+                _event_details_cache[ev_param] = {
+                    "data": enriched_l2,
+                    "timestamp": time.time(),
+                    "is_ended": bool(enriched_l2.get("is_ended")),
+                }
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps(enriched_l2).encode("utf-8"))
                 return
 
             if ev_param == "FKsBtHI4ZqHx":
@@ -8130,6 +8222,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             ev_id = urllib.parse.unquote(parts[2])
             fs_engine = get_firestore_engine()
             state = fs_engine.get_event_to_hub_state(ev_id)
+            wtc_info = fs_engine.get_event_wtc_pairings(ev_id)
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -8138,6 +8231,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "ok": True,
                     "success": True,
                     **state,
+                    "wtc_pairings": wtc_info.get("items", []),
+                    "wtc_pairings_by_key": wtc_info.get("by_key", {}),
                     "active_tracker_tables": [],
                     "active_sessions": [],
                 }).encode("utf-8"))
@@ -8513,6 +8608,12 @@ def main():
     print(f"--> Starting OmniTactica Game Tracker dev server on http://{HOST}:{PORT}")
     print(f"    Serving web directory: {WEB_DIR}")
     print(f"    Proxy URL: http://hsiehjun-high-perf-2.c.googlers.com:{PORT}/11th/tracker/play")
+    try:
+        from firestore_db import get_firestore_engine
+        from routers.leaderboard import _enrich_event_team_pairings, _load_event_l2_cache
+        get_firestore_engine()
+    except Exception:
+        pass
     try:
         import threading
         from database import PostgresDatabase

@@ -2350,8 +2350,17 @@ class YuGiOhPairingsArena {
           this.room.is_finished ||
           this.room.status === "completed"
         );
+        const hasEventCtx = Boolean(
+          (this.room.event_context && this.room.event_context.event_id) ||
+          params.get("event_id")
+        );
+        const bothRostersReady = Boolean(
+          (this.room.team_a?.roster?.length || 0) > 0 &&
+          (this.room.team_b?.roster?.length || 0) > 0
+        );
         const shouldOpenLobbyModal = Boolean(
           !isRoomCompleted &&
+          !hasEventCtx &&
           (openLobby || fromLobby || (this.activeRole !== "spectator" && myRoster.length === 0))
         );
         if (shouldOpenLobbyModal) {
@@ -2368,6 +2377,9 @@ class YuGiOhPairingsArena {
           this.openLobbyModal();
         } else {
           this.closeLobbyModal();
+          if (hasEventCtx && bothRostersReady && !this.room.coin_flip_done && !isRoomCompleted && !params.get("demo_state")) {
+            this.openCoinFlipModal();
+          }
         }
         this.renderAll();
       } else {
@@ -2759,10 +2771,46 @@ class YuGiOhPairingsArena {
     return this.getMatchupPrediction(myPlayer, oppPlayer).wtcScore;
   }
 
+  getEventContext() {
+    const evCtx = (this.room && typeof this.room.event_context === "object" && this.room.event_context) || null;
+    if (evCtx && evCtx.event_id) {
+      return evCtx;
+    }
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const eid = (params.get("event_id") || "").trim();
+      if (eid) {
+        return {
+          event_id: eid,
+          round_num: Number(params.get("round") || 1),
+          team_pairing_id: (params.get("team_pairing_id") || "").trim(),
+          game_system: (params.get("game_system") || "40k").trim(),
+          return_url: `/app#/${(params.get("game_system") || "40k").trim()}/event/${encodeURIComponent(eid)}`
+        };
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  getEventReturnUrl() {
+    const ctx = this.getEventContext();
+    if (!ctx || !ctx.event_id) return "/11th/tracker";
+    const base = ctx.return_url || `/app#/${ctx.game_system || "40k"}/event/${encodeURIComponent(ctx.event_id)}`;
+    return base;
+  }
+
   renderAll() {
     if (!this.room) return;
     const p = this.getPerspective();
     if (!p) return;
+
+    const evCtx = this.getEventContext();
+    const backBtn = document.getElementById("btnBackToTrackerLobby");
+    if (backBtn && evCtx && evCtx.event_id) {
+      backBtn.href = this.getEventReturnUrl();
+      backBtn.textContent = "⬅️ Event Station";
+      backBtn.title = `Return to ${evCtx.event_name || "Event Player Station"}`;
+    }
 
     const isRoomLocked = Boolean(this.room.is_locked);
     const topRoomBadge = document.getElementById("topbarRoomCodeBadge");
@@ -2801,7 +2849,15 @@ class YuGiOhPairingsArena {
     if (btnFinish) {
       btnFinish.classList.toggle("completed-state", isSavedToBackend);
       btnFinish.classList.toggle("ready-to-save-state", !isSavedToBackend && isAllTablesPaired);
-      if (isSavedToBackend) {
+      if (evCtx && evCtx.event_id) {
+        if (isSavedToBackend) {
+          btnFinish.textContent = "⬅️ Return to Event";
+        } else if (isAllTablesPaired) {
+          btnFinish.textContent = "🏁 Finish & Return to Event";
+        } else {
+          btnFinish.textContent = "🏁 Return to Event";
+        }
+      } else if (isSavedToBackend) {
         btnFinish.textContent = "✅ Saved";
       } else if (isAllTablesPaired) {
         btnFinish.textContent = "🏁 Finish & Save";
@@ -2813,7 +2869,10 @@ class YuGiOhPairingsArena {
     if (btnDockFinish) {
       const dockLbl = btnDockFinish.querySelector(".gt-dock-lbl");
       const dockIco = btnDockFinish.querySelector(".gt-dock-ico");
-      if (isSavedToBackend) {
+      if (evCtx && evCtx.event_id) {
+        if (dockIco) dockIco.textContent = "🏁";
+        if (dockLbl) dockLbl.textContent = isAllTablesPaired ? "To Event" : "Event";
+      } else if (isSavedToBackend) {
         if (dockIco) dockIco.textContent = "✅";
         if (dockLbl) dockLbl.textContent = "Saved";
       } else if (isAllTablesPaired) {
@@ -2823,6 +2882,10 @@ class YuGiOhPairingsArena {
         if (dockIco) dockIco.textContent = "🏁";
         if (dockLbl) dockLbl.textContent = "Finish";
       }
+    }
+    const btnDockSave = document.getElementById("btnDockSaveCompletedMatch");
+    if (btnDockSave && evCtx && evCtx.event_id) {
+      btnDockSave.textContent = "🏁 Finish & Return to Event (Submit Individual Pairings)";
     }
 
     const specBanner = document.getElementById("spectatorBanner");
@@ -3052,15 +3115,26 @@ class YuGiOhPairingsArena {
       }
     } else {
       const isSavedToBackend = Boolean(this.room.is_finished || this.room.status === "completed");
+      const evCtx = this.getEventContext();
       if (hintBadge) hintBadge.textContent = isSavedToBackend ? "SAVED" : "DONE";
       if (promptEl) {
-        promptEl.textContent = isSavedToBackend
-          ? "✅ Match Saved to History!"
-          : "🏆 All Tables Paired — Click Finish to Save!";
+        if (evCtx && evCtx.event_id) {
+          promptEl.textContent = isSavedToBackend
+            ? "✅ WTC Pairings Ready — Return to Event Station to Submit to BCP!"
+            : "🏆 All Boards Paired — Click Finish & Return to Event!";
+        } else {
+          promptEl.textContent = isSavedToBackend
+            ? "✅ Match Saved to History!"
+            : "🏆 All Tables Paired — Click Finish to Save!";
+        }
       }
       if (btnLock) {
         btnLock.disabled = false;
-        btnLock.textContent = isSavedToBackend ? "🏠 EXIT TO LOBBY" : "🏁 FINISH & SAVE";
+        if (evCtx && evCtx.event_id) {
+          btnLock.textContent = isSavedToBackend ? "⬅️ RETURN TO EVENT" : "🏁 FINISH & RETURN TO EVENT";
+        } else {
+          btnLock.textContent = isSavedToBackend ? "🏠 EXIT TO LOBBY" : "🏁 FINISH & SAVE";
+        }
       }
     }
   }
@@ -3592,13 +3666,15 @@ class YuGiOhPairingsArena {
 
   async autoCompleteRemainingPhases() {
     if (!this.room || !this.roomCode) return;
-    // If rosters are empty or don't match the selected format when Auto-Duel is clicked, initialize a room with rosters first
-    const targetTables = this.getTargetHandSize();
+    // If rosters are empty or don't match the selected format when Auto-Duel is clicked (and not a pre-loaded event room), initialize a room with rosters first
+    const targetTables = Number(this.room.team_size || this.room.total_tables || this.getTargetHandSize() || 5);
+    const isPreloadedEvent = Boolean(this.getEventContext());
     if (
-      !(this.room.team_a?.roster?.length) ||
-      !(this.room.team_b?.roster?.length) ||
-      this.room.team_a.roster.length !== targetTables ||
-      this.room.team_b.roster.length !== targetTables
+      !isPreloadedEvent &&
+      (!(this.room.team_a?.roster?.length) ||
+        !(this.room.team_b?.roster?.length) ||
+        this.room.team_a.roster.length !== targetTables ||
+        this.room.team_b.roster.length !== targetTables)
     ) {
       await this.createNewRoom({ openLobby: false, emptyRosters: false });
     }
@@ -5046,21 +5122,47 @@ class YuGiOhPairingsArena {
   }
 
   async finishPairingRoom() {
+    const evCtx = this.getEventContext();
+    const targetReturnUrl = (evCtx && evCtx.event_id) ? this.getEventReturnUrl() : "/11th/tracker";
+    const persistEventReturnSession = () => {
+      if (!evCtx || !evCtx.event_id) return;
+      try {
+        sessionStorage.setItem(
+          "omnitactica_last_wtc_return",
+          JSON.stringify({
+            event_id: evCtx.event_id,
+            round_num: evCtx.round_num || 1,
+            team_pairing_id: evCtx.team_pairing_id || "",
+            room_code: this.roomCode || "",
+            timestamp: Date.now()
+          })
+        );
+      } catch (_) {}
+    };
+
     if (!this.roomCode) {
-      window.location.href = "/11th/tracker";
+      persistEventReturnSession();
+      window.location.href = targetReturnUrl;
       return;
     }
     if (this.activeRole === "spectator") {
-      window.location.href = "/11th/tracker";
+      persistEventReturnSession();
+      window.location.href = targetReturnUrl;
       return;
     }
     const alreadyFinished = Boolean(this.room && (this.room.is_finished || this.room.status === "completed"));
     if (alreadyFinished) {
-      window.location.href = "/11th/tracker";
+      persistEventReturnSession();
+      window.location.href = targetReturnUrl;
       return;
     }
     const lockedCount = (this.room?.pairings || []).length;
     if (lockedCount === 0) {
+      if (evCtx && evCtx.event_id) {
+        persistEventReturnSession();
+        window.location.href = targetReturnUrl;
+        return;
+      }
       this.showToast("⚠️ Pair at least 1 table before saving to Match History, or click 🎲 Lobby to exit.");
       return;
     }
@@ -5081,6 +5183,14 @@ class YuGiOhPairingsArena {
       if (data && (data.ok || data.success) && data.room) {
         this.room = data.room;
         this.renderAll();
+        if (evCtx && evCtx.event_id) {
+          persistEventReturnSession();
+          this.showToast("🏁 WTC Pairings finalized! Returning to Event Player Station...");
+          setTimeout(() => {
+            window.location.href = targetReturnUrl;
+          }, 250);
+          return;
+        }
         this.showToast("🏁 Match saved to Backend DB & Completed Matches! Click again to exit to Lobby.");
       } else {
         this.showToast(data.error || "Could not finalize room");

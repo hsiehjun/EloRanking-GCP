@@ -414,6 +414,7 @@ async def on_server_startup():
                 lambda: db.get_recommended_events(lat=32.7157, lng=-117.1611, radius_miles=50.0, game_system="40k"),
                 lambda: db.get_event_details("AFKEKlCznJYg"),
                 lambda: db.get_event_details("i5xrw1YYvhvk"),
+                lambda: __import__("routers.leaderboard", fromlist=["_sync_api_event_details"])._sync_api_event_details("uC7tqqdPYLtT"),
                 lambda: db.get_faction_details("Aeldari", game_system="40k"),
                 lambda: db.get_faction_details("Space Marines (Astartes)", game_system="40k"),
                 lambda: db._get_all_teams_list(game_system="40k"),
@@ -1303,6 +1304,63 @@ async def api_action_team_pairing_room(room_code: str, request: Request):
         resp_data = res
         status_code = int(resp_data.get("status_code", 200))
     return JSONResponse(resp_data, status_code=status_code, headers=NO_CACHE_HEADERS)
+
+
+@app.post("/api/events/{event_id}/wtc-pairings/launch", include_in_schema=False)
+@app.post("/api/event/{event_id}/wtc-pairings/launch", include_in_schema=False)
+async def api_launch_event_wtc_pairings(event_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    req_user = _get_request_user(request)
+    if req_user and isinstance(req_user, dict):
+        u_id = req_user.get("id") or req_user.get("user_id")
+        u_name = req_user.get("display_name") or req_user.get("name") or req_user.get("username")
+        if u_id and not body.get("user_id"):
+            body["user_id"] = str(u_id).strip()
+        if u_name and not body.get("user_name"):
+            body["user_name"] = str(u_name).strip()
+    fs_engine = get_firestore_engine()
+    res = await asyncio.to_thread(fs_engine.launch_event_wtc_pairing_room, event_id, body)
+    return JSONResponse(res, headers=NO_CACHE_HEADERS)
+
+
+@app.get("/api/events/{event_id}/wtc-pairings", include_in_schema=False)
+@app.get("/api/event/{event_id}/wtc-pairings", include_in_schema=False)
+def api_get_event_wtc_pairings(
+    event_id: str,
+    round_num: Optional[int] = Query(None),
+    team_pairing_id: Optional[str] = Query(None),
+):
+    fs_engine = get_firestore_engine()
+    res = fs_engine.get_event_wtc_pairings(event_id, round_num=round_num, team_pairing_id=team_pairing_id)
+    return JSONResponse(res, headers=NO_CACHE_HEADERS)
+
+
+@app.post("/api/events/{event_id}/wtc-pairings/submit", include_in_schema=False)
+@app.post("/api/event/{event_id}/wtc-pairings/submit", include_in_schema=False)
+async def api_submit_event_wtc_pairings(event_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    req_user = _get_request_user(request)
+    if req_user and isinstance(req_user, dict):
+        u_id = req_user.get("id") or req_user.get("user_id")
+        u_name = req_user.get("display_name") or req_user.get("name") or req_user.get("username")
+        if u_id and not body.get("user_id"):
+            body["user_id"] = str(u_id).strip()
+        if u_name and not body.get("user_name"):
+            body["user_name"] = str(u_name).strip()
+    fs_engine = get_firestore_engine()
+    res = await asyncio.to_thread(fs_engine.submit_event_wtc_pairings, event_id, body)
+    status_code = 200 if res.get("ok") else 400
+    return JSONResponse(res, status_code=status_code, headers=NO_CACHE_HEADERS)
 
 
 def _resolve_tcg_user_context(request: Request, explicit_uid: Optional[str] = None, token: Optional[str] = None) -> Dict[str, Any]:
