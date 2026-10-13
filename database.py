@@ -11881,7 +11881,7 @@ class PostgresDatabase:
                 pri_cap = 36
                 sec_cap = 12
                 max_tot = 48
-            elif p_ed in ("9th", "9e", "11th", "11e"):
+            elif p_ed in ("11th", "11e"):
                 pri_cap = 45
                 sec_cap = 45
                 max_tot = 100
@@ -12194,7 +12194,7 @@ class PostgresDatabase:
                                 d["game_date"] = iso_gd
                             except Exception:
                                 pass
-                        # Normalize 11th Edition 45/45 Primary & Secondary caps for any previously saved scorecards
+                        # Normalize edition-specific Primary & Secondary caps (ONLY 11th Ed: 45/45; 9th & 10th Ed: 50/40)
                         raw_ed = str(
                             st_obj.get("edition")
                             or (st_obj.get("game") or {}).get("edition")
@@ -12206,18 +12206,26 @@ class PostgresDatabase:
                             str(st_obj.get("game_system") or st_obj.get("gameSystem") or d.get("game_system") or "").lower() == "aos"
                             or str(d.get("match_id") or "").upper().startswith("AOS-")
                         )
-                        if not is_aos_game and (raw_ed in ("11th", "11e") or (not raw_ed and not st_obj.get("imported_source"))):
+                        is_8th_game = raw_ed in ("8th_itc", "8th", "8e", "itc")
+                        if not is_aos_game and not is_8th_game:
+                            is_11th_game = raw_ed in ("11th", "11e") or (not raw_ed and not st_obj.get("imported_source"))
+                            target_ed = "11th" if is_11th_game else ("9th" if raw_ed in ("9th", "9e") else "10th")
+                            target_ed_label = "11th Edition" if target_ed == "11th" else ("9th Edition" if target_ed == "9th" else "10th Edition")
+                            target_pri_cap = 45 if is_11th_game else 50
+                            target_sec_cap = 45 if is_11th_game else 40
                             needs_db_repair = False
-                            st_obj["edition"] = "11th"
-                            st_obj.setdefault("edition_label", "11th Edition")
+                            if is_11th_game or raw_ed in ("9th", "9e", "10th", "10e"):
+                                st_obj["edition"] = target_ed
+                                st_obj.setdefault("edition_label", target_ed_label)
                             for side_k, score_k, top_k in (("p1", "p1Score", "p1_score"), ("p2", "p2Score", "p2_score")):
                                 p_side = st_obj.get(side_k)
                                 if isinstance(p_side, dict):
-                                    if p_side.get("primaryCap") != 45 or p_side.get("secondaryCap") != 45:
+                                    if p_side.get("primaryCap") != target_pri_cap or p_side.get("secondaryCap") != target_sec_cap:
                                         needs_db_repair = True
-                                    p_side["edition"] = "11th"
-                                    p_side["primaryCap"] = 45
-                                    p_side["secondaryCap"] = 45
+                                    if is_11th_game or raw_ed in ("9th", "9e", "10th", "10e"):
+                                        p_side["edition"] = target_ed
+                                    p_side["primaryCap"] = target_pri_cap
+                                    p_side["secondaryCap"] = target_sec_cap
                                     r_list = [r for r in (p_side.get("rounds") or []) if isinstance(r, dict)]
                                     if r_list:
                                         raw_pri = sum(int(r.get("primaryScore") or 0) for r in r_list)
@@ -12234,8 +12242,8 @@ class PostgresDatabase:
                                                     hand_sec += int(card.get("points") or card.get("score") or 0)
                                             if hand_sec > raw_sec:
                                                 raw_sec = hand_sec
-                                        p_side["primaryScore"] = min(45, raw_pri)
-                                        p_side["secondaryScore"] = min(45, raw_sec)
+                                        p_side["primaryScore"] = min(target_pri_cap, raw_pri)
+                                        p_side["secondaryScore"] = min(target_sec_cap, raw_sec)
                                         pnt = int(p_side["paintScore"]) if isinstance(p_side.get("paintScore"), (int, float)) else (10 if p_side.get("battleReady", True) is not False else 0)
                                         tot_s = min(100, p_side["primaryScore"] + p_side["secondaryScore"] + pnt)
                                         if tot_s > 0:

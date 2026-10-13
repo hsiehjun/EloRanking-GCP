@@ -92,7 +92,7 @@ from routers import tracker as tracker_router
 
 
 def test_edition_detection_and_unclipped_9th_ed_secondaries():
-    # 1. 9th Edition Nephilim game with 45 Primary + 45 Secondary (15 + 15 + 15) + 10 Paint = 100
+    # 1. 9th Edition Nephilim game uses 50 Primary / 40 Secondary caps (ONLY 11th Ed uses 45/45)
     raw_9th = {
         "id": "ttb-9th-nephilim-001",
         "gameType": "wh40k-9e",
@@ -106,11 +106,11 @@ def test_edition_detection_and_unclipped_9th_ed_secondaries():
                 "faction": "Aeldari",
                 "detachment": "Ulthwe",
                 "battleReady": True,
-                "primaryScores": [0, 12, 12, 12, 9],  # 45 Primary
+                "primaryScores": [2, 14, 12, 12, 7],  # 47/50 Primary
                 "secondaries": [
                     {"name": "Warp Ritual", "scores": [0, 3, 4, 5, 3]},          # 15 VP
                     {"name": "Retrieve Nephilim Data", "scores": [0, 4, 4, 4, 0]}, # 12 VP
-                    {"name": "Engage on All Fronts", "scores": [3, 3, 4, 4, 4]},   # 18 -> capped at 18/15 = 45 total
+                    {"name": "Engage on All Fronts", "scores": [3, 3, 4, 4, 4]},   # 18 -> 45 raw -> capped at 40/40
                 ],
             },
             {
@@ -118,11 +118,11 @@ def test_edition_detection_and_unclipped_9th_ed_secondaries():
                 "faction": "Necrons",
                 "detachment": "Obsekh Dynasty",
                 "battleReady": True,
-                "primaryScores": [0, 8, 12, 12, 8],  # 40 Primary
+                "primaryScores": [0, 8, 12, 12, 8],  # 40/50 Primary
                 "secondaries": [
                     {"name": "Ancient Machineries", "scores": [4, 4, 4, 3, 0]},    # 15 VP
                     {"name": "Code of Combat", "scores": [3, 3, 3, 3, 3]},         # 15 VP
-                    {"name": "Treasure of the Aeons", "scores": [2, 3, 3, 3, 0]},  # 11 VP -> 41 total (> 40!)
+                    {"name": "Treasure of the Aeons", "scores": [2, 3, 3, 3, 0]},  # 11 VP -> 41 raw -> capped at 40/40
                 ],
             },
         ],
@@ -135,15 +135,16 @@ def test_edition_detection_and_unclipped_9th_ed_secondaries():
     assert "9th" in g9["edition_label"]
 
     st9 = g9["state"]
-    assert st9["p1"]["primaryCap"] == 45
-    assert st9["p1"]["secondaryCap"] == 45
-    # Verify 45-pt secondaries are NOT clipped to 40!
-    p1_sec_sum = sum(r["secondaryScore"] for r in st9["p1"]["rounds"])
-    p2_sec_sum = sum(r["secondaryScore"] for r in st9["p2"]["rounds"])
-    assert p1_sec_sum == 45
-    assert p2_sec_sum == 41
-    assert g9["p1_score"] == 100  # 45 Pri + 45 Sec + 10 Paint
-    assert g9["p2_score"] == 91   # 40 Pri + 41 Sec + 10 Paint
+    assert st9["p1"]["primaryCap"] == 50
+    assert st9["p1"]["secondaryCap"] == 40
+    assert st9["p1"]["primaryScore"] == 47
+    assert st9["p1"]["secondaryScore"] == 40
+    assert st9["p2"]["primaryCap"] == 50
+    assert st9["p2"]["secondaryCap"] == 40
+    assert st9["p2"]["primaryScore"] == 40
+    assert st9["p2"]["secondaryScore"] == 40
+    assert g9["p1_score"] == 97   # 47/50 Pri + 40/40 Sec + 10 Paint
+    assert g9["p2_score"] == 90   # 40/50 Pri + 40/40 Sec + 10 Paint
 
 
 def test_8th_edition_itc_caps_and_no_paint_bonus():
@@ -1025,6 +1026,83 @@ def test_guest_reconnection_seat_reclaim_vs_spectator_mode():
         tracker_router.TRACKER_ROOMS.pop(match_id, None)
 
 
+def test_only_11th_has_45_45_and_9th_10th_have_50_40():
+    """
+    Verifies that ONLY 11th Edition uses 45 Primary / 45 Secondary caps, while BOTH
+    9th Edition and 10th Edition use 50 Primary / 40 Secondary caps across:
+      - tracker_importer
+      - routers/tracker._compute_tracker_side_total
+      - web/tracker/tracker_sync.js computeTrackerPlayerBreakdown
+      - web/js/modals.js & web/scorecard.html
+    """
+    import subprocess
+    import json
+
+    # 9th Ed game (Laughing Dragon February RTT • R3 • T2, Death And Zeal, 2023-02-17)
+    # Even if an old state had primaryCap=45/secondaryCap=45 saved on it, 9th Ed must enforce 50/40!
+    st_9th = {
+        "edition": "9th",
+        "imported_source": "tabletop_battles",
+        "mission": {"edition": "9th", "primaryName": "Death And Zeal"},
+        "p1": {
+            "name": "John Hsieh",
+            "faction": "Necrons",
+            "edition": "9th",
+            "primaryCap": 45,
+            "secondaryCap": 45,
+            "battleReady": True,
+            "rounds": [
+                {"round": 1, "primaryScore": 2, "secondaryScore": 10},
+                {"round": 2, "primaryScore": 14, "secondaryScore": 10},
+                {"round": 3, "primaryScore": 12, "secondaryScore": 6},
+                {"round": 4, "primaryScore": 12, "secondaryScore": 10},
+                {"round": 5, "primaryScore": 7, "secondaryScore": 7},
+            ],
+        },
+        "p2": {
+            "name": "Fred Reiss",
+            "faction": "Chaos Space Marines",
+            "edition": "9th",
+            "primaryCap": 45,
+            "secondaryCap": 45,
+            "battleReady": True,
+            "rounds": [
+                {"round": 1, "primaryScore": 4, "secondaryScore": 2},
+                {"round": 2, "primaryScore": 4, "secondaryScore": 2},
+                {"round": 3, "primaryScore": 4, "secondaryScore": 3},
+                {"round": 4, "primaryScore": 4, "secondaryScore": 0},
+                {"round": 5, "primaryScore": 0, "secondaryScore": 0},
+            ],
+        },
+    }
+
+    # Check router computation on 9th Ed state: 47/50 Pri + 40/40 Sec + 10 Paint = 97
+    tot_p1_9th = tracker_router._compute_tracker_side_score(st_9th["p1"], st_9th, 0)
+    tot_p2_9th = tracker_router._compute_tracker_side_score(st_9th["p2"], st_9th, 0)
+    assert tot_p1_9th == 97, f"Expected 97 (47/50 Pri + 40/40 Sec + 10 Paint), got {tot_p1_9th}"
+    assert tot_p2_9th == 33, f"Expected 33 (16/50 Pri + 7/40 Sec + 10 Paint), got {tot_p2_9th}"
+
+    # Check tracker_sync.js computeTrackerPlayerBreakdown on 9th Ed state
+    node_script = f"""
+    const fs = require('fs');
+    global.window = {{ location: {{ search: '', pathname: '/tracker/play' }} }};
+    const src = fs.readFileSync('web/tracker/tracker_sync.js', 'utf8');
+    const startIdx = src.indexOf('function computeTrackerPlayerBreakdown(pObj, st)');
+    const endIdx = src.indexOf('// Override getItem');
+    eval(src.slice(startIdx, endIdx));
+    const st = {json.dumps(st_9th)};
+    const b1 = window.__computeTrackerPlayerBreakdown(st.p1, st);
+    const b2 = window.__computeTrackerPlayerBreakdown(st.p2, st);
+    console.log(JSON.stringify({{ b1, b2 }}));
+    """
+    proc = subprocess.run(["node", "-e", node_script], capture_output=True, text=True, check=True)
+    js_out = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert js_out["b1"]["priCap"] == 50 and js_out["b1"]["secCap"] == 40
+    assert js_out["b1"]["pri"] == 47 and js_out["b1"]["sec"] == 40 and js_out["b1"]["total"] == 97
+    assert js_out["b2"]["priCap"] == 50 and js_out["b2"]["secCap"] == 40
+    assert js_out["b2"]["pri"] == 16 and js_out["b2"]["sec"] == 7 and js_out["b2"]["total"] == 33
+
+
 if __name__ == "__main__":
     test_edition_detection_and_unclipped_9th_ed_secondaries()
     print("✓ test_edition_detection_and_unclipped_9th_ed_secondaries passed")
@@ -1046,6 +1124,8 @@ if __name__ == "__main__":
     print("✓ test_11th_ed_hand_secondaries_in_finish_modal_router_and_database passed")
     test_guest_reconnection_seat_reclaim_vs_spectator_mode()
     print("✓ test_guest_reconnection_seat_reclaim_vs_spectator_mode passed")
+    test_only_11th_has_45_45_and_9th_10th_have_50_40()
+    print("✓ test_only_11th_has_45_45_and_9th_10th_have_50_40 passed")
     print("ALL TESTS PASSED!")
 
 

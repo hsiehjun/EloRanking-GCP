@@ -446,14 +446,14 @@
       secCap = 12;
       maxTotal = 48;
       hasPaint = false;
-    } else if (!isNative11th && (rawEd === '10th' || rawEd === '10e' || (stateObj.imported_source && rawEd !== '9th' && rawEd !== '9e' && Number(pObj.primaryCap) !== 45 && Number(pObj.secondaryCap) !== 45))) {
-      priCap = Number(pObj.primaryCap) || 50;
-      secCap = Number(pObj.secondaryCap) || 40;
+    } else if (rawEd === '11th' || rawEd === '11e' || isNative11th) {
+      priCap = 45;
+      secCap = 45;
       maxTotal = 100;
       hasPaint = true;
     } else {
-      priCap = Number(pObj.primaryCap) || 45;
-      secCap = Number(pObj.secondaryCap) || 45;
+      priCap = 50;
+      secCap = 40;
       maxTotal = 100;
       hasPaint = true;
     }

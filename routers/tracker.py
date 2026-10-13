@@ -2252,14 +2252,10 @@ def _compute_tracker_side_score(side_obj: Any, state: Any = None, fallback_score
     )
     if "8th" in raw_ed or "itc" in raw_ed or int(side_obj.get("primaryCap") or 0) == 36:
         pri_cap, sec_cap, max_tot, has_paint = 36, 12, 48, False
-    elif not is_native_11th and (raw_ed in ("10th", "10e") or (st.get("imported_source") and raw_ed not in ("9th", "9e") and int(side_obj.get("primaryCap") or 0) != 45 and int(side_obj.get("secondaryCap") or 0) != 45)):
-        pri_cap = int(side_obj.get("primaryCap") or 50)
-        sec_cap = int(side_obj.get("secondaryCap") or 40)
-        max_tot, has_paint = 100, True
+    elif raw_ed in ("11th", "11e") or is_native_11th:
+        pri_cap, sec_cap, max_tot, has_paint = 45, 45, 100, True
     else:
-        pri_cap = int(side_obj.get("primaryCap") or 45)
-        sec_cap = int(side_obj.get("secondaryCap") or 45)
-        max_tot, has_paint = 100, True
+        pri_cap, sec_cap, max_tot, has_paint = 50, 40, 100, True
 
     raw_pri = sum(int(r.get("primaryScore") or 0) for r in rounds)
     if raw_pri == 0 and int(side_obj.get("primaryScore") or 0) > 0:

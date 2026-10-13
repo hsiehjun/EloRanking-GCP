@@ -7404,9 +7404,9 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
     maxTot = 100;
     hasPaint = true;
     edShortBadge = '🚀 11th Ed';
-  } else if (rawEd === '9th' || rawEd === '9e' || packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || Number(st?.p1?.primaryCap) === 45 || Number(st?.p1?.secondaryCap) === 45) {
-    priCap = 45;
-    secCap = 45;
+  } else if (rawEd === '9th' || rawEd === '9e' || packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || (packId.includes('nachmund') && !packId.includes('crusade'))) {
+    priCap = 50;
+    secCap = 40;
     maxTot = 100;
     hasPaint = true;
     edShortBadge = '📜 9th Ed';

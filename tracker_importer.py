@@ -1546,12 +1546,12 @@ def _build_40k_player_state(
         sec_name = _humanize_identifier(p_raw.get("secretMission") or "Secret Mission")
         pri_scores[4] += secret_score
 
-    # Edition-specific scoring caps (8th ITC: 36/12, 9th & 11th: 45/45, 10th: 50/40)
+    # Edition-specific scoring caps (8th ITC: 36/12, 11th: 45/45, 9th & 10th: 50/40)
     if edition == "8th_itc":
         pri_cap = 36
         sec_cap = 12
         max_total = 48
-    elif edition in ("9th", "11th"):
+    elif edition == "11th":
         pri_cap = 45
         sec_cap = 45
         max_total = 100
@@ -2267,11 +2267,11 @@ def _parse_single_text_scorecard(
                 p2_paint = p2_score >= 10
                 p1_rem = max(0, p1_score - (10 if p1_paint else 0))
                 p2_rem = max(0, p2_score - (10 if p2_paint else 0))
-                pri_cap = 45 if text_edition in ("9th", "11th") else 50
-                sec_cap = 45 if text_edition in ("9th", "11th") else 40
-                p1_pri_tot = min(pri_cap, int(round(p1_rem * (0.5 if text_edition in ("9th", "11th") else 0.56))))
+                pri_cap = 45 if text_edition == "11th" else 50
+                sec_cap = 45 if text_edition == "11th" else 40
+                p1_pri_tot = min(pri_cap, int(round(p1_rem * (0.5 if text_edition == "11th" else 0.56))))
                 p1_sec_tot = max(0, min(sec_cap, p1_rem - p1_pri_tot))
-                p2_pri_tot = min(pri_cap, int(round(p2_rem * (0.5 if text_edition in ("9th", "11th") else 0.56))))
+                p2_pri_tot = min(pri_cap, int(round(p2_rem * (0.5 if text_edition == "11th" else 0.56))))
                 p2_sec_tot = max(0, min(sec_cap, p2_rem - p2_pri_tot))
             for i in range(1, 5):
                 p1_pri[i] = p1_pri_tot // 4 + (1 if (i - 1) < (p1_pri_tot % 4) else 0)

@@ -2672,11 +2672,11 @@ async function openScorecardModal(matchId) {
       secCap = 45;
       maxTot = 100;
       hasPaint = true;
-    } else if (rawEd === '9th' || rawEd === '9e' || packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || Number(p1Obj.primaryCap) === 45 || Number(p1Obj.secondaryCap) === 45) {
+    } else if (rawEd === '9th' || rawEd === '9e' || packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || (packId.includes('nachmund') && !packId.includes('crusade'))) {
       edCode = '9th';
       edBadgeLabel = '9th Ed';
-      priCap = 45;
-      secCap = 45;
+      priCap = 50;
+      secCap = 40;
       maxTot = 100;
       hasPaint = true;
     }
