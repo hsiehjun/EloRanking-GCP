@@ -1056,9 +1056,6 @@ function renderHeaderAuth() {
       <a href="/admin/dice-tracker" id="header-admin-cv-dice-btn" style="display:inline-flex; align-items:center; gap:3px; background:rgba(168,85,247,0.16); border:1px solid rgba(168,85,247,0.45); color:#c084fc; font-weight:800; font-size:0.7rem; padding:2px 6px; border-radius:6px; text-decoration:none; white-space:nowrap; flex-shrink:0;" title="Admin CV Dice Tracker Sandbox">
         <span>📹</span> CV Dice
       </a>
-      <a href="/admin/team-pairings" id="header-admin-team-pairings-btn" style="display:inline-flex; align-items:center; gap:3px; background:rgba(56,189,248,0.16); border:1px solid rgba(56,189,248,0.45); color:#38bdf8; font-weight:800; font-size:0.7rem; padding:2px 6px; border-radius:6px; text-decoration:none; white-space:nowrap; flex-shrink:0;" title="Admin 40k Team Pairing Minigame Sandbox">
-        <span>⚔️</span> Pairings
-      </a>
     ` : '';
     container.innerHTML = `
       <div style="display:flex; align-items:center; gap:5px; background:rgba(15,23,42,0.85); border:1px solid var(--border); padding:4px 8px; border-radius:9999px; font-family:'Inter',sans-serif; white-space:nowrap; flex-shrink:0;">

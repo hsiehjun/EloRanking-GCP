@@ -94,10 +94,10 @@ class TestTeamPairingsPoC(unittest.TestCase):
             self.assertEqual(asset_path.name, expected_name)
 
     def test_admin_only_navigation_buttons_wired(self):
-        """Ensure Admin-only navigation entry points for Team Pairings exist across auth.js, app.html, admin.html, dice_tracker, and dev_server.py."""
+        """Ensure Admin-only navigation entry points for Team Pairings exist across auth.js, app.html, admin.html, dice_tracker, and dev_server.py, and top-right header Pairings button is removed."""
         auth_js = (ROOT_DIR / "web" / "js" / "auth.js").read_text(encoding="utf-8")
-        self.assertIn("header-admin-team-pairings-btn", auth_js)
-        self.assertIn("/admin/team-pairings", auth_js)
+        self.assertNotIn("header-admin-team-pairings-btn", auth_js)
+        self.assertNotIn("/admin/team-pairings", auth_js)
         self.assertIn("mobile-opt-team-pairings", auth_js)
         self.assertIn("mobile-sheet-team-pairings-btn", auth_js)
 
