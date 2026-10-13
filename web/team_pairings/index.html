@@ -100,7 +100,7 @@
               <span class="pg-title">⚡ PAIRING PROCESS</span>
               <span class="pg-cycle-badge" id="pgCycleBadge">CYCLE 1 / 2</span>
             </div>
-            <div class="pg-format-sub" id="pgFormatSub">5v5 WTC Format • 5 Tables</div>
+            <div class="pg-format-sub" id="pgFormatSub">WTC Team Pairings • 5 Tables</div>
           </div>
 
           <!-- Current Active Step Callout -->
@@ -485,7 +485,7 @@
                 <span>Team Name:</span>
                 <input type="text" id="lobbyTeamNameInput" class="lobby-input" value="" placeholder="Team Name (optional)..." maxlength="32">
               </label>
-              <label>
+              <label style="display:none;" aria-hidden="true">
                 <span>Format:</span>
                 <select id="selectFormat" class="lobby-select">
                   <option value="5v5" selected>5v5 (5 Cards)</option>
@@ -614,7 +614,7 @@
         <!-- 3-Tab Navigation Bar -->
         <div class="tcg-tabs-bar" id="tcgVaultTabsBar">
           <button type="button" class="tcg-tab-btn active" id="btnTcgTabDeck" data-tcg-tab="deck">
-            ⚔️ 1. Deck Construction (<span id="tcgTabDeckFormatBadge">5v5</span>)
+            ⚔️ 1. Deck Construction (<span id="tcgTabDeckFormatBadge">5 Cards</span>)
           </button>
           <button type="button" class="tcg-tab-btn" id="btnTcgTabPacks" data-tcg-tab="packs">
             📦 2. Buy Card Packs (Glory Store &amp; Drop Odds)
@@ -624,11 +624,11 @@
           </button>
         </div>
 
-        <!-- TAB 1: DECK CONSTRUCTION (5v5 & 8v8) -->
+        <!-- TAB 1: DECK CONSTRUCTION -->
         <div class="tcg-tab-panel" id="tcgPanelDeck">
           <div class="tcg-deck-toolbar">
             <div class="tcg-deck-meta-left">
-              <label class="tcg-inline-field">
+              <label class="tcg-inline-field" style="display:none;" aria-hidden="true">
                 <span>Deck Format:</span>
                 <select id="tcgDeckFormatSelect" class="lobby-select">
                   <option value="5v5" selected>5v5 Strike Force (5 Cards)</option>
@@ -637,7 +637,7 @@
               </label>
               <label class="tcg-inline-field">
                 <span>Deck Name:</span>
-                <input type="text" id="tcgDeckNameInput" class="lobby-input" value="Starter Faction Strike Force (5v5)" maxlength="50">
+                <input type="text" id="tcgDeckNameInput" class="lobby-input" value="Starter Faction Strike Force" maxlength="50">
               </label>
               <div class="tcg-deck-stats-chip" id="tcgDeckStatsSummary">
                 Avg Elo: <strong>1,500</strong> • 5 Starter / 0 Pro Cards

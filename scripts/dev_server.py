@@ -3174,7 +3174,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         from firestore_db import get_firestore_engine
                         fs_eng = get_firestore_engine()
                         if hasattr(fs_eng, "_fallback_pairing_rooms") and not fs_eng._fallback_pairing_rooms:
-                            # Seed 1 active 5v5 and 1 completed 8v8 WTC Team Pairings room in dev mode
+                            # Seed 1 active and 1 completed WTC Team Pairings room in dev mode
                             dev_act = fs_eng.create_pairing_room({
                                 "room_code": "WTC-DEV1",
                                 "format_size": "5v5",
@@ -3189,7 +3189,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             ]
                             dev_comp = fs_eng.create_pairing_room({
                                 "room_code": "WTC-FIN8",
-                                "format_size": "8v8",
+                                "format_size": "5v5",
                                 "team_a_name": "Stat Check",
                                 "team_b_name": "Team Ignite",
                                 "vs_ai": False,
@@ -3197,13 +3197,13 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             dev_comp["phase"] = "COMPLETED"
                             dev_comp["is_finished"] = True
                             dev_comp["status"] = "completed"
-                            dev_comp["expected_total_a"] = 92.0
-                            dev_comp["expected_total_b"] = 68.0
-                            dev_comp["sim_total_a"] = 92
-                            dev_comp["sim_total_b"] = 68
+                            dev_comp["expected_total_a"] = 59.0
+                            dev_comp["expected_total_b"] = 41.0
+                            dev_comp["sim_total_a"] = 59
+                            dev_comp["sim_total_b"] = 41
                             dev_comp["pairings"] = [
                                 {"table_num": i + 1, "cycle": (i // 2) + 1, "est_score_a": s_a, "est_score_b": 20 - s_a, "sim_score_a": s_a, "sim_score_b": 20 - s_a}
-                                for i, s_a in enumerate([13, 12, 11, 14, 10, 12, 9, 11])
+                                for i, s_a in enumerate([13, 12, 11, 14, 9])
                             ]
                         p_lists = fs_eng.list_pairing_rooms_for_user()
                         active.extend(p_lists.get("active", []))

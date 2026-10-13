@@ -3013,7 +3013,7 @@ class YuGiOhPairingsArena {
     const roleBanner = p.isAlternating
       ? (p.amIDefender ? " • 🛡️ YOU: DEFENDER" : " • ⚔️ YOU: ATTACKER")
       : "";
-    const fmtLabel = `${totalTables === 8 ? "8v8" : "5v5"} WTC Format • ${totalTables} Tables${roleBanner}`;
+    const fmtLabel = `WTC Team Pairings • ${totalTables} Tables${roleBanner}`;
 
     const cycleBadge = document.getElementById("pgCycleBadge");
     if (cycleBadge) {

@@ -2162,14 +2162,15 @@
     }
   }
 
-  // Lobby Game Mode state ('40k' | 'aos' | 'pairings_5v5' | 'pairings_8v8')
+  // Lobby Game Mode state ('40k' | 'aos' | 'pairings')
   window.__selectedLobbyGameMode = null;
   window.__selectLobbyGameMode = function (mode) {
-    window.__selectedLobbyGameMode = mode;
+    const normalizedMode = (mode && mode.startsWith('pairings')) ? 'pairings' : mode;
+    window.__selectedLobbyGameMode = normalizedMode;
     const pills = document.querySelectorAll('[data-lobby-mode-pill]');
     pills.forEach(btn => {
       const m = btn.getAttribute('data-lobby-mode-pill');
-      const active = (m === mode);
+      const active = (m === normalizedMode);
       if (m && m.startsWith('pairings')) {
         btn.style.background = active ? 'rgba(168,85,247,0.22)' : 'rgba(15,23,42,0.65)';
         btn.style.borderColor = active ? '#c084fc' : 'rgba(148,163,184,0.25)';
@@ -2183,15 +2184,14 @@
     const mainBtn = document.getElementById('gt-lobby-create-btn');
     const descEl = document.getElementById('gt-lobby-host-desc');
     if (mainBtn) {
-      if (mode === 'pairings_5v5' || mode === 'pairings_8v8') {
-        const fmt = mode === 'pairings_8v8' ? '8v8' : '5v5';
-        mainBtn.textContent = `CREATE & ENTER ${fmt} TEAM PAIRINGS ➔`;
+      if (normalizedMode === 'pairings') {
+        mainBtn.textContent = 'CREATE & ENTER TEAM PAIRINGS ➔';
         mainBtn.style.background = 'linear-gradient(135deg, #a855f7, #ec4899)';
         mainBtn.style.color = '#ffffff';
         if (descEl) {
-          descEl.textContent = `Launch a live ${fmt} WTC Team Pairings room with Duel Arena, Matchup Matrix, AI/Human Captain links, and Spectator view.`;
+          descEl.textContent = 'Launch a live WTC Team Pairings room with Duel Arena, Matchup Matrix, AI/Human Captain links, and Spectator view.';
         }
-      } else if (mode === 'aos') {
+      } else if (normalizedMode === 'aos') {
         mainBtn.textContent = 'CREATE & ENTER AOS MATCH ➔';
         mainBtn.style.background = '#f59e0b';
         mainBtn.style.color = '#0a0c10';
@@ -2220,8 +2220,7 @@
       );
     }
     const isPairingsMode = targetMode === 'pairings' || targetMode === 'pairings_5v5' || targetMode === 'pairings_8v8' || targetMode === 'wtc';
-    const rawFormatNum = (formatSizeOverride === '8v8' || formatSizeOverride === 8 || targetMode === 'pairings_8v8') ? 8 : 5;
-    const pairingFormatSize = `${rawFormatNum}v${rawFormatNum}`;
+    const pairingFormatSize = '5v5';
     const isAosMode = !isPairingsMode && (
       (targetMode === 'aos') ||
       window.location.pathname.includes('/aos') ||
@@ -2230,7 +2229,7 @@
     );
     const sysId = isPairingsMode ? 'pairings' : (isAosMode ? 'aos' : '40k');
     const loadingTitle = isPairingsMode
-      ? `⚔️ Creating ${pairingFormatSize} Team Pairings Room`
+      ? '⚔️ Creating Team Pairings Room'
       : (isAosMode ? '⚡ Creating Age of Sigmar Room' : '🎲 Creating Match Room');
     const loadingSubtitle = isPairingsMode
       ? 'Allocating WTC pairing arena room key & initializing rosters...'
@@ -2266,7 +2265,7 @@
               localStorage.setItem(`tp_tok_${mid}_captain_a`, data.captain_a_token);
             }
           } catch (e) {}
-          window.location.href = `/team-pairings?room=${encodeURIComponent(mid)}&format=${encodeURIComponent(pairingFormatSize)}&from_lobby=1`;
+          window.location.href = `/team-pairings?room=${encodeURIComponent(mid)}&from_lobby=1`;
           return;
         }
         const isAosMatch = isAosMode || mid.startsWith('AOS-') || data.game_system === 'aos';
@@ -2551,11 +2550,8 @@
                     <button type="button" id="gt-mode-btn-40k" data-lobby-mode-pill="${isAosMode ? 'aos' : '40k'}" onclick="window.__selectLobbyGameMode('${isAosMode ? 'aos' : '40k'}')" style="flex:1; min-width:95px; background:rgba(245,158,11,0.22); border:1px solid #f59e0b; color:#fde68a; border-radius:8px; padding:6px 8px; font-size:10px; font-weight:800; font-family:'JetBrains Mono',monospace; cursor:pointer;">
                       ${isAosMode ? '⚡ AoS Tracker' : '🦅 40K Tracker'}
                     </button>
-                    <button type="button" id="gt-mode-btn-pairings-5v5" data-lobby-mode-pill="pairings_5v5" onclick="window.__selectLobbyGameMode('pairings_5v5')" style="flex:1; min-width:105px; background:rgba(15,23,42,0.65); border:1px solid rgba(148,163,184,0.25); color:#94a3b8; border-radius:8px; padding:6px 8px; font-size:10px; font-weight:800; font-family:'JetBrains Mono',monospace; cursor:pointer;">
-                      ⚔️ Pairings 5v5
-                    </button>
-                    <button type="button" id="gt-mode-btn-pairings-8v8" data-lobby-mode-pill="pairings_8v8" onclick="window.__selectLobbyGameMode('pairings_8v8')" style="flex:1; min-width:105px; background:rgba(15,23,42,0.65); border:1px solid rgba(148,163,184,0.25); color:#94a3b8; border-radius:8px; padding:6px 8px; font-size:10px; font-weight:800; font-family:'JetBrains Mono',monospace; cursor:pointer;">
-                      ⚔️ Pairings 8v8
+                    <button type="button" id="gt-mode-btn-pairings" data-lobby-mode-pill="pairings" onclick="window.__selectLobbyGameMode('pairings')" style="flex:1; min-width:105px; background:rgba(15,23,42,0.65); border:1px solid rgba(148,163,184,0.25); color:#94a3b8; border-radius:8px; padding:6px 8px; font-size:10px; font-weight:800; font-family:'JetBrains Mono',monospace; cursor:pointer;">
+                      ⚔️ Pairings
                     </button>
                   </div>
                   <p id="gt-lobby-host-desc" style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:0 0 10px; line-height:1.4;">${hostDesc}</p>
@@ -2946,10 +2942,8 @@
               const cardBorder = isPairingsGame ? 'rgba(168,85,247,0.4)' : 'rgba(34,197,94,0.3)';
               const cardBg = isPairingsGame ? 'rgba(168,85,247,0.09)' : 'var(--win-bg, rgba(34,197,94,0.08))';
               const statusColor = isPairingsGame ? '#c084fc' : 'var(--win, #22c55e)';
-              const rawFmt = String(m.format_label || m.format_size || '5v5').trim();
-              const fmtLbl = rawFmt.toLowerCase().includes('v') ? rawFmt.toUpperCase() : `${rawFmt}V${rawFmt}`;
               const statusText = isPairingsGame
-                ? `⚔️ Active Team Pairings (${fmtLbl} • #${mid})`
+                ? `⚔️ Active Team Pairings (#${mid})`
                 : `Active Match (Round ${rNum})`;
               const resumeLabel = isPairingsGame ? '⚔️ Resume Pairings' : '▶️ Resume Match';
 
@@ -3092,10 +3086,7 @@
               const factionSubtitle = `<div class="gt-history-factions">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>`;
               const edCode = normalizeTrackerEditionCode(item);
               const isPairingsItem = edCode === 'wtc_pairings' || String(mid).toUpperCase().startsWith('WTC-') || item.game_system === 'pairings';
-              const inferredFmt = (String(item.edition_label || p1F || '').toUpperCase().includes('8V8')) ? '8v8' : '5v5';
-              const itemRawFmt = String(item.format_label || item.format_size || inferredFmt).trim();
-              const itemFmtLbl = itemRawFmt.toLowerCase().includes('v') ? itemRawFmt.toUpperCase() : `${itemRawFmt}V${itemRawFmt}`;
-              const edShort = edCode === 'wtc_pairings' ? `⚔️ WTC ${itemFmtLbl}` : (edCode === '8th_itc' ? '🏛️ 8th ITC' : (edCode === '9th' ? '📜 9th Ed' : (edCode === '11th' ? '🚀 11th Ed' : (edCode === 'aos_3e' ? '⚔️ AoS 3e' : (edCode === 'aos_4e' ? '⚡ AoS 4e' : (edCode === '10th' ? '🦅 10th Ed' : ''))))));
+              const edShort = edCode === 'wtc_pairings' ? '⚔️ WTC Pairings' : (edCode === '8th_itc' ? '🏛️ 8th ITC' : (edCode === '9th' ? '📜 9th Ed' : (edCode === '11th' ? '🚀 11th Ed' : (edCode === 'aos_3e' ? '⚔️ AoS 3e' : (edCode === 'aos_4e' ? '⚡ AoS 4e' : (edCode === '10th' ? '🦅 10th Ed' : ''))))));
               const edStyleMap = {
                 'wtc_pairings': 'background:rgba(168,85,247,0.16); color:#e9d5ff; border:1px solid rgba(168,85,247,0.42);',
                 '11th': 'background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35);',
