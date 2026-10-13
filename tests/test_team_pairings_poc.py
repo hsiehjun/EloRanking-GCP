@@ -1454,7 +1454,7 @@ class TestTeamPairingsPoC(unittest.TestCase):
         tp_css = (ROOT_DIR / "web" / "team_pairings" / "styles.css").read_text(encoding="utf-8")
         tracker_sync_js = (ROOT_DIR / "web" / "tracker" / "tracker_sync.js").read_text(encoding="utf-8")
 
-        # 1. Verify unified #gt-sync-hud header structure matches /11th/tracker/play
+        # 1. Verify unified #gt-sync-hud header & mobile bottom dock structure matches /11th/tracker/play
         self.assertIn('id="gt-sync-hud"', tp_html)
         self.assertIn('id="hudMatchupDisplay"', tp_html)
         self.assertIn('id="hudStatusDot"', tp_html)
@@ -1465,6 +1465,9 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertIn('class="gt-hud-room-badge"', tp_html)
         self.assertIn('class="topbar-right gt-desktop-actions"', tp_html)
         self.assertIn('class="arena-controls-strip"', tp_html)
+        self.assertIn('id="btnTopbarJudge"', tp_html)
+        self.assertIn('id="btnDockJudge"', tp_html)
+        self.assertNotIn('id="btnDockLobby"', tp_html)
         self.assertIn("#gt-sync-hud {", tp_css)
 
         # 2. Verify watchLobbyActiveMatches skips WTC- rooms so Firestore 'rooms' collection doesn't wipe them

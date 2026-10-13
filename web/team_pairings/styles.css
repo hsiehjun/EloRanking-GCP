@@ -4519,6 +4519,61 @@ html, body {
   color: #6ee7b7;
 }
 
+.gt-dock-btn.gt-dock-judge {
+  background: rgba(225, 29, 72, 0.15);
+  border-color: rgba(244, 63, 94, 0.4);
+  color: #f43f5e;
+}
+
+.gt-dock-btn.gt-dock-judge.en-route {
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  border-color: #38bdf8;
+  color: #fff;
+}
+
+.gt-dock-btn.gt-dock-judge.pending {
+  background: linear-gradient(135deg, #e11d48, #be123c);
+  border-color: #f43f5e;
+  color: #fff;
+}
+
+.gt-dock-btn.gt-dock-judge.resolved {
+  background: linear-gradient(135deg, #059669, #10b981);
+  border-color: #10b981;
+  color: #fff;
+}
+
+/* Judge Call Modal (#gt-judge-modal) — Identical to /11th/tracker/play */
+#gt-judge-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 7, 18, 0.85);
+  backdrop-filter: blur(8px);
+  padding: 16px;
+}
+
+.gt-issue-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #131d33;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.gt-issue-option:hover,
+.gt-issue-option.selected {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.4);
+}
+
 .gt-dock-ico {
   font-size: 0.92rem;
   line-height: 1;
@@ -6233,6 +6288,30 @@ html, body {
   background: #0f172a !important;
   color: #f59e0b !important;
   border: 1px solid rgba(245, 158, 11, 0.4) !important;
+}
+
+.gt-hud-judge-btn {
+  background: #881337 !important;
+  color: #ffffff !important;
+  border: 1px solid #f43f5e !important;
+}
+
+.gt-hud-judge-btn.pending {
+  background: linear-gradient(135deg, #e11d48, #be123c) !important;
+  border-color: #f43f5e !important;
+  color: #ffffff !important;
+}
+
+.gt-hud-judge-btn.en-route {
+  background: linear-gradient(135deg, #0284c7, #0369a1) !important;
+  border-color: #38bdf8 !important;
+  color: #ffffff !important;
+}
+
+.gt-hud-judge-btn.resolved {
+  background: linear-gradient(135deg, #059669, #10b981) !important;
+  border-color: #10b981 !important;
+  color: #ffffff !important;
 }
 
 .gt-hud-list-btn,

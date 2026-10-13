@@ -130,11 +130,20 @@ class YuGiOhPairingsArena {
     this.tcgBinderFilter = "all";
     this.lastPackReveal = null;
 
-    // Expose Game Tracker-compatible global helpers for the Share Room modal
+    // Live Floor Judge Dispatch State (matches /11th/tracker/play)
+    this.activeJudgeCall = null;
+    this.selectedJudgeCategory = "Rules / Pairing Dispute";
+
+    // Expose Game Tracker-compatible global helpers for the Share Room & Judge modals
     window.__openShareRoomModal = (mid) => this.openShareRoomModal(mid);
     window.__copyRoomShareLink = (mid, btn) => this.copyRoomShareLink(mid, btn);
     window.__toggleRoomLock = (mid, nextLocked, btn) => this.toggleRoomLock(nextLocked, btn);
     window.__sendRoomInviteToChat = (mid, opts, btn) => this.sendRoomInviteToChat(mid, opts, btn);
+    window.gtOpenJudgeModal = () => this.openJudgeModal();
+    window.gtCloseJudgeModal = () => this.closeJudgeModal();
+    window.gtSelectCategory = (el, cat) => this.selectJudgeCategory(el, cat);
+    window.gtSubmitJudgeCall = (tournId) => this.submitJudgeCall(tournId);
+    window.gtCancelJudgeCall = () => this.cancelJudgeCall();
 
     this.bindEvents();
     this.bootstrap();
@@ -459,6 +468,11 @@ class YuGiOhPairingsArena {
       btnTopDice.addEventListener("click", () => this.openQuickDiceModal());
     }
 
+    const btnTopJudge = document.getElementById("btnTopbarJudge");
+    if (btnTopJudge) {
+      btnTopJudge.addEventListener("click", () => this.openJudgeModal());
+    }
+
     const btnFinishRoom = document.getElementById("btnFinishPairingRoom");
     if (btnFinishRoom) {
       btnFinishRoom.addEventListener("click", () => this.finishPairingRoom());
@@ -483,6 +497,10 @@ class YuGiOhPairingsArena {
     const btnDockCoin = document.getElementById("btnDockOpenCoin");
     if (btnDockCoin) {
       btnDockCoin.addEventListener("click", () => this.openCoinFlipModal());
+    }
+    const btnDockJudge = document.getElementById("btnDockJudge");
+    if (btnDockJudge) {
+      btnDockJudge.addEventListener("click", () => this.openJudgeModal());
     }
     const btnDockClock = document.getElementById("btnDockToggleClock");
     if (btnDockClock) {
@@ -4575,6 +4593,317 @@ class YuGiOhPairingsArena {
     this._toastTimer = setTimeout(() => {
       el.classList.add("hidden");
     }, 2800);
+  }
+
+  // =========================================================================
+  // Live Floor Judge Dispatch Modal (Identical to /11th/tracker/play)
+  // =========================================================================
+  getTournamentId() {
+    const params = new URLSearchParams(window.location.search);
+    return (
+      params.get("event_id") ||
+      params.get("tournament_id") ||
+      (this.room && (this.room.event_id || this.room.tournament_id)) ||
+      this.roomCode ||
+      "WTC_TEAM_EVENT"
+    );
+  }
+
+  getTableNum() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("table") || params.get("table_num") || (this.room && this.room.table_num) || "1";
+  }
+
+  updateJudgeButtonsUI() {
+    const c = this.activeJudgeCall;
+    const topBtn = document.getElementById("btnTopbarJudge");
+    const dockBtn = document.getElementById("btnDockJudge");
+    const dockIcon = document.getElementById("dockJudgeIcon");
+    const dockLbl = document.getElementById("dockJudgeLabel");
+
+    let topHtml = "🙋‍♂️ Call Judge";
+    let dIcon = "🙋‍♂️";
+    let dLbl = "Judge";
+    let stateClass = "";
+
+    if (c && c.status === "en_route") {
+      const jName = (c.assignedJudge && c.assignedJudge.name) || c.assigned_judge || "Judge";
+      topHtml = `🏃‍♂️ ${this.escapeHtml(jName)} En Route!`;
+      dIcon = "🏃‍♂️";
+      dLbl = "En Route";
+      stateClass = "en-route";
+    } else if (c && c.status === "pending") {
+      topHtml = "🚨 Judge Pending";
+      dIcon = "🚨";
+      dLbl = "Pending";
+      stateClass = "pending";
+    } else if (c && c.status === "resolved") {
+      topHtml = "✅ Judge Resolved";
+      dIcon = "✅";
+      dLbl = "Resolved";
+      stateClass = "resolved";
+    }
+
+    if (topBtn) {
+      topBtn.innerHTML = topHtml;
+      topBtn.classList.remove("pending", "en-route", "resolved");
+      if (stateClass) topBtn.classList.add(stateClass);
+    }
+    if (dockBtn) {
+      dockBtn.classList.remove("pending", "en-route", "resolved");
+      if (stateClass) dockBtn.classList.add(stateClass);
+    }
+    if (dockIcon) dockIcon.textContent = dIcon;
+    if (dockLbl) dockLbl.textContent = dLbl;
+  }
+
+  openJudgeModal() {
+    if (this.activeJudgeCall && (this.activeJudgeCall.status === "resolved" || this.activeJudgeCall.status === "cancelled")) {
+      this.activeJudgeCall = null;
+    }
+    let modal = document.getElementById("gt-judge-modal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "gt-judge-modal";
+      modal.addEventListener("click", (e) => {
+        if (e.target === modal) this.closeJudgeModal();
+      });
+      document.body.appendChild(modal);
+    }
+    modal.style.display = "flex";
+    this.renderJudgeModal();
+  }
+
+  closeJudgeModal() {
+    const modal = document.getElementById("gt-judge-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  selectJudgeCategory(el, cat) {
+    this.selectedJudgeCategory = cat;
+    document.querySelectorAll("#gt-judge-modal .gt-issue-option").forEach((o) => o.classList.remove("selected"));
+    if (el) el.classList.add("selected");
+  }
+
+  renderJudgeModal() {
+    const modal = document.getElementById("gt-judge-modal");
+    if (!modal) return;
+
+    const tournamentId = this.getTournamentId();
+    const tableNum = this.getTableNum();
+    const myTeamName =
+      this.activeRole === "captain_b"
+        ? (this.room?.team_b?.name || "Team B Captain")
+        : (this.room?.team_a?.name || "Team A Captain");
+    const myName = this.userName || myTeamName;
+
+    if (this.activeJudgeCall) {
+      const c = this.activeJudgeCall;
+      const isEnRoute = c.status === "en_route";
+      const isResolved = c.status === "resolved";
+
+      let statusIcon = "🚨";
+      let statusTitle = "Judge Call Dispatched";
+      let statusSub = `Table #${c.table_num || tableNum} • Issue: <b style="color:#f43f5e;">${this.escapeHtml(c.category || "Dispute")}</b>`;
+      let statusDesc = "The Tournament Director and Floor Judges have been notified and will respond shortly.";
+
+      if (isEnRoute) {
+        statusIcon = "🏃‍♂️";
+        statusTitle = "Floor Judge Is On The Way!";
+        statusDesc = c.assigned_judge
+          ? `Judge <b style="color:#38bdf8;">${this.escapeHtml(c.assigned_judge)}</b> has taken the call and is en route to Table #${c.table_num || tableNum}.`
+          : `A floor judge has answered your call and is walking to Table #${c.table_num || tableNum} now.`;
+      } else if (isResolved) {
+        statusIcon = "✅";
+        statusTitle = "Judge Call Resolved";
+        statusDesc = c.assigned_judge
+          ? `Resolved by ${this.escapeHtml(c.assigned_judge)}.`
+          : "This request has been marked as resolved.";
+      }
+
+      modal.innerHTML = `
+        <div class="gt-judge-dialog" style="max-width:440px; width:100%; background:#0f172a; border:1px solid #334155; border-radius:14px; box-shadow:0 20px 50px rgba(0,0,0,0.85); overflow:hidden; font-family:'Inter',system-ui,sans-serif;">
+          <div class="gt-judge-header" style="background:#1e293b; padding:12px 18px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #334155;">
+            <h3 style="margin:0; font-size:1.1rem; color:#fff; display:flex; align-items:center; gap:8px;">
+              <span>🚨 Live Floor Judge Dispatch</span>
+            </h3>
+            <button type="button" onclick="window.gtCloseJudgeModal()" style="background:transparent; border:none; color:#94a3b8; font-size:20px; cursor:pointer;">✕</button>
+          </div>
+          <div class="gt-judge-body" style="text-align:center; padding:1.75rem 1.5rem;">
+            <div style="font-size:3rem; margin-bottom:10px;">
+              ${statusIcon}
+            </div>
+            <h4 style="color:#fff; margin:0 0 6px; font-size:1.25rem; font-weight:800;">
+              ${statusTitle}
+            </h4>
+            <p style="color:#94a3b8; font-size:13px; margin:0 0 10px; line-height:1.5;">
+              ${statusSub}
+            </p>
+            <p style="color:#cbd5e1; font-size:12px; margin:0 0 18px; line-height:1.5; background:rgba(15,23,42,0.6); border:1px solid rgba(51,65,85,0.6); padding:10px 14px; border-radius:8px;">
+              ${statusDesc}
+            </p>
+            <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+              <button type="button" onclick="window.gtCloseJudgeModal()" style="background:#0284c7; color:#fff; border:none; padding:8px 18px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+                Return to Game
+              </button>
+              <button type="button" onclick="window.gtCancelJudgeCall()" style="background:#450a0a; color:#fca5a5; border:1px solid #991b1b; padding:8px 14px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer;">
+                Cancel Request
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const cats = [
+      { id: "Rules / Pairing Dispute", icon: "📜", title: "Rules / Pairing Step Dispute", desc: "Defender/Attacker lock question, matchup sequencing, table assignment" },
+      { id: "Clock / Timing Issue", icon: "⏱️", title: "Pairing Clock / Timing Adjudication", desc: "Captain pairing clock delay, round stoppage, late roster submission" },
+      { id: "Measurement / Line of Sight", icon: "📏", title: "Table Layout / Terrain Ruling", desc: "WTC terrain map assignment, deployment zone or ruin visibility ruling" },
+      { id: "Scorecard Correction", icon: "📝", title: "Roster / Misclick Correction", desc: "Wrong card locked by mistake, captain seat or player swap request" }
+    ];
+
+    modal.innerHTML = `
+      <div class="gt-judge-dialog" style="max-width:480px; width:100%; background:#0f172a; border:1px solid #334155; border-radius:14px; box-shadow:0 20px 50px rgba(0,0,0,0.85); overflow:hidden; font-family:'Inter',system-ui,sans-serif;">
+        <div class="gt-judge-header" style="background:#1e293b; padding:12px 18px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #334155;">
+          <h3 style="margin:0; font-size:1.05rem; color:#fff; display:flex; align-items:center; gap:8px;">
+            <span>🙋‍♂️ Call Tournament Director / Floor Judge</span>
+          </h3>
+          <button type="button" onclick="window.gtCloseJudgeModal()" style="background:transparent; border:none; color:#94a3b8; font-size:20px; cursor:pointer;">✕</button>
+        </div>
+        <div class="gt-judge-body" style="padding:16px 20px;">
+          <p style="color:#94a3b8; font-size:12px; margin:0 0 14px; line-height:1.5;">
+            Need a pairing step clarification, clock ruling, or misclick correction? Submit this request to alert the floor judges immediately.
+          </p>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+            <div>
+              <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Table / Pod #</label>
+              <input type="number" id="gt-judge-table" value="${this.escapeHtml(tableNum)}" style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; color:#fff; padding:8px 12px; border-radius:8px; font-family:'JetBrains Mono',monospace; font-weight:800; font-size:14px;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Calling Captain</label>
+              <input type="text" id="gt-judge-name" value="${this.escapeHtml(myName)}" style="width:100%; box-sizing:border-box; background:#070b14; border:1px solid #334155; color:#fff; padding:8px 12px; border-radius:8px; font-size:13px;" />
+            </div>
+          </div>
+
+          <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.05em;">Issue Category</label>
+          <div id="gt-judge-categories" style="margin-bottom:14px; display:flex; flex-direction:column; gap:6px;">
+            ${cats.map((c) => `
+              <div class="gt-issue-option ${this.selectedJudgeCategory === c.id ? "selected" : ""}" onclick="window.gtSelectCategory(this, '${c.id}')">
+                <span style="font-size:16px;">${c.icon}</span>
+                <div>
+                  <b style="font-size:12px; color:#fff;">${this.escapeHtml(c.title)}</b>
+                  <div style="font-size:10px; color:#94a3b8;">${this.escapeHtml(c.desc)}</div>
+                </div>
+              </div>
+            `).join("")}
+          </div>
+
+          <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Optional Brief Note</label>
+          <textarea id="gt-judge-note" placeholder="E.g. Cycle 1 Step 2 attacker selection misclick or table terrain map question..." style="width:100%; box-sizing:border-box; height:55px; background:#070b14; border:1px solid #334155; color:#fff; padding:8px 12px; border-radius:8px; font-size:12px; margin-bottom:16px; resize:none; font-family:inherit;"></textarea>
+
+          <div style="display:flex; gap:10px; justify-content:flex-end;">
+            <button type="button" onclick="window.gtCloseJudgeModal()" style="background:#1e293b; color:#94a3b8; border:1px solid #334155; padding:8px 16px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+              Cancel
+            </button>
+            <button type="button" id="gt-btn-dispatch-judge" onclick="window.gtSubmitJudgeCall('${this.escapeHtml(tournamentId)}')" style="background:linear-gradient(135deg, #e11d48, #be123c); color:#fff; border:none; padding:8px 20px; border-radius:8px; font-weight:800; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(225,29,72,0.4);">
+              🚨 Dispatch Judge to Table
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async submitJudgeCall(paramTournamentId) {
+    const tableEl = document.getElementById("gt-judge-table");
+    const nameEl = document.getElementById("gt-judge-name");
+    const noteEl = document.getElementById("gt-judge-note");
+    const btn = document.getElementById("gt-btn-dispatch-judge");
+
+    const tournamentId = paramTournamentId || this.getTournamentId();
+    const tableNum = parseInt(tableEl ? tableEl.value : this.getTableNum(), 10) || 1;
+    const playerName = (nameEl && nameEl.value.trim()) || this.userName || "Team Captain";
+    const opponentName =
+      this.activeRole === "captain_b"
+        ? (this.room?.team_a?.name || "Team A")
+        : (this.room?.team_b?.name || "Team B");
+    const note = noteEl ? noteEl.value.trim() : "";
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "🚨 Dispatching...";
+    }
+
+    const callId = "call_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+    const callData = {
+      id: callId,
+      call_id: callId,
+      callId: callId,
+      eventId: tournamentId,
+      event_id: tournamentId,
+      tableNum: tableNum,
+      table_num: tableNum,
+      tableNumber: tableNum,
+      table: tableNum,
+      matchId: this.roomCode || "",
+      match_id: this.roomCode || "",
+      playerName: playerName,
+      player_name: playerName,
+      caller: playerName,
+      callerName: playerName,
+      opponent: opponentName,
+      category: this.selectedJudgeCategory,
+      note: note,
+      notes: note,
+      status: "pending",
+      createdAt: Date.now(),
+      created_at: Date.now()
+    };
+
+    try {
+      const resp = await fetch("/api/eventstudio/judge_call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(callData)
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        this.activeJudgeCall = (data && data.call) ? data.call : callData;
+      } else {
+        this.activeJudgeCall = callData;
+      }
+    } catch (_) {
+      this.activeJudgeCall = callData;
+    } finally {
+      this.updateJudgeButtonsUI();
+      this.renderJudgeModal();
+      this.showToast(`🚨 Floor Judge dispatched to Table #${tableNum}!`);
+    }
+  }
+
+  async cancelJudgeCall() {
+    const call = this.activeJudgeCall;
+    if (!call) return;
+    const tournamentId = this.getTournamentId();
+    const callId = call.call_id || call.id || call.callId;
+    try {
+      await fetch("/api/eventstudio/judge_call/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          call_id: callId,
+          status: "cancelled",
+          event_id: tournamentId,
+          match_id: this.roomCode
+        })
+      });
+    } catch (_) {}
+    this.activeJudgeCall = null;
+    this.updateJudgeButtonsUI();
+    this.renderJudgeModal();
+    this.showToast("Judge call cancelled.");
   }
 
   escapeHtml(str) {

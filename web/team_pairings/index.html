@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/team-pairings/styles.css?v=19">
+  <link rel="stylesheet" href="/team-pairings/styles.css?v=20">
 </head>
 <body>
   <div class="ygo-app-shell">
@@ -34,6 +34,9 @@
       <div class="topbar-right gt-desktop-actions" style="display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
         <button type="button" id="btnOpenCoinFlipModal" class="gt-hud-btn gt-hud-dice-btn" title="Coin Flip for Defender / Attacker">
           🎲 Coin Flip
+        </button>
+        <button type="button" id="btnTopbarJudge" class="gt-hud-btn gt-hud-judge-btn" title="Call Tournament Judge">
+          🙋‍♂️ Call Judge
         </button>
         <button type="button" id="btnOpenLobbyModal" class="gt-hud-btn gt-hud-list-btn" title="Configure Team Rosters &amp; Captain Seats">
           📋 Team Rosters
@@ -831,10 +834,6 @@
 
     <!-- UNIFIED GAME TRACKER MOBILE BOTTOM DOCK -->
     <nav id="gt-mobile-bottom-dock" class="gt-mobile-bottom-dock" aria-label="Match Room Quick Controls">
-      <a href="/11th/tracker" class="gt-dock-btn" id="btnDockLobby" title="Back to Match Lobby">
-        <span class="gt-dock-ico">🎲</span>
-        <span class="gt-dock-lbl">Lobby</span>
-      </a>
       <button type="button" class="gt-dock-btn" id="btnDockOpenRoster" title="Open Team Roster &amp; Seat Builder">
         <span class="gt-dock-ico">🪑</span>
         <span class="gt-dock-lbl">Roster</span>
@@ -847,6 +846,10 @@
         <span class="gt-dock-ico">🪙</span>
         <span class="gt-dock-lbl">Coin</span>
       </button>
+      <button type="button" class="gt-dock-btn gt-dock-judge" id="btnDockJudge" title="Call Tournament Judge">
+        <span class="gt-dock-ico" id="dockJudgeIcon">🙋‍♂️</span>
+        <span class="gt-dock-lbl" id="dockJudgeLabel">Judge</span>
+      </button>
       <button type="button" class="gt-dock-btn finish" id="btnDockFinishRoom" title="Finalize Pairings &amp; Save to History">
         <span class="gt-dock-ico">🏁</span>
         <span class="gt-dock-lbl">Finish</span>
@@ -856,6 +859,6 @@
 
   <div id="toastNotification" class="toast-notification hidden"></div>
   <script src="/js/armory_svgs.js"></script>
-  <script src="/team-pairings/app.js?v=13"></script>
+  <script src="/team-pairings/app.js?v=14"></script>
 </body>
 </html>
