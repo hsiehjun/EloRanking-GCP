@@ -430,13 +430,13 @@
           </div>
         </div>
 
-        <!-- Step 2: Build Your Team Hand via Real Player Search or TCG Deck -->
+        <!-- Step 2: Build Your Team Hand via TCG Deck -->
         <div class="lobby-section" id="lobbyDeckBuilderSection">
           <div class="lobby-builder-top">
             <div class="lobby-step-title" style="margin-bottom:0;">
               <span style="display:inline-flex; align-items:center; gap:6px;">
                 2. TEAM HAND (<span id="lobbyDeckCountLabel">0 / 5</span>)
-                <button type="button" class="info-tip-btn" data-info-title="Building Your Team Hand" data-info-body="• Tournament Mode: Search real players or a team name below to add cards.&#10;• Casual TCG Mode: Click My Deck or Starter Deck (1450–1550 Elo) for quick minigame play.">i</button>
+                <button type="button" class="info-tip-btn" data-info-title="Building Your Team Hand" data-info-body="• Click My Deck to equip your saved TCG Deck.&#10;• Click Starter Deck (1450–1550 Elo) for quick balanced play.&#10;• Click TCG Vault (or any + slot) to customize your deck.">i</button>
               </span>
             </div>
             <div class="lobby-team-meta">
@@ -455,8 +455,8 @@
           <!-- Compact Mode + TCG Quick Actions Bar -->
           <div class="tcg-mode-switcher-strip" id="tcgModeSwitcherStrip">
             <div class="tms-left">
-              <span class="tms-mode-badge" id="roomModeStatusBadge">🏆 Tournament</span>
-              <button type="button" class="info-tip-btn" data-info-title="Tournament vs Casual TCG Mode" data-info-body="• Tournament Mode uses real searched players &amp; team rosters.&#10;• Casual TCG Mode lets you equip your collected TCG Deck or 1450–1550 Elo Starter Faction Cards.">i</button>
+              <span class="tms-mode-badge" id="roomModeStatusBadge">🃏 TCG Deck</span>
+              <button type="button" class="info-tip-btn" data-info-title="TCG Deck &amp; Starter Roster" data-info-body="• Equip your saved TCG Deck or the 1450–1550 Elo Starter Faction Deck.&#10;• Open TCG Vault to customize your 5v5 / 8v8 deck slots.">i</button>
               <span class="tms-mode-desc hidden" id="roomModeStatusDesc"></span>
             </div>
             <div class="tms-actions">
@@ -471,54 +471,6 @@
               </button>
             </div>
           </div>
-
-          <!-- Real Player Search Bar + Faction Override -->
-          <div class="player-search-bar-wrap">
-            <div class="search-input-box">
-              <span class="search-icon">🔍</span>
-              <input
-                type="text"
-                id="playerSearchInput"
-                class="player-search-input"
-                placeholder="Search player or team..."
-                autocomplete="off"
-              >
-            </div>
-            <select id="playerSearchFactionOverride" class="lobby-select" title="Optional Faction Override when adding player">
-              <option value="">Auto Faction</option>
-              <option value="Aeldari">Aeldari</option>
-              <option value="Necrons">Necrons</option>
-              <option value="Adeptus Custodes">Adeptus Custodes</option>
-              <option value="Space Marines">Space Marines</option>
-              <option value="Blood Angels">Blood Angels</option>
-              <option value="Dark Angels">Dark Angels</option>
-              <option value="Black Templars">Black Templars</option>
-              <option value="Space Wolves">Space Wolves</option>
-              <option value="Deathwatch">Deathwatch</option>
-              <option value="World Eaters">World Eaters</option>
-              <option value="Thousand Sons">Thousand Sons</option>
-              <option value="Death Guard">Death Guard</option>
-              <option value="Emperor's Children">Emperor's Children</option>
-              <option value="T'au Empire">T'au Empire</option>
-              <option value="Orks">Orks</option>
-              <option value="Tyranids">Tyranids</option>
-              <option value="Genestealer Cults">Genestealer Cults</option>
-              <option value="Astra Militarum">Astra Militarum</option>
-              <option value="Chaos Daemons">Chaos Daemons</option>
-              <option value="Chaos Space Marines">Chaos Space Marines</option>
-              <option value="Drukhari">Drukhari</option>
-              <option value="Grey Knights">Grey Knights</option>
-              <option value="Adepta Sororitas">Adepta Sororitas</option>
-              <option value="Adeptus Mechanicus">Adeptus Mechanicus</option>
-              <option value="Imperial Knights">Imperial Knights</option>
-              <option value="Chaos Knights">Chaos Knights</option>
-              <option value="Leagues of Votann">Leagues of Votann</option>
-              <option value="Imperial Agents">Imperial Agents</option>
-            </select>
-          </div>
-
-          <!-- Search Results Strip: Shows ONLY Matching Players when user types -->
-          <div class="search-results-strip hidden" id="playerSearchResults"></div>
 
           <!-- Your 5-Card Hand Slot Tray -->
           <div class="lobby-hand-tray" id="lobbyHandTray"></div>

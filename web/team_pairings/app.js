@@ -1584,8 +1584,7 @@ class YuGiOhPairingsArena {
     const targetSize = this.getTargetHandSize();
     const list = this.lobbyDraftTeam[this.activeRole] || [];
 
-    const overrideSel = document.getElementById("playerSearchFactionOverride");
-    const chosenFaction = (overrideSel && overrideSel.value) ? overrideSel.value : (playerObj.faction || "Space Marines");
+    const chosenFaction = playerObj.faction || "Space Marines";
     const meta = resolveFactionMeta(chosenFaction);
 
     const existingIdx = list.findIndex((p) => String(p.name || "").toLowerCase() === String(playerObj.name || "").toLowerCase());
@@ -1661,7 +1660,7 @@ class YuGiOhPairingsArena {
         `);
       } else {
         slotsHtml.push(`
-          <div class="lobby-empty-slot">
+          <div class="lobby-empty-slot" data-slot-idx="${i}" title="Click to pick a card from your TCG Deck">
             <span class="slot-plus">＋</span>
             <span class="slot-num">#${i + 1}</span>
           </div>
@@ -1669,6 +1668,14 @@ class YuGiOhPairingsArena {
       }
     }
     tray.innerHTML = slotsHtml.join("");
+
+    tray.querySelectorAll(".lobby-empty-slot").forEach((slot) => {
+      slot.addEventListener("click", () => {
+        const idx = Number(slot.getAttribute("data-slot-idx") || 0);
+        this.selectedDeckSlotIdx = idx;
+        this.openTcgVaultModal("deck");
+      });
+    });
 
     tray.querySelectorAll(".lobby-remove-card-btn").forEach((btn) => {
       btn.addEventListener("click", (e) => {
