@@ -67,13 +67,19 @@
 
     <!-- Main 3-Zone Yu-Gi-Oh! Duel Screen -->
     <div class="ygo-duel-stage">
-      <!-- 1. LEFT PANEL: Live Card Meta Stats & 6-Factor Matchup Inspector -->
+      <!-- Backdrop for Mobile / Small-Screen Card Meta Stats Popup -->
+      <div class="card-meta-popup-backdrop hidden" id="cardMetaPopupBackdrop"></div>
+
+      <!-- 1. LEFT PANEL (Desktop Hover) / POPUP MODAL (Mobile & Small Screen): Live Card Meta Stats & 6-Factor Matchup Inspector -->
       <aside class="ygo-inspector-panel" id="pairingProcessPanel">
         <div class="card-meta-inspector-frame" id="cardMetaInspectorFrame">
           <div class="cmi-header">
             <div class="cmi-title-row">
               <span class="cmi-title">📊 CARD META STATS <button type="button" class="info-tip-btn" data-info-title="Card Meta Stats & 6-Factor Engine" data-info-body="Hover or click any card in your hand, opponent's hand, or on the playmat to inspect:&#10;• 3-Month Global Faction Meta Win Rate & Tier&#10;• Player Career Win Rate, Games & Live Elo&#10;• 6-Factor Expected WTC (0–20) & Win % against every opposing card.">i</button></span>
-              <span class="cmi-owner-badge" id="metaInspectorOwnerBadge">YOUR CARD</span>
+              <div style="display:inline-flex; align-items:center; gap:6px;">
+                <span class="cmi-owner-badge" id="metaInspectorOwnerBadge">YOUR CARD</span>
+                <button type="button" class="cmi-popup-close-btn" id="btnCloseCardMetaPopup" title="Close Card Meta Stats">✕</button>
+              </div>
             </div>
           </div>
 
@@ -289,8 +295,11 @@
 
         <!-- BOTTOM EDGE: YOUR HAND OF UPRIGHT COLLECTIBLE PLAYER CARDS -->
         <div class="my-hand-area">
-          <div class="my-hand-label-pill">
-            <span id="myHandOwnerTitle">YOUR HAND (5)</span>
+          <div class="hand-pill-wrap">
+            <div class="my-hand-label-pill">
+              <span id="myHandOwnerTitle">YOUR HAND (5)</span>
+            </div>
+            <button type="button" class="mobile-card-stats-pill-btn" id="btnOpenMobileCardStats" title="View Card Meta Stats Popup">📊 Stats</button>
           </div>
           <div class="my-hand-fan" id="myHandFan"></div>
         </div>
