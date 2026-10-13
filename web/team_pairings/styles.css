@@ -6057,186 +6057,208 @@ html, body {
    Aligns Team Pairings & TCG Vault with /11th/tracker & theme.css (#070b14 / #0e1526 / #1e293b / #38bdf8)
    ============================================================================ */
 
-/* 1. Top HUD Bar (#gt-sync-hud / .ygo-topbar) — Matches OmniTactica Tracker HUD */
-.ygo-topbar {
-  background: rgba(11, 17, 32, 0.96) !important;
-  border-bottom: 1px solid #1e293b !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45) !important;
-  padding: 5px 10px !important;
-  gap: 5px !important;
-  flex-wrap: wrap !important;
-  justify-content: space-between !important;
-}
-
-.brand-group,
-.topbar-center,
-.topbar-right {
-  gap: 4px !important;
-  flex-wrap: wrap !important;
+/* 1. Top HUD Bar (#gt-sync-hud / .ygo-topbar) — Pixel-for-Pixel Match with /11th/tracker/play */
+.ygo-topbar,
+#gt-sync-hud {
+  margin: 4px 6px 0 6px !important;
+  background: rgba(15, 23, 42, 0.97) !important;
+  border: 1px solid rgba(56, 189, 248, 0.35) !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  padding: 4px 8px !important;
+  border-radius: 10px !important;
+  display: flex !important;
   align-items: center !important;
-}
-
-.brand-titles h1 {
-  font-family: 'JetBrains Mono', monospace !important;
-  font-size: 0.62rem !important;
-  font-weight: 800 !important;
-  letter-spacing: 0.03em !important;
-  color: #94a3b8 !important;
-  text-transform: uppercase;
+  justify-content: flex-start !important;
+  gap: 6px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
   white-space: nowrap !important;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin: 0 !important;
+  scrollbar-width: none !important;
+  flex-wrap: nowrap !important;
 }
 
-@media (max-width: 1650px) {
-  .brand-titles {
-    display: none !important;
-  }
-}
-
-.brand-titles .gold-tag {
+#gt-sync-hud::-webkit-scrollbar {
   display: none !important;
 }
 
-.gt-hud-nav-pill,
-.gt-hud-room-badge,
-.room-lock-pill,
-.top-share-pill,
-.top-action-btn,
-.btn-lobby-open,
-.ai-quick-toggle,
-.seat-chip {
-  font-family: 'JetBrains Mono', monospace !important;
-  font-size: 0.58rem !important;
-  font-weight: 700 !important;
+#gt-sync-hud > * {
+  flex-shrink: 0 !important;
+}
+
+.gt-hud-nav-pill.hub-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 3px !important;
+  color: #38bdf8 !important;
+  text-decoration: none !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  background: rgba(56, 189, 248, 0.12) !important;
+  border: 1px solid rgba(56, 189, 248, 0.25) !important;
+  padding: 4px 7px !important;
   border-radius: 6px !important;
-  padding: 3px 6px !important;
-  letter-spacing: 0.01em !important;
-  box-shadow: none !important;
-  text-transform: none;
-  white-space: nowrap !important;
-  flex-shrink: 0;
-}
-
-.gt-hud-nav-pill {
-  background: #0f172a !important;
-  border: 1px solid #273042 !important;
-  color: #94a3b8 !important;
-}
-
-.gt-hud-nav-pill:hover {
-  border-color: #38bdf8 !important;
-  color: #f8fafc !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  cursor: pointer !important;
 }
 
 .gt-hud-nav-pill.lobby-pill {
-  background: rgba(56, 189, 248, 0.1) !important;
-  border-color: rgba(56, 189, 248, 0.32) !important;
-  color: #7dd3fc !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 3px !important;
+  color: #f59e0b !important;
+  text-decoration: none !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  background: rgba(245, 158, 11, 0.12) !important;
+  border: 1px solid rgba(245, 158, 11, 0.25) !important;
+  padding: 4px 7px !important;
+  border-radius: 6px !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  cursor: pointer !important;
 }
 
 .gt-hud-room-badge {
-  background: #070b14 !important;
-  border: 1px solid #1e293b !important;
-  color: #38bdf8 !important;
-}
-
-.room-lock-pill.unlocked {
-  background: rgba(16, 185, 129, 0.1) !important;
-  border: 1px solid rgba(16, 185, 129, 0.35) !important;
-  color: #34d399 !important;
-}
-
-.room-lock-pill.locked {
-  background: rgba(245, 158, 11, 0.12) !important;
-  border: 1px solid rgba(245, 158, 11, 0.4) !important;
-  color: #fbbf24 !important;
-}
-
-/* Segmented Seat Tabs & Center Toolbar Buttons */
-.topbar-center {
-  gap: 5px !important;
-}
-
-.seat-chip {
   font-family: 'JetBrains Mono', monospace !important;
-  font-size: 0.68rem !important;
-  font-weight: 700 !important;
-  padding: 4px 9px !important;
-  border-radius: 7px !important;
+  color: #f59e0b !important;
+  font-size: 10.5px !important;
   background: #070b14 !important;
-  border: 1px solid #1e293b !important;
-  color: #94a3b8 !important;
+  padding: 4px 6px !important;
+  border-radius: 6px !important;
+  border: 1px solid #334155 !important;
+  font-weight: 800 !important;
+  white-space: nowrap !important;
+  cursor: pointer !important;
+}
+
+/* Right Action Buttons inside #gt-sync-hud — Exact Match with /11th/tracker/play */
+.gt-hud-btn {
+  padding: 4px 8px !important;
+  border-radius: 6px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
   box-shadow: none !important;
 }
 
-.seat-chip:hover {
-  border-color: #334155 !important;
-  color: #e2e8f0 !important;
-}
-
-.seat-chip.active {
-  background: rgba(56, 189, 248, 0.14) !important;
-  border-color: #38bdf8 !important;
-  color: #f8fafc !important;
-  box-shadow: 0 0 10px rgba(56, 189, 248, 0.15) !important;
-}
-
-.btn-lobby-open {
+.gt-hud-clock-btn {
   background: #0f172a !important;
-  border: 1px solid #273042 !important;
-  color: #e2e8f0 !important;
+  color: #38bdf8 !important;
+  border: 1px solid rgba(56, 189, 248, 0.4) !important;
 }
 
-.btn-lobby-open:hover {
-  border-color: #38bdf8 !important;
-  background: #162033 !important;
-  transform: translateY(-1px);
+.gt-hud-dice-btn {
+  background: #0f172a !important;
+  color: #f59e0b !important;
+  border: 1px solid rgba(245, 158, 11, 0.4) !important;
 }
 
-.tcg-vault-pill-btn {
-  background: rgba(168, 85, 247, 0.1) !important;
-  border: 1px solid rgba(168, 85, 247, 0.38) !important;
-  color: #e9d5ff !important;
+.gt-hud-list-btn,
+.gt-hud-tcg-btn {
+  background: #1e293b !important;
+  color: #ffffff !important;
+  border: 1px solid #334155 !important;
 }
 
-.tcg-vault-pill-btn:hover {
-  background: rgba(168, 85, 247, 0.18) !important;
-  border-color: #a855f7 !important;
+.gt-hud-scorecard-btn {
+  background: rgba(56, 189, 248, 0.12) !important;
+  color: #38bdf8 !important;
+  border: 1px solid rgba(56, 189, 248, 0.25) !important;
+}
+
+.gt-hud-finish-btn {
+  background: #059669 !important;
+  color: #ffffff !important;
+  border: 1px solid #10b981 !important;
+  padding: 4px 9px !important;
+}
+
+.room-lock-pill.unlocked {
+  background: rgba(16, 185, 129, 0.15) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.35) !important;
+}
+
+.room-lock-pill.locked {
+  background: rgba(244, 63, 94, 0.16) !important;
+  color: #fb7185 !important;
+  border: 1px solid rgba(244, 63, 94, 0.4) !important;
+}
+
+.top-share-pill {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  border: none !important;
+}
+
+.gt-hud-feedback-btn {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #94a3b8 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
 }
 
 .tcg-glory-chip {
   background: #070b14 !important;
   border: 1px solid rgba(245, 158, 11, 0.45) !important;
   color: #fbbf24 !important;
-  padding: 1px 6px !important;
-  border-radius: 5px !important;
-  font-size: 0.64rem !important;
+  padding: 1px 5px !important;
+  border-radius: 4px !important;
+  font-size: 10px !important;
+  font-family: 'JetBrains Mono', monospace !important;
 }
 
-.coin-pill-btn {
-  background: #0f172a !important;
-  border: 1px solid #273042 !important;
-  color: #cbd5e1 !important;
+/* Arena Seat & Sandbox Controls Strip (Inside .ygo-field-center) */
+.arena-controls-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 3px 8px;
+  background: rgba(14, 21, 38, 0.88);
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
 }
 
-.coin-pill-btn:hover {
-  border-color: #f59e0b !important;
-  color: #fde68a !important;
+.topbar-center,
+.arena-sandbox-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
 }
 
+.seat-chip,
 .top-action-btn,
-.top-share-pill,
 .ai-quick-toggle {
-  background: #0f172a !important;
-  border: 1px solid #273042 !important;
-  color: #cbd5e1 !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 10.5px !important;
+  font-weight: 700 !important;
+  padding: 3px 8px !important;
+  border-radius: 6px !important;
+  background: #070b14 !important;
+  border: 1px solid #1e293b !important;
+  color: #94a3b8 !important;
+  box-shadow: none !important;
+  white-space: nowrap !important;
 }
 
-.top-action-btn:hover,
-.top-share-pill:hover {
+.seat-chip:hover,
+.top-action-btn:hover {
+  border-color: #38bdf8 !important;
+  color: #f8fafc !important;
+}
+
+.seat-chip.active {
+  background: rgba(56, 189, 248, 0.14) !important;
   border-color: #38bdf8 !important;
   color: #f8fafc !important;
 }
@@ -6245,12 +6267,6 @@ html, body {
   background: rgba(56, 189, 248, 0.12) !important;
   border-color: rgba(56, 189, 248, 0.4) !important;
   color: #38bdf8 !important;
-}
-
-.top-action-btn.finish-room-btn {
-  background: rgba(16, 185, 129, 0.12) !important;
-  border-color: rgba(16, 185, 129, 0.4) !important;
-  color: #34d399 !important;
 }
 
 /* 2. Left & Right Panels — Matte Dark Slate (#0e1526 + #1e293b border) */

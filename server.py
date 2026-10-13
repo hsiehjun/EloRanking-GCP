@@ -1227,8 +1227,26 @@ async def api_create_team_pairing_room(request: Request):
         body = await request.json()
     except Exception:
         body = {}
+    if not isinstance(body, dict):
+        body = {}
+    req_user = _get_request_user(request)
+    req_guest_id = (
+        request.headers.get("X-Guest-Id")
+        or request.query_params.get("guest_id")
+        or body.get("guest_id")
+    )
+    if req_guest_id:
+        body["guest_id"] = str(req_guest_id).strip()
+    if req_user and isinstance(req_user, dict):
+        u_id = req_user.get("id") or req_user.get("user_id")
+        u_name = req_user.get("display_name") or req_user.get("name") or req_user.get("username")
+        if u_id:
+            body["user_id"] = str(u_id).strip()
+            body["owner_id"] = str(u_id).strip()
+        if u_name and (not body.get("user_name") or body.get("user_name") == "Team A Captain"):
+            body["user_name"] = str(u_name).strip()
     fs_engine = get_firestore_engine()
-    raw_room = fs_engine.create_pairing_room(body if isinstance(body, dict) else {})
+    raw_room = fs_engine.create_pairing_room(body)
     return JSONResponse(
         {
             "success": True,
@@ -1267,8 +1285,18 @@ async def api_action_team_pairing_room(room_code: str, request: Request):
         body = await request.json()
     except Exception:
         body = {}
+    if not isinstance(body, dict):
+        body = {}
+    req_user = _get_request_user(request)
+    if req_user and isinstance(req_user, dict):
+        u_id = req_user.get("id") or req_user.get("user_id")
+        u_name = req_user.get("display_name") or req_user.get("name") or req_user.get("username")
+        if u_id and (not body.get("user_id") or str(body.get("user_id")).startswith(("guest_", "cap_"))):
+            body["user_id"] = str(u_id).strip()
+        if u_name and (not body.get("user_name") or body.get("user_name") in ("Team A Captain", "Team B Captain")):
+            body["user_name"] = str(u_name).strip()
     fs_engine = get_firestore_engine()
-    res = fs_engine.apply_pairing_action(room_code, body if isinstance(body, dict) else {})
+    res = fs_engine.apply_pairing_action(room_code, body)
     if isinstance(res, tuple):
         status_code, resp_data = res
     else:

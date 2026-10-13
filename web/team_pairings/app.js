@@ -142,29 +142,50 @@ class YuGiOhPairingsArena {
 
   initGuestUserId() {
     try {
-      const rawUser = localStorage.getItem("omnitactica_user") || localStorage.getItem("currentUser");
+      const rawUser =
+        localStorage.getItem("native_user_profile") ||
+        localStorage.getItem("bcp_user_profile") ||
+        localStorage.getItem("omnitactica_user") ||
+        localStorage.getItem("currentUser");
       if (rawUser) {
         const parsed = JSON.parse(rawUser);
         if (parsed && (parsed.id || parsed.user_id)) return String(parsed.id || parsed.user_id);
       }
-      let id = localStorage.getItem("gt_guest_id");
-      if (!id) {
-        id = "cap_" + Math.random().toString(36).slice(2, 10);
+      let id = localStorage.getItem("gt_guest_id") || sessionStorage.getItem("gt_guest_id");
+      if (!id || !String(id).startsWith("guest_")) {
+        id = "guest_" + Math.random().toString(36).slice(2, 10) + "_" + Date.now().toString(36);
         localStorage.setItem("gt_guest_id", id);
       }
       return id;
     } catch (_) {
-      return "cap_" + Math.random().toString(36).slice(2, 10);
+      return "guest_" + Math.random().toString(36).slice(2, 10);
+    }
+  }
+
+  getGuestId() {
+    try {
+      let gid = localStorage.getItem("gt_guest_id") || sessionStorage.getItem("gt_guest_id");
+      if (!gid || !String(gid).startsWith("guest_")) {
+        gid = "guest_" + Math.random().toString(36).slice(2, 10) + "_" + Date.now().toString(36);
+        localStorage.setItem("gt_guest_id", gid);
+      }
+      return gid;
+    } catch (_) {
+      return "guest_fallback";
     }
   }
 
   initUserName() {
     try {
-      const rawUser = localStorage.getItem("omnitactica_user") || localStorage.getItem("currentUser");
+      const rawUser =
+        localStorage.getItem("native_user_profile") ||
+        localStorage.getItem("bcp_user_profile") ||
+        localStorage.getItem("omnitactica_user") ||
+        localStorage.getItem("currentUser");
       if (rawUser) {
         const parsed = JSON.parse(rawUser);
-        if (parsed && (parsed.display_name || parsed.username)) {
-          return String(parsed.display_name || parsed.username).trim();
+        if (parsed && (parsed.display_name || parsed.name || parsed.username)) {
+          return String(parsed.display_name || parsed.name || parsed.username).trim();
         }
       }
     } catch (_) {}
@@ -173,7 +194,14 @@ class YuGiOhPairingsArena {
 
   getAuthToken() {
     try {
-      return localStorage.getItem("omnitactica_token") || localStorage.getItem("auth_token") || "";
+      return (
+        localStorage.getItem("elo_auth_token") ||
+        localStorage.getItem("native_session_token") ||
+        sessionStorage.getItem("elo_auth_token") ||
+        localStorage.getItem("omnitactica_token") ||
+        localStorage.getItem("auth_token") ||
+        ""
+      );
     } catch (_) {
       return "";
     }
@@ -183,13 +211,20 @@ class YuGiOhPairingsArena {
     if (!roomCode || !role || !token) return;
     try {
       localStorage.setItem(`tp_tok_${roomCode}_${role}`, token);
+      if (role === "captain_a") {
+        localStorage.setItem(`tp_cap_token_${roomCode}`, token);
+      }
     } catch (_) {}
   }
 
   loadRoomTokenFromStorage(roomCode, role) {
     if (!roomCode || !role) return "";
     try {
-      return localStorage.getItem(`tp_tok_${roomCode}_${role}`) || "";
+      return (
+        localStorage.getItem(`tp_tok_${roomCode}_${role}`) ||
+        (role === "captain_a" ? localStorage.getItem(`tp_cap_token_${roomCode}`) : "") ||
+        ""
+      );
     } catch (_) {
       return "";
     }
@@ -1788,17 +1823,25 @@ class YuGiOhPairingsArena {
   async createNewRoom({ openLobby = false, emptyRosters = true } = {}) {
     const fmt = document.getElementById("selectFormat")?.value || "5v5";
     const vsAi = document.getElementById("chkVsAi")?.checked ?? true;
+    const token = this.getAuthToken();
+    const guestId = this.getGuestId();
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Guest-Id": guestId
+    };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
 
     try {
       const resp = await fetch("/api/team-pairings/room", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           format_size: fmt,
           empty_rosters: emptyRosters,
           vs_ai: vsAi,
           owner_id: this.userId,
           user_id: this.userId,
+          guest_id: guestId,
           user_name: this.userName || "Team A Captain",
           claim_role: "captain_a"
         })
@@ -1810,6 +1853,13 @@ class YuGiOhPairingsArena {
         this.captainTokens.captain_a = data.captain_a_token || data.room.captain_a_token || "";
         this.captainTokens.captain_b = data.captain_b_token || data.room.captain_b_token || "";
         this.saveRoomTokenToStorage(this.roomCode, "captain_a", this.captainTokens.captain_a);
+        try {
+          const url = new URL(window.location.href);
+          if (!url.searchParams.get("demo_state")) {
+            url.searchParams.set("room", this.roomCode);
+            window.history.replaceState({}, "", url.toString());
+          }
+        } catch (_) {}
         this.selectedIds = [];
         this.inspectedPlayer = null;
         this.syncLobbyDraftFromRoom();
@@ -2082,9 +2132,35 @@ class YuGiOhPairingsArena {
     const p = this.getPerspective();
     if (!p) return;
 
+    const isRoomLocked = Boolean(this.room.is_locked);
     const topRoomBadge = document.getElementById("topbarRoomCodeBadge");
     if (topRoomBadge) {
-      topRoomBadge.textContent = `#${this.roomCode || this.room.room_code || "WTC"}`;
+      topRoomBadge.textContent = `#${this.roomCode || this.room.room_code || "WTC"} ${isRoomLocked ? "🔒" : "🔓"}`;
+    }
+
+    // Update Center Matchup in #gt-sync-hud to match /11th/tracker/play
+    const hudDot = document.getElementById("hudStatusDot");
+    const hudTeamA = document.getElementById("hudTeamALabel");
+    const hudTeamB = document.getElementById("hudTeamBLabel");
+    const rawTeamA = this.room.team_a?.name || "Team A";
+    const rawTeamB = this.room.team_b?.name || "Team B";
+    const isBReady = Boolean(this.room.vs_ai || this.room.seat_b_locked || this.room.captain_b_claimed || (this.room.team_b?.roster?.length > 0));
+    if (hudDot) {
+      hudDot.style.background = isBReady ? "#10b981" : "#f59e0b";
+    }
+    if (hudTeamA) {
+      hudTeamA.textContent = this.activeRole === "captain_a" ? `${rawTeamA} (You)` : rawTeamA;
+    }
+    if (hudTeamB) {
+      if (!isBReady && this.activeRole !== "captain_b") {
+        hudTeamB.textContent = "Waiting for Cap B...";
+        hudTeamB.style.color = "#94a3b8";
+        hudTeamB.style.fontStyle = "italic";
+      } else {
+        hudTeamB.textContent = this.activeRole === "captain_b" ? `${rawTeamB} (You)` : rawTeamB;
+        hudTeamB.style.color = "#10b981";
+        hudTeamB.style.fontStyle = "normal";
+      }
     }
 
     const isDone = Boolean(
@@ -2112,9 +2188,9 @@ class YuGiOhPairingsArena {
     const coinBtn = document.getElementById("btnOpenCoinFlipModal");
     if (coinBtn) {
       if (p.isAlternating && this.room.phase !== "COMPLETED") {
-        coinBtn.textContent = p.amIDefender ? "🪙 Role: 🛡️ DEF" : "🪙 Role: ⚔️ ATK";
+        coinBtn.textContent = p.amIDefender ? "🎲 Role: 🛡️ DEF" : "🎲 Role: ⚔️ ATK";
       } else {
-        coinBtn.textContent = "🪙 Coin Flip";
+        coinBtn.textContent = "🎲 Coin Flip";
       }
     }
 
@@ -3798,7 +3874,7 @@ class YuGiOhPairingsArena {
     if (!this.pairingClock) return;
     const activeSec = this.pairingClock.activeSide === "b" ? this.pairingClock.secB : this.pairingClock.secA;
     const topTxt = document.getElementById("topbarClockText");
-    if (topTxt) topTxt.textContent = this.formatClockSec(activeSec);
+    if (topTxt) topTxt.textContent = this.pairingClock.running ? this.formatClockSec(activeSec) : "Table Clock";
     const dockLbl = document.getElementById("dockClockLabel");
     if (dockLbl) dockLbl.textContent = this.pairingClock.running ? this.formatClockSec(activeSec) : "Clock";
 

@@ -1414,6 +1414,80 @@ class TestTeamPairingsPoC(unittest.TestCase):
         finally:
             self.engine.update_live_player_elo_override("John Lennon", 2145)
 
+    def test_unified_gt_hud_header_and_5v5_8v8_lobby_history_persistence(self):
+        """Verify /team-pairings #gt-sync-hud matches /11th/tracker/play header and 5v5/8v8 pairing rooms appear in Game & Pairings History."""
+        from routers.tracker import TrackerCreatePayload
+
+        tp_html = (ROOT_DIR / "web" / "team_pairings" / "index.html").read_text(encoding="utf-8")
+        tp_css = (ROOT_DIR / "web" / "team_pairings" / "styles.css").read_text(encoding="utf-8")
+        tracker_sync_js = (ROOT_DIR / "web" / "tracker" / "tracker_sync.js").read_text(encoding="utf-8")
+
+        # 1. Verify unified #gt-sync-hud header structure matches /11th/tracker/play
+        self.assertIn('id="gt-sync-hud"', tp_html)
+        self.assertIn('id="hudMatchupDisplay"', tp_html)
+        self.assertIn('id="hudStatusDot"', tp_html)
+        self.assertIn('id="hudTeamALabel"', tp_html)
+        self.assertIn('id="hudTeamBLabel"', tp_html)
+        self.assertIn('class="gt-hud-nav-pill hub-pill"', tp_html)
+        self.assertIn('class="gt-hud-nav-pill lobby-pill"', tp_html)
+        self.assertIn('class="gt-hud-room-badge"', tp_html)
+        self.assertIn('class="topbar-right gt-desktop-actions"', tp_html)
+        self.assertIn('class="arena-controls-strip"', tp_html)
+        self.assertIn("#gt-sync-hud {", tp_css)
+
+        # 2. Verify watchLobbyActiveMatches skips WTC- rooms so Firestore 'rooms' collection doesn't wipe them
+        self.assertIn("String(mid).toUpperCase().startsWith('WTC-')", tracker_sync_js)
+
+        # 3. Verify TrackerCreatePayload accepts both integer (5, 8) and string ("5v5", "8v8") format_size + guest_id
+        p5_int = TrackerCreatePayload(game_system="team_pairings", format_size=5, guest_id="guest_test_abc")
+        self.assertEqual(p5_int.format_size, 5)
+        self.assertEqual(p5_int.guest_id, "guest_test_abc")
+        p8_int = TrackerCreatePayload(game_system="team_pairings", format_size=8, guest_id="guest_test_abc")
+        self.assertEqual(p8_int.format_size, 8)
+
+        # 4. Verify 5v5 and 8v8 rooms created with guest_id or user_id appear in list_pairing_rooms_for_user
+        r5 = self.engine.create_pairing_room(
+            format_size="5v5",
+            team_a_preset="art_of_war",
+            team_b_preset="team_zero_comp",
+            vs_ai=True,
+            created_by="Guest Captain",
+            user_id="",
+            guest_id="guest_test_abc",
+        )
+        r8 = self.engine.create_pairing_room(
+            format_size="8v8",
+            team_a_preset="team_ignite",
+            team_b_preset=" vanguard_tactics",
+            vs_ai=True,
+            created_by="Guest Captain",
+            user_id="",
+            guest_id="guest_test_abc",
+        )
+        # Finish the 8v8 room to verify completed status as well
+        self.engine.apply_pairing_action(
+            r8["room_code"],
+            role="captain_a",
+            captain_token=r8["captain_a_token"],
+            action="finish_room",
+            payload={},
+        )
+
+        listed = self.engine.list_pairing_rooms_for_user(
+            user_id="",
+            user_name="",
+            guest_id="guest_test_abc",
+            limit=50,
+        )
+        active_by_code = {item["match_id"]: item for item in listed.get("active", [])}
+        completed_by_code = {item["match_id"]: item for item in listed.get("completed", [])}
+        self.assertIn(r5["room_code"], active_by_code)
+        self.assertIn(r8["room_code"], completed_by_code)
+        self.assertEqual(active_by_code[r5["room_code"]]["format_size"], "5v5")
+        self.assertEqual(active_by_code[r5["room_code"]]["status"], "active")
+        self.assertEqual(completed_by_code[r8["room_code"]]["format_size"], "8v8")
+        self.assertEqual(completed_by_code[r8["room_code"]]["status"], "completed")
+
 
 if __name__ == "__main__":
     unittest.main()

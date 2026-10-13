@@ -2787,11 +2787,13 @@ class FirestoreRoomEngine:
         self,
         user_id: Optional[str] = None,
         user_name: Optional[str] = None,
+        guest_id: Optional[str] = None,
         limit: int = 50,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Returns active and completed WTC Team Pairings rooms for Lobby Match History in < 5ms."""
         discarded = getattr(self, "_discarded_pairing_rooms", set())
         u_id = str(user_id or "").strip()
+        g_id = str(guest_id or "").strip()
         u_name = str(user_name or "").strip().lower()
 
         active_items: List[Dict[str, Any]] = []
@@ -2807,20 +2809,25 @@ class FirestoreRoomEngine:
             if not code or code in discarded or rm.get("is_abandoned") or rm.get("status") == "abandoned":
                 continue
 
-            if u_id or u_name:
+            if u_id or g_id or u_name:
                 owner_uid = str(rm.get("owner_id") or "").strip()
+                rm_guest_id = str(rm.get("guest_id") or "").strip()
                 cap_a_uid = str(rm.get("user_id_cap_a") or "").strip()
                 cap_b_uid = str(rm.get("user_id_cap_b") or "").strip()
                 cap_a_nm = str(rm.get("seat_a_owner_name") or rm.get("captain_a_name") or "").strip().lower()
                 cap_b_nm = str(rm.get("seat_b_owner_name") or rm.get("captain_b_name") or "").strip().lower()
-                has_any_owner = bool(owner_uid or cap_a_uid or cap_b_uid)
+                all_uids = {x for x in (owner_uid, rm_guest_id, cap_a_uid, cap_b_uid) if x}
+                has_any_owner = bool(all_uids)
+                is_guest_owned_only = bool(all_uids) and all(x.startswith(("guest_", "cap_")) for x in all_uids)
                 matches_user = False
-                if u_id and u_id in (owner_uid, cap_a_uid, cap_b_uid):
+                if u_id and u_id in all_uids:
+                    matches_user = True
+                elif g_id and g_id in all_uids:
                     matches_user = True
                 elif u_name and (u_name in cap_a_nm or u_name in cap_b_nm):
                     matches_user = True
-                elif not has_any_owner:
-                    # Include local/guest pairing rooms created in the same session
+                elif not has_any_owner or is_guest_owned_only:
+                    # Include local/guest pairing rooms created in the same browser/session
                     matches_user = True
                 if not matches_user:
                     continue
@@ -3578,6 +3585,7 @@ class FirestoreRoomEngine:
             "vs_ai": vs_ai,
             "is_locked": is_locked,
             "owner_id": creator_uid,
+            "guest_id": str(req.get("guest_id") or "").strip() or None,
             "user_id_cap_a": creator_uid if seat_a_locked else None,
             "user_id_cap_b": None,
             "seat_a_locked": seat_a_locked,

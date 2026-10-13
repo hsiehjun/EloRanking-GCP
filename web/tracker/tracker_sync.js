@@ -2220,7 +2220,8 @@
       );
     }
     const isPairingsMode = targetMode === 'pairings' || targetMode === 'pairings_5v5' || targetMode === 'pairings_8v8' || targetMode === 'wtc';
-    const pairingFormatSize = formatSizeOverride || (targetMode === 'pairings_8v8' ? 8 : 5);
+    const rawFormatNum = (formatSizeOverride === '8v8' || formatSizeOverride === 8 || targetMode === 'pairings_8v8') ? 8 : 5;
+    const pairingFormatSize = `${rawFormatNum}v${rawFormatNum}`;
     const isAosMode = !isPairingsMode && (
       (targetMode === 'aos') ||
       window.location.pathname.includes('/aos') ||
@@ -2229,23 +2230,26 @@
     );
     const sysId = isPairingsMode ? 'pairings' : (isAosMode ? 'aos' : '40k');
     const loadingTitle = isPairingsMode
-      ? `⚔️ Creating ${pairingFormatSize}v${pairingFormatSize} Team Pairings Room`
+      ? `⚔️ Creating ${pairingFormatSize} Team Pairings Room`
       : (isAosMode ? '⚡ Creating Age of Sigmar Room' : '🎲 Creating Match Room');
     const loadingSubtitle = isPairingsMode
       ? 'Allocating WTC pairing arena room key & initializing rosters...'
       : 'Allocating tabletop room key & initializing mission setup...';
     isNavigatingToRoom = true;
     window.__showGtLoadingOverlay(loadingTitle, loadingSubtitle, true);
+    const guestId = getOrCreateGuestId();
     try {
       const resp = await fetch('/api/tracker/room/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${getAuthToken()}`,
+          'X-Guest-Id': guestId,
           'X-Game-System': sysId
         },
         body: JSON.stringify({
           token: getAuthToken(),
+          guest_id: guestId,
           game_system: sysId,
           game_mode: isPairingsMode ? 'pairings' : 'tracker',
           format_size: isPairingsMode ? pairingFormatSize : undefined,
@@ -2259,9 +2263,10 @@
           try {
             if (data.captain_a_token && mid) {
               localStorage.setItem(`tp_cap_token_${mid}`, data.captain_a_token);
+              localStorage.setItem(`tp_tok_${mid}_captain_a`, data.captain_a_token);
             }
           } catch (e) {}
-          window.location.href = `/team-pairings?room=${encodeURIComponent(mid)}&from_lobby=1`;
+          window.location.href = `/team-pairings?room=${encodeURIComponent(mid)}&format=${encodeURIComponent(pairingFormatSize)}&from_lobby=1`;
           return;
         }
         const isAosMatch = isAosMode || mid.startsWith('AOS-') || data.game_system === 'aos';
@@ -2298,7 +2303,7 @@
       }
     } catch (err) {}
     if (isPairingsMode) {
-      window.location.href = '/team-pairings?from_lobby=1';
+      window.location.href = `/team-pairings?format=${encodeURIComponent(pairingFormatSize)}&from_lobby=1`;
     } else if (isAosMode) {
       window.location.href = '/11th/tracker/aos?solo=true';
     } else {
@@ -3176,6 +3181,7 @@
 
     activeIds.forEach(mid => {
       if (lobbyRoomUnsubs[mid]) return;
+      if (String(mid).toUpperCase().startsWith('WTC-')) return;
       try {
         lobbyRoomUnsubs[mid] = db.collection('rooms').doc(mid).onSnapshot((snap) => {
           if (!snap || !snap.exists) {
@@ -3286,11 +3292,16 @@
           window.location.search.includes('game_system=aos') ||
           window.location.search.includes('system=aos');
         const token = getAuthToken();
+        const guestId = getOrCreateGuestId();
         const params = new URLSearchParams();
         if (token) params.set('token', token);
+        if (guestId) params.set('guest_id', guestId);
         params.set('game_system', isAosMode ? 'aos' : '40k');
+        const reqHeaders = {};
+        if (token) reqHeaders['Authorization'] = `Bearer ${token}`;
+        if (guestId) reqHeaders['X-Guest-Id'] = guestId;
         const resp = await fetch(`/api/tracker/sessions?${params.toString()}`, {
-          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+          headers: reqHeaders
         });
         if (resp.ok) {
           const data = await resp.json();

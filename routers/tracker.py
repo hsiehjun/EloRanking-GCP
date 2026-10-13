@@ -57,7 +57,8 @@ class TrackerCreatePayload(BaseModel):
     pairing_id: Optional[str] = None
     game_system: Optional[str] = "40k"
     game_mode: Optional[str] = None
-    format_size: Optional[str] = "5v5"
+    format_size: Optional[Any] = "5v5"
+    guest_id: Optional[str] = None
     vs_ai: Optional[bool] = True
     empty_rosters: Optional[bool] = True
     is_locked: Optional[bool] = None
@@ -2383,7 +2384,8 @@ def api_tracker_history(request: Request, limit: int = 500, search: Optional[str
         pairing_lists = {"active": [], "completed": []}
         if hasattr(fs_engine, "list_pairing_rooms_for_user"):
             try:
-                pairing_lists = fs_engine.list_pairing_rooms_for_user(user_id=user_id, user_name=user_name, limit=limit)
+                guest_id = _extract_guest_id(request)
+                pairing_lists = fs_engine.list_pairing_rooms_for_user(user_id=user_id, user_name=user_name, guest_id=guest_id, limit=limit)
             except Exception as p_err:
                 logger.debug(f"Pairing history fetch notice: {p_err}")
         active_sessions.extend(pairing_lists.get("active", []))
@@ -2494,7 +2496,8 @@ def _api_tracker_user_sessions_sync(
     # 2b. Include WTC Team Pairings rooms (active and completed)
     if hasattr(fs_engine, "list_pairing_rooms_for_user"):
         try:
-            pairing_lists = fs_engine.list_pairing_rooms_for_user(user_id=user_id, user_name=user_name)
+            guest_id = _extract_guest_id(request)
+            pairing_lists = fs_engine.list_pairing_rooms_for_user(user_id=user_id, user_name=user_name, guest_id=guest_id)
             for p_act in pairing_lists.get("active", []):
                 pmid = (p_act.get("match_id") or "").strip().upper()
                 if pmid and pmid not in seen_matches:

@@ -4,68 +4,61 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#050811">
-  <title>OmniTactica • Team Pairings Duel Arena (Admin PoC)</title>
+  <title>OmniTactica • Team Pairings Lab &amp; Duel Arena (Admin PoC)</title>
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/team-pairings/styles.css?v=16">
+  <link rel="stylesheet" href="/team-pairings/styles.css?v=17">
 </head>
 <body>
   <div class="ygo-app-shell">
-    <!-- Unified Game Tracker + Team Pairings Top HUD Bar -->
+    <!-- Unified Game Tracker + Team Pairings Top HUD Bar (Identical to /11th/tracker/play #gt-sync-hud) -->
     <header class="ygo-topbar" id="gt-sync-hud">
-      <div class="brand-group">
-        <a href="/app#my-hub" class="gt-hud-nav-pill" title="Back to OmniTactica Hub">🏠 Hub</a>
+      <!-- Left: Hub & Lobby Navigation & Match Tag -->
+      <div class="gt-hud-left" style="display:inline-flex; align-items:center; gap:5px; flex-shrink:0;">
+        <a href="/#my-hub" class="gt-hud-nav-pill hub-pill" title="Back to OmniTactica Hub">🏠 Hub</a>
         <a href="/11th/tracker" class="gt-hud-nav-pill lobby-pill" id="btnBackToTrackerLobby" title="Return to Match Lobby">🎲 Lobby</a>
-        <button type="button" class="gt-hud-room-badge" id="topbarRoomCodeBadge" title="Click to Copy Room Code">#WTC-DEV1</button>
-        <button type="button" class="room-lock-pill unlocked" id="btnTopbarRoomLock" title="Toggle Room Lock (Unlocked vs Locked)">
-          🔓 Unlocked
-        </button>
-        <div class="brand-titles">
-          <h1>Team Pairings Lab <span class="gold-tag">CARD DUEL ARENA</span></h1>
-        </div>
+        <button type="button" class="gt-hud-room-badge" id="topbarRoomCodeBadge" title="Tap to Share Match Room &amp; Manage Lock">#WTC-DEV1 🔓</button>
       </div>
 
-      <!-- Quick Seat Pills & Room Roster / TCG / Coin Controls -->
-      <div class="topbar-center" id="roleSelectorPills">
-        <button type="button" class="seat-chip active" id="btnRoleCapA" data-role="captain_a">👑 Team A Cap</button>
-        <button type="button" class="seat-chip" id="btnRoleCapB" data-role="captain_b">👑 Team B Cap</button>
-        <button type="button" class="seat-chip" id="btnRoleSpectator" data-role="spectator">👁️ Spectator</button>
-        <button type="button" class="btn-lobby-open" id="btnOpenLobbyModal">🪑 Lobby &amp; Roster</button>
-        <button type="button" class="btn-lobby-open tcg-vault-pill-btn" id="btnOpenTcgVaultModal" title="Open TCG Player Card Collection, Glory Pack Store &amp; Casual Deck Builder">
-          🃏 TCG Cards &amp; Decks <span class="tcg-glory-chip" id="topbarGloryBadge">🪙 1,390</span>
-        </button>
-        <button type="button" class="btn-lobby-open coin-pill-btn" id="btnOpenCoinFlipModal" title="Coin Flip for Defender / Attacker">🪙 Coin Flip</button>
+      <!-- Center: Connected Teams Matchup -->
+      <div class="gt-hud-matchup" id="hudMatchupDisplay" style="display:inline-flex; align-items:center; gap:4px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:10.5px; padding:0 2px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+        <span id="hudStatusDot" style="width:7px; height:7px; border-radius:50%; background:#10b981; flex-shrink:0;"></span>
+        <span id="hudTeamALabel" style="color:#38bdf8; overflow:hidden; text-overflow:ellipsis;">Team A (You)</span>
+        <span style="color:#64748b; font-size:10px;">vs</span>
+        <span id="hudTeamBLabel" style="color:#10b981; overflow:hidden; text-overflow:ellipsis;">Team B</span>
       </div>
 
-      <div class="topbar-right">
-        <button type="button" id="btnToggleLandscape" class="top-action-btn mobile-only-btn" title="Toggle Horizontal / Landscape View on Mobile">
-          🔄 Landscape
+      <!-- Right: Action Buttons (Matches /11th/tracker/play .gt-desktop-actions) -->
+      <div class="topbar-right gt-desktop-actions" style="display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
+        <button type="button" id="btnTopbarClock" class="gt-hud-btn gt-hud-clock-btn" title="Open Table Chess Clock (Independent)">
+          ⏱️ <span id="topbarClockText">Table Clock</span>
         </button>
-        <button type="button" id="btnTopbarClock" class="top-action-btn hud-tool-btn" title="Toggle WTC Captain Pairing Clock">
-          ⏱️ <span id="topbarClockText">05:00</span>
+        <button type="button" id="btnOpenCoinFlipModal" class="gt-hud-btn gt-hud-dice-btn" title="Coin Flip for Defender / Attacker">
+          🎲 Coin Flip
         </button>
-        <button type="button" id="btnTopbarDice" class="top-action-btn hud-tool-btn" title="Replay Latest On-Field Card Clash">
-          ⚔️ Clash
+        <button type="button" id="btnOpenLobbyModal" class="gt-hud-btn gt-hud-list-btn" title="Configure Team Rosters &amp; Captain Seats">
+          📋 Team Rosters
         </button>
-        <label class="ai-quick-toggle pred-score-toggle" id="lblPredictionScoringToggle" title="Toggle On-Field Combat &amp; WTC Score Simulation vs Official Pairing Mode">
-          <input type="checkbox" id="chkPredictionScoring" checked>
-          <span id="predictionScoringToggleText">⚔️ Combat Score: ON</span>
-        </label>
-        <label class="ai-quick-toggle" title="Auto-play opposing Captain if seat is open">
-          <input type="checkbox" id="chkVsAi" checked>
-          <span>🤖 vs AI</span>
-        </label>
-        <button type="button" id="btnAutoFinish" class="top-action-btn accent">⚡ Auto-Duel</button>
-        <button type="button" class="top-share-pill" id="btnTopbarShareModal" title="Share Match Room (Link or OmniTactica Chat)">
-          🔗 Share
+        <button type="button" id="btnOpenTcgVaultModal" class="gt-hud-btn gt-hud-tcg-btn" title="Open TCG Player Card Collection, Glory Pack Store &amp; Casual Deck Builder">
+          🃏 TCG Cards <span class="tcg-glory-chip" id="topbarGloryBadge">🪙 1,390</span>
         </button>
-        <button type="button" id="btnFinishPairingRoom" class="top-action-btn finish-room-btn" title="Finalize Pairings &amp; Save to Lobby Completed Matches">
+        <button type="button" id="btnTopbarDice" class="gt-hud-btn gt-hud-scorecard-btn" title="Replay Latest On-Field Card Clash">
+          📄 Clash Replay
+        </button>
+        <button type="button" id="btnFinishPairingRoom" class="gt-hud-btn gt-hud-finish-btn" title="Finalize Pairings &amp; Save to Lobby Completed Matches">
           🏁 Finish
         </button>
-        <button type="button" id="btnNewMatch" class="top-action-btn desktop-nav-link" title="Create Fresh Room">🔄 New</button>
-        <button type="button" id="btnTopbarFeedback" class="top-action-btn desktop-nav-link" title="Send Feedback">💬</button>
+        <button type="button" class="gt-hud-btn room-lock-pill unlocked" id="btnTopbarRoomLock" title="Room Unlocked (Guests Allowed) — Click to Lock">
+          🔓 Unlocked
+        </button>
+        <button type="button" class="gt-hud-btn top-share-pill" id="btnTopbarShareModal" title="Share Match Room (Link or OmniTactica Chat)">
+          🔗 Share
+        </button>
+        <button type="button" id="btnTopbarFeedback" class="gt-hud-btn gt-hud-feedback-btn" title="Send Feedback or Report an Issue">
+          💬 Feedback
+        </button>
       </div>
     </header>
 
@@ -181,6 +174,28 @@
 
       <!-- 2. CENTER PANEL: First-Person 3D Tactical Playmat (Opponent Top, Field Center, Your Hand Bottom) -->
       <main class="ygo-field-center">
+        <!-- Arena Seat & Sandbox Controls Strip -->
+        <div class="arena-controls-strip">
+          <div class="topbar-center" id="roleSelectorPills">
+            <button type="button" class="seat-chip active" id="btnRoleCapA" data-role="captain_a">👑 Team A Cap</button>
+            <button type="button" class="seat-chip" id="btnRoleCapB" data-role="captain_b">👑 Team B Cap</button>
+            <button type="button" class="seat-chip" id="btnRoleSpectator" data-role="spectator">👁️ Spectator</button>
+          </div>
+          <div class="arena-sandbox-tools">
+            <label class="ai-quick-toggle pred-score-toggle" id="lblPredictionScoringToggle" title="Toggle On-Field Combat &amp; WTC Score Simulation vs Official Pairing Mode">
+              <input type="checkbox" id="chkPredictionScoring" checked>
+              <span id="predictionScoringToggleText">⚔️ Combat Score: ON</span>
+            </label>
+            <label class="ai-quick-toggle" title="Auto-play opposing Captain if seat is open">
+              <input type="checkbox" id="chkVsAi" checked>
+              <span>🤖 vs AI</span>
+            </label>
+            <button type="button" id="btnAutoFinish" class="top-action-btn accent">⚡ Auto-Duel</button>
+            <button type="button" id="btnNewMatch" class="top-action-btn desktop-nav-link" title="Create Fresh Room">🔄 New</button>
+            <button type="button" id="btnToggleLandscape" class="top-action-btn mobile-only-btn" title="Toggle Horizontal / Landscape View on Mobile">🔄 Landscape</button>
+          </div>
+        </div>
+
         <!-- TOP EDGE: Opponent's Open Roster Hand (Face-Up in WTC Team Pairings) -->
         <div class="opp-hand-area">
           <div class="opp-hand-label-pill" id="oppHandOwnerTitle">

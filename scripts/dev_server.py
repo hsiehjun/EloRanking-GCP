@@ -2142,6 +2142,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "vs_ai": True if p_load.get("vs_ai") is None else bool(p_load.get("vs_ai")),
                     "empty_rosters": bool(p_load.get("empty_rosters", False)),
                     "user_id": p_load.get("user_id") or DEV_USER["user"].get("id") or u_id,
+                    "guest_id": guest_hdr,
                     "captain_a_name": p_load.get("p1_name") or "Innes Wilson",
                 }
                 if p_load.get("match_id"):
