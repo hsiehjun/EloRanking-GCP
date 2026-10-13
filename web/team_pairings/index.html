@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/team-pairings/styles.css?v=22">
+  <link rel="stylesheet" href="/team-pairings/styles.css?v=27">
 </head>
 <body>
   <div class="ygo-app-shell">
@@ -390,11 +390,50 @@
           </div>
         </div>
 
-        <!-- Step 1: Select & Lock Your Seat -->
+        <!-- Step 1: Choose Setup Mode (3 Options) -->
+        <div class="lobby-section" id="lobbySetupModeSection">
+          <div class="lobby-step-title">
+            <span style="display:inline-flex; align-items:center; gap:6px;">
+              1. SETUP MODE
+              <button type="button" class="info-tip-btn" data-info-title="3 Setup Modes" data-info-body="• Play vs Player: Casual play against another player using the TCG deck you have created.&#10;• Play vs AI: Automatically creates a balanced deck for you and an AI deck with a matching Average Elo.&#10;• Pairing Tool: Pure WTC pairing tool for tournament use (search real players/factions, no dice simulation).">i</button>
+            </span>
+            <span class="gt-room-lock-status" id="lobbyActiveSetupModeBadge">⚔️ Casual PvP</span>
+          </div>
+          <div class="lobby-setup-modes-grid" id="lobbySetupModeGrid">
+            <div class="lobby-setup-mode-card" id="btnSetupModeVsPlayer" data-setup-mode="vs_player">
+              <div class="lsm-top">
+                <span class="lsm-icon">⚔️</span>
+                <span class="lsm-pill pvp">CASUAL PVP</span>
+              </div>
+              <div class="lsm-title">Play vs Player</div>
+              <div class="lsm-desc">Casual play with the deck you have created</div>
+            </div>
+
+            <div class="lobby-setup-mode-card" id="btnSetupModeVsAi" data-setup-mode="vs_ai">
+              <div class="lsm-top">
+                <span class="lsm-icon">🤖</span>
+                <span class="lsm-pill ai">MATCHED ELO</span>
+              </div>
+              <div class="lsm-title">Play vs AI</div>
+              <div class="lsm-desc">Auto-creates your deck &amp; AI's deck (similar Avg Elo)</div>
+            </div>
+
+            <div class="lobby-setup-mode-card" id="btnSetupModeTournament" data-setup-mode="tournament">
+              <div class="lsm-top">
+                <span class="lsm-icon">🏆</span>
+                <span class="lsm-pill tourney">TOURNAMENT</span>
+              </div>
+              <div class="lsm-title">Pairing Tool</div>
+              <div class="lsm-desc">Just for tournament use (real rosters &amp; WTC pairing)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2: Select & Lock Your Seat -->
         <div class="lobby-section">
           <div class="lobby-step-title">
             <span style="display:inline-flex; align-items:center; gap:6px;">
-              1. SELECT SEAT
+              2. SELECT SEAT
               <button type="button" class="info-tip-btn" data-info-title="Seat Locking &amp; Room Access" data-info-body="• Each Captain seat locks to you once claimed.&#10;• When the room is Unlocked, anyone with the room link can claim an open Captain seat.&#10;• Spectators watch live in read-only mode.">i</button>
             </span>
             <span class="gt-room-lock-status" id="lobbyRoomAccessStatusBadge">🟢 Open Room</span>
@@ -440,13 +479,13 @@
           </div>
         </div>
 
-        <!-- Step 2: Build Your Team Hand via TCG Deck -->
+        <!-- Step 3: Build Your Team Hand -->
         <div class="lobby-section" id="lobbyDeckBuilderSection">
           <div class="lobby-builder-top">
             <div class="lobby-step-title" style="margin-bottom:0;">
               <span style="display:inline-flex; align-items:center; gap:6px;">
-                2. TEAM HAND (<span id="lobbyDeckCountLabel">0 / 5</span>)
-                <button type="button" class="info-tip-btn" data-info-title="Building Your Team Hand" data-info-body="• Click My Deck to equip your saved TCG Deck.&#10;• Click Starter Deck (1450–1550 Elo) for quick balanced play.&#10;• Click TCG Vault (or any + slot) to customize your deck.">i</button>
+                3. TEAM HAND (<span id="lobbyDeckCountLabel">0 / 5</span>)
+                <button type="button" class="info-tip-btn" data-info-title="Building Your Team Hand" data-info-body="• Play vs Player: Equip your created TCG Deck or customize it in TCG Vault.&#10;• Play vs AI: Decks for you and the AI are auto-created with matched Avg Elo (click Re-Roll anytime).&#10;• Pairing Tool: Search real tournament players/teams or add faction cards directly.">i</button>
               </span>
             </div>
             <div class="lobby-team-meta">
@@ -462,14 +501,17 @@
             </div>
           </div>
 
-          <!-- Compact Mode + TCG Quick Actions Bar -->
+          <!-- Casual PvP / Play vs AI Mode Bar -->
           <div class="tcg-mode-switcher-strip" id="tcgModeSwitcherStrip">
             <div class="tms-left">
-              <span class="tms-mode-badge" id="roomModeStatusBadge">🃏 TCG Deck</span>
-              <button type="button" class="info-tip-btn" data-info-title="TCG Deck &amp; Starter Roster" data-info-body="• Equip your saved TCG Deck or the 1450–1550 Elo Starter Faction Deck.&#10;• Open TCG Vault to customize your 5v5 / 8v8 deck slots.">i</button>
+              <span class="tms-mode-badge" id="roomModeStatusBadge">🃏 Casual TCG</span>
+              <span class="tms-elo-match-pill" id="roomModeEloSummaryPill">Your Deck Ready</span>
               <span class="tms-mode-desc hidden" id="roomModeStatusDesc"></span>
             </div>
             <div class="tms-actions">
+              <button type="button" class="tms-btn ai-reroll hidden" id="btnRerollAiMatchupDecks" title="Auto-create a new balanced deck for you and an Elo-matched AI deck">
+                🎲 Re-Roll Decks
+              </button>
               <button type="button" class="tms-btn primary" id="btnEquipSavedTcgDeck" title="Load your saved Casual TCG Deck">
                 🃏 My Deck
               </button>
@@ -480,6 +522,61 @@
                 📦 TCG Vault
               </button>
             </div>
+          </div>
+
+          <!-- Tournament Pairing Tool Mode Bar (Search Real Players / Teams or Add Factions) -->
+          <div class="tournament-builder-strip hidden" id="tournamentModeBuilderStrip">
+            <div class="player-search-bar-wrap">
+              <div class="search-input-box">
+                <span class="search-icon">🔍</span>
+                <input
+                  type="text"
+                  id="playerSearchInput"
+                  class="player-search-input"
+                  placeholder="Search tournament player or team name..."
+                  autocomplete="off"
+                >
+              </div>
+              <select id="playerSearchFactionOverride" class="lobby-select" title="Select Faction (or override faction when adding player)">
+                <option value="">Auto / Pick Faction...</option>
+                <option value="Aeldari">Aeldari</option>
+                <option value="Necrons">Necrons</option>
+                <option value="Adeptus Custodes">Adeptus Custodes</option>
+                <option value="Space Marines">Space Marines</option>
+                <option value="Blood Angels">Blood Angels</option>
+                <option value="Dark Angels">Dark Angels</option>
+                <option value="Black Templars">Black Templars</option>
+                <option value="Space Wolves">Space Wolves</option>
+                <option value="Deathwatch">Deathwatch</option>
+                <option value="World Eaters">World Eaters</option>
+                <option value="Thousand Sons">Thousand Sons</option>
+                <option value="Death Guard">Death Guard</option>
+                <option value="Emperor's Children">Emperor's Children</option>
+                <option value="T'au Empire">T'au Empire</option>
+                <option value="Orks">Orks</option>
+                <option value="Tyranids">Tyranids</option>
+                <option value="Genestealer Cults">Genestealer Cults</option>
+                <option value="Astra Militarum">Astra Militarum</option>
+                <option value="Chaos Daemons">Chaos Daemons</option>
+                <option value="Chaos Space Marines">Chaos Space Marines</option>
+                <option value="Drukhari">Drukhari</option>
+                <option value="Grey Knights">Grey Knights</option>
+                <option value="Adepta Sororitas">Adepta Sororitas</option>
+                <option value="Adeptus Mechanicus">Adeptus Mechanicus</option>
+                <option value="Imperial Knights">Imperial Knights</option>
+                <option value="Chaos Knights">Chaos Knights</option>
+                <option value="Leagues of Votann">Leagues of Votann</option>
+                <option value="Imperial Agents">Imperial Agents</option>
+              </select>
+              <button type="button" class="tms-btn primary" id="btnAddTournamentFactionCard" title="Add custom player/faction card to your hand">
+                ＋ Add Card
+              </button>
+              <button type="button" class="tms-btn starter" id="btnLoadSampleTournamentTeams" title="Load sample WTC tournament rosters (Art of War vs Team Zero Comp)">
+                📋 Sample Teams
+              </button>
+            </div>
+            <!-- Search Results Strip: Shows Matching Players when user types -->
+            <div class="search-results-strip hidden" id="playerSearchResults"></div>
           </div>
 
           <!-- Your 5-Card Hand Slot Tray -->
@@ -776,6 +873,6 @@
 
   <div id="toastNotification" class="toast-notification hidden"></div>
   <script src="/js/armory_svgs.js"></script>
-  <script src="/team-pairings/app.js?v=16"></script>
+  <script src="/team-pairings/app.js?v=20"></script>
 </body>
 </html>

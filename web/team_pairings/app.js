@@ -296,6 +296,35 @@ class YuGiOhPairingsArena {
       btnCloseLobby.addEventListener("click", () => this.closeLobbyModal());
     }
 
+    // 3 Setup Mode Cards (Play vs Player, Play vs AI, Pairing Tool)
+    document.querySelectorAll("#lobbySetupModeGrid .lobby-setup-mode-card").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const mode = btn.getAttribute("data-setup-mode");
+        if (mode) this.setSetupMode(mode);
+      });
+    });
+
+    const btnRerollAiDecks = document.getElementById("btnRerollAiMatchupDecks");
+    if (btnRerollAiDecks) {
+      btnRerollAiDecks.addEventListener("click", () => {
+        this.setSetupMode("vs_ai", { isReroll: true });
+      });
+    }
+
+    const btnAddTourneyCard = document.getElementById("btnAddTournamentFactionCard");
+    if (btnAddTourneyCard) {
+      btnAddTourneyCard.addEventListener("click", () => {
+        this.addCustomTournamentCardFromBar();
+      });
+    }
+
+    const btnSampleTourneyTeams = document.getElementById("btnLoadSampleTournamentTeams");
+    if (btnSampleTourneyTeams) {
+      btnSampleTourneyTeams.addEventListener("click", () => {
+        this.setSetupMode("tournament", { loadSampleTeams: true });
+      });
+    }
+
     // Lobby Seat Cards (Claim & Lock Seat)
     document.querySelectorAll(".lobby-seat-card").forEach((card) => {
       card.addEventListener("click", (e) => {
@@ -1516,20 +1545,27 @@ class YuGiOhPairingsArena {
           : (s.ownerId === this.userId && s.ownerId !== (this.activeRole === "captain_a" ? this.room.user_id_cap_a : this.room.user_id_cap_b))
       );
       const isTakenByOther = s.isLocked && !isMine;
+      const isAiSeatB = s.role === "captain_b" && !s.isLocked && this.getActiveSetupMode() === "vs_ai";
+      const bRoster = this.room?.team_b?.roster || [];
+      const avgB = bRoster.length ? Math.round(bRoster.reduce((acc, p) => acc + (Number(p.elo) || 1500), 0) / bRoster.length) : 0;
 
       if (cardEl) {
         cardEl.classList.toggle("locked-other", isTakenByOther);
         cardEl.classList.toggle("locked-mine", isMine);
+        cardEl.classList.toggle("ai-seated", isAiSeatB);
       }
 
       if (lockBadge) {
-        lockBadge.classList.remove("mine", "taken");
+        lockBadge.classList.remove("mine", "taken", "ai-bot");
         if (isMine) {
           lockBadge.classList.add("mine");
           lockBadge.textContent = "🔒 YOU";
         } else if (isTakenByOther) {
           lockBadge.classList.add("taken");
           lockBadge.textContent = "🔒 TAKEN";
+        } else if (isAiSeatB) {
+          lockBadge.classList.add("ai-bot");
+          lockBadge.textContent = "🤖 AI BOT";
         } else {
           lockBadge.textContent = "🟢 OPEN";
         }
@@ -1540,6 +1576,8 @@ class YuGiOhPairingsArena {
           ownerText.textContent = "Seated: You";
         } else if (isTakenByOther) {
           ownerText.textContent = s.ownerName;
+        } else if (isAiSeatB) {
+          ownerText.textContent = avgB > 0 ? `AI Deck (Avg ${avgB} Elo)` : (this.room?.team_b?.name || "AI Opponent");
         } else {
           ownerText.textContent = isRoomLocked ? "Room Locked" : "Open";
         }
@@ -1550,6 +1588,8 @@ class YuGiOhPairingsArena {
           actionBadge.textContent = "✓ YOUR SEAT";
         } else if (isTakenByOther) {
           actionBadge.textContent = "🔒 TAKEN";
+        } else if (isAiSeatB) {
+          actionBadge.textContent = "🤖 AI READY";
         } else {
           actionBadge.textContent = "CLAIM SEAT";
         }
@@ -1565,11 +1605,115 @@ class YuGiOhPairingsArena {
           topBtn.textContent = `👑 ${labelBase} (You)`;
         } else if (isTakenByOther) {
           topBtn.textContent = `🔒 ${labelBase}`;
+        } else if (isAiSeatB) {
+          topBtn.textContent = `🤖 ${labelBase} (AI)`;
         } else {
           topBtn.textContent = `🟢 ${labelBase}`;
         }
       }
     });
+  }
+
+  getActiveSetupMode() {
+    const raw = String(this.room?.setup_mode || "").trim().toLowerCase();
+    if (raw === "vs_player" || raw === "vs_ai" || raw === "tournament") {
+      return raw;
+    }
+    if (this.room?.room_mode === "tournament" && this.room?.prediction_scoring_enabled === false) {
+      return "tournament";
+    }
+    if (this.room?.vs_ai && !this.room?.seat_b_locked) {
+      return "vs_ai";
+    }
+    return "vs_player";
+  }
+
+  async setSetupMode(mode, { isReroll = false, loadSampleTeams = false, silentToast = false } = {}) {
+    if (!this.roomCode) return;
+    const role = this.activeRole === "spectator" ? "captain_a" : this.activeRole;
+    const fmt = this.getActiveTcgFormat();
+    const tok = this.captainTokens[role] || this.loadRoomTokenFromStorage(this.roomCode, role);
+
+    try {
+      const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role,
+          user_id: this.userId,
+          captain_token: tok,
+          action: "set_setup_mode",
+          payload: {
+            setup_mode: mode,
+            format_size: fmt,
+            load_sample_teams: Boolean(loadSampleTeams),
+            seed: isReroll ? `reroll_${Date.now()}_${Math.random().toString(36).slice(2, 6)}` : undefined
+          }
+        })
+      });
+      const data = await resp.json();
+      if (data && (data.ok || data.success) && data.room) {
+        this.room = data.room;
+        this.syncLobbyDraftFromRoom();
+        this.renderLobbySeatLockState();
+        this.renderLobbyDeckBuilder();
+        const teamNameInput = document.getElementById("lobbyTeamNameInput");
+        if (teamNameInput && (this.activeRole === "captain_a" || this.activeRole === "captain_b")) {
+          teamNameInput.value = this.lobbyTeamNames[this.activeRole] || "";
+        }
+        this.renderAll();
+
+        if (!silentToast) {
+          const rA = this.room?.team_a?.roster || [];
+          const rB = this.room?.team_b?.roster || [];
+          const avgA = rA.length ? Math.round(rA.reduce((s, p) => s + (Number(p.elo) || 1500), 0) / rA.length) : 0;
+          const avgB = rB.length ? Math.round(rB.reduce((s, p) => s + (Number(p.elo) || 1500), 0) / rB.length) : 0;
+          if (mode === "vs_ai") {
+            this.showToast(`🤖 Play vs AI: Auto-created Your Deck (Avg ${avgA} Elo) & AI Deck (Avg ${avgB} Elo)!`);
+          } else if (mode === "tournament") {
+            this.showToast(
+              loadSampleTeams
+                ? "🏆 Pairing Tool: Loaded sample WTC tournament rosters!"
+                : "🏆 Pairing Tool: Pure Tournament Mode active — search players or add factions below."
+            );
+          } else {
+            this.showToast(`⚔️ Play vs Player: Equipped your created TCG Deck (Avg ${avgA || 1500} Elo)!`);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to set setup mode:", err);
+    }
+  }
+
+  addCustomTournamentCardFromBar() {
+    if (this.activeRole !== "captain_a" && this.activeRole !== "captain_b") return;
+    const searchInput = document.getElementById("playerSearchInput");
+    const overrideSel = document.getElementById("playerSearchFactionOverride");
+    const customName = (searchInput ? searchInput.value : "").trim();
+    let chosenFaction = (overrideSel && overrideSel.value) ? overrideSel.value : "";
+
+    if (!chosenFaction) {
+      const defaultFactions = [
+        "Aeldari", "Necrons", "Adeptus Custodes", "Space Marines",
+        "World Eaters", "Thousand Sons", "T'au Empire", "Orks"
+      ];
+      const curLen = (this.lobbyDraftTeam[this.activeRole] || []).length;
+      chosenFaction = defaultFactions[curLen % defaultFactions.length];
+    }
+
+    const cardName = customName || chosenFaction;
+    this.addPlayerToLobbyHand({
+      name: cardName,
+      faction: chosenFaction,
+      elo: 1850
+    });
+
+    if (searchInput) {
+      searchInput.value = "";
+      this.searchResultsPlayers = [];
+      this.renderSearchResults();
+    }
   }
 
   selectLobbySeatUI(seat) {
@@ -1609,7 +1753,8 @@ class YuGiOhPairingsArena {
     const targetSize = this.getTargetHandSize();
     const list = this.lobbyDraftTeam[this.activeRole] || [];
 
-    const chosenFaction = playerObj.faction || "Space Marines";
+    const overrideSel = document.getElementById("playerSearchFactionOverride");
+    const chosenFaction = (overrideSel && overrideSel.value) ? overrideSel.value : (playerObj.faction || "Space Marines");
     const meta = resolveFactionMeta(chosenFaction);
 
     const existingIdx = list.findIndex((p) => String(p.name || "").toLowerCase() === String(playerObj.name || "").toLowerCase());
@@ -1651,6 +1796,7 @@ class YuGiOhPairingsArena {
     const roleKey = this.activeRole === "captain_b" ? "captain_b" : "captain_a";
     const targetSize = this.getTargetHandSize();
     const hand = this.lobbyDraftTeam[roleKey] || [];
+    const activeSetupMode = this.getActiveSetupMode();
 
     const countLbl = document.getElementById("lobbyDeckCountLabel");
     if (countLbl) countLbl.textContent = `${hand.length} / ${targetSize}`;
@@ -1664,6 +1810,7 @@ class YuGiOhPairingsArena {
       }
     }
 
+    this.renderRoomModeStrip();
     this.renderSearchResults();
 
     const tray = document.getElementById("lobbyHandTray");
@@ -1684,8 +1831,11 @@ class YuGiOhPairingsArena {
           </div>
         `);
       } else {
+        const slotTitle = activeSetupMode === "tournament"
+          ? "Click to add a tournament player or faction card"
+          : "Click to pick a card from your TCG Deck";
         slotsHtml.push(`
-          <div class="lobby-empty-slot" data-slot-idx="${i}" title="Click to pick a card from your TCG Deck">
+          <div class="lobby-empty-slot" data-slot-idx="${i}" title="${slotTitle}">
             <span class="slot-plus">＋</span>
             <span class="slot-num">#${i + 1}</span>
           </div>
@@ -1697,6 +1847,17 @@ class YuGiOhPairingsArena {
     tray.querySelectorAll(".lobby-empty-slot").forEach((slot) => {
       slot.addEventListener("click", () => {
         const idx = Number(slot.getAttribute("data-slot-idx") || 0);
+        if (this.getActiveSetupMode() === "tournament") {
+          const overrideSel = document.getElementById("playerSearchFactionOverride");
+          if (overrideSel && overrideSel.value) {
+            this.addCustomTournamentCardFromBar();
+          } else {
+            const searchInp = document.getElementById("playerSearchInput");
+            if (searchInp) searchInp.focus();
+            this.showToast("🔍 Search a player/team above or pick a Faction and click + Add Card!");
+          }
+          return;
+        }
         this.selectedDeckSlotIdx = idx;
         this.openTcgVaultModal("deck");
       });
@@ -1990,7 +2151,12 @@ class YuGiOhPairingsArena {
 
   async createNewRoom({ openLobby = false, emptyRosters = true } = {}) {
     const fmt = document.getElementById("selectFormat")?.value || "5v5";
-    const vsAi = document.getElementById("chkVsAi")?.checked ?? true;
+    const params = new URLSearchParams(window.location.search);
+    const urlSetupMode = (params.get("setup_mode") || "").trim().toLowerCase();
+    const initialSetupMode = ["vs_player", "vs_ai", "tournament"].includes(urlSetupMode)
+      ? urlSetupMode
+      : (emptyRosters ? "vs_player" : "vs_ai");
+    const vsAi = initialSetupMode === "vs_ai";
     const token = this.getAuthToken();
     const guestId = this.getGuestId();
     const headers = {
@@ -2006,6 +2172,7 @@ class YuGiOhPairingsArena {
         body: JSON.stringify({
           format_size: fmt,
           empty_rosters: emptyRosters,
+          setup_mode: initialSetupMode,
           vs_ai: vsAi,
           owner_id: this.userId,
           user_id: this.userId,
@@ -2042,6 +2209,13 @@ class YuGiOhPairingsArena {
         this.renderLobbySeatLockState();
         this.closeCoinFlipModal();
         if (openLobby) {
+          const params = new URLSearchParams(window.location.search);
+          const urlSetupMode = (params.get("setup_mode") || "").trim().toLowerCase();
+          if (["vs_player", "vs_ai", "tournament"].includes(urlSetupMode)) {
+            await this.setSetupMode(urlSetupMode, { silentToast: true });
+          } else if (!params.get("demo_state") && this.room.setup_mode !== "tournament" && !(this.room.team_a?.roster?.length) && !(this.room.pairings?.length)) {
+            await this.setSetupMode("vs_player", { silentToast: true });
+          }
           this.openLobbyModal();
         } else {
           this.closeLobbyModal();
@@ -2100,12 +2274,12 @@ class YuGiOhPairingsArena {
           !this.room.seat_b_locked;
 
         if (this.activeRole === "captain_a" && (seatATakenByOtherUser || isSecondTabViaShareLink)) {
-          if (!this.room.seat_b_locked && !this.room.is_locked) {
+          if (!this.room.seat_b_locked && !this.room.vs_ai && !this.room.is_locked) {
             await this.claimOrSwitchSeat("captain_b", { silentToast: true });
-            // If Team B still has an empty roster or AI roster before any tables are paired, load Player 2's Starter/TCG deck
+            // If Team B still has an empty roster in Casual TCG mode before any tables are paired, load Player 2's saved TCG deck
             const bRoster = this.room?.team_b?.roster || [];
-            if ((bRoster.length === 0 || this.room?.room_mode === "casual_tcg") && !(this.room?.pairings?.length)) {
-              await this.equipTcgDeckToRoom("starter", { closeModals: false, silentToast: true });
+            if ((bRoster.length === 0 || this.room?.room_mode === "casual_tcg") && this.getActiveSetupMode() !== "tournament" && !(this.room?.pairings?.length)) {
+              await this.deployTcgDeckToRoom("saved_deck", { enterArena: false });
             }
             this.showToast("🔒 Joined room as Team B Captain!");
           } else {
@@ -2130,13 +2304,23 @@ class YuGiOhPairingsArena {
         this.syncLobbyDraftFromRoom();
         this.renderLobbySeatLockState();
 
-        const myRoster = this.activeRole === "captain_b"
+        let myRoster = this.activeRole === "captain_b"
           ? (this.room.team_b?.roster || [])
           : (this.room.team_a?.roster || []);
         const shouldOpenLobbyModal = Boolean(
-          openLobby || (this.activeRole !== "spectator" && myRoster.length === 0)
+          openLobby || fromLobby || (this.activeRole !== "spectator" && myRoster.length === 0)
         );
         if (shouldOpenLobbyModal) {
+          if (
+            this.activeRole === "captain_a" &&
+            this.room.setup_mode !== "tournament" &&
+            myRoster.length === 0 &&
+            !(this.room.team_b?.roster?.length) &&
+            !(this.room.pairings?.length) &&
+            !params.get("demo_state")
+          ) {
+            await this.setSetupMode("vs_player", { silentToast: true });
+          }
           this.openLobbyModal();
         } else {
           this.closeLobbyModal();
@@ -2262,6 +2446,8 @@ class YuGiOhPairingsArena {
       r.seat_b_locked ? 1 : 0,
       r.seat_a_owner_name || "",
       r.seat_b_owner_name || "",
+      r.setup_mode || "",
+      r.room_mode || "",
       r.vs_ai ? 1 : 0,
       r.is_locked ? 1 : 0,
       r.locked_a ? 1 : 0,
@@ -2340,7 +2526,7 @@ class YuGiOhPairingsArena {
               const tNum = Number(newPairings[i].table_num || newPairings[i].table || (i + 1));
               newTables.push(tNum);
             }
-            if (newTables.length > 0) {
+            if (newTables.length > 0 && this.room.prediction_scoring_enabled !== false) {
               this.playOnFieldCombatAnimation(newTables[0], newTables.slice(1));
             }
           }
@@ -3326,7 +3512,7 @@ class YuGiOhPairingsArena {
             const tNum = Number(newPairings[i].table_num || newPairings[i].table || (i + 1));
             newTables.push(tNum);
           }
-          if (newTables.length > 0) {
+          if (newTables.length > 0 && this.room.prediction_scoring_enabled !== false) {
             this.playOnFieldCombatAnimation(newTables[0], newTables.slice(1));
           }
         }
@@ -4666,11 +4852,62 @@ class YuGiOhPairingsArena {
   }
 
   renderRoomModeStrip() {
+    const setupMode = this.getActiveSetupMode();
+
+    // 1. Highlight active Setup Mode Card in Step 1
+    document.querySelectorAll("#lobbySetupModeGrid .lobby-setup-mode-card").forEach((card) => {
+      const m = card.getAttribute("data-setup-mode");
+      const isActive = m === setupMode;
+      card.classList.toggle("active", isActive);
+      card.style.borderColor = isActive ? "#fbbf24" : "rgba(148, 163, 184, 0.25)";
+    });
+
+    const topModeBadge = document.getElementById("lobbyActiveSetupModeBadge");
+    if (topModeBadge) {
+      if (setupMode === "vs_ai") {
+        topModeBadge.textContent = "🤖 Play vs AI (Matched Elo)";
+      } else if (setupMode === "tournament") {
+        topModeBadge.textContent = "🏆 Pairing Tool (Tournament)";
+      } else {
+        topModeBadge.textContent = "⚔️ Play vs Player (Casual TCG)";
+      }
+    }
+
+    // 2. Toggle Casual TCG / AI Bar vs Tournament Search Bar
+    const tcgStrip = document.getElementById("tcgModeSwitcherStrip");
+    const tourneyStrip = document.getElementById("tournamentModeBuilderStrip");
+    if (tcgStrip) tcgStrip.classList.toggle("hidden", setupMode === "tournament");
+    if (tourneyStrip) tourneyStrip.classList.toggle("hidden", setupMode !== "tournament");
+
+    const rerollBtn = document.getElementById("btnRerollAiMatchupDecks");
+    if (rerollBtn) rerollBtn.classList.toggle("hidden", setupMode !== "vs_ai");
+
+    // 3. Update Status Badge & Average Elo Comparison Pill
     const badge = document.getElementById("roomModeStatusBadge");
-    if (!badge) return;
-    const isCasualTcg = this.room?.room_mode === "casual_tcg";
-    badge.classList.toggle("casual-active", isCasualTcg);
-    badge.textContent = isCasualTcg ? "🃏 Casual TCG" : "🏆 Tournament";
+    const eloPill = document.getElementById("roomModeEloSummaryPill");
+    const rA = this.room?.team_a?.roster || [];
+    const rB = this.room?.team_b?.roster || [];
+    const avgA = rA.length ? Math.round(rA.reduce((s, p) => s + (Number(p.elo) || 1500), 0) / rA.length) : 0;
+    const avgB = rB.length ? Math.round(rB.reduce((s, p) => s + (Number(p.elo) || 1500), 0) / rB.length) : 0;
+    const myAvg = this.activeRole === "captain_b" ? avgB : avgA;
+
+    if (badge) {
+      const isCasualTcg = setupMode !== "tournament";
+      badge.classList.toggle("casual-active", isCasualTcg);
+      badge.textContent = setupMode === "vs_ai"
+        ? "🤖 AI Matchup"
+        : (setupMode === "tournament" ? "🏆 Tournament" : "🃏 Casual TCG");
+    }
+
+    if (eloPill) {
+      if (setupMode === "vs_ai" && avgA > 0 && avgB > 0) {
+        eloPill.textContent = `⚖️ Your Avg: ${avgA.toLocaleString()} Elo vs 🤖 AI Avg: ${avgB.toLocaleString()} Elo`;
+      } else if (setupMode === "vs_player" && myAvg > 0) {
+        eloPill.textContent = `Your Created Deck • Avg ${myAvg.toLocaleString()} Elo`;
+      } else {
+        eloPill.textContent = "Select or customize your 5-card hand";
+      }
+    }
   }
 
   renderTcgVaultAll() {

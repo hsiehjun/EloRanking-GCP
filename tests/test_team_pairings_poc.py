@@ -1765,6 +1765,70 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertEqual(rm_c2["attacker_role"], "captain_a")
         self.assertEqual(rm_c2["phase"], "STEP_1_DEFENDER")
 
+    def test_three_setup_modes_vs_player_vs_ai_and_tournament_tool(self):
+        """Verify the 3 Setup Modes: (1) Play vs Player (created deck, vs_ai=False), (2) Play vs AI (auto-creates both decks with matched Avg Elo), (3) Pairing Tool (tournament use, prediction_scoring_enabled=False)."""
+        uid = "user_setup_modes"
+        room = self.engine.create_pairing_room({
+            "format_size": "5v5",
+            "empty_rosters": True,
+            "user_id": uid,
+        })
+        code = room["room_code"]
+        tok_a = room["captain_a_token"]
+
+        # 1. Option 1: Play vs Player (vs_player)
+        r_pvp = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": uid,
+            "captain_token": tok_a,
+            "action": "set_setup_mode",
+            "payload": {"setup_mode": "vs_player", "format_size": "5v5"},
+        })
+        self.assertTrue(r_pvp["ok"])
+        rm_pvp = r_pvp["room"]
+        self.assertEqual(rm_pvp["setup_mode"], "vs_player")
+        self.assertEqual(rm_pvp["room_mode"], "casual_tcg")
+        self.assertFalse(rm_pvp["vs_ai"])
+        self.assertTrue(rm_pvp["prediction_scoring_enabled"])
+        self.assertEqual(len(rm_pvp["team_a"]["roster"]), 5)
+        self.assertEqual(len(rm_pvp["team_b"]["roster"]), 0)
+
+        # 2. Option 2: Play vs AI (vs_ai -> auto-creates both decks with similar Avg Elo)
+        r_ai = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": uid,
+            "captain_token": tok_a,
+            "action": "set_setup_mode",
+            "payload": {"setup_mode": "vs_ai", "format_size": "5v5"},
+        })
+        self.assertTrue(r_ai["ok"])
+        rm_ai = r_ai["room"]
+        self.assertEqual(rm_ai["setup_mode"], "vs_ai")
+        self.assertTrue(rm_ai["vs_ai"])
+        self.assertTrue(rm_ai["prediction_scoring_enabled"])
+        self.assertEqual(len(rm_ai["team_a"]["roster"]), 5)
+        self.assertEqual(len(rm_ai["team_b"]["roster"]), 5)
+        avg_a = sum(int(p.get("elo") or 1500) for p in rm_ai["team_a"]["roster"]) / 5.0
+        avg_b = sum(int(p.get("elo") or 1500) for p in rm_ai["team_b"]["roster"]) / 5.0
+        self.assertLessEqual(abs(avg_a - avg_b), 25.0, f"Auto-created player avg Elo ({avg_a:.1f}) and AI avg Elo ({avg_b:.1f}) must be closely matched")
+
+        # 3. Option 3: Pairing Tool (tournament -> pure WTC pairing tool, prediction_scoring_enabled=False)
+        r_tourney = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": uid,
+            "captain_token": tok_a,
+            "action": "set_setup_mode",
+            "payload": {"setup_mode": "tournament", "format_size": "5v5"},
+        })
+        self.assertTrue(r_tourney["ok"])
+        rm_tourney = r_tourney["room"]
+        self.assertEqual(rm_tourney["setup_mode"], "tournament")
+        self.assertEqual(rm_tourney["room_mode"], "tournament")
+        self.assertFalse(rm_tourney["vs_ai"])
+        self.assertFalse(rm_tourney["prediction_scoring_enabled"])
+        self.assertEqual(len(rm_tourney["team_a"]["roster"]), 0)
+        self.assertEqual(len(rm_tourney["team_b"]["roster"]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

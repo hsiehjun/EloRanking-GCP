@@ -1643,6 +1643,135 @@ html, body {
   gap: 10px;
 }
 
+/* 3 Setup Mode Cards Grid (Play vs Player, Play vs AI, Pairing Tool) */
+.lobby-setup-modes-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.lobby-setup-mode-card {
+  background: rgba(15, 23, 42, 0.85);
+  border: 2px solid rgba(148, 163, 184, 0.25);
+  border-radius: 12px;
+  padding: 9px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 3px;
+  color: #f8fafc;
+  outline: none;
+}
+
+.lobby-setup-mode-card:focus,
+.lobby-setup-mode-card:focus-visible {
+  outline: none;
+}
+
+.lobby-setup-mode-card:hover {
+  border-color: var(--cyan-glow);
+  transform: translateY(-2px);
+}
+
+.lobby-setup-mode-card.active {
+  background: linear-gradient(145deg, rgba(168, 85, 247, 0.22), rgba(14, 116, 144, 0.34)) !important;
+  border-color: var(--gold-bright) !important;
+  box-shadow: 0 0 20px rgba(245, 185, 66, 0.32) !important;
+}
+
+.lsm-top {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.lsm-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.lsm-pill {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+}
+
+.lsm-pill.pvp {
+  background: rgba(168, 85, 247, 0.22);
+  border: 1px solid rgba(192, 132, 252, 0.55);
+  color: #e9d5ff;
+}
+
+.lsm-pill.ai {
+  background: rgba(14, 165, 233, 0.22);
+  border: 1px solid rgba(56, 189, 248, 0.55);
+  color: #bae6fd;
+}
+
+.lsm-pill.tourney {
+  background: rgba(245, 158, 11, 0.22);
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  color: #fde68a;
+}
+
+.lsm-title {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #fff;
+}
+
+.lsm-desc {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  line-height: 1.3;
+}
+
+.seat-lock-pill.ai-bot {
+  background: rgba(14, 165, 233, 0.22);
+  border: 1px solid rgba(56, 189, 248, 0.55);
+  color: #7dd3fc;
+}
+
+.lobby-seat-card.ai-seated {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: linear-gradient(145deg, rgba(14, 116, 144, 0.2), rgba(15, 23, 42, 0.9));
+}
+
+.tms-elo-match-pill {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #bae6fd;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.tms-btn.ai-reroll {
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  border: 1px solid #38bdf8;
+  color: #fff;
+}
+
+@media (max-width: 720px) {
+  .lobby-setup-modes-grid {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .lobby-setup-mode-card {
+    padding: 7px 10px;
+  }
+}
+
 .lobby-seat-card {
   background: rgba(15, 23, 42, 0.82);
   border: 2px solid rgba(148, 163, 184, 0.25);
@@ -1747,11 +1876,25 @@ html, body {
   color: #fda4af;
 }
 
+.tournament-builder-strip {
+  margin-bottom: 8px;
+}
+
 .player-search-bar-wrap {
   display: grid;
-  grid-template-columns: 1fr 220px;
+  grid-template-columns: 1fr 195px auto auto;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+
+@media (max-width: 760px) {
+  .player-search-bar-wrap {
+    grid-template-columns: 1fr 1fr;
+  }
+  .player-search-bar-wrap .search-input-box {
+    grid-column: 1 / -1;
+  }
 }
 
 .search-input-box {
@@ -7944,8 +8087,14 @@ html, body {
   line-height: 1.35;
 }
 
+.tcg-mode-switcher-strip.hidden,
+.tournament-builder-strip.hidden {
+  display: none !important;
+}
 
-
-
-
+.lobby-setup-mode-card.active {
+  background: linear-gradient(145deg, rgba(168, 85, 247, 0.22), rgba(14, 116, 144, 0.34)) !important;
+  border: 2px solid #fbbf24 !important;
+  box-shadow: 0 0 20px rgba(245, 185, 66, 0.32) !important;
+}
 
