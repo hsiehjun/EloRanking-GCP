@@ -7790,6 +7790,140 @@ html, body {
   }
 }
 
+/* ============================================================================
+   TABLES HISTORY PLAY-BY-PLAY BREAKDOWN (D100 Roll, Odds & Underdog Upset)
+   ============================================================================ */
+.clash-history-play {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.clash-history-play.upset-loss {
+  background: rgba(127, 29, 29, 0.26);
+  border-color: rgba(251, 113, 133, 0.45);
+}
+
+.clash-history-play.upset-win {
+  background: rgba(120, 53, 15, 0.28);
+  border-color: rgba(251, 191, 36, 0.52);
+}
+
+.clash-history-play.favored-win {
+  background: rgba(6, 78, 59, 0.22);
+  border-color: rgba(52, 211, 153, 0.38);
+}
+
+.clash-history-play.favored-loss {
+  background: rgba(30, 41, 59, 0.55);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.clash-history-play.stratagem-lock {
+  background: rgba(113, 63, 18, 0.26);
+  border-color: rgba(250, 204, 21, 0.48);
+}
+
+.clash-play-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.clash-play-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #e2e8f0;
+}
+
+.clash-play-badge.upset-loss {
+  color: #fda4af;
+}
+
+.clash-play-badge.upset-win {
+  color: #fde047;
+}
+
+.clash-play-badge.favored-win {
+  color: #6ee7b7;
+}
+
+.clash-play-badge.favored-loss {
+  color: #cbd5e1;
+}
+
+.clash-play-badge.stratagem-lock {
+  color: #fde047;
+}
+
+.clash-play-dice {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.54rem;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(2, 6, 23, 0.72);
+  border: 1px solid rgba(56, 189, 248, 0.38);
+  color: #7dd3fc;
+  white-space: nowrap;
+}
+
+.clash-play-story {
+  font-family: var(--font-sans, 'Inter', sans-serif);
+  font-size: 0.62rem;
+  line-height: 1.35;
+  color: #cbd5e1;
+}
+
+.clash-play-story strong {
+  color: #f8fafc;
+  font-weight: 800;
+}
+
+.clash-swing-pill {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.52rem;
+  font-weight: 800;
+  margin-left: 4px;
+}
+
+.clash-swing-pill.swing-pos {
+  color: #34d399;
+}
+
+.clash-swing-pill.swing-neg {
+  color: #fb7185;
+}
+
+.clash-swing-pill.swing-even {
+  color: #94a3b8;
+}
+
+.ofc-wtc-roll-explain {
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(2, 6, 23, 0.84);
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  text-align: center;
+  max-width: 340px;
+  line-height: 1.35;
+}
+
+
 
 
 

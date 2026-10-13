@@ -3951,12 +3951,14 @@ class YuGiOhPairingsArena {
 
           const activeMy = isSimOn ? mySim : myEst;
           const activeOpp = isSimOn ? oppSim : (20 - myEst);
+          const playInfo = this.buildTableBattleBreakdown(m, isCapB);
+          const swingClass = playInfo.netSwing > 0 ? "swing-pos" : (playInfo.netSwing < 0 ? "swing-neg" : "swing-even");
 
           return `
             <div class="clash-mini-card" title="${this.escapeHtml(pred.tooltip || "")}">
               <div class="clash-mini-top">
                 <span>TABLE #${m.table_num}</span>
-                <span>EST: ${myEst}-${20 - myEst} • ${myProb}% WIN</span>
+                <span>EST: ${myEst}-${20 - myEst} • ${myProb}% WIN / ${100 - myProb}% LOSS</span>
               </div>
               <div class="clash-mini-players">
                 <div class="clash-side-a">
@@ -3969,8 +3971,20 @@ class YuGiOhPairingsArena {
                   <span class="clash-side-sub">${this.escapeHtml(oppP.faction)}</span>
                 </div>
               </div>
+              ${isSimOn ? `
+              <div class="clash-history-play ${playInfo.badgeClass}">
+                <div class="clash-play-head">
+                  <span class="clash-play-badge ${playInfo.badgeClass}">${playInfo.badgeText}</span>
+                  <span class="clash-play-dice">${playInfo.isGuaranteed ? "⚡ LOCKED" : `🎲 D100: ${playInfo.rawRoll}/100`}</span>
+                </div>
+                <div class="clash-play-story">${playInfo.storyHtml}</div>
+              </div>
+              ` : ""}
               <div class="clash-mini-sim-row">
-                <span class="clash-sim-pill">⚔️ WTC SCORE: <strong>${activeMy} – ${activeOpp}</strong></span>
+                <span class="clash-sim-pill">
+                  ⚔️ WTC SCORE: <strong>${activeMy} – ${activeOpp}</strong>
+                  ${isSimOn ? `<span class="clash-swing-pill ${swingClass}">(${playInfo.swingStr})</span>` : ""}
+                </span>
                 <button type="button" class="clash-mini-fight-btn" data-open-clash-table="${m.table_num}">⚔️ Replay Fight</button>
               </div>
             </div>
@@ -3997,6 +4011,91 @@ class YuGiOhPairingsArena {
         </tr>
       `).join("");
     }
+  }
+
+  buildTableBattleBreakdown(m, isCapB) {
+    const myP = isCapB ? m.player_b : m.player_a;
+    const oppP = isCapB ? m.player_a : m.player_b;
+    const rawA = Number(m.est_score_a ?? m.matchup?.expected_a ?? m.a_expected ?? 10);
+    const myEst = isCapB ? (20 - rawA) : rawA;
+    const oppEst = 20 - myEst;
+    const rawProbA = Number(m.win_prob_a ?? m.matchup?.win_prob_a ?? Math.round(50 + ((rawA - 10) / 33.34) * 100));
+    const myProb = isCapB ? (100 - rawProbA) : rawProbA;
+    const oppProb = 100 - myProb;
+
+    const btl = m.battle_result || {};
+    const simA = Number(m.sim_score_a ?? btl.final_score_a ?? rawA);
+    const mySim = isCapB ? (20 - simA) : simA;
+    const oppSim = 20 - mySim;
+
+    const isGuaranteed = Boolean(btl.is_guaranteed || btl.guaranteed || btl.mode === "guaranteed");
+    const winnerSide = btl.winner || (simA >= 10 ? "A" : "B");
+    const didIWin = isCapB ? (winnerSide === "B") : (winnerSide === "A");
+    const winnerP = winnerSide === "B" ? m.player_b : m.player_a;
+    const winnerProb = winnerSide === "B" ? (100 - rawProbA) : rawProbA;
+
+    const fallbackRoll = winnerSide === "A"
+      ? Math.max(1, Math.min(rawProbA, Math.round(rawProbA * 0.45)))
+      : Math.min(100, Math.max(rawProbA + 1, rawProbA + Math.round((100 - rawProbA) * 0.65)));
+    const rawRoll = Number(btl.dice_roll ?? btl.d100_roll ?? fallbackRoll);
+    const wtcVar = Number(btl.wtc_variance ?? btl.variance ?? 0);
+    const varLabel = wtcVar > 0 ? `+${wtcVar} surge` : (wtcVar < 0 ? `${wtcVar} drag` : "0 var");
+
+    const isUpset = btl.is_upset != null ? Boolean(btl.is_upset) : (winnerProb < 50);
+
+    let badgeClass = "favored-win";
+    let badgeText = "";
+    let storyHtml = "";
+    let shortOverlayText = "";
+
+    const rangeNote = `1–${rawProbA} ${this.escapeHtml(m.player_a.faction)} (${rawProbA}%) • ${rawProbA + 1}–100 ${this.escapeHtml(m.player_b.faction)} (${100 - rawProbA}%)`;
+
+    if (isGuaranteed) {
+      badgeClass = "stratagem-lock";
+      badgeText = `⚡ STRATAGEM LOCKED (${mySim}–${oppSim})`;
+      storyHtml = `Pre-game Est <strong>${myEst}–${oppEst}</strong> (${myProb}% Win / ${oppProb}% Loss) bypassed by Tactical Stratagem ➔ Locked <strong>${mySim}–${oppSim}</strong>.`;
+      shortOverlayText = `⚡ Stratagem Locked • Est ${myEst}–${oppEst} (${myProb}% Win) ➔ ${mySim}–${oppSim}`;
+    } else if (isUpset) {
+      if (didIWin) {
+        badgeClass = "upset-win";
+        badgeText = `🔥 UNDERDOG UPSET WIN! (${myProb}% Hit)`;
+        storyHtml = `Est <strong>${myEst}–${oppEst}</strong> gave you a <strong>${myProb}%</strong> upset chance vs ${oppProb}% favorite. 🎲 D100 rolled <strong>${rawRoll}/100</strong> (${rangeNote}, ${varLabel}) ➔ You pulled the upset for <strong>${mySim}–${oppSim}</strong>!`;
+      } else {
+        badgeClass = "upset-loss";
+        badgeText = `🔥 UNDERDOG UPSET! (${this.escapeHtml(oppP.faction)} hit ${oppProb}% odds)`;
+        storyHtml = `Est <strong>${myEst}–${oppEst}</strong> means <strong>${myProb}% Win / ${oppProb}% Loss</strong>. 🎲 D100 rolled <strong>${rawRoll}/100</strong> (${rangeNote}, ${varLabel}) ➔ ${this.escapeHtml(oppP.faction)} hit their <strong>${oppProb}%</strong> underdog window to flip ${myEst}–${oppEst} into <strong>${mySim}–${oppSim}</strong>!`;
+      }
+      shortOverlayText = `🎲 D100: ${rawRoll}/100 • 🔥 ${this.escapeHtml(winnerP.faction)} hit ${winnerProb}% Underdog Upset (${varLabel}) • Est ${myEst}–${oppEst} ➔ ${mySim}–${oppSim}`;
+    } else {
+      if (didIWin) {
+        badgeClass = "favored-win";
+        badgeText = `✅ FAVORED WIN (${myProb}% Odds Held)`;
+        storyHtml = `Est <strong>${myEst}–${oppEst}</strong> (${myProb}% Win / ${oppProb}% Loss). 🎲 D100 rolled <strong>${rawRoll}/100</strong> (${rangeNote}, ${varLabel}) ➔ ${this.escapeHtml(myP.faction)} held the ${myProb}% edge for <strong>${mySim}–${oppSim}</strong>.`;
+      } else {
+        badgeClass = "favored-loss";
+        badgeText = `🛡️ FAVORED LOSS (${this.escapeHtml(oppP.faction)} held ${oppProb}% edge)`;
+        storyHtml = `Est <strong>${myEst}–${oppEst}</strong> (${myProb}% Win / ${oppProb}% Loss). 🎲 D100 rolled <strong>${rawRoll}/100</strong> (${rangeNote}, ${varLabel}) ➔ ${this.escapeHtml(oppP.faction)} held their ${oppProb}% favorite odds for <strong>${mySim}–${oppSim}</strong>.`;
+      }
+      shortOverlayText = `🎲 D100: ${rawRoll}/100 • ✅ ${this.escapeHtml(winnerP.faction)} held ${winnerProb}% Favorite Odds (${varLabel}) • Est ${myEst}–${oppEst} ➔ ${mySim}–${oppSim}`;
+    }
+
+    const netSwing = mySim - myEst;
+    const swingStr = netSwing > 0 ? `+${netSwing} vs Est` : (netSwing < 0 ? `${netSwing} vs Est` : `Exact Est`);
+
+    return {
+      rawRoll,
+      wtcVar,
+      varLabel,
+      isGuaranteed,
+      isUpset,
+      didIWin,
+      badgeClass,
+      badgeText,
+      storyHtml,
+      shortOverlayText,
+      swingStr,
+      netSwing
+    };
   }
 
   async togglePredictionScoringMode(enabled) {
@@ -4148,6 +4247,18 @@ class YuGiOhPairingsArena {
         verdictEl.textContent = `💥 ${oppP.name.toUpperCase()} PREVAILS`;
       } else {
         verdictEl.textContent = `⚖️ DEADLOCK 10–10 CLASH`;
+      }
+    }
+
+    const rollExplainEl = document.getElementById("ofcWtcRollExplain");
+    if (rollExplainEl) {
+      if (isSimOn) {
+        const playInfo = this.buildTableBattleBreakdown(match, isCapB);
+        rollExplainEl.textContent = playInfo.shortOverlayText;
+        rollExplainEl.style.display = "block";
+      } else {
+        rollExplainEl.textContent = "";
+        rollExplainEl.style.display = "none";
       }
     }
 
