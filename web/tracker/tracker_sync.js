@@ -441,21 +441,25 @@
     let secCap = 45;
     let maxTotal = 100;
     let hasPaint = true;
+    let perCardCap = 15;
     if (rawEd === '8th' || rawEd === '8e' || rawEd === '8th_itc' || rawEd === 'itc' || Number(pObj.primaryCap) === 36) {
       priCap = 36;
       secCap = 12;
       maxTotal = 48;
       hasPaint = false;
-    } else if (rawEd === '11th' || rawEd === '11e' || isNative11th) {
+      perCardCap = 4;
+    } else if (rawEd === '9th' || rawEd === '9e' || rawEd === '11th' || rawEd === '11e' || isNative11th) {
       priCap = 45;
       secCap = 45;
       maxTotal = 100;
       hasPaint = true;
+      perCardCap = 15;
     } else {
       priCap = 50;
       secCap = 40;
       maxTotal = 100;
       hasPaint = true;
+      perCardCap = 15;
     }
 
     let rawPri = rounds.reduce((s, r) => s + (Number(r && r.primaryScore) || 0), 0);
@@ -465,6 +469,20 @@
     const pri = Math.min(priCap, rawPri);
 
     const hand = Array.isArray(pObj.hand) ? pObj.hand : [];
+    const cardRunningTotals = {};
+    function clampCardPts(cardKey, rawPts) {
+      const pts = Number(rawPts) || 0;
+      if (pts <= 0) return 0;
+      const k = String(cardKey || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      if (!k || k === 'secondary-objectives' || k === 'tactical-fixed-secondaries' || /^round-\d+-secondaries$/.test(k)) {
+        return pts;
+      }
+      const prior = cardRunningTotals[k] || 0;
+      const allowed = Math.max(0, Math.min(pts, perCardCap - prior));
+      cardRunningTotals[k] = prior + allowed;
+      return allowed;
+    }
+
     const roundSecTotals = [1, 2, 3, 4, 5].map(rNum => {
       const seenKeys = new Set();
       let rSecSum = 0;
@@ -488,7 +506,7 @@
         if (matched) {
           const key = String(card.instanceId || card.cardId || card.id || card.name || '').toLowerCase();
           if (key) seenKeys.add(key);
-          rSecSum += pts;
+          rSecSum += clampCardPts(key, pts);
         }
       });
 
@@ -501,7 +519,7 @@
             const key = String(s.instanceId || s.cardId || s.id || s.name || '').toLowerCase();
             if (key && seenKeys.has(key)) return;
             if (key) seenKeys.add(key);
-            rSecSum += Number(s.score ?? s.points) || 0;
+            rSecSum += clampCardPts(key, Number(s.score ?? s.points) || 0);
           }
         });
       }
@@ -515,10 +533,13 @@
     if (rawSec === 0 && hand.length > 0) {
       rawSec = hand.reduce((tot, card) => {
         if (!card || typeof card !== 'object') return tot;
+        let cPts = 0;
         if (card.recurring) {
-          return tot + Object.values(card.roundScores || {}).reduce((acc, v) => acc + (typeof v === 'object' && v ? (Number(v.points ?? v.score) || 0) : (Number(v) || 0)), 0);
+          cPts = Object.values(card.roundScores || {}).reduce((acc, v) => acc + (typeof v === 'object' && v ? (Number(v.points ?? v.score) || 0) : (Number(v) || 0)), 0);
+        } else {
+          cPts = card.scoredRound != null ? (Number(card.points ?? card.score) || 0) : 0;
         }
-        return tot + (card.scoredRound != null ? (Number(card.points ?? card.score) || 0) : 0);
+        return tot + Math.min(perCardCap, cPts);
       }, 0);
     }
     if (rawSec === 0 && Number(pObj.secondaryScore) > 0 && (hand.length === 0 || stateObj.imported_source)) {

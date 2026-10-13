@@ -11881,14 +11881,17 @@ class PostgresDatabase:
                 pri_cap = 36
                 sec_cap = 12
                 max_tot = 48
-            elif p_ed in ("11th", "11e"):
+                per_card_cap = 4
+            elif p_ed in ("9th", "9e", "11th", "11e"):
                 pri_cap = 45
                 sec_cap = 45
                 max_tot = 100
+                per_card_cap = 15
             else:
                 pri_cap = 50
                 sec_cap = 40
                 max_tot = 100
+                per_card_cap = 15
 
             pri_total = min(pri_cap, sum([int(r.get("primaryScore") or 0) for r in rounds]))
             if pri_total == 0 and int(p_obj.get("primaryScore") or 0) > 0:
@@ -11901,11 +11904,15 @@ class PostgresDatabase:
                 for card in hand:
                     if not isinstance(card, dict):
                         continue
+                    card_running = 0
                     if card.get("recurring"):
                         round_scores = card.get("roundScores", {})
                         if isinstance(round_scores, dict):
-                            for r_k, r_data in round_scores.items():
-                                pts = int(r_data.get("points") or r_data.get("score") or 0) if isinstance(r_data, dict) else (int(r_data) if isinstance(r_data, (int, float)) else 0)
+                            for r_k in sorted(round_scores.keys(), key=lambda x: int(x) if str(x).isdigit() else 99):
+                                r_data = round_scores[r_k]
+                                raw_pts = int(r_data.get("points") or r_data.get("score") or 0) if isinstance(r_data, dict) else (int(r_data) if isinstance(r_data, (int, float)) else 0)
+                                pts = max(0, min(raw_pts, per_card_cap - card_running))
+                                card_running += pts
                                 sec_total += pts
                                 try:
                                     rk_int = int(r_k)
@@ -11914,7 +11921,8 @@ class PostgresDatabase:
                                 except Exception:
                                     pass
                     elif card.get("scoredRound") is not None:
-                        pts = int(card.get("points") or card.get("score") or 0)
+                        raw_pts = int(card.get("points") or card.get("score") or 0)
+                        pts = max(0, min(per_card_cap, raw_pts))
                         sec_total += pts
                         try:
                             sr_int = int(card.get("scoredRound"))
@@ -11929,11 +11937,22 @@ class PostgresDatabase:
                             r_dict["secondaryScore"] = round_sec_map[r_num]
             
             if sec_total == 0:
+                card_totals_by_id = {}
+                untyped_sec = 0
                 for r in rounds:
-                    r_sec = int(r.get("secondaryScore") or 0)
-                    if r_sec == 0 and isinstance(r.get("secondaries"), list):
-                        r_sec = sum(int(s.get("score") or s.get("points") or 0) for s in r["secondaries"] if isinstance(s, dict))
-                    sec_total += r_sec
+                    if isinstance(r.get("secondaries"), list) and r["secondaries"]:
+                        for s in r["secondaries"]:
+                            if not isinstance(s, dict):
+                                continue
+                            cid = str(s.get("cardId") or s.get("name") or "").strip().lower()
+                            pts = int(s.get("score") or s.get("points") or 0)
+                            if cid and cid not in ("secondary-objectives", "tactical / fixed secondaries"):
+                                card_totals_by_id[cid] = min(per_card_cap, card_totals_by_id.get(cid, 0) + pts)
+                            else:
+                                untyped_sec += pts
+                    else:
+                        untyped_sec += int(r.get("secondaryScore") or 0)
+                sec_total = sum(card_totals_by_id.values()) + untyped_sec
             if sec_total == 0 and int(p_obj.get("secondaryScore") or 0) > 0 and (not hand or state.get("imported_source")):
                 sec_total = int(p_obj.get("secondaryScore") or 0)
             
@@ -12194,77 +12213,18 @@ class PostgresDatabase:
                                 d["game_date"] = iso_gd
                             except Exception:
                                 pass
-                        # Normalize edition-specific Primary & Secondary caps (ONLY 11th Ed: 45/45; 9th & 10th Ed: 50/40)
-                        raw_ed = str(
-                            st_obj.get("edition")
-                            or (st_obj.get("game") or {}).get("edition")
-                            or (st_obj.get("p1") or {}).get("edition")
-                            or (st_obj.get("p2") or {}).get("edition")
-                            or ""
-                        ).strip().lower()
-                        is_aos_game = (
-                            str(st_obj.get("game_system") or st_obj.get("gameSystem") or d.get("game_system") or "").lower() == "aos"
-                            or str(d.get("match_id") or "").upper().startswith("AOS-")
-                        )
-                        is_8th_game = raw_ed in ("8th_itc", "8th", "8e", "itc")
-                        if not is_aos_game and not is_8th_game:
-                            is_11th_game = raw_ed in ("11th", "11e") or (not raw_ed and not st_obj.get("imported_source"))
-                            target_ed = "11th" if is_11th_game else ("9th" if raw_ed in ("9th", "9e") else "10th")
-                            target_ed_label = "11th Edition" if target_ed == "11th" else ("9th Edition" if target_ed == "9th" else "10th Edition")
-                            target_pri_cap = 45 if is_11th_game else 50
-                            target_sec_cap = 45 if is_11th_game else 40
-                            needs_db_repair = False
-                            if is_11th_game or raw_ed in ("9th", "9e", "10th", "10e"):
-                                st_obj["edition"] = target_ed
-                                st_obj.setdefault("edition_label", target_ed_label)
-                            for side_k, score_k, top_k in (("p1", "p1Score", "p1_score"), ("p2", "p2Score", "p2_score")):
-                                p_side = st_obj.get(side_k)
-                                if isinstance(p_side, dict):
-                                    if p_side.get("primaryCap") != target_pri_cap or p_side.get("secondaryCap") != target_sec_cap:
-                                        needs_db_repair = True
-                                    if is_11th_game or raw_ed in ("9th", "9e", "10th", "10e"):
-                                        p_side["edition"] = target_ed
-                                    p_side["primaryCap"] = target_pri_cap
-                                    p_side["secondaryCap"] = target_sec_cap
-                                    r_list = [r for r in (p_side.get("rounds") or []) if isinstance(r, dict)]
-                                    if r_list:
-                                        raw_pri = sum(int(r.get("primaryScore") or 0) for r in r_list)
-                                        raw_sec = sum(int(r.get("secondaryScore") or 0) for r in r_list)
-                                        if isinstance(p_side.get("hand"), list) and p_side["hand"]:
-                                            hand_sec = 0
-                                            for card in p_side["hand"]:
-                                                if not isinstance(card, dict):
-                                                    continue
-                                                if card.get("recurring"):
-                                                    for rv in (card.get("roundScores") or {}).values():
-                                                        hand_sec += int(rv.get("points") or rv.get("score") or 0) if isinstance(rv, dict) else int(rv or 0)
-                                                elif card.get("scoredRound") is not None:
-                                                    hand_sec += int(card.get("points") or card.get("score") or 0)
-                                            if hand_sec > raw_sec:
-                                                raw_sec = hand_sec
-                                        p_side["primaryScore"] = min(target_pri_cap, raw_pri)
-                                        p_side["secondaryScore"] = min(target_sec_cap, raw_sec)
-                                        pnt = int(p_side["paintScore"]) if isinstance(p_side.get("paintScore"), (int, float)) else (10 if p_side.get("battleReady", True) is not False else 0)
-                                        tot_s = min(100, p_side["primaryScore"] + p_side["secondaryScore"] + pnt)
-                                        if tot_s > 0:
-                                            if int(d.get(top_k) or 0) != tot_s:
-                                                needs_db_repair = True
-                                            p_side["score"] = tot_s
-                                            p_side["totalScore"] = tot_s
-                                            st_obj[score_k] = tot_s
-                                            st_obj[top_k] = tot_s
-                                            d[top_k] = tot_s
-                            d["state_json"] = st_obj
-                            if needs_db_repair and d.get("match_id"):
-                                try:
-                                    cursor.execute(
-                                        "UPDATE tracker_games SET p1_score = %s, p2_score = %s, state_json = %s::jsonb WHERE match_id = %s;",
-                                        (int(d.get("p1_score") or 0), int(d.get("p2_score") or 0), json.dumps(st_obj), d["match_id"]),
-                                    )
-                                    conn.commit()
-                                    PostgresDatabase._tracker_history_cache_dict.clear()
-                                except Exception:
-                                    pass
+                        # Normalize edition-specific Primary & Secondary caps (9th & 11th Ed: 45/45; 10th Ed: 50/40; 15pt per-card cap)
+                        needs_db_repair = self._normalize_40k_scorecard_row_in_place(d, st_obj)
+                        if needs_db_repair and d.get("match_id"):
+                            try:
+                                cursor.execute(
+                                    "UPDATE tracker_games SET p1_score = %s, p2_score = %s, state_json = %s::jsonb WHERE match_id = %s;",
+                                    (int(d.get("p1_score") or 0), int(d.get("p2_score") or 0), json.dumps(st_obj), d["match_id"]),
+                                )
+                                conn.commit()
+                                PostgresDatabase._tracker_history_cache_dict.clear()
+                            except Exception:
+                                pass
                         return d
                     return None
 
@@ -12277,6 +12237,147 @@ class PostgresDatabase:
                 return do_select()
             except Exception:
                 return None
+
+    _edition_caps_repaired_v2: bool = False
+
+    def _normalize_40k_scorecard_row_in_place(self, d: Dict[str, Any], st_obj: Dict[str, Any]) -> bool:
+        """Normalizes 40k edition caps (9th & 11th: 45/45, 10th: 50/40) and 15pt per-secondary-card cap in place. Returns True if modified."""
+        if not isinstance(st_obj, dict):
+            return False
+        raw_ed = str(
+            st_obj.get("edition")
+            or (st_obj.get("game") or {}).get("edition")
+            or (st_obj.get("p1") or {}).get("edition")
+            or (st_obj.get("p2") or {}).get("edition")
+            or ""
+        ).strip().lower()
+        is_aos_game = (
+            str(st_obj.get("game_system") or st_obj.get("gameSystem") or d.get("game_system") or "").lower() == "aos"
+            or str(d.get("match_id") or "").upper().startswith("AOS-")
+        )
+        is_8th_game = raw_ed in ("8th_itc", "8th", "8e", "itc")
+        if is_aos_game or is_8th_game:
+            return False
+
+        is_11th_game = raw_ed in ("11th", "11e") or (not raw_ed and not st_obj.get("imported_source"))
+        is_9th_game = raw_ed in ("9th", "9e")
+        target_ed = "11th" if is_11th_game else ("9th" if is_9th_game else "10th")
+        target_ed_label = "11th Edition" if target_ed == "11th" else ("9th Edition" if target_ed == "9th" else "10th Edition")
+        target_pri_cap = 45 if (is_11th_game or is_9th_game) else 50
+        target_sec_cap = 45 if (is_11th_game or is_9th_game) else 40
+        per_card_cap = 15
+        needs_db_repair = False
+
+        if is_11th_game or raw_ed in ("9th", "9e", "10th", "10e"):
+            st_obj["edition"] = target_ed
+            st_obj.setdefault("edition_label", target_ed_label)
+
+        mid_upper = str(d.get("match_id") or "").strip().upper()
+        if mid_upper == "WH40K-TTB-D9F29C6E" and isinstance(st_obj.get("p2"), dict):
+            p2_fix = st_obj["p2"]
+            for hc in (p2_fix.get("hand") or []):
+                if isinstance(hc, dict) and isinstance(hc.get("roundScores"), dict):
+                    cid = str(hc.get("cardId") or hc.get("name") or "").lower()
+                    if "inflexible" in cid and int(hc["roundScores"].get("4") or 0) == 5:
+                        hc["roundScores"]["4"] = 4
+                        hc["points"] = 15
+                        needs_db_repair = True
+                    elif "boots" in cid and int(hc["roundScores"].get("4") or 0) == 2:
+                        hc["roundScores"]["4"] = 3
+                        hc["points"] = 11
+                        needs_db_repair = True
+            p2_rounds = p2_fix.get("rounds") or []
+            if len(p2_rounds) >= 4 and isinstance(p2_rounds[3], dict) and isinstance(p2_rounds[3].get("secondaries"), list):
+                for s_it in p2_rounds[3]["secondaries"]:
+                    if isinstance(s_it, dict):
+                        cid = str(s_it.get("cardId") or s_it.get("name") or "").lower()
+                        if "inflexible" in cid and int(s_it.get("score") or 0) == 5:
+                            s_it["score"] = 4
+                            s_it["points"] = 4
+                            needs_db_repair = True
+                        elif "boots" in cid and int(s_it.get("score") or 0) == 2:
+                            s_it["score"] = 3
+                            s_it["points"] = 3
+                            needs_db_repair = True
+
+        for side_k, score_k, top_k in (("p1", "p1Score", "p1_score"), ("p2", "p2Score", "p2_score")):
+            p_side = st_obj.get(side_k)
+            if isinstance(p_side, dict):
+                if p_side.get("primaryCap") != target_pri_cap or p_side.get("secondaryCap") != target_sec_cap:
+                    needs_db_repair = True
+                if is_11th_game or raw_ed in ("9th", "9e", "10th", "10e"):
+                    p_side["edition"] = target_ed
+                p_side["primaryCap"] = target_pri_cap
+                p_side["secondaryCap"] = target_sec_cap
+                r_list = [r for r in (p_side.get("rounds") or []) if isinstance(r, dict)]
+                if r_list:
+                    raw_pri = sum(int(r.get("primaryScore") or 0) for r in r_list)
+                    raw_sec = sum(int(r.get("secondaryScore") or 0) for r in r_list)
+                    if isinstance(p_side.get("hand"), list) and p_side["hand"]:
+                        hand_sec = 0
+                        for card in p_side["hand"]:
+                            if not isinstance(card, dict):
+                                continue
+                            card_tot = 0
+                            if card.get("recurring"):
+                                for rv in (card.get("roundScores") or {}).values():
+                                    card_tot += int(rv.get("points") or rv.get("score") or 0) if isinstance(rv, dict) else int(rv or 0)
+                            elif card.get("scoredRound") is not None:
+                                card_tot += int(card.get("points") or card.get("score") or 0)
+                            hand_sec += min(per_card_cap, card_tot)
+                        if hand_sec > 0:
+                            raw_sec = hand_sec
+                    p_side["primaryScore"] = min(target_pri_cap, raw_pri)
+                    p_side["secondaryScore"] = min(target_sec_cap, raw_sec)
+                    pnt = int(p_side["paintScore"]) if isinstance(p_side.get("paintScore"), (int, float)) else (10 if p_side.get("battleReady", True) is not False else 0)
+                    tot_s = min(100, p_side["primaryScore"] + p_side["secondaryScore"] + pnt)
+                    if tot_s > 0:
+                        if int(d.get(top_k) or 0) != tot_s or int(p_side.get("score") or 0) != tot_s:
+                            needs_db_repair = True
+                        p_side["score"] = tot_s
+                        p_side["totalScore"] = tot_s
+                        st_obj[score_k] = tot_s
+                        st_obj[top_k] = tot_s
+                        d[top_k] = tot_s
+        d["state_json"] = st_obj
+        return needs_db_repair
+
+    def _ensure_edition_caps_repaired_once(self) -> None:
+        if PostgresDatabase._edition_caps_repaired_v2:
+            return
+        PostgresDatabase._edition_caps_repaired_v2 = True
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT match_id, p1_score, p2_score, state_json
+                        FROM tracker_games
+                        WHERE COALESCE(state_json->>'game_system', '40k') != 'aos'
+                          AND match_id NOT LIKE 'AOS-%%';
+                    """)
+                    rows = cur.fetchall() or []
+                    updates = []
+                    for r in rows:
+                        row_d = dict(r)
+                        st_val = row_d.get("state_json")
+                        if isinstance(st_val, str):
+                            try:
+                                st_val = json.loads(st_val)
+                            except Exception:
+                                st_val = None
+                        if isinstance(st_val, dict):
+                            if self._normalize_40k_scorecard_row_in_place(row_d, st_val):
+                                updates.append((int(row_d.get("p1_score") or 0), int(row_d.get("p2_score") or 0), json.dumps(st_val), row_d["match_id"]))
+                    for p1_s, p2_s, st_s, mid_s in updates:
+                        cur.execute(
+                            "UPDATE tracker_games SET p1_score = %s, p2_score = %s, state_json = %s::jsonb WHERE match_id = %s;",
+                            (p1_s, p2_s, st_s, mid_s),
+                        )
+                    if updates:
+                        conn.commit()
+                        PostgresDatabase._tracker_history_cache_dict.clear()
+        except Exception as err:
+            logger.debug(f"Edition cap self-heal notice: {err}")
 
     def update_tracker_army_list(self, match_id: str, role: str, army_list: Dict[str, Any]) -> bool:
         """Persists attached player army list into the tracker_games table."""
@@ -12339,6 +12440,7 @@ class PostgresDatabase:
 
     def get_tracker_history(self, limit: int = 500, search: Optional[str] = None, user_id: Optional[str] = None, user_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns recent persistent tracker games, optionally filtered by player user_id/name and excluding soft-deleted games."""
+        self._ensure_edition_caps_repaired_once()
         cache_key = (int(limit or 500), str(search or "").strip().lower(), str(user_id or ""), str(user_name or "").strip().lower())
         cached = PostgresDatabase.get_cached(PostgresDatabase._tracker_history_cache_dict, cache_key, ttl=15)
         if cached is not None:

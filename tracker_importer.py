@@ -1363,9 +1363,13 @@ def _build_40k_player_state(
 
             round_scores_map: Dict[str, int] = {}
             scored_rounds: List[int] = []
+            per_card_cap = 4 if edition == "8th_itc" else 15
+            card_running_total = 0
             for r_idx in range(min(5, len(scores_arr))):
-                pts = int(scores_arr[r_idx] or 0)
-                if pts > 0:
+                raw_pts = int(scores_arr[r_idx] or 0)
+                if raw_pts > 0:
+                    pts = max(0, min(raw_pts, per_card_cap - card_running_total))
+                    card_running_total += pts
                     r_num = r_idx + 1
                     round_scores_map[str(r_num)] = pts
                     scored_rounds.append(r_num)
@@ -1373,7 +1377,8 @@ def _build_40k_player_state(
 
             # Handle flat secondary with totalScore/points but no per-round array
             if not scores_arr and (sec.get("totalScore") is not None or isinstance(sec.get("points"), (int, float))):
-                pts = int(sec.get("totalScore") or (sec.get("points") if isinstance(sec.get("points"), (int, float)) else 0) or 0)
+                raw_pts = int(sec.get("totalScore") or (sec.get("points") if isinstance(sec.get("points"), (int, float)) else 0) or 0)
+                pts = max(0, min(per_card_cap, raw_pts))
                 if sec.get("scoredRound") is not None:
                     r_num = int(sec.get("scoredRound"))
                 elif drawn_r is not None:
@@ -1546,19 +1551,22 @@ def _build_40k_player_state(
         sec_name = _humanize_identifier(p_raw.get("secretMission") or "Secret Mission")
         pri_scores[4] += secret_score
 
-    # Edition-specific scoring caps (8th ITC: 36/12, 11th: 45/45, 9th & 10th: 50/40)
+    # Edition-specific scoring caps (8th ITC: 36/12, 9th & 11th: 45/45, 10th: 50/40; 15pt per-card cap in 9th/10th/11th)
     if edition == "8th_itc":
         pri_cap = 36
         sec_cap = 12
         max_total = 48
-    elif edition == "11th":
+        per_card_cap = 4
+    elif edition in ("9th", "11th"):
         pri_cap = 45
         sec_cap = 45
         max_total = 100
+        per_card_cap = 15
     else:
         pri_cap = 50
         sec_cap = 40
         max_total = 100
+        per_card_cap = 15
 
     # If round scores weren't broken down by round, distribute or set on round 1..5
     raw_pri_total = p_raw.get("primaryScore")
@@ -2267,11 +2275,11 @@ def _parse_single_text_scorecard(
                 p2_paint = p2_score >= 10
                 p1_rem = max(0, p1_score - (10 if p1_paint else 0))
                 p2_rem = max(0, p2_score - (10 if p2_paint else 0))
-                pri_cap = 45 if text_edition == "11th" else 50
-                sec_cap = 45 if text_edition == "11th" else 40
-                p1_pri_tot = min(pri_cap, int(round(p1_rem * (0.5 if text_edition == "11th" else 0.56))))
+                pri_cap = 45 if text_edition in ("9th", "11th") else 50
+                sec_cap = 45 if text_edition in ("9th", "11th") else 40
+                p1_pri_tot = min(pri_cap, int(round(p1_rem * (0.5 if text_edition in ("9th", "11th") else 0.56))))
                 p1_sec_tot = max(0, min(sec_cap, p1_rem - p1_pri_tot))
-                p2_pri_tot = min(pri_cap, int(round(p2_rem * (0.5 if text_edition == "11th" else 0.56))))
+                p2_pri_tot = min(pri_cap, int(round(p2_rem * (0.5 if text_edition in ("9th", "11th") else 0.56))))
                 p2_sec_tot = max(0, min(sec_cap, p2_rem - p2_pri_tot))
             for i in range(1, 5):
                 p1_pri[i] = p1_pri_tot // 4 + (1 if (i - 1) < (p1_pri_tot % 4) else 0)

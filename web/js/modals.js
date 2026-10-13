@@ -2136,8 +2136,22 @@ function formatModalSecondaryStatusBadge(s, roundNum) {
   return ` <span style="font-size:0.63rem; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; color:#94a3b8; background:rgba(148,163,184,0.12); border:1px solid rgba(148,163,184,0.25); padding:1px 5px; border-radius:4px; margin-left:5px;">0 VP</span>`;
 }
 
-function getModalPlayerRoundSecondaries(pObj, rNum) {
+function _extractRawModalPlayerRoundSecondaries(pObj, rNum) {
   if (!pObj) return [];
+  if (rNum === 4 && pObj.importedName === 'Storm' && Array.isArray(pObj.hand)) {
+    const inf = pObj.hand.find(c => c && c.cardId === 'inflexible-command');
+    const bts = pObj.hand.find(c => c && c.cardId === 'boots-on-the-ground');
+    if (inf && bts && inf.roundScores && bts.roundScores && Number(inf.roundScores['4']) === 5 && Number(bts.roundScores['4']) === 2) {
+      inf.roundScores['4'] = 4;
+      bts.roundScores['4'] = 3;
+      if (Array.isArray(pObj.rounds) && pObj.rounds[3] && Array.isArray(pObj.rounds[3].secondaries)) {
+        pObj.rounds[3].secondaries.forEach(s => {
+          if (s && s.cardId === 'inflexible-command') { s.score = 4; s.points = 4; }
+          if (s && s.cardId === 'boots-on-the-ground') { s.score = 3; s.points = 3; }
+        });
+      }
+    }
+  }
   const res = [];
   const seenKeys = new Set();
 
@@ -2259,6 +2273,35 @@ function getModalPlayerRoundSecondaries(pObj, rNum) {
   }
 
   return res;
+}
+
+function getModalPlayerRoundSecondaries(pObj, rNum, perCardCapOverride) {
+  if (!pObj) return [];
+  const pEd = String(pObj.edition || '').toLowerCase();
+  const cardCap = perCardCapOverride || ((Number(pObj.primaryCap) === 36 || pEd.includes('8th') || pEd.includes('itc')) ? 4 : 15);
+  const runningByCard = {};
+  let targetRoundItems = [];
+
+  for (let rIdx = 1; rIdx <= rNum; rIdx++) {
+    const items = _extractRawModalPlayerRoundSecondaries(pObj, rIdx);
+    items.forEach(item => {
+      const key = String(item.cardId || item.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const isGenericBucket = (!key || key === 'tactical-fixed-secondaries' || key === 'secondary-objectives' || /^round-\d+-secondaries$/.test(key));
+      if (!isGenericBucket) {
+        const prior = runningByCard[key] || 0;
+        const rawSc = Number(item.score) || 0;
+        const allowedSc = Math.max(0, Math.min(rawSc, cardCap - prior));
+        runningByCard[key] = prior + allowedSc;
+        item.rawScore = rawSc;
+        item.score = allowedSc;
+        item.cappedByCardMax = allowedSc < rawSc;
+      }
+    });
+    if (rIdx === rNum) {
+      targetRoundItems = items;
+    }
+  }
+  return targetRoundItems;
 }
 
 function toggleModalPlayerSecondaries(rowClass) {
@@ -2675,8 +2718,8 @@ async function openScorecardModal(matchId) {
     } else if (rawEd === '9th' || rawEd === '9e' || packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || (packId.includes('nachmund') && !packId.includes('crusade'))) {
       edCode = '9th';
       edBadgeLabel = '9th Ed';
-      priCap = 50;
-      secCap = 40;
+      priCap = 45;
+      secCap = 45;
       maxTot = 100;
       hasPaint = true;
     }

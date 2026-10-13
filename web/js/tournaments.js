@@ -7405,13 +7405,14 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
     hasPaint = true;
     edShortBadge = '🚀 11th Ed';
   } else if (rawEd === '9th' || rawEd === '9e' || packId.includes('9th') || packId.includes('nephilim') || packId.includes('arks') || (packId.includes('nachmund') && !packId.includes('crusade'))) {
-    priCap = 50;
-    secCap = 40;
+    priCap = 45;
+    secCap = 45;
     maxTot = 100;
     hasPaint = true;
     edShortBadge = '📜 9th Ed';
   }
 
+  const perCardCap = (rawEd === '8th_itc' || rawEd === '8th' || packId.includes('8th') || packId.includes('itc')) ? 4 : 15;
   const p1Rounds = Array.isArray(st?.p1?.rounds) ? st.p1.rounds : [];
   const p2Rounds = Array.isArray(st?.p2?.rounds) ? st.p2.rounds : [];
   const p1Hand = Array.isArray(st?.p1?.hand) ? st.p1.hand : [];
@@ -7421,28 +7422,38 @@ function buildInlineStreamScorecardHtml(eventId, matchId, match, p1, p2, overlay
     if (Array.isArray(fallbackArr) && fallbackArr.length > 0 && fallbackArr.some(v => Number(v || 0) > 0)) {
       return fallbackArr;
     }
+    const cardRunning = {};
     return [1, 2, 3, 4, 5].map(rNum => {
       const rObj = roundsArr.find(x => (x.round === rNum || x.battleRound === rNum)) || roundsArr[rNum - 1] || {};
       if (field === 'secondaryScore') {
         if (isAosStream) {
           return Number(rObj.tacticScore || 0);
         }
+        if (Array.isArray(handArr) && handArr.length > 0) {
+          let handSec = 0;
+          handArr.forEach(c => {
+            if (!c || typeof c !== 'object') return;
+            const cKey = String(c.cardId || c.id || c.name || '').toLowerCase();
+            let rawPts = 0;
+            if (c.recurring && c.roundScores && typeof c.roundScores === 'object') {
+              rawPts = Number(c.roundScores[rNum] ?? c.roundScores[String(rNum)] ?? 0);
+            } else if (Number(c.scoredRound || 0) === rNum) {
+              rawPts = Number(c.points ?? c.vp ?? c.score ?? 0);
+            }
+            if (rawPts > 0 && cKey) {
+              const prior = cardRunning[cKey] || 0;
+              const allowed = Math.max(0, Math.min(rawPts, perCardCap - prior));
+              cardRunning[cKey] = prior + allowed;
+              handSec += allowed;
+            }
+          });
+          if (handSec > 0) return handSec;
+        }
         const directSec = Number(rObj.secondaryScore || 0);
         const cardsSec = Array.isArray(rObj.secondaries)
           ? rObj.secondaries.reduce((acc, s) => acc + Number(s?.points ?? s?.vp ?? s?.score ?? 0), 0)
           : 0;
-        let handSec = 0;
-        if (Array.isArray(handArr)) {
-          handArr.forEach(c => {
-            if (!c || typeof c !== 'object') return;
-            if (c.recurring && c.roundScores && typeof c.roundScores === 'object') {
-              handSec += Number(c.roundScores[rNum] ?? c.roundScores[String(rNum)] ?? 0);
-            } else if (Number(c.scoredRound || 0) === rNum) {
-              handSec += Number(c.points ?? c.vp ?? c.score ?? 0);
-            }
-          });
-        }
-        return Math.max(directSec, cardsSec, handSec);
+        return Math.max(directSec, cardsSec);
       }
       return Number(rObj[field] || 0);
     });

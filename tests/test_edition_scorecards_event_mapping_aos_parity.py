@@ -135,16 +135,16 @@ def test_edition_detection_and_unclipped_9th_ed_secondaries():
     assert "9th" in g9["edition_label"]
 
     st9 = g9["state"]
-    assert st9["p1"]["primaryCap"] == 50
-    assert st9["p1"]["secondaryCap"] == 40
-    assert st9["p1"]["primaryScore"] == 47
-    assert st9["p1"]["secondaryScore"] == 40
-    assert st9["p2"]["primaryCap"] == 50
-    assert st9["p2"]["secondaryCap"] == 40
+    assert st9["p1"]["primaryCap"] == 45
+    assert st9["p1"]["secondaryCap"] == 45
+    assert st9["p1"]["primaryScore"] == 45
+    assert st9["p1"]["secondaryScore"] == 42  # 15 + 12 + min(15, 18) = 42/45
+    assert st9["p2"]["primaryCap"] == 45
+    assert st9["p2"]["secondaryCap"] == 45
     assert st9["p2"]["primaryScore"] == 40
-    assert st9["p2"]["secondaryScore"] == 40
-    assert g9["p1_score"] == 97   # 47/50 Pri + 40/40 Sec + 10 Paint
-    assert g9["p2_score"] == 90   # 40/50 Pri + 40/40 Sec + 10 Paint
+    assert st9["p2"]["secondaryScore"] == 41  # 15 + 15 + 11 = 41/45
+    assert g9["p1_score"] == 97   # 45/45 Pri + 42/45 Sec + 10 Paint
+    assert g9["p2_score"] == 91   # 40/45 Pri + 41/45 Sec + 10 Paint
 
 
 def test_8th_edition_itc_caps_and_no_paint_bonus():
@@ -1028,22 +1028,21 @@ def test_guest_reconnection_seat_reclaim_vs_spectator_mode():
 
 def test_only_11th_has_45_45_and_9th_10th_have_50_40():
     """
-    Verifies that ONLY 11th Edition uses 45 Primary / 45 Secondary caps, while BOTH
-    9th Edition and 10th Edition use 50 Primary / 40 Secondary caps across:
+    Verifies edition caps (9th & 11th: 45/45, 10th: 50/40) AND the 15pt per-secondary-card cap
+    across 9th, 10th, and 11th Editions in:
       - tracker_importer
-      - routers/tracker._compute_tracker_side_total
+      - routers/tracker._compute_tracker_side_score
       - web/tracker/tracker_sync.js computeTrackerPlayerBreakdown
       - web/js/modals.js & web/scorecard.html
     """
     import subprocess
     import json
 
-    # 9th Ed game (Laughing Dragon February RTT • R3 • T2, Death And Zeal, 2023-02-17)
-    # Even if an old state had primaryCap=45/secondaryCap=45 saved on it, 9th Ed must enforce 50/40!
+    # 9th Ed game (Laughing Dragon March RTT • R3 • T7, John Hsieh vs Storm Gehrke -> 94 - 81)
     st_9th = {
         "edition": "9th",
         "imported_source": "tabletop_battles",
-        "mission": {"edition": "9th", "primaryName": "Death And Zeal"},
+        "mission": {"edition": "9th", "primaryName": "Conversion"},
         "p1": {
             "name": "John Hsieh",
             "faction": "Necrons",
@@ -1051,38 +1050,73 @@ def test_only_11th_has_45_45_and_9th_10th_have_50_40():
             "primaryCap": 45,
             "secondaryCap": 45,
             "battleReady": True,
+            "hand": [
+                {"name": "Purge The Vermin", "cardId": "purge-the-vermin", "recurring": True, "roundScores": {"2": 3, "3": 3, "4": 3, "5": 3}, "points": 12},
+                {"name": "The Treasures Of Aeons", "cardId": "the-treasures-of-aeons", "recurring": True, "roundScores": {"1": 2, "2": 3, "3": 3, "4": 4, "5": 4}, "points": 16},
+                {"name": "Ancient Machineries", "cardId": "ancient-machineries", "recurring": True, "roundScores": {"2": 8, "3": 4}, "points": 12},
+            ],
             "rounds": [
-                {"round": 1, "primaryScore": 2, "secondaryScore": 10},
-                {"round": 2, "primaryScore": 14, "secondaryScore": 10},
-                {"round": 3, "primaryScore": 12, "secondaryScore": 6},
-                {"round": 4, "primaryScore": 12, "secondaryScore": 10},
-                {"round": 5, "primaryScore": 7, "secondaryScore": 7},
+                {"round": 1, "primaryScore": 2, "secondaryScore": 2},
+                {"round": 2, "primaryScore": 14, "secondaryScore": 14},
+                {"round": 3, "primaryScore": 14, "secondaryScore": 10},
+                {"round": 4, "primaryScore": 14, "secondaryScore": 7},
+                {"round": 5, "primaryScore": 13, "secondaryScore": 7},
             ],
         },
         "p2": {
-            "name": "Fred Reiss",
-            "faction": "Chaos Space Marines",
+            "name": "Storm Gehrke",
+            "importedName": "Storm",
+            "faction": "Astra Militarum",
             "edition": "9th",
             "primaryCap": 45,
             "secondaryCap": 45,
             "battleReady": True,
+            "hand": [
+                {"name": "Boots On The Ground", "cardId": "boots-on-the-ground", "recurring": True, "roundScores": {"2": 3, "3": 3, "4": 3, "5": 2}, "points": 11},
+                {"name": "Inflexible Command", "cardId": "inflexible-command", "recurring": True, "roundScores": {"1": 3, "2": 3, "3": 5, "4": 4}, "points": 15},
+                {"name": "Retrieve Battlefield Data", "cardId": "retrieve-battlefield-data", "recurring": True, "roundScores": {"2": 4, "3": 4}, "points": 8},
+            ],
             "rounds": [
-                {"round": 1, "primaryScore": 4, "secondaryScore": 2},
-                {"round": 2, "primaryScore": 4, "secondaryScore": 2},
-                {"round": 3, "primaryScore": 4, "secondaryScore": 3},
-                {"round": 4, "primaryScore": 4, "secondaryScore": 0},
-                {"round": 5, "primaryScore": 0, "secondaryScore": 0},
+                {"round": 1, "primaryScore": 2, "secondaryScore": 3},
+                {"round": 2, "primaryScore": 10, "secondaryScore": 10},
+                {"round": 3, "primaryScore": 10, "secondaryScore": 12},
+                {"round": 4, "primaryScore": 10, "secondaryScore": 7},
+                {"round": 5, "primaryScore": 5, "secondaryScore": 2},
             ],
         },
     }
 
-    # Check router computation on 9th Ed state: 47/50 Pri + 40/40 Sec + 10 Paint = 97
+    # Check router computation on 9th Ed state: 45/45 Pri + 39/45 Sec (12 + 15 + 12) + 10 Paint = 94
     tot_p1_9th = tracker_router._compute_tracker_side_score(st_9th["p1"], st_9th, 0)
     tot_p2_9th = tracker_router._compute_tracker_side_score(st_9th["p2"], st_9th, 0)
-    assert tot_p1_9th == 97, f"Expected 97 (47/50 Pri + 40/40 Sec + 10 Paint), got {tot_p1_9th}"
-    assert tot_p2_9th == 33, f"Expected 33 (16/50 Pri + 7/40 Sec + 10 Paint), got {tot_p2_9th}"
+    assert tot_p1_9th == 94, f"Expected 94 (45/45 Pri + 39/45 Sec + 10 Paint), got {tot_p1_9th}"
+    assert tot_p2_9th == 81, f"Expected 81 (37/45 Pri + 34/45 Sec + 10 Paint), got {tot_p2_9th}"
 
-    # Check tracker_sync.js computeTrackerPlayerBreakdown on 9th Ed state
+    # Also check 10th Ed 15pt per-card cap (50/40 caps + 15pt per card)
+    st_10th = {
+        "edition": "10th",
+        "imported_source": "tabletop_battles",
+        "p1": {
+            "name": "Player 10e",
+            "edition": "10th",
+            "battleReady": True,
+            "hand": [
+                {"name": "Assassination", "cardId": "assassination", "recurring": True, "roundScores": {"1": 5, "2": 5, "3": 5, "4": 5}, "points": 20},
+                {"name": "Cleanse", "cardId": "cleanse", "recurring": True, "roundScores": {"2": 4, "3": 4, "4": 4, "5": 4}, "points": 16},
+            ],
+            "rounds": [
+                {"round": 1, "primaryScore": 0, "secondaryScore": 5},
+                {"round": 2, "primaryScore": 15, "secondaryScore": 9},
+                {"round": 3, "primaryScore": 15, "secondaryScore": 9},
+                {"round": 4, "primaryScore": 15, "secondaryScore": 9},
+                {"round": 5, "primaryScore": 10, "secondaryScore": 4},
+            ],
+        },
+    }
+    tot_p1_10th = tracker_router._compute_tracker_side_score(st_10th["p1"], st_10th, 0)
+    assert tot_p1_10th == 90, f"Expected 90 (50/50 Pri + 30/40 Sec [15+15] + 10 Paint), got {tot_p1_10th}"
+
+    # Check tracker_sync.js computeTrackerPlayerBreakdown on 9th Ed and 10th Ed state
     node_script = f"""
     const fs = require('fs');
     global.window = {{ location: {{ search: '', pathname: '/tracker/play' }} }};
@@ -1090,17 +1124,21 @@ def test_only_11th_has_45_45_and_9th_10th_have_50_40():
     const startIdx = src.indexOf('function computeTrackerPlayerBreakdown(pObj, st)');
     const endIdx = src.indexOf('// Override getItem');
     eval(src.slice(startIdx, endIdx));
-    const st = {json.dumps(st_9th)};
-    const b1 = window.__computeTrackerPlayerBreakdown(st.p1, st);
-    const b2 = window.__computeTrackerPlayerBreakdown(st.p2, st);
-    console.log(JSON.stringify({{ b1, b2 }}));
+    const st9 = {json.dumps(st_9th)};
+    const st10 = {json.dumps(st_10th)};
+    const b1 = window.__computeTrackerPlayerBreakdown(st9.p1, st9);
+    const b2 = window.__computeTrackerPlayerBreakdown(st9.p2, st9);
+    const b10 = window.__computeTrackerPlayerBreakdown(st10.p1, st10);
+    console.log(JSON.stringify({{ b1, b2, b10 }}));
     """
     proc = subprocess.run(["node", "-e", node_script], capture_output=True, text=True, check=True)
     js_out = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert js_out["b1"]["priCap"] == 50 and js_out["b1"]["secCap"] == 40
-    assert js_out["b1"]["pri"] == 47 and js_out["b1"]["sec"] == 40 and js_out["b1"]["total"] == 97
-    assert js_out["b2"]["priCap"] == 50 and js_out["b2"]["secCap"] == 40
-    assert js_out["b2"]["pri"] == 16 and js_out["b2"]["sec"] == 7 and js_out["b2"]["total"] == 33
+    assert js_out["b1"]["priCap"] == 45 and js_out["b1"]["secCap"] == 45
+    assert js_out["b1"]["pri"] == 45 and js_out["b1"]["sec"] == 39 and js_out["b1"]["total"] == 94
+    assert js_out["b2"]["priCap"] == 45 and js_out["b2"]["secCap"] == 45
+    assert js_out["b2"]["pri"] == 37 and js_out["b2"]["sec"] == 34 and js_out["b2"]["total"] == 81
+    assert js_out["b10"]["priCap"] == 50 and js_out["b10"]["secCap"] == 40
+    assert js_out["b10"]["pri"] == 50 and js_out["b10"]["sec"] == 30 and js_out["b10"]["total"] == 90
 
 
 if __name__ == "__main__":

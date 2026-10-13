@@ -2251,11 +2251,11 @@ def _compute_tracker_side_score(side_obj: Any, state: Any = None, fallback_score
         and (side_obj.get("deck") or game.get("p1Disposition") or game.get("p2Disposition") or not raw_ed or raw_ed in ("11th", "11e"))
     )
     if "8th" in raw_ed or "itc" in raw_ed or int(side_obj.get("primaryCap") or 0) == 36:
-        pri_cap, sec_cap, max_tot, has_paint = 36, 12, 48, False
-    elif raw_ed in ("11th", "11e") or is_native_11th:
-        pri_cap, sec_cap, max_tot, has_paint = 45, 45, 100, True
+        pri_cap, sec_cap, max_tot, has_paint, per_card_cap = 36, 12, 48, False, 4
+    elif "9th" in raw_ed or "9e" in raw_ed or raw_ed in ("11th", "11e") or is_native_11th:
+        pri_cap, sec_cap, max_tot, has_paint, per_card_cap = 45, 45, 100, True, 15
     else:
-        pri_cap, sec_cap, max_tot, has_paint = 50, 40, 100, True
+        pri_cap, sec_cap, max_tot, has_paint, per_card_cap = 50, 40, 100, True, 15
 
     raw_pri = sum(int(r.get("primaryScore") or 0) for r in rounds)
     if raw_pri == 0 and int(side_obj.get("primaryScore") or 0) > 0:
@@ -2267,23 +2267,36 @@ def _compute_tracker_side_score(side_obj: Any, state: Any = None, fallback_score
     for card in hand:
         if not isinstance(card, dict):
             continue
+        card_tot = 0
         if card.get("recurring"):
             r_scores = card.get("roundScores")
             if isinstance(r_scores, dict):
                 for rv in r_scores.values():
                     if isinstance(rv, dict):
-                        raw_sec += int(rv.get("points") or rv.get("score") or 0)
+                        card_tot += int(rv.get("points") or rv.get("score") or 0)
                     elif isinstance(rv, (int, float)):
-                        raw_sec += int(rv)
+                        card_tot += int(rv)
         elif card.get("scoredRound") is not None:
-            raw_sec += int(card.get("points") or card.get("score") or 0)
+            card_tot += int(card.get("points") or card.get("score") or 0)
+        raw_sec += min(per_card_cap, card_tot)
 
     if raw_sec == 0:
+        card_totals_by_id: Dict[str, int] = {}
+        untyped_sec = 0
         for r in rounds:
-            r_sec = int(r.get("secondaryScore") or 0)
-            if r_sec == 0 and isinstance(r.get("secondaries"), list):
-                r_sec = sum(int(s.get("score") or s.get("points") or 0) for s in r["secondaries"] if isinstance(s, dict))
-            raw_sec += r_sec
+            if isinstance(r.get("secondaries"), list) and r["secondaries"]:
+                for s in r["secondaries"]:
+                    if not isinstance(s, dict):
+                        continue
+                    cid = str(s.get("cardId") or s.get("name") or "").strip().lower()
+                    pts = int(s.get("score") or s.get("points") or 0)
+                    if cid and cid not in ("secondary-objectives", "tactical / fixed secondaries"):
+                        card_totals_by_id[cid] = min(per_card_cap, card_totals_by_id.get(cid, 0) + pts)
+                    else:
+                        untyped_sec += pts
+            else:
+                untyped_sec += int(r.get("secondaryScore") or 0)
+        raw_sec = sum(card_totals_by_id.values()) + untyped_sec
     if raw_sec == 0 and int(side_obj.get("secondaryScore") or 0) > 0 and (not hand or st.get("imported_source")):
         raw_sec = int(side_obj.get("secondaryScore") or 0)
 
