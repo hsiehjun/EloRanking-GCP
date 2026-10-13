@@ -3583,6 +3583,12 @@ class YuGiOhPairingsArena {
     const displayName = isStarter
       ? `${player.faction || player.name} (Starter)`
       : (player.player_name || player.name || player.faction);
+    const cardTopTitle = isStarter
+      ? (player.faction || player.name || displayName)
+      : (player.player_name || player.name || displayName);
+    const cardArtSubtitle = isStarter
+      ? (player.detachment || meta.detachment || player.faction)
+      : (player.faction || meta.detachment || "");
 
     const classes = [
       "ygo-card",
@@ -3598,13 +3604,13 @@ class YuGiOhPairingsArena {
     return `
       <div class="${classes}" data-card-id="${this.escapeHtml(player.id || player.card_id || "")}" style="--card-accent: ${meta.accent}">
         <div class="yc-top">
-          <span class="yc-name" title="${this.escapeHtml(displayName)}">${this.escapeHtml(player.name || displayName)}</span>
+          <span class="yc-name" title="${this.escapeHtml(displayName)}">${this.escapeHtml(cardTopTitle)}</span>
           <span class="yc-attr">${svgHtml}</span>
         </div>
         <div class="yc-art">
           ${matchupChipHtml}
           <span class="yc-emblem">${svgHtml}</span>
-          <span class="yc-faction">${this.escapeHtml(player.faction)}</span>
+          <span class="yc-faction">${this.escapeHtml(cardArtSubtitle)}</span>
         </div>
         <div class="yc-bottom">
           <span>ELO <strong>${player.elo || 1500}</strong></span>
@@ -4478,24 +4484,19 @@ class YuGiOhPairingsArena {
       const isInDeck = inDeckCardIds.has(card.card_id);
       const samePlayerInDeck = !isInDeck && !card.is_starter && card.player_name && inDeckPlayers.has(String(card.player_name).toLowerCase());
       const svgHtml = getFactionSvgHtml(card.faction, "armory-faction-svg");
-      const badgeTxt = card.is_starter
-        ? "1450–1550 ELO"
-        : (card.copies > 1 ? `×${card.copies} OWNED` : "EQUIP CARD");
+      const meta = resolveFactionMeta(card.faction);
+      const detLabel = card.detachment || meta.detachment || "Strike Force";
       const subText = card.is_starter
-        ? `No Player Name • ${card.detachment}`
-        : `${card.faction} • ${card.detachment}`;
+        ? detLabel
+        : `${card.faction} • ${detLabel}`;
       const statusBadge = isInDeck
-        ? `<span class="tpc-RARITY starter">✓ IN DECK</span>`
+        ? `<span class="tpc-action-pill in-deck-pill">✓ IN DECK</span>`
         : (samePlayerInDeck
-            ? `<span class="tpc-RARITY epic" title="Swapping will replace this player's other faction card in your deck">SWAP FACTION</span>`
-            : `<span class="tpc-RARITY starter">${this.escapeHtml(badgeTxt)}</span>`);
+            ? `<span class="tpc-action-pill swap-pill" title="Swapping will replace this player's other faction card in your deck">⇄ SWAP</span>`
+            : `<span class="tpc-action-pill equip-pill">+ EQUIP</span>`);
 
       return `
         <div class="tcg-picker-card rarity-${rarity} ${isInDeck ? "in-deck" : ""}" data-picker-card-id="${this.escapeHtml(card.card_id)}">
-          <div class="tpc-head">
-            <span class="tpc-RARITY ${rarity}">${card.is_starter ? "⚪ STARTER" : `★ ${String(rarity).toUpperCase()}`}</span>
-            ${statusBadge}
-          </div>
           <div class="tpc-body">
             <div class="tpc-sigil">${svgHtml}</div>
             <div class="tpc-info">
@@ -4505,7 +4506,10 @@ class YuGiOhPairingsArena {
           </div>
           <div class="tpc-foot">
             <span class="tpc-elo">ELO <strong>${card.elo}</strong></span>
-            <span class="tpc-foil">${this.escapeHtml(card.foil_tier || (card.is_starter ? "Base Set" : "★1 Standard"))}</span>
+            <div class="tpc-foot-right">
+              <span class="tpc-RARITY ${rarity}">${card.is_starter ? "STARTER" : String(rarity).toUpperCase()}</span>
+              ${statusBadge}
+            </div>
           </div>
         </div>
       `;
@@ -4820,29 +4824,27 @@ class YuGiOhPairingsArena {
       const rarity = this.resolveCardRarity(card);
       const isOwned = Boolean(card.owned || card.is_starter);
       const svgHtml = getFactionSvgHtml(card.faction, "armory-faction-svg");
-      const badgeTxt = card.is_starter
-        ? "⚪ STARTER (1450–1550)"
-        : `${String(card.rarity || rarity).toUpperCase()} (${card.elo})`;
+      const meta = resolveFactionMeta(card.faction);
+      const detLabel = card.detachment || meta.detachment || "Strike Force";
       const statusBadge = isOwned
-        ? `<span class="tpc-RARITY common">✅ OWNED${card.copies > 1 ? ` ×${card.copies}` : ""}</span>`
-        : `<span class="tpc-RARITY starter">🔒 LOCKED (PACK DROP)</span>`;
+        ? `<span class="tpc-action-pill in-deck-pill">✓ OWNED${card.copies > 1 ? ` ×${card.copies}` : ""}</span>`
+        : `<span class="tpc-action-pill locked-pill">🔒 LOCKED</span>`;
 
       return `
         <div class="tcg-picker-card rarity-${rarity} ${isOwned ? "" : "locked-card"}" data-binder-card-id="${this.escapeHtml(card.card_id)}">
-          <div class="tpc-head">
-            <span class="tpc-RARITY ${rarity}">${this.escapeHtml(badgeTxt)}</span>
-            ${statusBadge}
-          </div>
           <div class="tpc-body">
             <div class="tpc-sigil">${svgHtml}</div>
             <div class="tpc-info">
-              <div class="tpc-name">${this.escapeHtml(card.is_starter ? `${card.faction} (No Player)` : `${card.player_name} — ${card.faction}`)}</div>
-              <div class="tpc-sub">${this.escapeHtml(card.detachment)}${card.team_name ? ` • ${this.escapeHtml(card.team_name)}` : ""}</div>
+              <div class="tpc-name">${this.escapeHtml(card.is_starter ? card.faction : (card.player_name || card.name))}</div>
+              <div class="tpc-sub">${this.escapeHtml(card.is_starter ? detLabel : `${card.faction} • ${detLabel}`)}</div>
             </div>
           </div>
           <div class="tpc-foot">
-            <span class="tpc-elo">LIVE ELO <strong>${card.elo}</strong></span>
-            <span class="tpc-foil">${this.escapeHtml(isOwned ? (card.foil_tier || "Owned") : "Buy Packs to Unlock")}</span>
+            <span class="tpc-elo">ELO <strong>${card.elo}</strong></span>
+            <div class="tpc-foot-right">
+              <span class="tpc-RARITY ${rarity}">${card.is_starter ? "STARTER" : String(rarity).toUpperCase()}</span>
+              ${statusBadge}
+            </div>
           </div>
         </div>
       `;
