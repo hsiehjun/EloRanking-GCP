@@ -2633,7 +2633,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     from firestore_db import get_firestore_engine
                     fs_eng = get_firestore_engine()
                     p_room = fs_eng.get_pairing_room_raw(upper_rid)
-                    if action == "discard" and p_room:
+                    if action == "discard":
                         fs_eng.discard_pairing_room(upper_rid)
                         self.send_response(200)
                         self.send_header("Content-Type", "application/json; charset=utf-8")

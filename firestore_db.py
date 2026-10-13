@@ -2632,6 +2632,8 @@ class FirestoreRoomEngine:
 
     def _save_pairing_room_doc(self, room_code: str, room_data: Dict[str, Any]) -> None:
         code = str(room_code).strip().upper()
+        if code in getattr(self, "_discarded_pairing_rooms", set()) and not room_data.get("is_abandoned"):
+            return
         room_data["revision"] = int(room_data.get("revision") or 0) + 1
         room_data["updatedAt"] = int(datetime.now(timezone.utc).timestamp() * 1000)
         self._fallback_pairing_rooms[code] = room_data
@@ -2660,6 +2662,9 @@ class FirestoreRoomEngine:
                 if doc.exists:
                     data = doc.to_dict() or {}
                     if data.get("is_abandoned") or data.get("status") == "abandoned":
+                        if not hasattr(self, "_discarded_pairing_rooms"):
+                            self._discarded_pairing_rooms = set()
+                        self._discarded_pairing_rooms.add(code)
                         self._fallback_pairing_rooms.pop(code, None)
                         return None
                     if cached:
@@ -2670,6 +2675,9 @@ class FirestoreRoomEngine:
                         best = data
                     self._fallback_pairing_rooms[code] = best
                     return best
+                elif code not in ("WTC-DEV1", "WTC-FIN8"):
+                    self._fallback_pairing_rooms.pop(code, None)
+                    return None
             except Exception as err:
                 logger.warning(f"Notice reading pairing_room {code} from Firestore: {err}")
 
@@ -2677,7 +2685,6 @@ class FirestoreRoomEngine:
 
     def discard_pairing_room(self, room_code: str) -> bool:
         """Marks a WTC Team Pairings room as discarded/abandoned and removes it from active rooms."""
-        import threading
         if not room_code:
             return False
         code = str(room_code).strip().upper()
@@ -2686,12 +2693,17 @@ class FirestoreRoomEngine:
             self._discarded_pairing_rooms = set()
         self._discarded_pairing_rooms.add(code)
         if self._client:
-            def _bg_del():
-                try:
-                    self._client.collection("pairing_rooms").document(code).delete()
-                except Exception as err:
-                    logger.debug(f"Notice deleting pairing_room {code} from Firestore: {err}")
-            threading.Thread(target=_bg_del, daemon=True).start()
+            try:
+                tombstone = {
+                    "room_code": code,
+                    "status": "abandoned",
+                    "is_abandoned": True,
+                    "revision": 999999999,
+                    "updatedAt": int(datetime.now(timezone.utc).timestamp() * 1000),
+                }
+                self._client.collection("pairing_rooms").document(code).set(tombstone)
+            except Exception as err:
+                logger.debug(f"Notice marking pairing_room {code} abandoned in Firestore: {err}")
         return existing is not None or True
 
     def finish_pairing_room(self, room_code: str) -> Optional[Dict[str, Any]]:

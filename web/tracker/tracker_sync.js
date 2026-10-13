@@ -3514,6 +3514,15 @@
       try {
         const db = firebase.firestore();
         db.collection('rooms').doc(matchId).delete();
+        if (cleanId.startsWith('WTC-')) {
+          db.collection('pairing_rooms').doc(cleanId).set({
+            room_code: cleanId,
+            status: 'abandoned',
+            is_abandoned: true,
+            revision: 999999999,
+            updatedAt: Date.now()
+          });
+        }
       } catch(e) {}
     }
 

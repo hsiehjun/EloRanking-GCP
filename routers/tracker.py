@@ -2565,14 +2565,13 @@ async def api_tracker_discard_game(match_id: str, request: Request, payload: Opt
     fs_engine = get_firestore_engine()
     if match_id.startswith("WTC-") and hasattr(fs_engine, "get_pairing_room_raw"):
         p_room = fs_engine.get_pairing_room_raw(match_id)
-        if p_room:
-            if p_room.get("is_finished") or p_room.get("status") == "completed":
-                raise HTTPException(
-                    status_code=400,
-                    detail="Permanent record: Completed pairing rooms cannot be discarded or deleted."
-                )
-            fs_engine.discard_pairing_room(match_id)
-            return {"success": True, "match_id": match_id, "status": "abandoned", "is_abandoned": True}
+        if p_room and (p_room.get("is_finished") or p_room.get("status") == "completed"):
+            raise HTTPException(
+                status_code=400,
+                detail="Permanent record: Completed pairing rooms cannot be discarded or deleted."
+            )
+        fs_engine.discard_pairing_room(match_id)
+        return {"success": True, "match_id": match_id, "status": "abandoned", "is_abandoned": True}
 
     # 1. Verify this is NOT a completed / permanent match record
     db = None

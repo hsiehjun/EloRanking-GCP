@@ -2079,10 +2079,15 @@ class YuGiOhPairingsArena {
     const savedTok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(cleanCode, this.activeRole);
     try {
       const resp = await fetch(
-        `/api/team-pairings/room/${encodeURIComponent(cleanCode)}?role=${encodeURIComponent(this.activeRole)}&captain_token=${encodeURIComponent(savedTok)}`
+        `/api/team-pairings/room/${encodeURIComponent(cleanCode)}?role=${encodeURIComponent(this.activeRole)}&captain_token=${encodeURIComponent(savedTok)}&_t=${Date.now()}`,
+        { cache: "no-store" }
       );
+      if (resp.status === 404 || !resp.ok) {
+        this.handleRoomDiscardedOrMissing(cleanCode, { reason: "not_found" });
+        return;
+      }
       const data = await resp.json();
-      if (data && (data.ok || data.success) && data.room) {
+      if (data && (data.ok || data.success) && data.room && !data.room.is_abandoned && data.room.status !== "abandoned") {
         this.room = data.room;
         this.roomCode = data.room.room_code;
         if (data.room.captain_a_token) {
@@ -2150,10 +2155,99 @@ class YuGiOhPairingsArena {
         }
         this.renderAll();
       } else {
-        this.showToast(`Room ${cleanCode} not found`);
+        this.handleRoomDiscardedOrMissing(cleanCode, { reason: "not_found" });
       }
     } catch (err) {
       console.error("Failed to join room:", err);
+      this.handleRoomDiscardedOrMissing(cleanCode, { reason: "not_found" });
+    }
+  }
+
+  handleRoomDiscardedOrMissing(roomCode, { reason = "deleted" } = {}) {
+    if (this._roomDeletedOrMissing) return;
+    this._roomDeletedOrMissing = true;
+    const cleanCode = String(roomCode || this.roomCode || "UNKNOWN").trim().toUpperCase();
+
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+    this.clearCombatTimers();
+    this.room = null;
+    this.roomCode = null;
+
+    // Purge cached tokens & history entries for this deleted room
+    try {
+      localStorage.removeItem(`tp_tok_${cleanCode}_captain_a`);
+      localStorage.removeItem(`tp_tok_${cleanCode}_captain_b`);
+      sessionStorage.removeItem(`tp_tab_role_${cleanCode}`);
+      const localRaw = localStorage.getItem("gdm-11e-tracker-history");
+      if (localRaw) {
+        const arr = JSON.parse(localRaw);
+        if (Array.isArray(arr)) {
+          const filtered = arr.filter((g) => String(g.id || g.match_id || "").toUpperCase() !== cleanCode);
+          localStorage.setItem("gdm-11e-tracker-history", JSON.stringify(filtered));
+        }
+      }
+    } catch (_) {}
+
+    // Update top HUD so it never shows #WTC-DEV1 or stale room info
+    const badge = document.getElementById("topbarRoomCodeBadge");
+    if (badge) badge.textContent = `#${cleanCode} (DELETED)`;
+    const teamALbl = document.getElementById("hudTeamALabel");
+    const teamBLbl = document.getElementById("hudTeamBLabel");
+    if (teamALbl) teamALbl.textContent = "Room No Longer Exists";
+    if (teamBLbl) teamBLbl.textContent = "Deleted";
+    const statusDot = document.getElementById("hudStatusDot");
+    if (statusDot) statusDot.style.background = "#ef4444";
+
+    this.closeLobbyModal();
+    this.closeCoinFlipModal();
+
+    const isKickedLive = reason === "kicked";
+    const titleText = isKickedLive ? "Match Room Deleted" : "Room No Longer Exists";
+    const bodyText = isKickedLive
+      ? `Room <strong style="color:#f8fafc;font-family:'JetBrains Mono',monospace;">#${this.escapeHtml(cleanCode)}</strong> was deleted by the host from Match History and is no longer active.`
+      : `Room <strong style="color:#f8fafc;font-family:'JetBrains Mono',monospace;">#${this.escapeHtml(cleanCode)}</strong> no longer exists (it was deleted by the host or has expired).`;
+
+    let overlay = document.getElementById("gt-discarded-overlay");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "gt-discarded-overlay";
+      overlay.style.cssText = `
+        position: fixed; inset: 0; background: rgba(5, 8, 17, 0.96);
+        backdrop-filter: blur(10px);
+        z-index: 999999; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; text-align: center;
+        padding: 20px; color: #fff; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      `;
+      document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = `
+      <div style="background:#0f172a; border:1.5px solid #ef4444; border-radius:16px; padding:2rem; max-width:440px; width:100%; box-shadow:0 20px 50px rgba(0,0,0,0.85);">
+        <div style="font-size:3rem; margin-bottom:0.8rem;">🗑️</div>
+        <h2 style="font-size:1.4rem; font-weight:800; color:#ef4444; margin:0 0 0.5rem 0;">${titleText}</h2>
+        <p style="font-size:0.92rem; color:#cbd5e1; line-height:1.5; margin:0 0 1.5rem 0;">
+          ${bodyText}
+        </p>
+        <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+          <a href="/11th/tracker" style="background:#ef4444; color:#fff; padding:10px 20px; border-radius:8px; text-decoration:none; font-weight:800; font-size:0.9rem; display:inline-block;">
+            🏠 Return to Match Lobby
+          </a>
+        </div>
+      </div>
+    `;
+
+    // If kicked live while authenticated, auto-return to /11th/tracker just like Game Tracker
+    const hasAuthSession = Boolean(
+      localStorage.getItem("elo_auth_token") ||
+      localStorage.getItem("session_token") ||
+      document.cookie.includes("session_token=")
+    );
+    if (isKickedLive && hasAuthSession) {
+      setTimeout(() => {
+        window.location.href = "/11th/tracker";
+      }, 1500);
     }
   }
 
@@ -2203,16 +2297,30 @@ class YuGiOhPairingsArena {
   }
 
   async pollRoomState() {
-    if (!this.roomCode || this._isPollingRoom) return;
+    if (!this.roomCode || this._isPollingRoom || this._roomDeletedOrMissing) return;
     this._isPollingRoom = true;
-    const savedTok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(this.roomCode, this.activeRole);
+    const polledCode = this.roomCode;
+    const savedTok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(polledCode, this.activeRole);
     try {
       const resp = await fetch(
-        `/api/team-pairings/room/${encodeURIComponent(this.roomCode)}?role=${encodeURIComponent(this.activeRole)}&captain_token=${encodeURIComponent(savedTok)}&_t=${Date.now()}`,
+        `/api/team-pairings/room/${encodeURIComponent(polledCode)}?role=${encodeURIComponent(this.activeRole)}&captain_token=${encodeURIComponent(savedTok)}&_t=${Date.now()}`,
         { cache: "no-store" }
       );
+      if (resp.status === 404) {
+        this.handleRoomDiscardedOrMissing(polledCode, { reason: "kicked" });
+        return;
+      }
       if (!resp.ok) return;
       const data = await resp.json();
+      if (
+        !data ||
+        data.is_abandoned ||
+        data.status === "abandoned" ||
+        (data.room && (data.room.is_abandoned || data.room.status === "abandoned"))
+      ) {
+        this.handleRoomDiscardedOrMissing(polledCode, { reason: "kicked" });
+        return;
+      }
       if (data && (data.ok || data.success) && data.room) {
         const oldSig = this.getRoomStateSignature(this.room);
         const newSig = this.getRoomStateSignature(data.room);
