@@ -281,7 +281,7 @@ class YuGiOhPairingsArena {
     // Lobby Seat Cards (Claim & Lock Seat)
     document.querySelectorAll(".lobby-seat-card").forEach((card) => {
       card.addEventListener("click", (e) => {
-        if (e.target.closest(".seat-unlock-btn")) return;
+        if (e.target.closest(".seat-unlock-btn") || e.target.closest(".info-tip-btn")) return;
         const seat = card.getAttribute("data-seat");
         if (seat) this.claimOrSwitchSeat(seat);
       });
@@ -361,11 +361,17 @@ class YuGiOhPairingsArena {
     }
     const btnChooseDef = document.getElementById("btnChooseDefenderRole");
     if (btnChooseDef) {
-      btnChooseDef.addEventListener("click", () => this.chooseCoinFlipRole("defender", this.activeRole));
+      btnChooseDef.addEventListener("click", (e) => {
+        if (e.target.closest(".info-tip-btn")) return;
+        this.chooseCoinFlipRole("defender", this.activeRole);
+      });
     }
     const btnChooseAtt = document.getElementById("btnChooseAttackerRole");
     if (btnChooseAtt) {
-      btnChooseAtt.addEventListener("click", () => this.chooseCoinFlipRole("attacker", this.activeRole));
+      btnChooseAtt.addEventListener("click", (e) => {
+        if (e.target.closest(".info-tip-btn")) return;
+        this.chooseCoinFlipRole("attacker", this.activeRole);
+      });
     }
     const btnAcceptAiCoin = document.getElementById("btnAcceptAiCoinChoice");
     if (btnAcceptAiCoin) {
@@ -607,6 +613,81 @@ class YuGiOhPairingsArena {
     if (binderSearch) {
       binderSearch.addEventListener("input", () => this.renderTcgBinderTab());
     }
+
+    // Global "i" Info Tooltip / Popover (Tap on mobile or click/hover on desktop)
+    const btnCloseInfo = document.getElementById("btnCloseGlobalInfoPopover");
+    if (btnCloseInfo) {
+      btnCloseInfo.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.hideInfoPopover();
+      });
+    }
+    document.addEventListener("click", (e) => {
+      const infoBtn = e.target.closest(".info-tip-btn");
+      if (infoBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.toggleInfoPopover(infoBtn);
+        return;
+      }
+      if (!e.target.closest("#globalInfoPopover")) {
+        this.hideInfoPopover();
+      }
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") this.hideInfoPopover();
+    });
+  }
+
+  toggleInfoPopover(btnEl) {
+    if (!btnEl) return;
+    const pop = document.getElementById("globalInfoPopover");
+    if (!pop) return;
+    if (!pop.classList.contains("hidden") && this._activeInfoBtn === btnEl) {
+      this.hideInfoPopover();
+      return;
+    }
+    this.showInfoPopover(btnEl);
+  }
+
+  showInfoPopover(btnEl) {
+    const pop = document.getElementById("globalInfoPopover");
+    const titleEl = document.getElementById("globalInfoPopoverTitle");
+    const bodyEl = document.getElementById("globalInfoPopoverBody");
+    if (!pop || !titleEl || !bodyEl || !btnEl) return;
+
+    this._activeInfoBtn = btnEl;
+    const title = btnEl.getAttribute("data-info-title") || "Info";
+    const rawBody = btnEl.getAttribute("data-info-body") || "";
+    titleEl.textContent = title;
+    bodyEl.innerHTML = rawBody
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => `<div class="ipc-line">${this.escapeHtml(line.trim())}</div>`)
+      .join("");
+
+    pop.classList.remove("hidden");
+
+    const rect = btnEl.getBoundingClientRect();
+    const popRect = pop.getBoundingClientRect();
+    const vw = window.innerWidth || 390;
+    const vh = window.innerHeight || 844;
+
+    let top = rect.bottom + 8;
+    if (top + popRect.height > vh - 12) {
+      top = Math.max(12, rect.top - popRect.height - 8);
+    }
+    let left = rect.left + rect.width / 2 - popRect.width / 2;
+    left = Math.max(10, Math.min(vw - popRect.width - 10, left));
+
+    pop.style.top = `${Math.round(top)}px`;
+    pop.style.left = `${Math.round(left)}px`;
+  }
+
+  hideInfoPopover() {
+    const pop = document.getElementById("globalInfoPopover");
+    if (pop) pop.classList.add("hidden");
+    this._activeInfoBtn = null;
   }
 
   async bootstrap() {
@@ -1331,9 +1412,7 @@ class YuGiOhPairingsArena {
     const accessStatus = document.getElementById("lobbyRoomAccessStatusBadge");
     if (accessStatus) {
       accessStatus.classList.toggle("locked", isRoomLocked);
-      accessStatus.textContent = isRoomLocked
-        ? "🔒 LOCKED LOBBY — Only locked Captains can act"
-        : "🟢 UNLOCKED LOBBY — Anyone with link can claim open seat";
+      accessStatus.textContent = isRoomLocked ? "🔒 Locked Room" : "🟢 Open Room";
     }
 
     // Update Captain A & Captain B seat cards
@@ -1386,12 +1465,12 @@ class YuGiOhPairingsArena {
         lockBadge.classList.remove("mine", "taken");
         if (isMine) {
           lockBadge.classList.add("mine");
-          lockBadge.textContent = "🔒 LOCKED BY YOU";
+          lockBadge.textContent = "🔒 YOU";
         } else if (isTakenByOther) {
           lockBadge.classList.add("taken");
-          lockBadge.textContent = "🔒 SEAT LOCKED";
+          lockBadge.textContent = "🔒 TAKEN";
         } else {
-          lockBadge.textContent = "🟢 OPEN SEAT";
+          lockBadge.textContent = "🟢 OPEN";
         }
       }
 
@@ -1399,19 +1478,19 @@ class YuGiOhPairingsArena {
         if (isMine) {
           ownerText.textContent = "Seated: You";
         } else if (isTakenByOther) {
-          ownerText.textContent = `Taken by: ${s.ownerName}`;
+          ownerText.textContent = s.ownerName;
         } else {
-          ownerText.textContent = isRoomLocked ? "Closed (Room Locked)" : "Available — Click to claim";
+          ownerText.textContent = isRoomLocked ? "Room Locked" : "Open";
         }
       }
 
       if (actionBadge) {
         if (isMine) {
-          actionBadge.textContent = "✓ YOUR ACTIVE SEAT";
+          actionBadge.textContent = "✓ YOUR SEAT";
         } else if (isTakenByOther) {
-          actionBadge.textContent = "🔒 SEAT TAKEN";
+          actionBadge.textContent = "🔒 TAKEN";
         } else {
-          actionBadge.textContent = "CLAIM & LOCK SEAT";
+          actionBadge.textContent = "CLAIM SEAT";
         }
       }
 
@@ -1420,11 +1499,11 @@ class YuGiOhPairingsArena {
       }
 
       if (topBtn) {
-        const labelBase = s.role === "captain_a" ? "Team A Cap" : "Team B Cap";
+        const labelBase = s.role === "captain_a" ? "Team A" : "Team B";
         if (isMine) {
           topBtn.textContent = `👑 ${labelBase} (You)`;
         } else if (isTakenByOther) {
-          topBtn.textContent = `🔒 ${labelBase} (${s.ownerName})`;
+          topBtn.textContent = `🔒 ${labelBase}`;
         } else {
           topBtn.textContent = `🟢 ${labelBase}`;
         }
@@ -1449,7 +1528,7 @@ class YuGiOhPairingsArena {
 
     if (seat === "spectator") {
       if (builderSec) builderSec.classList.add("hidden");
-      if (statusHint) statusHint.textContent = "Spectator Seat selected — you will watch the live card duel in read-only mode.";
+      if (statusHint) statusHint.textContent = "👁️ Spectator Mode";
       if (startBtn) startBtn.textContent = "👁️ WATCH DUEL FIELD";
     } else {
       if (builderSec) builderSec.classList.remove("hidden");
@@ -1518,12 +1597,10 @@ class YuGiOhPairingsArena {
 
     const statusHint = document.getElementById("lobbyStatusHint");
     if (statusHint) {
-      if (hand.length === 0) {
-        statusHint.textContent = `Search players or a team name above to add ${targetSize} cards to your hand.`;
-      } else if (hand.length < targetSize) {
-        statusHint.textContent = `Select ${targetSize - hand.length} more player(s) via search above.`;
+      if (hand.length >= targetSize) {
+        statusHint.textContent = `✓ ${targetSize} / ${targetSize} Ready`;
       } else {
-        statusHint.textContent = `Ready! ${targetSize}/${targetSize} Player Cards in your hand. Click ENTER DUEL ARENA.`;
+        statusHint.textContent = `${hand.length} / ${targetSize} Cards`;
       }
     }
 
@@ -1549,9 +1626,8 @@ class YuGiOhPairingsArena {
       } else {
         slotsHtml.push(`
           <div class="lobby-empty-slot">
-            <span style="font-size:1.3rem;">➕</span>
-            <span>EMPTY CARD SLOT #${i + 1}</span>
-            <span>Search player above</span>
+            <span class="slot-plus">＋</span>
+            <span class="slot-num">#${i + 1}</span>
           </div>
         `);
       }
@@ -1670,7 +1746,7 @@ class YuGiOhPairingsArena {
     const boxA = document.getElementById("coinFlipTeamABox");
     if (tagA) tagA.textContent = teamA.tag || "TMA";
     if (nameA) nameA.textContent = teamA.name || "Team A";
-    if (capA) capA.textContent = `Cap: ${teamA.captain_name || "Team A Captain"}`;
+    if (capA) capA.textContent = teamA.captain_name || "Captain A";
     if (boxA) boxA.classList.toggle("winner", winner === "captain_a");
 
     const tagB = document.getElementById("coinFlipTeamBTag");
@@ -1679,7 +1755,7 @@ class YuGiOhPairingsArena {
     const boxB = document.getElementById("coinFlipTeamBBox");
     if (tagB) tagB.textContent = teamB.tag || "TMB";
     if (nameB) nameB.textContent = teamB.name || "Team B";
-    if (capB) capB.textContent = `Cap: ${teamB.captain_name || "Team B Captain"}`;
+    if (capB) capB.textContent = teamB.captain_name || "Captain B";
     if (boxB) boxB.classList.toggle("winner", winner === "captain_b");
 
     const faceLbl = document.getElementById("coinFaceFrontLabel");
@@ -1701,10 +1777,8 @@ class YuGiOhPairingsArena {
     const choiceGrid = document.getElementById("coinFlipRoleChoiceSection");
 
     if (!winner) {
-      if (headline) headline.textContent = "READY TO FLIP FOR CYCLE 1 ROLE SELECTION";
-      if (sub) {
-        sub.textContent = "Neither team defaults to Defender — flip the coin to decide who chooses Defender or Attacker first!";
-      }
+      if (headline) headline.textContent = "FLIP FOR CYCLE 1 ROLE";
+      if (sub) sub.classList.add("hidden");
       if (btnFlip) {
         btnFlip.disabled = this.activeRole === "spectator";
         btnFlip.textContent = "🪙 FLIP COIN";
@@ -1717,38 +1791,35 @@ class YuGiOhPairingsArena {
     const winTeamName = winner === "captain_a" ? (teamA.name || "Team A") : (teamB.name || "Team B");
     if (btnFlip) {
       btnFlip.disabled = this.activeRole === "spectator";
-      btnFlip.textContent = "🔄 RE-FLIP COIN";
+      btnFlip.textContent = "🔄 RE-FLIP";
     }
 
     if (done && defRole) {
       const defTeamName = defRole === "captain_a" ? (teamA.name || "Team A") : (teamB.name || "Team B");
       const attTeamName = defRole === "captain_a" ? (teamB.name || "Team B") : (teamA.name || "Team A");
       if (headline) {
-        headline.textContent = `🪙 ${winTeamName.toUpperCase()} WON THE TOSS!`;
+        headline.textContent = `🪙 ${winTeamName.toUpperCase()} WON`;
       }
       if (sub) {
-        sub.textContent = `Cycle 1 Roles Locked: 🛡️ ${defTeamName} is DEFENDER • ⚔️ ${attTeamName} is ATTACKER (roles swap each cycle).`;
+        sub.classList.remove("hidden");
+        sub.textContent = `🛡️ ${defTeamName} = DEFENDER • ⚔️ ${attTeamName} = ATTACKER`;
       }
     } else if (winner === "captain_b" && this.room.vs_ai && this.activeRole === "captain_a") {
       const aiPicked = (aiChoice || "defender").toUpperCase();
       const myStartRole = aiPicked === "DEFENDER" ? "ATTACKER" : "DEFENDER";
       if (headline) {
-        headline.textContent = `🪙 ${winTeamName.toUpperCase()} WON THE COIN FLIP!`;
+        headline.textContent = `🪙 ${winTeamName.toUpperCase()} WON`;
       }
-      if (sub) {
-        sub.textContent = `AI Captain chose ${aiPicked} for Cycle 1 — You will start Cycle 1 as ${myStartRole} (or pick below to override in practice mode).`;
-      }
+      if (sub) sub.classList.add("hidden");
       if (aiBanner) aiBanner.classList.remove("hidden");
       if (aiText) {
-        aiText.innerHTML = `🤖 <strong>${this.escapeHtml(winTeamName)}</strong> won the coin toss and chose <strong>${aiPicked}</strong> (you start Cycle 1 as <strong>${myStartRole}</strong>)!`;
+        aiText.innerHTML = `🤖 <strong>${this.escapeHtml(winTeamName)}</strong> chose <strong>${aiPicked}</strong> (You start as <strong>${myStartRole}</strong>)`;
       }
     } else {
       if (headline) {
-        headline.textContent = `🪙 ${winTeamName.toUpperCase()} WON THE COIN FLIP!`;
+        headline.textContent = `🪙 ${winTeamName.toUpperCase()} WON — PICK ROLE`;
       }
-      if (sub) {
-        sub.textContent = "Select whether you want to start Cycle 1 as DEFENDER (place 1 card first) or ATTACKER (send 2 cards against enemy Defender):";
-      }
+      if (sub) sub.classList.add("hidden");
       aiBanner?.classList.add("hidden");
     }
 
@@ -2298,11 +2369,11 @@ class YuGiOhPairingsArena {
     const cycleBadge = document.getElementById("cycleBadge");
     if (cycleBadge) {
       if (phase === "COMPLETED") {
-        cycleBadge.textContent = "DUEL COMPLETE";
+        cycleBadge.textContent = "COMPLETE";
       } else if (p.isAlternating) {
-        cycleBadge.textContent = `CYCLE ${this.room.cycle}/${this.room.max_cycles} • ${p.amIDefender ? "🛡️ DEF" : "⚔️ ATK"}`;
+        cycleBadge.textContent = `C${this.room.cycle}/${this.room.max_cycles} • ${p.amIDefender ? "🛡️ DEF" : "⚔️ ATK"}`;
       } else {
-        cycleBadge.textContent = `CYCLE ${this.room.cycle}/${this.room.max_cycles}`;
+        cycleBadge.textContent = `C${this.room.cycle}/${this.room.max_cycles}`;
       }
     }
 
@@ -2336,7 +2407,7 @@ class YuGiOhPairingsArena {
     const hintBadge = document.getElementById("selectionHintBadge");
 
     if (p.isSpectator) {
-      if (promptEl) promptEl.textContent = "SPECTATOR MODE — WATCHING CAPTAINS PLACE CARDS";
+      if (promptEl) promptEl.textContent = "👁️ Spectating Live Match";
       if (btnLock) {
         btnLock.disabled = true;
         btnLock.textContent = "👁️ SPECTATING";
@@ -2349,16 +2420,16 @@ class YuGiOhPairingsArena {
       if (hintBadge) hintBadge.textContent = "WAIT";
       if (promptEl) {
         if (phase === "STEP_1_DEFENDER") {
-          promptEl.textContent = "⏳ WAITING FOR ENEMY DEFENDER TO PLACE 1 DEFENDER CARD...";
+          promptEl.textContent = "⏳ Waiting for enemy Defender...";
         } else if (phase === "STEP_2_ATTACKERS") {
-          promptEl.textContent = "⏳ WAITING FOR ENEMY ATTACKER TO SEND 2 ATTACKERS AGAINST YOUR DEFENDER...";
+          promptEl.textContent = "⏳ Waiting for 2 enemy Attackers...";
         } else {
-          promptEl.textContent = "⏳ WAITING FOR ENEMY DEFENDER TO PICK 1 OF YOUR 2 ATTACKERS...";
+          promptEl.textContent = "⏳ Enemy picking 1 Attacker...";
         }
       }
       if (btnLock) {
         btnLock.disabled = true;
-        btnLock.textContent = "⏳ OPPONENT'S TURN";
+        btnLock.textContent = "⏳ ENEMY TURN";
       }
       return;
     }
@@ -2367,74 +2438,68 @@ class YuGiOhPairingsArena {
       const ready = this.selectedIds.length === 1;
       if (hintBadge) hintBadge.textContent = `${this.selectedIds.length}/1`;
       if (p.mySecDefLocked) {
-        if (promptEl) promptEl.textContent = "DEFENDER SET FACE-DOWN — WAITING FOR OPPONENT";
+        if (promptEl) promptEl.textContent = "✓ Defender set — waiting for opponent";
         if (btnLock) {
           btnLock.disabled = true;
-          btnLock.textContent = "✓ DEFENDER LOCKED";
+          btnLock.textContent = "✓ LOCKED";
         }
       } else {
         if (promptEl) {
           promptEl.textContent = ready
-            ? "DEFENDER PLACED ON FIELD — CLICK LOCK IN DEFENDER!"
-            : (p.isAlternating
-                ? "🛡️ YOU ARE DEFENDER: CLICK 1 CARD IN YOUR BOTTOM HAND TO PLACE AS DEFENDER"
-                : "PHASE 1: CLICK 1 CARD IN YOUR BOTTOM HAND TO PLACE AS DEFENDER");
+            ? "🛡️ Defender ready — Lock In!"
+            : "🛡️ Select 1 Defender from hand";
         }
         if (btnLock) {
           btnLock.disabled = !ready;
-          btnLock.textContent = "🔒 LOCK IN DEFENDER";
+          btnLock.textContent = "🔒 LOCK IN";
         }
       }
     } else if (phase === "STEP_2_ATTACKERS") {
       const ready = this.selectedIds.length === 2;
       if (hintBadge) hintBadge.textContent = `${this.selectedIds.length}/2`;
       if (p.mySecAttsLocked) {
-        if (promptEl) promptEl.textContent = "2 ATTACKERS SET — WAITING FOR OPPONENT";
+        if (promptEl) promptEl.textContent = "✓ 2 Attackers set — waiting for opponent";
         if (btnLock) {
           btnLock.disabled = true;
-          btnLock.textContent = "✓ ATTACKERS LOCKED";
+          btnLock.textContent = "✓ LOCKED";
         }
       } else {
         if (promptEl) {
           promptEl.textContent = ready
-            ? "2 ATTACKERS PLACED ON FIELD — CLICK LOCK IN 2 ATTACKERS!"
-            : (p.isAlternating
-                ? `⚔️ YOU ARE ATTACKER: CLICK 2 CARDS IN YOUR HAND TO CHALLENGE ${(p.oppDef?.name || "ENEMY DEFENDER").toUpperCase()}`
-                : "PHASE 2: CLICK 2 CARDS IN YOUR BOTTOM HAND TO ATTACK ENEMY DEFENDER");
+            ? "⚔️ 2 Attackers ready — Lock In!"
+            : `⚔️ Select 2 Attackers vs ${p.oppDef?.name || "Defender"}`;
         }
         if (btnLock) {
           btnLock.disabled = !ready;
-          btnLock.textContent = "🔒 LOCK IN 2 ATTACKERS";
+          btnLock.textContent = "🔒 LOCK IN";
         }
       }
     } else if (phase === "STEP_3_CHOOSE") {
       const ready = this.selectedIds.length === 1;
       if (hintBadge) hintBadge.textContent = `${this.selectedIds.length}/1`;
       if (p.mySecChoiceLocked) {
-        if (promptEl) promptEl.textContent = "CLASH LOCKED — WAITING FOR OPPONENT";
+        if (promptEl) promptEl.textContent = "✓ Clash locked — waiting for opponent";
         if (btnLock) {
           btnLock.disabled = true;
-          btnLock.textContent = "✓ CLASH LOCKED";
+          btnLock.textContent = "✓ LOCKED";
         }
       } else {
         if (promptEl) {
           promptEl.textContent = ready
-            ? "ENEMY ATTACKER TARGETED — CLICK LOCK IN CLASH!"
-            : (p.isAlternating
-                ? "🎯 DEFENDER'S CHOICE: CLICK 1 OF THE 2 ENEMY ATTACKERS FOR YOUR DEFENDER TO FIGHT"
-                : "PHASE 3: CLICK 1 PULSING ENEMY ATTACKER ON THE TOP FIELD FOR YOUR DEFENDER");
+            ? "🎯 Attacker targeted — Lock In!"
+            : "🎯 Pick 1 Enemy Attacker to fight";
         }
         if (btnLock) {
           btnLock.disabled = !ready;
-          btnLock.textContent = "🔒 LOCK IN CLASH";
+          btnLock.textContent = "🔒 LOCK IN";
         }
       }
     } else {
       if (hintBadge) hintBadge.textContent = "DONE";
-      if (promptEl) promptEl.textContent = "ALL MATCH PAIRINGS COMPLETE!";
+      if (promptEl) promptEl.textContent = "🏆 All Pairings Complete!";
       if (btnLock) {
         btnLock.disabled = true;
-        btnLock.textContent = "🏆 ALL TABLES SET";
+        btnLock.textContent = "🏆 DONE";
       }
     }
   }
@@ -2677,12 +2742,9 @@ class YuGiOhPairingsArena {
     // 1. OPPONENT OPEN ROSTER HAND (TOP)
     const oppTitle = document.getElementById("oppHandOwnerTitle");
     if (oppTitle) {
-      const oppTeamLabel = (p.oppTeam.name || "OPPONENT TEAM").toUpperCase();
-      const vsHint = myRefCard ? ` • VS ${myRefCard.name.toUpperCase()}` : " • CLICK CARD TO COMPARE";
-      const secretNote = (p.oppSecDefLocked && !p.oppDef)
-        ? " • 1 SET FACE-DOWN"
-        : ((p.oppSecAttsLocked && (!p.oppAtts || p.oppAtts.length === 0)) ? " • 2 SET FACE-DOWN" : "");
-      oppTitle.textContent = `OPPONENT ROSTER — ${oppTeamLabel} (${oppBench.length} IN HAND${secretNote}${vsHint})`;
+      const oppTeamLabel = (p.oppTeam.name || "OPPONENT").toUpperCase();
+      const vsHint = myRefCard ? ` • VS ${myRefCard.name.toUpperCase()}` : "";
+      oppTitle.textContent = `OPPONENT — ${oppTeamLabel} (${oppBench.length}${vsHint})`;
     }
 
     const oppFan = document.getElementById("oppHandFan");
@@ -2727,10 +2789,10 @@ class YuGiOhPairingsArena {
     const handTitle = document.getElementById("myHandOwnerTitle");
     if (handTitle) {
       const teamLabel = (p.myTeam.name || "YOUR TEAM").toUpperCase();
-      const vsOppHint = oppRefCard ? ` • VS ${oppRefCard.name.toUpperCase()}` : " • CLICK TO PLACE ON FIELD";
+      const vsOppHint = oppRefCard ? ` • VS ${oppRefCard.name.toUpperCase()}` : "";
       handTitle.textContent = p.isSpectator
-        ? `${teamLabel} HAND (${myBench.length} CARDS REMAINING${oppRefCard ? ` • VS ${oppRefCard.name.toUpperCase()}` : ""})`
-        : `YOUR HAND — ${teamLabel} (${myBench.length} IN HAND${vsOppHint})`;
+        ? `${teamLabel} (${myBench.length}${vsOppHint})`
+        : `YOUR HAND — ${teamLabel} (${myBench.length}${vsOppHint})`;
     }
 
     const myFan = document.getElementById("myHandFan");
@@ -2789,8 +2851,8 @@ class YuGiOhPairingsArena {
     if (hoveredMyCard) {
       const oppTitle = document.getElementById("oppHandOwnerTitle");
       if (oppTitle) {
-        const oppTeamLabel = (p.oppTeam.name || "OPPONENT TEAM").toUpperCase();
-        oppTitle.textContent = `OPPONENT ROSTER — ${oppTeamLabel} (${oppBench.length} IN HAND • VS ${hoveredMyCard.name.toUpperCase()})`;
+        const oppTeamLabel = (p.oppTeam.name || "OPPONENT").toUpperCase();
+        oppTitle.textContent = `OPPONENT — ${oppTeamLabel} (${oppBench.length} • VS ${hoveredMyCard.name.toUpperCase()})`;
       }
       const oppFan = document.getElementById("oppHandFan");
       if (oppFan) {
@@ -2808,8 +2870,8 @@ class YuGiOhPairingsArena {
       if (handTitle) {
         const teamLabel = (p.myTeam.name || "YOUR TEAM").toUpperCase();
         handTitle.textContent = p.isSpectator
-          ? `${teamLabel} HAND (${myBench.length} CARDS REMAINING • VS ${hoveredOppCard.name.toUpperCase()})`
-          : `YOUR HAND — ${teamLabel} (${myBench.length} IN HAND • VS ${hoveredOppCard.name.toUpperCase()})`;
+          ? `${teamLabel} (${myBench.length} • VS ${hoveredOppCard.name.toUpperCase()})`
+          : `YOUR HAND — ${teamLabel} (${myBench.length} • VS ${hoveredOppCard.name.toUpperCase()})`;
       }
       const myFan = document.getElementById("myHandFan");
       if (myFan) {
@@ -3029,24 +3091,25 @@ class YuGiOhPairingsArena {
     const totalTables = Number(this.room.total_tables || 5);
     const pairedCount = (this.room.pairings || []).length;
     const roleBanner = p.isAlternating
-      ? (p.amIDefender ? " • 🛡️ YOU: DEFENDER" : " • ⚔️ YOU: ATTACKER")
+      ? (p.amIDefender ? " • 🛡️ DEF" : " • ⚔️ ATK")
       : "";
-    const fmtLabel = `WTC Team Pairings • ${totalTables} Tables${roleBanner}`;
+    const fmtLabel = `${totalTables} Tables${roleBanner}`;
 
     const cycleBadge = document.getElementById("pgCycleBadge");
     if (cycleBadge) {
-      cycleBadge.textContent = phase === "COMPLETED" ? "COMPLETED" : `CYCLE ${cycle} / ${maxCycles}`;
+      cycleBadge.textContent = phase === "COMPLETED" ? "DONE" : `C${cycle}/${maxCycles}`;
     }
 
     const fmtSub = document.getElementById("pgFormatSub");
     if (fmtSub) fmtSub.textContent = fmtLabel;
 
     const tablesProg = document.getElementById("pgTablesProgress");
-    if (tablesProg) tablesProg.textContent = `${pairedCount} / ${totalTables} Paired`;
+    if (tablesProg) tablesProg.textContent = `${pairedCount}/${totalTables}`;
 
     const tagEl = document.getElementById("pgActiveStepTag");
     const headlineEl = document.getElementById("pgActiveStepHeadline");
     const descEl = document.getElementById("pgActiveStepDesc");
+    const infoBtn = document.getElementById("pgActiveStepInfoBtn");
     const myChip = document.getElementById("pgMyLockChip");
     const oppChip = document.getElementById("pgOppLockChip");
 
@@ -3067,84 +3130,87 @@ class YuGiOhPairingsArena {
       oppLocked = p.isAlternating ? p.isMyActionTurn : !!p.oppSecDefLocked;
       if (tagEl) {
         tagEl.textContent = p.isAlternating
-          ? `CYCLE ${cycle} • ${p.amIDefender ? "🛡️ DEFENDER" : "⚔️ ATTACKER"}`
-          : `CYCLE ${cycle} • STEP 1 OF 3`;
+          ? `C${cycle} • ${p.amIDefender ? "🛡️ DEF" : "⚔️ ATK"}`
+          : `C${cycle} • STEP 1`;
       }
       if (headlineEl) {
         headlineEl.textContent = p.isAlternating
-          ? (p.amIDefender ? "Step 1: Place Your Defender" : "Step 1: Enemy Places Defender")
-          : "Step 1: Blind Defender";
+          ? (p.amIDefender ? "Step 1: Place 1 Defender" : "Step 1: Enemy Defender")
+          : "Step 1: Place 1 Defender";
       }
-      if (descEl) {
-        descEl.textContent = p.isAlternating
-          ? (p.amIDefender
-              ? "You are DEFENDER this cycle! Select 1 player card from your bottom hand to place in your Defender Zone, then click Lock In Defender."
-              : "You are ATTACKER this cycle! Waiting for the Defender team to put forward 1 Defender card first.")
-          : (myLocked
-              ? "Your Defender is locked face-down. Waiting for opponent Captain to lock their Defender so both reveal simultaneously."
-              : "Select 1 player card from your bottom hand to place face-down in your Defender Zone, then click Lock In Defender.");
+      const stepInfo = p.isAlternating
+        ? (p.amIDefender
+            ? "You are DEFENDER this cycle! Select 1 player card from your bottom hand to place in your Defender Zone, then click Lock In."
+            : "You are ATTACKER this cycle! Waiting for the Defender team to put forward 1 Defender card first.")
+        : "Select 1 player card from your bottom hand to place face-down in your Defender Zone, then click Lock In.";
+      if (descEl) descEl.textContent = stepInfo;
+      if (infoBtn) {
+        infoBtn.setAttribute("data-info-title", "Step 1: Place Defender");
+        infoBtn.setAttribute("data-info-body", stepInfo);
       }
       sCard1?.classList.add("active");
-      if (sState1) sState1.textContent = "ACTIVE";
+      if (sState1) sState1.textContent = "NOW";
       if (sState2) sState2.textContent = "NEXT";
-      if (sState3) sState3.textContent = "PENDING";
+      if (sState3) sState3.textContent = "WAIT";
     } else if (phase === "STEP_2_ATTACKERS") {
       myLocked = p.isAlternating ? !p.isMyActionTurn : !!p.mySecAttsLocked;
       oppLocked = p.isAlternating ? p.isMyActionTurn : !!p.oppSecAttsLocked;
       if (tagEl) {
         tagEl.textContent = p.isAlternating
-          ? `CYCLE ${cycle} • ${p.amIDefender ? "🛡️ DEFENDER" : "⚔️ ATTACKER"}`
-          : `CYCLE ${cycle} • STEP 2 OF 3`;
+          ? `C${cycle} • ${p.amIDefender ? "🛡️ DEF" : "⚔️ ATK"}`
+          : `C${cycle} • STEP 2`;
       }
       if (headlineEl) headlineEl.textContent = "Step 2: Send 2 Attackers";
-      if (descEl) {
-        descEl.textContent = p.isAlternating
-          ? (p.amIAttacker
-              ? `Enemy Defender (${p.oppDef?.name || "Revealed"}) is on the mat! As ATTACKER, select 2 cards from your hand to challenge them, then click Lock In 2 Attackers.`
-              : `Your Defender (${p.myDef?.name || "Revealed"}) is on the mat. Waiting for the Attacker team to send 2 Attackers against you.`)
-          : (myLocked
-              ? "Your 2 Attackers are locked face-down. Waiting for opponent Captain to lock their 2 Attackers."
-              : `Enemy Defender (${p.oppDef?.name || "Revealed"}) is on the mat! Select 2 cards from your bottom hand to challenge them, then click Lock In 2 Attackers.`);
+      const stepInfo = p.isAlternating
+        ? (p.amIAttacker
+            ? `Enemy Defender (${p.oppDef?.name || "Revealed"}) is on the mat! Select 2 cards from your hand to challenge them, then click Lock In.`
+            : `Your Defender (${p.myDef?.name || "Revealed"}) is on the mat. Waiting for the Attacker team to send 2 Attackers against you.`)
+        : `Enemy Defender (${p.oppDef?.name || "Revealed"}) is on the mat! Select 2 cards from your hand to challenge them, then click Lock In.`;
+      if (descEl) descEl.textContent = stepInfo;
+      if (infoBtn) {
+        infoBtn.setAttribute("data-info-title", "Step 2: Send 2 Attackers");
+        infoBtn.setAttribute("data-info-body", stepInfo);
       }
       sCard1?.classList.add("done");
       sCard2?.classList.add("active");
       if (sState1) sState1.textContent = "DONE";
-      if (sState2) sState2.textContent = "ACTIVE";
+      if (sState2) sState2.textContent = "NOW";
       if (sState3) sState3.textContent = "NEXT";
     } else if (phase === "STEP_3_CHOOSE") {
       myLocked = p.isAlternating ? !p.isMyActionTurn : !!p.mySecChoiceLocked;
       oppLocked = p.isAlternating ? p.isMyActionTurn : !!p.oppSecChoiceLocked;
-      const isFinalCycle = cycle >= maxCycles;
       if (tagEl) {
         tagEl.textContent = p.isAlternating
-          ? `CYCLE ${cycle} • ${p.amIDefender ? "🛡️ DEFENDER" : "⚔️ ATTACKER"}`
-          : `CYCLE ${cycle} • STEP 3 OF 3`;
+          ? `C${cycle} • ${p.amIDefender ? "🛡️ DEF" : "⚔️ ATK"}`
+          : `C${cycle} • STEP 3`;
       }
-      if (headlineEl) headlineEl.textContent = "Step 3: Defender's Choice";
-      if (descEl) {
-        descEl.textContent = p.isAlternating
-          ? (p.amIDefender
-              ? "Click 1 of the 2 pulsing enemy Attackers on the top mat for your Defender to fight. The unchosen Attacker returns to their hand, and roles swap next cycle!"
-              : "Waiting for the enemy Defender to pick 1 of your 2 Attackers to fight. Your unchosen Attacker will return to your hand, and you become DEFENDER next cycle!")
-          : (myLocked
-              ? "Your Defender's matchup choice is locked. Waiting for opponent Captain."
-              : isFinalCycle
-                ? "Click 1 of the 2 pulsing enemy Attackers on the top mat for your Defender to fight. Unchosen Attackers automatically pair on the final table!"
-                : "Click 1 of the 2 pulsing enemy Attackers on the top mat for your Defender to fight. The unchosen Attacker returns to their Captain's hand.");
+      if (headlineEl) headlineEl.textContent = "Step 3: Pick 1 Attacker";
+      const stepInfo = p.isAlternating
+        ? (p.amIDefender
+            ? "Click 1 of the 2 enemy Attackers on the top mat for your Defender to fight. Unchosen card returns to hand & roles swap next cycle."
+            : "Waiting for the enemy Defender to pick 1 of your 2 Attackers to fight. Unchosen card returns to hand & roles swap next cycle.")
+        : "Click 1 of the 2 enemy Attackers on the top mat for your Defender to fight.";
+      if (descEl) descEl.textContent = stepInfo;
+      if (infoBtn) {
+        infoBtn.setAttribute("data-info-title", "Step 3: Defender's Choice");
+        infoBtn.setAttribute("data-info-body", stepInfo);
       }
       sCard1?.classList.add("done");
       sCard2?.classList.add("done");
       sCard3?.classList.add("active");
       if (sState1) sState1.textContent = "DONE";
       if (sState2) sState2.textContent = "DONE";
-      if (sState3) sState3.textContent = "ACTIVE";
+      if (sState3) sState3.textContent = "NOW";
     } else {
       myLocked = true;
       oppLocked = true;
-      if (tagEl) tagEl.textContent = "PAIRINGS COMPLETE";
-      if (headlineEl) headlineEl.textContent = `All ${totalTables} Tables Locked!`;
-      if (descEl) {
-        descEl.textContent = "Every matchup has been finalized. Review the full table pairings on the right dock or start a new room.";
+      if (tagEl) tagEl.textContent = "COMPLETE";
+      if (headlineEl) headlineEl.textContent = `All ${totalTables} Tables Locked`;
+      const stepInfo = "All table pairings are locked! Review the matchups on the right dock or start a new room.";
+      if (descEl) descEl.textContent = stepInfo;
+      if (infoBtn) {
+        infoBtn.setAttribute("data-info-title", "Pairings Complete");
+        infoBtn.setAttribute("data-info-body", stepInfo);
       }
       sCard1?.classList.add("done");
       sCard2?.classList.add("done");
@@ -3157,24 +3223,24 @@ class YuGiOhPairingsArena {
     if (myChip) {
       if (p.isAlternating && phase !== "COMPLETED") {
         myChip.textContent = p.isMyActionTurn
-          ? `⚡ You (${p.amIDefender ? "DEF" : "ATK"}): Acting`
-          : `⏳ You (${p.amIDefender ? "DEF" : "ATK"}): Waiting`;
+          ? `⚡ You (${p.amIDefender ? "DEF" : "ATK"}): Turn`
+          : `⏳ You (${p.amIDefender ? "DEF" : "ATK"}): Wait`;
         myChip.classList.toggle("ready", !p.isMyActionTurn);
       } else {
         myChip.textContent = myLocked
-          ? "✓ You: Locked In"
-          : (p.isSpectator ? "👁️ Spectator Mode" : `⚡ You: Selecting (${this.selectedIds.length} chosen)`);
+          ? "✓ You: Locked"
+          : (p.isSpectator ? "👁️ Viewing" : `⚡ You: ${this.selectedIds.length} picked`);
         myChip.classList.toggle("ready", myLocked);
       }
     }
     if (oppChip) {
       if (p.isAlternating && phase !== "COMPLETED") {
         oppChip.textContent = !p.isMyActionTurn
-          ? `⚡ Enemy (${!p.amIDefender ? "DEF" : "ATK"}): Acting`
-          : `✓ Enemy (${!p.amIDefender ? "DEF" : "ATK"}): Ready`;
+          ? `⚡ Enemy: Turn`
+          : `✓ Enemy: Ready`;
         oppChip.classList.toggle("ready", p.isMyActionTurn);
       } else {
-        oppChip.textContent = oppLocked ? "✓ Enemy: Locked In" : "⏳ Enemy: Thinking...";
+        oppChip.textContent = oppLocked ? "✓ Enemy: Locked" : "⏳ Enemy...";
         oppChip.classList.toggle("ready", oppLocked);
       }
     }
@@ -3186,25 +3252,25 @@ class YuGiOhPairingsArena {
         for (let c = 1; c <= maxCycles; c++) {
           const isFinal = c === maxCycles;
           const tblDesc = isFinal
-            ? `Locks Tables #${c} – #${totalTables}`
-            : `Locks Table #${c} (Roles Swap)`;
+            ? `Tables #${c}–#${totalTables}`
+            : `Table #${c}`;
           const cls = phase === "COMPLETED" || cycle > c ? "done" : (cycle === c ? "active" : "");
-          rows.push(`<div class="pg-summary-row ${cls}"><span>Cycle ${c}${isFinal ? " (Final)" : ""}</span><strong>${tblDesc}</strong></div>`);
+          rows.push(`<div class="pg-summary-row ${cls}"><span>C${c}</span><strong>${tblDesc}</strong></div>`);
         }
         summaryRows.innerHTML = rows.join("");
       } else if (totalTables === 8) {
         summaryRows.innerHTML = [
-          { c: 1, lbl: "Cycle 1", desc: "Locks Tables #1 – #2" },
-          { c: 2, lbl: "Cycle 2", desc: "Locks Tables #3 – #4" },
-          { c: 3, lbl: "Cycle 3 (Final)", desc: "Locks Tables #5 – #8" }
+          { c: 1, lbl: "C1", desc: "Tables #1–#2" },
+          { c: 2, lbl: "C2", desc: "Tables #3–#4" },
+          { c: 3, lbl: "C3", desc: "Tables #5–#8" }
         ].map((row) => {
           const cls = phase === "COMPLETED" || cycle > row.c ? "done" : (cycle === row.c ? "active" : "");
           return `<div class="pg-summary-row ${cls}"><span>${row.lbl}</span><strong>${row.desc}</strong></div>`;
         }).join("");
       } else {
         summaryRows.innerHTML = [
-          { c: 1, lbl: "Cycle 1", desc: "Locks Tables #1 – #2" },
-          { c: 2, lbl: "Cycle 2 (Final)", desc: "Locks Tables #3 – #5" }
+          { c: 1, lbl: "C1", desc: "Tables #1–#2" },
+          { c: 2, lbl: "C2", desc: "Tables #3–#5" }
         ].map((row) => {
           const cls = phase === "COMPLETED" || cycle > row.c ? "done" : (cycle === row.c ? "active" : "");
           return `<div class="pg-summary-row ${cls}"><span>${row.lbl}</span><strong>${row.desc}</strong></div>`;
@@ -3349,7 +3415,7 @@ class YuGiOhPairingsArena {
 
     const modeLbl = document.getElementById("projectedScoreModeLabel");
     if (modeLbl) {
-      modeLbl.textContent = isSimOn ? "LIVE WTC COMBAT SCORE" : "EXPECTED WTC SCORE";
+      modeLbl.textContent = "WTC:";
     }
 
     const scoreEl = document.getElementById("projectedScoreValue");
@@ -3358,22 +3424,22 @@ class YuGiOhPairingsArena {
     const expSubEl = document.getElementById("expectedScoreSubLine");
     if (expSubEl) {
       if (isSimOn) {
-        expSubEl.textContent = `6-Factor Expected: ${myExpScore} – ${oppExpScore} • Combat Result: ${mySimScore} – ${oppSimScore}`;
+        expSubEl.textContent = `Exp: ${myExpScore}–${oppExpScore} • Combat: ${mySimScore}–${oppSimScore}`;
       } else {
-        expSubEl.textContent = `6-Factor Expected WTC Total (Combat Sim OFF)`;
+        expSubEl.textContent = `Exp: ${myExpScore}–${oppExpScore} • Win: 51+`;
       }
     }
 
     const verdictEl = document.getElementById("projectedVerdictBadge");
     if (verdictEl) {
       if (pairings.length === 0) {
-        verdictEl.textContent = "No Tables Locked";
+        verdictEl.textContent = "0 Locked";
       } else if (myActiveScore > oppActiveScore + 5) {
-        verdictEl.textContent = pairings.length >= total ? "🏆 Projected Victory" : "Leading WTC";
+        verdictEl.textContent = pairings.length >= total ? "🏆 Victory" : "Leading";
       } else if (myActiveScore < oppActiveScore - 5) {
-        verdictEl.textContent = pairings.length >= total ? "⚠️ Projected Defeat" : "Trailing WTC";
+        verdictEl.textContent = pairings.length >= total ? "⚠️ Defeat" : "Trailing";
       } else {
-        verdictEl.textContent = "Tight WTC Round";
+        verdictEl.textContent = "Even";
       }
     }
 
@@ -4053,19 +4119,10 @@ class YuGiOhPairingsArena {
 
   renderRoomModeStrip() {
     const badge = document.getElementById("roomModeStatusBadge");
-    const desc = document.getElementById("roomModeStatusDesc");
-    if (!badge || !desc) return;
+    if (!badge) return;
     const isCasualTcg = this.room?.room_mode === "casual_tcg";
     badge.classList.toggle("casual-active", isCasualTcg);
-    if (isCasualTcg) {
-      badge.textContent = "🃏 CASUAL TCG DECK MODE ACTIVE";
-      desc.textContent =
-        "Playing Casual / Offline Pairing Minigame with your TCG Deck (Starter 1450–1550 Faction Cards + Collected Real Player Cards). Official Tournament mode remains separate.";
-    } else {
-      badge.textContent = "🏆 OFFICIAL TOURNAMENT ROSTER MODE";
-      desc.textContent =
-        "Tournament Pairings use preset or searched real teams. For Casual / Offline Minigame play, click Equip My TCG Deck or Use Starter Faction Deck (1450–1550)!";
-    }
+    badge.textContent = isCasualTcg ? "🃏 Casual TCG" : "🏆 Tournament";
   }
 
   renderTcgVaultAll() {
@@ -4111,8 +4168,8 @@ class YuGiOhPairingsArena {
     if (slotHint) {
       const targetCard = deckCards[this.selectedDeckSlotIdx];
       slotHint.textContent = targetCard
-        ? `Slot #${this.selectedDeckSlotIdx + 1} Selected (${targetCard.name} • ${targetCard.elo} Elo) — Click any owned card below to swap in!`
-        : `Slot #${this.selectedDeckSlotIdx + 1} Selected for Swap`;
+        ? `Slot #${this.selectedDeckSlotIdx + 1}: ${targetCard.name} (${targetCard.elo})`
+        : `Slot #${this.selectedDeckSlotIdx + 1} Selected`;
     }
 
     // Render Active Deck Slots
@@ -4121,11 +4178,11 @@ class YuGiOhPairingsArena {
       tray.classList.toggle("format-8v8", fmt === "8v8");
       tray.innerHTML = deckCards.map((card, idx) => {
         const isTarget = idx === this.selectedDeckSlotIdx;
-        const typeTag = card.is_starter ? "⚪ STARTER (1450–1550)" : `🌟 ${String(card.rarity || "PRO").toUpperCase()}`;
+        const typeTag = card.is_starter ? "⚪ STARTER" : `🌟 ${String(card.rarity || "PRO").toUpperCase()}`;
         return `
           <div class="tcg-deck-slot-card ${isTarget ? "selected-slot" : ""}" data-deck-slot-idx="${idx}">
             <div class="tdsc-top-bar">
-              <span>SLOT #${idx + 1}</span>
+              <span>#${idx + 1}</span>
               <span class="tdsc-type-pill">${typeTag}</span>
             </div>
             ${this.buildYuGiOhCardHtml(card)}
@@ -4295,15 +4352,15 @@ class YuGiOhPairingsArena {
     const pct = Math.min(100, Math.round((pity / maxPity) * 100));
 
     const pityBannerTxt = document.getElementById("tcgPityBannerCountText");
-    if (pityBannerTxt) pityBannerTxt.textContent = `${pity} / ${maxPity} PITY`;
+    if (pityBannerTxt) pityBannerTxt.textContent = `${pity} / ${maxPity}`;
     const pityFill = document.getElementById("tcgPityProgressFill");
     if (pityFill) pityFill.style.width = `${pct}%`;
     const pityRem = document.getElementById("tcgPityRemainingText");
     if (pityRem) {
       const rem = Math.max(0, maxPity - pity);
       pityRem.textContent = rem === 0
-        ? "🔥 NEXT PACK GUARANTEES A 2080+ ELO MYTHIC WARLORD!"
-        : `${rem} Pity until Guaranteed Mythic Warlord (2080+ Elo)`;
+        ? "🔥 Mythic Ready!"
+        : `${rem} to Mythic`;
     }
 
     const catalog = this.tcgState.pack_catalog || {};
@@ -4323,37 +4380,39 @@ class YuGiOhPairingsArena {
             ${pack.badge ? `<span class="tpc-promo-ribbon">${this.escapeHtml(pack.badge)}</span>` : ""}
             <div class="tpk-top">
               <div class="tpk-icon">${pack.icon || "📦"}</div>
-              <div>
-                <div class="tpk-title">${this.escapeHtml(pack.name)}</div>
+              <div style="flex:1;min-width:0;">
+                <div class="tpk-title" style="display:flex;align-items:center;gap:6px;">
+                  <span>${this.escapeHtml(pack.name)}</span>
+                  <button type="button" class="info-tip-btn" data-info-title="${this.escapeHtml(pack.name)}" data-info-body="${this.escapeHtml(pack.description || pack.tagline || "")}" aria-label="Pack Info">i</button>
+                </div>
                 <div class="tpk-tagline">${this.escapeHtml(pack.tagline || "")}</div>
               </div>
             </div>
-            <div class="tpk-desc">${this.escapeHtml(pack.description || "")}</div>
             <div class="tpk-odds-box">
               <div class="tpk-odds-title">
-                <span>SLOT #1 FEATURED ODDS</span>
-                <span>+${pack.pity_points || 1} MYTHIC PITY</span>
+                <span>SLOT #1 ODDS</span>
+                <span>+${pack.pity_points || 1} PITY</span>
               </div>
               <div class="tpk-odds-row">
-                <div class="tpk-odd-pill common">Common<span>${fmtPct(s1.common)}</span></div>
+                <div class="tpk-odd-pill common">Com<span>${fmtPct(s1.common)}</span></div>
                 <div class="tpk-odd-pill rare">Rare<span>${fmtPct(s1.rare)}</span></div>
                 <div class="tpk-odd-pill epic">Epic<span>${fmtPct(s1.epic)}</span></div>
-                <div class="tpk-odd-pill mythic">Mythic<span>${fmtPct(s1.mythic)}</span></div>
+                <div class="tpk-odd-pill mythic">Myth<span>${fmtPct(s1.mythic)}</span></div>
               </div>
               <div class="tpk-odds-title" style="margin-top:4px;">
-                <span>SLOTS #2–#${pack.card_count || 3} ODDS</span>
-                <span>${pack.card_count || 3} CARDS TOTAL</span>
+                <span>SLOTS #2–#${pack.card_count || 3}</span>
+                <span>${pack.card_count || 3} CARDS</span>
               </div>
               <div class="tpk-odds-row">
-                <div class="tpk-odd-pill common">Common<span>${fmtPct(sRest.common)}</span></div>
+                <div class="tpk-odd-pill common">Com<span>${fmtPct(sRest.common)}</span></div>
                 <div class="tpk-odd-pill rare">Rare<span>${fmtPct(sRest.rare)}</span></div>
                 <div class="tpk-odd-pill epic">Epic<span>${fmtPct(sRest.epic)}</span></div>
-                <div class="tpk-odd-pill mythic">Mythic<span>${fmtPct(sRest.mythic)}</span></div>
+                <div class="tpk-odd-pill mythic">Myth<span>${fmtPct(sRest.mythic)}</span></div>
               </div>
             </div>
             <button type="button" class="tpk-buy-btn" data-buy-pack="${pKey}" ${canAfford ? "" : "disabled"}>
-              <span>OPEN ${pack.card_count || 3}-CARD PACK</span>
-              <span class="tpk-cost-chip">🪙 ${Number(pack.cost_glory || 0).toLocaleString()} GLORY</span>
+              <span>OPEN (${pack.card_count || 3})</span>
+              <span class="tpk-cost-chip">🪙 ${Number(pack.cost_glory || 0).toLocaleString()}</span>
             </button>
           </div>
         `;

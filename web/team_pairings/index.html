@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/team-pairings/styles.css?v=20">
+  <link rel="stylesheet" href="/team-pairings/styles.css?v=21">
 </head>
 <body>
   <div class="ygo-app-shell">
@@ -61,7 +61,8 @@
 
     <!-- Spectator Read-Only Banner -->
     <div id="spectatorBanner" class="spectator-strip hidden">
-      👁️ <strong>SPECTATOR VIEW (READ-ONLY)</strong> — Watching live duel field. Only the 2 locked Team Captains can place or flip cards.
+      <span>👁️ <strong>SPECTATOR MODE</strong> (Read-Only)</span>
+      <button type="button" class="info-tip-btn" data-info-title="Spectator Mode" data-info-body="You are watching this match room live in read-only mode. Only the 2 seated Team Captains can place or lock cards.">i</button>
     </div>
 
     <!-- Main 3-Zone Yu-Gi-Oh! Duel Screen -->
@@ -71,25 +72,28 @@
         <div class="process-guide-frame">
           <div class="pg-header">
             <div class="pg-title-row">
-              <span class="pg-title">⚡ PAIRING PROCESS</span>
+              <span class="pg-title">⚡ PAIRING STEPS <button type="button" class="info-tip-btn" data-info-title="WTC Pairing Sequence" data-info-body="Each pairing cycle runs 3 steps:&#10;1. Put 1 Defender card on the mat.&#10;2. Attacker sends 2 cards to challenge the Defender.&#10;3. Defender picks 1 of the 2 Attackers to lock a table (unchosen card returns to hand).">i</button></span>
               <span class="pg-cycle-badge" id="pgCycleBadge">CYCLE 1 / 2</span>
             </div>
-            <div class="pg-format-sub" id="pgFormatSub">WTC Team Pairings • 5 Tables</div>
+            <div class="pg-format-sub" id="pgFormatSub">5 Tables</div>
           </div>
 
           <!-- Current Active Step Callout -->
           <div class="pg-current-callout" id="pgCurrentCallout">
             <div class="pg-callout-top">
-              <span class="pg-callout-tag" id="pgActiveStepTag">CURRENT STEP</span>
+              <span class="pg-callout-tag" id="pgActiveStepTag">STEP 1</span>
               <span class="pg-callout-tables" id="pgTablesProgress">0 / 5 Paired</span>
             </div>
-            <div class="pg-callout-headline" id="pgActiveStepHeadline">Step 1: Blind Defender</div>
-            <div class="pg-callout-desc" id="pgActiveStepDesc">
-              Click 1 card in your bottom hand to place face-down in your Defender Zone, then click Lock In Defender.
+            <div class="pg-callout-headline-row">
+              <div class="pg-callout-headline" id="pgActiveStepHeadline">Step 1: Place 1 Defender</div>
+              <button type="button" class="info-tip-btn" id="pgActiveStepInfoBtn" data-info-title="Current Step" data-info-body="Select 1 card from your bottom hand to place in your Defender Zone, then click Lock In.">i</button>
+            </div>
+            <div class="pg-callout-desc hidden" id="pgActiveStepDesc">
+              Select 1 card in your hand and lock it in.
             </div>
             <div class="pg-lock-status-row">
-              <span class="pg-lock-chip" id="pgMyLockChip">You: Selecting...</span>
-              <span class="pg-lock-chip" id="pgOppLockChip">Enemy: Thinking...</span>
+              <span class="pg-lock-chip" id="pgMyLockChip">You: Selecting</span>
+              <span class="pg-lock-chip" id="pgOppLockChip">Enemy: Waiting</span>
             </div>
           </div>
 
@@ -98,48 +102,51 @@
             <div class="pg-step-card active" id="pgStepCard1">
               <div class="pg-step-head">
                 <span class="pg-step-num">1</span>
-                <span class="pg-step-name">🛡️ Put 1 Defender</span>
+                <span class="pg-step-name">🛡️ 1 Defender</span>
+                <button type="button" class="info-tip-btn" data-info-title="Step 1: Put 1 Defender" data-info-body="The Defender team places 1 player card on the mat face-down (or face-up after Coin Flip role selection).">i</button>
                 <span class="pg-step-state" id="pgStepState1">ACTIVE</span>
               </div>
-              <p class="pg-step-body" id="pgStepBody1">
-                The <strong>Defender</strong> team places <strong>1 Defender</strong> card on the mat.
+              <p class="pg-step-body hidden" id="pgStepBody1">
+                Place 1 Defender card on the mat.
               </p>
             </div>
 
             <div class="pg-step-card" id="pgStepCard2">
               <div class="pg-step-head">
                 <span class="pg-step-num">2</span>
-                <span class="pg-step-name">⚔️ Send 2 Attackers</span>
+                <span class="pg-step-name">⚔️ 2 Attackers</span>
+                <button type="button" class="info-tip-btn" data-info-title="Step 2: Send 2 Attackers" data-info-body="Seeing the Defender on the mat, the Attacker team selects 2 cards from hand to challenge that Defender.">i</button>
                 <span class="pg-step-state" id="pgStepState2">NEXT</span>
               </div>
-              <p class="pg-step-body" id="pgStepBody2">
-                Seeing the Defender on the mat, the <strong>Attacker</strong> team nominates <strong>2 Attackers</strong> from hand to challenge them.
+              <p class="pg-step-body hidden" id="pgStepBody2">
+                Nominate 2 Attackers from hand to challenge the Defender.
               </p>
             </div>
 
             <div class="pg-step-card" id="pgStepCard3">
               <div class="pg-step-head">
                 <span class="pg-step-num">3</span>
-                <span class="pg-step-name">🎯 Defender's Choice</span>
-                <span class="pg-step-state" id="pgStepState3">PENDING</span>
+                <span class="pg-step-name">🎯 Pick Clash</span>
+                <button type="button" class="info-tip-btn" data-info-title="Step 3: Defender's Choice" data-info-body="The Defender picks 1 of the 2 Attackers to fight (locks 1 table). The unchosen Attacker returns to hand, and roles swap next cycle.">i</button>
+                <span class="pg-step-state" id="pgStepState3">WAIT</span>
               </div>
-              <p class="pg-step-body" id="pgStepBody3">
-                The <strong>Defender</strong> team picks <strong>1 of the 2 Attackers</strong> to fight (locks 1 table; unchosen Attacker returns to hand, roles swap next cycle).
+              <p class="pg-step-body hidden" id="pgStepBody3">
+                Pick 1 of the 2 Attackers to lock the table.
               </p>
             </div>
           </div>
 
           <!-- Cycle Table Breakdown Footer -->
           <div class="pg-cycle-summary" id="pgCycleSummaryBox">
-            <div class="pg-summary-title">CYCLE BREAKDOWN</div>
+            <div class="pg-summary-title">TABLES PER CYCLE</div>
             <div class="pg-summary-rows" id="pgCycleSummaryRows">
               <div class="pg-summary-row active">
                 <span>Cycle 1</span>
-                <strong>Locks Tables #1 – #2</strong>
+                <strong>Tables #1–#2</strong>
               </div>
               <div class="pg-summary-row">
-                <span>Cycle 2 (Final)</span>
-                <strong>Locks Tables #3 – #5</strong>
+                <span>Cycle 2</span>
+                <strong>Tables #3–#5</strong>
               </div>
             </div>
           </div>
@@ -151,16 +158,19 @@
         <!-- Arena Seat Strip -->
         <div class="arena-controls-strip">
           <div class="topbar-center" id="roleSelectorPills">
-            <button type="button" class="seat-chip active" id="btnRoleCapA" data-role="captain_a">👑 Team A Cap</button>
-            <button type="button" class="seat-chip" id="btnRoleCapB" data-role="captain_b">👑 Team B Cap</button>
-            <button type="button" class="seat-chip" id="btnRoleSpectator" data-role="spectator">👁️ Spectator</button>
+            <button type="button" class="seat-chip active" id="btnRoleCapA" data-role="captain_a">👑 Team A</button>
+            <button type="button" class="seat-chip" id="btnRoleCapB" data-role="captain_b">👑 Team B</button>
+            <button type="button" class="seat-chip" id="btnRoleSpectator" data-role="spectator">👁️ Spectate</button>
           </div>
         </div>
 
         <!-- TOP EDGE: Opponent's Open Roster Hand (Face-Up in WTC Team Pairings) -->
         <div class="opp-hand-area">
-          <div class="opp-hand-label-pill" id="oppHandOwnerTitle">
-            OPPONENT ROSTER — TEAM B (5 CARDS IN HAND • CLICK TO COMPARE MATCHUPS)
+          <div class="hand-pill-wrap">
+            <div class="opp-hand-label-pill" id="oppHandOwnerTitle">
+              OPPONENT HAND (5)
+            </div>
+            <button type="button" class="info-tip-btn" data-info-title="Matchup Comparison" data-info-body="Hover or tap any card in your hand or your opponent's hand to preview 6-Factor Expected WTC scores (0–20) and win probabilities across all cards.">i</button>
           </div>
           <div class="opp-hand-fan" id="oppHandFan"></div>
         </div>
@@ -171,7 +181,7 @@
 
           <!-- OPPONENT'S FIELD ROW (Top Half of Mat) -->
           <div class="field-row opponent-field-row">
-            <div class="deck-zone opp-deck-zone" title="Opponent Remaining Bench">
+            <div class="deck-zone opp-deck-zone" title="Opponent Remaining Hand">
               <div class="deck-stack">
                 <span class="deck-count" id="oppBenchCountBadge">5</span>
                 <span class="deck-lbl">HAND</span>
@@ -181,13 +191,13 @@
             <div class="main-zones-group">
               <!-- Opponent Defender Slot -->
               <div class="field-slot defender-slot opp-def-slot" id="oppDefenderSlot">
-                <div class="slot-zone-label">ENEMY DEFENDER</div>
+                <div class="slot-zone-label">DEFENDER</div>
                 <div class="slot-card-mount" id="oppDefenderMount"></div>
               </div>
 
               <!-- Opponent 2 Attackers Slots (Attacking YOUR Defender!) -->
               <div class="field-slot attackers-double-slot opp-att-slot" id="oppAttackersSlot">
-                <div class="slot-zone-label">ENEMY ATTACKERS (VS YOUR DEFENDER)</div>
+                <div class="slot-zone-label">ATTACKERS (2)</div>
                 <div class="double-card-mounts" id="oppAttackersMount"></div>
               </div>
             </div>
@@ -203,29 +213,29 @@
           <!-- CENTER BATTLE LINE: Yu-Gi-Oh Phase Tokens + Single Action Callout + Confirm Button -->
           <div class="battle-line-strip" id="phaseBanner">
             <div class="ygo-phase-tokens">
-              <span class="cycle-chip" id="cycleBadge">CYCLE 1/2</span>
-              <div class="phase-token active" id="stepPillDefender" title="Phase 1: Place 1 Defender Face-Down">
-                <span class="pt-code">DP</span>
-                <span class="pt-name">1. DEFENDER</span>
+              <span class="cycle-chip" id="cycleBadge">C1/2</span>
+              <div class="phase-token active" id="stepPillDefender" title="Step 1: Place 1 Defender">
+                <span class="pt-code">1</span>
+                <span class="pt-name">DEF</span>
               </div>
-              <div class="phase-token" id="stepPillAttackers" title="Phase 2: Place 2 Attackers Face-Down">
-                <span class="pt-code">AP</span>
-                <span class="pt-name">2. ATTACKERS</span>
+              <div class="phase-token" id="stepPillAttackers" title="Step 2: Send 2 Attackers">
+                <span class="pt-code">2</span>
+                <span class="pt-name">ATK</span>
               </div>
-              <div class="phase-token" id="stepPillChoose" title="Phase 3: Pick 1 Enemy Attacker for Your Defender">
-                <span class="pt-code">BP</span>
-                <span class="pt-name">3. CLASH PICK</span>
+              <div class="phase-token" id="stepPillChoose" title="Step 3: Pick 1 Attacker">
+                <span class="pt-code">3</span>
+                <span class="pt-name">PICK</span>
               </div>
               <div class="phase-token" id="stepPillComplete" title="All Match Pairings Set">
-                <span class="pt-code">EP</span>
+                <span class="pt-code">✓</span>
                 <span class="pt-name">DONE</span>
               </div>
             </div>
 
             <div class="battle-action-center">
-              <span class="action-callout-pill" id="phasePromptText">YOUR TURN: CLICK 1 CARD IN YOUR HAND TO SET AS DEFENDER</span>
+              <span class="action-callout-pill" id="phasePromptText">Select 1 Defender from hand</span>
               <button type="button" id="btnLockSelection" class="ygo-confirm-btn" disabled>
-                🔒 LOCK IN CARD
+                🔒 LOCK IN
               </button>
             </div>
           </div>
@@ -242,13 +252,13 @@
             <div class="main-zones-group">
               <!-- Your Defender Slot -->
               <div class="field-slot defender-slot my-def-slot" id="myDefenderSlot">
-                <div class="slot-zone-label">YOUR DEFENDER ZONE</div>
+                <div class="slot-zone-label">YOUR DEFENDER</div>
                 <div class="slot-card-mount" id="myDefenderMount"></div>
               </div>
 
               <!-- Your 2 Attackers Slots (Attacking Enemy Defender!) -->
               <div class="field-slot attackers-double-slot my-att-slot" id="myAttackersSlot">
-                <div class="slot-zone-label">YOUR 2 ATTACKERS (VS ENEMY DEFENDER)</div>
+                <div class="slot-zone-label">YOUR ATTACKERS (2)</div>
                 <div class="double-card-mounts" id="myAttackersMount"></div>
               </div>
             </div>
@@ -263,12 +273,12 @@
 
           <!-- ON-FIELD CARD COMBAT STAGE (Master Duel Style: Two Cards Brought to Front, Enlarged, Attack Animation & WTC Score Reveal) -->
           <div class="on-field-combat-stage hidden" id="onFieldCombatStage" title="Click anywhere to fast-forward">
-            <div class="ofc-table-banner" id="ofcTableBanner">⚔️ TABLE #1 COMBAT</div>
+            <div class="ofc-table-banner" id="ofcTableBanner">⚔️ TABLE #1</div>
 
             <div class="ofc-combat-arena" id="ofcCombatArena">
               <!-- Your Card Brought to Front & Enlarged -->
               <div class="ofc-fighter ofc-fighter-left" id="ofcFighterMy">
-                <span class="ofc-owner-tag" id="ofcLeftOwnerTag">YOUR FIGHTER</span>
+                <span class="ofc-owner-tag" id="ofcLeftOwnerTag">YOU</span>
                 <div class="ofc-card-mount" id="ofcLeftCardMount"></div>
               </div>
 
@@ -280,13 +290,13 @@
                 <div class="ofc-wtc-score-card" id="ofcWtcScoreCard">
                   <span class="ofc-wtc-kicker" id="ofcWtcKicker">WTC SCORE</span>
                   <div class="ofc-wtc-nums" id="ofcWtcScoreNums">13 – 7</div>
-                  <span class="ofc-wtc-verdict" id="ofcWtcWinnerTag">🏆 VICTORY ON TABLE #1</span>
+                  <span class="ofc-wtc-verdict" id="ofcWtcWinnerTag">🏆 VICTORY</span>
                 </div>
               </div>
 
               <!-- Opponent Card Brought to Front & Enlarged -->
               <div class="ofc-fighter ofc-fighter-right" id="ofcFighterOpp">
-                <span class="ofc-owner-tag" id="ofcRightOwnerTag">ENEMY FIGHTER</span>
+                <span class="ofc-owner-tag" id="ofcRightOwnerTag">ENEMY</span>
                 <div class="ofc-card-mount" id="ofcRightCardMount"></div>
               </div>
             </div>
@@ -296,7 +306,7 @@
         <!-- BOTTOM EDGE: YOUR HAND OF UPRIGHT COLLECTIBLE PLAYER CARDS -->
         <div class="my-hand-area">
           <div class="my-hand-label-pill">
-            <span id="myHandOwnerTitle">YOUR HAND (CLICK A CARD TO PLACE ON FIELD)</span>
+            <span id="myHandOwnerTitle">YOUR HAND (5)</span>
           </div>
           <div class="my-hand-fan" id="myHandFan"></div>
         </div>
@@ -312,7 +322,7 @@
               <span class="duelist-tag opp-tag" id="oppHudTag">TMB</span>
               <span class="duelist-name" id="oppHudTeamName">Team B</span>
             </div>
-            <div class="duelist-sub" id="oppHudCaptain">Cap: Waiting...</div>
+            <div class="duelist-sub" id="oppHudCaptain">Cap: Waiting</div>
             <div class="duelist-status-pill" id="capBStatusPill">⏳ WAITING</div>
           </div>
         </div>
@@ -325,7 +335,7 @@
               <span class="duelist-tag my-tag" id="myHudTag">TMA</span>
               <span class="duelist-name" id="myHudTeamName">Team A</span>
             </div>
-            <div class="duelist-sub" id="myHudCaptain">Cap: Team A Captain</div>
+            <div class="duelist-sub" id="myHudCaptain">Cap: You</div>
             <div class="duelist-status-pill" id="capAStatusPill">⏳ YOUR MOVE</div>
           </div>
         </div>
@@ -333,8 +343,9 @@
         <!-- Paired Matchups Dock (Shows each locked Table 1..5 + Round-by-Round WTC Score) -->
         <div class="paired-tables-dock" id="lockedPairingsSection">
           <div class="dock-header">
-            <div>
-              <h3>⚔️ PAIRED TABLES (<span id="lockedCountLabel">0 / 5</span>)</h3>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <h3>⚔️ TABLES (<span id="lockedCountLabel">0 / 5</span>)</h3>
+              <button type="button" class="info-tip-btn" data-info-title="WTC Scoring & Predictions" data-info-body="Each table is scored 0–20 WTC points (51+ pts wins a 5v5 round; 81+ pts wins 8v8).&#10;• 6-Factor Expected: Uses live Elo, 3M Faction H2H, 3M Meta Form, Career Mastery, and Player H2H.&#10;• Click any T1–T5 pill to replay the on-field clash.">i</button>
             </div>
             <button type="button" id="btnCopyPairings" class="dock-copy-btn" title="Copy Pairings">📋</button>
           </div>
@@ -342,12 +353,12 @@
           <!-- Live WTC Team Scoreboard -->
           <div class="wtc-live-scoreboard" id="wtcLiveScoreboard">
             <div class="proj-score-strip">
-              <span id="projectedScoreModeLabel">🎲 SIM WTC:</span>
+              <span id="projectedScoreModeLabel">WTC:</span>
               <strong id="projectedScoreValue">0 – 0</strong>
               <span class="proj-badge" id="projectedVerdictBadge">In Progress</span>
             </div>
             <div class="wtc-exp-subline" id="expectedScoreSubLine">
-              6-Factor Expected WTC: <strong>0 – 0</strong> • Win Target: <strong>51+ PTS</strong>
+              Expected: <strong>0 – 0</strong> • Win: <strong>51+</strong>
             </div>
             <!-- Round-by-Round Progression Pills (T1..T5/T8) -->
             <div class="round-progression-strip" id="roundByRoundProgressionStrip"></div>
@@ -370,9 +381,9 @@
     <div class="lobby-modal-backdrop" id="lobbyModalBackdrop">
       <div class="lobby-modal-card">
         <div class="lobby-modal-header">
-          <div>
-            <h2>⚔️ TEAM PAIRINGS LOBBY &amp; ROSTER BUILDER</h2>
-            <p>Claim your Captain seat and search players or a team name to build your hand.</p>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <h2>⚔️ TEAM ROSTERS</h2>
+            <button type="button" class="info-tip-btn" data-info-title="Team Rosters &amp; Seats" data-info-body="1. Pick your Captain seat (or Spectator).&#10;2. Search players/teams or equip a Casual TCG Deck to fill your hand.&#10;3. Click Enter Duel Arena to start pairings.">i</button>
           </div>
           <div class="lobby-header-actions">
             <button type="button" class="room-lock-pill unlocked" id="btnLobbyToggleLock" title="Toggle Room Lock (Unlocked vs Locked)">
@@ -388,48 +399,48 @@
         <!-- Step 1: Select & Lock Your Seat -->
         <div class="lobby-section">
           <div class="lobby-step-title">
-            <span>1. CLAIM YOUR LOBBY SEAT (SEATS LOCK WHEN TAKEN)</span>
-            <span class="gt-room-lock-status" id="lobbyRoomAccessStatusBadge">🟢 UNLOCKED LOBBY — Anyone with link can claim open seat</span>
+            <span style="display:inline-flex; align-items:center; gap:6px;">
+              1. SELECT SEAT
+              <button type="button" class="info-tip-btn" data-info-title="Seat Locking &amp; Room Access" data-info-body="• Each Captain seat locks to you once claimed.&#10;• When the room is Unlocked, anyone with the room link can claim an open Captain seat.&#10;• Spectators watch live in read-only mode.">i</button>
+            </span>
+            <span class="gt-room-lock-status" id="lobbyRoomAccessStatusBadge">🟢 Open Room</span>
           </div>
           <div class="lobby-seats-grid">
             <div class="lobby-seat-card active" id="lobbySeatCapA" data-seat="captain_a">
               <div class="seat-card-top">
                 <div class="seat-icon">👑</div>
-                <span class="seat-lock-pill" id="seatLockBadgeCapA">🟢 OPEN SEAT</span>
+                <span class="seat-lock-pill" id="seatLockBadgeCapA">🟢 OPEN</span>
               </div>
-              <div class="seat-title">Team A Captain</div>
-              <div class="seat-owner-line" id="seatOwnerTextCapA">Available to claim</div>
-              <div class="seat-desc">1 Captain Seat • Search players &amp; play from Bottom Hand</div>
+              <div class="seat-title">Team A</div>
+              <div class="seat-owner-line" id="seatOwnerTextCapA">Open</div>
               <div class="seat-card-actions">
-                <span class="seat-badge can-act" id="seatActionBadgeCapA">CLAIM &amp; LOCK SEAT</span>
-                <button type="button" class="seat-unlock-btn hidden" id="btnUnlockSeatA" data-unlock-seat="captain_a">🔓 Leave Seat</button>
+                <span class="seat-badge can-act" id="seatActionBadgeCapA">CLAIM SEAT</span>
+                <button type="button" class="seat-unlock-btn hidden" id="btnUnlockSeatA" data-unlock-seat="captain_a">🔓 Leave</button>
               </div>
             </div>
 
             <div class="lobby-seat-card" id="lobbySeatCapB" data-seat="captain_b">
               <div class="seat-card-top">
                 <div class="seat-icon">🔥</div>
-                <span class="seat-lock-pill" id="seatLockBadgeCapB">🟢 OPEN SEAT</span>
+                <span class="seat-lock-pill" id="seatLockBadgeCapB">🟢 OPEN</span>
               </div>
-              <div class="seat-title">Team B Captain</div>
-              <div class="seat-owner-line" id="seatOwnerTextCapB">Available to claim</div>
-              <div class="seat-desc">1 Captain Seat • Search players &amp; play from Bottom Hand</div>
+              <div class="seat-title">Team B</div>
+              <div class="seat-owner-line" id="seatOwnerTextCapB">Open</div>
               <div class="seat-card-actions">
-                <span class="seat-badge can-act" id="seatActionBadgeCapB">CLAIM &amp; LOCK SEAT</span>
-                <button type="button" class="seat-unlock-btn hidden" id="btnUnlockSeatB" data-unlock-seat="captain_b">🔓 Leave Seat</button>
+                <span class="seat-badge can-act" id="seatActionBadgeCapB">CLAIM SEAT</span>
+                <button type="button" class="seat-unlock-btn hidden" id="btnUnlockSeatB" data-unlock-seat="captain_b">🔓 Leave</button>
               </div>
             </div>
 
             <div class="lobby-seat-card" id="lobbySeatSpectator" data-seat="spectator">
               <div class="seat-card-top">
                 <div class="seat-icon">👁️</div>
-                <span class="seat-lock-pill spec">🟢 UNLIMITED</span>
+                <span class="seat-lock-pill spec">👁️ LIVE</span>
               </div>
               <div class="seat-title">Spectator</div>
-              <div class="seat-owner-line">Open to all viewers</div>
-              <div class="seat-desc">Unlimited Viewers • Watch the Card Duel Live (Read-Only)</div>
+              <div class="seat-owner-line">View-only</div>
               <div class="seat-card-actions">
-                <span class="seat-badge view-only">WATCH LIVE</span>
+                <span class="seat-badge view-only">WATCH</span>
               </div>
             </div>
           </div>
@@ -438,14 +449,14 @@
         <!-- Step 2: Build Your Team Hand via Real Player Search or TCG Deck -->
         <div class="lobby-section" id="lobbyDeckBuilderSection">
           <div class="lobby-builder-top">
-            <div class="lobby-step-title">
-              2. BUILD YOUR TEAM HAND (<span id="lobbyDeckCountLabel">0 / 5</span> CARDS IN HAND)
+            <div class="lobby-step-title" style="margin-bottom:0;">
+              <span style="display:inline-flex; align-items:center; gap:6px;">
+                2. TEAM HAND (<span id="lobbyDeckCountLabel">0 / 5</span>)
+                <button type="button" class="info-tip-btn" data-info-title="Building Your Team Hand" data-info-body="• Tournament Mode: Search real players or a team name below to add cards.&#10;• Casual TCG Mode: Click My Deck or Starter Deck (1450–1550 Elo) for quick minigame play.">i</button>
+              </span>
             </div>
             <div class="lobby-team-meta">
-              <label>
-                <span>Team Name:</span>
-                <input type="text" id="lobbyTeamNameInput" class="lobby-input" value="" placeholder="Team Name (optional)..." maxlength="32">
-              </label>
+              <input type="text" id="lobbyTeamNameInput" class="lobby-input" value="" placeholder="Team Name..." maxlength="32" aria-label="Team Name">
               <label style="display:none;" aria-hidden="true">
                 <span>Format:</span>
                 <select id="selectFormat" class="lobby-select">
@@ -453,27 +464,26 @@
                   <option value="8v8">8v8 (8 Cards)</option>
                 </select>
               </label>
-              <button type="button" id="btnClearTeamHand" class="lobby-mini-btn danger">🗑️ Clear Hand</button>
+              <button type="button" id="btnClearTeamHand" class="lobby-mini-btn danger">🗑️ Clear</button>
             </div>
           </div>
 
-          <!-- Casual TCG Deck vs Official Tournament Team Roster Switcher Strip -->
+          <!-- Compact Mode + TCG Quick Actions Bar -->
           <div class="tcg-mode-switcher-strip" id="tcgModeSwitcherStrip">
             <div class="tms-left">
-              <span class="tms-mode-badge" id="roomModeStatusBadge">🏆 OFFICIAL TOURNAMENT ROSTER MODE</span>
-              <span class="tms-mode-desc" id="roomModeStatusDesc">
-                Tournament Pairings use preset or searched real teams. For Casual / Offline Minigame play, equip your collected TCG Deck (or 1450–1550 Starter Faction Deck)!
-              </span>
+              <span class="tms-mode-badge" id="roomModeStatusBadge">🏆 Tournament</span>
+              <button type="button" class="info-tip-btn" data-info-title="Tournament vs Casual TCG Mode" data-info-body="• Tournament Mode uses real searched players &amp; team rosters.&#10;• Casual TCG Mode lets you equip your collected TCG Deck or 1450–1550 Elo Starter Faction Cards.">i</button>
+              <span class="tms-mode-desc hidden" id="roomModeStatusDesc"></span>
             </div>
             <div class="tms-actions">
-              <button type="button" class="tms-btn primary" id="btnEquipSavedTcgDeck" title="Load your saved Casual TCG Deck into your Hand">
-                🃏 Equip My TCG Deck
+              <button type="button" class="tms-btn primary" id="btnEquipSavedTcgDeck" title="Load your saved Casual TCG Deck">
+                🃏 My Deck
               </button>
-              <button type="button" class="tms-btn starter" id="btnEquipStarterDeck" title="Reset Hand to 1450–1550 Randomized Starter Faction Cards (No Player Name)">
-                🛡️ Use Starter Faction Deck (1450–1550)
+              <button type="button" class="tms-btn starter" id="btnEquipStarterDeck" title="Load 1450–1550 Starter Faction Deck">
+                🛡️ Starter Deck
               </button>
-              <button type="button" class="tms-btn store" id="btnLobbyOpenTcgVault" title="Open TCG Card Vault, Glory Pack Store &amp; Deck Construction">
-                📦 Open TCG Store &amp; Binder
+              <button type="button" class="tms-btn store" id="btnLobbyOpenTcgVault" title="Open TCG Vault, Packs &amp; Binder">
+                📦 TCG Vault
               </button>
             </div>
           </div>
@@ -486,12 +496,12 @@
                 type="text"
                 id="playerSearchInput"
                 class="player-search-input"
-                placeholder="Search Players or Team Name (e.g. Siegler, Innes, Art of War, Team Zero Comp)..."
+                placeholder="Search player or team..."
                 autocomplete="off"
               >
             </div>
             <select id="playerSearchFactionOverride" class="lobby-select" title="Optional Faction Override when adding player">
-              <option value="">Default Player Faction</option>
+              <option value="">Auto Faction</option>
               <option value="Aeldari">Aeldari</option>
               <option value="Necrons">Necrons</option>
               <option value="Adeptus Custodes">Adeptus Custodes</option>
@@ -533,7 +543,7 @@
         <!-- Lobby Footer Actions -->
         <div class="lobby-modal-footer">
           <div class="lobby-footer-left">
-            <span id="lobbyStatusHint">Search players above to add cards to your hand, or equip your Casual TCG Deck.</span>
+            <span id="lobbyStatusHint">0 / 5 Ready</span>
           </div>
           <div class="lobby-footer-actions">
             <button type="button" class="ygo-confirm-btn large" id="btnStartDuelFromLobby">
@@ -549,23 +559,22 @@
       <div class="tcg-modal-card">
         <div class="tcg-modal-header">
           <div class="tcg-header-title-wrap">
-            <div class="tcg-kicker-row">
-              <span class="tcg-kicker-pill">🃏 CASUAL PAIRING MINIGAME TCG</span>
-              <span class="tcg-kicker-note">Strictly for Casual / Offline Minigame Play • Official Tournament Pairings use Preset Team Rosters</span>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <h2>🃏 TCG VAULT &amp; DECK BUILDER</h2>
+              <button type="button" class="info-tip-btn" data-info-title="OmniTactica Casual TCG" data-info-body="• Collect Real Competitive Player × Faction cards that dynamically mirror live tournament Elo!&#10;• Everyone starts with 28 Free Starter Faction Cards (1450–1550 Elo).&#10;• Strictly for Casual / Offline Minigame play — Official Tournament Pairings always use real team rosters.">i</button>
             </div>
-            <h2>OMNITACTICA TCG — PLAYER CARD COLLECTION &amp; DECK BUILDER</h2>
           </div>
 
           <div class="tcg-header-wallet">
             <div class="tcg-wallet-pill" title="Spendable Glory Honor (Shared with OmniTactica Retribution Armory)">
-              <span class="twp-lbl">GLORY HONOR</span>
+              <span class="twp-lbl">GLORY</span>
               <strong class="twp-val" id="tcgVaultGloryBalance">🪙 --</strong>
             </div>
             <a href="/app?armory=tcg_packs#my-hub" class="tcg-daily-claim-btn" id="btnOpenRetributionStore" title="Open Retribution Store &amp; TCG Card Packs in My Hub" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px;">
-              🏛️ Retribution Store
+              🏛️ Store
             </a>
             <div class="tcg-pity-pill" title="10-Point Mythic Pity Timer: Guarantees a 2080+ Elo Mythic Warlord Card at 10/10!">
-              <span class="tpp-lbl">MYTHIC PITY</span>
+              <span class="tpp-lbl">PITY</span>
               <strong class="tpp-val" id="tcgVaultPityBadge">🔥 0 / 10</strong>
             </div>
             <button type="button" class="lobby-close-btn" id="btnCloseTcgVaultModal" title="Close TCG Vault">✕</button>
@@ -575,13 +584,13 @@
         <!-- 3-Tab Navigation Bar -->
         <div class="tcg-tabs-bar" id="tcgVaultTabsBar">
           <button type="button" class="tcg-tab-btn active" id="btnTcgTabDeck" data-tcg-tab="deck">
-            ⚔️ 1. Deck Construction (<span id="tcgTabDeckFormatBadge">5 Cards</span>)
+            ⚔️ Deck (<span id="tcgTabDeckFormatBadge">5v5</span>)
           </button>
           <button type="button" class="tcg-tab-btn" id="btnTcgTabPacks" data-tcg-tab="packs">
-            📦 2. Buy Card Packs (Retribution Store)
+            📦 Packs
           </button>
           <button type="button" class="tcg-tab-btn" id="btnTcgTabBinder" data-tcg-tab="binder">
-            📚 3. Card Collection &amp; Multi-Faction Pros (<span id="tcgTabOwnedCountBadge">28</span>)
+            📚 Binder (<span id="tcgTabOwnedCountBadge">28</span>)
           </button>
         </div>
 
@@ -597,33 +606,36 @@
                 </select>
               </label>
               <label class="tcg-inline-field">
-                <span>Deck Name:</span>
+                <span>Name:</span>
                 <input type="text" id="tcgDeckNameInput" class="lobby-input" value="Starter Faction Strike Force" maxlength="50">
               </label>
               <div class="tcg-deck-stats-chip" id="tcgDeckStatsSummary">
-                Avg Elo: <strong>1,500</strong> • 5 Starter / 0 Pro Cards
+                Avg Elo: <strong>1,500</strong> • 5 Starter / 0 Pro
               </div>
             </div>
 
             <div class="tcg-deck-actions-right">
-              <button type="button" class="tcg-action-btn gold" id="btnTcgAutoBestDeck" title="Auto-fill deck with your highest-Elo owned Real Player cards + Starter cards">
-                ⚡ Auto-Fill Best Owned
+              <button type="button" class="tcg-action-btn gold" id="btnTcgAutoBestDeck" title="Auto-fill deck with your highest-Elo owned cards">
+                ⚡ Auto-Best
               </button>
-              <button type="button" class="tcg-action-btn starter" id="btnTcgResetStarterDeck" title="Reset deck to pre-set 1450–1550 Elo Starter Faction Cards (No Player Name)">
-                🛡️ Reset to Starter Factions (1450–1550)
+              <button type="button" class="tcg-action-btn starter" id="btnTcgResetStarterDeck" title="Reset deck to 1450–1550 Elo Starter Factions">
+                🛡️ Starter Reset
               </button>
               <button type="button" class="tcg-action-btn save" id="btnTcgSaveDeck">
-                💾 Save Deck
+                💾 Save
               </button>
               <button type="button" class="ygo-confirm-btn" id="btnTcgDeployDeckToRoom">
-                🚀 DEPLOY DECK TO DUEL ARENA
+                🚀 DEPLOY DECK
               </button>
             </div>
           </div>
 
           <div class="tcg-section-subtitle">
-            <span>ACTIVE CASUAL PAIRING DECK — CLICK A SLOT BELOW OR CLICK ANY OWNED CARD TO SWAP IN (MAX 1 CARD PER REAL PLAYER)</span>
-            <span id="tcgSelectedSlotHint">Slot #1 Selected for Swap</span>
+            <span style="display:inline-flex; align-items:center; gap:6px;">
+              ACTIVE DECK
+              <button type="button" class="info-tip-btn" data-info-title="Deck Building Rules" data-info-body="• Click a slot below, then click any owned card to swap it in.&#10;• Max 1 card per real player per deck (e.g. if you own Folger P on Custodes and Necrons, equipping one swaps out the other).">i</button>
+            </span>
+            <span id="tcgSelectedSlotHint">Slot #1 Selected</span>
           </div>
 
           <!-- Active 5 or 8 Deck Cards Row -->
@@ -632,11 +644,11 @@
           <!-- Owned Cards Picker for Deck Building -->
           <div class="tcg-picker-header">
             <div class="tcg-picker-filters" id="tcgDeckPickerFilters">
-              <button type="button" class="tcg-filter-chip active" data-picker-filter="all">All Owned Cards</button>
-              <button type="button" class="tcg-filter-chip" data-picker-filter="pro">🌟 Collected Real Player Cards</button>
-              <button type="button" class="tcg-filter-chip" data-picker-filter="starter">🛡️ Pre-Set Starter Factions (1450–1550 Elo)</button>
+              <button type="button" class="tcg-filter-chip active" data-picker-filter="all">All Owned</button>
+              <button type="button" class="tcg-filter-chip" data-picker-filter="pro">🌟 Pro Players</button>
+              <button type="button" class="tcg-filter-chip" data-picker-filter="starter">🛡️ Starters</button>
             </div>
-            <input type="text" id="tcgDeckPickerSearch" class="lobby-input tcg-search-mini" placeholder="Filter owned cards by player or faction...">
+            <input type="text" id="tcgDeckPickerSearch" class="lobby-input tcg-search-mini" placeholder="Filter owned cards...">
           </div>
 
           <div class="tcg-owned-picker-grid" id="tcgOwnedDeckPickerGrid"></div>
@@ -647,18 +659,16 @@
           <!-- Mythic Pity Progress Banner -->
           <div class="tcg-pity-banner">
             <div class="tpb-info">
-              <div class="tpb-title">
-                🔥 10-POINT MYTHIC WARLORD PITY SYSTEM — <span id="tcgPityBannerCountText">0 / 10 PITY</span>
-              </div>
-              <div class="tpb-desc">
-                Every pack grants <strong>+1 to +3 Pity</strong>. Reaching <strong>10 / 10</strong> guarantees a <strong>2080+ Elo Mythic Warlord</strong> (e.g. Innes Wilson, John Lennon, Junior Aflleje, Richard Siegler) on Slot #1! Duplicate cards upgrade <strong>Foil Mastery (★1 ➔ ★5)</strong> &amp; refund <strong>+20 to +250 Glory Shards</strong>. Also available in the <a href="/app#my-hub" style="color:#fbbf24; font-weight:800; text-decoration:underline;">Retribution Store</a>!
+              <div class="tpb-title" style="display:flex; align-items:center; gap:7px;">
+                <span>🔥 MYTHIC PITY — <span id="tcgPityBannerCountText">0 / 10</span></span>
+                <button type="button" class="info-tip-btn" data-info-title="10-Point Mythic Pity &amp; Rebates" data-info-body="• Every pack adds +1 to +3 Pity.&#10;• Reaching 10/10 guarantees a 2080+ Elo Mythic Warlord on Slot #1!&#10;• Duplicate pulls upgrade Foil Mastery (★1 ➔ ★5) and refund +20 to +250 Glory Honor.&#10;• Rarity Tiers: Common (1550–1749), Rare (1750–1899), Epic (1900–2079), Mythic (2080+).">i</button>
               </div>
             </div>
             <div class="tpb-bar-wrap">
               <div class="tpb-bar-track">
                 <div class="tpb-bar-fill" id="tcgPityProgressFill" style="width: 0%"></div>
               </div>
-              <span class="tpb-bar-lbl" id="tcgPityRemainingText">10 Pity until Guaranteed Mythic (2080+ Elo)</span>
+              <span class="tpb-bar-lbl" id="tcgPityRemainingText">10 Pity to Guaranteed Mythic</span>
             </div>
           </div>
 
@@ -677,34 +687,8 @@
             <div class="tprs-cards-row" id="tcgRevealCardsRow"></div>
           </div>
 
-          <!-- Microtransaction Pricing, Rarity Curve & Live-Elo Design Analysis -->
-          <div class="tcg-economy-analysis-box" id="tcgEconomyAnalysisPanel">
-            <div class="teab-title">📊 TCG ECONOMY, RARITY DROP CURVE &amp; LIVE-ELO ARCHITECTURE</div>
-            <div class="teab-grid">
-              <div class="teab-card">
-                <h4>1. Rarity Tiers &amp; Inverse-Elo Weighting</h4>
-                <ul class="teab-list">
-                  <li><span class="r-dot starter"></span> <strong>Starter (1450–1550 Elo):</strong> Free 28-Faction Pre-Set Deck (No Player Name).</li>
-                  <li><span class="r-dot common"></span> <strong>Common (1550–1749 Elo):</strong> Local RTT Contender (+20 Glory Dup Rebate).</li>
-                  <li><span class="r-dot rare"></span> <strong>Rare (1750–1899 Elo):</strong> Regional GT Veteran (+45 Glory Dup Rebate).</li>
-                  <li><span class="r-dot epic"></span> <strong>Epic (1900–2079 Elo):</strong> National Major Ace — e.g. Folger P 2070 (+100 Glory Rebate).</li>
-                  <li><span class="r-dot mythic"></span> <strong>Mythic Warlord (2080+ Elo):</strong> World Icons — Inverse-Elo weighted so 2300+ legends are 3.5× rarer (+250 Glory Rebate).</li>
-                </ul>
-              </div>
-              <div class="teab-card">
-                <h4>2. Real Player × Faction Cards (Dynamic Live Elo)</h4>
-                <p>
-                  Every collectible card represents a <strong>Real Competitive Player + Faction</strong> pairing. A single player can have multiple cards across factions — e.g. <strong>Folger P (Adeptus Custodes)</strong> and <strong>Folger P (Necrons)</strong> are 2 distinct cards. Because cards link directly to <code>player_ratings</code>, whenever that player's real tournament Elo rises or falls, all of their faction cards update live!
-                </p>
-              </div>
-              <div class="teab-card">
-                <h4>3. Pack Pricing Ladder &amp; Casual vs Tournament</h4>
-                <p>
-                  <strong>Recruit Pack (150 Glory, 3 Cards)</strong> is the impulse entry (~1 RTT win). <strong>Tactical Veteran Pack (380 Glory, 5 Cards)</strong> acts as the 15%-off mid-tier anchor. <strong>Warlord Command Crate (850 Glory, 5 Cards)</strong> eliminates Commons (0%) and guarantees an Epic (1900+) or Mythic (2080+) on Slot 1 with +3 Pity! TCG Decks are strictly for Casual Minigame play; Official Tournament mode always uses the real team roster.
-                </p>
-              </div>
-            </div>
-          </div>
+          <!-- Hidden compatibility container for economy details (accessible via Pity info icon) -->
+          <div class="tcg-economy-analysis-box hidden" id="tcgEconomyAnalysisPanel"></div>
         </div>
 
         <!-- TAB 3: CARD BINDER & MULTI-FACTION REAL PLAYER SPOTLIGHT -->
@@ -712,9 +696,9 @@
           <!-- Multi-Faction Player Spotlight (e.g. Folger P Custodes + Folger P Necrons) -->
           <div class="tcg-multifaction-box">
             <div class="tmf-head">
-              <div>
-                <h4>🌟 MULTI-FACTION REAL PLAYER SPOTLIGHT (DYNAMIC LIVE ELO SYNC)</h4>
-                <p>One real player can have multiple collectible cards across different factions (e.g. Folger P on Custodes &amp; Necrons). All faction cards of a player dynamically mirror their live Elo!</p>
+              <div style="display:flex; align-items:center; gap:7px;">
+                <h4>🌟 MULTI-FACTION PROS</h4>
+                <button type="button" class="info-tip-btn" data-info-title="Multi-Faction Live Elo Sync" data-info-body="A single competitive player can have multiple collectible cards across different factions (e.g. Folger P on Adeptus Custodes &amp; Necrons). Whenever their live tournament Elo updates, all of their faction cards update automatically!">i</button>
               </div>
             </div>
             <div class="tmf-scroll-row" id="tcgMultiFactionSpotlight"></div>
@@ -723,15 +707,15 @@
           <!-- Full Card Binder Filter Bar -->
           <div class="tcg-picker-header">
             <div class="tcg-picker-filters" id="tcgBinderRarityFilters">
-              <button type="button" class="tcg-filter-chip active" data-binder-filter="all">All Cards</button>
+              <button type="button" class="tcg-filter-chip active" data-binder-filter="all">All</button>
               <button type="button" class="tcg-filter-chip" data-binder-filter="owned">✅ Owned</button>
-              <button type="button" class="tcg-filter-chip" data-binder-filter="starter">⚪ Starter (1450–1550)</button>
-              <button type="button" class="tcg-filter-chip" data-binder-filter="mythic">🟡 Mythic (2080+)</button>
-              <button type="button" class="tcg-filter-chip" data-binder-filter="epic">🟣 Epic (1900–2079)</button>
-              <button type="button" class="tcg-filter-chip" data-binder-filter="rare">🔵 Rare (1750–1899)</button>
-              <button type="button" class="tcg-filter-chip" data-binder-filter="common">🟢 Common (1550–1749)</button>
+              <button type="button" class="tcg-filter-chip" data-binder-filter="starter">⚪ Starter</button>
+              <button type="button" class="tcg-filter-chip" data-binder-filter="mythic">🟡 Mythic</button>
+              <button type="button" class="tcg-filter-chip" data-binder-filter="epic">🟣 Epic</button>
+              <button type="button" class="tcg-filter-chip" data-binder-filter="rare">🔵 Rare</button>
+              <button type="button" class="tcg-filter-chip" data-binder-filter="common">🟢 Common</button>
             </div>
-            <input type="text" id="tcgBinderSearchInput" class="lobby-input tcg-search-mini" placeholder="Search player name or faction (e.g. Folger, Siegler, Necrons)...">
+            <input type="text" id="tcgBinderSearchInput" class="lobby-input tcg-search-mini" placeholder="Search player or faction...">
           </div>
 
           <div class="tcg-binder-grid" id="tcgBinderGrid"></div>
@@ -743,9 +727,9 @@
     <div class="coin-modal-backdrop hidden" id="coinFlipModalBackdrop">
       <div class="coin-modal-card">
         <div class="coin-modal-header">
-          <div>
-            <h2>🪙 COIN FLIP — DEFENDER / ATTACKER TOSS</h2>
-            <p>Flip the coin! The winner chooses to start Cycle 1 as <strong>DEFENDER</strong> or <strong>ATTACKER</strong> (roles swap every cycle).</p>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <h2>🪙 COIN FLIP</h2>
+            <button type="button" class="info-tip-btn" data-info-title="WTC Coin Flip Rules" data-info-body="Flip the coin! Neither team defaults to Defender — the winner chooses whether to start Cycle 1 as Defender or Attacker. Roles automatically swap every cycle.">i</button>
           </div>
           <button type="button" class="lobby-close-btn" id="btnCloseCoinFlipModal" title="Close Coin Flip">✕</button>
         </div>
@@ -782,10 +766,10 @@
           <!-- Coin Toss Status & Flip Button -->
           <div class="coin-status-box">
             <div class="coin-status-headline" id="coinFlipStatusHeadline">
-              READY TO FLIP FOR CYCLE 1 ROLE SELECTION
+              FLIP FOR CYCLE 1 ROLE
             </div>
-            <div class="coin-status-sub" id="coinFlipStatusSub">
-              Neither team defaults to Defender — flip the coin to decide who chooses Defender or Attacker first!
+            <div class="coin-status-sub hidden" id="coinFlipStatusSub">
+              Winner picks Defender or Attacker first.
             </div>
             <div class="coin-flip-btn-row">
               <button type="button" class="ygo-confirm-btn large coin-flip-trigger-btn" id="btnFlipCoinNow">
@@ -797,35 +781,33 @@
           <!-- AI Winner Banner (shown when AI wins coin toss) -->
           <div class="coin-ai-banner hidden" id="coinFlipAiChoiceBanner">
             <div class="coin-ai-banner-text" id="coinFlipAiChoiceText">
-              🤖 AI Captain won the coin flip and chose DEFENDER!
+              🤖 AI won the flip and chose DEFENDER!
             </div>
             <button type="button" class="ygo-confirm-btn" id="btnAcceptAiCoinChoice">
-              ⚔️ ACCEPT &amp; START CYCLE 1
+              ⚔️ START CYCLE 1
             </button>
           </div>
 
           <!-- Role Choice Cards (shown once coin is flipped) -->
           <div class="coin-role-choice-grid hidden" id="coinFlipRoleChoiceSection">
             <button type="button" class="coin-role-card defender-choice" id="btnChooseDefenderRole">
-              <div class="crc-badge">🛡️ OPTION 1 • DEFENDER FIRST</div>
-              <div class="crc-title">START AS DEFENDER</div>
-              <div class="crc-desc">
-                <strong>Step 1:</strong> You place <strong>1 Defender</strong> card on the mat.<br>
-                <strong>Step 2:</strong> Opponent sends <strong>2 Attackers</strong> against your Defender.<br>
-                <strong>Step 3:</strong> You choose <strong>which of their 2 Attackers</strong> your Defender fights!
+              <div class="crc-badge-row">
+                <span class="crc-badge">🛡️ OPTION 1</span>
+                <span class="info-tip-btn" role="button" tabindex="0" data-info-title="Defender Role (3 Steps)" data-info-body="Step 1: You place 1 Defender card on the mat.&#10;Step 2: Opponent sends 2 Attackers against your Defender.&#10;Step 3: You pick which of their 2 Attackers your Defender fights!">i</span>
               </div>
-              <span class="crc-cta">🛡️ CHOOSE DEFENDER</span>
+              <div class="crc-title">DEFENDER</div>
+              <div class="crc-desc">Place 1 card first • Pick final matchup</div>
+              <span class="crc-cta">🛡️ PICK DEFENDER</span>
             </button>
 
             <button type="button" class="coin-role-card attacker-choice" id="btnChooseAttackerRole">
-              <div class="crc-badge">⚔️ OPTION 2 • ATTACKER FIRST</div>
-              <div class="crc-title">START AS ATTACKER</div>
-              <div class="crc-desc">
-                <strong>Step 1:</strong> Opponent places <strong>1 Defender</strong> card on the mat first.<br>
-                <strong>Step 2:</strong> Seeing their Defender, you send <strong>2 Attackers</strong> to counter them.<br>
-                <strong>Step 3:</strong> Opponent picks 1 of your 2 Attackers (the other returns to your hand).
+              <div class="crc-badge-row">
+                <span class="crc-badge">⚔️ OPTION 2</span>
+                <span class="info-tip-btn" role="button" tabindex="0" data-info-title="Attacker Role (3 Steps)" data-info-body="Step 1: Opponent places 1 Defender card first.&#10;Step 2: Seeing their Defender, you send 2 Attackers to counter.&#10;Step 3: Opponent picks 1 of your 2 Attackers (the other returns to your hand).">i</span>
               </div>
-              <span class="crc-cta">⚔️ CHOOSE ATTACKER</span>
+              <div class="crc-title">ATTACKER</div>
+              <div class="crc-desc">See enemy Defender • Send 2 counters</div>
+              <span class="crc-cta">⚔️ PICK ATTACKER</span>
             </button>
           </div>
         </div>
@@ -857,8 +839,17 @@
     </nav>
   </div>
 
+  <!-- Global "i" Info Tooltip / Popover -->
+  <div id="globalInfoPopover" class="info-popover-card hidden" role="dialog" aria-modal="false">
+    <div class="ipc-head">
+      <span class="ipc-title" id="globalInfoPopoverTitle">Info</span>
+      <button type="button" class="ipc-close" id="btnCloseGlobalInfoPopover" aria-label="Close">✕</button>
+    </div>
+    <div class="ipc-body" id="globalInfoPopoverBody"></div>
+  </div>
+
   <div id="toastNotification" class="toast-notification hidden"></div>
   <script src="/js/armory_svgs.js"></script>
-  <script src="/team-pairings/app.js?v=14"></script>
+  <script src="/team-pairings/app.js?v=15"></script>
 </body>
 </html>
