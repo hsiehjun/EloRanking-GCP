@@ -120,9 +120,168 @@ function applyGameSystem(sys, updateUrl = true) {
   }
 }
 
+function showGameSystemTransitionScreen(targetSys) {
+  const isAos = targetSys === 'aos';
+  const accent = isAos ? '#f59e0b' : '#38bdf8';
+  const accentGlow = isAos ? 'rgba(245, 158, 11, 0.22)' : 'rgba(56, 189, 248, 0.22)';
+  const accentBorder = isAos ? 'rgba(245, 158, 11, 0.55)' : 'rgba(56, 189, 248, 0.55)';
+  const icon = isAos ? '⚡' : '⚔️';
+  const kicker = isAos ? 'ENTERING THE MORTAL REALMS' : 'ENTERING THE 41ST MILLENNIUM';
+  const title = isAos ? 'Warhammer: Age of Sigmar' : 'Warhammer 40,000';
+  const subtitle = isAos
+    ? 'Loading AoS 4.0 Rankings, Grand Alliances & Tournament Telemetry...'
+    : 'Loading 40K Rankings, Factions & Tournament Telemetry...';
+
+  if (!document.getElementById('omni-sys-switch-keyframes')) {
+    const styleEl = document.createElement('style');
+    styleEl.id = 'omni-sys-switch-keyframes';
+    styleEl.textContent = `
+      @keyframes omniSysSpin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      @keyframes omniSysPulse {
+        0%, 100% { transform: scale(1); opacity: 0.92; }
+        50% { transform: scale(1.08); opacity: 1; }
+      }
+    `;
+    document.head.appendChild(styleEl);
+  }
+
+  let overlay = document.getElementById('omni-system-switch-loader');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'omni-system-switch-loader';
+    document.body.appendChild(overlay);
+  }
+
+  overlay.style.cssText = `
+    position: fixed;
+    inset: 0;
+    z-index: 999990;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: radial-gradient(circle at 50% 38%, ${accentGlow}, rgba(5, 8, 17, 0.97) 68%);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    opacity: 1;
+    transition: opacity 0.22s ease;
+    pointer-events: all;
+  `;
+
+  overlay.innerHTML = `
+    <div style="
+      background: rgba(13, 19, 33, 0.92);
+      border: 1.5px solid ${accentBorder};
+      border-radius: 18px;
+      padding: 28px 32px;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85), 0 0 36px ${accentGlow};
+    ">
+      <div style="position: relative; width: 72px; height: 72px; margin: 0 auto 18px;">
+        <div style="
+          position: absolute;
+          inset: 0;
+          border-radius: 50%;
+          border: 3px solid rgba(148, 163, 184, 0.16);
+          border-top-color: ${accent};
+          border-right-color: ${accent};
+          animation: omniSysSpin 0.75s linear infinite;
+        "></div>
+        <div style="
+          position: absolute;
+          inset: 8px;
+          border-radius: 50%;
+          background: rgba(15, 23, 42, 0.9);
+          border: 1px solid ${accentBorder};
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 1.85rem;
+          animation: omniSysPulse 1.2s ease-in-out infinite;
+        ">${icon}</div>
+      </div>
+
+      <div style="
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.68rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        color: ${accent};
+        text-transform: uppercase;
+        margin-bottom: 6px;
+      ">${kicker}</div>
+
+      <h2 style="
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 1.35rem;
+        font-weight: 900;
+        color: #f8fafc;
+        margin: 0 0 8px 0;
+        letter-spacing: -0.02em;
+      ">${title}</h2>
+
+      <p id="omni-sys-switch-sub" style="
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 0.82rem;
+        color: #94a3b8;
+        margin: 0 0 18px 0;
+        line-height: 1.45;
+      ">${subtitle}</p>
+
+      <div style="
+        width: 100%;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(30, 41, 59, 0.85);
+        overflow: hidden;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+      ">
+        <div id="omni-sys-switch-bar" style="
+          width: 18%;
+          height: 100%;
+          border-radius: 999px;
+          background: ${accent};
+          box-shadow: 0 0 12px ${accent};
+          transition: width 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+        "></div>
+      </div>
+    </div>
+  `;
+
+  requestAnimationFrame(() => {
+    const bar = document.getElementById('omni-sys-switch-bar');
+    if (bar) bar.style.width = '78%';
+  });
+
+  return overlay;
+}
+
+function hideGameSystemTransitionScreen() {
+  const overlay = document.getElementById('omni-system-switch-loader');
+  if (!overlay) return;
+  const bar = document.getElementById('omni-sys-switch-bar');
+  if (bar) bar.style.width = '100%';
+  setTimeout(() => {
+    overlay.style.opacity = '0';
+    overlay.style.pointerEvents = 'none';
+    setTimeout(() => {
+      if (overlay.parentNode) overlay.remove();
+    }, 220);
+  }, 120);
+}
+
 function switchGameSystem(sys) {
-  if (sys === currentGameSystem) return;
-  applyGameSystem(sys, true);
+  const normalizedTarget = (sys === 'aos') ? 'aos' : '40k';
+  if (normalizedTarget === currentGameSystem) return;
+
+  showGameSystemTransitionScreen(normalizedTarget);
+  applyGameSystem(normalizedTarget, true);
 
   // Clear caches
   if (typeof window.resetFactionState === 'function') {
@@ -164,56 +323,82 @@ function switchGameSystem(sys) {
     teamsDirectoryData = [];
   }
 
-  // Reload current tab and stats
-  loadGlobalStats();
+  // Reload current tab and stats while the transition screen is active
+  const pendingTasks = [];
+  try {
+    pendingTasks.push(Promise.resolve(loadGlobalStats()));
+  } catch (_) {}
 
+  let tabPromise = null;
   if (activeTab === 'leaderboard') {
     const teamsBtn = document.getElementById('lead-subtab-teams');
     const itcBtn = document.getElementById('lead-subtab-itc');
     if (itcBtn && itcBtn.classList.contains('active')) {
-      if (typeof loadLeaderboardItc === 'function') loadLeaderboardItc();
+      if (typeof loadLeaderboardItc === 'function') tabPromise = loadLeaderboardItc();
     } else if (teamsBtn && teamsBtn.classList.contains('active')) {
-      if (typeof loadLeaderboardTeams === 'function') loadLeaderboardTeams();
+      if (typeof loadLeaderboardTeams === 'function') tabPromise = loadLeaderboardTeams();
     } else {
-      if (typeof loadLeaderboard === 'function') loadLeaderboard();
+      if (typeof loadLeaderboard === 'function') tabPromise = loadLeaderboard();
     }
   } else if (activeTab === 'my-hub') {
     if (typeof resetMyHubToProfile === 'function') resetMyHubToProfile();
-    if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
+    if (typeof loadMyHubDashboard === 'function') tabPromise = loadMyHubDashboard();
   } else if (activeTab === 'meta-intel') {
-    if (typeof loadFactionMeta === 'function') loadFactionMeta();
+    const predSub = document.getElementById('meta-subtab-predictor');
+    if (predSub && predSub.classList.contains('active') && typeof switchMetaSubtab === 'function') {
+      tabPromise = switchMetaSubtab('predictor');
+    } else if (typeof loadFactionMeta === 'function') {
+      tabPromise = loadFactionMeta();
+    }
   } else if (activeTab === 'community') {
     if (typeof loadCommunityHub === 'function') {
-      loadCommunityHub(null, null, null, null, true);
+      tabPromise = loadCommunityHub(null, null, null, null, true);
     }
   } else if (activeTab === 'search') {
     const teamsBtn = document.getElementById('search-subtab-teams');
     if (teamsBtn && teamsBtn.classList.contains('active')) {
-      if (typeof loadTeamsDirectory === 'function') loadTeamsDirectory();
+      if (typeof loadTeamsDirectory === 'function') tabPromise = loadTeamsDirectory();
     } else {
-      if (typeof loadPlayersDirectory === 'function') loadPlayersDirectory();
+      if (typeof loadPlayersDirectory === 'function') tabPromise = loadPlayersDirectory();
     }
   } else if (activeTab === 'player-profile') {
     if (typeof openPlayerProfilePage === 'function' && typeof window !== 'undefined' && window.currentProfilePlayerId) {
-      openPlayerProfilePage(window.currentProfilePlayerId, sys);
+      tabPromise = openPlayerProfilePage(window.currentProfilePlayerId, normalizedTarget);
     }
   } else if (activeTab === 'event-hub') {
-    if (typeof openEventHubPage === 'function' && typeof window !== 'undefined' && window.currentOpenEventId) {
-      openEventHubPage(window.currentOpenEventId, sys);
+    // A specific Event ID belongs to a single game system (40K or AoS).
+    // When switching game systems, leave the single event page and show the new system's Tournaments hub!
+    if (typeof window !== 'undefined') {
+      window.currentOpenEventId = null;
     }
-  } else if (activeTab === 'team-profile') {
-    if (typeof openTeamProfilePage === 'function' && typeof currentProfileTeamName !== 'undefined' && currentProfileTeamName) {
-      openTeamProfilePage(currentProfileTeamName, sys);
+    tabPromise = switchTab('tournaments');
+  } else if (activeTab === 'team-profile' || activeTab === 'teams' || activeTab === 'team') {
+    if (typeof navigateToUserTeam === 'function') {
+      tabPromise = navigateToUserTeam();
     }
+  }
+
+  if (tabPromise) {
+    pendingTasks.push(Promise.resolve(tabPromise));
   }
 
   // If quick player modal is currently active, reload it under the newly selected game system
   const playerModal = document.getElementById('player-modal');
   if (playerModal && playerModal.classList.contains('active') && typeof currentModalPlayerId !== 'undefined' && currentModalPlayerId) {
     if (typeof openPlayerModal === 'function') {
-      openPlayerModal(currentModalPlayerId, typeof currentModalPlayerName !== 'undefined' ? currentModalPlayerName : '', true);
+      pendingTasks.push(Promise.resolve(openPlayerModal(currentModalPlayerId, typeof currentModalPlayerName !== 'undefined' ? currentModalPlayerName : '', true)));
     }
   }
+
+  const minVisualDelay = new Promise((r) => setTimeout(r, 480));
+  const dataDoneOrCapped = Promise.race([
+    Promise.allSettled(pendingTasks),
+    new Promise((r) => setTimeout(r, 950))
+  ]);
+
+  Promise.all([minVisualDelay, dataDoneOrCapped]).finally(() => {
+    hideGameSystemTransitionScreen();
+  });
 }
 
 function toggleGameSystemMobile() {
