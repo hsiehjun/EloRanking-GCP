@@ -509,10 +509,6 @@
             <a href="/app?armory=tcg_packs#my-hub" class="tcg-daily-claim-btn" id="btnOpenRetributionStore" title="Open Retribution Store &amp; TCG Card Packs in My Hub" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px;">
               🏛️ Store
             </a>
-            <div class="tcg-pity-pill" title="10-Point Mythic Pity Timer: Guarantees a 2080+ Elo Mythic Warlord Card at 10/10!">
-              <span class="tpp-lbl">PITY</span>
-              <strong class="tpp-val" id="tcgVaultPityBadge">🔥 0 / 10</strong>
-            </div>
             <button type="button" class="lobby-close-btn" id="btnCloseTcgVaultModal" title="Close TCG Vault">✕</button>
           </div>
         </div>
@@ -592,22 +588,6 @@
 
         <!-- TAB 2: REQUISITION PACK STORE & ECONOMY / ODDS ANALYSIS -->
         <div class="tcg-tab-panel hidden" id="tcgPanelPacks">
-          <!-- Mythic Pity Progress Banner -->
-          <div class="tcg-pity-banner">
-            <div class="tpb-info">
-              <div class="tpb-title" style="display:flex; align-items:center; gap:7px;">
-                <span>🔥 MYTHIC PITY — <span id="tcgPityBannerCountText">0 / 10</span></span>
-                <button type="button" class="info-tip-btn" data-info-title="10-Point Mythic Pity &amp; Rebates" data-info-body="• Every pack adds +1 to +3 Pity.&#10;• Reaching 10/10 guarantees a 2080+ Elo Mythic Warlord on Slot #1!&#10;• Duplicate pulls upgrade Foil Mastery (★1 ➔ ★5) and refund +20 to +250 Glory Honor.&#10;• Rarity Tiers: Common (1550–1749), Rare (1750–1899), Epic (1900–2079), Mythic (2080+).">i</button>
-              </div>
-            </div>
-            <div class="tpb-bar-wrap">
-              <div class="tpb-bar-track">
-                <div class="tpb-bar-fill" id="tcgPityProgressFill" style="width: 0%"></div>
-              </div>
-              <span class="tpb-bar-lbl" id="tcgPityRemainingText">10 Pity to Guaranteed Mythic</span>
-            </div>
-          </div>
-
           <!-- 3-Tier Pack Store Cards -->
           <div class="tcg-pack-store-grid" id="tcgPackStoreGrid"></div>
 

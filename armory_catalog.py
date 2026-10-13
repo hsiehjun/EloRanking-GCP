@@ -4116,7 +4116,7 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         "bundle_count": 3,
         "prerequisite": None,
         "icon": "📦",
-        "description": "3 Collectible Pro Player × Faction Cards. Slot 1 Guaranteed Rare (1750+ Elo) or higher. Adds +1 Mythic Pity toward guaranteed 2080+ Elo Warlord pull.",
+        "description": "3 Collectible Pro Player × Faction Cards. Slot 1 Guaranteed Rare (1750+ Elo) or higher.",
         "payload": {
             "pack_type": "recruit",
             "card_count": 3,
@@ -4140,7 +4140,7 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         "bundle_count": 5,
         "prerequisite": None,
         "icon": "⚡",
-        "description": "5 Collectible Pro Player × Faction Cards. Boosted 57% Epic/Mythic Lead Slot! Adds +2 Mythic Pity toward guaranteed 2080+ Elo Warlord pull.",
+        "description": "5 Collectible Pro Player × Faction Cards. Boosted 57% Epic/Mythic Lead Slot!",
         "payload": {
             "pack_type": "veteran",
             "card_count": 5,
@@ -4164,7 +4164,7 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
         "bundle_count": 5,
         "prerequisite": None,
         "icon": "👑",
-        "description": "5 Elite Pro Player × Faction Cards with ZERO Commons! Slot 1 is 100% Guaranteed Epic (1900+ Elo) or Mythic Warlord (2080+ Elo). Adds +3 Mythic Pity.",
+        "description": "5 Elite Pro Player × Faction Cards with ZERO Commons! Slot 1 is 100% Guaranteed Epic (1900+ Elo) or Mythic Warlord (2080+ Elo).",
         "payload": {
             "pack_type": "warlord",
             "card_count": 5,

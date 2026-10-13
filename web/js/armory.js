@@ -1146,7 +1146,7 @@
       return [
         '<div style="background:linear-gradient(160deg, rgba(15,23,42,0.96), rgba(30,41,59,0.92)); border:2px solid ' + rStyle.border + '; border-radius:14px; padding:1rem; display:flex; flex-direction:column; gap:0.55rem; box-shadow:0 12px 30px rgba(0,0,0,0.55);">',
         '  <div style="display:flex; justify-content:space-between; align-items:center; gap:0.4rem; flex-wrap:wrap;">',
-        '    <span style="background:' + rStyle.bg + '; color:' + rStyle.color + '; border:1px solid ' + rStyle.border + '; border-radius:6px; padding:2px 7px; font-size:0.68rem; font-weight:900; letter-spacing:0.06em;">' + escapeHtml(rKey) + (c.pity_triggered ? ' • 🔥 PITY!' : '') + '</span>',
+        '    <span style="background:' + rStyle.bg + '; color:' + rStyle.color + '; border:1px solid ' + rStyle.border + '; border-radius:6px; padding:2px 7px; font-size:0.68rem; font-weight:900; letter-spacing:0.06em;">' + escapeHtml(rKey) + '</span>',
         statusBadge,
         '  </div>',
         '  <div style="font-size:1.05rem; font-weight:900; color:#fff; letter-spacing:0.02em; margin-top:0.15rem;">👤 ' + escapeHtml(c.name || 'Pro Player') + '</div>',
@@ -1175,7 +1175,7 @@
       '      <div style="font-size:0.72rem; font-weight:800; color:#fbbf24; letter-spacing:0.12em; text-transform:uppercase;">🃏 RETRIBUTION STORE — BOOSTER PACK OPENED</div>',
       '      <h3 style="margin:0.2rem 0 0; font-size:1.3rem; font-weight:900; color:#fff;">' + escapeHtml(packName) + ' (' + pulls.length + ' Pro Cards)</h3>',
       '      <div style="font-size:0.8rem; color:#94a3b8; margin-top:0.25rem;">',
-      '        Net Spent: <strong style="color:#fbbf24;">' + netCost + ' Glory</strong>' + (rebate > 0 ? ' <span style="color:#34d399;">(Includes +' + rebate + ' Glory Shard Duplicate Rebate!)</span>' : '') + ' • Balance: <strong style="color:#38bdf8;">' + spendable.toLocaleString() + ' Glory</strong> • Mythic Pity: <strong style="color:#f97316;">🔥 ' + pityAfter + ' / 10</strong>' + (pityTriggered ? ' <span style="color:#fbbf24; font-weight:800;">(MYTHIC PITY TRIGGERED!)</span>' : ''),
+      '        Net Spent: <strong style="color:#fbbf24;">' + netCost + ' Glory</strong>' + (rebate > 0 ? ' <span style="color:#34d399;">(Includes +' + rebate + ' Glory Shard Duplicate Rebate!)</span>' : '') + ' • Balance: <strong style="color:#38bdf8;">' + spendable.toLocaleString() + ' Glory</strong>',
       '      </div>',
       '    </div>',
       '    <button type="button" class="modal-close" onclick="document.getElementById(\'armory-tcg-pack-reveal-modal\').remove()">✕</button>',
@@ -1435,7 +1435,6 @@
           '  <div style="display:flex; align-items:center; gap:0.45rem; justify-content:center; flex-wrap:wrap;">',
           '    <span style="font-size:1.45rem; line-height:1; filter:drop-shadow(0 0 8px ' + pGlowCol + ');">' + (item.icon || '🃏') + '</span>',
           '    <span style="font-size:0.68rem; font-weight:800; padding:2px 6px; border-radius:4px; background:rgba(255,255,255,0.08); color:#fff;">🃏 ' + cardsPerPack + ' Cards</span>',
-          '    <span style="font-size:0.68rem; font-weight:800; padding:2px 6px; border-radius:4px; background:rgba(249,115,22,0.18); color:#fb923c; border:1px solid rgba(249,115,22,0.35);">🔥 +' + pityInc + ' Pity</span>',
           '  </div>',
           '  <div style="font-size:0.63rem; color:#94a3b8; margin-top:0.28rem; text-align:center; white-space:nowrap;">',
           '    Slot #1: <span style="color:#fbbf24; font-weight:700;">' + mPct + '% Mythic</span> • <span style="color:#c084fc; font-weight:700;">' + ePct + '% Epic</span>' + (rPct > 0 ? ' • <span style="color:#38bdf8; font-weight:700;">' + rPct + '% Rare</span>' : ''),
@@ -1599,20 +1598,12 @@
         '</div>'
       ].join('\n');
     } else if (currentArmoryMode === 'store' && activeWingFilter === 'tcg_packs') {
-      var pityPct = Math.min(100, Math.round((pityCounter / 10) * 100));
-      var pityRemaining = Math.max(1, 10 - pityCounter);
       storeBannerHtml = [
         '<div style="grid-column: 1/-1; background: linear-gradient(135deg, rgba(15,23,42,0.96), rgba(30,41,59,0.92)); border: 1px solid rgba(56,189,248,0.38); border-radius: 14px; padding: 1rem 1.25rem; margin-bottom: 0.35rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">',
         '  <div style="flex: 1; min-width: 260px;">',
         '    <div style="display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap;">',
         '      <span style="font-size:0.72rem; font-weight:900; letter-spacing:0.08em; text-transform:uppercase; background:rgba(56,189,248,0.18); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); border-radius:999px; padding:2px 9px;">🃏 CASUAL PAIRING MINIGAME TCG</span>',
         '      <span style="font-size:0.76rem; color:#94a3b8; font-weight:700;">Pro Collection: <strong style="color:#fff;">' + ownedProCount + ' / ' + totalPoolCount + ' Pro Cards</strong> (+28 Free Starter Factions) • Packs Opened: <strong style="color:#fbbf24;">' + packsOpened + '</strong></span>',
-        '    </div>',
-        '    <div style="margin-top:0.55rem; display:flex; align-items:center; gap:0.85rem; flex-wrap:wrap;">',
-        '      <div style="font-size:0.82rem; font-weight:800; color:#f97316;">🔥 Mythic Pity Timer: <strong>' + pityCounter + ' / 10</strong> <span style="font-weight:600; color:#cbd5e1; font-size:0.76rem;">(' + pityRemaining + ' Pity until Guaranteed 2080+ Elo Mythic Pro Card)</span></div>',
-        '      <div style="flex:1; min-width:140px; max-width:220px; height:8px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden; border:1px solid rgba(249,115,22,0.35);">',
-        '        <div style="width:' + pityPct + '%; height:100%; background:linear-gradient(90deg, #f97316, #fbbf24);"></div>',
-        '      </div>',
         '    </div>',
         '  </div>',
         '  <a href="/team-pairings?tcg=deck&from_lobby=1" class="btn btn-outline" style="font-weight:800; font-size:0.8rem; text-decoration:none; border-color:rgba(56,189,248,0.45); color:#38bdf8; padding:0.5rem 0.95rem; white-space:nowrap;">',

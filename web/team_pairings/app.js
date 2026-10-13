@@ -4352,8 +4352,6 @@ class YuGiOhPairingsArena {
   renderTcgHeaderCounters() {
     if (!this.tcgState) return;
     const glory = Number(this.tcgState.spendable_glory ?? 0);
-    const pity = Number(this.tcgState.pity_counter ?? 0);
-    const maxPity = Number(this.tcgState.pity_threshold ?? 10);
 
     const topBtn = document.getElementById("topbarTcgBtnText");
     if (topBtn) {
@@ -4362,10 +4360,6 @@ class YuGiOhPairingsArena {
     const balEl = document.getElementById("tcgVaultGloryBalance");
     if (balEl) {
       balEl.textContent = `🪙 ${glory.toLocaleString()}`;
-    }
-    const pityEl = document.getElementById("tcgVaultPityBadge");
-    if (pityEl) {
-      pityEl.textContent = `🔥 ${pity} / ${maxPity}`;
     }
     const ownedBadge = document.getElementById("tcgTabOwnedCountBadge");
     if (ownedBadge) {
@@ -4602,21 +4596,6 @@ class YuGiOhPairingsArena {
   renderTcgPacksTab() {
     if (!this.tcgState) return;
     const glory = Number(this.tcgState.spendable_glory ?? 0);
-    const pity = Number(this.tcgState.pity_counter ?? 0);
-    const maxPity = Number(this.tcgState.pity_threshold ?? 10);
-    const pct = Math.min(100, Math.round((pity / maxPity) * 100));
-
-    const pityBannerTxt = document.getElementById("tcgPityBannerCountText");
-    if (pityBannerTxt) pityBannerTxt.textContent = `${pity} / ${maxPity}`;
-    const pityFill = document.getElementById("tcgPityProgressFill");
-    if (pityFill) pityFill.style.width = `${pct}%`;
-    const pityRem = document.getElementById("tcgPityRemainingText");
-    if (pityRem) {
-      const rem = Math.max(0, maxPity - pity);
-      pityRem.textContent = rem === 0
-        ? "🔥 Mythic Ready!"
-        : `${rem} to Mythic`;
-    }
 
     const catalog = this.tcgState.pack_catalog || {};
     const packOrder = ["recruit", "veteran", "warlord"];
@@ -4646,7 +4625,7 @@ class YuGiOhPairingsArena {
             <div class="tpk-odds-box">
               <div class="tpk-odds-title">
                 <span>SLOT #1 ODDS</span>
-                <span>+${pack.pity_points || 1} PITY</span>
+                <span>LEAD CARD</span>
               </div>
               <div class="tpk-odds-row">
                 <div class="tpk-odd-pill common">Com<span>${fmtPct(s1.common)}</span></div>
@@ -4696,9 +4675,7 @@ class YuGiOhPairingsArena {
 
     const kicker = document.getElementById("tcgRevealPackNameKicker");
     if (kicker) {
-      kicker.textContent = r.pity_triggered
-        ? `🔥 10/10 MYTHIC PITY TRIGGERED • ${String(r.pack?.name || "PACK").toUpperCase()}`
-        : `📦 OPENED ${String(r.pack?.name || "REQUISITION PACK").toUpperCase()}`;
+      kicker.textContent = `📦 OPENED ${String(r.pack?.name || "REQUISITION PACK").toUpperCase()}`;
     }
     const headline = document.getElementById("tcgRevealHeadline");
     if (headline) {
