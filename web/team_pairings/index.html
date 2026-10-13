@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/team-pairings/styles.css?v=17">
+  <link rel="stylesheet" href="/team-pairings/styles.css?v=18">
 </head>
 <body>
   <div class="ygo-app-shell">
@@ -32,9 +32,6 @@
 
       <!-- Right: Action Buttons (Matches /11th/tracker/play .gt-desktop-actions) -->
       <div class="topbar-right gt-desktop-actions" style="display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
-        <button type="button" id="btnTopbarClock" class="gt-hud-btn gt-hud-clock-btn" title="Open Table Chess Clock (Independent)">
-          ⏱️ <span id="topbarClockText">Table Clock</span>
-        </button>
         <button type="button" id="btnOpenCoinFlipModal" class="gt-hud-btn gt-hud-dice-btn" title="Coin Flip for Defender / Attacker">
           🎲 Coin Flip
         </button>
@@ -42,10 +39,7 @@
           📋 Team Rosters
         </button>
         <button type="button" id="btnOpenTcgVaultModal" class="gt-hud-btn gt-hud-tcg-btn" title="Open TCG Player Card Collection, Glory Pack Store &amp; Casual Deck Builder">
-          🃏 TCG Cards <span class="tcg-glory-chip" id="topbarGloryBadge">🪙 1,390</span>
-        </button>
-        <button type="button" id="btnTopbarDice" class="gt-hud-btn gt-hud-scorecard-btn" title="Replay Latest On-Field Card Clash">
-          📄 Clash Replay
+          🃏 TCG Cards <span class="tcg-glory-chip" id="topbarGloryBadge">🪙 --</span>
         </button>
         <button type="button" id="btnFinishPairingRoom" class="gt-hud-btn gt-hud-finish-btn" title="Finalize Pairings &amp; Save to Lobby Completed Matches">
           🏁 Finish
@@ -61,29 +55,6 @@
         </button>
       </div>
     </header>
-
-    <!-- WTC Captain Pairing Clock Popover -->
-    <div id="pairingClockPopover" class="pairing-clock-popover hidden">
-      <div class="pcp-head">
-        <span>⏱️ WTC CAPTAIN PAIRING CLOCK</span>
-        <button type="button" id="btnCloseClockPopover" class="pcp-close">✕</button>
-      </div>
-      <div class="pcp-clocks-row">
-        <div class="pcp-clock-box active" id="clockBoxTeamA" data-clock-side="a">
-          <span class="pcp-team-lbl" id="clockLabelTeamA">TEAM A CAP</span>
-          <strong class="pcp-time-val" id="clockValueTeamA">05:00</strong>
-        </div>
-        <div class="pcp-clock-box" id="clockBoxTeamB" data-clock-side="b">
-          <span class="pcp-team-lbl" id="clockLabelTeamB">TEAM B CAP</span>
-          <strong class="pcp-time-val" id="clockValueTeamB">05:00</strong>
-        </div>
-      </div>
-      <div class="pcp-actions-row">
-        <button type="button" id="btnClockToggleRun" class="pcp-btn primary">▶️ Start</button>
-        <button type="button" id="btnClockSwitchSide" class="pcp-btn">⇄ Switch Turn</button>
-        <button type="button" id="btnClockReset" class="pcp-btn">↺ 5:00</button>
-      </div>
-    </div>
 
     <!-- Spectator Read-Only Banner -->
     <div id="spectatorBanner" class="spectator-strip hidden">
@@ -174,25 +145,12 @@
 
       <!-- 2. CENTER PANEL: First-Person 3D Tactical Playmat (Opponent Top, Field Center, Your Hand Bottom) -->
       <main class="ygo-field-center">
-        <!-- Arena Seat & Sandbox Controls Strip -->
+        <!-- Arena Seat Strip -->
         <div class="arena-controls-strip">
           <div class="topbar-center" id="roleSelectorPills">
             <button type="button" class="seat-chip active" id="btnRoleCapA" data-role="captain_a">👑 Team A Cap</button>
             <button type="button" class="seat-chip" id="btnRoleCapB" data-role="captain_b">👑 Team B Cap</button>
             <button type="button" class="seat-chip" id="btnRoleSpectator" data-role="spectator">👁️ Spectator</button>
-          </div>
-          <div class="arena-sandbox-tools">
-            <label class="ai-quick-toggle pred-score-toggle" id="lblPredictionScoringToggle" title="Toggle On-Field Combat &amp; WTC Score Simulation vs Official Pairing Mode">
-              <input type="checkbox" id="chkPredictionScoring" checked>
-              <span id="predictionScoringToggleText">⚔️ Combat Score: ON</span>
-            </label>
-            <label class="ai-quick-toggle" title="Auto-play opposing Captain if seat is open">
-              <input type="checkbox" id="chkVsAi" checked>
-              <span>🤖 vs AI</span>
-            </label>
-            <button type="button" id="btnAutoFinish" class="top-action-btn accent">⚡ Auto-Duel</button>
-            <button type="button" id="btnNewMatch" class="top-action-btn desktop-nav-link" title="Create Fresh Room">🔄 New</button>
-            <button type="button" id="btnToggleLandscape" class="top-action-btn mobile-only-btn" title="Toggle Horizontal / Landscape View on Mobile">🔄 Landscape</button>
           </div>
         </div>
 
@@ -889,14 +847,6 @@
         <span class="gt-dock-ico">🪙</span>
         <span class="gt-dock-lbl">Coin</span>
       </button>
-      <button type="button" class="gt-dock-btn" id="btnDockToggleClock" title="Toggle WTC Captain Pairing Clock">
-        <span class="gt-dock-ico">⏱️</span>
-        <span class="gt-dock-lbl" id="dockClockLabel">Clock</span>
-      </button>
-      <button type="button" class="gt-dock-btn" id="btnDockOpenDice" title="Replay Latest On-Field Card Clash">
-        <span class="gt-dock-ico">⚔️</span>
-        <span class="gt-dock-lbl">Clash</span>
-      </button>
       <button type="button" class="gt-dock-btn finish" id="btnDockFinishRoom" title="Finalize Pairings &amp; Save to History">
         <span class="gt-dock-ico">🏁</span>
         <span class="gt-dock-lbl">Finish</span>
@@ -906,6 +856,6 @@
 
   <div id="toastNotification" class="toast-notification hidden"></div>
   <script src="/js/armory_svgs.js"></script>
-  <script src="/team-pairings/app.js?v=12"></script>
+  <script src="/team-pairings/app.js?v=13"></script>
 </body>
 </html>

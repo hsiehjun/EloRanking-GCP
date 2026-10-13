@@ -1030,11 +1030,15 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertIn('id="gt-sync-hud"', tp_html)
         self.assertIn('id="btnBackToTrackerLobby"', tp_html)
         self.assertIn('id="topbarRoomCodeBadge"', tp_html)
-        self.assertIn('id="btnTopbarClock"', tp_html)
-        self.assertIn('id="btnTopbarDice"', tp_html)
         self.assertIn('id="btnFinishPairingRoom"', tp_html)
-        self.assertIn('id="pairingClockPopover"', tp_html)
         self.assertIn('id="gt-mobile-bottom-dock"', tp_html)
+        # Ensure clutter sandbox controls (05:00 clock, Clash, Combat Score: ON, vs AI, Auto-Duel) are removed
+        self.assertNotIn('id="btnTopbarClock"', tp_html)
+        self.assertNotIn('id="btnTopbarDice"', tp_html)
+        self.assertNotIn('id="pairingClockPopover"', tp_html)
+        self.assertNotIn('id="chkPredictionScoring"', tp_html)
+        self.assertNotIn('id="chkVsAi"', tp_html)
+        self.assertNotIn('id="btnAutoFinish"', tp_html)
 
         # 3. Verify Tracker Lobby API create / check / join / spectate / sessions / finish / discard (< 1000ms each)
         def _mock_req(user_dict=None, guest_id="guest_cap_1"):
