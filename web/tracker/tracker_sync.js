@@ -2185,11 +2185,11 @@
     const descEl = document.getElementById('gt-lobby-host-desc');
     if (mainBtn) {
       if (normalizedMode === 'pairings') {
-        mainBtn.textContent = 'CREATE & ENTER TEAM PAIRINGS ➔';
+        mainBtn.textContent = 'CREATE & ENTER WTC PAIRING ➔';
         mainBtn.style.background = 'linear-gradient(135deg, #a855f7, #ec4899)';
         mainBtn.style.color = '#ffffff';
         if (descEl) {
-          descEl.textContent = 'Launch a live WTC Team Pairings room with Duel Arena, Matchup Matrix, AI/Human Captain links, and Spectator view.';
+          descEl.textContent = 'Launch a live WTC Pairing room with Duel Arena, Matchup Matrix, AI/Human Captain links, and Spectator view.';
         }
       } else if (normalizedMode === 'aos') {
         mainBtn.textContent = 'CREATE & ENTER AOS MATCH ➔';
@@ -2229,7 +2229,7 @@
     );
     const sysId = isPairingsMode ? 'pairings' : (isAosMode ? 'aos' : '40k');
     const loadingTitle = isPairingsMode
-      ? '⚔️ Creating Team Pairings Room'
+      ? '⚔️ Creating WTC Pairing Room'
       : (isAosMode ? '⚡ Creating Age of Sigmar Room' : '🎲 Creating Match Room');
     const loadingSubtitle = isPairingsMode
       ? 'Allocating WTC pairing arena room key & initializing rosters...'
@@ -2543,7 +2543,7 @@
                 <div>
                   <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:6px;">
                     <div style="font-size:12px; font-weight:800; color:#f59e0b; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">${hostTitle}</div>
-                    <span style="font-size:9px; font-weight:700; color:#c084fc; background:rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.35); padding:2px 6px; border-radius:999px; font-family:'JetBrains Mono',monospace;">NEW: WTC PAIRINGS</span>
+                    <span style="font-size:9px; font-weight:700; color:#c084fc; background:rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.35); padding:2px 6px; border-radius:999px; font-family:'JetBrains Mono',monospace;">NEW: WTC PAIRING</span>
                   </div>
                   <!-- Game Mode Selector Pills -->
                   <div id="gt-lobby-mode-selector" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
@@ -2551,7 +2551,7 @@
                       ${isAosMode ? '⚡ AoS Tracker' : '🦅 40K Tracker'}
                     </button>
                     <button type="button" id="gt-mode-btn-pairings" data-lobby-mode-pill="pairings" onclick="window.__selectLobbyGameMode('pairings')" style="flex:1; min-width:105px; background:rgba(15,23,42,0.65); border:1px solid rgba(148,163,184,0.25); color:#94a3b8; border-radius:8px; padding:6px 8px; font-size:10px; font-weight:800; font-family:'JetBrains Mono',monospace; cursor:pointer;">
-                      ⚔️ Pairings
+                      ⚔️ WTC Pairing
                     </button>
                   </div>
                   <p id="gt-lobby-host-desc" style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:0 0 10px; line-height:1.4;">${hostDesc}</p>
@@ -2584,7 +2584,7 @@
           <div id="gt-history-section" style="margin:20px 0 40px; width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
               <div style="font-size:14px; font-weight:800; color:var(--text-primary, #f0f4fc); font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">
-                ${isAosMode ? 'AOS MATCH HISTORY' : 'GAME & PAIRINGS HISTORY'} <span id="gt-history-count" style="font-size:12px; color:var(--accent, #38bdf8); font-weight:700; margin-left:4px;"></span>
+                ${isAosMode ? 'AOS MATCH HISTORY' : 'GAME & WTC PAIRING HISTORY'} <span id="gt-history-count" style="font-size:12px; color:var(--accent, #38bdf8); font-weight:700; margin-left:4px;"></span>
               </div>
               <button id="gt-btn-import-games" type="button" onclick="window.openTrackerImportModal && window.openTrackerImportModal()" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.35); color:#38bdf8; font-size:11px; font-weight:800; padding:6px 12px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:5px;">
                 📥 IMPORT GAMES
@@ -2906,7 +2906,7 @@
       outHtml += `
         <div style="margin-bottom:18px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-family:'JetBrains Mono',monospace; flex-wrap:wrap; gap:4px;">
-            <span style="font-size:11px; font-weight:800; color:var(--win, #22c55e); text-transform:uppercase;">🟢 Active Matches & Pairings (${scopedActiveList.length})</span>
+            <span style="font-size:11px; font-weight:800; color:var(--win, #22c55e); text-transform:uppercase;">🟢 Active Matches & WTC Pairings (${scopedActiveList.length})</span>
             <span style="font-size:10px; color:var(--text-secondary, #94a3b8);">⏳ Uncompleted games auto-purge after 14 days</span>
           </div>
           <div style="display:flex; flex-direction:column; gap:10px;">
@@ -2943,9 +2943,9 @@
               const cardBg = isPairingsGame ? 'rgba(168,85,247,0.09)' : 'var(--win-bg, rgba(34,197,94,0.08))';
               const statusColor = isPairingsGame ? '#c084fc' : 'var(--win, #22c55e)';
               const statusText = isPairingsGame
-                ? `⚔️ Active Team Pairings (#${mid})`
+                ? `⚔️ Active WTC Pairing (#${mid})`
                 : `Active Match (Round ${rNum})`;
-              const resumeLabel = isPairingsGame ? '⚔️ Resume Pairings' : '▶️ Resume Match';
+              const resumeLabel = isPairingsGame ? '⚔️ Resume WTC Pairing' : '▶️ Resume Match';
 
               return `
                 <div data-active-match-id="${escapeHtml(mid)}" style="background:${cardBg}; border:1px solid ${cardBorder}; border-radius:14px; padding:14px 18px; box-sizing:border-box;">
@@ -3030,7 +3030,7 @@
           ]
         : [
             { code: 'all', label: 'All Editions', icon: '📚' },
-            { code: 'wtc_pairings', label: 'WTC Pairings', icon: '⚔️' },
+            { code: 'wtc_pairings', label: 'WTC Pairing', icon: '⚔️' },
             { code: '11th', label: '11th Ed', icon: '🚀' },
             { code: '10th', label: '10th Ed', icon: '🦅' },
             { code: '9th', label: '9th Ed', icon: '📜' },
@@ -3086,7 +3086,7 @@
               const factionSubtitle = `<div class="gt-history-factions">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>`;
               const edCode = normalizeTrackerEditionCode(item);
               const isPairingsItem = edCode === 'wtc_pairings' || String(mid).toUpperCase().startsWith('WTC-') || item.game_system === 'pairings';
-              const edShort = edCode === 'wtc_pairings' ? '⚔️ WTC Pairings' : (edCode === '8th_itc' ? '🏛️ 8th ITC' : (edCode === '9th' ? '📜 9th Ed' : (edCode === '11th' ? '🚀 11th Ed' : (edCode === 'aos_3e' ? '⚔️ AoS 3e' : (edCode === 'aos_4e' ? '⚡ AoS 4e' : (edCode === '10th' ? '🦅 10th Ed' : ''))))));
+              const edShort = edCode === 'wtc_pairings' ? '⚔️ WTC Pairing' : (edCode === '8th_itc' ? '🏛️ 8th ITC' : (edCode === '9th' ? '📜 9th Ed' : (edCode === '11th' ? '🚀 11th Ed' : (edCode === 'aos_3e' ? '⚔️ AoS 3e' : (edCode === 'aos_4e' ? '⚡ AoS 4e' : (edCode === '10th' ? '🦅 10th Ed' : ''))))));
               const edStyleMap = {
                 'wtc_pairings': 'background:rgba(168,85,247,0.16); color:#e9d5ff; border:1px solid rgba(168,85,247,0.42);',
                 '11th': 'background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35);',
@@ -3113,7 +3113,7 @@
               const targetViewUrl = isPairingsItem
                 ? `/team-pairings?room=${encodeURIComponent(mid)}&role=spectator`
                 : `/scorecard/${encodeURIComponent(mid)}`;
-              const viewBtnLabel = isPairingsItem ? '⚔️ View Pairings' : '📄 Scorecard';
+              const viewBtnLabel = isPairingsItem ? '⚔️ View WTC Pairing' : '📄 Scorecard';
 
               return `
                 <div class="gt-history-card" data-match-id="${escapeHtml(mid)}" data-edition="${escapeHtml(edCode)}" onclick="window.location.href='${targetViewUrl}'">
