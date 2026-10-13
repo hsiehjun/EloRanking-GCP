@@ -118,13 +118,26 @@ DEV_USERS_LIST = [
         "current_elo": 1500.0
     },
     {
+        "id": "u_john_hsieh",
+        "email": "swimgeek751@gmail.com",
+        "display_name": "John Hsieh",
+        "name": "John Hsieh",
+        "role": "admin",
+        "is_admin": True,
+        "can_switch_role": True,
+        "created_at": "2026-01-01T00:00:00Z",
+        "bcp_user_id": "MEV83VFANA",
+        "bcp_linked_at": "2026-01-01T00:00:00Z",
+        "matches_played": 48,
+        "current_elo": 1894.9
+    },
+    {
         "id": "u_head_admin",
         "email": "admin@omnitactica.com",
         "display_name": "Head Admin",
         "name": "Head Admin",
         "role": "admin",
         "is_admin": True,
-        "is_superadmin": True,
         "created_at": "2026-01-01T00:00:00Z",
         "bcp_user_id": "bcp_admin_01",
         "bcp_linked_at": "2026-01-01T00:00:00Z",
@@ -132,6 +145,8 @@ DEV_USERS_LIST = [
         "current_elo": 2250.0
     }
 ]
+
+_DEV_EXPLICIT_ROLE_OVERRIDE = None
 
 ROOMS_DB = {
     "WH40K-DEV1": {
@@ -1619,14 +1634,31 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
         if clean_path.startswith("api/admin/users/") and clean_path.endswith("/role"):
+            global _DEV_EXPLICIT_ROLE_OVERRIDE
             parts = clean_path.split("/")
-            u_id = parts[3]
+            u_id = urllib.parse.unquote(parts[3])
             body_data = json.loads(body.decode("utf-8")) if body else {}
-            new_role = body_data.get("role", "player")
+            new_role = str(body_data.get("role", "player")).strip().lower()
+            if new_role in ("creator", "cc", "content_creator"):
+                new_role = "creator"
+            elif new_role in ("to", "organizer"):
+                new_role = "to"
             for u in DEV_USERS_LIST:
-                if u.get("id") == u_id:
+                if u.get("id") == u_id or str(u.get("email") or "").lower() == u_id.lower():
                     u["role"] = new_role
                     u["is_admin"] = (new_role == "admin")
+            if u_id in ("u_john_hsieh", "swimgeek751@gmail.com", "hsiehjun@google.com", "p_innes", "u_head_admin"):
+                _DEV_EXPLICIT_ROLE_OVERRIDE = new_role
+                if isinstance(DEV_USER, dict):
+                    DEV_USER["role"] = new_role
+                    DEV_USER["is_admin"] = (new_role == "admin")
+                    if isinstance(DEV_USER.get("user"), dict):
+                        DEV_USER["user"]["role"] = new_role
+                        DEV_USER["user"]["is_admin"] = (new_role == "admin")
+                        DEV_USER["user"]["can_access_to"] = (new_role in ("admin", "to", "organizer", "referee"))
+                        DEV_USER["user"]["can_access_cc"] = (new_role in ("admin", "creator", "cc", "content_creator"))
+                        DEV_USER["user"]["is_cc"] = (new_role in ("admin", "creator", "cc", "content_creator"))
+                        DEV_USER["user"]["can_switch_role"] = True
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -3170,15 +3202,31 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 return
             persona_hdr = self.headers.get("X-Dev-Persona", "")
             persona = "competitor"
+            explicit_persona = False
             if "dev_persona=spectator" in cookie_hdr or persona_hdr == "spectator" or "persona=spectator" in query_str:
                 persona = "spectator"
+                explicit_persona = True
             elif "dev_persona=creator" in cookie_hdr or persona_hdr == "creator" or "persona=creator" in query_str:
                 persona = "creator"
+                explicit_persona = True
             elif "dev_persona=to" in cookie_hdr or persona_hdr == "to" or "persona=to" in query_str:
                 persona = "to"
+                explicit_persona = True
             elif "dev_persona=competitor" in cookie_hdr or persona_hdr == "competitor" or "persona=competitor" in query_str:
                 persona = "competitor"
+                explicit_persona = True
             resp_user = get_persona_user(persona)
+            if not explicit_persona and _DEV_EXPLICIT_ROLE_OVERRIDE:
+                r_ov = _DEV_EXPLICIT_ROLE_OVERRIDE
+                resp_user["role"] = r_ov
+                resp_user["is_admin"] = (r_ov == "admin")
+                if isinstance(resp_user.get("user"), dict):
+                    resp_user["user"]["role"] = r_ov
+                    resp_user["user"]["is_admin"] = (r_ov == "admin")
+                    resp_user["user"]["can_access_to"] = (r_ov in ("admin", "to", "organizer", "referee"))
+                    resp_user["user"]["can_access_cc"] = (r_ov in ("admin", "creator", "cc", "content_creator"))
+                    resp_user["user"]["is_cc"] = (r_ov in ("admin", "creator", "cc", "content_creator"))
+                    resp_user["user"]["can_switch_role"] = True
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()

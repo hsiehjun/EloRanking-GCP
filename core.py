@@ -411,9 +411,7 @@ def _get_admin_session_or_403(request: Request, token: Optional[str] = None) -> 
 def _get_to_session_or_403(request: Request, token: Optional[str] = None) -> Dict[str, Any]:
     session = _get_user_session_or_401(request, token)
     user_role = (session.get("role") or "player").strip().lower()
-    user_email = (session.get("email") or "").strip().lower()
-    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
-    is_to = session.get("can_access_to") is True or user_role in ("admin", "superuser", "developer", "owner", "to", "organizer", "referee") or (bool(superadmin_email) and user_email == superadmin_email)
+    is_to = session.get("can_access_to") is True or session.get("is_admin") is True or user_role in ("admin", "superuser", "developer", "owner", "to", "organizer", "referee")
     if not is_to:
         raise HTTPException(status_code=403, detail="Tournament Organizer privileges required")
     return session

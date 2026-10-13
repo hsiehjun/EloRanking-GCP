@@ -1244,12 +1244,42 @@ function openUserSettingsModal() {
     if (nameInput) nameInput.value = currentUser.display_name || '';
     if (emailVal) emailVal.innerText = currentUser.email || '-';
     if (roleVal) {
-      const isTO = isUserTO(currentUser);
-      const roleStr = ((currentUser && currentUser.role) ? currentUser.role : 'player').toUpperCase();
-      if (isTO) {
-        roleVal.innerHTML = `<span style="color:#10b981; font-weight:700;">🎖️ ${escapeHtml(roleStr)}</span>`;
+      const userEmail = String(currentUser.email || '').trim().toLowerCase();
+      const userNameClean = String(currentUser.display_name || currentUser.name || '').trim().toLowerCase();
+      const canSwitchOwnRole = Boolean(
+        currentUser.can_switch_role ||
+        currentUser.is_admin ||
+        userEmail === 'swimgeek751@gmail.com' ||
+        userEmail === 'hsiehjun@google.com' ||
+        userNameClean === 'john hsieh'
+      );
+      const normRole = (() => {
+        const r = String(currentUser.role || 'player').trim().toLowerCase();
+        if (r === 'cc' || r === 'content_creator' || r === 'creator') return 'creator';
+        if (r === 'organizer' || r === 'to' || r === 'referee') return 'to';
+        if (r === 'admin') return 'admin';
+        return 'player';
+      })();
+      if (canSwitchOwnRole) {
+        roleVal.innerHTML = `
+          <div style="display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
+            <select id="settings-self-role-select" onchange="handleSelfRoleSwitch(this.value)" style="background:rgba(15,23,42,0.92); color:${normRole === 'to' ? '#f59e0b' : (normRole === 'admin' ? '#c084fc' : (normRole === 'creator' ? '#38bdf8' : '#e2e8f0'))}; border:1px solid rgba(56,189,248,0.35); border-radius:6px; padding:3px 8px; font-size:0.78rem; font-weight:700; cursor:pointer;">
+              <option value="player" ${normRole === 'player' ? 'selected' : ''}>👤 Player</option>
+              <option value="creator" ${normRole === 'creator' ? 'selected' : ''}>🎙️ Creator (CC)</option>
+              <option value="to" ${normRole === 'to' ? 'selected' : ''}>🛠️ TO (Organizer)</option>
+              <option value="admin" ${normRole === 'admin' ? 'selected' : ''}>🛡️ Admin</option>
+            </select>
+            <a href="/admin" style="background:rgba(168,85,247,0.14); border:1px solid rgba(168,85,247,0.35); color:#c084fc; font-size:11px; font-weight:700; padding:2px 7px; border-radius:4px; text-decoration:none;">🛡️ Admin Panel</a>
+          </div>
+        `;
       } else {
-        roleVal.innerHTML = `<span style="color:#94a3b8;">${escapeHtml(roleStr)}</span> <button onclick="closeUserSettingsModal(); if(typeof openRequestToModal === 'function') openRequestToModal();" style="background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); color:#f59e0b; font-size:11px; font-weight:600; cursor:pointer; padding:1px 7px; border-radius:4px; margin-left:6px; transition:all 0.15s;">Request TO Access</button>`;
+        const isTO = isUserTO(currentUser);
+        const roleStr = ((currentUser && currentUser.role) ? currentUser.role : 'player').toUpperCase();
+        if (isTO) {
+          roleVal.innerHTML = `<span style="color:#10b981; font-weight:700;">🎖️ ${escapeHtml(roleStr)}</span>`;
+        } else {
+          roleVal.innerHTML = `<span style="color:#94a3b8;">${escapeHtml(roleStr)}</span> <button onclick="closeUserSettingsModal(); if(typeof openRequestToModal === 'function') openRequestToModal();" style="background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); color:#f59e0b; font-size:11px; font-weight:600; cursor:pointer; padding:1px 7px; border-radius:4px; margin-left:6px; transition:all 0.15s;">Request TO Access</button>`;
+        }
       }
     }
     if (bcpVal) {
@@ -1290,6 +1320,62 @@ function closeUserSettingsModal() {
     if (modal) modal.classList.remove('active');
   }
 }
+
+async function handleSelfRoleSwitch(newRole) {
+  if (!currentUser) return;
+  const errDiv = document.getElementById('settings-error');
+  const successDiv = document.getElementById('settings-success');
+  const sel = document.getElementById('settings-self-role-select');
+  if (errDiv) errDiv.style.display = 'none';
+  if (successDiv) successDiv.style.display = 'none';
+  if (sel) sel.disabled = true;
+
+  const cleanRole = String(newRole || 'player').trim().toLowerCase();
+  try {
+    if (window.api && typeof window.api.setAdminUserRole === 'function' && currentUser.id) {
+      await window.api.setAdminUserRole(currentUser.id, cleanRole);
+    }
+    currentUser.role = cleanRole;
+    currentUser.is_admin = (cleanRole === 'admin');
+    currentUser.can_access_to = (cleanRole === 'admin' || cleanRole === 'to' || cleanRole === 'organizer' || cleanRole === 'referee');
+    currentUser.can_access_cc = (cleanRole === 'admin' || cleanRole === 'creator' || cleanRole === 'cc' || cleanRole === 'content_creator');
+    currentUser.is_cc = currentUser.can_access_cc;
+    currentUser.can_switch_role = true;
+    window.currentUser = currentUser;
+    localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
+
+    renderHeaderAuth();
+    syncAppAuthView();
+    openUserSettingsModal();
+
+    if (typeof currentEventData !== 'undefined' && currentEventData) {
+      if (typeof renderPlayerStation === 'function') {
+        renderPlayerStation(currentEventData, typeof currentEventRegistration !== 'undefined' ? currentEventRegistration : null);
+      }
+      if (typeof renderEventPairingsRows === 'function') {
+        renderEventPairingsRows();
+      }
+    }
+    if (typeof leagueState !== 'undefined' && leagueState && leagueState.activeLeagueData && typeof renderLeagueDetail === 'function') {
+      renderLeagueDetail(leagueState.activeLeagueData);
+    }
+
+    if (successDiv) {
+      const roleLabels = { player: 'Player', creator: 'Creator (CC)', to: 'Tournament Organizer (TO)', admin: 'Admin' };
+      successDiv.innerText = `✓ Active role switched to ${roleLabels[cleanRole] || cleanRole.toUpperCase()}! You are now viewing OmniTactica with ${roleLabels[cleanRole] || cleanRole} permissions.`;
+      successDiv.style.display = 'block';
+    }
+  } catch (err) {
+    if (errDiv) {
+      errDiv.innerText = 'Failed to switch role: ' + (err.message || 'Unknown error');
+      errDiv.style.display = 'block';
+    }
+  } finally {
+    const freshSel = document.getElementById('settings-self-role-select');
+    if (freshSel) freshSel.disabled = false;
+  }
+}
+window.handleSelfRoleSwitch = handleSelfRoleSwitch;
 
 async function handleSaveDisplayName(e) {
   if (e) e.preventDefault();

@@ -254,7 +254,6 @@ class AuthManager:
                         CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
                         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_user_id ON users(bcp_user_id) WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '';
                         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_email ON users(LOWER(bcp_email)) WHERE bcp_email IS NOT NULL AND bcp_email != '';
-                        UPDATE users SET role = 'admin' WHERE LOWER(email) = 'swimgeek751@gmail.com';
                         UPDATE users SET player_id = NULL WHERE (bcp_user_id IS NULL OR bcp_user_id = '') AND player_id IS NOT NULL;
                         """,
                         # Table: user_sessions
@@ -1455,8 +1454,20 @@ class AuthManager:
                             data["session_token"] = session_token
                             user_email = (data.get("email") or "").strip().lower()
                             superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
-                            data["role"] = "admin" if (user_email == superadmin_email or str(row.get("role") or "").lower() == "admin") else (str(row.get("role") or "player").lower())
+                            raw_role = str(row.get("role") or "player").strip().lower()
+                            if raw_role in ("creator", "cc", "content_creator"):
+                                raw_role = "creator"
+                            elif raw_role in ("to", "organizer"):
+                                raw_role = "to"
+                            elif raw_role not in ("player", "creator", "to", "admin", "referee"):
+                                raw_role = "player"
+                            data["role"] = raw_role
                             data["is_admin"] = bool(data["role"] == "admin")
+                            data["can_switch_role"] = bool(
+                                data["is_admin"]
+                                or (bool(superadmin_email) and user_email == superadmin_email)
+                                or user_email == "hsiehjun@google.com"
+                            )
                             data["can_access_to"] = bool(data["role"] in ("admin", "to", "organizer", "referee"))
                             data["can_access_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
                             data["is_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
@@ -1581,8 +1592,20 @@ class AuthManager:
             data = dict(row)
             user_email = (data.get("email") or "").strip().lower()
             superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
-            data["role"] = "admin" if (user_email == superadmin_email or str(row.get("role") or "").lower() == "admin") else (str(row.get("role") or "player").lower())
+            raw_role = str(row.get("role") or "player").strip().lower()
+            if raw_role in ("creator", "cc", "content_creator"):
+                raw_role = "creator"
+            elif raw_role in ("to", "organizer"):
+                raw_role = "to"
+            elif raw_role not in ("player", "creator", "to", "admin", "referee"):
+                raw_role = "player"
+            data["role"] = raw_role
             data["is_admin"] = bool(data["role"] == "admin")
+            data["can_switch_role"] = bool(
+                data["is_admin"]
+                or (bool(superadmin_email) and user_email == superadmin_email)
+                or user_email == "hsiehjun@google.com"
+            )
             data["can_access_to"] = bool(data["role"] in ("admin", "to", "organizer", "referee"))
             data["can_access_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
             data["is_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
@@ -2120,7 +2143,6 @@ class AuthManager:
 
     def get_admin_users(self) -> List[Dict[str, Any]]:
         from psycopg2 import extras
-        admin_email = 'swimgeek751@gmail.com'
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute("""
@@ -2144,11 +2166,12 @@ class AuthManager:
                 rows = cur.fetchall()
                 for r in rows:
                     if r.get("created_at"): r["created_at"] = r["created_at"].isoformat()
-                    user_email = (r.get("email") or "").strip().lower()
-                    if user_email == admin_email:
-                        r["role"] = "admin"
-                    else:
-                        r["role"] = str(r.get("role") or "player").lower()
+                    raw_role = str(r.get("role") or "player").strip().lower()
+                    if raw_role in ("creator", "cc", "content_creator"):
+                        raw_role = "creator"
+                    elif raw_role in ("to", "organizer"):
+                        raw_role = "to"
+                    r["role"] = raw_role
                 return rows
 
     # =========================================================================

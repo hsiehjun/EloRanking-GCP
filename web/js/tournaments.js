@@ -12738,7 +12738,20 @@ function getUserEventOrganizerRole(ev, userOverride = null) {
   const u = userOverride || (typeof currentUser !== 'undefined' ? currentUser : null);
   if (!u) return null;
 
-  const isAdmin = Boolean(u.role === 'admin' || u.is_admin);
+  const userRole = String(u.role || '').trim().toLowerCase();
+  const isAdmin = Boolean(userRole === 'admin' || u.is_admin);
+  const hasToRole = Boolean(
+    isAdmin ||
+    userRole === 'to' ||
+    userRole === 'organizer' ||
+    userRole === 'referee' ||
+    u.can_access_to
+  );
+  // If user has an explicit non-TO role set (e.g. 'player' or 'creator'), respect their chosen role view!
+  if (userRole && !hasToRole) {
+    return null;
+  }
+
   const raw = (ev.raw_json && typeof ev.raw_json === 'object') ? ev.raw_json : ev;
   const userBcpId = String(u.bcp_user_id || u.player_id || '').trim();
   const userEmail = String(u.email || '').trim().toLowerCase();
@@ -12780,6 +12793,7 @@ function getUserEventOrganizerRole(ev, userOverride = null) {
   }
 
   if (isAdmin) return 'Platform Admin / TO Override';
+  if (hasToRole) return 'Tournament Organizer';
   return null;
 }
 

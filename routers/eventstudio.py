@@ -189,9 +189,7 @@ def _get_to_session_or_403(request: Request, token: Optional[str] = None) -> Dic
     if not session:
         raise HTTPException(status_code=401, detail="Invalid or expired session.")
     user_role = (session.get("role") or "player").strip().lower()
-    user_email = (session.get("email") or "").strip().lower()
-    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
-    is_admin = session.get("is_admin") is True or (user_role in ("admin", "superuser", "developer", "owner")) or (bool(superadmin_email) and user_email == superadmin_email)
+    is_admin = session.get("is_admin") is True or (user_role in ("admin", "superuser", "developer", "owner"))
     is_to = session.get("can_access_to") is True or user_role in ("to", "organizer", "referee") or is_admin
     if not (is_admin or is_to):
         raise HTTPException(
@@ -212,9 +210,7 @@ def _get_creator_or_to_session_or_403(request: Request, token: Optional[str] = N
     if not session:
         return {"id": "dev_creator", "username": "creator", "role": "creator", "is_admin": True, "can_access_cc": True}
     user_role = (session.get("role") or "player").strip().lower()
-    user_email = (session.get("email") or "").strip().lower()
-    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
-    is_admin = session.get("is_admin") is True or (user_role in ("admin", "superuser", "developer", "owner")) or (bool(superadmin_email) and user_email == superadmin_email)
+    is_admin = session.get("is_admin") is True or (user_role in ("admin", "superuser", "developer", "owner"))
     is_to = session.get("can_access_to") is True or user_role in ("to", "organizer", "referee") or is_admin
     is_cc = session.get("can_access_cc") is True or session.get("is_cc") is True or user_role in ("creator", "cc", "content_creator") or is_admin
     if not (is_admin or is_to or is_cc):

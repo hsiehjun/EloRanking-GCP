@@ -83,15 +83,57 @@ class TestCreatorHubAndLivestreams(unittest.TestCase):
             mock_get_auth.return_value = mock_auth_instance
 
             payload = AdminSetUserRolePayload(role="creator")
-            res = asyncio.run(api_admin_set_user_role("u_test", payload, mock_request))
+            res = api_admin_set_user_role("u_test", payload, mock_request)
             self.assertTrue(res.get("success"))
             self.assertEqual(res.get("role"), "creator")
             mock_auth_instance.set_user_role.assert_called_with("u_test", "creator")
 
             # Alias cc normalizes to creator
             payload_alias = AdminSetUserRolePayload(role="cc")
-            res_alias = asyncio.run(api_admin_set_user_role("u_test", payload_alias, mock_request))
+            res_alias = api_admin_set_user_role("u_test", payload_alias, mock_request)
             self.assertEqual(res_alias.get("role"), "creator")
+
+    def test_john_hsieh_can_switch_to_non_admin_roles(self):
+        """Verify John Hsieh (swimgeek751@gmail.com) is not forced to admin when role is set to player, creator, or to."""
+        mock_db = MagicMock()
+        auth_mgr = AuthManager(db=mock_db)
+        cursor_mock = MagicMock()
+        cursor_mock.__enter__.return_value = cursor_mock
+        mock_db.get_connection.return_value.__enter__.return_value.cursor.return_value = cursor_mock
+
+        for target_role, exp_admin, exp_to, exp_cc in [
+            ("player", False, False, False),
+            ("creator", False, False, True),
+            ("to", False, True, False),
+            ("admin", True, True, True),
+        ]:
+            auth_mgr._invalidate_session_user_cache()
+            row_john = {
+                "id": "u_john_hsieh",
+                "email": "swimgeek751@gmail.com",
+                "display_name": "John Hsieh",
+                "role": target_role,
+                "player_id": "MEV83VFANA",
+            }
+            cursor_mock.fetchone.return_value = row_john
+            user = auth_mgr.get_user_by_id("u_john_hsieh")
+            self.assertEqual(user["role"], target_role)
+            self.assertEqual(user["is_admin"], exp_admin)
+            self.assertEqual(user["can_access_to"], exp_to)
+            self.assertEqual(user["can_access_cc"], exp_cc)
+            self.assertTrue(user["can_switch_role"])
+
+            auth_mgr._invalidate_session_user_cache()
+            sess = auth_mgr.get_session(f"tok_{target_role}")
+            self.assertEqual(sess["role"], target_role)
+            self.assertEqual(sess["is_admin"], exp_admin)
+            self.assertEqual(sess["can_access_to"], exp_to)
+            self.assertEqual(sess["can_access_cc"], exp_cc)
+            self.assertTrue(sess["can_switch_role"])
+
+            cursor_mock.fetchall.return_value = [dict(row_john, created_at=None)]
+            admin_users = auth_mgr.get_admin_users()
+            self.assertEqual(admin_users[0]["role"], target_role)
 
     def test_parse_stream_embed_youtube_and_twitch(self):
         """Verify embed URL generation for YouTube watch, youtu.be, and Twitch channels."""
@@ -191,12 +233,12 @@ class TestCreatorHubAndLivestreams(unittest.TestCase):
             mock_fs.get_event_livestreams.return_value = [{"id": "s_new"}]
 
             with patch("routers.eventstudio._get_creator_or_to_session_or_403", return_value=creator_sess):
-                res = asyncio.run(api_save_event_livestream("ev_test", payload, mock_req))
+                res = api_save_event_livestream("ev_test", payload, mock_req)
                 self.assertTrue(res.get("success"))
 
             with patch("routers.eventstudio._get_creator_or_to_session_or_403", side_effect=HTTPException(status_code=403, detail="Forbidden")):
                 with self.assertRaises(HTTPException) as ctx:
-                    asyncio.run(api_save_event_livestream("ev_test", payload, mock_req))
+                    api_save_event_livestream("ev_test", payload, mock_req)
                 self.assertEqual(ctx.exception.status_code, 403)
 
 
