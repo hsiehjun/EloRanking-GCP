@@ -8402,4 +8402,431 @@ html, body {
   }
 }
 
+/* ==========================================================================
+   MOBILE VIEW OVERHAUL (<= 900px)
+   Fixes:
+   1. Top HUD Bar (#gt-sync-hud): Hide desktop-only right actions on mobile
+      (already in bottom dock) & let #hudMatchupDisplay flex cleanly.
+   2. Lobby Modal (#lobbyModalBackdrop / .lobby-modal-card):
+      - Pad 44px top / 62px bottom so neither #gt-sync-hud nor #gt-mobile-bottom-dock
+        covers the modal header or footer ("✓ 5 / 5 Ready" & "⚔️ ENTER DUEL ARENA").
+      - Remove nested .lobby-section scrollbars (overflow-y: visible, flex-shrink: 0).
+      - Compact 3-column Setup Mode grid, 3-column Seat grid, and single-row footer.
+      - Shrink red ✕ remove button & hide duplicate .yc-attr badge in Lobby Hand Tray
+        so all 5 card titles and detachments are crisp and unobstructed.
+   3. Duel Arena Playmat: Fit .ygo-card.field-size cleanly inside .main-zones-group.
+   ========================================================================== */
+@media (max-width: 900px) {
+  /* 1. Top HUD Bar (#gt-sync-hud) */
+  #gt-sync-hud {
+    padding: 0 8px !important;
+    gap: 6px !important;
+  }
+
+  #gt-sync-hud .gt-desktop-actions {
+    display: none !important;
+  }
+
+  #gt-sync-hud #hudMatchupDisplay {
+    flex: 1 1 0% !important;
+    min-width: 0 !important;
+    justify-content: flex-end !important;
+    font-size: 10px !important;
+  }
+
+  #gt-sync-hud .gt-hud-nav-pill {
+    padding: 3px 7px !important;
+    font-size: 10px !important;
+  }
+
+  #gt-sync-hud .gt-hud-room-badge {
+    padding: 3px 7px !important;
+    font-size: 10px !important;
+  }
+
+  /* 2. Lobby Modal Backdrop & Card */
+  #lobbyModalBackdrop {
+    padding: 44px 6px 62px !important;
+    align-items: stretch !important;
+    justify-content: center !important;
+  }
+
+  #lobbyModalBackdrop .lobby-modal-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100dvh - 106px) !important;
+    height: auto !important;
+    margin: auto 0 !important;
+    border-radius: 14px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Eliminate nested vertical scrollbars on each .lobby-section */
+  #lobbyModalBackdrop .lobby-section {
+    overflow: visible !important;
+    overflow-y: visible !important;
+    flex-shrink: 0 !important;
+    padding: 7px 10px !important;
+    gap: 5px !important;
+  }
+
+  /* Compact Sticky Header */
+  #lobbyModalBackdrop .lobby-modal-header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 25 !important;
+    padding: 8px 10px !important;
+    gap: 6px !important;
+    flex-wrap: nowrap !important;
+    background: rgba(9, 13, 24, 0.98) !important;
+  }
+
+  #lobbyModalBackdrop .lobby-modal-header h2 {
+    font-size: 0.84rem !important;
+    white-space: nowrap !important;
+  }
+
+  #lobbyModalBackdrop .lobby-header-actions {
+    gap: 5px !important;
+    flex-shrink: 0 !important;
+  }
+
+  #lobbyModalBackdrop .room-lock-pill,
+  #lobbyModalBackdrop .top-share-pill {
+    padding: 4px 8px !important;
+    font-size: 0.66rem !important;
+    min-height: 26px !important;
+  }
+
+  #lobbyModalBackdrop .lobby-close-btn {
+    width: 26px !important;
+    height: 26px !important;
+    min-width: 26px !important;
+    min-height: 26px !important;
+    font-size: 0.78rem !important;
+  }
+
+  /* Section Step Titles */
+  #lobbyModalBackdrop .lobby-step-title {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+    font-size: 0.66rem !important;
+    margin-bottom: 1px !important;
+  }
+
+  #lobbyModalBackdrop .lobby-step-title > span:first-child {
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+  }
+
+  #lobbyModalBackdrop .gt-room-lock-status {
+    font-size: 0.6rem !important;
+    padding: 2px 6px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 62% !important;
+  }
+
+  /* Step 1: 3-Column Compact Setup Mode Grid on Mobile */
+  #lobbyModalBackdrop .lobby-setup-modes-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+  }
+
+  #lobbyModalBackdrop .lobby-setup-mode-card {
+    padding: 6px 6px !important;
+    gap: 3px !important;
+    border-radius: 9px !important;
+    align-items: flex-start !important;
+  }
+
+  #lobbyModalBackdrop .lsm-top {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 3px !important;
+  }
+
+  #lobbyModalBackdrop .lsm-icon {
+    font-size: 0.85rem !important;
+  }
+
+  #lobbyModalBackdrop .lsm-pill {
+    font-size: 0.48rem !important;
+    padding: 1px 4px !important;
+    letter-spacing: 0.03em !important;
+    white-space: nowrap !important;
+  }
+
+  #lobbyModalBackdrop .lsm-title {
+    font-size: 0.68rem !important;
+    line-height: 1.15 !important;
+    font-weight: 800 !important;
+  }
+
+  #lobbyModalBackdrop .lsm-desc {
+    font-size: 0.56rem !important;
+    line-height: 1.2 !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+  }
+
+  /* Step 2: 3-Column Compact Seat Selection Grid on Mobile */
+  #lobbyModalBackdrop .lobby-seats-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+  }
+
+  #lobbyModalBackdrop .lobby-seat-card {
+    padding: 6px 6px !important;
+    gap: 3px !important;
+    border-radius: 9px !important;
+  }
+
+  #lobbyModalBackdrop .lobby-seat-card .seat-card-top {
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 3px !important;
+  }
+
+  #lobbyModalBackdrop .seat-icon {
+    font-size: 0.82rem !important;
+  }
+
+  #lobbyModalBackdrop .seat-lock-pill {
+    font-size: 0.48rem !important;
+    padding: 1px 4px !important;
+  }
+
+  #lobbyModalBackdrop .seat-title {
+    font-size: 0.7rem !important;
+    line-height: 1.15 !important;
+  }
+
+  #lobbyModalBackdrop .seat-owner-line {
+    font-size: 0.58rem !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  #lobbyModalBackdrop .seat-card-actions {
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-wrap: nowrap !important;
+    gap: 3px !important;
+    margin-top: 2px !important;
+  }
+
+  #lobbyModalBackdrop .seat-badge {
+    font-size: 0.47rem !important;
+    padding: 2px 4px !important;
+    white-space: nowrap !important;
+  }
+
+  #lobbyModalBackdrop .seat-unlock-btn {
+    font-size: 0.47rem !important;
+    padding: 2px 4px !important;
+    min-height: 18px !important;
+    white-space: nowrap !important;
+  }
+
+  /* Step 3: Team Hand Header & Mode Strip */
+  #lobbyModalBackdrop .lobby-builder-top {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+  }
+
+  #lobbyModalBackdrop .lobby-team-meta {
+    display: flex !important;
+    align-items: center !important;
+    gap: 5px !important;
+    flex: 1 1 auto !important;
+    justify-content: flex-end !important;
+    min-width: 0 !important;
+  }
+
+  #lobbyModalBackdrop #lobbyTeamNameInput {
+    width: 118px !important;
+    max-width: 44vw !important;
+    height: 26px !important;
+    min-height: 26px !important;
+    padding: 2px 7px !important;
+    font-size: 0.68rem !important;
+  }
+
+  #lobbyModalBackdrop #btnClearTeamHand {
+    padding: 3px 7px !important;
+    min-height: 26px !important;
+    font-size: 0.64rem !important;
+    white-space: nowrap !important;
+  }
+
+  #lobbyModalBackdrop .tcg-mode-switcher-strip {
+    padding: 6px 8px !important;
+    gap: 5px !important;
+    border-radius: 9px !important;
+  }
+
+  #lobbyModalBackdrop .tms-left {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+    width: 100% !important;
+  }
+
+  #lobbyModalBackdrop .tms-mode-badge {
+    font-size: 0.62rem !important;
+    padding: 2px 6px !important;
+    white-space: nowrap !important;
+  }
+
+  #lobbyModalBackdrop .tms-elo-match-pill {
+    font-size: 0.62rem !important;
+    padding: 2px 7px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  #lobbyModalBackdrop .tms-actions {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 5px !important;
+    width: 100% !important;
+  }
+
+  #lobbyModalBackdrop .tms-actions .tms-btn {
+    padding: 5px 4px !important;
+    min-height: 28px !important;
+    font-size: 0.63rem !important;
+    justify-content: center !important;
+    white-space: nowrap !important;
+  }
+
+  /* 5-Card Hand Slot Tray in Lobby */
+  #lobbyModalBackdrop .lobby-hand-tray {
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: 5px !important;
+    padding: 6px 2px 2px !important;
+    min-height: 0 !important;
+  }
+
+  #lobbyModalBackdrop .lobby-hand-slot {
+    min-height: 102px !important;
+    padding: 2px !important;
+  }
+
+  #lobbyModalBackdrop .lobby-hand-tray .ygo-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100px !important;
+  }
+
+  /* Hide duplicate faction abbr pill inside narrow 68px lobby cards so card title has full width */
+  #lobbyModalBackdrop .lobby-hand-tray .ygo-card .yc-attr {
+    display: none !important;
+  }
+
+  #lobbyModalBackdrop .lobby-hand-tray .ygo-card .yc-name {
+    font-size: 0.5rem !important;
+    max-width: 100% !important;
+  }
+
+  /* Compact corner remove button so it never covers the card name */
+  #lobbyModalBackdrop .lobby-remove-card-btn {
+    top: -5px !important;
+    right: -4px !important;
+    width: 16px !important;
+    height: 16px !important;
+    min-width: 16px !important;
+    min-height: 16px !important;
+    font-size: 0.52rem !important;
+    border-width: 1px !important;
+  }
+
+  /* Compact Sticky Single-Row Lobby Footer ("✓ 5 / 5 Ready" + "⚔️ ENTER DUEL ARENA") */
+  #lobbyModalBackdrop .lobby-modal-footer {
+    position: sticky !important;
+    bottom: 0 !important;
+    z-index: 25 !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    padding: 8px 10px !important;
+    background: rgba(9, 13, 24, 0.98) !important;
+  }
+
+  #lobbyModalBackdrop .lobby-footer-left {
+    width: auto !important;
+    flex: 0 0 auto !important;
+    text-align: left !important;
+    font-size: 0.72rem !important;
+  }
+
+  #lobbyModalBackdrop .lobby-footer-actions {
+    width: auto !important;
+    flex: 1 1 auto !important;
+    display: flex !important;
+    justify-content: flex-end !important;
+  }
+
+  #lobbyModalBackdrop #btnStartDuelFromLobby {
+    width: 100% !important;
+    max-width: 240px !important;
+    min-height: 36px !important;
+    padding: 7px 12px !important;
+    font-size: 0.76rem !important;
+  }
+
+  /* 3. Duel Arena Playmat Slots & Selected Card Badge */
+  .main-zones-group {
+    height: 108px !important;
+  }
+
+  .field-slot {
+    padding: 14px 4px 4px !important;
+  }
+
+  .ygo-card.field-size.selected {
+    transform: none !important;
+  }
+
+  .ygo-card.field-size.selected::before {
+    display: none !important;
+  }
+
+  .my-hand-fan .ygo-card.selected::before {
+    top: -14px !important;
+    font-size: 0.44rem !important;
+    padding: 1px 5px !important;
+  }
+}
+
+
 
