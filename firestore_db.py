@@ -2501,6 +2501,12 @@ class FirestoreRoomEngine:
                 "fac_a": fac_a,
                 "fac_b": fac_b,
                 "fac_h2h_games": f_games,
+                "fac_h2h_wr_a": round(((f1_wins + 0.5 * f_draws) / f_games) * 100.0, 1) if f_games > 0 else 50.0,
+                "fac_h2h_wr_b": round(((f2_wins + 0.5 * f_draws) / f_games) * 100.0, 1) if f_games > 0 else 50.0,
+                "fac_meta_wr_a": round((wr1 if wr1 is not None else 0.50) * 100.0, 1),
+                "fac_meta_wr_b": round((wr2 if wr2 is not None else 0.50) * 100.0, 1),
+                "fac_meta_games_a": g1,
+                "fac_meta_games_b": g2,
                 "own_games_a": own_g_a,
                 "own_games_b": own_g_b,
                 "vs_games_a": vs_g_a,
@@ -2625,39 +2631,49 @@ class FirestoreRoomEngine:
         }
 
     def _save_pairing_room_doc(self, room_code: str, room_data: Dict[str, Any]) -> None:
-        import threading
         code = str(room_code).strip().upper()
+        room_data["revision"] = int(room_data.get("revision") or 0) + 1
         room_data["updatedAt"] = int(datetime.now(timezone.utc).timestamp() * 1000)
         self._fallback_pairing_rooms[code] = room_data
         if self._client:
-            def _bg_sync():
-                try:
-                    self._client.collection("pairing_rooms").document(code).set(room_data)
-                except Exception as err:
-                    logger.warning(f"Notice syncing pairing_room {code} to Firestore: {err}")
-            threading.Thread(target=_bg_sync, daemon=True).start()
+            try:
+                self._client.collection("pairing_rooms").document(code).set(room_data)
+            except Exception as err:
+                logger.warning(f"Notice syncing pairing_room {code} to Firestore: {err}")
 
     def get_pairing_room_raw(self, room_code: str) -> Optional[Dict[str, Any]]:
         if not room_code:
             return None
         code = str(room_code).strip().upper()
-        if code in self._fallback_pairing_rooms:
-            rm = self._fallback_pairing_rooms[code]
-            if rm.get("is_abandoned") or rm.get("status") == "abandoned":
-                return None
-            return rm
+        if code in getattr(self, "_discarded_pairing_rooms", set()):
+            self._fallback_pairing_rooms.pop(code, None)
+            return None
+
+        cached = self._fallback_pairing_rooms.get(code)
+        if cached and (cached.get("is_abandoned") or cached.get("status") == "abandoned"):
+            self._fallback_pairing_rooms.pop(code, None)
+            cached = None
+
         if self._client:
             try:
-                doc = self._client.collection("pairing_rooms").document(code).get(timeout=0.45)
+                doc = self._client.collection("pairing_rooms").document(code).get(timeout=1.2)
                 if doc.exists:
                     data = doc.to_dict() or {}
                     if data.get("is_abandoned") or data.get("status") == "abandoned":
+                        self._fallback_pairing_rooms.pop(code, None)
                         return None
-                    self._fallback_pairing_rooms[code] = data
-                    return data
+                    if cached:
+                        c_rev = (int(cached.get("revision") or 0), int(cached.get("updatedAt") or 0))
+                        d_rev = (int(data.get("revision") or 0), int(data.get("updatedAt") or 0))
+                        best = data if d_rev >= c_rev else cached
+                    else:
+                        best = data
+                    self._fallback_pairing_rooms[code] = best
+                    return best
             except Exception as err:
                 logger.warning(f"Notice reading pairing_room {code} from Firestore: {err}")
-        return None
+
+        return cached
 
     def discard_pairing_room(self, room_code: str) -> bool:
         """Marks a WTC Team Pairings room as discarded/abandoned and removes it from active rooms."""
@@ -3084,12 +3100,23 @@ class FirestoreRoomEngine:
                     if nk not in sys_cache:
                         sys_cache[nk] = (now_mono, canon_map.get(nk, {}))
 
-        # Apply live ratings onto roster player dicts
+        # Apply live ratings and 3-Month Faction Meta stats onto roster player dicts
         for roster in rosters or []:
             if not isinstance(roster, list):
                 continue
             for p in roster:
-                if not isinstance(p, dict) or p.get("is_starter"):
+                if not isinstance(p, dict):
+                    continue
+                fac_clean = self._clean_primary_faction(p.get("faction") or p.get("top_faction") or "Space Marines")
+                meta_wr, meta_games = self.THREE_MONTH_FACTION_META_STATS.get(fac_clean, (0.50, 250))
+                p["fac_meta_wr_pct"] = round(meta_wr * 100.0, 1)
+                p["fac_meta_games"] = int(meta_games)
+                adj_wr = 0.50 + ((meta_wr - 0.50) * (meta_games / (meta_games + 100.0)))
+                p["fac_meta_elo_shift"] = int(round((adj_wr - 0.50) * 250.0))
+                p["fac_meta_tier"] = (
+                    "S-TIER" if meta_wr >= 0.53 else ("A-TIER" if meta_wr >= 0.51 else ("B-TIER" if meta_wr >= 0.49 else "C-TIER"))
+                )
+                if p.get("is_starter"):
                     continue
                 pname = str(p.get("player_name") or p.get("name") or "").strip()
                 if not pname:
@@ -3730,6 +3757,8 @@ class FirestoreRoomEngine:
         masked = copy.deepcopy(room)
         masked.pop("captain_a_token", None)
         masked.pop("captain_b_token", None)
+        masked["revision"] = int(room.get("revision") or 1)
+        masked["updatedAt"] = int(room.get("updatedAt") or 0)
         masked["room_mode"] = str(room.get("room_mode") or "tournament")
         masked["viewer_role"] = viewer_role
         masked["can_interact_a"] = viewer_role == "captain_a"
@@ -4335,7 +4364,7 @@ class FirestoreRoomEngine:
 
     def _run_alternating_ai_if_needed(self, room: Dict[str, Any]) -> None:
         """When vs_ai is active in Coin-Flip Alternating mode, automatically executes AI Captain B's steps whenever it is Team B's turn to act."""
-        if not room.get("vs_ai") or room.get("defender_role") not in ("captain_a", "captain_b"):
+        if not room.get("vs_ai") or room.get("seat_b_locked") or room.get("defender_role") not in ("captain_a", "captain_b"):
             return
 
         for _ in range(8):
@@ -4398,7 +4427,7 @@ class FirestoreRoomEngine:
 
     def _run_ai_captain_b_decision(self, room: Dict[str, Any]) -> None:
         """Smart AI Captain for Team B: selects and locks Defender, 2 Attackers, or Attacker Choice."""
-        if not room.get("vs_ai") or room.get("locked_b") or room.get("phase") == "COMPLETED":
+        if not room.get("vs_ai") or room.get("seat_b_locked") or room.get("locked_b") or room.get("phase") == "COMPLETED":
             return
 
         phase = room.get("phase")
@@ -4681,7 +4710,9 @@ class FirestoreRoomEngine:
         role_token = str(captain_token if captain_token is not None else (req.get("captain_token") or req.get("role_token") or "")).strip()
         force_role = role or req.get("role") or req.get("force_role")
 
-        if "vs_ai" in req and req["vs_ai"] is not None:
+        if room.get("seat_b_locked"):
+            room["vs_ai"] = False
+        elif "vs_ai" in req and req["vs_ai"] is not None:
             room["vs_ai"] = bool(req["vs_ai"])
         if "prediction_scoring_enabled" in req and req["prediction_scoring_enabled"] is not None:
             room["prediction_scoring_enabled"] = bool(req["prediction_scoring_enabled"])
@@ -4761,11 +4792,6 @@ class FirestoreRoomEngine:
                         "role": "spectator",
                         "room": self.mask_pairing_room_for_viewer(room, force_role="spectator"),
                     }
-                # Release Seat B if this same caller held Seat B
-                if caller_uid and str(room.get("user_id_cap_b") or "") == caller_uid:
-                    room["seat_b_locked"] = False
-                    room["user_id_cap_b"] = None
-                    room["seat_b_owner_name"] = None
                 if cap_name:
                     room["captain_a_name"] = cap_name
                     room["team_a"]["captain_name"] = cap_name
@@ -4820,25 +4846,52 @@ class FirestoreRoomEngine:
                         "role": "spectator",
                         "room": self.mask_pairing_room_for_viewer(room, force_role="spectator"),
                     }
-                # Release Seat A if this same caller held Seat A
-                if caller_uid and str(room.get("user_id_cap_a") or "") == caller_uid:
-                    room["seat_a_locked"] = False
-                    room["user_id_cap_a"] = None
-                    room["seat_a_owner_name"] = None
+                was_ai = (
+                    bool(room.get("vs_ai"))
+                    or "(AI" in str(room.get("team_b", {}).get("name") or "")
+                    or "(AI" in str(room.get("captain_b_name") or "")
+                )
                 room["vs_ai"] = False
                 room["captain_b_claimed"] = True
                 room["seat_b_locked"] = True
                 if caller_uid:
                     room["user_id_cap_b"] = caller_uid
                 if cap_name:
-                    room["captain_b_name"] = cap_name
-                    room["team_b"]["captain_name"] = cap_name
-                    room["seat_b_owner_name"] = cap_name
+                    clean_cap_b = cap_name.replace(" (AI Bot)", "").replace(" (AI)", "").strip() or "Team B Captain"
+                    room["captain_b_name"] = clean_cap_b
+                    room["team_b"]["captain_name"] = clean_cap_b
+                    room["seat_b_owner_name"] = clean_cap_b
                 else:
-                    clean_b = str(room.get("captain_b_name") or "Captain B").replace(" (AI Bot)", "")
+                    clean_b = str(room.get("captain_b_name") or "Team B Captain").replace(" (AI Bot)", "").replace(" (AI)", "").strip()
+                    if clean_b in ("", "AI Opponent"):
+                        clean_b = "Team B Captain"
                     room["captain_b_name"] = clean_b
                     room["team_b"]["captain_name"] = clean_b
                     room["seat_b_owner_name"] = clean_b
+
+                cur_tb_name = str(room.get("team_b", {}).get("name") or "Team B")
+                if "(AI)" in cur_tb_name or "(AI Bot)" in cur_tb_name:
+                    cleaned_tb_name = cur_tb_name.replace(" (AI Bot)", "").replace(" (AI)", "").replace("(AI)", "").strip()
+                    room["team_b"]["name"] = cleaned_tb_name or "Team B"
+
+                if was_ai and not room.get("pairings"):
+                    if (
+                        room.get("defender_b")
+                        or room.get("secret_defender_b")
+                        or room.get("attackers_b")
+                        or room.get("secret_attackers_b")
+                    ):
+                        room["defender_b"] = None
+                        room["secret_defender_b"] = None
+                        room["attackers_b"] = []
+                        room["secret_attackers_b"] = []
+                        room["secret_choice_b"] = None
+                        room["locked_b"] = False
+                        room["bench_b"] = [p["id"] for p in (room.get("team_b", {}).get("roster") or [])]
+                        if room.get("defender_role") == "captain_b" and not room.get("defender_a"):
+                            room["phase"] = "STEP_1_DEFENDER"
+                        self._sync_roster_statuses(room)
+
                 self._save_pairing_room_doc(room["room_code"], room)
                 return {
                     "ok": True,

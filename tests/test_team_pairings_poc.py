@@ -1610,6 +1610,161 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertGreaterEqual(diagonal_exp_a, 42, f"Expected competitive ~50/50 WTC expectation vs AI, got {diagonal_exp_a}/100")
         self.assertLessEqual(diagonal_exp_a, 58, f"Expected competitive ~50/50 WTC expectation vs AI, got {diagonal_exp_a}/100")
 
+    def test_two_player_room_sync_and_card_meta_stats_inspector(self):
+        """Verify 2 human players in the same room synchronize cleanly without AI hijacking Seat B, and left panel renders Card Meta Stats instead of Pairing Steps."""
+        import os
+        # 1. Verify HTML & JS replaced PAIRING STEPS with CARD META STATS
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        html_path = os.path.join(root_dir, "web", "team_pairings", "index.html")
+        js_path = os.path.join(root_dir, "web", "team_pairings", "app.js")
+        with open(html_path, "r", encoding="utf-8") as fh:
+            html_src = fh.read()
+        with open(js_path, "r", encoding="utf-8") as fj:
+            js_src = fj.read()
+
+        self.assertIn("CARD META STATS", html_src)
+        self.assertIn("cardMetaInspectorFrame", html_src)
+        self.assertIn("metaInspectorStatsGrid", html_src)
+        self.assertIn("metaInspectorFactorStrip", html_src)
+        self.assertIn("metaInspectorMatchupList", html_src)
+        self.assertNotIn("PAIRING STEPS", html_src)
+        self.assertNotIn("pgCurrentCallout", html_src)
+        self.assertIn("pollRoomState", js_src)
+        self.assertIn("getRoomStateSignature", js_src)
+
+        # 2. Player 1 creates a room & equips a Starter Deck
+        p1_uid = "user_human_p1"
+        p2_uid = "user_human_p2"
+        created = self.engine.create_pairing_room({
+            "format_size": "5v5",
+            "empty_rosters": True,
+            "vs_ai": True,
+            "user_id": p1_uid,
+            "user_name": "Alpha Captain",
+        })
+        code = created["room_code"]
+        tok_a = created["captain_a_token"]
+        rev0 = created["revision"]
+        self.assertGreaterEqual(rev0, 1)
+
+        # Player 1 equips starter deck while waiting for Player 2 (AI temporary placeholder populates Team B)
+        eq1 = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": p1_uid,
+            "captain_token": tok_a,
+            "action": "apply_tcg_deck",
+            "payload": {"format_size": "5v5", "mode": "starter", "also_set_ai_tcg": True},
+        })
+        self.assertTrue(eq1["ok"])
+        self.assertGreater(eq1["room"]["revision"], rev0)
+
+        # 3. Player 2 joins via share link and claims Captain B -> must lock Seat B, keep Seat A locked, disable vs_ai, and clear AI placeholder roster
+        claim_b = self.engine.apply_pairing_action(code, {
+            "role": "captain_b",
+            "user_id": p2_uid,
+            "action": "claim_seat",
+            "payload": {"seat": "captain_b", "user_id": p2_uid, "user_name": "Bravo Captain"},
+        })
+        self.assertTrue(claim_b["ok"])
+        tok_b = claim_b.get("captain_token")
+        self.assertTrue(bool(tok_b))
+        rm_after_claim = claim_b["room"]
+        self.assertTrue(rm_after_claim["seat_a_locked"], "Claiming Seat B must NEVER unlock Seat A")
+        self.assertTrue(rm_after_claim["seat_b_locked"])
+        self.assertFalse(rm_after_claim["vs_ai"], "Human Seat B must disable vs_ai")
+        self.assertNotIn("(AI", rm_after_claim["team_b"]["name"], "AI label must be stripped when Human Player 2 claims Seat B")
+
+        # 4. Player 2 equips their own Starter Deck on Team B
+        eq2 = self.engine.apply_pairing_action(code, {
+            "role": "captain_b",
+            "user_id": p2_uid,
+            "captain_token": tok_b,
+            "action": "apply_tcg_deck",
+            "payload": {"format_size": "5v5", "mode": "starter", "team_name": "Bravo Vanguard"},
+        })
+        self.assertTrue(eq2["ok"])
+        rm_ready = eq2["room"]
+        self.assertEqual(len(rm_ready["team_a"]["roster"]), 5)
+        self.assertEqual(len(rm_ready["team_b"]["roster"]), 5)
+        self.assertFalse(rm_ready["vs_ai"])
+
+        # Verify card meta stats enrichment on both rosters
+        for c in rm_ready["team_a"]["roster"] + rm_ready["team_b"]["roster"]:
+            self.assertIn("fac_meta_wr_pct", c)
+            self.assertIn("fac_meta_games", c)
+            self.assertIn("fac_meta_elo_shift", c)
+            self.assertIn("fac_meta_tier", c)
+
+        # 5. Coin Flip & Role Choice: even if client mistakenly passes vs_ai=True, seat_b_locked=True prevents AI from ever hijacking Player 2
+        flip_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": p1_uid,
+            "captain_token": tok_a,
+            "action": "flip_coin",
+            "payload": {"force_winner": "captain_a"},
+        })
+        self.assertTrue(flip_res["ok"])
+
+        choose_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": p1_uid,
+            "captain_token": tok_a,
+            "action": "choose_coin_flip_role",
+            "payload": {"choice": "defender", "chooser_role": "captain_a", "vs_ai": True},
+        })
+        self.assertTrue(choose_res["ok"])
+        rm_c1 = choose_res["room"]
+        self.assertFalse(rm_c1["vs_ai"], "seat_b_locked=True must keep vs_ai=False even if client payload passed vs_ai=True")
+        self.assertEqual(rm_c1["defender_role"], "captain_a")
+        self.assertEqual(rm_c1["attacker_role"], "captain_b")
+        self.assertEqual(rm_c1["phase"], "STEP_1_DEFENDER")
+
+        # 6. Step 1: Player 1 (Defender) locks A1 -> room advances to STEP_2_ATTACKERS and waits for Human Player 2 (AI does NOT auto-play!)
+        def_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": p1_uid,
+            "captain_token": tok_a,
+            "action": "lock_defender",
+            "payload": {"player_id": "A1", "vs_ai": True},
+        })
+        self.assertTrue(def_res["ok"])
+        rm_step2 = def_res["room"]
+        self.assertEqual(rm_step2["phase"], "STEP_2_ATTACKERS", "Must wait for Human Player 2 to nominate 2 attackers")
+        self.assertIsNotNone(rm_step2["active_defender_a"])
+        self.assertEqual(rm_step2["active_defender_a"]["id"], "A1")
+        self.assertEqual(len(rm_step2["active_attackers_b"]), 0)
+
+        # 7. Step 2: Player 2 (Attacker) nominates B1 & B2 -> room advances to STEP_3_CHOOSE for Player 1
+        att_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_b",
+            "user_id": p2_uid,
+            "captain_token": tok_b,
+            "action": "lock_attackers",
+            "payload": {"player_ids": ["B1", "B2"]},
+        })
+        self.assertTrue(att_res["ok"])
+        rm_step3 = att_res["room"]
+        self.assertEqual(rm_step3["phase"], "STEP_3_CHOOSE")
+        self.assertEqual([c["id"] for c in rm_step3["active_attackers_b"]], ["B1", "B2"])
+
+        # 8. Step 3: Player 1 chooses B1 -> Table 1 locks (A1 vs B1) and roles swap for Cycle 2 (Captain B becomes Defender)
+        pick_res = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": p1_uid,
+            "captain_token": tok_a,
+            "action": "lock_choice",
+            "payload": {"player_id": "B1"},
+        })
+        self.assertTrue(pick_res["ok"])
+        rm_c2 = pick_res["room"]
+        self.assertEqual(len(rm_c2["pairings"]), 1)
+        self.assertEqual(rm_c2["pairings"][0]["player_a"]["id"], "A1")
+        self.assertEqual(rm_c2["pairings"][0]["player_b"]["id"], "B1")
+        self.assertEqual(rm_c2["cycle"], 2)
+        self.assertEqual(rm_c2["defender_role"], "captain_b")
+        self.assertEqual(rm_c2["attacker_role"], "captain_a")
+        self.assertEqual(rm_c2["phase"], "STEP_1_DEFENDER")
+
 
 if __name__ == "__main__":
     unittest.main()

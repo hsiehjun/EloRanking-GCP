@@ -67,88 +67,72 @@
 
     <!-- Main 3-Zone Yu-Gi-Oh! Duel Screen -->
     <div class="ygo-duel-stage">
-      <!-- 1. LEFT PANEL: WTC Pairing Process & Active Step Guide -->
+      <!-- 1. LEFT PANEL: Live Card Meta Stats & 6-Factor Matchup Inspector -->
       <aside class="ygo-inspector-panel" id="pairingProcessPanel">
-        <div class="process-guide-frame">
-          <div class="pg-header">
-            <div class="pg-title-row">
-              <span class="pg-title">⚡ PAIRING STEPS <button type="button" class="info-tip-btn" data-info-title="WTC Pairing Sequence" data-info-body="Each pairing cycle runs 3 steps:&#10;1. Put 1 Defender card on the mat.&#10;2. Attacker sends 2 cards to challenge the Defender.&#10;3. Defender picks 1 of the 2 Attackers to lock a table (unchosen card returns to hand).">i</button></span>
-              <span class="pg-cycle-badge" id="pgCycleBadge">CYCLE 1 / 2</span>
-            </div>
-            <div class="pg-format-sub" id="pgFormatSub">5 Tables</div>
-          </div>
-
-          <!-- Current Active Step Callout -->
-          <div class="pg-current-callout" id="pgCurrentCallout">
-            <div class="pg-callout-top">
-              <span class="pg-callout-tag" id="pgActiveStepTag">STEP 1</span>
-              <span class="pg-callout-tables" id="pgTablesProgress">0 / 5 Paired</span>
-            </div>
-            <div class="pg-callout-headline-row">
-              <div class="pg-callout-headline" id="pgActiveStepHeadline">Step 1: Place 1 Defender</div>
-              <button type="button" class="info-tip-btn" id="pgActiveStepInfoBtn" data-info-title="Current Step" data-info-body="Select 1 card from your bottom hand to place in your Defender Zone, then click Lock In.">i</button>
-            </div>
-            <div class="pg-callout-desc hidden" id="pgActiveStepDesc">
-              Select 1 card in your hand and lock it in.
-            </div>
-            <div class="pg-lock-status-row">
-              <span class="pg-lock-chip" id="pgMyLockChip">You: Selecting</span>
-              <span class="pg-lock-chip" id="pgOppLockChip">Enemy: Waiting</span>
+        <div class="card-meta-inspector-frame" id="cardMetaInspectorFrame">
+          <div class="cmi-header">
+            <div class="cmi-title-row">
+              <span class="cmi-title">📊 CARD META STATS <button type="button" class="info-tip-btn" data-info-title="Card Meta Stats & 6-Factor Engine" data-info-body="Hover or click any card in your hand, opponent's hand, or on the playmat to inspect:&#10;• 3-Month Global Faction Meta Win Rate & Tier&#10;• Player Career Win Rate, Games & Live Elo&#10;• 6-Factor Expected WTC (0–20) & Win % against every opposing card.">i</button></span>
+              <span class="cmi-owner-badge" id="metaInspectorOwnerBadge">YOUR CARD</span>
             </div>
           </div>
 
-          <!-- 3-Step Cycle Stepper -->
-          <div class="pg-steps-list">
-            <div class="pg-step-card active" id="pgStepCard1">
-              <div class="pg-step-head">
-                <span class="pg-step-num">1</span>
-                <span class="pg-step-name">🛡️ 1 Defender</span>
-                <button type="button" class="info-tip-btn" data-info-title="Step 1: Put 1 Defender" data-info-body="The Defender team places 1 player card on the mat face-down (or face-up after Coin Flip role selection).">i</button>
-                <span class="pg-step-state" id="pgStepState1">ACTIVE</span>
+          <!-- Inspected Card Hero Identity -->
+          <div class="cmi-card-hero" id="metaInspectorCardHero">
+            <div class="cmi-hero-top">
+              <div class="cmi-emblem-box" id="metaInspectorEmblem">⚔️</div>
+              <div class="cmi-hero-titles">
+                <div class="cmi-card-name" id="metaInspectorName">Select or Hover Card</div>
+                <div class="cmi-card-sub" id="metaInspectorSub">Faction • Detachment</div>
               </div>
-              <p class="pg-step-body hidden" id="pgStepBody1">
-                Place 1 Defender card on the mat.
-              </p>
             </div>
-
-            <div class="pg-step-card" id="pgStepCard2">
-              <div class="pg-step-head">
-                <span class="pg-step-num">2</span>
-                <span class="pg-step-name">⚔️ 2 Attackers</span>
-                <button type="button" class="info-tip-btn" data-info-title="Step 2: Send 2 Attackers" data-info-body="Seeing the Defender on the mat, the Attacker team selects 2 cards from hand to challenge that Defender.">i</button>
-                <span class="pg-step-state" id="pgStepState2">NEXT</span>
-              </div>
-              <p class="pg-step-body hidden" id="pgStepBody2">
-                Nominate 2 Attackers from hand to challenge the Defender.
-              </p>
-            </div>
-
-            <div class="pg-step-card" id="pgStepCard3">
-              <div class="pg-step-head">
-                <span class="pg-step-num">3</span>
-                <span class="pg-step-name">🎯 Pick Clash</span>
-                <button type="button" class="info-tip-btn" data-info-title="Step 3: Defender's Choice" data-info-body="The Defender picks 1 of the 2 Attackers to fight (locks 1 table). The unchosen Attacker returns to hand, and roles swap next cycle.">i</button>
-                <span class="pg-step-state" id="pgStepState3">WAIT</span>
-              </div>
-              <p class="pg-step-body hidden" id="pgStepBody3">
-                Pick 1 of the 2 Attackers to lock the table.
-              </p>
+            <div class="cmi-badges-row">
+              <span class="cmi-pill elo-pill" id="metaInspectorEloBadge">ELO 1500</span>
+              <span class="cmi-pill rarity-pill" id="metaInspectorRarityBadge">STARTER</span>
+              <span class="cmi-pill tier-pill" id="metaInspectorTierBadge">A-TIER META</span>
             </div>
           </div>
 
-          <!-- Cycle Table Breakdown Footer -->
-          <div class="pg-cycle-summary" id="pgCycleSummaryBox">
-            <div class="pg-summary-title">TABLES PER CYCLE</div>
-            <div class="pg-summary-rows" id="pgCycleSummaryRows">
-              <div class="pg-summary-row active">
-                <span>Cycle 1</span>
-                <strong>Tables #1–#2</strong>
-              </div>
-              <div class="pg-summary-row">
-                <span>Cycle 2</span>
-                <strong>Tables #3–#5</strong>
-              </div>
+          <!-- 4-Tile Core Meta Metrics Grid -->
+          <div class="cmi-metrics-grid" id="metaInspectorStatsGrid">
+            <div class="cmi-metric-tile">
+              <span class="cmi-m-lbl">3M FACTION META</span>
+              <strong class="cmi-m-val" id="metaStatFactionWr">51.6%</strong>
+              <span class="cmi-m-sub" id="metaStatFactionSub">610 games • +4 Elo</span>
             </div>
+            <div class="cmi-metric-tile">
+              <span class="cmi-m-lbl" id="metaStatCareerLbl">CARD PROFILE</span>
+              <strong class="cmi-m-val" id="metaStatCareerVal">Starter Base</strong>
+              <span class="cmi-m-sub" id="metaStatCareerSub">All-Rounder</span>
+            </div>
+            <div class="cmi-metric-tile">
+              <span class="cmi-m-lbl">AVG VS ENEMY</span>
+              <strong class="cmi-m-val" id="metaStatAvgWtc">10.0 / 20</strong>
+              <span class="cmi-m-sub" id="metaStatAvgWin">50% Avg Win</span>
+            </div>
+            <div class="cmi-metric-tile">
+              <span class="cmi-m-lbl">BEST TARGET</span>
+              <strong class="cmi-m-val" id="metaStatBestTarget">—</strong>
+              <span class="cmi-m-sub" id="metaStatWorstTarget">Counter: —</span>
+            </div>
+          </div>
+
+          <!-- Active 6-Factor Breakdown Strip -->
+          <div class="cmi-factor-box" id="metaInspectorFactorBox">
+            <div class="cmi-factor-head">
+              <span id="metaFactorVsTitle">6-FACTOR EDGE VS TARGET</span>
+              <strong id="metaFactorTotalDelta">+0 Eff. Elo</strong>
+            </div>
+            <div class="cmi-factor-pills" id="metaInspectorFactorStrip"></div>
+          </div>
+
+          <!-- Matchup Matrix vs Opposing Cards -->
+          <div class="cmi-matchups-section">
+            <div class="cmi-section-head">
+              <span id="metaMatchupListTitle">⚔️ VS OPPONENT ROSTER</span>
+              <span class="cmi-section-sub">WTC • Win%</span>
+            </div>
+            <div class="cmi-matchups-list" id="metaInspectorMatchupList"></div>
           </div>
         </div>
       </aside>

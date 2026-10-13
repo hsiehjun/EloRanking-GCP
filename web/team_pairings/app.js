@@ -220,6 +220,7 @@ class YuGiOhPairingsArena {
     if (!roomCode || !role || !token) return;
     try {
       localStorage.setItem(`tp_tok_${roomCode}_${role}`, token);
+      sessionStorage.setItem(`tp_tok_${roomCode}_${role}`, token);
       if (role === "captain_a") {
         localStorage.setItem(`tp_cap_token_${roomCode}`, token);
       }
@@ -230,10 +231,27 @@ class YuGiOhPairingsArena {
     if (!roomCode || !role) return "";
     try {
       return (
+        sessionStorage.getItem(`tp_tok_${roomCode}_${role}`) ||
         localStorage.getItem(`tp_tok_${roomCode}_${role}`) ||
         (role === "captain_a" ? localStorage.getItem(`tp_cap_token_${roomCode}`) : "") ||
         ""
       );
+    } catch (_) {
+      return "";
+    }
+  }
+
+  saveTabRoleForRoom(roomCode, role) {
+    if (!roomCode || !role) return;
+    try {
+      sessionStorage.setItem(`tp_tab_role_${String(roomCode).trim().toUpperCase()}`, role);
+    } catch (_) {}
+  }
+
+  loadTabRoleForRoom(roomCode) {
+    if (!roomCode) return "";
+    try {
+      return sessionStorage.getItem(`tp_tab_role_${String(roomCode).trim().toUpperCase()}`) || "";
     } catch (_) {
       return "";
     }
@@ -750,7 +768,13 @@ class YuGiOhPairingsArena {
       await this.applyDemoState(demoState);
     }
 
-    this.pollTimer = setInterval(() => this.pollRoomState(), 2500);
+    this.pollTimer = setInterval(() => this.pollRoomState(), 1000);
+    window.addEventListener("focus", () => this.pollRoomState());
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        this.pollRoomState();
+      }
+    });
   }
 
   /**
@@ -956,10 +980,11 @@ class YuGiOhPairingsArena {
    * - If seat is already locked by another user, prevents taking it and notifies viewer.
    * - If seat is open (and room is unlocked), claims & locks seat on backend.
    */
-  async claimOrSwitchSeat(seat) {
+  async claimOrSwitchSeat(seat, { silentToast = false } = {}) {
     if (seat === "spectator") {
       this.activeRole = "spectator";
       this.selectedIds = [];
+      if (this.roomCode) this.saveTabRoleForRoom(this.roomCode, "spectator");
       this.selectLobbySeatUI("spectator");
       if (this.roomCode) await this.joinExistingRoom(this.roomCode);
       return;
@@ -990,16 +1015,22 @@ class YuGiOhPairingsArena {
         this.activeRole = seat;
         this.selectedIds = [];
         this.room = data.room;
+        this.saveTabRoleForRoom(this.roomCode, seat);
         const tok = data.captain_token || (seat === "captain_a" ? data.room.captain_a_token : data.room.captain_b_token);
         if (tok) {
           this.captainTokens[seat] = tok;
           this.saveRoomTokenToStorage(this.roomCode, seat, tok);
         }
+        this.syncLobbyDraftFromRoom();
         this.selectLobbySeatUI(seat);
         this.renderLobbySeatLockState();
-        this.showToast(`🔒 Seat locked as ${defaultCapLabel}!`);
+        if (!silentToast) {
+          this.showToast(`🔒 Seat locked as ${defaultCapLabel}!`);
+        }
       } else {
-        this.showToast(data?.error || "That Captain seat is locked by another player.");
+        if (!silentToast) {
+          this.showToast(data?.error || "That Captain seat is locked by another player.");
+        }
         this.renderLobbySeatLockState();
       }
     } catch (err) {
@@ -1454,7 +1485,11 @@ class YuGiOhPairingsArena {
       const actionBadge = document.getElementById(s.actionBadgeId);
       const unlockBtn = document.getElementById(s.unlockBtnId);
 
-      const isMine = s.isLocked && (s.ownerId === this.userId || s.hasToken);
+      const isMine = s.isLocked && (
+        this.activeRole === s.role
+          ? (s.ownerId === this.userId || s.hasToken)
+          : (s.ownerId === this.userId && s.ownerId !== (this.activeRole === "captain_a" ? this.room.user_id_cap_a : this.room.user_id_cap_b))
+      );
       const isTakenByOther = s.isLocked && !isMine;
 
       if (cardEl) {
@@ -1876,10 +1911,11 @@ class YuGiOhPairingsArena {
     }
   }
 
-  async chooseCoinFlipRole(choice, chooserOverride = null) {
+  async chooseCoinFlipRole(choice, chooserOverride = null, { silentToast = false } = {}) {
     if (!this.roomCode || this.activeRole === "spectator") return;
     const tok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(this.roomCode, this.activeRole);
     const chooserRole = chooserOverride || this.room?.coin_flip_winner || this.activeRole;
+    const isVsAiRoom = Boolean(this.room ? (this.room.vs_ai && !this.room.seat_b_locked) : false);
     try {
       const resp = await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
         method: "POST",
@@ -1892,7 +1928,7 @@ class YuGiOhPairingsArena {
           payload: {
             choice,
             chooser_role: chooserRole,
-            vs_ai: document.getElementById("chkVsAi")?.checked ?? true
+            vs_ai: isVsAiRoom
           }
         })
       });
@@ -1903,9 +1939,11 @@ class YuGiOhPairingsArena {
         this.syncLobbyDraftFromRoom();
         this.closeCoinFlipModal();
         this.renderAll();
-        const p = this.getPerspective();
-        const myRoleLabel = p?.amIDefender ? "🛡️ DEFENDER" : "⚔️ ATTACKER";
-        this.showToast(`🪙 Cycle 1 Started! You are ${myRoleLabel} (roles swap every cycle).`);
+        if (!silentToast) {
+          const p = this.getPerspective();
+          const myRoleLabel = p?.amIDefender ? "🛡️ DEFENDER" : "⚔️ ATTACKER";
+          this.showToast(`🪙 Cycle 1 Started! You are ${myRoleLabel} (roles swap every cycle).`);
+        }
       }
     } catch (err) {
       console.error("Failed to lock coin flip role:", err);
@@ -1948,9 +1986,11 @@ class YuGiOhPairingsArena {
       if (data && (data.ok || data.success) && data.room) {
         this.room = data.room;
         this.roomCode = data.room.room_code;
+        this.activeRole = "captain_a";
         this.captainTokens.captain_a = data.captain_a_token || data.room.captain_a_token || "";
         this.captainTokens.captain_b = data.captain_b_token || data.room.captain_b_token || "";
         this.saveRoomTokenToStorage(this.roomCode, "captain_a", this.captainTokens.captain_a);
+        this.saveTabRoleForRoom(this.roomCode, "captain_a");
         try {
           const url = new URL(window.location.href);
           if (!url.searchParams.get("demo_state")) {
@@ -1984,6 +2024,14 @@ class YuGiOhPairingsArena {
   async joinExistingRoom(code, { openLobby = false } = {}) {
     const cleanCode = String(code || "").trim().toUpperCase();
     if (!cleanCode) return;
+    const params = new URLSearchParams(window.location.search);
+    const explicitUrlRole = (params.get("role") || "").trim().toLowerCase();
+    const fromLobby = params.get("from_lobby") === "1";
+    const tabSavedRole = this.loadTabRoleForRoom(cleanCode);
+    if (!explicitUrlRole && (tabSavedRole === "captain_a" || tabSavedRole === "captain_b" || tabSavedRole === "spectator")) {
+      this.activeRole = tabSavedRole;
+    }
+
     const savedTok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(cleanCode, this.activeRole);
     try {
       const resp = await fetch(
@@ -2002,14 +2050,31 @@ class YuGiOhPairingsArena {
           this.saveRoomTokenToStorage(this.roomCode, "captain_b", data.room.captain_b_token);
         }
 
-        // If viewer tried to join as a Captain whose seat is already locked by someone else, auto-place in open seat or Spectator
-        if (
-          this.activeRole === "captain_a" &&
+        // Determine if this visitor/tab is Player 2 joining an open Seat B
+        const seatATakenByOtherUser =
           this.room.seat_a_locked &&
           this.room.user_id_cap_a !== this.userId &&
-          !this.captainTokens.captain_a
-        ) {
-          this.activeRole = !this.room.seat_b_locked ? "captain_b" : "spectator";
+          !this.captainTokens.captain_a;
+        const isSecondTabViaShareLink =
+          !explicitUrlRole &&
+          !tabSavedRole &&
+          !fromLobby &&
+          this.room.seat_a_locked &&
+          !this.room.seat_b_locked;
+
+        if (this.activeRole === "captain_a" && (seatATakenByOtherUser || isSecondTabViaShareLink)) {
+          if (!this.room.seat_b_locked && !this.room.is_locked) {
+            await this.claimOrSwitchSeat("captain_b", { silentToast: true });
+            // If Team B still has an empty roster or AI roster before any tables are paired, load Player 2's Starter/TCG deck
+            const bRoster = this.room?.team_b?.roster || [];
+            if ((bRoster.length === 0 || this.room?.room_mode === "casual_tcg") && !(this.room?.pairings?.length)) {
+              await this.equipTcgDeckToRoom("starter", { closeModals: false, silentToast: true });
+            }
+            this.showToast("🔒 Joined room as Team B Captain!");
+          } else {
+            this.activeRole = "spectator";
+            this.saveTabRoleForRoom(this.roomCode, "spectator");
+          }
         } else if (
           this.activeRole === "captain_b" &&
           this.room.seat_b_locked &&
@@ -2017,6 +2082,11 @@ class YuGiOhPairingsArena {
           !this.captainTokens.captain_b
         ) {
           this.activeRole = "spectator";
+          this.saveTabRoleForRoom(this.roomCode, "spectator");
+        } else if (this.activeRole === "captain_b" && !this.room.seat_b_locked && !this.room.is_locked) {
+          await this.claimOrSwitchSeat("captain_b", { silentToast: true });
+        } else {
+          this.saveTabRoleForRoom(this.roomCode, this.activeRole);
         }
 
         this.selectedIds = [];
@@ -2043,25 +2113,103 @@ class YuGiOhPairingsArena {
     }
   }
 
+  getRoomStateSignature(r) {
+    if (!r) return "";
+    const defA = r.active_defender_a?.id || r.defender_a || "";
+    const defB = r.active_defender_b?.id || r.defender_b || "";
+    const attsA = (r.active_attackers_a || []).map((p) => p.id).join(",");
+    const attsB = (r.active_attackers_b || []).map((p) => p.id).join(",");
+    const pairs = (r.pairings || []).map((m) => `${m.table || m.table_num}:${m.sim_score_a ?? m.est_score_a}`).join(",");
+    const rostA = (r.team_a?.roster || []).map((p) => `${p.id}:${p.faction}:${p.elo}:${p.status}`).join(",");
+    const rostB = (r.team_b?.roster || []).map((p) => `${p.id}:${p.faction}:${p.elo}:${p.status}`).join(",");
+    return [
+      r.revision || 0,
+      r.updatedAt || 0,
+      r.phase || "",
+      r.cycle || 1,
+      r.defender_role || "",
+      r.attacker_role || "",
+      r.coin_flip_done ? 1 : 0,
+      r.coin_flip_winner || "",
+      r.coin_flip_choice || "",
+      r.seat_a_locked ? 1 : 0,
+      r.seat_b_locked ? 1 : 0,
+      r.seat_a_owner_name || "",
+      r.seat_b_owner_name || "",
+      r.vs_ai ? 1 : 0,
+      r.is_locked ? 1 : 0,
+      r.locked_a ? 1 : 0,
+      r.locked_b ? 1 : 0,
+      r.secret_defender_a_locked ? 1 : 0,
+      r.secret_defender_b_locked ? 1 : 0,
+      r.secret_attackers_a_locked ? 1 : 0,
+      r.secret_attackers_b_locked ? 1 : 0,
+      r.secret_choice_a_locked ? 1 : 0,
+      r.secret_choice_b_locked ? 1 : 0,
+      defA,
+      defB,
+      attsA,
+      attsB,
+      pairs,
+      r.team_a?.name || "",
+      r.team_b?.name || "",
+      rostA,
+      rostB
+    ].join("|");
+  }
+
   async pollRoomState() {
-    if (!this.roomCode) return;
+    if (!this.roomCode || this._isPollingRoom) return;
+    this._isPollingRoom = true;
     const savedTok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(this.roomCode, this.activeRole);
     try {
       const resp = await fetch(
-        `/api/team-pairings/room/${encodeURIComponent(this.roomCode)}?role=${encodeURIComponent(this.activeRole)}&captain_token=${encodeURIComponent(savedTok)}`
+        `/api/team-pairings/room/${encodeURIComponent(this.roomCode)}?role=${encodeURIComponent(this.activeRole)}&captain_token=${encodeURIComponent(savedTok)}&_t=${Date.now()}`,
+        { cache: "no-store" }
       );
       if (!resp.ok) return;
       const data = await resp.json();
       if (data && (data.ok || data.success) && data.room) {
-        const oldRev = this.room?.revision;
+        const oldSig = this.getRoomStateSignature(this.room);
+        const newSig = this.getRoomStateSignature(data.room);
+        const prevPairingsCount = (this.room?.pairings || []).length;
+        const prevPhase = this.room?.phase;
+        const prevCoinDone = Boolean(this.room?.coin_flip_done);
+
         this.room = data.room;
-        if (oldRev !== this.room.revision) {
+        if (oldSig !== newSig) {
+          if (prevPhase && prevPhase !== this.room.phase) {
+            this.selectedIds = [];
+          }
+          const lobbyModal = document.getElementById("lobbyModalBackdrop");
+          if (!lobbyModal || lobbyModal.classList.contains("hidden")) {
+            this.syncLobbyDraftFromRoom();
+          }
           this.renderLobbySeatLockState();
-          this.renderCoinFlipModal();
+          if (!prevCoinDone && this.room.coin_flip_done) {
+            this.closeCoinFlipModal();
+          } else {
+            this.renderCoinFlipModal();
+          }
           this.renderAll();
+
+          const newPairings = this.room.pairings || [];
+          if (newPairings.length > prevPairingsCount) {
+            const newTables = [];
+            for (let i = prevPairingsCount; i < newPairings.length; i++) {
+              const tNum = Number(newPairings[i].table_num || newPairings[i].table || (i + 1));
+              newTables.push(tNum);
+            }
+            if (newTables.length > 0) {
+              this.playOnFieldCombatAnimation(newTables[0], newTables.slice(1));
+            }
+          }
         }
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      this._isPollingRoom = false;
+    }
   }
 
   async switchRole(newRole) {
@@ -2133,24 +2281,38 @@ class YuGiOhPairingsArena {
 
     if (this.room && this.room.matchup_predictions) {
       const mp = this.room.matchup_predictions;
-      const isCapB = this.activeRole === "captain_b";
-      const rawPred = isCapB
+      const isCard1TeamB =
+        String(myPlayer.id || "").startsWith("B") ||
+        myPlayer.team === "B" ||
+        (!String(myPlayer.id || "").startsWith("A") && this.activeRole === "captain_b");
+      const rawPred = isCard1TeamB
         ? mp[oppPlayer.id]?.[myPlayer.id]
         : mp[myPlayer.id]?.[oppPlayer.id];
       if (rawPred && typeof rawPred === "object") {
-        const wtcScore = isCapB ? Number(rawPred.wtc_score_b ?? (20 - rawPred.wtc_score_a)) : Number(rawPred.wtc_score_a ?? 10);
-        const winProb = isCapB ? Number(rawPred.win_prob_b ?? (100 - rawPred.win_prob_a)) : Number(rawPred.win_prob_a ?? 50);
-        const sign = isCapB ? -1 : 1;
+        const wtcScore = isCard1TeamB ? Number(rawPred.wtc_score_b ?? (20 - rawPred.wtc_score_a)) : Number(rawPred.wtc_score_a ?? 10);
+        const winProb = isCard1TeamB ? Number(rawPred.win_prob_b ?? (100 - rawPred.win_prob_a)) : Number(rawPred.win_prob_a ?? 50);
+        const sign = isCard1TeamB ? -1 : 1;
         const f = rawPred.factors || {};
+        const d = rawPred.details || {};
         const effDelta = sign * Number(rawPred.effective_elo_delta || 0);
+        const signedFactors = {
+          base_elo_delta: sign * Number(f.base_elo_delta || 0),
+          fac_h2h_delta: sign * Number(f.fac_h2h_delta || 0),
+          fac_meta_delta: sign * Number(f.fac_meta_delta || 0),
+          own_mastery_delta: sign * Number(f.own_mastery_delta || 0),
+          vs_mastery_delta: sign * Number(f.vs_mastery_delta || 0),
+          past_h2h_delta: sign * Number(f.past_h2h_delta || 0)
+        };
+        const facH2hWr = isCard1TeamB ? Number(d.fac_h2h_wr_b ?? 50) : Number(d.fac_h2h_wr_a ?? 50);
+        const facH2hGames = Number(d.fac_h2h_games || 0);
         const tooltip = [
           `6-Factor Prediction: ${winProb}% Win • Est. ${wtcScore}-${20 - wtcScore} WTC (${fmtSigned(effDelta)} Eff. Elo)`,
-          `• Base Elo: ${fmtSigned(sign * (f.base_elo_delta || 0))}`,
-          `• 3M Faction H2H: ${fmtSigned(sign * (f.fac_h2h_delta || 0))}`,
-          `• 3M Faction Meta: ${fmtSigned(sign * (f.fac_meta_delta || 0))}`,
-          `• Own-Faction Mastery: ${fmtSigned(sign * (f.own_mastery_delta || 0))}`,
-          `• Vs-Faction Mastery: ${fmtSigned(sign * (f.vs_mastery_delta || 0))}`,
-          `• Past Player H2H: ${fmtSigned(sign * (f.past_h2h_delta || 0))}`
+          `• Base Elo: ${fmtSigned(signedFactors.base_elo_delta)}`,
+          `• 3M Faction H2H: ${fmtSigned(signedFactors.fac_h2h_delta)} (${facH2hWr.toFixed(1)}%)`,
+          `• 3M Faction Meta: ${fmtSigned(signedFactors.fac_meta_delta)}`,
+          `• Own-Faction Mastery: ${fmtSigned(signedFactors.own_mastery_delta)}`,
+          `• Vs-Faction Mastery: ${fmtSigned(signedFactors.vs_mastery_delta)}`,
+          `• Past Player H2H: ${fmtSigned(signedFactors.past_h2h_delta)}`
         ].join("\n");
         return {
           wtcScore,
@@ -2158,7 +2320,9 @@ class YuGiOhPairingsArena {
           winProb,
           oppWinProb: 100 - winProb,
           effectiveEloDelta: effDelta,
-          factors: f,
+          factors: signedFactors,
+          facH2hWr,
+          facH2hGames,
           tooltip
         };
       }
@@ -2958,16 +3122,22 @@ class YuGiOhPairingsArena {
 
   async submitStagedSelection() {
     if (!this.room || !this.roomCode) return;
-    const phase = this.room.phase;
+    let phase = this.room.phase;
     const p = this.getPerspective();
     if (!p || p.isSpectator) return;
 
+    // If neither Captain completed the Coin Flip modal before locking Cycle 1 Defender, auto-assign this Captain as Cycle 1 Defender
+    if (phase === "STEP_1_DEFENDER" && !this.room.coin_flip_done && !this.room.defender_role) {
+      await this.chooseCoinFlipRole("defender", this.activeRole, { silentToast: true });
+      phase = this.room.phase;
+    }
+
     const prevPairingsCount = (this.room.pairings || []).length;
-    const vsAi = document.getElementById("chkVsAi")?.checked ?? true;
+    const isVsAiRoom = Boolean(this.room.vs_ai && !this.room.seat_b_locked);
     const tok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(this.roomCode, this.activeRole);
 
     let action = "";
-    let payload = { vs_ai: vsAi };
+    let payload = { vs_ai: isVsAiRoom };
 
     if (phase === "STEP_1_DEFENDER" && this.selectedIds.length === 1) {
       action = "lock_defender";
@@ -3088,203 +3258,268 @@ class YuGiOhPairingsArena {
     this.renderAll();
   }
 
-  inspectCard(player) {
-    if (player) this.inspectedPlayer = player;
+  inspectCard(player, targetOpp = null) {
+    if (!player) return;
+    this.inspectedPlayer = player;
+    if (targetOpp) {
+      this.inspectedTargetCard = targetOpp;
+    }
+    const p = this.getPerspective();
+    if (p) {
+      this.renderPairingProcessGuide(p);
+    }
   }
 
   renderPairingProcessGuide(p) {
     if (!this.room || !p) return;
-    const phase = this.room.phase;
-    const cycle = Number(this.room.cycle || 1);
-    const maxCycles = Number(this.room.max_cycles || 2);
-    const totalTables = Number(this.room.total_tables || 5);
-    const pairedCount = (this.room.pairings || []).length;
-    const roleBanner = p.isAlternating
-      ? (p.amIDefender ? " • 🛡️ DEF" : " • ⚔️ ATK")
-      : "";
-    const fmtLabel = `${totalTables} Tables${roleBanner}`;
+    const myRoster = p.myTeam?.roster || [];
+    const oppRoster = p.oppTeam?.roster || [];
+    const allCards = [...myRoster, ...oppRoster];
 
-    const cycleBadge = document.getElementById("pgCycleBadge");
-    if (cycleBadge) {
-      cycleBadge.textContent = phase === "COMPLETED" ? "DONE" : `C${cycle}/${maxCycles}`;
+    // Ensure inspectedPlayer still exists in the room rosters, or pick a sensible active card
+    if (this.inspectedPlayer) {
+      const refreshed = allCards.find((c) => c.id === this.inspectedPlayer.id);
+      this.inspectedPlayer = refreshed || null;
+    }
+    if (!this.inspectedPlayer) {
+      const stagedCard = this.selectedIds.length > 0
+        ? myRoster.find((c) => c.id === this.selectedIds[0])
+        : null;
+      this.inspectedPlayer = stagedCard || p.myDef || p.oppDef || myRoster[0] || oppRoster[0] || null;
     }
 
-    const fmtSub = document.getElementById("pgFormatSub");
-    if (fmtSub) fmtSub.textContent = fmtLabel;
+    const card = this.inspectedPlayer;
+    const ownerBadge = document.getElementById("metaInspectorOwnerBadge");
+    const heroBox = document.getElementById("metaInspectorCardHero");
+    const emblemEl = document.getElementById("metaInspectorEmblem");
+    const nameEl = document.getElementById("metaInspectorName");
+    const subEl = document.getElementById("metaInspectorSub");
+    const eloBadge = document.getElementById("metaInspectorEloBadge");
+    const rarityBadge = document.getElementById("metaInspectorRarityBadge");
+    const tierBadge = document.getElementById("metaInspectorTierBadge");
 
-    const tablesProg = document.getElementById("pgTablesProgress");
-    if (tablesProg) tablesProg.textContent = `${pairedCount}/${totalTables}`;
+    const facWrEl = document.getElementById("metaStatFactionWr");
+    const facSubEl = document.getElementById("metaStatFactionSub");
+    const careerLblEl = document.getElementById("metaStatCareerLbl");
+    const careerValEl = document.getElementById("metaStatCareerVal");
+    const careerSubEl = document.getElementById("metaStatCareerSub");
+    const avgWtcEl = document.getElementById("metaStatAvgWtc");
+    const avgWinEl = document.getElementById("metaStatAvgWin");
+    const bestTargetEl = document.getElementById("metaStatBestTarget");
+    const worstTargetEl = document.getElementById("metaStatWorstTarget");
 
-    const tagEl = document.getElementById("pgActiveStepTag");
-    const headlineEl = document.getElementById("pgActiveStepHeadline");
-    const descEl = document.getElementById("pgActiveStepDesc");
-    const infoBtn = document.getElementById("pgActiveStepInfoBtn");
-    const myChip = document.getElementById("pgMyLockChip");
-    const oppChip = document.getElementById("pgOppLockChip");
+    const factorVsTitle = document.getElementById("metaFactorVsTitle");
+    const factorTotalDelta = document.getElementById("metaFactorTotalDelta");
+    const factorStrip = document.getElementById("metaInspectorFactorStrip");
+    const matchupListTitle = document.getElementById("metaMatchupListTitle");
+    const matchupListEl = document.getElementById("metaInspectorMatchupList");
 
-    const sCard1 = document.getElementById("pgStepCard1");
-    const sCard2 = document.getElementById("pgStepCard2");
-    const sCard3 = document.getElementById("pgStepCard3");
-    const sState1 = document.getElementById("pgStepState1");
-    const sState2 = document.getElementById("pgStepState2");
-    const sState3 = document.getElementById("pgStepState3");
+    if (!card) {
+      if (nameEl) nameEl.textContent = "No Card Selected";
+      if (subEl) subEl.textContent = "Hover or tap a card to view Meta Stats";
+      if (matchupListEl) matchupListEl.innerHTML = "";
+      return;
+    }
 
-    [sCard1, sCard2, sCard3].forEach((el) => el?.classList.remove("active", "done"));
+    const isMyCard = myRoster.some((c) => c.id === card.id);
+    const opposingPool = isMyCard ? oppRoster : myRoster;
+    const meta = resolveFactionMeta(card.faction);
+    const svgHtml = getFactionSvgHtml(card.faction, "armory-faction-svg");
+    const rarity = this.resolveCardRarity(card);
+    const isStarter = rarity === "starter";
 
-    let myLocked = false;
-    let oppLocked = false;
+    if (ownerBadge) {
+      ownerBadge.textContent = isMyCard ? "YOUR CARD" : "ENEMY CARD";
+      ownerBadge.classList.toggle("opp", !isMyCard);
+    }
+    if (heroBox) {
+      heroBox.style.setProperty("--cmi-accent", meta.accent || "#38bdf8");
+    }
+    if (emblemEl) emblemEl.innerHTML = svgHtml;
+    if (nameEl) nameEl.textContent = card.name || card.faction || "Commander";
+    if (subEl) {
+      const det = card.detachment || meta.detachment || "Strike Force";
+      subEl.textContent = `${card.faction || "Warhammer 40K"} • ${det}`;
+    }
+    if (eloBadge) eloBadge.textContent = `ELO ${card.elo || 1500}`;
+    if (rarityBadge) {
+      rarityBadge.className = `cmi-pill rarity-pill ${rarity}`;
+      rarityBadge.textContent = rarity.toUpperCase();
+    }
 
-    if (phase === "STEP_1_DEFENDER") {
-      myLocked = p.isAlternating ? !p.isMyActionTurn : !!p.mySecDefLocked;
-      oppLocked = p.isAlternating ? p.isMyActionTurn : !!p.oppSecDefLocked;
-      if (tagEl) {
-        tagEl.textContent = p.isAlternating
-          ? `C${cycle} • ${p.amIDefender ? "🛡️ DEF" : "⚔️ ATK"}`
-          : `C${cycle} • STEP 1`;
+    const facWr = Number(card.fac_meta_wr_pct ?? 50.0);
+    const facGames = Number(card.fac_meta_games ?? 250);
+    const facShift = Number(card.fac_meta_elo_shift ?? Math.round((facWr - 50) * 2.2));
+    const facTier = card.fac_meta_tier || (facWr >= 53 ? "S-TIER" : (facWr >= 51 ? "A-TIER" : (facWr >= 49 ? "B-TIER" : "C-TIER")));
+
+    if (tierBadge) {
+      const tierCls = facTier.startsWith("S") ? "tier-s" : (facTier.startsWith("A") ? "tier-a" : "tier-b");
+      tierBadge.className = `cmi-pill tier-pill ${tierCls}`;
+      tierBadge.textContent = `${facTier} META`;
+    }
+
+    const fmtSigned = (n) => {
+      const r = Math.round(Number(n) || 0);
+      return r > 0 ? `+${r}` : `${r}`;
+    };
+
+    if (facWrEl) {
+      facWrEl.textContent = `${facWr.toFixed(1)}%`;
+      facWrEl.style.color = facWr >= 52 ? "#4ade80" : (facWr <= 48.5 ? "#fb7185" : "#f8fafc");
+    }
+    if (facSubEl) {
+      facSubEl.textContent = `${facGames}g • ${fmtSigned(facShift)} Meta Elo`;
+    }
+
+    const gamesPlayed = Number(card.matches_played || card.own_faction_games || 0);
+    const rawCareerWr = card.win_rate ?? card.own_faction_wr;
+    const careerWrPct = rawCareerWr != null
+      ? (Number(rawCareerWr) <= 1 ? Number(rawCareerWr) * 100 : Number(rawCareerWr))
+      : null;
+
+    if (!isStarter && (gamesPlayed > 0 || (careerWrPct != null && careerWrPct > 0))) {
+      if (careerLblEl) careerLblEl.textContent = "PLAYER CAREER";
+      if (careerValEl) {
+        careerValEl.textContent = careerWrPct != null ? `${careerWrPct.toFixed(1)}% WR` : `${card.elo || 1800} Elo`;
+        careerValEl.style.color = (careerWrPct || 50) >= 58 ? "#4ade80" : "#f8fafc";
       }
-      if (headlineEl) {
-        headlineEl.textContent = p.isAlternating
-          ? (p.amIDefender ? "Step 1: Place 1 Defender" : "Step 1: Enemy Defender")
-          : "Step 1: Place 1 Defender";
+      if (careerSubEl) {
+        careerSubEl.textContent = gamesPlayed > 0
+          ? `${gamesPlayed} Career Games`
+          : (card.detachment || meta.detachment || "Tournament Pro");
       }
-      const stepInfo = p.isAlternating
-        ? (p.amIDefender
-            ? "You are DEFENDER this cycle! Select 1 player card from your bottom hand to place in your Defender Zone, then click Lock In."
-            : "You are ATTACKER this cycle! Waiting for the Defender team to put forward 1 Defender card first.")
-        : "Select 1 player card from your bottom hand to place face-down in your Defender Zone, then click Lock In.";
-      if (descEl) descEl.textContent = stepInfo;
-      if (infoBtn) {
-        infoBtn.setAttribute("data-info-title", "Step 1: Place Defender");
-        infoBtn.setAttribute("data-info-body", stepInfo);
-      }
-      sCard1?.classList.add("active");
-      if (sState1) sState1.textContent = "NOW";
-      if (sState2) sState2.textContent = "NEXT";
-      if (sState3) sState3.textContent = "WAIT";
-    } else if (phase === "STEP_2_ATTACKERS") {
-      myLocked = p.isAlternating ? !p.isMyActionTurn : !!p.mySecAttsLocked;
-      oppLocked = p.isAlternating ? p.isMyActionTurn : !!p.oppSecAttsLocked;
-      if (tagEl) {
-        tagEl.textContent = p.isAlternating
-          ? `C${cycle} • ${p.amIDefender ? "🛡️ DEF" : "⚔️ ATK"}`
-          : `C${cycle} • STEP 2`;
-      }
-      if (headlineEl) headlineEl.textContent = "Step 2: Send 2 Attackers";
-      const stepInfo = p.isAlternating
-        ? (p.amIAttacker
-            ? `Enemy Defender (${p.oppDef?.name || "Revealed"}) is on the mat! Select 2 cards from your hand to challenge them, then click Lock In.`
-            : `Your Defender (${p.myDef?.name || "Revealed"}) is on the mat. Waiting for the Attacker team to send 2 Attackers against you.`)
-        : `Enemy Defender (${p.oppDef?.name || "Revealed"}) is on the mat! Select 2 cards from your hand to challenge them, then click Lock In.`;
-      if (descEl) descEl.textContent = stepInfo;
-      if (infoBtn) {
-        infoBtn.setAttribute("data-info-title", "Step 2: Send 2 Attackers");
-        infoBtn.setAttribute("data-info-body", stepInfo);
-      }
-      sCard1?.classList.add("done");
-      sCard2?.classList.add("active");
-      if (sState1) sState1.textContent = "DONE";
-      if (sState2) sState2.textContent = "NOW";
-      if (sState3) sState3.textContent = "NEXT";
-    } else if (phase === "STEP_3_CHOOSE") {
-      myLocked = p.isAlternating ? !p.isMyActionTurn : !!p.mySecChoiceLocked;
-      oppLocked = p.isAlternating ? p.isMyActionTurn : !!p.oppSecChoiceLocked;
-      if (tagEl) {
-        tagEl.textContent = p.isAlternating
-          ? `C${cycle} • ${p.amIDefender ? "🛡️ DEF" : "⚔️ ATK"}`
-          : `C${cycle} • STEP 3`;
-      }
-      if (headlineEl) headlineEl.textContent = "Step 3: Pick 1 Attacker";
-      const stepInfo = p.isAlternating
-        ? (p.amIDefender
-            ? "Click 1 of the 2 enemy Attackers on the top mat for your Defender to fight. Unchosen card returns to hand & roles swap next cycle."
-            : "Waiting for the enemy Defender to pick 1 of your 2 Attackers to fight. Unchosen card returns to hand & roles swap next cycle.")
-        : "Click 1 of the 2 enemy Attackers on the top mat for your Defender to fight.";
-      if (descEl) descEl.textContent = stepInfo;
-      if (infoBtn) {
-        infoBtn.setAttribute("data-info-title", "Step 3: Defender's Choice");
-        infoBtn.setAttribute("data-info-body", stepInfo);
-      }
-      sCard1?.classList.add("done");
-      sCard2?.classList.add("done");
-      sCard3?.classList.add("active");
-      if (sState1) sState1.textContent = "DONE";
-      if (sState2) sState2.textContent = "DONE";
-      if (sState3) sState3.textContent = "NOW";
     } else {
-      myLocked = true;
-      oppLocked = true;
-      if (tagEl) tagEl.textContent = "COMPLETE";
-      if (headlineEl) headlineEl.textContent = `All ${totalTables} Tables Locked`;
-      const stepInfo = "All table pairings are locked! Review the matchups on the right dock or start a new room.";
-      if (descEl) descEl.textContent = stepInfo;
-      if (infoBtn) {
-        infoBtn.setAttribute("data-info-title", "Pairings Complete");
-        infoBtn.setAttribute("data-info-body", stepInfo);
+      if (careerLblEl) careerLblEl.textContent = "ARCHETYPE";
+      if (careerValEl) {
+        careerValEl.textContent = isStarter ? "Starter Base" : "Pro Card";
+        careerValEl.style.color = "#f8fafc";
       }
-      sCard1?.classList.add("done");
-      sCard2?.classList.add("done");
-      sCard3?.classList.add("done");
-      if (sState1) sState1.textContent = "DONE";
-      if (sState2) sState2.textContent = "DONE";
-      if (sState3) sState3.textContent = "DONE";
-    }
-
-    if (myChip) {
-      if (p.isAlternating && phase !== "COMPLETED") {
-        myChip.textContent = p.isMyActionTurn
-          ? `⚡ You (${p.amIDefender ? "DEF" : "ATK"}): Turn`
-          : `⏳ You (${p.amIDefender ? "DEF" : "ATK"}): Wait`;
-        myChip.classList.toggle("ready", !p.isMyActionTurn);
-      } else {
-        myChip.textContent = myLocked
-          ? "✓ You: Locked"
-          : (p.isSpectator ? "👁️ Viewing" : `⚡ You: ${this.selectedIds.length} picked`);
-        myChip.classList.toggle("ready", myLocked);
-      }
-    }
-    if (oppChip) {
-      if (p.isAlternating && phase !== "COMPLETED") {
-        oppChip.textContent = !p.isMyActionTurn
-          ? `⚡ Enemy: Turn`
-          : `✓ Enemy: Ready`;
-        oppChip.classList.toggle("ready", p.isMyActionTurn);
-      } else {
-        oppChip.textContent = oppLocked ? "✓ Enemy: Locked" : "⏳ Enemy...";
-        oppChip.classList.toggle("ready", oppLocked);
+      if (careerSubEl) {
+        careerSubEl.textContent = card.detachment || meta.detachment || "Balanced Strike Force";
       }
     }
 
-    const summaryRows = document.getElementById("pgCycleSummaryRows");
-    if (summaryRows) {
-      if (p.isAlternating) {
-        const rows = [];
-        for (let c = 1; c <= maxCycles; c++) {
-          const isFinal = c === maxCycles;
-          const tblDesc = isFinal
-            ? `Tables #${c}–#${totalTables}`
-            : `Table #${c}`;
-          const cls = phase === "COMPLETED" || cycle > c ? "done" : (cycle === c ? "active" : "");
-          rows.push(`<div class="pg-summary-row ${cls}"><span>C${c}</span><strong>${tblDesc}</strong></div>`);
-        }
-        summaryRows.innerHTML = rows.join("");
-      } else if (totalTables === 8) {
-        summaryRows.innerHTML = [
-          { c: 1, lbl: "C1", desc: "Tables #1–#2" },
-          { c: 2, lbl: "C2", desc: "Tables #3–#4" },
-          { c: 3, lbl: "C3", desc: "Tables #5–#8" }
-        ].map((row) => {
-          const cls = phase === "COMPLETED" || cycle > row.c ? "done" : (cycle === row.c ? "active" : "");
-          return `<div class="pg-summary-row ${cls}"><span>${row.lbl}</span><strong>${row.desc}</strong></div>`;
-        }).join("");
-      } else {
-        summaryRows.innerHTML = [
-          { c: 1, lbl: "C1", desc: "Tables #1–#2" },
-          { c: 2, lbl: "C2", desc: "Tables #3–#5" }
-        ].map((row) => {
-          const cls = phase === "COMPLETED" || cycle > row.c ? "done" : (cycle === row.c ? "active" : "");
-          return `<div class="pg-summary-row ${cls}"><span>${row.lbl}</span><strong>${row.desc}</strong></div>`;
-        }).join("");
+    // Compute matchups against all opposing cards
+    const activeOpponents = opposingPool.filter((oc) => oc.status !== "paired");
+    const evalPool = activeOpponents.length > 0 ? activeOpponents : opposingPool;
+    const matchupRows = opposingPool.map((opp) => {
+      const pred = this.getMatchupPrediction(card, opp);
+      return { opp, pred };
+    });
+
+    if (evalPool.length > 0) {
+      const evalPreds = evalPool.map((opp) => ({ opp, pred: this.getMatchupPrediction(card, opp) }));
+      const avgWtc = evalPreds.reduce((s, x) => s + x.pred.wtcScore, 0) / evalPreds.length;
+      const avgWin = Math.round(evalPreds.reduce((s, x) => s + x.pred.winProb, 0) / evalPreds.length);
+      if (avgWtcEl) {
+        avgWtcEl.textContent = `${avgWtc.toFixed(1)} / 20`;
+        avgWtcEl.style.color = avgWtc >= 11.2 ? "#4ade80" : (avgWtc <= 8.8 ? "#fb7185" : "#fde047");
       }
+      if (avgWinEl) avgWinEl.textContent = `${avgWin}% Avg Win`;
+
+      const sortedByScore = [...evalPreds].sort((a, b) => (b.pred.wtcScore - a.pred.wtcScore) || (b.pred.winProb - a.pred.winProb));
+      const best = sortedByScore[0];
+      const worst = sortedByScore[sortedByScore.length - 1];
+      if (bestTargetEl && best) {
+        bestTargetEl.textContent = `${best.pred.wtcScore}-${20 - best.pred.wtcScore} vs ${best.opp.name}`;
+        bestTargetEl.style.color = best.pred.wtcScore >= 11 ? "#4ade80" : "#f8fafc";
+      }
+      if (worstTargetEl && worst) {
+        worstTargetEl.textContent = `Low: ${worst.pred.wtcScore}-${20 - worst.pred.wtcScore} vs ${worst.opp.name}`;
+      }
+    } else {
+      if (avgWtcEl) avgWtcEl.textContent = "10.0 / 20";
+      if (avgWinEl) avgWinEl.textContent = "50% Avg Win";
+      if (bestTargetEl) bestTargetEl.textContent = "—";
+      if (worstTargetEl) worstTargetEl.textContent = "—";
+    }
+
+    // Pick target card for the 6-Factor Breakdown Box
+    let targetOpp = null;
+    if (this.inspectedTargetCard && opposingPool.some((c) => c.id === this.inspectedTargetCard.id)) {
+      targetOpp = opposingPool.find((c) => c.id === this.inspectedTargetCard.id);
+    } else if (isMyCard && p.oppDef) {
+      targetOpp = p.oppDef;
+    } else if (!isMyCard && p.myDef) {
+      targetOpp = p.myDef;
+    } else if (evalPool.length > 0) {
+      targetOpp = evalPool[0];
+    } else if (opposingPool.length > 0) {
+      targetOpp = opposingPool[0];
+    }
+
+    if (targetOpp && factorStrip) {
+      const tPred = this.getMatchupPrediction(card, targetOpp);
+      const f = tPred.factors || {};
+      if (factorVsTitle) {
+        factorVsTitle.textContent = `6-FACTOR VS ${String(targetOpp.name || targetOpp.faction || "").toUpperCase()}`;
+      }
+      if (factorTotalDelta) {
+        factorTotalDelta.textContent = `${fmtSigned(tPred.effectiveEloDelta)} Eff. Elo (${tPred.winProb}%)`;
+        factorTotalDelta.style.color = tPred.effectiveEloDelta > 15 ? "#4ade80" : (tPred.effectiveEloDelta < -15 ? "#fb7185" : "#38bdf8");
+      }
+      const items = [
+        { lbl: "Base Elo", val: Number(f.base_elo_delta || 0) },
+        { lbl: "3M Fac H2H", val: Number(f.fac_h2h_delta || 0) },
+        { lbl: "3M Meta", val: Number(f.fac_meta_delta || 0) },
+        { lbl: "Own Mast.", val: Number(f.own_mastery_delta || 0) },
+        { lbl: "Vs Mast.", val: Number(f.vs_mastery_delta || 0) },
+        { lbl: "Player H2H", val: Number(f.past_h2h_delta || 0) }
+      ];
+      factorStrip.innerHTML = items.map((it) => {
+        const cls = it.val > 0 ? "pos" : (it.val < 0 ? "neg" : "");
+        return `<div class="cmi-f-chip ${cls}"><span>${it.lbl}</span><strong>${fmtSigned(it.val)}</strong></div>`;
+      }).join("");
+    } else if (factorStrip) {
+      factorStrip.innerHTML = "";
+    }
+
+    if (matchupListTitle) {
+      matchupListTitle.textContent = isMyCard ? "⚔️ VS OPPONENT HAND" : "⚔️ VS YOUR HAND";
+    }
+
+    if (matchupListEl) {
+      const sortedRows = [...matchupRows].sort((a, b) => {
+        const aPaired = a.opp.status === "paired" ? 1 : 0;
+        const bPaired = b.opp.status === "paired" ? 1 : 0;
+        if (aPaired !== bPaired) return aPaired - bPaired;
+        return (b.pred.wtcScore - a.pred.wtcScore) || (b.pred.winProb - a.pred.winProb);
+      });
+
+      matchupListEl.innerHTML = sortedRows.map(({ opp, pred }) => {
+        const s = pred.wtcScore;
+        const color = s >= 12 ? "#4ade80" : (s <= 8 ? "#fb7185" : "#fde047");
+        const ico = getFactionSvgHtml(opp.faction, "armory-faction-svg");
+        const isActiveTarget = targetOpp && targetOpp.id === opp.id;
+        const isPaired = opp.status === "paired";
+        const h2hWr = pred.facH2hWr != null ? `H2H ${Math.round(pred.facH2hWr)}%` : opp.faction;
+        const statusSuffix = opp.status === "defender" ? " • 🛡️DEF" : (opp.status === "attacker" ? " • ⚔️ATK" : (isPaired ? " • PAIRED" : ""));
+        return `
+          <div class="cmi-matchup-row ${isActiveTarget ? "active-target" : ""} ${isPaired ? "paired-out" : ""}" data-opp-id="${this.escapeHtml(opp.id)}">
+            <div class="cmi-mr-left">
+              <span class="cmi-mr-ico">${ico}</span>
+              <div class="cmi-mr-text">
+                <span class="cmi-mr-name">${this.escapeHtml(opp.name)}${this.escapeHtml(statusSuffix)}</span>
+                <span class="cmi-mr-sub">${opp.elo || 1500} Elo • ${this.escapeHtml(h2hWr)}</span>
+              </div>
+            </div>
+            <span class="cmi-mr-score" style="color:${color}">${s}-${20 - s} • ${pred.winProb}%</span>
+          </div>
+        `;
+      }).join("");
+
+      matchupListEl.querySelectorAll(".cmi-matchup-row").forEach((rowEl) => {
+        const selectTarget = () => {
+          const oid = rowEl.getAttribute("data-opp-id");
+          const foundOpp = opposingPool.find((c) => c.id === oid);
+          if (foundOpp) {
+            this.inspectedTargetCard = foundOpp;
+            this.renderPairingProcessGuide(p);
+          }
+        };
+        rowEl.addEventListener("mouseenter", selectTarget);
+        rowEl.addEventListener("click", selectTarget);
+      });
     }
   }
 
