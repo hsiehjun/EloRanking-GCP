@@ -840,7 +840,7 @@ class YuGiOhPairingsArena {
     return fmt === "8v8" ? 8 : 5;
   }
 
-  async onFormatChanged(newFormatValue) {
+  async onFormatChanged(newFormatValue, { ensureRosters = false } = {}) {
     const fmt = String(newFormatValue || "5v5").toLowerCase() === "8v8" ? "8v8" : "5v5";
     const tSize = fmt === "8v8" ? 8 : 5;
     this.trimLobbyDraftToFormat();
@@ -866,12 +866,13 @@ class YuGiOhPairingsArena {
             user_id: this.userId,
             captain_token: tok,
             action: "set_format",
-            payload: { format_size: fmt }
+            payload: { format_size: fmt, ensure_rosters: ensureRosters }
           })
         });
         const data = await resp.json();
         if (data && (data.ok || data.success) && data.room) {
           this.room = data.room;
+          this.syncLobbyDraftFromRoom();
           this.renderAll();
         }
       } catch (_) {}
@@ -1656,7 +1657,7 @@ class YuGiOhPairingsArena {
     const fmt = (document.getElementById("selectFormat")?.value || this.room?.format_size || "5v5").toLowerCase() === "8v8" ? "8v8" : "5v5";
     const finalHand = this.lobbyDraftTeam[this.activeRole] || [];
     if (finalHand.length === 0) {
-      await this.onFormatChanged(fmt);
+      await this.onFormatChanged(fmt, { ensureRosters: true });
       this.closeLobbyModal();
       this.renderAll();
       if (this.room && !this.room.coin_flip_done && this.room.phase !== "COMPLETED") {
@@ -1710,9 +1711,17 @@ class YuGiOhPairingsArena {
     }
 
     const lockedCount = (this.lobbyDraftTeam[this.activeRole] || finalHand).length;
+    const rosterA = this.room?.team_a?.roster || [];
+    const rosterB = this.room?.team_b?.roster || [];
+    const avgA = rosterA.length ? Math.round(rosterA.reduce((s, p) => s + (Number(p.elo) || 1500), 0) / rosterA.length) : 0;
+    const avgB = rosterB.length ? Math.round(rosterB.reduce((s, p) => s + (Number(p.elo) || 1500), 0) / rosterB.length) : 0;
     this.closeLobbyModal();
     this.renderAll();
-    this.showToast(`Locked ${lockedCount} players for ${teamName} (${fmt.toUpperCase()})!`);
+    if (this.room?.vs_ai && avgA > 0 && avgB > 0) {
+      this.showToast(`⚔️ Locked ${teamName} (Avg ${avgA} Elo) vs AI (Avg ${avgB} Elo)!`);
+    } else {
+      this.showToast(`Locked ${lockedCount} players for ${teamName} (${fmt.toUpperCase()})!`);
+    }
 
     if (this.room && !this.room.coin_flip_done && this.room.phase !== "COMPLETED") {
       this.openCoinFlipModal();
@@ -4633,9 +4642,16 @@ class YuGiOhPairingsArena {
             this.openCoinFlipModal();
           }
         }
+        const rosterA = this.room?.team_a?.roster || [];
+        const rosterB = this.room?.team_b?.roster || [];
+        const avgA = rosterA.length ? Math.round(rosterA.reduce((s, p) => s + (Number(p.elo) || 1500), 0) / rosterA.length) : 0;
+        const avgB = rosterB.length ? Math.round(rosterB.reduce((s, p) => s + (Number(p.elo) || 1500), 0) / rosterB.length) : 0;
+        const eloSuffix = (this.room?.vs_ai && avgA > 0 && avgB > 0)
+          ? ` (Avg ${avgA} Elo vs AI Avg ${avgB} Elo)`
+          : "";
         const label = mode === "starter"
-          ? "🛡️ Equipped 1450–1550 Starter Faction Deck!"
-          : "🃏 Deployed Casual TCG Deck to your Hand!";
+          ? `🛡️ Starter Deck Equipped${eloSuffix}!`
+          : `🃏 TCG Deck Equipped${eloSuffix}!`;
         this.showToast(label);
       }
     } catch (err) {

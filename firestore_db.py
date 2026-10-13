@@ -3519,32 +3519,6 @@ class FirestoreRoomEngine:
         preset_a = copy.deepcopy(self.TEAM_PAIRING_PRESETS[preset_a_key])
         preset_b = copy.deepcopy(self.TEAM_PAIRING_PRESETS[preset_b_key])
 
-        if empty_rosters:
-            roster_a = copy.deepcopy(req.get("team_a_roster") or [])[:team_size]
-            roster_b = copy.deepcopy(req.get("team_b_roster") or [])[:team_size]
-        else:
-            if isinstance(req.get("team_a_roster"), list) and len(req["team_a_roster"]) >= team_size:
-                roster_a = copy.deepcopy(req["team_a_roster"][:team_size])
-            elif room_mode == "casual_tcg" or bool(req.get("use_tcg_deck", False)):
-                roster_a = self.get_user_tcg_deck_roster(creator_uid or "dev_user", format_size=fmt)
-            else:
-                roster_a = preset_a["roster"][:team_size]
-            if isinstance(req.get("team_b_roster"), list) and len(req["team_b_roster"]) >= team_size:
-                roster_b = copy.deepcopy(req["team_b_roster"][:team_size])
-            else:
-                roster_b = preset_b["roster"][:team_size]
-
-        # Ensure clean IDs A1..An and B1..Bn and hydrate live player_ratings Elos
-        for idx, p in enumerate(roster_a):
-            p["id"] = f"A{idx + 1}"
-            p["team"] = "A"
-            p["status"] = "bench"
-        for idx, p in enumerate(roster_b):
-            p["id"] = f"B{idx + 1}"
-            p["team"] = "B"
-            p["status"] = "bench"
-        self._hydrate_roster_live_elos([roster_a, roster_b], game_system=str(req.get("game_system") or "40k"))
-
         raw_code = str(req.get("room_code") or "").strip().upper()
         if not raw_code:
             raw_code = f"WTC-{secrets.token_hex(2).upper()}"
@@ -3556,16 +3530,70 @@ class FirestoreRoomEngine:
 
         seat_a_locked = bool(req.get("seat_a_locked", bool(creator_uid)))
         seat_b_locked = bool(req.get("seat_b_locked", False))
+        sys_key = str(req.get("game_system") or "40k")
+
+        if empty_rosters:
+            roster_a = copy.deepcopy(req.get("team_a_roster") or [])[:team_size]
+            roster_b = copy.deepcopy(req.get("team_b_roster") or [])[:team_size]
+            for idx, p in enumerate(roster_a):
+                p["id"] = f"A{idx + 1}"
+                p["team"] = "A"
+                p["status"] = "bench"
+            for idx, p in enumerate(roster_b):
+                p["id"] = f"B{idx + 1}"
+                p["team"] = "B"
+                p["status"] = "bench"
+            self._hydrate_roster_live_elos([roster_a, roster_b], game_system=sys_key)
+            ai_team_b_meta: Optional[Dict[str, Any]] = None
+        else:
+            if isinstance(req.get("team_a_roster"), list) and len(req["team_a_roster"]) >= team_size:
+                roster_a = copy.deepcopy(req["team_a_roster"][:team_size])
+            elif room_mode == "casual_tcg" or bool(req.get("use_tcg_deck", False)):
+                roster_a = self.get_user_tcg_deck_roster(creator_uid or "dev_user", format_size=fmt)
+            else:
+                roster_a = preset_a["roster"][:team_size]
+            for idx, p in enumerate(roster_a):
+                p["id"] = f"A{idx + 1}"
+                p["team"] = "A"
+                p["status"] = "bench"
+            self._hydrate_roster_live_elos([roster_a], game_system=sys_key)
+
+            ai_team_b_meta = None
+            if isinstance(req.get("team_b_roster"), list) and len(req["team_b_roster"]) >= team_size:
+                roster_b = copy.deepcopy(req["team_b_roster"][:team_size])
+                for idx, p in enumerate(roster_b):
+                    p["id"] = f"B{idx + 1}"
+                    p["team"] = "B"
+                    p["status"] = "bench"
+                self._hydrate_roster_live_elos([roster_b], game_system=sys_key)
+            elif vs_ai and not seat_b_locked:
+                ai_team_b_meta = self._build_elo_matched_ai_team_b(
+                    roster_a,
+                    team_size=team_size,
+                    room_mode=room_mode,
+                    seed_key=raw_code,
+                    game_system=sys_key,
+                )
+                roster_b = ai_team_b_meta["roster"]
+            else:
+                roster_b = preset_b["roster"][:team_size]
+                for idx, p in enumerate(roster_b):
+                    p["id"] = f"B{idx + 1}"
+                    p["team"] = "B"
+                    p["status"] = "bench"
+                self._hydrate_roster_live_elos([roster_b], game_system=sys_key)
 
         now_dt = datetime.now(timezone.utc)
         now_ts = int(now_dt.timestamp() * 1000)
         ts_str = now_dt.strftime("%H:%M:%S")
         default_name_a = "Team A" if empty_rosters else ("Commander TCG Strike Force" if room_mode == "casual_tcg" else preset_a["name"])
-        default_name_b = "Team B" if empty_rosters else preset_b["name"]
+        default_name_b = "Team B" if empty_rosters else (ai_team_b_meta["name"] if ai_team_b_meta else preset_b["name"])
         default_tag_a = "TMA" if empty_rosters else ("TCG" if room_mode == "casual_tcg" else preset_a["short_tag"])
-        default_tag_b = "TMB" if empty_rosters else preset_b["short_tag"]
+        default_tag_b = "TMB" if empty_rosters else (ai_team_b_meta["short_tag"] if ai_team_b_meta else preset_b["short_tag"])
         default_cap_a = "Team A Captain" if empty_rosters else (roster_a[0]["name"] if (room_mode == "casual_tcg" and roster_a) else preset_a["captain_name"])
-        default_cap_b = ("AI Opponent" if vs_ai else "Team B Captain") if empty_rosters else (f"{preset_b['captain_name']} (AI Bot)" if vs_ai else preset_b["captain_name"])
+        default_cap_b = ("AI Opponent" if vs_ai else "Team B Captain") if empty_rosters else (
+            ai_team_b_meta["captain_name"] if ai_team_b_meta else (f"{preset_b['captain_name']} (AI Bot)" if vs_ai else preset_b["captain_name"])
+        )
 
         team_a_name = str(req.get("team_a_name") or default_name_a).strip()
         team_b_name = str(req.get("team_b_name") or default_name_b).strip()
@@ -3877,42 +3905,308 @@ class FirestoreRoomEngine:
         room.setdefault("history_log", []).append(msg)
         room.setdefault("log", []).append({"ts": ts_str, "msg": msg})
 
+    def _build_elo_matched_ai_team_b(
+        self,
+        reference_roster: Optional[List[Dict[str, Any]]] = None,
+        team_size: int = 5,
+        room_mode: str = "tournament",
+        seed_key: str = "wtc_ai",
+        game_system: str = "40k",
+    ) -> Dict[str, Any]:
+        """
+        Builds an AI opponent Team B whose card Elos closely match `reference_roster` (Team A)
+        slot-for-slot and in team average Elo (~±5–20 Elo), ensuring every match against the AI
+        is competitive and winnable regardless of whether the player fields a ~1500 Starter Deck,
+        a ~1650 Local Contender roster, a ~1820 Regional GT roster, or a 2100+ Mythic Warlord team.
+        """
+        import copy
+        import hashlib
+
+        t_size = 8 if int(team_size or 5) == 8 else 5
+        sys_key = str(game_system or "40k").strip().lower()
+        seed_clean = str(seed_key or "wtc_ai").strip() or "wtc_ai"
+
+        ref_list = copy.deepcopy(reference_roster or [])[:t_size]
+        if ref_list:
+            self._hydrate_roster_live_elos([ref_list], game_system=sys_key)
+
+        target_slots: List[Tuple[int, bool, str]] = []
+        for p in ref_list:
+            if not isinstance(p, dict):
+                continue
+            is_st = bool(p.get("is_starter")) or str(p.get("rarity") or "").lower() == "starter"
+            p_elo = int(round(float(p.get("current_elo") or p.get("elo") or (1500 if is_st else 1850))))
+            if p_elo <= 1552:
+                is_st = True
+            p_fac = str(p.get("faction") or "").strip()
+            target_slots.append((p_elo, is_st, p_fac))
+
+        if not target_slots:
+            if str(room_mode or "").strip().lower() == "casual_tcg":
+                ai_starters_init = self.get_tcg_starter_cards(f"ai_bot_{seed_clean}")
+                for sc in ai_starters_init[:t_size]:
+                    target_slots.append((int(sc["elo"]), True, str(sc["faction"])))
+            else:
+                preset_b = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get("team_zero_comp") or next(iter(self.TEAM_PAIRING_PRESETS.values())))
+                raw_b = preset_b["roster"][:t_size]
+                self._hydrate_roster_live_elos([raw_b], game_system=sys_key)
+                for pb in raw_b:
+                    target_slots.append((int(pb.get("current_elo") or pb.get("elo") or 1950), False, str(pb.get("faction") or "")))
+        elif len(target_slots) < t_size:
+            avg_ref = int(round(sum(e for e, _, _ in target_slots) / len(target_slots)))
+            default_st = avg_ref <= 1552 or all(st for _, st, _ in target_slots)
+            while len(target_slots) < t_size:
+                target_slots.append((avg_ref, default_st, ""))
+
+        # Prepare Starter Faction pool (rotated deterministically by seed_clean so AI picks diverse opposing factions)
+        ai_starter_pool = copy.deepcopy(self.get_tcg_starter_cards(f"ai_bot_{seed_clean}"))
+        rot_offset = (int(hashlib.md5(f"ai_rot:{seed_clean}".encode("utf-8")).hexdigest()[:6], 16) % 21) + 5
+        ai_starter_pool = ai_starter_pool[rot_offset:] + ai_starter_pool[:rot_offset]
+
+        # Prepare Collectible Real Player pool (1558 .. 2368 Elo)
+        collectible_pool = copy.deepcopy(self.get_tcg_collectible_pool(game_system=sys_key))
+        used_player_names = {
+            str(p.get("player_name") or p.get("name") or "").strip().lower()
+            for p in ref_list
+            if isinstance(p, dict) and not p.get("is_starter")
+        }
+        used_ai_factions: set = set()
+        used_starter_factions: set = set()
+
+        ai_roster: List[Dict[str, Any]] = []
+        running_target_sum = 0
+        running_ai_sum = 0
+
+        for idx, (slot_target_elo, is_starter_slot, ref_fac) in enumerate(target_slots[:t_size]):
+            running_err = running_ai_sum - running_target_sum
+            compensated_target = int(round(slot_target_elo - (running_err * 0.85)))
+
+            if is_starter_slot or slot_target_elo <= 1552:
+                best_sc = None
+                best_sc_score = 10**9
+                for sc in ai_starter_pool:
+                    fac_low = str(sc.get("faction") or "").lower()
+                    if fac_low in used_starter_factions:
+                        continue
+                    same_as_ref_pen = 60 if (ref_fac and fac_low == ref_fac.lower()) else 0
+                    dup_fac_pen = 35 if fac_low in used_ai_factions else 0
+                    sc_score = abs(int(sc.get("elo") or 1500) - compensated_target) + same_as_ref_pen + dup_fac_pen
+                    if sc_score < best_sc_score:
+                        best_sc_score = sc_score
+                        best_sc = sc
+                if best_sc is None:
+                    best_sc = ai_starter_pool[idx % len(ai_starter_pool)]
+
+                fac_name = str(best_sc.get("faction") or "Space Marines")
+                used_starter_factions.add(fac_name.lower())
+                used_ai_factions.add(fac_name.lower())
+                calibrated_elo = max(
+                    1450,
+                    min(1550, int(round(0.25 * int(best_sc.get("elo") or 1500) + 0.75 * compensated_target))),
+                )
+                role_lbl = str(best_sc.get("role_tag") or best_sc.get("role") or "All-Rounder")
+                entry = {
+                    "id": f"B{idx + 1}",
+                    "card_id": best_sc.get("card_id") or f"starter__{self._slugify_tcg(fac_name)}",
+                    "name": fac_name,
+                    "player_name": "",
+                    "faction": fac_name,
+                    "detachment": str(best_sc.get("detachment") or "Index / Strike Force"),
+                    "elo": calibrated_elo,
+                    "current_elo": calibrated_elo,
+                    "base_elo": calibrated_elo,
+                    "role": role_lbl,
+                    "role_tag": role_lbl,
+                    "is_starter": True,
+                    "rarity": "starter",
+                    "rarity_label": "STARTER FACTION",
+                    "copies": 1,
+                    "foil_tier": "★1 Base Set",
+                    "team": "B",
+                    "status": "bench",
+                }
+            else:
+                best_cand = None
+                best_cand_score = 10**9
+                for cand in collectible_pool:
+                    p_name_low = str(cand.get("player_name") or cand.get("name") or "").strip().lower()
+                    if not p_name_low or p_name_low in used_player_names:
+                        continue
+                    c_fac_low = str(cand.get("faction") or "").strip().lower()
+                    c_elo = int(cand.get("current_elo") or cand.get("elo") or 1800)
+                    fac_pen = 18 if c_fac_low in used_ai_factions else 0
+                    mirror_pen = 8 if (ref_fac and c_fac_low == ref_fac.lower()) else 0
+                    score = abs(c_elo - compensated_target) + fac_pen + mirror_pen
+                    if score < best_cand_score:
+                        best_cand_score = score
+                        best_cand = cand
+
+                if best_cand is None:
+                    best_cand = collectible_pool[idx % len(collectible_pool)]
+
+                p_name = str(best_cand.get("player_name") or best_cand.get("name") or f"AI Commander {idx + 1}").strip()
+                fac_name = str(best_cand.get("faction") or "Space Marines").strip()
+                used_player_names.add(p_name.lower())
+                used_ai_factions.add(fac_name.lower())
+                c_elo = int(best_cand.get("current_elo") or best_cand.get("elo") or 1800)
+                role_lbl = str(best_cand.get("role_tag") or best_cand.get("role") or "All-Rounder")
+                r_info = self.classify_tcg_rarity(c_elo, is_starter=False)
+                entry = {
+                    "id": f"B{idx + 1}",
+                    "card_id": best_cand.get("card_id") or f"tcg_{self._slugify_tcg(p_name)}__{self._slugify_tcg(fac_name)}",
+                    "name": p_name,
+                    "player_name": p_name,
+                    "faction": fac_name,
+                    "detachment": str(best_cand.get("detachment") or "Index / Strike Force"),
+                    "elo": c_elo,
+                    "current_elo": c_elo,
+                    "role": role_lbl,
+                    "role_tag": role_lbl,
+                    "is_starter": False,
+                    "rarity": r_info["id"],
+                    "rarity_label": r_info["label"],
+                    "copies": 1,
+                    "foil_tier": "★1 Standard",
+                    "team": "B",
+                    "status": "bench",
+                }
+
+            ai_roster.append(entry)
+            running_target_sum += slot_target_elo
+            running_ai_sum += int(entry["elo"])
+
+        avg_ai_elo = int(round(running_ai_sum / max(1, len(ai_roster))))
+        all_starters = all(bool(p.get("is_starter")) for p in ai_roster)
+        if all_starters or avg_ai_elo <= 1555:
+            ai_team_name = "Astra Vanguard (AI)"
+            ai_tag = "AVG"
+            ai_cap = f"{ai_roster[0]['name']} Vanguard (AI Bot)"
+        elif avg_ai_elo < 1750:
+            ai_team_name = "Iron Halo Contenders"
+            ai_tag = "IHC"
+            ai_cap = f"{ai_roster[0]['name']} (AI Bot)"
+        elif avg_ai_elo < 1920:
+            ai_team_name = "Tempestus Veterans"
+            ai_tag = "TMP"
+            ai_cap = f"{ai_roster[0]['name']} (AI Bot)"
+        else:
+            ai_team_name = "Team Zero Comp"
+            ai_tag = "TZC"
+            ai_cap = f"{ai_roster[0]['name']} (AI Bot)"
+
+        return {
+            "name": ai_team_name,
+            "tag": ai_tag,
+            "short_tag": ai_tag,
+            "captain_name": ai_cap,
+            "avg_elo": avg_ai_elo,
+            "roster": ai_roster,
+        }
+
     def _ensure_rosters_ready_for_duel(self, room: Dict[str, Any]) -> None:
-        """Ensures both teams have `team_size` cards on their roster when starting the coin flip / duel."""
+        """Ensures both teams have `team_size` cards on their roster (and AI Team B is Elo-matched to Team A) when starting the coin flip / duel."""
         import copy
         team_size = int(room.get("team_size") or 5)
-        for side_s, t_key, preset_key, prefix in (
-            ("a", "team_a", "art_of_war", "A"),
-            ("b", "team_b", "team_zero_comp", "B"),
-        ):
-            cur_roster = list((room.get(t_key) or {}).get("roster") or [])
-            if len(cur_roster) < team_size and not room.get("pairings"):
-                preset = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get(preset_key) or next(iter(self.TEAM_PAIRING_PRESETS.values())))
-                used_names = {str(p.get("name") or "").lower() for p in cur_roster}
-                for cand in preset.get("roster") or []:
-                    if len(cur_roster) >= team_size:
+        fmt_str = "8v8" if team_size == 8 else "5v5"
+        sys_key = str(room.get("game_system") or "40k")
+        room_mode = str(room.get("room_mode") or "tournament")
+
+        if not room.get("pairings"):
+            # 1. Ensure Team A has `team_size` cards
+            cur_a = list((room.get("team_a") or {}).get("roster") or [])
+            if len(cur_a) < team_size:
+                has_starters_a = any(bool(p.get("is_starter")) for p in cur_a)
+                avg_existing_a = (
+                    sum(int(p.get("current_elo") or p.get("elo") or 1500) for p in cur_a) / len(cur_a)
+                    if cur_a
+                    else (1500.0 if room_mode == "casual_tcg" else 2100.0)
+                )
+                if room_mode == "casual_tcg" or has_starters_a or avg_existing_a <= 1560:
+                    owner_uid = str(room.get("owner_id") or room.get("user_id_cap_a") or "dev_user")
+                    pad_pool = (
+                        self.get_user_tcg_deck_roster(owner_uid, format_size=fmt_str)
+                        + self.get_tcg_starter_cards(owner_uid)
+                    )
+                    default_name_a = "Commander TCG Strike Force"
+                    default_tag_a = "TCG"
+                else:
+                    preset_a = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get("art_of_war") or next(iter(self.TEAM_PAIRING_PRESETS.values())))
+                    pad_pool = preset_a.get("roster") or []
+                    default_name_a = preset_a.get("name") or "Art of War"
+                    default_tag_a = preset_a.get("short_tag") or "AOW"
+
+                used_names_a = {str(p.get("name") or "").lower() for p in cur_a}
+                for cand in pad_pool:
+                    if len(cur_a) >= team_size:
                         break
-                    if str(cand.get("name") or "").lower() in used_names:
+                    if str(cand.get("name") or "").lower() in used_names_a:
                         continue
-                    idx = len(cur_roster)
+                    idx = len(cur_a)
                     c_copy = copy.deepcopy(cand)
-                    c_copy["id"] = f"{prefix}{idx + 1}"
-                    c_copy["team"] = prefix
+                    c_copy["id"] = f"A{idx + 1}"
+                    c_copy["team"] = "A"
                     c_copy["status"] = "bench"
-                    cur_roster.append(c_copy)
-                    used_names.add(str(c_copy.get("name") or "").lower())
-                room[t_key]["roster"] = cur_roster
-                if room[t_key].get("name") in ("Team A", "Team B") and preset.get("name"):
-                    room[t_key]["name"] = preset["name"]
-                    room[t_key]["tag"] = preset["short_tag"]
-                    room[t_key]["short_tag"] = preset["short_tag"]
-                room[f"bench_{side_s}"] = [p["id"] for p in cur_roster]
+                    cur_a.append(c_copy)
+                    used_names_a.add(str(c_copy.get("name") or "").lower())
+                room["team_a"]["roster"] = cur_a
+                if room["team_a"].get("name") in ("Team A", ""):
+                    room["team_a"]["name"] = default_name_a
+                    room["team_a"]["tag"] = default_tag_a
+                    room["team_a"]["short_tag"] = default_tag_a
+                room["bench_a"] = [p["id"] for p in cur_a]
+
+            self._hydrate_roster_live_elos([(room.get("team_a") or {}).get("roster") or []], game_system=sys_key)
+
+            # 2. Ensure Team B has `team_size` cards (Elo-matched to Team A when vs_ai=True and Seat B is not human-locked)
+            cur_a = list((room.get("team_a") or {}).get("roster") or [])
+            cur_b = list((room.get("team_b") or {}).get("roster") or [])
+            if room.get("vs_ai") and not room.get("seat_b_locked"):
+                self._hydrate_roster_live_elos([cur_b], game_system=sys_key)
+                avg_a = (sum(int(p.get("current_elo") or p.get("elo") or 1500) for p in cur_a) / len(cur_a)) if cur_a else 1500.0
+                avg_b = (sum(int(p.get("current_elo") or p.get("elo") or 2000) for p in cur_b) / len(cur_b)) if cur_b else 0.0
+                if len(cur_b) != team_size or abs(avg_a - avg_b) > 35:
+                    ai_b = self._build_elo_matched_ai_team_b(
+                        cur_a,
+                        team_size=team_size,
+                        room_mode=room_mode,
+                        seed_key=str(room.get("room_code") or "wtc_ai"),
+                        game_system=sys_key,
+                    )
+                    room["team_b"]["roster"] = ai_b["roster"]
+                    room["team_b"]["name"] = ai_b["name"]
+                    room["team_b"]["tag"] = ai_b["tag"]
+                    room["team_b"]["short_tag"] = ai_b["short_tag"]
+                    room["team_b"]["captain_name"] = ai_b["captain_name"]
+                    room["captain_b_name"] = ai_b["captain_name"]
+                    room["bench_b"] = [p["id"] for p in ai_b["roster"]]
+            elif len(cur_b) < team_size:
+                preset_b = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get("team_zero_comp") or next(iter(self.TEAM_PAIRING_PRESETS.values())))
+                used_names_b = {str(p.get("name") or "").lower() for p in cur_b}
+                for cand in preset_b.get("roster") or []:
+                    if len(cur_b) >= team_size:
+                        break
+                    if str(cand.get("name") or "").lower() in used_names_b:
+                        continue
+                    idx = len(cur_b)
+                    c_copy = copy.deepcopy(cand)
+                    c_copy["id"] = f"B{idx + 1}"
+                    c_copy["team"] = "B"
+                    c_copy["status"] = "bench"
+                    cur_b.append(c_copy)
+                    used_names_b.add(str(c_copy.get("name") or "").lower())
+                room["team_b"]["roster"] = cur_b
+                if room["team_b"].get("name") in ("Team B", "") and preset_b.get("name"):
+                    room["team_b"]["name"] = preset_b["name"]
+                    room["team_b"]["tag"] = preset_b["short_tag"]
+                    room["team_b"]["short_tag"] = preset_b["short_tag"]
+                room["bench_b"] = [p["id"] for p in cur_b]
+
         self._hydrate_roster_live_elos(
             [
                 (room.get("team_a") or {}).get("roster") or [],
                 (room.get("team_b") or {}).get("roster") or [],
             ],
-            game_system=str(room.get("game_system") or "40k"),
+            game_system=sys_key,
         )
         self._sync_roster_statuses(room)
 
@@ -4689,17 +4983,26 @@ class FirestoreRoomEngine:
                         trimmed = cur_r[:t_size]
                         room[t_key]["roster"] = trimmed
                         room[f"bench_{side_s}"] = [p["id"] for p in trimmed]
-                # If AI Team B already had a populated roster (e.g. 5 cards), resize it to match new format
+                # If AI Team B already had a populated roster (e.g. 5 cards), resize & Elo-match it to new format
+                cur_a = (room.get("team_a") or {}).get("roster") or []
                 cur_b = (room.get("team_b") or {}).get("roster") or []
                 if room.get("vs_ai") and not room.get("seat_b_locked") and len(cur_b) > 0 and len(cur_b) != t_size:
-                    preset_b = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get("team_zero_comp") or next(iter(self.TEAM_PAIRING_PRESETS.values())))
-                    ai_roster = preset_b["roster"][:t_size]
-                    for idx, p in enumerate(ai_roster):
-                        p["id"] = f"B{idx + 1}"
-                        p["team"] = "B"
-                        p["status"] = "bench"
-                    room["team_b"]["roster"] = ai_roster
-                    room["bench_b"] = [p["id"] for p in ai_roster]
+                    ai_b = self._build_elo_matched_ai_team_b(
+                        cur_a,
+                        team_size=t_size,
+                        room_mode=str(room.get("room_mode") or "tournament"),
+                        seed_key=str(room.get("room_code") or "wtc_ai"),
+                        game_system=str(room.get("game_system") or "40k"),
+                    )
+                    room["team_b"]["roster"] = ai_b["roster"]
+                    room["team_b"]["name"] = ai_b["name"]
+                    room["team_b"]["tag"] = ai_b["tag"]
+                    room["team_b"]["short_tag"] = ai_b["short_tag"]
+                    room["team_b"]["captain_name"] = ai_b["captain_name"]
+                    room["captain_b_name"] = ai_b["captain_name"]
+                    room["bench_b"] = [p["id"] for p in ai_b["roster"]]
+                if req.get("ensure_rosters"):
+                    self._ensure_rosters_ready_for_duel(room)
 
             self._sync_roster_statuses(room)
             self._save_pairing_room_doc(room["room_code"], room)
@@ -4736,6 +5039,7 @@ class FirestoreRoomEngine:
             ):
                 room["room_mode"] = "casual_tcg"
                 deck_uid = caller_uid or str(room.get("owner_id") or "dev_user")
+                deck_mode = str(req.get("mode") or "").strip().lower()
                 card_ids = req.get("card_ids")
                 if isinstance(card_ids, list) and len(card_ids) >= 1:
                     self.save_user_tcg_deck(
@@ -4743,12 +5047,22 @@ class FirestoreRoomEngine:
                         {"format_size": fmt_str, "card_ids": card_ids, "deck_name": req.get("team_name") or req.get("deck_name")},
                     )
                 if not raw_roster:
-                    raw_roster = self.get_user_tcg_deck_roster(deck_uid, format_size=fmt_str)
+                    if deck_mode == "starter":
+                        raw_roster = copy.deepcopy(self.get_tcg_starter_cards(deck_uid)[:team_size])
+                    else:
+                        raw_roster = self.get_user_tcg_deck_roster(deck_uid, format_size=fmt_str)
                 if not req.get("team_name"):
-                    tcg_st = self._get_or_init_tcg_doc(deck_uid)
-                    req["team_name"] = str(tcg_st.get(f"deck_name_{fmt_str}") or "Commander TCG Strike Force")
+                    if deck_mode == "starter":
+                        req["team_name"] = (
+                            "Starter Faction Grand Battleline (8v8)"
+                            if team_size == 8
+                            else "Starter Faction Strike Force (5v5)"
+                        )
+                    else:
+                        tcg_st = self._get_or_init_tcg_doc(deck_uid)
+                        req["team_name"] = str(tcg_st.get(f"deck_name_{fmt_str}") or "Commander TCG Strike Force")
                 if not req.get("team_tag"):
-                    req["team_tag"] = "TCG"
+                    req["team_tag"] = "STR" if deck_mode == "starter" else "TCG"
             elif act == "set_room_mode":
                 room["room_mode"] = "tournament"
                 preset_key = str(req.get("preset_key") or ("art_of_war" if is_cap_a else "team_zero_comp")).strip().lower()
@@ -4783,7 +5097,8 @@ class FirestoreRoomEngine:
                     if tcg_key in item:
                         p_entry[tcg_key] = item[tcg_key]
                 new_roster.append(p_entry)
-            # Pad from existing roster or fallback preset if fewer than team_size were provided
+
+            # Pad from existing roster or appropriate pool if fewer than team_size were provided
             existing_roster = room[team_key].get("roster") or []
             while len(new_roster) < team_size and len(existing_roster) > len(new_roster):
                 idx = len(new_roster)
@@ -4794,8 +5109,17 @@ class FirestoreRoomEngine:
                 new_roster.append(fallback_p)
 
             if len(new_roster) < team_size:
-                fallback_preset_key = "art_of_war" if is_cap_a else "team_zero_comp"
-                fallback_pool = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get(fallback_preset_key, {}).get("roster") or [])
+                avg_partial = (
+                    sum(int(p.get("elo") or 1500) for p in new_roster) / len(new_roster)
+                    if new_roster
+                    else 2000.0
+                )
+                if room.get("room_mode") == "casual_tcg" or any(bool(p.get("is_starter")) for p in new_roster) or avg_partial <= 1560:
+                    pad_uid = caller_uid or str(room.get("owner_id") or "dev_user")
+                    fallback_pool = copy.deepcopy(self.get_tcg_starter_cards(pad_uid))
+                else:
+                    fallback_preset_key = "art_of_war" if is_cap_a else "team_zero_comp"
+                    fallback_pool = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get(fallback_preset_key, {}).get("roster") or [])
                 used_names = {str(p.get("name") or "").lower() for p in new_roster}
                 for cand in fallback_pool:
                     if len(new_roster) >= team_size:
@@ -4830,29 +5154,39 @@ class FirestoreRoomEngine:
             room[f"secret_choice_{side_suffix}"] = None
             room[f"locked_{side_suffix}"] = False
 
-            # If vs_ai is active and Team B has no human captain and an empty or mismatched-size roster, populate AI opponent roster now
-            existing_b_roster = (room.get("team_b") or {}).get("roster") or []
-            if is_cap_a and room.get("vs_ai") and not room.get("seat_b_locked") and len(existing_b_roster) != team_size:
-                preset_b = copy.deepcopy(self.TEAM_PAIRING_PRESETS.get("team_zero_comp") or next(iter(self.TEAM_PAIRING_PRESETS.values())))
-                ai_roster = preset_b["roster"][:team_size]
-                for idx, p in enumerate(ai_roster):
-                    p["id"] = f"B{idx + 1}"
-                    p["team"] = "B"
-                    p["status"] = "bench"
-                room["team_b"]["name"] = preset_b["name"]
-                room["team_b"]["tag"] = preset_b["short_tag"]
-                room["team_b"]["short_tag"] = preset_b["short_tag"]
-                room["team_b"]["captain_name"] = f"{preset_b['captain_name']} (AI Bot)"
-                room["captain_b_name"] = f"{preset_b['captain_name']} (AI Bot)"
-                room["team_b"]["roster"] = ai_roster
-                room["bench_b"] = [p["id"] for p in ai_roster]
+            sys_key = str(room.get("game_system") or "40k")
+            self._hydrate_roster_live_elos([room[team_key]["roster"]], game_system=sys_key)
+
+            # Whenever Captain A updates their team roster / TCG deck against AI (and Seat B is not human-locked),
+            # automatically calibrate AI Team B so its card Elos and team average Elo match Team A!
+            if is_cap_a and room.get("vs_ai") and not room.get("seat_b_locked") and not room.get("pairings"):
+                ai_b = self._build_elo_matched_ai_team_b(
+                    room["team_a"]["roster"],
+                    team_size=team_size,
+                    room_mode=str(room.get("room_mode") or "tournament"),
+                    seed_key=str(room.get("room_code") or "wtc_ai"),
+                    game_system=sys_key,
+                )
+                room["team_b"]["name"] = ai_b["name"]
+                room["team_b"]["tag"] = ai_b["tag"]
+                room["team_b"]["short_tag"] = ai_b["short_tag"]
+                room["team_b"]["captain_name"] = ai_b["captain_name"]
+                room["captain_b_name"] = ai_b["captain_name"]
+                room["team_b"]["roster"] = ai_b["roster"]
+                room["bench_b"] = [p["id"] for p in ai_b["roster"]]
+                room["secret_defender_b"] = None
+                room["defender_b"] = None
+                room["secret_attackers_b"] = []
+                room["attackers_b"] = []
+                room["secret_choice_b"] = None
+                room["locked_b"] = False
 
             self._hydrate_roster_live_elos(
                 [
                     (room.get("team_a") or {}).get("roster") or [],
                     (room.get("team_b") or {}).get("roster") or [],
                 ],
-                game_system=str(room.get("game_system") or "40k"),
+                game_system=sys_key,
             )
             self._sync_roster_statuses(room)
             self._save_pairing_room_doc(room["room_code"], room)

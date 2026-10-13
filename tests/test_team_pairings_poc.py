@@ -1523,6 +1523,93 @@ class TestTeamPairingsPoC(unittest.TestCase):
         self.assertEqual(completed_by_code[r8["room_code"]]["format_size"], "8v8")
         self.assertEqual(completed_by_code[r8["room_code"]]["status"], "completed")
 
+    def test_ai_opponent_elo_matches_player_team_across_starter_casual_and_custom_rosters(self):
+        """Verify AI Team B dynamically matches Team A's average Elo (~+-25 Elo) across Starter (~1500), Hybrid (~1650), Regional (~1820), and Elite (~2150) rosters."""
+        def _avg_elo(roster):
+            return sum(int(p.get("current_elo") or p.get("elo") or 1500) for p in roster) / max(1, len(roster))
+
+        # 1. Starter Deck Room (1450-1550 Elo, avg ~1500) via create_pairing_room(room_mode="casual_tcg")
+        uid_starter = "u_elo_match_starter"
+        r_starter = self.engine.create_pairing_room({
+            "format_size": "5v5",
+            "user_id": uid_starter,
+            "room_mode": "casual_tcg",
+            "vs_ai": True,
+        })
+        avg_a_st = _avg_elo(r_starter["team_a"]["roster"])
+        avg_b_st = _avg_elo(r_starter["team_b"]["roster"])
+        self.assertGreaterEqual(avg_a_st, 1450)
+        self.assertLessEqual(avg_a_st, 1550)
+        self.assertLessEqual(
+            abs(avg_a_st - avg_b_st),
+            25.0,
+            f"Starter Deck AI avg Elo ({avg_b_st:.1f}) must closely match player avg Elo ({avg_a_st:.1f})",
+        )
+        self.assertTrue(all(p.get("is_starter") for p in r_starter["team_b"]["roster"]))
+
+        # 2. Equip Starter Deck via apply_tcg_deck(mode="starter") on an empty_rosters room
+        r_empty = self.engine.create_pairing_room({
+            "format_size": "5v5",
+            "empty_rosters": True,
+            "vs_ai": True,
+            "user_id": uid_starter,
+        })
+        code = r_empty["room_code"]
+        tok_a = r_empty["captain_a_token"]
+
+        equip_starter = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": uid_starter,
+            "captain_token": tok_a,
+            "action": "apply_tcg_deck",
+            "payload": {"format_size": "5v5", "mode": "starter", "also_set_ai_tcg": True},
+        })
+        self.assertTrue(equip_starter["ok"])
+        rm_st = equip_starter["room"]
+        self.assertEqual(len(rm_st["team_a"]["roster"]), 5)
+        self.assertEqual(len(rm_st["team_b"]["roster"]), 5)
+        self.assertLessEqual(abs(_avg_elo(rm_st["team_a"]["roster"]) - _avg_elo(rm_st["team_b"]["roster"])), 25.0)
+
+        # 3. Custom Mid-Tier / Regional Contender Roster (~1760 avg Elo) via set_team_roster
+        regional_roster = [
+            {"name": "Tariq Al-Mansoor", "faction": "Thousand Sons", "elo": 1784},
+            {"name": "Hana Takahashi", "faction": "Drukhari", "elo": 1770},
+            {"name": "Garrett Cole", "faction": "Astra Militarum", "elo": 1758},
+            {"name": "Caleb Mercer", "faction": "Space Marines", "elo": 1735},
+            {"name": "Nolan Bishop", "faction": "Necrons", "elo": 1718},
+        ]
+        set_reg = self.engine.apply_pairing_action(code, {
+            "role": "captain_a",
+            "user_id": uid_starter,
+            "captain_token": tok_a,
+            "action": "set_team_roster",
+            "payload": {
+                "format_size": "5v5",
+                "team_name": "Regional Strike",
+                "team_tag": "RGS",
+                "roster": regional_roster,
+            },
+        })
+        self.assertTrue(set_reg["ok"])
+        rm_reg = set_reg["room"]
+        avg_a_reg = _avg_elo(rm_reg["team_a"]["roster"])
+        avg_b_reg = _avg_elo(rm_reg["team_b"]["roster"])
+        self.assertLessEqual(
+            abs(avg_a_reg - avg_b_reg),
+            30.0,
+            f"Regional AI avg Elo ({avg_b_reg:.1f}) must closely match player avg Elo ({avg_a_reg:.1f})",
+        )
+        # Ensure AI does not clone the exact same player names as Team A
+        names_a = {p["name"].lower() for p in rm_reg["team_a"]["roster"]}
+        names_b = {p["name"].lower() for p in rm_reg["team_b"]["roster"]}
+        self.assertEqual(len(names_a.intersection(names_b)), 0, "AI Team B must not field duplicate clones of Team A's players")
+
+        # 4. Verify expected matchup matrix on Starter Deck vs AI is competitive (~45-55 expected WTC points out of 100)
+        mat = rm_st["matchup_matrix"]
+        diagonal_exp_a = sum(mat[f"A{i}"][f"B{i}"] for i in range(1, 6))
+        self.assertGreaterEqual(diagonal_exp_a, 42, f"Expected competitive ~50/50 WTC expectation vs AI, got {diagonal_exp_a}/100")
+        self.assertLessEqual(diagonal_exp_a, 58, f"Expected competitive ~50/50 WTC expectation vs AI, got {diagonal_exp_a}/100")
+
 
 if __name__ == "__main__":
     unittest.main()
