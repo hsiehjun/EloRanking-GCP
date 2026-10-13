@@ -659,19 +659,7 @@ class YuGiOhPairingsArena {
       }
     });
 
-    // Card Meta Stats Popup / Hover Panel controls
-    const metaPanel = document.getElementById("pairingProcessPanel");
-    if (metaPanel) {
-      metaPanel.addEventListener("mouseenter", () => {
-        if (this._hideMetaHoverTimer) {
-          clearTimeout(this._hideMetaHoverTimer);
-          this._hideMetaHoverTimer = null;
-        }
-      });
-      metaPanel.addEventListener("mouseleave", () => {
-        this.scheduleHideCardMetaHover();
-      });
-    }
+    // Card Meta Stats Popup controls (triggered via "i" icon on top-right of each card)
     const btnCloseMetaPopup = document.getElementById("btnCloseCardMetaPopup");
     if (btnCloseMetaPopup) {
       btnCloseMetaPopup.addEventListener("click", (e) => {
@@ -2861,8 +2849,8 @@ class YuGiOhPairingsArena {
       if (p.oppDef) {
         const isNewSummon = !this.lastRenderedFieldCardIds.has(`oppDef_${p.oppDef.id}`);
         nextFieldIds.add(`oppDef_${p.oppDef.id}`);
-        oppDefMount.innerHTML = this.buildYuGiOhCardHtml(p.oppDef, { fieldSize: true, summonSlam: isNewSummon });
-        this.attachCardInspectHandler(oppDefMount, p.oppDef);
+        oppDefMount.innerHTML = this.buildYuGiOhCardHtml(p.oppDef, { fieldSize: true, summonSlam: isNewSummon, showInfoBtn: true });
+        this.attachCardInspectHandler(oppDefMount, p.oppDef, p.myDef);
       } else if (p.oppSecDefLocked) {
         oppDefMount.innerHTML = this.buildFaceDownFieldCardHtml("ENEMY DEF SET");
       } else {
@@ -2885,6 +2873,7 @@ class YuGiOhPairingsArena {
             selected: isChosen,
             clashChoice: canPick,
             summonSlam: isNewSummon,
+            showInfoBtn: true,
             matchupScore: vsMyDefPred ? vsMyDefPred.wtcScore : null,
             matchupPred: vsMyDefPred
           });
@@ -2892,23 +2881,12 @@ class YuGiOhPairingsArena {
 
         oppAttMount.querySelectorAll(".ygo-card").forEach((cardEl, idx) => {
           const attObj = p.oppAtts[idx];
-          cardEl.addEventListener("pointerenter", (e) => {
-            if (e.pointerType === "mouse") {
-              this.showCardMetaHover(attObj, p.myDef);
-            }
-          });
-          cardEl.addEventListener("pointerleave", (e) => {
-            if (e.pointerType === "mouse") {
-              this.scheduleHideCardMetaHover();
-            }
-          });
+          this.bindCardInfoBtn(cardEl, attObj, p.myDef);
           cardEl.addEventListener("click", () => {
             this.inspectCard(attObj, p.myDef);
             if (phase === "STEP_3_CHOOSE" && !p.isSpectator && !p.mySecChoiceLocked && p.isMyActionTurn) {
               this.selectedIds = [attObj.id];
               this.renderAll();
-            } else if (window.innerWidth <= 900) {
-              this.openCardMetaPopup(attObj, p.myDef);
             }
           });
         });
@@ -2941,26 +2919,16 @@ class YuGiOhPairingsArena {
         myDefMount.innerHTML = this.buildYuGiOhCardHtml(cardToShow, {
           fieldSize: true,
           selected: !p.myDef,
-          summonSlam: isNewSummon
+          summonSlam: isNewSummon,
+          showInfoBtn: true
         });
         const cardEl = myDefMount.querySelector(".ygo-card");
         if (cardEl) {
-          cardEl.addEventListener("pointerenter", (e) => {
-            if (e.pointerType === "mouse") {
-              this.showCardMetaHover(cardToShow, p.oppDef);
-            }
-          });
-          cardEl.addEventListener("pointerleave", (e) => {
-            if (e.pointerType === "mouse") {
-              this.scheduleHideCardMetaHover();
-            }
-          });
+          this.bindCardInfoBtn(cardEl, cardToShow, p.oppDef);
           cardEl.addEventListener("click", () => {
             this.inspectCard(cardToShow, p.oppDef);
             if (phase === "STEP_1_DEFENDER" && !p.mySecDefLocked && p.isMyActionTurn) {
               this.toggleHandCardSelection(cardToShow.id);
-            } else if (window.innerWidth <= 900) {
-              this.openCardMetaPopup(cardToShow, p.oppDef);
             }
           });
         }
@@ -2997,6 +2965,7 @@ class YuGiOhPairingsArena {
               fieldSize: true,
               selected: !(p.myAtts && p.myAtts.length > 0),
               summonSlam: isNewSummon,
+              showInfoBtn: true,
               matchupScore: mPred ? mPred.wtcScore : null,
               matchupPred: mPred
             }));
@@ -3008,21 +2977,10 @@ class YuGiOhPairingsArena {
         myAttMount.querySelectorAll(".ygo-card").forEach((el, idx) => {
           const cObj = cardsToShow[idx];
           if (cObj) {
-            el.addEventListener("pointerenter", (e) => {
-              if (e.pointerType === "mouse") {
-                this.showCardMetaHover(cObj, p.oppDef);
-              }
-            });
-            el.addEventListener("pointerleave", (e) => {
-              if (e.pointerType === "mouse") {
-                this.scheduleHideCardMetaHover();
-              }
-            });
+            this.bindCardInfoBtn(el, cObj, p.oppDef);
             el.addEventListener("click", () => {
               if (phase === "STEP_2_ATTACKERS" && !p.mySecAttsLocked && p.isMyActionTurn) {
                 this.toggleHandCardSelection(cObj.id);
-              } else if (window.innerWidth <= 900) {
-                this.openCardMetaPopup(cObj, p.oppDef);
               }
             });
           }
@@ -3119,6 +3077,7 @@ class YuGiOhPairingsArena {
           return this.buildYuGiOhCardHtml(oppCard, {
             oppHand: true,
             inspectedTarget: isTarget,
+            showInfoBtn: true,
             matchupScore: mPred ? mPred.wtcScore : null,
             matchupPred: mPred
           });
@@ -3126,15 +3085,10 @@ class YuGiOhPairingsArena {
 
         oppFan.querySelectorAll(".ygo-card").forEach((cardEl, idx) => {
           const oppCardObj = oppBench[idx];
+          this.bindCardInfoBtn(cardEl, oppCardObj, myRefCard);
           cardEl.addEventListener("pointerenter", (e) => {
             if (e.pointerType === "mouse") {
-              this.showCardMetaHover(oppCardObj, myRefCard);
               this.updateHandMatchupBadgesInPlace(p, null, oppCardObj);
-            }
-          });
-          cardEl.addEventListener("pointerleave", (e) => {
-            if (e.pointerType === "mouse") {
-              this.scheduleHideCardMetaHover();
             }
           });
           cardEl.addEventListener("click", () => {
@@ -3145,9 +3099,6 @@ class YuGiOhPairingsArena {
             }
             this.inspectCard(oppCardObj, myRefCard);
             this.renderHands(p);
-            if (window.innerWidth <= 900) {
-              this.openCardMetaPopup(oppCardObj, myRefCard);
-            }
           });
         });
       }
@@ -3183,6 +3134,7 @@ class YuGiOhPairingsArena {
         : null;
       return this.buildYuGiOhCardHtml(card, {
         selected: false,
+        showInfoBtn: true,
         matchupScore: mPred ? mPred.wtcScore : null,
         matchupPred: mPred
       });
@@ -3190,16 +3142,11 @@ class YuGiOhPairingsArena {
 
     myFan.querySelectorAll(".ygo-card").forEach((cardEl, idx) => {
       const cardObj = myBench[idx];
+      this.bindCardInfoBtn(cardEl, cardObj, oppRefCard);
       cardEl.addEventListener("pointerenter", (e) => {
         if (e.pointerType === "mouse") {
           this.inspectedMyCard = cardObj;
-          this.showCardMetaHover(cardObj, oppRefCard);
           this.updateHandMatchupBadgesInPlace(p, cardObj, null);
-        }
-      });
-      cardEl.addEventListener("pointerleave", (e) => {
-        if (e.pointerType === "mouse") {
-          this.scheduleHideCardMetaHover();
         }
       });
       cardEl.addEventListener("click", () => {
@@ -3209,9 +3156,6 @@ class YuGiOhPairingsArena {
           this.toggleHandCardSelection(cardObj.id, cardEl);
         } else {
           this.renderHands(p);
-          if (window.innerWidth <= 900) {
-            this.openCardMetaPopup(cardObj, oppRefCard);
-          }
         }
       });
     });
@@ -3475,31 +3419,6 @@ class YuGiOhPairingsArena {
     }
   }
 
-  showCardMetaHover(player, targetOpp = null) {
-    if (this._hideMetaHoverTimer) {
-      clearTimeout(this._hideMetaHoverTimer);
-      this._hideMetaHoverTimer = null;
-    }
-    this.inspectCard(player, targetOpp);
-    const panel = document.getElementById("pairingProcessPanel");
-    if (panel) {
-      panel.classList.add("meta-panel-visible");
-    }
-  }
-
-  scheduleHideCardMetaHover() {
-    if (this._hideMetaHoverTimer) {
-      clearTimeout(this._hideMetaHoverTimer);
-    }
-    this._hideMetaHoverTimer = setTimeout(() => {
-      this._hideMetaHoverTimer = null;
-      const panel = document.getElementById("pairingProcessPanel");
-      if (panel && !panel.classList.contains("meta-popup-open")) {
-        panel.classList.remove("meta-panel-visible");
-      }
-    }, 90);
-  }
-
   openCardMetaPopup(player = null, targetOpp = null) {
     if (player) {
       this.inspectCard(player, targetOpp);
@@ -3510,7 +3429,7 @@ class YuGiOhPairingsArena {
     const panel = document.getElementById("pairingProcessPanel");
     const backdrop = document.getElementById("cardMetaPopupBackdrop");
     if (panel) {
-      panel.classList.add("meta-popup-open", "meta-panel-visible");
+      panel.classList.add("meta-popup-open");
     }
     if (backdrop) {
       backdrop.classList.remove("hidden");
@@ -3781,24 +3700,24 @@ class YuGiOhPairingsArena {
     }
   }
 
+  bindCardInfoBtn(cardEl, cardObj, oppCard = null) {
+    if (!cardEl || !cardObj) return;
+    const infoBtn = cardEl.querySelector("[data-card-info-btn]");
+    if (infoBtn) {
+      infoBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.openCardMetaPopup(cardObj, oppCard);
+      });
+    }
+  }
+
   attachCardInspectHandler(container, cardObj, oppCard = null) {
     const el = container.querySelector(".ygo-card");
     if (el && cardObj) {
-      el.addEventListener("pointerenter", (e) => {
-        if (e.pointerType === "mouse") {
-          this.showCardMetaHover(cardObj, oppCard);
-        }
-      });
-      el.addEventListener("pointerleave", (e) => {
-        if (e.pointerType === "mouse") {
-          this.scheduleHideCardMetaHover();
-        }
-      });
+      this.bindCardInfoBtn(el, cardObj, oppCard);
       el.addEventListener("click", () => {
         this.inspectCard(cardObj, oppCard);
-        if (window.innerWidth <= 900) {
-          this.openCardMetaPopup(cardObj, oppCard);
-        }
       });
     }
   }
@@ -3870,7 +3789,9 @@ class YuGiOhPairingsArena {
       <div class="${classes}" data-card-id="${this.escapeHtml(player.id || player.card_id || "")}" style="--card-accent: ${meta.accent}">
         <div class="yc-top">
           <span class="yc-name" title="${this.escapeHtml(displayName)}">${this.escapeHtml(cardTopTitle)}</span>
-          <span class="yc-attr">${svgHtml}</span>
+          ${opts.showInfoBtn
+            ? `<button type="button" class="yc-card-info-btn" data-card-info-btn="1" title="View Detailed Card Meta Stats" aria-label="View Detailed Card Meta Stats">i</button>`
+            : `<span class="yc-attr">${svgHtml}</span>`}
         </div>
         <div class="yc-art">
           ${matchupChipHtml}

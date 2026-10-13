@@ -7668,8 +7668,7 @@ html, body {
 }
 
 /* ============================================================================
-   10. CARD META STATS: DESKTOP HOVER-ONLY LEFT PANEL (> 900px) &
-       MOBILE / SMALL-SCREEN POPUP MODAL (<= 900px)
+   10. CARD META STATS: TOP-RIGHT CARD "i" BUTTON & POPUP MODAL (ALL VIEWPORTS)
    ============================================================================ */
 
 /* Hide redundant rarity text pill on all Duel Arena hand/field cards across all viewports
@@ -7689,6 +7688,47 @@ html, body {
   gap: 4px !important;
 }
 
+/* Small "i" Info Icon on the Top-Right Corner of Each Card */
+.yc-card-info-btn {
+  position: relative;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(14, 116, 144, 0.32);
+  border: 1px solid rgba(56, 189, 248, 0.78);
+  color: #7dd3fc;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.56rem;
+  font-weight: 800;
+  font-style: italic;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.14s ease, background 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+}
+
+/* Invisible expanded hit area so clicking/tapping on desktop or mobile is effortless */
+.yc-card-info-btn::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+
+.yc-card-info-btn:hover,
+.yc-card-info-btn:focus-visible,
+.yc-card-info-btn:active {
+  background: #38bdf8;
+  border-color: #bae6fd;
+  color: #020617;
+  transform: scale(1.14);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.75);
+}
+
 .card-meta-popup-backdrop {
   position: fixed;
   inset: 0;
@@ -7702,7 +7742,7 @@ html, body {
 }
 
 .cmi-popup-close-btn {
-  display: none;
+  display: inline-flex !important;
   align-items: center;
   justify-content: center;
   width: 24px;
@@ -7723,70 +7763,51 @@ html, body {
 }
 
 .mobile-card-stats-pill-btn {
-  display: none;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: rgba(56, 189, 248, 0.14);
-  border: 1px solid rgba(56, 189, 248, 0.45);
-  color: #38bdf8;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.56rem;
-  font-weight: 800;
-  cursor: pointer;
-  white-space: nowrap;
+  display: none !important;
 }
 
-/* Desktop (> 900px): Left panel stays in left column, only visible while hovering a card */
+/* Card Meta Stats is ALWAYS a popup modal opened only by clicking the "i" icon on a card */
+.ygo-inspector-panel {
+  display: none !important;
+}
+
+.ygo-inspector-panel.meta-popup-open {
+  display: flex !important;
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: min(92vw, 396px) !important;
+  max-width: calc(100vw - 20px) !important;
+  max-height: 85vh !important;
+  overflow-y: auto !important;
+  z-index: 9850 !important;
+  padding: 13px !important;
+  border: 1.5px solid #38bdf8 !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.92), 0 0 24px rgba(56, 189, 248, 0.28) !important;
+}
+
+/* Desktop (> 900px): 2-column layout (Playmat + Right HUD) now that Meta Stats is a popup modal */
 @media (min-width: 901px) {
-  .ygo-inspector-panel {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transform: translateX(-8px);
-    transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s ease;
-  }
-
-  .ygo-inspector-panel.meta-panel-visible,
-  .ygo-inspector-panel.meta-popup-open {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    transform: translateX(0);
+  .ygo-duel-stage {
+    grid-template-columns: minmax(0, 1fr) 275px !important;
   }
 }
 
-/* Mobile & Small Screen (<= 900px): Never show Card Meta Stats at the bottom of the page;
-   show it as a floating Popup Modal when triggered */
+@media (min-width: 901px) and (max-width: 1180px) {
+  .ygo-duel-stage {
+    grid-template-columns: minmax(0, 1fr) 235px !important;
+  }
+}
+
+/* Mobile & Small Screen (<= 900px): Compact "i" button on 5-card hand grid */
 @media (max-width: 900px) {
-  .mobile-card-stats-pill-btn {
-    display: inline-flex !important;
-  }
-
-  .cmi-popup-close-btn {
-    display: inline-flex !important;
-  }
-
-  .ygo-inspector-panel {
-    display: none !important;
-  }
-
-  .ygo-inspector-panel.meta-popup-open,
-  .ygo-inspector-panel.meta-panel-visible {
-    display: flex !important;
-    position: fixed !important;
-    top: 50% !important;
-    left: 50% !important;
-    transform: translate(-50%, -50%) !important;
-    width: min(92vw, 390px) !important;
-    max-width: calc(100vw - 20px) !important;
-    max-height: 82vh !important;
-    overflow-y: auto !important;
-    z-index: 9850 !important;
-    padding: 12px !important;
-    border: 1.5px solid #38bdf8 !important;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.92), 0 0 24px rgba(56, 189, 248, 0.28) !important;
+  .opp-hand-fan .ygo-card .yc-card-info-btn,
+  .my-hand-fan .ygo-card .yc-card-info-btn,
+  .ygo-card.field-size .yc-card-info-btn {
+    width: 13px !important;
+    height: 13px !important;
+    font-size: 0.48rem !important;
   }
 }
 
