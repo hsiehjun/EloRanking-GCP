@@ -5690,8 +5690,10 @@ function renderPersonalEventScorecard(ev, userRegData) {
     const deltaStr = hasScore ? (delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1)) : 'Pending';
     const deltaColor = hasScore ? (delta > 0 ? '#4ade80' : (delta < 0 ? '#f87171' : 'var(--text-muted)')) : 'var(--text-muted)';
 
-    const roundNum = m.round || 1;
-    const tableNum = m.table_number || m.table || 1;
+    const roundNum = Number(m.round || m.round_number || 1);
+    const tableNum = Number(m.table_number || m.table || 1);
+    const roundMatchesForRow = (eventMatchesCache || []).filter(rm => Number(rm.round || rm.round_number || 1) === roundNum);
+    const roundMatchIdx = roundMatchesForRow.indexOf(m);
     const matchId = buildEventPairingScorecardId(eventId, roundNum, tableNum, m);
     const safeEventId = String(eventId).replace(/'/g, "\\'");
     const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
@@ -5705,9 +5707,9 @@ function renderPersonalEventScorecard(ev, userRegData) {
       actionBtns.push(`<button type="button" class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.55rem; display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); font-weight:600;" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(oppInfo.pid || oppInfo.name)}', '${escapeHtml(oppInfo.listId)}')" title="View ${escapeHtml(oppName)}'s Army Roster">📋 Roster</button>`);
     }
     if (!hasScore) {
-      actionBtns.push(`<button type="button" class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="launchTournamentTracker('${safeEventId}', ${roundNum}, ${tableNum}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="Create / Open Live Game Tracker Room">🎲 Track / Room</button>`);
+      actionBtns.push(`<button type="button" class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${roundNum}, ${tableNum}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="Create / Open Live Game Tracker Room">🎲 Track / Room</button>`);
     } else {
-      actionBtns.push(`<button type="button" class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer;" onclick="openScorecardModal('${matchId}')" title="View Turn-by-Turn Digital Scorecard">📄 Scorecard</button>`);
+      actionBtns.push(`<button type="button" class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="View Turn-by-Turn Digital Scorecard">📄 Scorecard</button>`);
     }
 
     const oppNameHtml = !isBye && oppInfo
@@ -5715,7 +5717,7 @@ function renderPersonalEventScorecard(ev, userRegData) {
       : `<span class="scorecard-opp-name" style="color:var(--text-muted); font-weight:600;">${escapeHtml(oppName)}</span>`;
 
     return `
-      <tr>
+      <tr class="personal-scorecard-row" onclick="openCasterDeskTableModal(${tableNum}, ${roundNum}, ${roundMatchIdx})" style="cursor:pointer; transition:background 0.15s ease;" title="Click to open Round ${roundNum} Table ${tableNum} Headline Clash & Player Dossiers">
         <td style="font-family:var(--font-mono); font-weight:700;">R${roundNum}</td>
         <td style="font-family:var(--font-mono); color:var(--text-muted);">T${tableNum}</td>
         <td class="scorecard-opp-cell" style="font-weight:600; color:#fff;">
@@ -6173,6 +6175,8 @@ async function renderPlayerStation(ev, userRegData) {
       const safeP2Id = String(activeMatch.player2_id || '').replace(/'/g, "\\'");
       const safePairingId = String(activeMatch.id || activeMatch.pairing_id || activeMatch.bcp_pairing_id || '').replace(/'/g, "\\'");
       const matchId = buildEventPairingScorecardId(eventId, roundNum, tableNum, activeMatch);
+      const activeRoundMatches = (eventMatchesCache || []).filter(rm => Number(rm.round || rm.round_number || 1) === Number(roundNum));
+      const activeRoundMatchIdx = activeRoundMatches.indexOf(activeMatch);
 
       activeHero.innerHTML = `
         <div class="card" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 58, 138, 0.45)); border: 1.5px solid rgba(56, 189, 248, 0.45); box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5); border-radius: 12px; padding: 1.25rem;">
@@ -6186,7 +6190,7 @@ async function renderPlayerStation(ev, userRegData) {
             </div>
             <div style="display:flex; align-items:center; gap:0.4rem;">
               ${matchStream ? `
-                <button type="button" class="btn-sm" onclick="openEventStreamModal(${tableNum})" style="font-size:0.75rem; font-weight:700; padding:3px 9px; background:rgba(239,68,68,0.2); border:1px solid #ef4444; color:#fca5a5; border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;">
+                <button type="button" class="btn-sm" onclick="event.stopPropagation(); openEventStreamModal(${tableNum})" style="font-size:0.75rem; font-weight:700; padding:3px 9px; background:rgba(239,68,68,0.2); border:1px solid #ef4444; color:#fca5a5; border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;">
                   <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#ef4444; box-shadow:0 0 6px #ef4444;"></span>
                   🔴 Featured on ${escapeHtml(matchStream.channel)}
                 </button>
@@ -6196,7 +6200,7 @@ async function renderPlayerStation(ev, userRegData) {
           </div>
 
           <!-- Matchup Grid -->
-          <div class="player-station-matchup-grid" style="display:grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0.75rem; align-items:center; margin-bottom: 1.25rem; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding: 1rem;">
+          <div class="player-station-matchup-grid" onclick="openCasterDeskTableModal(${tableNum}, ${roundNum}, ${activeRoundMatchIdx})" title="Click to open Round ${roundNum} Table ${tableNum} Headline Clash & Player Dossiers" style="display:grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0.75rem; align-items:center; margin-bottom: 1.25rem; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding: 1rem; cursor:pointer; transition:border-color 0.15s ease, background 0.15s ease;">
             <!-- My Side -->
             <div class="player-station-matchup-side player-station-my-side" style="text-align:left; min-width:0;">
               <div style="font-size:0.72rem; color:#38bdf8; font-weight:700; text-transform:uppercase;">YOU</div>
@@ -10285,6 +10289,8 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
       const safeOpPid = String(opPid).replace(/'/g, "\\'");
       const rNum = Number(m.round || 1);
       const tNum = Number(m.table_number || m.table || 1);
+      const pathRoundMatches = matches.filter(rm => Number(rm.round || rm.round_number || 1) === rNum);
+      const pathRoundMatchIdx = pathRoundMatches.indexOf(m);
       const rMeta = getEventRoundMetadata(ev, matches, rNum, maxR);
       const mId = buildEventPairingScorecardId(eventId, rNum, tNum, m);
       const mHasScore = mySc !== null && mySc !== undefined && opSc !== null && opSc !== undefined;
@@ -10297,7 +10303,7 @@ function buildCasterTableDetailsHtml(ev, players, matches, selectedMatch, p1, p2
         else resPill = `<span class="badge badge-draw" style="font-size:0.66rem; white-space:nowrap; flex-shrink:0;">D ${mySc}-${opSc}</span>`;
       }
       return `
-        <div class="caster-path-row" style="display: flex; align-items: center; justify-content: space-between; gap: 0.45rem; padding: 0.4rem 0.55rem; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; font-size: 0.75rem;">
+        <div class="caster-path-row" onclick="openCasterDeskTableModal(${tNum}, ${rNum}, ${pathRoundMatchIdx})" title="Click to open Round ${rNum} Table ${tNum} Headline Clash" style="display: flex; align-items: center; justify-content: space-between; gap: 0.45rem; padding: 0.4rem 0.55rem; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; font-size: 0.75rem; cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease;">
           <div style="display: flex; align-items: center; gap: 0.4rem; min-width: 0; flex: 1;">
             <span style="font-family: var(--font-mono); font-weight: 800; color: ${rMeta.isShadowRound || rMeta.isTopCut ? rMeta.badgeColor : '#94a3b8'}; min-width: 28px; flex-shrink: 0;" title="${escapeHtml(rMeta.fullLabel)}">R${rNum}${rMeta.isShadowRound ? '🌑' : (rMeta.isTopCut ? '🏆' : '')}</span>
             ${resPill}
@@ -10544,14 +10550,25 @@ function openCasterDeskTableModal(tableNum, roundNum, matchIdx = null) {
   const toHubMatches = Array.isArray(window._toHubCurrentRoundMatches) ? window._toHubCurrentRoundMatches : roundMatches;
   let selectedMatch = null;
   let resolvedMatchIdx = (matchIdx !== null && matchIdx !== undefined && !isNaN(Number(matchIdx))) ? Number(matchIdx) : -1;
-  if (resolvedMatchIdx >= 0 && toHubMatches[resolvedMatchIdx] && Number(toHubMatches[resolvedMatchIdx].round || toHubMatches[resolvedMatchIdx].round_number || 1) === curRound) {
+  if (
+    resolvedMatchIdx >= 0 &&
+    toHubMatches[resolvedMatchIdx] &&
+    Number(toHubMatches[resolvedMatchIdx].round || toHubMatches[resolvedMatchIdx].round_number || 1) === curRound &&
+    (!tNum || Number(toHubMatches[resolvedMatchIdx].table_number || toHubMatches[resolvedMatchIdx].table || 0) === tNum)
+  ) {
     selectedMatch = toHubMatches[resolvedMatchIdx];
+  } else if (
+    resolvedMatchIdx >= 0 &&
+    roundMatches[resolvedMatchIdx] &&
+    (!tNum || Number(roundMatches[resolvedMatchIdx].table_number || roundMatches[resolvedMatchIdx].table || 0) === tNum)
+  ) {
+    selectedMatch = roundMatches[resolvedMatchIdx];
   } else if (resolvedMatchIdx >= 0 && roundMatches[resolvedMatchIdx]) {
     selectedMatch = roundMatches[resolvedMatchIdx];
   } else {
     selectedMatch = roundMatches.find(m => Number(m.table_number || m.table) === tNum) || roundMatches[0];
     if (selectedMatch) {
-      resolvedMatchIdx = toHubMatches.indexOf(selectedMatch);
+      resolvedMatchIdx = roundMatches.indexOf(selectedMatch);
     }
   }
   if (!selectedMatch) {

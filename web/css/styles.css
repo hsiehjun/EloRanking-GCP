@@ -12129,6 +12129,24 @@ table.desktop-only,
 .scorecard-opp-name {
   line-height: 1.3;
 }
+#personal-scorecard-table tbody tr.personal-scorecard-row {
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+#personal-scorecard-table tbody tr.personal-scorecard-row:hover {
+  background: rgba(168, 85, 247, 0.14) !important;
+}
+#personal-scorecard-table tbody tr.personal-scorecard-row:hover td:first-child {
+  color: #c084fc;
+}
+.caster-path-row:hover {
+  background: rgba(168, 85, 247, 0.14) !important;
+  border-color: rgba(168, 85, 247, 0.4) !important;
+}
+.player-station-matchup-grid:hover {
+  border-color: rgba(168, 85, 247, 0.45) !important;
+  background: rgba(168, 85, 247, 0.08) !important;
+}
 
 @media (max-width: 1200px) {
   .subtab-label-extra {
