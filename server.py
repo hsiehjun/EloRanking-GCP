@@ -1305,6 +1305,91 @@ async def api_action_team_pairing_room(room_code: str, request: Request):
     return JSONResponse(resp_data, status_code=status_code, headers=NO_CACHE_HEADERS)
 
 
+def _resolve_tcg_user_context(request: Request, explicit_uid: Optional[str] = None, token: Optional[str] = None) -> Dict[str, Any]:
+    """Resolves the authenticated user (preferring session over guest_ IDs) and their real verified Armory Glory state."""
+    from routers.armory import _calculate_user_glory_state, _get_or_init_vault
+    user = _get_request_user(request, token)
+    auth_mgr = get_auth_manager()
+    exp_clean = str(explicit_uid or "").strip()
+
+    if isinstance(user, dict) and (user.get("user_id") or user.get("id") or user.get("email")):
+        session_uid = str(user.get("user_id") or user.get("id") or user.get("email")).strip()
+        # Always prefer the authenticated user session unless an explicit non-guest unit-test user_id was supplied
+        if not exp_clean or exp_clean == "dev_user" or exp_clean.startswith("guest_") or exp_clean == session_uid:
+            user_data = (auth_mgr.get_user_by_id(session_uid) if auth_mgr and hasattr(auth_mgr, "get_user_by_id") else None) or user
+            vault = _get_or_init_vault(user_data)
+            glory_state = _calculate_user_glory_state(auth_mgr, user_data)
+            fs_engine = get_firestore_engine()
+            fs_engine.sync_tcg_doc_from_armory_vault(session_uid, vault)
+            return {
+                "uid": session_uid,
+                "is_authenticated": True,
+                "auth_mgr": auth_mgr,
+                "user_data": user_data,
+                "vault": vault,
+                "glory_state": glory_state,
+                "spendable_glory": int(glory_state.get("spendable_glory") or 0),
+            }
+
+    # Unauthenticated / guest / isolated unit test user_id
+    uid = exp_clean or "dev_user"
+    if auth_mgr and hasattr(auth_mgr, "get_user_by_id"):
+        try:
+            u_rec = auth_mgr.get_user_by_id(uid)
+            if isinstance(u_rec, dict) and (u_rec.get("id") or u_rec.get("user_id")):
+                vault = _get_or_init_vault(u_rec)
+                glory_state = _calculate_user_glory_state(auth_mgr, u_rec)
+                fs_engine = get_firestore_engine()
+                fs_engine.sync_tcg_doc_from_armory_vault(uid, vault)
+                return {
+                    "uid": uid,
+                    "is_authenticated": True,
+                    "auth_mgr": auth_mgr,
+                    "user_data": u_rec,
+                    "vault": vault,
+                    "glory_state": glory_state,
+                    "spendable_glory": int(glory_state.get("spendable_glory") or 0),
+                }
+        except Exception:
+            pass
+
+    fs_engine = get_firestore_engine()
+    doc = fs_engine._get_or_init_tcg_doc(uid)
+    return {
+        "uid": uid,
+        "is_authenticated": False,
+        "auth_mgr": auth_mgr,
+        "user_data": None,
+        "vault": None,
+        "glory_state": None,
+        "spendable_glory": int(doc.get("spendable_glory") or 0),
+    }
+
+
+def _persist_tcg_vault_to_db(ctx: Dict[str, Any]) -> None:
+    """Persists the user's TCG collection & decks into PostgreSQL users.armory_vault['tcg_vault']."""
+    if not ctx.get("is_authenticated") or not isinstance(ctx.get("vault"), dict):
+        return
+    uid = ctx["uid"]
+    vault = ctx["vault"]
+    auth_mgr = ctx.get("auth_mgr")
+    fs_engine = get_firestore_engine()
+    vault["tcg_vault"] = fs_engine.export_tcg_doc_for_armory_vault(uid)
+    if isinstance(ctx.get("user_data"), dict):
+        ctx["user_data"]["armory_vault"] = vault
+    if auth_mgr and hasattr(auth_mgr, "db") and auth_mgr.db:
+        try:
+            with auth_mgr.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE users SET armory_vault = %s, updated_at = NOW() WHERE id = %s;",
+                        (json.dumps(vault), uid),
+                    )
+                conn.commit()
+        except Exception as e:
+            logger.debug(f"Notice persisting tcg_vault to users.armory_vault for {uid}: {e}")
+
+
 @app.get("/api/tcg/state", include_in_schema=False)
 @app.get("/api/team-pairings/tcg/state", include_in_schema=False)
 def api_get_tcg_state(
@@ -1312,12 +1397,13 @@ def api_get_tcg_state(
     user_id: Optional[str] = Query(None),
     token: Optional[str] = Query(None),
 ):
-    user = _get_request_user(request, token)
-    uid = user_id or ((user.get("user_id") or user.get("email")) if isinstance(user, dict) else None) or "dev_user"
+    ctx = _resolve_tcg_user_context(request, explicit_uid=user_id, token=token)
+    uid = ctx["uid"]
     fs_engine = get_firestore_engine()
-    doc = fs_engine._get_or_init_tcg_doc(uid)
-    wallet_glory = int(doc.get("wallet_glory", 1250))
-    state = fs_engine.get_user_tcg_state(uid, glory_balance=wallet_glory)
+    state = fs_engine.get_user_tcg_state(uid, glory_balance=ctx["spendable_glory"])
+    state["is_authenticated"] = bool(ctx.get("is_authenticated"))
+    if ctx.get("glory_state"):
+        state["user_glory"] = ctx["glory_state"]
     return JSONResponse(state, headers=NO_CACHE_HEADERS)
 
 
@@ -1330,20 +1416,78 @@ async def api_buy_tcg_pack(request: Request):
         body = {}
     if not isinstance(body, dict):
         body = {}
-    user = _get_request_user(request, None)
-    uid = str(body.get("user_id") or ((user.get("user_id") or user.get("email")) if isinstance(user, dict) else None) or "dev_user")
+    ctx = _resolve_tcg_user_context(request, explicit_uid=body.get("user_id"), token=body.get("token"))
+    uid = ctx["uid"]
     pack_type = str(body.get("pack_type") or "recruit_pack")
     fs_engine = get_firestore_engine()
-    doc = fs_engine._get_or_init_tcg_doc(uid)
-    wallet_glory = int(body.get("glory_balance") if body.get("glory_balance") is not None else doc.get("wallet_glory", 1250))
+    explicit_balance = body.get("glory_balance")
+    avail_glory = int(explicit_balance) if explicit_balance is not None else int(ctx["spendable_glory"])
+
     res = fs_engine.open_tcg_card_pack(
         user_id=uid,
         pack_type=pack_type,
-        glory_balance=wallet_glory,
+        glory_balance=avail_glory,
         forced_card_ids=body.get("forced_card_ids"),
     )
-    if res.get("ok"):
-        doc["wallet_glory"] = int(res.get("spendable_glory", wallet_glory))
+    if res.get("ok") and ctx.get("is_authenticated") and explicit_balance is None:
+        # Execute real ACID Glory Honor ledger debit & persist users.armory_vault
+        try:
+            import glory_ledger_service
+            from routers.armory import _invalidate_armory_glory_cache
+            p_key = fs_engine._normalize_pack_type_key(pack_type)
+            armory_item_id = f"tcg_pack_{p_key}"
+            pack_name = (res.get("pack") or {}).get("name") or f"TCG {p_key.title()} Pack"
+            debit_amount = max(1, int(res.get("net_glory_spent") or res.get("cost_glory") or 150))
+            vault = ctx["vault"]
+            inv = vault.setdefault("inventory", {})
+            prev_inv = inv.get(armory_item_id) if isinstance(inv.get(armory_item_id), dict) else {}
+            new_qty = int(prev_inv.get("quantity") or 0) + 1
+            new_net_cost = int(prev_inv.get("total_net_cost") or 0) + debit_amount
+            inv[armory_item_id] = {
+                "acquired_at": datetime.now(timezone.utc).isoformat(),
+                "quantity": new_qty,
+                "total_net_cost": new_net_cost,
+                "cost": new_net_cost,
+                "item_name": pack_name,
+                "wing": "tcg_packs",
+            }
+            vault["tcg_vault"] = fs_engine.export_tcg_doc_for_armory_vault(uid)
+
+            def _persist_vault_inside_tx(cur, _wallet):
+                if cur is not None:
+                    cur.execute(
+                        "UPDATE users SET armory_vault = %s, updated_at = NOW() WHERE id = %s;",
+                        (json.dumps(vault), uid),
+                    )
+
+            ledger_svc = glory_ledger_service.get_glory_ledger_service()
+            idem_key = f"tcg_pack:{uid}:{armory_item_id}:packs_{res['tcg_state']['packs_opened']}:{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+            tx_wallet = ledger_svc.execute_transaction(
+                user_id=str(uid),
+                direction="DEBIT",
+                bucket="SPENT",
+                category="armory_purchase",
+                amount=int(debit_amount),
+                description=f"Armory Requisition: {pack_name} (tcg_packs)",
+                idempotency_key=idem_key,
+                reference_type="armory_item",
+                reference_id=armory_item_id,
+                actor_user_id=str(uid),
+                metadata={"item_id": armory_item_id, "item_name": pack_name, "wing": "tcg_packs", "cost_glory": int(debit_amount)},
+                vault_updater=_persist_vault_inside_tx,
+            )
+            _invalidate_armory_glory_cache(str(uid))
+            if ctx.get("auth_mgr") and hasattr(ctx["auth_mgr"], "clear_user_hub_cache"):
+                ctx["auth_mgr"].clear_user_hub_cache(user_id=str(uid))
+            verified_bal = int(tx_wallet.get("glory_balance") or tx_wallet.get("spendable_glory") or res["spendable_glory"])
+            res["spendable_glory"] = verified_bal
+            res["tx_id"] = tx_wallet.get("last_tx_id")
+            if isinstance(res.get("tcg_state"), dict):
+                res["tcg_state"]["spendable_glory"] = verified_bal
+        except Exception as le:
+            logger.warning(f"Notice recording TCG pack debit in GloryLedgerService for {uid}: {le}")
+            _persist_tcg_vault_to_db(ctx)
+
     return JSONResponse(res, status_code=int(res.get("status_code", 200)), headers=NO_CACHE_HEADERS)
 
 
@@ -1356,49 +1500,47 @@ async def api_save_tcg_deck(request: Request):
         body = {}
     if not isinstance(body, dict):
         body = {}
-    user = _get_request_user(request, None)
-    uid = str(body.get("user_id") or ((user.get("user_id") or user.get("email")) if isinstance(user, dict) else None) or "dev_user")
+    ctx = _resolve_tcg_user_context(request, explicit_uid=body.get("user_id"), token=body.get("token"))
+    uid = ctx["uid"]
     fs_engine = get_firestore_engine()
-    doc = fs_engine._get_or_init_tcg_doc(uid)
-    body.setdefault("glory_balance", int(doc.get("wallet_glory", 1250)))
+    body["glory_balance"] = int(ctx["spendable_glory"])
     res = fs_engine.save_user_tcg_deck(uid, body)
-    if res.get("ok") and body.get("room_code"):
-        room_res = fs_engine.apply_pairing_action(
-            str(body["room_code"]),
-            {
-                "action": "apply_tcg_deck",
-                "user_id": uid,
-                "format_size": res.get("format_size"),
-                "captain_token": body.get("captain_token"),
-                "role": body.get("role") or "captain_a",
-            },
-        )
-        res["room"] = room_res.get("room")
+    if res.get("ok"):
+        _persist_tcg_vault_to_db(ctx)
+        if body.get("room_code"):
+            room_res = fs_engine.apply_pairing_action(
+                str(body["room_code"]),
+                {
+                    "action": "apply_tcg_deck",
+                    "user_id": uid,
+                    "format_size": res.get("format_size"),
+                    "captain_token": body.get("captain_token"),
+                    "role": body.get("role") or "captain_a",
+                },
+            )
+            res["room"] = room_res.get("room")
     return JSONResponse(res, status_code=int(res.get("status_code", 200)), headers=NO_CACHE_HEADERS)
 
 
 @app.post("/api/tcg/claim-daily", include_in_schema=False)
 @app.post("/api/team-pairings/tcg/claim-daily", include_in_schema=False)
 async def api_claim_tcg_daily_glory(request: Request):
+    """Syncs and returns the user's real verified Armory Glory Honor balance (never mints fake Glory)."""
     try:
         body = await request.json()
     except Exception:
         body = {}
     if not isinstance(body, dict):
         body = {}
-    user = _get_request_user(request, None)
-    uid = str(body.get("user_id") or ((user.get("user_id") or user.get("email")) if isinstance(user, dict) else None) or "dev_user")
-    grant_amount = int(body.get("amount") or 1000)
+    ctx = _resolve_tcg_user_context(request, explicit_uid=body.get("user_id"), token=body.get("token"))
+    uid = ctx["uid"]
     fs_engine = get_firestore_engine()
-    doc = fs_engine._get_or_init_tcg_doc(uid)
-    doc["wallet_glory"] = int(doc.get("wallet_glory", 1250)) + grant_amount
-    doc["daily_claims"] = int(doc.get("daily_claims", 0)) + 1
-    state = fs_engine.get_user_tcg_state(uid, glory_balance=doc["wallet_glory"])
+    state = fs_engine.get_user_tcg_state(uid, glory_balance=ctx["spendable_glory"])
     return JSONResponse(
         {
             "ok": True,
-            "granted_glory": grant_amount,
-            "spendable_glory": doc["wallet_glory"],
+            "granted_glory": 0,
+            "spendable_glory": ctx["spendable_glory"],
             "tcg_state": state,
         },
         headers=NO_CACHE_HEADERS,

@@ -596,16 +596,16 @@
           </div>
 
           <div class="tcg-header-wallet">
-            <div class="tcg-wallet-pill" title="Spendable Glory Honor (Shared with OmniTactica Armory)">
+            <div class="tcg-wallet-pill" title="Spendable Glory Honor (Shared with OmniTactica Retribution Armory)">
               <span class="twp-lbl">GLORY HONOR</span>
-              <strong class="twp-val" id="tcgVaultGloryBalance">🪙 1,390</strong>
+              <strong class="twp-val" id="tcgVaultGloryBalance">🪙 --</strong>
             </div>
-            <button type="button" class="tcg-daily-claim-btn" id="btnClaimDailyGlory" title="Claim +1,000 Commander Supply Glory for Pack Testing">
-              🎁 +1,000 Glory
-            </button>
+            <a href="/app?armory=tcg_packs#my-hub" class="tcg-daily-claim-btn" id="btnOpenRetributionStore" title="Open Retribution Store &amp; TCG Card Packs in My Hub" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px;">
+              🏛️ Retribution Store
+            </a>
             <div class="tcg-pity-pill" title="10-Point Mythic Pity Timer: Guarantees a 2080+ Elo Mythic Warlord Card at 10/10!">
               <span class="tpp-lbl">MYTHIC PITY</span>
-              <strong class="tpp-val" id="tcgVaultPityBadge">🔥 3 / 10</strong>
+              <strong class="tpp-val" id="tcgVaultPityBadge">🔥 0 / 10</strong>
             </div>
             <button type="button" class="lobby-close-btn" id="btnCloseTcgVaultModal" title="Close TCG Vault">✕</button>
           </div>
@@ -617,10 +617,10 @@
             ⚔️ 1. Deck Construction (<span id="tcgTabDeckFormatBadge">5 Cards</span>)
           </button>
           <button type="button" class="tcg-tab-btn" id="btnTcgTabPacks" data-tcg-tab="packs">
-            📦 2. Buy Card Packs (Glory Store &amp; Drop Odds)
+            📦 2. Buy Card Packs (Retribution Store)
           </button>
           <button type="button" class="tcg-tab-btn" id="btnTcgTabBinder" data-tcg-tab="binder">
-            📚 3. Card Collection &amp; Multi-Faction Pros (<span id="tcgTabOwnedCountBadge">31</span>)
+            📚 3. Card Collection &amp; Multi-Faction Pros (<span id="tcgTabOwnedCountBadge">28</span>)
           </button>
         </div>
 
@@ -687,17 +687,17 @@
           <div class="tcg-pity-banner">
             <div class="tpb-info">
               <div class="tpb-title">
-                🔥 10-POINT MYTHIC WARLORD PITY SYSTEM — <span id="tcgPityBannerCountText">3 / 10 PITY</span>
+                🔥 10-POINT MYTHIC WARLORD PITY SYSTEM — <span id="tcgPityBannerCountText">0 / 10 PITY</span>
               </div>
               <div class="tpb-desc">
-                Every pack grants <strong>+1 to +3 Pity</strong>. Reaching <strong>10 / 10</strong> guarantees a <strong>2080+ Elo Mythic Warlord</strong> (e.g. Innes Wilson, John Lennon, Junior Aflleje, Richard Siegler) on Slot #1! Duplicate cards upgrade <strong>Foil Mastery (★1 ➔ ★5)</strong> &amp; refund <strong>+20 to +250 Glory Shards</strong>.
+                Every pack grants <strong>+1 to +3 Pity</strong>. Reaching <strong>10 / 10</strong> guarantees a <strong>2080+ Elo Mythic Warlord</strong> (e.g. Innes Wilson, John Lennon, Junior Aflleje, Richard Siegler) on Slot #1! Duplicate cards upgrade <strong>Foil Mastery (★1 ➔ ★5)</strong> &amp; refund <strong>+20 to +250 Glory Shards</strong>. Also available in the <a href="/app#my-hub" style="color:#fbbf24; font-weight:800; text-decoration:underline;">Retribution Store</a>!
               </div>
             </div>
             <div class="tpb-bar-wrap">
               <div class="tpb-bar-track">
-                <div class="tpb-bar-fill" id="tcgPityProgressFill" style="width: 30%"></div>
+                <div class="tpb-bar-fill" id="tcgPityProgressFill" style="width: 0%"></div>
               </div>
-              <span class="tpb-bar-lbl" id="tcgPityRemainingText">7 Pity until Guaranteed Mythic (2080+ Elo)</span>
+              <span class="tpb-bar-lbl" id="tcgPityRemainingText">10 Pity until Guaranteed Mythic (2080+ Elo)</span>
             </div>
           </div>
 

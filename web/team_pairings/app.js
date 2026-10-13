@@ -3955,11 +3955,20 @@ class YuGiOhPairingsArena {
       const headers = {};
       const tok = this.getAuthToken();
       if (tok) headers["Authorization"] = `Bearer ${tok}`;
-      const resp = await fetch(`/api/tcg/state?user_id=${encodeURIComponent(this.userId)}`, { headers });
+      const resp = await fetch(`/api/tcg/state?user_id=${encodeURIComponent(this.userId)}`, {
+        headers,
+        credentials: "include"
+      });
       if (!resp.ok) return null;
       const data = await resp.json();
       if (data && (data.ok || data.success)) {
         this.tcgState = data;
+        if (data.is_authenticated && data.user_id) {
+          this.userId = String(data.user_id);
+        }
+        try {
+          localStorage.setItem("omnitactica_cached_spendable_glory", String(Number(data.spendable_glory ?? 0)));
+        } catch (_e) {}
         this.renderTcgHeaderCounters();
         this.renderRoomModeStrip();
         return data;
@@ -4234,6 +4243,7 @@ class YuGiOhPairingsArena {
       const resp = await fetch("/api/tcg/save-deck", {
         method: "POST",
         headers,
+        credentials: "include",
         body: JSON.stringify({
           user_id: this.userId,
           format_size: fmt,
@@ -4399,6 +4409,7 @@ class YuGiOhPairingsArena {
       const resp = await fetch("/api/tcg/buy-pack", {
         method: "POST",
         headers,
+        credentials: "include",
         body: JSON.stringify({
           user_id: this.userId,
           pack_type: packType
@@ -4410,11 +4421,14 @@ class YuGiOhPairingsArena {
         if (data.tcg_state) {
           this.tcgState = data.tcg_state;
         }
+        try {
+          localStorage.setItem("omnitactica_cached_spendable_glory", String(Number(data.spendable_glory ?? this.tcgState?.spendable_glory ?? 0)));
+        } catch (_e) {}
         this.renderTcgVaultAll();
         const names = (data.pulled_cards || []).map((c) => `${c.player_name} (${c.faction} • ${c.elo})`).join(", ");
         this.showToast(`🎉 Pulled: ${names}`);
       } else {
-        this.showToast(data?.error || "Insufficient Glory Honor — click 🎁 +1,000 Glory above!");
+        this.showToast(data?.error || "Insufficient Spendable Glory Honor — earn Glory Honor from tournaments & honors!");
       }
     } catch (err) {
       console.error("Failed to buy TCG pack:", err);
@@ -4422,29 +4436,7 @@ class YuGiOhPairingsArena {
   }
 
   async claimDailyGlory() {
-    try {
-      const headers = { "Content-Type": "application/json" };
-      const tok = this.getAuthToken();
-      if (tok) headers["Authorization"] = `Bearer ${tok}`;
-      const resp = await fetch("/api/tcg/claim-daily", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          user_id: this.userId,
-          amount: 1000
-        })
-      });
-      const data = await resp.json();
-      if (data && (data.ok || data.success)) {
-        if (data.tcg_state) {
-          this.tcgState = data.tcg_state;
-        }
-        this.renderTcgVaultAll();
-        this.showToast(`🪙 +1,000 Glory Honor added! Balance: ${Number(data.spendable_glory || 0).toLocaleString()} Glory`);
-      }
-    } catch (err) {
-      console.error("Failed to claim daily glory:", err);
-    }
+    window.location.href = "/app#my-hub";
   }
 
   renderTcgBinderTab() {

@@ -1165,10 +1165,16 @@ class TestTeamPairingsPoC(unittest.TestCase):
             self.assertIsNone(self.engine.get_pairing_room_raw(wtc_code2))
 
     def test_tcg_starter_preset_28_factions_1450_to_1550_elo_no_player_name(self):
-        """Verify every user starts with all 28 factions as pre-set Starter Cards (no player name, 1450-1550 randomized Elo) and default 5v5/8v8 Starter decks."""
+        """Verify every user starts with ONLY the 28 Starter Faction Cards (no pre-seeded non-starter cards, 0 pity, 1450-1550 randomized Elo) and legacy mock cards are scrubbed."""
         uid = "u_tcg_starter_fresh"
-        state = self.engine.get_user_tcg_state(uid)
+        state = self.engine.get_user_tcg_state(uid, glory_balance=5740)
         self.assertTrue(state["ok"])
+        self.assertEqual(state["spendable_glory"], 5740)
+        self.assertEqual(state["pity_counter"], 0, "Initial Mythic Pity counter must be 0, never hardcoded to 3")
+        self.assertEqual(state["packs_opened"], 0)
+        self.assertEqual(state["owned_pro_count"], 0, "Brand-new user must have 0 non-starter Pro cards")
+        self.assertEqual(state["total_owned_collectibles"], 0)
+        self.assertEqual(state["owned_total_count"], 28, "Brand-new user must own strictly the 28 Starter Faction cards")
 
         starters = state["starter_cards"]
         self.assertEqual(len(starters), 28, "Expected all 28 Warhammer 40K factions in pre-set Starter Card list")
@@ -1188,6 +1194,25 @@ class TestTeamPairingsPoC(unittest.TestCase):
             self.assertTrue(c["is_starter"])
             self.assertGreaterEqual(c["elo"], 1450)
             self.assertLessEqual(c["elo"], 1550)
+
+        # Verify legacy pre-seeded "Starter Welcome Drop" / "2026-10-01T00:00:00Z" cards and wallet_glory are automatically scrubbed
+        legacy_vault = {
+            "tcg_vault": {
+                "schema_v": 1,
+                "wallet_glory": 9250,
+                "pity_counter": 3,
+                "packs_opened": 0,
+                "owned_collectibles": {
+                    "PRO_FOLGER_P_NECRONS": {"copies": 2, "acquired_at": "2026-10-01T00:00:00Z"},
+                    "PRO_JOHN_HSIEH_NECRONS": {"copies": 1, "acquired_at": "Starter Welcome Drop"},
+                },
+            }
+        }
+        self.engine.sync_tcg_doc_from_armory_vault("u_legacy_scrub", legacy_vault)
+        scrubbed_state = self.engine.get_user_tcg_state("u_legacy_scrub", glory_balance=5740)
+        self.assertEqual(scrubbed_state["owned_pro_count"], 0, "Legacy pre-seeded welcome cards must be scrubbed")
+        self.assertEqual(scrubbed_state["pity_counter"], 0, "Legacy hardcoded pity_counter=3 with 0 packs opened must be reset to 0")
+        self.assertEqual(scrubbed_state["spendable_glory"], 5740)
 
     def test_tcg_multi_faction_real_player_cards_and_dynamic_live_elo_sync(self):
         """Verify a single real player has multiple faction cards (e.g. Folger P as Custodes & Necrons) and changing their live Elo dynamically updates all their cards and active rooms."""
@@ -1250,14 +1275,20 @@ class TestTeamPairingsPoC(unittest.TestCase):
             self.engine.update_live_player_elo_override("Folger P", 2070)
 
     def test_tcg_pack_store_pricing_pity_guarantee_and_duplicate_glory_rebate(self):
-        """Verify 3-tier pack pricing (150/380/850), Warlord 0% Common & Guaranteed Epic/Mythic Slot 1, 10-point Mythic Pity guarantee, and duplicate Glory rebates."""
+        """Verify 3-tier pack pricing (150/380/850) in Retribution Store & TCG Engine, Warlord 0% Common & Guaranteed Epic/Mythic Slot 1, 10-point Mythic Pity guarantee, and duplicate Glory rebates."""
+        import armory_catalog
+        for item_id, expected_cost in (("tcg_pack_recruit", 150), ("tcg_pack_veteran", 380), ("tcg_pack_warlord", 850)):
+            cat_item = armory_catalog.get_item_by_id(item_id)
+            self.assertIsNotNone(cat_item, f"Expected {item_id} in Retribution Store armory_catalog")
+            self.assertEqual(cat_item["wing"], "tcg_packs")
+            self.assertEqual(cat_item["cost_glory"], expected_cost)
+
         uid = "u_tcg_pack_opener"
-        self.engine.claim_tcg_daily_glory(uid, amount=5000)
-        st = self.engine.get_user_tcg_state(uid)
-        self.assertGreaterEqual(st["spendable_glory"], 5000)
+        st = self.engine.get_user_tcg_state(uid, glory_balance=5740)
+        self.assertEqual(st["spendable_glory"], 5740)
 
         # 1. Open a Warlord Command Crate (850 Glory, 5 cards, 0% Common, Slot 1 Epic/Mythic, +3 Pity)
-        res_w = self.engine.open_tcg_card_pack(uid, pack_type="warlord", seed=42)
+        res_w = self.engine.open_tcg_card_pack(uid, pack_type="tcg_pack_warlord", glory_balance=5740, seed=42)
         self.assertTrue(res_w["ok"])
         self.assertEqual(res_w["glory_spent"], 850)
         self.assertEqual(len(res_w["pulled_cards"]), 5)
@@ -1266,8 +1297,9 @@ class TestTeamPairingsPoC(unittest.TestCase):
             self.assertNotEqual(c["rarity"], "common", "Warlord Command Crate must have 0% Common cards")
 
         # 2. Push Pity Counter to >= 10 and verify next pack triggers 10/10 Mythic Pity on Slot 1 (2080+ Elo)
-        self.engine._tcg_user_state[uid]["pity_counter"] = 9
-        res_pity = self.engine.open_tcg_card_pack(uid, pack_type="recruit", seed=99)
+        doc = self.engine._get_or_init_tcg_doc(uid)
+        doc["pity_counter"] = 9
+        res_pity = self.engine.open_tcg_card_pack(uid, pack_type="tcg_pack_recruit", glory_balance=4890, seed=99)
         self.assertTrue(res_pity["ok"])
         self.assertTrue(res_pity["pity_triggered"], "Expected 9 + 1 = 10/10 Pity to trigger Guaranteed Mythic")
         self.assertEqual(res_pity["pulled_cards"][0]["rarity"], "mythic")
@@ -1282,8 +1314,9 @@ class TestTeamPairingsPoC(unittest.TestCase):
         folger_cards = [c for c in st0["collectible_catalog"] if c["player_name"].lower() == "folger p"]
         f_cust = next(c for c in folger_cards if c["faction"] == "Adeptus Custodes")
         f_nec = next(c for c in folger_cards if c["faction"] == "Necrons")
-        self.engine._tcg_user_state[uid]["owned_cards"][f_cust["card_id"]] = {"copies": 1, "first_acquired_at": 1}
-        self.engine._tcg_user_state[uid]["owned_cards"][f_nec["card_id"]] = {"copies": 1, "first_acquired_at": 2}
+        doc = self.engine._get_or_init_tcg_doc(uid)
+        doc["owned_collectibles"][f_cust["card_id"]] = {"copies": 1, "acquired_at": "2026-10-13 00:00:00"}
+        doc["owned_collectibles"][f_nec["card_id"]] = {"copies": 1, "acquired_at": "2026-10-13 00:00:01"}
 
         # Attempt to save a 5v5 deck containing BOTH Folger Custodes and Folger Necrons
         starter_ids = [c["card_id"] for c in st0["starter_cards"][:4]]
@@ -1327,19 +1360,13 @@ class TestTeamPairingsPoC(unittest.TestCase):
         uid = "u_tcg_perf_bench"
 
         t0 = time.perf_counter()
-        s_res = self.engine.get_user_tcg_state(uid)
+        s_res = self.engine.get_user_tcg_state(uid, glory_balance=5740)
         ms_state = (time.perf_counter() - t0) * 1000.0
         self.assertTrue(s_res["ok"])
         self.assertLess(ms_state, 1000.0, f"get_user_tcg_state took {ms_state:.2f}ms (> 1000ms)")
 
         t0 = time.perf_counter()
-        c_res = self.engine.claim_tcg_daily_glory(uid, amount=1000)
-        ms_claim = (time.perf_counter() - t0) * 1000.0
-        self.assertTrue(c_res["ok"])
-        self.assertLess(ms_claim, 1000.0, f"claim_tcg_daily_glory took {ms_claim:.2f}ms (> 1000ms)")
-
-        t0 = time.perf_counter()
-        p_res = self.engine.open_tcg_card_pack(uid, pack_type="veteran")
+        p_res = self.engine.open_tcg_card_pack(uid, pack_type="veteran", glory_balance=5740)
         ms_pack = (time.perf_counter() - t0) * 1000.0
         self.assertTrue(p_res["ok"])
         self.assertLess(ms_pack, 1000.0, f"open_tcg_card_pack took {ms_pack:.2f}ms (> 1000ms)")

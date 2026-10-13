@@ -387,13 +387,25 @@
         syncCachedUserVault();
       }
       if (data.glory) currentGlory = data.glory;
+      if (data.tcg_state && currentCatalog) {
+        currentCatalog.tcg_state = data.tcg_state;
+      }
+
+      // If this was a TCG Card Pack purchase, show the interactive Pack Reveal modal!
+      if (data.pack_reveal) {
+        await loadArmoryData(currentGameSystem, true);
+        renderArmoryGrid();
+        updateArmoryHeaderBalance();
+        openTcgPackRevealModal(data.pack_reveal, data.tcg_state || (currentCatalog && currentCatalog.tcg_state), data.item);
+        return;
+      }
 
       // Automatically equip if permanent cosmetic
       if (data.item && !data.item.is_consumable && data.item.slot) {
         var itemSys = (data.item.game_system || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
         await equipItem(data.item.slot, data.item.id, true, itemSys);
       } else {
-        await loadArmoryData();
+        await loadArmoryData(currentGameSystem, true);
         renderArmoryGrid();
       }
 
@@ -1099,11 +1111,100 @@
     }, 3200);
   }
 
+  /**
+   * Opens the interactive TCG Booster Pack Reveal Modal after purchasing a pack in Retribution Store
+   */
+  function openTcgPackRevealModal(packReveal, tcgState, itemMeta) {
+    var existing = document.getElementById('armory-tcg-pack-reveal-modal');
+    if (existing) existing.remove();
+
+    var pulls = (packReveal && Array.isArray(packReveal.pulls)) ? packReveal.pulls : [];
+    var packName = (packReveal && packReveal.pack_name) || (itemMeta && itemMeta.name) || 'TCG Card Pack';
+    var itemId = (itemMeta && itemMeta.id) || 'tcg_pack_' + ((packReveal && packReveal.pack_type) || 'recruit');
+    var grossCost = Number((packReveal && packReveal.pack_cost) || (itemMeta && itemMeta.cost_glory) || 150);
+    var rebate = Number((packReveal && packReveal.total_rebate_glory) || 0);
+    var netCost = Number((packReveal && packReveal.net_glory_spent) != null ? packReveal.net_glory_spent : Math.max(0, grossCost - rebate));
+    var pityAfter = Number((packReveal && packReveal.pity_after) != null ? packReveal.pity_after : ((tcgState && tcgState.pity_counter) || 0));
+    var pityTriggered = !!(packReveal && packReveal.pity_triggered_in_pack);
+    var spendable = Number(currentGlory.spendable_glory || 0);
+    var canBuyAgain = spendable >= grossCost;
+
+    var rarityColors = {
+      'MYTHIC': { color: '#fbbf24', bg: 'rgba(245, 158, 11, 0.16)', border: 'rgba(245, 158, 11, 0.55)' },
+      'LEGENDARY': { color: '#c084fc', bg: 'rgba(168, 85, 247, 0.16)', border: 'rgba(168, 85, 247, 0.5)' },
+      'EPIC': { color: '#38bdf8', bg: 'rgba(56, 189, 248, 0.15)', border: 'rgba(56, 189, 248, 0.45)' },
+      'RARE': { color: '#4ade80', bg: 'rgba(74, 222, 128, 0.14)', border: 'rgba(74, 222, 128, 0.4)' }
+    };
+
+    var cardsMarkup = pulls.map(function(c, idx) {
+      var rKey = String(c.rarity || 'RARE').toUpperCase();
+      var rStyle = rarityColors[rKey] || rarityColors.RARE;
+      var statusBadge = c.is_new
+        ? '<span style="background:rgba(16,185,129,0.2); color:#34d399; border:1px solid rgba(16,185,129,0.45); border-radius:999px; padding:2px 8px; font-size:0.68rem; font-weight:800;">✨ NEW PRO CARD</span>'
+        : '<span style="background:rgba(245,158,11,0.2); color:#fbbf24; border:1px solid rgba(245,158,11,0.45); border-radius:999px; padding:2px 8px; font-size:0.68rem; font-weight:800;">🔥 FOIL LV.' + Number(c.new_foil_level || 2) + ' (+' + Number(c.rebate_glory || 0) + ' Glory Rebate)</span>';
+
+      return [
+        '<div style="background:linear-gradient(160deg, rgba(15,23,42,0.96), rgba(30,41,59,0.92)); border:2px solid ' + rStyle.border + '; border-radius:14px; padding:1rem; display:flex; flex-direction:column; gap:0.55rem; box-shadow:0 12px 30px rgba(0,0,0,0.55);">',
+        '  <div style="display:flex; justify-content:space-between; align-items:center; gap:0.4rem; flex-wrap:wrap;">',
+        '    <span style="background:' + rStyle.bg + '; color:' + rStyle.color + '; border:1px solid ' + rStyle.border + '; border-radius:6px; padding:2px 7px; font-size:0.68rem; font-weight:900; letter-spacing:0.06em;">' + escapeHtml(rKey) + (c.pity_triggered ? ' • 🔥 PITY!' : '') + '</span>',
+        statusBadge,
+        '  </div>',
+        '  <div style="font-size:1.05rem; font-weight:900; color:#fff; letter-spacing:0.02em; margin-top:0.15rem;">👤 ' + escapeHtml(c.name || 'Pro Player') + '</div>',
+        '  <div style="font-size:0.82rem; font-weight:700; color:' + rStyle.color + ';">⚔️ ' + escapeHtml(c.faction || 'Warhammer 40,000') + '</div>',
+        '  <div style="font-size:0.74rem; color:#94a3b8;">🛡️ ' + escapeHtml(c.detachment || 'Competitive Detachment') + '</div>',
+        '  <div style="margin-top:auto; padding-top:0.55rem; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">',
+        '    <span style="font-size:0.72rem; color:#cbd5e1; font-weight:700;">LIVE ELO</span>',
+        '    <span style="font-size:0.95rem; font-weight:900; color:#fbbf24; font-family:var(--font-mono, monospace);">⚡ ' + Number(c.elo || 1500) + '</span>',
+        '  </div>',
+        '</div>'
+      ].join('\n');
+    }).join('\n');
+
+    var modal = document.createElement('div');
+    modal.id = 'armory-tcg-pack-reveal-modal';
+    modal.className = 'modal-backdrop active';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.zIndex = '100020';
+
+    modal.innerHTML = [
+      '<div class="modal-card" style="max-width:780px; width:94%; background:#0b1120; border:1px solid rgba(245,158,11,0.45); border-radius:16px; padding:1.5rem; box-shadow:0 25px 70px rgba(0,0,0,0.9);">',
+      '  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:0.9rem; margin-bottom:1.1rem;">',
+      '    <div>',
+      '      <div style="font-size:0.72rem; font-weight:800; color:#fbbf24; letter-spacing:0.12em; text-transform:uppercase;">🃏 RETRIBUTION STORE — BOOSTER PACK OPENED</div>',
+      '      <h3 style="margin:0.2rem 0 0; font-size:1.3rem; font-weight:900; color:#fff;">' + escapeHtml(packName) + ' (' + pulls.length + ' Pro Cards)</h3>',
+      '      <div style="font-size:0.8rem; color:#94a3b8; margin-top:0.25rem;">',
+      '        Net Spent: <strong style="color:#fbbf24;">' + netCost + ' Glory</strong>' + (rebate > 0 ? ' <span style="color:#34d399;">(Includes +' + rebate + ' Glory Shard Duplicate Rebate!)</span>' : '') + ' • Balance: <strong style="color:#38bdf8;">' + spendable.toLocaleString() + ' Glory</strong> • Mythic Pity: <strong style="color:#f97316;">🔥 ' + pityAfter + ' / 10</strong>' + (pityTriggered ? ' <span style="color:#fbbf24; font-weight:800;">(MYTHIC PITY TRIGGERED!)</span>' : ''),
+      '      </div>',
+      '    </div>',
+      '    <button type="button" class="modal-close" onclick="document.getElementById(\'armory-tcg-pack-reveal-modal\').remove()">✕</button>',
+      '  </div>',
+      '  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:0.9rem; margin-bottom:1.25rem;">',
+      cardsMarkup,
+      '  </div>',
+      '  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; padding-top:0.9rem; border-top:1px solid rgba(255,255,255,0.08);">',
+      '    <a href="/team-pairings?tcg=deck&from_lobby=1" class="btn btn-outline" style="font-weight:800; text-decoration:none; border-color:rgba(56,189,248,0.45); color:#38bdf8; padding:0.55rem 1rem;">',
+      '      ⚔️ Open TCG Deck Builder &amp; Binder ➔',
+      '    </a>',
+      '    <div style="display:flex; align-items:center; gap:0.65rem;">',
+      '      <button type="button" class="btn btn-secondary" onclick="document.getElementById(\'armory-tcg-pack-reveal-modal\').remove()" style="padding:0.55rem 1rem;">Done</button>',
+      '      <button type="button" class="btn btn-primary" onclick="document.getElementById(\'armory-tcg-pack-reveal-modal\').remove(); window.Armory.purchaseItem(\'' + escapeHtml(itemId) + '\');" ' + (!canBuyAgain ? 'disabled' : '') + ' style="font-weight:800; padding:0.55rem 1.15rem;">',
+      '        🃏 Open Another (' + grossCost + ' Glory)',
+      '      </button>',
+      '    </div>',
+      '  </div>',
+      '</div>'
+    ].join('\n');
+
+    document.body.appendChild(modal);
+  }
+
   function getOwnedItemsCount() {
     if (!currentCatalog || !currentCatalog.items) return 0;
     var sys = (currentGameSystem || '40k').toLowerCase();
     return currentCatalog.items.filter(function(item) {
-      return (item.game_system === sys || !item.game_system) && !!item.is_owned;
+      return (item.game_system === sys || !item.game_system) && !!item.is_owned && item.wing !== 'tcg_packs';
     }).length;
   }
 
@@ -1122,7 +1223,7 @@
       return;
     }
     activeWingFilter = wingId;
-    if (['all', 'dice_forge', 'profile_forge', 'card_finishes', 'avatars', 'titles', 'pokes'].indexOf(wingId) !== -1) {
+    if (['all', 'tcg_packs', 'dice_forge', 'profile_forge', 'card_finishes', 'avatars', 'titles', 'pokes'].indexOf(wingId) !== -1) {
       if (currentArmoryMode !== 'store') {
         currentArmoryMode = 'store';
         renderArmoryModalShell();
@@ -1198,7 +1299,7 @@
     var items = [];
     if (currentArmoryMode === 'vault') {
       items = currentCatalog.items.filter(function(item) {
-        return !!item.is_owned;
+        return !!item.is_owned && item.wing !== 'tcg_packs';
       });
     } else {
       items = currentCatalog.items.filter(function(item) {
@@ -1207,16 +1308,27 @@
       });
     }
 
+    var tcgState = (currentCatalog && currentCatalog.tcg_state) || (currentVault && currentVault.tcg_state) || {};
+    var ownedProCount = Number(tcgState.owned_pro_count || 0);
+    var totalPoolCount = Number(tcgState.total_pool_count || 62);
+    var pityCounter = Number(tcgState.pity_counter || 0);
+    var packsOpened = Number(tcgState.packs_opened || 0);
+
     if (items.length === 0) {
       if (currentArmoryMode === 'vault') {
         container.innerHTML = [
           '<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 3rem 1.5rem;">',
           '  <div style="font-size: 3.2rem; margin-bottom: 0.75rem;">🎒</div>',
           '  <h3 style="color: #fff; font-size: 1.25rem; font-weight: 800; margin-bottom: 0.5rem;">Your Armory Backpack is Empty</h3>',
-          '  <p style="color: #94a3b8; font-size: 0.88rem; max-width: 440px; margin: 0 auto 1.5rem;">You haven\'t requisitioned any items for ' + (currentGameSystem === 'aos' ? 'Age of Sigmar' : 'Warhammer 40,000') + ' yet. Requisition tactical dice, frames, animated finishes, heraldic sigils, and titles using your Unified Glory!</p>',
-          '  <button type="button" class="armory-store-cta-btn" onclick="window.Armory.setArmoryMode(\'store\')" style="font-size: 0.88rem; padding: 0.6rem 1.5rem; margin: 0 auto;">',
-          '    <span>🛒</span> Enter Requisition Store Depot ➔',
-          '  </button>',
+          '  <p style="color: #94a3b8; font-size: 0.88rem; max-width: 440px; margin: 0 auto 1.5rem;">You haven\'t requisitioned any items for ' + (currentGameSystem === 'aos' ? 'Age of Sigmar' : 'Warhammer 40,000') + ' yet. Requisition TCG Card Packs, tactical dice, frames, animated finishes, heraldic sigils, and titles using your Unified Glory!</p>',
+          '  <div style="display:flex; justify-content:center; gap:0.75rem; flex-wrap:wrap;">',
+          '    <button type="button" class="armory-store-cta-btn" onclick="window.Armory.setArmoryMode(\'store\')" style="font-size: 0.88rem; padding: 0.6rem 1.5rem;">',
+          '      <span>🛒</span> Enter Requisition Store Depot ➔',
+          '    </button>',
+          '    <button type="button" class="armory-store-cta-btn" onclick="window.Armory.setArmoryMode(\'store\', \'tcg_packs\')" style="font-size: 0.88rem; padding: 0.6rem 1.35rem; background:linear-gradient(135deg, rgba(56,189,248,0.22), rgba(168,85,247,0.22)); border-color:rgba(56,189,248,0.45); color:#38bdf8;">',
+          '      <span>🃏</span> Open TCG Card Packs ➔',
+          '    </button>',
+          '  </div>',
           '</div>'
         ].join('');
         return;
@@ -1236,7 +1348,20 @@
 
       // Card action button state
       var actionBtnHtml = '';
-      if (item.is_consumable) {
+      if (item.wing === 'tcg_packs') {
+        var openedCnt = Number(item.charges_remaining || 0);
+        var openedBadge = openedCnt > 0 ? '<div class="armory-charges-badge"><span>Opened: ' + openedCnt + ' pack' + (openedCnt === 1 ? '' : 's') + '</span></div>' : '';
+        actionBtnHtml = [
+          openedBadge,
+          '<div style="display: flex; gap: 0.45rem; width: 100%; flex-direction: column;">',
+          '  <button type="button" id="armory-buy-btn-' + item.id + '" class="btn armory-action-btn btn-buy ' + (affordable ? 'affordable' : 'unaffordable') + '" ',
+          '          onclick="window.Armory.purchaseItem(\'' + item.id + '\')" ' + (!affordable ? 'disabled' : '') + '>',
+          '    <span>🃏 Open Card Pack</span>',
+          '    <span class="armory-btn-cost">💰 ' + item.cost_glory + ' Glory</span>',
+          '  </button>',
+          '</div>'
+        ].join('');
+      } else if (item.is_consumable) {
         var charges = item.charges_remaining || 0;
         var chargesBadge = isOwned ? '<div class="armory-charges-badge"><span>Stock: ' + charges + ' charges</span></div>' : '';
         
@@ -1297,7 +1422,27 @@
 
       // Visual preview badge
       var previewGraphic = '';
-      if (item.wing === 'dice_forge') {
+      if (item.wing === 'tcg_packs') {
+        var pGlowCol = (item.payload && item.payload.accent_color) || rMeta.color || '#38bdf8';
+        var cardsPerPack = Number((item.payload && (item.payload.card_count || item.payload.cards_per_pack)) || 3);
+        var pityInc = Number((item.payload && item.payload.pity_increment) || 1);
+        var rawOdds = (item.payload && (item.payload.slot1_odds || item.payload.slot_1_odds)) || { mythic: 5, epic: 20, rare: 75 };
+        var mPct = Number(rawOdds.mythic != null ? rawOdds.mythic : (rawOdds.MYTHIC || 5));
+        var ePct = Number(rawOdds.epic != null ? rawOdds.epic : (rawOdds.EPIC || 20));
+        var rPct = Number(rawOdds.rare != null ? rawOdds.rare : (rawOdds.RARE || 0));
+        previewGraphic = [
+          '<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; padding:0.35rem 0.5rem; border-radius:10px; background:linear-gradient(145deg, rgba(15,23,42,0.92), rgba(30,41,59,0.85)); border:1px solid ' + pGlowCol + '55; box-shadow:0 0 16px ' + pGlowCol + '22;">',
+          '  <div style="display:flex; align-items:center; gap:0.45rem; justify-content:center; flex-wrap:wrap;">',
+          '    <span style="font-size:1.45rem; line-height:1; filter:drop-shadow(0 0 8px ' + pGlowCol + ');">' + (item.icon || '🃏') + '</span>',
+          '    <span style="font-size:0.68rem; font-weight:800; padding:2px 6px; border-radius:4px; background:rgba(255,255,255,0.08); color:#fff;">🃏 ' + cardsPerPack + ' Cards</span>',
+          '    <span style="font-size:0.68rem; font-weight:800; padding:2px 6px; border-radius:4px; background:rgba(249,115,22,0.18); color:#fb923c; border:1px solid rgba(249,115,22,0.35);">🔥 +' + pityInc + ' Pity</span>',
+          '  </div>',
+          '  <div style="font-size:0.63rem; color:#94a3b8; margin-top:0.28rem; text-align:center; white-space:nowrap;">',
+          '    Slot #1: <span style="color:#fbbf24; font-weight:700;">' + mPct + '% Mythic</span> • <span style="color:#c084fc; font-weight:700;">' + ePct + '% Epic</span>' + (rPct > 0 ? ' • <span style="color:#38bdf8; font-weight:700;">' + rPct + '% Rare</span>' : ''),
+          '  </div>',
+          '</div>'
+        ].join('');
+      } else if (item.wing === 'dice_forge') {
         var dieBg = item.payload && item.payload.die_bg ? item.payload.die_bg : '#1e293b';
         var pipCol = item.payload && item.payload.pip_color ? item.payload.pip_color : '#fff';
         var sixSvgId = item.payload && item.payload.six_face_svg_id ? item.payload.six_face_svg_id : null;
@@ -1447,12 +1592,37 @@
         '    <div class="backpack-slot-chip ' + (activeTitleItem ? 'is-active' : '') + '">',
         '      <span class="slot-chip-label">🏷️ Title:</span> <strong>' + (activeTitleItem ? escapeHtml(activeTitleItem.name) : '<span style="color:#64748b;">None</span>') + '</strong>',
         '    </div>',
+        '    <div class="backpack-slot-chip ' + (ownedProCount > 0 ? 'is-active' : '') + '" style="cursor:pointer;" onclick="window.location.href=\'/team-pairings?tcg=deck&from_lobby=1\'" title="Open Casual TCG Deck Builder &amp; Pro Card Binder">',
+        '      <span class="slot-chip-label">🃏 TCG Cards:</span> <strong>' + (ownedProCount > 0 ? (ownedProCount + ' Pro + 28 Starter') : '28 Starter Cards') + '</strong>',
+        '    </div>',
         '  </div>',
+        '</div>'
+      ].join('\n');
+    } else if (currentArmoryMode === 'store' && activeWingFilter === 'tcg_packs') {
+      var pityPct = Math.min(100, Math.round((pityCounter / 10) * 100));
+      var pityRemaining = Math.max(1, 10 - pityCounter);
+      storeBannerHtml = [
+        '<div style="grid-column: 1/-1; background: linear-gradient(135deg, rgba(15,23,42,0.96), rgba(30,41,59,0.92)); border: 1px solid rgba(56,189,248,0.38); border-radius: 14px; padding: 1rem 1.25rem; margin-bottom: 0.35rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">',
+        '  <div style="flex: 1; min-width: 260px;">',
+        '    <div style="display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap;">',
+        '      <span style="font-size:0.72rem; font-weight:900; letter-spacing:0.08em; text-transform:uppercase; background:rgba(56,189,248,0.18); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); border-radius:999px; padding:2px 9px;">🃏 CASUAL PAIRING MINIGAME TCG</span>',
+        '      <span style="font-size:0.76rem; color:#94a3b8; font-weight:700;">Pro Collection: <strong style="color:#fff;">' + ownedProCount + ' / ' + totalPoolCount + ' Pro Cards</strong> (+28 Free Starter Factions) • Packs Opened: <strong style="color:#fbbf24;">' + packsOpened + '</strong></span>',
+        '    </div>',
+        '    <div style="margin-top:0.55rem; display:flex; align-items:center; gap:0.85rem; flex-wrap:wrap;">',
+        '      <div style="font-size:0.82rem; font-weight:800; color:#f97316;">🔥 Mythic Pity Timer: <strong>' + pityCounter + ' / 10</strong> <span style="font-weight:600; color:#cbd5e1; font-size:0.76rem;">(' + pityRemaining + ' Pity until Guaranteed 2080+ Elo Mythic Pro Card)</span></div>',
+        '      <div style="flex:1; min-width:140px; max-width:220px; height:8px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden; border:1px solid rgba(249,115,22,0.35);">',
+        '        <div style="width:' + pityPct + '%; height:100%; background:linear-gradient(90deg, #f97316, #fbbf24);"></div>',
+        '      </div>',
+        '    </div>',
+        '  </div>',
+        '  <a href="/team-pairings?tcg=deck&from_lobby=1" class="btn btn-outline" style="font-weight:800; font-size:0.8rem; text-decoration:none; border-color:rgba(56,189,248,0.45); color:#38bdf8; padding:0.5rem 0.95rem; white-space:nowrap;">',
+        '    ⚔️ Open TCG Deck Builder &amp; Binder ➔',
+        '  </a>',
         '</div>'
       ].join('\n');
     }
 
-    container.innerHTML = backpackHeaderHtml + cardsHtml;
+    container.innerHTML = backpackHeaderHtml + storeBannerHtml + cardsHtml;
   }
 
   /**
@@ -1531,6 +1701,9 @@
         '<div class="armory-wings-bar">',
         '  <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'all' ? 'active' : '') + '" data-wing="all" onclick="window.Armory.setWingFilter(\'all\')">',
         '    <span>🌐</span> <span class="wing-pill-desktop">All Wings</span><span class="wing-pill-mobile">All</span>',
+        '  </button>',
+        '  <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'tcg_packs' ? 'active' : '') + '" data-wing="tcg_packs" onclick="window.Armory.setWingFilter(\'tcg_packs\')">',
+        '    <span>🃏</span> <span class="wing-pill-desktop">TCG Card Packs</span><span class="wing-pill-mobile">TCG Packs</span>',
         '  </button>',
         '  <button type="button" class="armory-wing-pill ' + (activeWingFilter === 'dice_forge' ? 'active' : '') + '" data-wing="dice_forge" onclick="window.Armory.setWingFilter(\'dice_forge\')">',
         '    <span>🎲</span> <span class="wing-pill-desktop">Dice Forge</span><span class="wing-pill-mobile">Dice</span>',
@@ -1646,7 +1819,7 @@
     if (initialWing === 'store') {
       currentArmoryMode = 'store';
       activeWingFilter = 'all';
-    } else if (['dice_forge', 'profile_forge', 'card_finishes', 'avatars', 'titles', 'pokes'].indexOf(initialWing) !== -1) {
+    } else if (['tcg_packs', 'dice_forge', 'profile_forge', 'card_finishes', 'avatars', 'titles', 'pokes'].indexOf(initialWing) !== -1) {
       currentArmoryMode = 'store';
       activeWingFilter = initialWing;
     } else if (initialWing === 'ledger') {
@@ -1740,6 +1913,7 @@
    * into clean, human-friendly labels for players.
    */
   var WING_LABELS = {
+    'tcg_packs': 'TCG Card Packs',
     'dice_forge': 'Dice Forge',
     'profile_forge': 'Profile Forge',
     'card_finishes': 'Card Finishes',
@@ -2409,6 +2583,14 @@
     currentGameSystem = initSys;
     hydrateVaultFromGlobalSession();
     applyEquippedDecorations(initSys);
+    try {
+      var armoryQuery = new URLSearchParams(window.location.search || '').get('armory');
+      if (armoryQuery) {
+        setTimeout(function() {
+          openArmoryModal(armoryQuery, initSys);
+        }, 180);
+      }
+    } catch (e) {}
     setTimeout(function() {
       loadArmoryData(detectActiveGameSystem()).then(function() {
         applyEquippedDecorations(detectActiveGameSystem());

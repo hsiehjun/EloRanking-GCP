@@ -18,6 +18,7 @@ class TestRetributionArmory(unittest.TestCase):
     def test_catalog_structure_and_wings(self):
         """Verifies wings, schema integrity, and absence of removed Adepticon pickem."""
         wings_40k = self.cat_40k["wings"]
+        self.assertIn("tcg_packs", wings_40k)
         self.assertIn("dice_forge", wings_40k)
         self.assertIn("profile_forge", wings_40k)
         self.assertIn("card_finishes", wings_40k)
@@ -29,10 +30,10 @@ class TestRetributionArmory(unittest.TestCase):
         self.assertNotIn("oracle", wings_40k)
         self.assertIsNone(armory_catalog.get_item_by_id("oracle_gt_pickem_pass"))
 
-        # Verify items exist: 123 for 40K (including 30 finishes), 91 for AoS (including 25 finishes) = 214 items total
-        self.assertEqual(len(self.cat_40k["items"]), 123)
+        # Verify items exist: 126 for 40K (including 30 finishes + 3 TCG Card Packs), 91 for AoS (including 25 finishes) = 217 items total
+        self.assertEqual(len(self.cat_40k["items"]), 126)
         self.assertEqual(len(self.cat_aos["items"]), 91)
-        self.assertEqual(len(self.cat_40k["items"]) + len(self.cat_aos["items"]), 214)
+        self.assertEqual(len(self.cat_40k["items"]) + len(self.cat_aos["items"]), 217)
 
     def test_game_system_isolation(self):
         """Verifies 40K and AoS items are strictly isolated to their own stores."""
@@ -193,7 +194,9 @@ class TestRetributionArmory(unittest.TestCase):
                 # Championship victory unlocks are free prestige rewards
                 self.assertTrue(bool(item.get("prerequisite", {}).get("championship_gt") or item.get("prerequisite", {}).get("championship_major")))
                 continue
-            if wing == "pokes":
+            if wing == "tcg_packs":
+                self.assertIn(cost, (150, 380, 850))
+            elif wing == "pokes":
                 self.assertGreaterEqual(cost, 300)
                 self.assertLessEqual(cost, 1500)
             elif wing == "avatars":

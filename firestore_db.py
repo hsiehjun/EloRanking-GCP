@@ -5276,12 +5276,15 @@ class FirestoreRoomEngine:
         aliases = {
             "recruit": "recruit",
             "recruit_pack": "recruit",
+            "tcg_pack_recruit": "recruit",
             "standard": "recruit",
             "veteran": "veteran",
             "veteran_pack": "veteran",
+            "tcg_pack_veteran": "veteran",
             "tactical": "veteran",
             "warlord": "warlord",
             "warlord_crate": "warlord",
+            "tcg_pack_warlord": "warlord",
             "crate": "warlord",
         }
         return aliases.get(raw, raw)
@@ -5458,6 +5461,72 @@ class FirestoreRoomEngine:
             })
         return starter_cards
 
+    def _fetch_db_tcg_player_cards(self, game_system: str = "40k") -> List[Dict[str, Any]]:
+        """Pulls real tournament players and their factions from PostgreSQL player_ratings & TeamsHubService (cached 300s)."""
+        import time
+        sys_key = str(game_system or "40k").strip().lower()
+        now_mono = time.monotonic()
+        if not hasattr(self, "_tcg_db_player_cards_cache") or not isinstance(getattr(self, "_tcg_db_player_cards_cache", None), dict):
+            self._tcg_db_player_cards_cache = {}
+        cached = self._tcg_db_player_cards_cache.get(sys_key)
+        if cached and (now_mono - cached[0]) < 300.0:
+            return list(cached[1])
+
+        detachment_by_faction = {fac.lower(): (det, role_t) for fac, det, role_t in self.TCG_FACTIONS_DETACHMENTS}
+        db_cards: List[Dict[str, Any]] = []
+        try:
+            from core import get_database
+            db = get_database()
+            is_mock_db = (
+                db is None
+                or getattr(db, "_is_mock_instance", lambda: False)()
+                or type(db).__module__.startswith("unittest.mock")
+                or not hasattr(db, "get_connection")
+            )
+            if not is_mock_db:
+                import psycopg2.extras as pg_extras
+                with db.get_connection() as conn:
+                    with conn.cursor(cursor_factory=pg_extras.RealDictCursor) as cur:
+                        cur.execute("SET LOCAL statement_timeout = '200ms';")
+                        cur.execute(
+                            """
+                            SELECT COALESCE(player_name, '') AS player_name,
+                                   COALESCE(current_elo, 1500.0) AS current_elo,
+                                   COALESCE(top_faction, '') AS top_faction
+                            FROM player_ratings
+                            WHERE COALESCE(game_system, '40k') = %s
+                              AND COALESCE(matches_played, 0) >= 3
+                              AND COALESCE(player_name, '') <> ''
+                            ORDER BY current_elo DESC NULLS LAST
+                            LIMIT 80;
+                            """,
+                            (sys_key,),
+                        )
+                        for r in cur.fetchall():
+                            p_name = str(r.get("player_name") or "").strip()
+                            raw_top = str(r.get("top_faction") or "").strip()
+                            elo_i = int(round(float(r.get("current_elo") or 1600)))
+                            if not p_name or not raw_top or raw_top.lower() in ("unknown", "none", "n/a"):
+                                continue
+                            # Support multi-faction strings in top_faction (e.g. "Adeptus Custodes / Necrons")
+                            fac_parts = [self._clean_primary_faction(part) for part in raw_top.replace(",", "/").split("/") if part.strip()]
+                            for fac in fac_parts[:3]:
+                                if not fac or fac.lower() == "unknown":
+                                    continue
+                                det, role_t = detachment_by_faction.get(fac.lower(), ("Index / Strike Force", "All-Rounder"))
+                                db_cards.append({
+                                    "player_name": p_name,
+                                    "faction": fac,
+                                    "detachment": det,
+                                    "base_elo": elo_i,
+                                    "role_tag": role_t,
+                                })
+        except Exception as e:
+            logger.debug(f"Notice fetching DB players for TCG collectible pool: {e}")
+
+        self._tcg_db_player_cards_cache[sys_key] = (now_mono, db_cards)
+        return list(db_cards)
+
     def get_tcg_collectible_pool(self, game_system: str = "40k") -> List[Dict[str, Any]]:
         """
         Returns all collectible Real Player x Faction cards, hydrating each card's live Elo
@@ -5467,8 +5536,8 @@ class FirestoreRoomEngine:
         import copy
         raw_cards = copy.deepcopy(self.TCG_BASE_PLAYER_CARDS)
 
-        # Also include any preset roster players not already in raw_cards
         seen_keys = {(self._slugify_tcg(c["player_name"]), self._slugify_tcg(c["faction"])) for c in raw_cards}
+        # Include preset roster players not already in raw_cards
         for preset in (self.TEAM_PAIRING_PRESETS or {}).values():
             for p in preset.get("roster") or []:
                 p_name = str(p.get("name") or "").strip()
@@ -5483,6 +5552,13 @@ class FirestoreRoomEngine:
                         "base_elo": int(float(p.get("elo") or 1950)),
                         "role_tag": str(p.get("role_tag") or p.get("role") or "All-Rounder"),
                     })
+
+        # Also include real competitive players from PostgreSQL player_ratings
+        for dbc in self._fetch_db_tcg_player_cards(game_system=game_system):
+            key = (self._slugify_tcg(dbc["player_name"]), self._slugify_tcg(dbc["faction"]))
+            if dbc["player_name"] and key not in seen_keys:
+                seen_keys.add(key)
+                raw_cards.append(dbc)
 
         # Hydrate live Elos in a single batch call
         probe_roster = [
@@ -5537,6 +5613,39 @@ class FirestoreRoomEngine:
         pool.sort(key=lambda item: (int(item["elo"]), item["player_name"], item["faction"]), reverse=True)
         return pool
 
+    @staticmethod
+    def _sanitize_tcg_doc_inplace(doc: Dict[str, Any]) -> bool:
+        """Removes any legacy pre-seeded mock cards ('Starter Welcome Drop' / '2026-10-01T00:00:00Z') and fake pity/wallet state."""
+        changed = False
+        if "wallet_glory" in doc:
+            doc.pop("wallet_glory", None)
+            changed = True
+
+        owned = doc.get("owned_collectibles")
+        if not isinstance(owned, dict):
+            owned = {}
+            doc["owned_collectibles"] = owned
+            changed = True
+
+        for cid in list(owned.keys()):
+            meta = owned.get(cid)
+            acq = str(meta.get("acquired_at") or "") if isinstance(meta, dict) else ""
+            if acq in ("Starter Welcome Drop", "2026-10-01T00:00:00Z"):
+                owned.pop(cid, None)
+                changed = True
+
+        if int(doc.get("schema_v") or 1) < 2:
+            if not doc.get("pack_history") and int(doc.get("packs_opened") or 0) == 0:
+                doc["pity_counter"] = 0
+                doc["glory_rebates_earned"] = 0
+                if not owned:
+                    doc["owned_collectibles"] = {}
+            doc["schema_v"] = 2
+            changed = True
+
+        doc["owned_cards"] = doc["owned_collectibles"]
+        return changed
+
     def _get_or_init_tcg_doc(self, user_id: str = "dev_user") -> Dict[str, Any]:
         uid = str(user_id or "dev_user").strip() or "dev_user"
         if not hasattr(self, "_memory_tcg_profiles") or not isinstance(getattr(self, "_memory_tcg_profiles", None), dict):
@@ -5547,17 +5656,13 @@ class FirestoreRoomEngine:
             starters = self.get_tcg_starter_cards(uid)
             default_5v5 = [c["card_id"] for c in starters[:5]]
             default_8v8 = [c["card_id"] for c in starters[:8]]
-            # Give every user the 28 Starter Faction Cards (1450-1550) as their default 5v5 and 8v8 deck,
-            # plus 3 sample multi-faction collectible cards in their binder (Folger P Custodes, Folger P Necrons, John Hsieh Necrons)
-            # so they can immediately see multi-faction player cards in their collection or equip them!
-            initial_owned: Dict[str, Dict[str, Any]] = {
-                "tcg_folger_p__adeptus_custodes": {"copies": 1, "acquired_at": "Starter Welcome Drop"},
-                "tcg_folger_p__necrons": {"copies": 1, "acquired_at": "Starter Welcome Drop"},
-                "tcg_john_hsieh__necrons": {"copies": 1, "acquired_at": "Starter Welcome Drop"},
-            }
+            # Every user starts ONLY with the 28 Starter Faction Cards (1450-1550) as their free pre-set deck,
+            # and ZERO non-starter collectible cards until they requisition packs with real Glory Honor!
+            initial_owned: Dict[str, Dict[str, Any]] = {}
             self._memory_tcg_profiles[uid] = {
+                "schema_v": 2,
                 "user_id": uid,
-                "spendable_glory": 1390,
+                "spendable_glory": 0,
                 "owned_collectibles": initial_owned,
                 "owned_cards": initial_owned,
                 "deck_5v5": default_5v5,
@@ -5565,32 +5670,71 @@ class FirestoreRoomEngine:
                 "deck_name_5v5": "Starter Faction Strike Force (5v5)",
                 "deck_name_8v8": "Starter Faction Grand Battleline (8v8)",
                 "active_format": "5v5",
-                "pity_counter": 3,
+                "pity_counter": 0,
                 "pity_target": 10,
                 "packs_opened": 0,
                 "glory_rebates_earned": 0,
-                "daily_claims": 0,
+                "total_net_glory_spent": 0,
                 "pack_history": [],
             }
         doc = self._memory_tcg_profiles[uid]
-        if "owned_cards" in doc and doc.get("owned_cards") is not doc.get("owned_collectibles"):
+        if "owned_cards" in doc and doc.get("owned_cards") is not doc.get("owned_collectibles") and isinstance(doc.get("owned_cards"), dict):
             doc["owned_collectibles"] = doc["owned_cards"]
-        else:
-            doc["owned_cards"] = doc.setdefault("owned_collectibles", {})
+        self._sanitize_tcg_doc_inplace(doc)
         return doc
 
-    def claim_tcg_daily_glory(self, user_id: str = "dev_user", amount: int = 1000) -> Dict[str, Any]:
+    def sync_tcg_doc_from_armory_vault(self, user_id: str, armory_vault: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Hydrates the user's TCG state from their persisted PostgreSQL users.armory_vault['tcg_vault'] if present."""
+        import copy
         doc = self._get_or_init_tcg_doc(user_id)
-        bonus = max(1, int(amount or 1000))
-        doc["spendable_glory"] = int(doc.get("spendable_glory", 1390)) + bonus
-        doc["daily_claims"] = int(doc.get("daily_claims", 0)) + 1
-        state = self.get_user_tcg_state(user_id, glory_balance=doc["spendable_glory"])
+        if not isinstance(armory_vault, dict):
+            return doc
+        persisted = armory_vault.get("tcg_vault")
+        if not isinstance(persisted, dict):
+            return doc
+        # Only hydrate from armory_vault if the in-memory doc hasn't already recorded newer pack openings in this process
+        mem_packs = int(doc.get("packs_opened") or 0)
+        persisted_packs = int(persisted.get("packs_opened") or 0)
+        if persisted_packs >= mem_packs:
+            for k in (
+                "owned_collectibles",
+                "deck_5v5",
+                "deck_8v8",
+                "deck_name_5v5",
+                "deck_name_8v8",
+                "active_format",
+                "pity_counter",
+                "pity_target",
+                "packs_opened",
+                "glory_rebates_earned",
+                "total_net_glory_spent",
+                "pack_history",
+            ):
+                if k in persisted:
+                    doc[k] = copy.deepcopy(persisted[k])
+            doc["schema_v"] = int(persisted.get("schema_v") or 1)
+            self._sanitize_tcg_doc_inplace(doc)
+        return doc
+
+    def export_tcg_doc_for_armory_vault(self, user_id: str) -> Dict[str, Any]:
+        """Exports a clean serializable snapshot of the user's TCG collection & decks to store in users.armory_vault['tcg_vault']."""
+        import copy
+        doc = self._get_or_init_tcg_doc(user_id)
         return {
-            "ok": True,
-            "status_code": 200,
-            "claimed_glory": bonus,
-            "spendable_glory": doc["spendable_glory"],
-            "tcg_state": state,
+            "schema_v": 2,
+            "user_id": doc.get("user_id") or user_id,
+            "owned_collectibles": copy.deepcopy(doc.get("owned_collectibles") or {}),
+            "deck_5v5": list(doc.get("deck_5v5") or []),
+            "deck_8v8": list(doc.get("deck_8v8") or []),
+            "deck_name_5v5": str(doc.get("deck_name_5v5") or "Starter Faction Strike Force (5v5)"),
+            "deck_name_8v8": str(doc.get("deck_name_8v8") or "Starter Faction Grand Battleline (8v8)"),
+            "active_format": str(doc.get("active_format") or "5v5"),
+            "pity_counter": int(doc.get("pity_counter") or 0),
+            "pity_target": int(doc.get("pity_target") or 10),
+            "packs_opened": int(doc.get("packs_opened") or 0),
+            "glory_rebates_earned": int(doc.get("glory_rebates_earned") or 0),
+            "total_net_glory_spent": int(doc.get("total_net_glory_spent") or 0),
+            "pack_history": list(doc.get("pack_history") or [])[:20],
         }
 
     def get_user_tcg_deck_roster(self, user_id: str = "dev_user", format_size: str = "5v5") -> List[Dict[str, Any]]:
@@ -5628,7 +5772,7 @@ class FirestoreRoomEngine:
         doc = self._get_or_init_tcg_doc(user_id)
         if glory_balance is not None:
             doc["spendable_glory"] = int(glory_balance)
-        eff_glory = int(doc.get("spendable_glory", 1390))
+        eff_glory = int(doc.get("spendable_glory", 0))
 
         starter_cards = self.get_tcg_starter_cards(user_id)
         collectible_pool = self.get_tcg_collectible_pool()
@@ -5713,11 +5857,12 @@ class FirestoreRoomEngine:
             "ok": True,
             "user_id": doc["user_id"],
             "spendable_glory": eff_glory,
-            "pity_counter": int(doc.get("pity_counter", 3)),
+            "pity_counter": int(doc.get("pity_counter", 0)),
             "pity_target": int(doc.get("pity_target", 10)),
             "pity_threshold": int(doc.get("pity_target", 10)),
             "packs_opened": int(doc.get("packs_opened", 0)),
             "glory_rebates_earned": int(doc.get("glory_rebates_earned", 0)),
+            "total_net_glory_spent": int(doc.get("total_net_glory_spent", 0)),
             "active_format": str(doc.get("active_format") or "5v5"),
             "deck_name_5v5": str(doc.get("deck_name_5v5") or "Starter Faction Strike Force (5v5)"),
             "deck_name_8v8": str(doc.get("deck_name_8v8") or "Starter Faction Grand Battleline (8v8)"),
@@ -5730,6 +5875,7 @@ class FirestoreRoomEngine:
             "starter_cards": starter_cards,
             "owned_cards": all_owned_cards,
             "owned_collectible_cards": owned_collectible_cards,
+            "owned_pro_count": len(owned_collectible_cards),
             "owned_total_count": len(all_owned_cards),
             "collectible_pool": hydrated_pool,
             "collectible_catalog": hydrated_pool,
@@ -5750,9 +5896,11 @@ class FirestoreRoomEngine:
         odds_map: Dict[str, int],
         force_rarity: Optional[str] = None,
         rng: Any = None,
+        exclude_card_ids: Optional[Any] = None,
     ) -> Dict[str, Any]:
         import random
         rand = rng if rng is not None else random
+        excl = set(exclude_card_ids) if exclude_card_ids else set()
         if force_rarity and pool_by_rarity.get(force_rarity):
             chosen_rarity = force_rarity
         else:
@@ -5768,7 +5916,8 @@ class FirestoreRoomEngine:
                 weights = [100.0]
             chosen_rarity = rand.choices(tiers, weights=weights, k=1)[0]
 
-        candidates = pool_by_rarity.get(chosen_rarity) or pool_by_rarity.get("rare") or pool_by_rarity.get("common") or []
+        raw_candidates = pool_by_rarity.get(chosen_rarity) or pool_by_rarity.get("rare") or pool_by_rarity.get("common") or []
+        candidates = [c for c in raw_candidates if c.get("card_id") not in excl] or raw_candidates
         if not candidates:
             all_c = [c for sub in pool_by_rarity.values() for c in sub]
             return rand.choice(all_c)
@@ -5802,7 +5951,7 @@ class FirestoreRoomEngine:
         doc = self._get_or_init_tcg_doc(user_id)
         if glory_balance is not None:
             doc["spendable_glory"] = int(glory_balance)
-        avail_glory = int(doc.get("spendable_glory", 1390))
+        avail_glory = int(doc.get("spendable_glory", 0))
 
         pack_cfg = self.TCG_PACK_CATALOG[p_key]
         cost_glory = int(pack_cfg["cost_glory"])
@@ -5829,19 +5978,29 @@ class FirestoreRoomEngine:
 
         card_count = int(pack_cfg["card_count"])
         raw_pulls: List[Dict[str, Any]] = []
+        drawn_in_this_pack = set()
         if isinstance(forced_card_ids, list) and forced_card_ids:
             for cid in forced_card_ids[:card_count]:
                 if cid in pool_by_id:
                     raw_pulls.append(copy.deepcopy(pool_by_id[cid]))
+                    drawn_in_this_pack.add(cid)
         while len(raw_pulls) < card_count:
             slot_idx = len(raw_pulls)
             if slot_idx == 0 and pity_triggered:
-                picked = self._pick_weighted_tcg_card(pool_by_rarity, pack_cfg["slot1_odds"], force_rarity="mythic", rng=rng)
+                picked = self._pick_weighted_tcg_card(
+                    pool_by_rarity, pack_cfg["slot1_odds"], force_rarity="mythic", rng=rng, exclude_card_ids=drawn_in_this_pack
+                )
             elif slot_idx == 0:
-                picked = self._pick_weighted_tcg_card(pool_by_rarity, pack_cfg["slot1_odds"], rng=rng)
+                picked = self._pick_weighted_tcg_card(
+                    pool_by_rarity, pack_cfg["slot1_odds"], rng=rng, exclude_card_ids=drawn_in_this_pack
+                )
             else:
-                picked = self._pick_weighted_tcg_card(pool_by_rarity, pack_cfg["odds"], rng=rng)
+                picked = self._pick_weighted_tcg_card(
+                    pool_by_rarity, pack_cfg["odds"], rng=rng, exclude_card_ids=drawn_in_this_pack
+                )
             raw_pulls.append(copy.deepcopy(picked))
+            if picked.get("card_id"):
+                drawn_in_this_pack.add(picked["card_id"])
 
         owned_map = doc.setdefault("owned_collectibles", {})
         doc["owned_cards"] = owned_map
@@ -5867,6 +6026,7 @@ class FirestoreRoomEngine:
             c["rebate_glory"] = rebate
             c["duplicate_rebate_glory"] = rebate
             c["copies"] = new_copies
+            c["new_foil_level"] = new_copies
             c["foil_tier"] = self._foil_tier_for_copies(new_copies)
             c["owned"] = True
             hydrated_pulls.append(c)
@@ -5879,6 +6039,7 @@ class FirestoreRoomEngine:
         doc["packs_opened"] = int(doc.get("packs_opened", 0)) + 1
         doc["glory_rebates_earned"] = int(doc.get("glory_rebates_earned", 0)) + total_rebate
         net_glory_spent = max(0, cost_glory - total_rebate)
+        doc["total_net_glory_spent"] = int(doc.get("total_net_glory_spent", 0)) + net_glory_spent
         new_glory_balance = avail_glory - net_glory_spent
         doc["spendable_glory"] = new_glory_balance
 
@@ -5908,10 +6069,15 @@ class FirestoreRoomEngine:
             "ok": True,
             "status_code": 200,
             "pack": pack_cfg,
+            "pack_type": p_key,
+            "pack_name": pack_cfg["name"],
+            "pack_cost": cost_glory,
+            "pulls": hydrated_pulls,
             "pulled_cards": hydrated_pulls,
             "cost_glory": cost_glory,
             "glory_spent": cost_glory,
             "glory_rebate": total_rebate,
+            "total_rebate_glory": total_rebate,
             "duplicate_rebate_glory": total_rebate,
             "net_glory_spent": net_glory_spent,
             "net_glory_cost": net_glory_spent,
@@ -5920,6 +6086,7 @@ class FirestoreRoomEngine:
             "pity_after": doc["pity_counter"],
             "pity_target": pity_target,
             "pity_triggered": pity_triggered,
+            "pity_triggered_in_pack": pity_triggered,
             "tcg_state": state,
         }
 

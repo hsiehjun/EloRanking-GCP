@@ -87,13 +87,21 @@ def _compute_actual_armory_spent(auth_mgr, user_id: str, user_data: Dict[str, An
             vault = {}
     if isinstance(vault, dict):
         inv = vault.get("inventory")
+        has_tcg_inv = False
         if isinstance(inv, dict):
             for item_id, inv_item in inv.items():
                 if item_id in seen_items:
                     continue
+                if str(item_id).startswith("tcg_pack_"):
+                    has_tcg_inv = True
                 c_item = armory_catalog.get_item_by_id(item_id) or {}
-                cost = int(c_item.get("cost_glory") or c_item.get("cost") or (inv_item.get("cost") if isinstance(inv_item, dict) else 0) or 0)
+                if isinstance(inv_item, dict) and "total_net_cost" in inv_item:
+                    cost = int(inv_item.get("total_net_cost") or 0)
+                else:
+                    cost = int(c_item.get("cost_glory") or c_item.get("cost") or (inv_item.get("cost") if isinstance(inv_item, dict) else 0) or 0)
                 total_cost += max(0, cost)
+        if not has_tcg_inv and isinstance(vault.get("tcg_vault"), dict):
+            total_cost += max(0, int(vault["tcg_vault"].get("total_net_glory_spent") or 0))
     return total_cost
 
 
@@ -212,6 +220,7 @@ def get_catalog(request: Request):
     user_crest_tier = 1
     glory_state = {"spendable_glory": 0, "total_earned": 0, "glory_spent": 0, "peak_elo": 1500.0}
 
+    user_id = None
     try:
         session = _get_user_session_or_401(request)
         user_id = session.get("user_id") or session.get("id")
@@ -235,6 +244,18 @@ def get_catalog(request: Request):
     )
     catalog["user_glory"] = glory_state
     catalog["user_vault"] = user_vault
+    try:
+        from firestore_db import get_firestore_engine
+        fs_engine = get_firestore_engine()
+        eff_uid = str(user_id or "guest_catalog")
+        if user_id:
+            fs_engine.sync_tcg_doc_from_armory_vault(eff_uid, user_vault)
+        catalog["tcg_state"] = fs_engine.get_user_tcg_state(
+            eff_uid,
+            glory_balance=int(glory_state.get("spendable_glory") or 0),
+        )
+    except Exception as te:
+        logger.debug(f"Notice attaching tcg_state to armory catalog: {te}")
     return catalog
 
 
@@ -248,6 +269,14 @@ def get_vault(request: Request):
 
     vault = _get_or_init_vault(user_data)
     glory_state = _calculate_user_glory_state(auth_mgr, user_data)
+    tcg_state = None
+    try:
+        from firestore_db import get_firestore_engine
+        fs_engine = get_firestore_engine()
+        fs_engine.sync_tcg_doc_from_armory_vault(str(user_id), vault)
+        tcg_state = fs_engine.get_user_tcg_state(str(user_id), glory_balance=int(glory_state.get("spendable_glory") or 0))
+    except Exception:
+        pass
 
     return {
         "success": True,
@@ -255,7 +284,8 @@ def get_vault(request: Request):
         "vault": vault,
         "inventory": vault["inventory"],
         "equipped": vault["equipped"],
-        "glory": glory_state
+        "glory": glory_state,
+        "tcg_state": tcg_state,
     }
 
 
@@ -281,7 +311,7 @@ async def purchase_item(request: Request):
         raise HTTPException(status_code=404, detail=f"Item '{item_id}' not found in Armory catalog")
 
     glory_state = _calculate_user_glory_state(auth_mgr, user_data)
-    cost = item.get("cost_glory", 0)
+    cost = int(item.get("cost_glory", 0))
 
     # 1. Verify sufficient Glory balance
     if glory_state["spendable_glory"] < cost:
@@ -314,13 +344,45 @@ async def purchase_item(request: Request):
     if not item.get("is_consumable") and item_id in inventory:
         raise HTTPException(status_code=409, detail="You already own this permanent item.")
 
-    # 4. Update inventory
-    if item.get("is_consumable"):
-        existing_qty = inventory.get(item_id, {}).get("quantity", 0)
+    pack_reveal = None
+    debit_amount = cost
+    is_tcg_pack = (item.get("wing") == "tcg_packs")
+
+    if is_tcg_pack:
+        from firestore_db import get_firestore_engine
+        fs_engine = get_firestore_engine()
+        fs_engine.sync_tcg_doc_from_armory_vault(str(user_id), vault)
+        pack_type = (item.get("payload") or {}).get("pack_type") or item["id"]
+        pack_reveal = fs_engine.open_tcg_card_pack(
+            user_id=str(user_id),
+            pack_type=pack_type,
+            glory_balance=int(glory_state["spendable_glory"]),
+            forced_card_ids=body.get("forced_card_ids"),
+        )
+        if not pack_reveal.get("ok"):
+            raise HTTPException(status_code=int(pack_reveal.get("status_code") or 400), detail=pack_reveal.get("error") or "Failed to open TCG card pack")
+        debit_amount = max(1, int(pack_reveal.get("net_glory_spent") or cost))
+        prev_inv = inventory.get(item_id) if isinstance(inventory.get(item_id), dict) else {}
+        existing_qty = int(prev_inv.get("quantity") or 0)
+        existing_net_cost = int(prev_inv.get("total_net_cost") or 0)
+        inventory[item_id] = {
+            "acquired_at": now_iso,
+            "quantity": existing_qty + 1,
+            "total_net_cost": existing_net_cost + debit_amount,
+            "cost": existing_net_cost + debit_amount,
+            "item_name": item["name"],
+            "wing": item["wing"],
+        }
+        vault["tcg_vault"] = fs_engine.export_tcg_doc_for_armory_vault(str(user_id))
+    elif item.get("is_consumable"):
+        prev_inv = inventory.get(item_id) if isinstance(inventory.get(item_id), dict) else {}
+        existing_qty = int(prev_inv.get("quantity") or 0)
+        existing_net_cost = int(prev_inv.get("total_net_cost") if "total_net_cost" in prev_inv else (cost if existing_qty > 0 else 0))
         bundle_add = item.get("bundle_count", 1)
         inventory[item_id] = {
             "acquired_at": now_iso,
             "quantity": existing_qty + bundle_add,
+            "total_net_cost": existing_net_cost + cost,
             "item_name": item["name"],
             "wing": item["wing"]
         }
@@ -341,7 +403,7 @@ async def purchase_item(request: Request):
             client_idem_key = f"armory_perm:{user_id}:{item_id}"
         else:
             new_qty = inventory.get(item_id, {}).get("quantity", 0)
-            client_idem_key = f"armory_cons:{user_id}:{item_id}:qty_{new_qty}:{int(datetime.now(timezone.utc).timestamp() // 2)}"
+            client_idem_key = f"armory_cons:{user_id}:{item_id}:qty_{new_qty}:{int(datetime.now(timezone.utc).timestamp() * 1000)}"
 
     def _persist_vault_inside_tx(cur, _wallet):
         if cur is not None:
@@ -357,13 +419,13 @@ async def purchase_item(request: Request):
             direction="DEBIT",
             bucket="SPENT",
             category="armory_purchase",
-            amount=int(cost),
+            amount=int(debit_amount),
             description=f"Armory Requisition: {item['name']} ({item['wing']})",
             idempotency_key=client_idem_key,
             reference_type="armory_item",
             reference_id=item_id,
             actor_user_id=str(user_id),
-            metadata={"item_id": item_id, "item_name": item["name"], "wing": item["wing"], "cost_glory": int(cost)},
+            metadata={"item_id": item_id, "item_name": item["name"], "wing": item["wing"], "cost_glory": int(debit_amount)},
             vault_updater=_persist_vault_inside_tx
         )
     except glory_ledger_service.GloryLedgerError as gle:
@@ -387,14 +449,21 @@ async def purchase_item(request: Request):
         **tx_wallet
     }
 
+    if pack_reveal:
+        pack_reveal["spendable_glory"] = int(updated_glory.get("spendable_glory") or tx_wallet.get("glory_balance") or 0)
+        if isinstance(pack_reveal.get("tcg_state"), dict):
+            pack_reveal["tcg_state"]["spendable_glory"] = pack_reveal["spendable_glory"]
+
     return {
         "success": True,
-        "message": f"Successfully requisitioned {item['name']} for {cost} Glory! (TX: {tx_wallet.get('last_tx_id')})",
+        "message": f"Successfully requisitioned {item['name']} for {debit_amount} Glory! (TX: {tx_wallet.get('last_tx_id')})",
         "tx_id": tx_wallet.get("last_tx_id"),
         "entry_hash": tx_wallet.get("last_entry_hash"),
         "item": item,
         "vault": vault,
-        "glory": updated_glory
+        "glory": updated_glory,
+        "pack_reveal": pack_reveal,
+        "tcg_state": pack_reveal.get("tcg_state") if pack_reveal else None,
     }
 
 
@@ -865,12 +934,18 @@ def get_armory_transactions(request: Request):
         seen_items.add(tx.get("item_id"))
 
     inv = vault.get("inventory", {})
+    has_tcg_inv = False
     for item_id, inv_item in inv.items():
         if item_id in seen_items:
             continue
+        if str(item_id).startswith("tcg_pack_"):
+            has_tcg_inv = True
         c_item = armory_catalog.get_item_by_id(item_id) or {}
-        cost = int(c_item.get("cost_glory") or c_item.get("cost") or (inv_item.get("cost") if isinstance(inv_item, dict) else 0) or 0)
-        acquired = inv_item.get("purchased_at") if isinstance(inv_item, dict) else ""
+        if isinstance(inv_item, dict) and "total_net_cost" in inv_item:
+            cost = int(inv_item.get("total_net_cost") or 0)
+        else:
+            cost = int(c_item.get("cost_glory") or c_item.get("cost") or (inv_item.get("cost") if isinstance(inv_item, dict) else 0) or 0)
+        acquired = (inv_item.get("purchased_at") or inv_item.get("acquired_at")) if isinstance(inv_item, dict) else ""
         debits.append({
             "id": f"inv_{item_id}",
             "type": "debit",
@@ -880,6 +955,18 @@ def get_armory_transactions(request: Request):
             "cost": cost,
             "date": acquired or ""
         })
+    if not has_tcg_inv and isinstance(vault.get("tcg_vault"), dict):
+        tcg_net = max(0, int(vault["tcg_vault"].get("total_net_glory_spent") or 0))
+        if tcg_net > 0:
+            debits.append({
+                "id": "inv_tcg_packs",
+                "type": "debit",
+                "item_id": "tcg_pack_recruit",
+                "name": "🃏 TCG Card Pack Requisitions",
+                "wing": "tcg_packs",
+                "cost": tcg_net,
+                "date": ""
+            })
 
     actual_debits_sum = sum(int(d.get("cost") or 0) for d in debits)
     ledger_svc = glory_ledger_service.get_glory_ledger_service()

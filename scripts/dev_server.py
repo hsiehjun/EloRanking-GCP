@@ -1752,7 +1752,40 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
                 now_iso = datetime.now(timezone.utc).isoformat()
-                if item.get("is_consumable"):
+                pack_reveal = None
+                debit_amount = cost
+                if item.get("wing") == "tcg_packs":
+                    from firestore_db import get_firestore_engine
+                    fs_eng = get_firestore_engine()
+                    dev_uid = str(DEV_USER["user"].get("id") or "user_innes")
+                    fs_eng.sync_tcg_doc_from_armory_vault(dev_uid, v)
+                    pack_type = (item.get("payload") or {}).get("pack_type") or item["id"]
+                    pack_reveal = fs_eng.open_tcg_card_pack(
+                        user_id=dev_uid,
+                        pack_type=pack_type,
+                        glory_balance=int(spendable),
+                        forced_card_ids=payload.get("forced_card_ids"),
+                    )
+                    if not pack_reveal.get("ok"):
+                        self.send_response(int(pack_reveal.get("status_code") or 400))
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"detail": pack_reveal.get("error") or "Failed to open TCG pack"}).encode("utf-8"))
+                        return
+                    debit_amount = max(1, int(pack_reveal.get("net_glory_spent") or cost))
+                    prev_inv = inv.get(item_id, {}) if isinstance(inv.get(item_id), dict) else {}
+                    existing = int(prev_inv.get("quantity", 0))
+                    existing_net = int(prev_inv.get("total_net_cost", 0))
+                    inv[item_id] = {
+                        "acquired_at": now_iso,
+                        "quantity": existing + 1,
+                        "total_net_cost": existing_net + debit_amount,
+                        "cost": existing_net + debit_amount,
+                        "item_name": item["name"],
+                        "wing": item["wing"],
+                    }
+                    v["tcg_vault"] = fs_eng.export_tcg_doc_for_armory_vault(dev_uid)
+                elif item.get("is_consumable"):
                     existing = inv.get(item_id, {}).get("quantity", 0)
                     inv[item_id] = {
                         "acquired_at": now_iso,
@@ -1768,17 +1801,23 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         "slot": item.get("slot")
                     }
 
-                DEV_USER["glory_spent"] = spent + cost
+                DEV_USER["glory_spent"] = spent + debit_amount
                 new_spendable = max(0, total_earned - DEV_USER["glory_spent"])
+                if pack_reveal:
+                    pack_reveal["spendable_glory"] = new_spendable
+                    if isinstance(pack_reveal.get("tcg_state"), dict):
+                        pack_reveal["tcg_state"]["spendable_glory"] = new_spendable
 
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(json.dumps({
                     "success": True,
-                    "message": f"Successfully requisitioned {item['name']} for {cost} Glory!",
+                    "message": f"Successfully requisitioned {item['name']} for {debit_amount} Glory!",
                     "item": item,
                     "vault": v,
+                    "pack_reveal": pack_reveal,
+                    "tcg_state": pack_reveal.get("tcg_state") if pack_reveal else None,
                     "glory": {
                         "total_earned": total_earned,
                         "glory_spent": DEV_USER["glory_spent"],
@@ -1859,10 +1898,14 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
             if clean_path == "api/armory/set_glory":
                 DEV_USER["total_glory"] = int(payload.get("total_glory", 50000))
+                if "glory_spent" in payload:
+                    DEV_USER["glory_spent"] = int(payload["glory_spent"])
+                if "glory_aos" in payload:
+                    DEV_USER["glory_aos"] = int(payload["glory_aos"])
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
-                self.wfile.write(json.dumps({"success": True, "total_glory": DEV_USER["total_glory"]}).encode("utf-8"))
+                self.wfile.write(json.dumps({"success": True, "total_glory": DEV_USER["total_glory"], "glory_spent": DEV_USER.get("glory_spent", 0)}).encode("utf-8"))
                 return
 
             if clean_path == "api/armory/poke":
@@ -1974,6 +2017,13 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 DEV_USER.pop("glory_40k", None)
                 DEV_USER["glory_spent"] = 8500
                 DEV_USER.pop("armory_vault", None)
+                try:
+                    from firestore_db import get_firestore_engine
+                    fs_eng = get_firestore_engine()
+                    if hasattr(fs_eng, "_memory_tcg_profiles") and isinstance(fs_eng._memory_tcg_profiles, dict):
+                        fs_eng._memory_tcg_profiles.clear()
+                except Exception:
+                    pass
                 _get_dev_user_glory_and_stats()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -2029,7 +2079,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 p_load = {}
             from firestore_db import get_firestore_engine
             fs_eng = get_firestore_engine()
-            uid = str(p_load.get("user_id") or DEV_USER["user"].get("id") or "dev_user").strip()
+            raw_uid = str(p_load.get("user_id") or "").strip()
+            dev_uid = str(DEV_USER["user"].get("id") or "user_innes")
+            uid = dev_uid if (not raw_uid or raw_uid == "dev_user" or raw_uid.startswith("guest_")) else raw_uid
             g_stats = _get_dev_user_glory_and_stats()
             avail_glory = int(p_load.get("glory_balance") if p_load.get("glory_balance") is not None else g_stats["spendable_glory"])
             res = fs_eng.open_tcg_card_pack(
@@ -2038,8 +2090,23 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 glory_balance=avail_glory,
                 forced_card_ids=p_load.get("forced_card_ids"),
             )
-            if res.get("ok"):
-                net_spent = int(res.get("net_glory_spent", 0))
+            if res.get("ok") and p_load.get("glory_balance") is None:
+                net_spent = max(1, int(res.get("net_glory_spent", 0)))
+                p_key = fs_eng._normalize_pack_type_key(str(p_load.get("pack_type") or "recruit"))
+                arm_id = f"tcg_pack_{p_key}"
+                pack_name = (res.get("pack") or {}).get("name") or f"TCG {p_key.title()} Pack"
+                v = g_stats["vault"]
+                inv = v.setdefault("inventory", {})
+                prev_inv = inv.get(arm_id, {}) if isinstance(inv.get(arm_id), dict) else {}
+                inv[arm_id] = {
+                    "acquired_at": datetime.now(timezone.utc).isoformat(),
+                    "quantity": int(prev_inv.get("quantity", 0)) + 1,
+                    "total_net_cost": int(prev_inv.get("total_net_cost", 0)) + net_spent,
+                    "cost": int(prev_inv.get("total_net_cost", 0)) + net_spent,
+                    "item_name": pack_name,
+                    "wing": "tcg_packs",
+                }
+                v["tcg_vault"] = fs_eng.export_tcg_doc_for_armory_vault(uid)
                 DEV_USER["glory_spent"] = int(DEV_USER.get("glory_spent", 8500)) + net_spent
                 updated_g = _get_dev_user_glory_and_stats()
                 res["spendable_glory"] = updated_g["spendable_glory"]
@@ -2060,10 +2127,14 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 p_load = {}
             from firestore_db import get_firestore_engine
             fs_eng = get_firestore_engine()
-            uid = str(p_load.get("user_id") or DEV_USER["user"].get("id") or "dev_user").strip()
+            raw_uid = str(p_load.get("user_id") or "").strip()
+            dev_uid = str(DEV_USER["user"].get("id") or "user_innes")
+            uid = dev_uid if (not raw_uid or raw_uid == "dev_user" or raw_uid.startswith("guest_")) else raw_uid
             g_stats = _get_dev_user_glory_and_stats()
             p_load["glory_balance"] = g_stats["spendable_glory"]
             res = fs_eng.save_user_tcg_deck(uid, p_load)
+            if res.get("ok"):
+                g_stats["vault"]["tcg_vault"] = fs_eng.export_tcg_doc_for_armory_vault(uid)
             if res.get("ok") and p_load.get("room_code"):
                 room_res = fs_eng.apply_pairing_action(
                     str(p_load["room_code"]),
@@ -2091,9 +2162,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 p_load = {}
             from firestore_db import get_firestore_engine
             fs_eng = get_firestore_engine()
-            uid = str(p_load.get("user_id") or DEV_USER["user"].get("id") or "dev_user").strip()
-            grant = int(p_load.get("amount") or 1000)
-            DEV_USER["total_glory"] = int(DEV_USER.get("total_glory") or 9890) + grant
+            raw_uid = str(p_load.get("user_id") or "").strip()
+            dev_uid = str(DEV_USER["user"].get("id") or "user_innes")
+            uid = dev_uid if (not raw_uid or raw_uid == "dev_user" or raw_uid.startswith("guest_")) else raw_uid
             g_stats = _get_dev_user_glory_and_stats()
             state = fs_eng.get_user_tcg_state(uid, glory_balance=g_stats["spendable_glory"])
             self.send_response(200)
@@ -2103,7 +2174,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 json.dumps(
                     {
                         "ok": True,
-                        "granted_glory": grant,
+                        "granted_glory": 0,
                         "spendable_glory": g_stats["spendable_glory"],
                         "tcg_state": state,
                     }
@@ -3379,6 +3450,14 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             cat["active_pokes"] = act_p
             cat["unseen_pokes"] = [p for p in act_p if not p.get("seen")]
             cat["user_vault"] = v
+            try:
+                from firestore_db import get_firestore_engine
+                fs_eng = get_firestore_engine()
+                dev_uid = str(DEV_USER["user"].get("id") or "user_innes")
+                fs_eng.sync_tcg_doc_from_armory_vault(dev_uid, v)
+                cat["tcg_state"] = fs_eng.get_user_tcg_state(dev_uid, glory_balance=int(spendable))
+            except Exception:
+                pass
             import hashlib
             payload_bytes = json.dumps(cat).encode("utf-8")
             etag = f'"{hashlib.md5(payload_bytes).hexdigest()[:16]}"'
@@ -8012,9 +8091,13 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         if clean_path in ("api/tcg/state", "api/team-pairings/tcg/state"):
             from firestore_db import get_firestore_engine
             fs_eng = get_firestore_engine()
-            uid = (query_params.get("user_id") or [DEV_USER["user"].get("id") or "dev_user"])[0]
+            raw_uid = str((query_params.get("user_id") or [""])[0] or "").strip()
+            dev_uid = str(DEV_USER["user"].get("id") or "user_innes")
+            uid = dev_uid if (not raw_uid or raw_uid == "dev_user" or raw_uid.startswith("guest_")) else raw_uid
             g_stats = _get_dev_user_glory_and_stats()
+            fs_eng.sync_tcg_doc_from_armory_vault(uid, g_stats.get("vault"))
             state = fs_eng.get_user_tcg_state(uid, glory_balance=g_stats["spendable_glory"])
+            state["is_authenticated"] = True
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()

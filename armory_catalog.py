@@ -71,6 +71,12 @@ ARMORY_WINGS: Dict[str, Dict[str, Any]] = {
         "name": "Player Pokes",
         "icon": "👉",
         "description": "Consumable social banter interactions with custom toast notifications and sounds."
+    },
+    "tcg_packs": {
+        "id": "tcg_packs",
+        "name": "TCG Card Packs",
+        "icon": "🃏",
+        "description": "Collectible Pro Player × Faction WTC Team Pairings card packs with live Elo sync, duplicate Glory Shard rebates, and 10-point Mythic Pity."
     }
 }
 
@@ -4095,6 +4101,80 @@ ARMORY_ITEMS: List[Dict[str, Any]] = [
             "hex_banner_desc": "Enveloped in grandfather's rotting plague miasma by {sender}.",
             "css_glow": "#84cc16"
         }
+    },
+
+    # ── WING 7: TCG CARD PACKS (40K WTC TEAM PAIRINGS) ──
+    {
+        "id": "tcg_pack_recruit",
+        "name": "Standard Recruit Pack",
+        "game_system": "40k",
+        "wing": "tcg_packs",
+        "slot": None,
+        "rarity": "common",
+        "cost_glory": 150,
+        "is_consumable": True,
+        "bundle_count": 3,
+        "prerequisite": None,
+        "icon": "📦",
+        "description": "3 Collectible Pro Player × Faction Cards. Slot 1 Guaranteed Rare (1750+ Elo) or higher. Adds +1 Mythic Pity toward guaranteed 2080+ Elo Warlord pull.",
+        "payload": {
+            "pack_type": "recruit",
+            "card_count": 3,
+            "pity_increment": 1,
+            "badge": "ENTRY PACK",
+            "guarantee_text": "Guaranteed 1+ Rare (1750+ Elo) or higher",
+            "odds": {"common": 58, "rare": 28, "epic": 11, "mythic": 3},
+            "slot1_odds": {"common": 0, "rare": 74, "epic": 21, "mythic": 5},
+            "css_glow": "#38bdf8"
+        }
+    },
+    {
+        "id": "tcg_pack_veteran",
+        "name": "Tactical Veteran Pack",
+        "game_system": "40k",
+        "wing": "tcg_packs",
+        "slot": None,
+        "rarity": "rare",
+        "cost_glory": 380,
+        "is_consumable": True,
+        "bundle_count": 5,
+        "prerequisite": None,
+        "icon": "⚡",
+        "description": "5 Collectible Pro Player × Faction Cards. Boosted 57% Epic/Mythic Lead Slot! Adds +2 Mythic Pity toward guaranteed 2080+ Elo Warlord pull.",
+        "payload": {
+            "pack_type": "veteran",
+            "card_count": 5,
+            "pity_increment": 2,
+            "badge": "SAVE 15% • ANCHOR",
+            "guarantee_text": "Guaranteed 1+ Epic (1900+) or High-Rare Lead Slot",
+            "odds": {"common": 35, "rare": 40, "epic": 19, "mythic": 6},
+            "slot1_odds": {"common": 0, "rare": 43, "epic": 45, "mythic": 12},
+            "css_glow": "#c084fc"
+        }
+    },
+    {
+        "id": "tcg_pack_warlord",
+        "name": "Warlord Command Crate",
+        "game_system": "40k",
+        "wing": "tcg_packs",
+        "slot": None,
+        "rarity": "legendary",
+        "cost_glory": 850,
+        "is_consumable": True,
+        "bundle_count": 5,
+        "prerequisite": None,
+        "icon": "👑",
+        "description": "5 Elite Pro Player × Faction Cards with ZERO Commons! Slot 1 is 100% Guaranteed Epic (1900+ Elo) or Mythic Warlord (2080+ Elo). Adds +3 Mythic Pity.",
+        "payload": {
+            "pack_type": "warlord",
+            "card_count": 5,
+            "pity_increment": 3,
+            "badge": "👑 MOST POPULAR • 2.5× MYTHIC ODDS",
+            "guarantee_text": "ZERO Commons! Slot 1 is 100% Guaranteed Epic (1900+) or Mythic (2080+)",
+            "odds": {"common": 0, "rare": 52, "epic": 36, "mythic": 12},
+            "slot1_odds": {"common": 0, "rare": 0, "epic": 72, "mythic": 28},
+            "css_glow": "#fbbf24"
+        }
     }
 ]
 
@@ -4121,7 +4201,10 @@ ARMORY_ALIASES: Dict[str, str] = {
     "finish_astral_holofoil": "frame_astral_holofoil",
     "dice_dark_angels_caliban": "dice_40k_dark_angels",
     "dice_dark_angels": "dice_40k_dark_angels",
-    "dice_sanctified_ceramite": "dice_ceramite_white"
+    "dice_sanctified_ceramite": "dice_ceramite_white",
+    "recruit_pack": "tcg_pack_recruit",
+    "veteran_pack": "tcg_pack_veteran",
+    "warlord_crate": "tcg_pack_warlord",
 }
 
 
