@@ -30,12 +30,9 @@
           var isAdmin = Boolean(
             p.is_admin ||
             (p.user && p.user.is_admin) ||
-            p.can_switch_role ||
-            (p.user && p.user.can_switch_role) ||
-            email === 'swimgeek751@gmail.com' ||
-            email === 'hsiehjun@google.com'
+            email === 'swimgeek751@gmail.com'
           );
-          if (role && role !== 'admin' && !isAdmin) {
+          if (email === 'hsiehjun@google.com' || (role && role !== 'admin' && !isAdmin)) {
             document.documentElement.style.display = 'none';
             window.location.replace('/');
           }
@@ -995,7 +992,7 @@
                 prof.can_access_to = (appliedRole === 'admin' || appliedRole === 'to');
                 prof.can_access_cc = (appliedRole === 'admin' || appliedRole === 'creator');
                 prof.is_cc = (appliedRole === 'admin' || appliedRole === 'creator');
-                prof.can_switch_role = true;
+                prof.can_switch_role = (profEmail === 'swimgeek751@gmail.com');
                 localStorage.setItem('native_user_profile', JSON.stringify(prof));
               }
             }

@@ -263,7 +263,20 @@ class AdminSetUserRolePayload(BaseModel):
 
 @router.post("/api/admin/users/{user_id}/role", summary="Update User Role (Admin)")
 def api_admin_set_user_role(user_id: str, payload: AdminSetUserRolePayload, request: Request, token: Optional[str] = Query(None)):
-    _get_admin_session_or_403(request, token)
+    admin_sess = _get_admin_session_or_403(request, token)
+    caller_email = str(admin_sess.get("email") or "").strip().lower()
+    caller_id = str(admin_sess.get("id") or "").strip()
+    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
+    if caller_email == "hsiehjun@google.com":
+        raise HTTPException(status_code=403, detail="Unauthorized: Test account cannot modify roles.")
+    is_self_target = bool(
+        (caller_id and caller_id == str(user_id).strip())
+        or (caller_email and caller_email == str(user_id).strip().lower())
+    )
+    if is_self_target and caller_email != superadmin_email:
+        raise HTTPException(status_code=403, detail="Only the platform superadmin (swimgeek751@gmail.com) can switch their own role.")
+    if str(user_id).strip().lower() == superadmin_email and caller_email != superadmin_email:
+        raise HTTPException(status_code=403, detail="Cannot modify superadmin role.")
     valid_roles = ("player", "creator", "cc", "content_creator", "to", "organizer", "admin", "referee")
     new_role = payload.role.strip().lower()
     if new_role not in valid_roles:

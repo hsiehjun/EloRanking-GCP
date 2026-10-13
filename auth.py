@@ -1455,6 +1455,13 @@ class AuthManager:
                             user_email = (data.get("email") or "").strip().lower()
                             superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
                             raw_role = str(row.get("role") or "player").strip().lower()
+                            if user_email == "hsiehjun@google.com" and raw_role == "admin":
+                                raw_role = "player"
+                                try:
+                                    cur.execute("UPDATE users SET role = 'player' WHERE id = %s;", (data["id"],))
+                                    conn.commit()
+                                except Exception:
+                                    pass
                             if raw_role in ("creator", "cc", "content_creator"):
                                 raw_role = "creator"
                             elif raw_role in ("to", "organizer"):
@@ -1463,11 +1470,9 @@ class AuthManager:
                                 raw_role = "player"
                             data["role"] = raw_role
                             data["is_admin"] = bool(data["role"] == "admin")
-                            data["can_switch_role"] = bool(
-                                data["is_admin"]
-                                or (bool(superadmin_email) and user_email == superadmin_email)
-                                or user_email == "hsiehjun@google.com"
-                            )
+                            is_superadmin = bool(superadmin_email and user_email == superadmin_email)
+                            data["is_superadmin"] = is_superadmin
+                            data["can_switch_role"] = is_superadmin
                             data["can_access_to"] = bool(data["role"] in ("admin", "to", "organizer", "referee"))
                             data["can_access_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
                             data["is_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
@@ -1593,6 +1598,8 @@ class AuthManager:
             user_email = (data.get("email") or "").strip().lower()
             superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
             raw_role = str(row.get("role") or "player").strip().lower()
+            if user_email == "hsiehjun@google.com" and raw_role == "admin":
+                raw_role = "player"
             if raw_role in ("creator", "cc", "content_creator"):
                 raw_role = "creator"
             elif raw_role in ("to", "organizer"):
@@ -1601,11 +1608,9 @@ class AuthManager:
                 raw_role = "player"
             data["role"] = raw_role
             data["is_admin"] = bool(data["role"] == "admin")
-            data["can_switch_role"] = bool(
-                data["is_admin"]
-                or (bool(superadmin_email) and user_email == superadmin_email)
-                or user_email == "hsiehjun@google.com"
-            )
+            is_superadmin = bool(superadmin_email and user_email == superadmin_email)
+            data["is_superadmin"] = is_superadmin
+            data["can_switch_role"] = is_superadmin
             data["can_access_to"] = bool(data["role"] in ("admin", "to", "organizer", "referee"))
             data["can_access_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
             data["is_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))

@@ -78,7 +78,7 @@ function getMockUserForPersona(persona) {
       username: 'tournament_director',
       display_name: 'Head Tournament Organizer',
       role: 'to',
-      is_admin: true,
+      is_admin: false,
       can_access_to: true,
       bcp_connected: true
     };
@@ -153,6 +153,11 @@ try {
       const parsed = JSON.parse(cached);
       // Ensure cached profile is not a stale mock persona
       if (parsed && parsed.id !== 'p_innes' && parsed.username !== 'innes_wilson' && parsed.id !== 'dev_creator_wgl' && parsed.id !== 'dev_to_admin' && parsed.id !== 'viewer_guest_999') {
+        const cachedEmail = String(parsed.email || '').trim().toLowerCase();
+        if (cachedEmail !== 'swimgeek751@gmail.com') {
+          parsed.can_switch_role = false;
+          parsed.is_superadmin = false;
+        }
         currentUser = parsed;
       } else {
         currentUser = null;
@@ -1245,13 +1250,9 @@ function openUserSettingsModal() {
     if (emailVal) emailVal.innerText = currentUser.email || '-';
     if (roleVal) {
       const userEmail = String(currentUser.email || '').trim().toLowerCase();
-      const userNameClean = String(currentUser.display_name || currentUser.name || '').trim().toLowerCase();
       const canSwitchOwnRole = Boolean(
-        currentUser.can_switch_role ||
-        currentUser.is_admin ||
-        userEmail === 'swimgeek751@gmail.com' ||
-        userEmail === 'hsiehjun@google.com' ||
-        userNameClean === 'john hsieh'
+        userEmail === 'swimgeek751@gmail.com' &&
+        (currentUser.can_switch_role === true || currentUser.is_superadmin === true)
       );
       const normRole = (() => {
         const r = String(currentUser.role || 'player').trim().toLowerCase();
@@ -1330,17 +1331,33 @@ async function handleSelfRoleSwitch(newRole) {
   if (successDiv) successDiv.style.display = 'none';
   if (sel) sel.disabled = true;
 
+  const userEmail = String(currentUser.email || '').trim().toLowerCase();
+  if (userEmail !== 'swimgeek751@gmail.com' || !(currentUser.can_switch_role === true || currentUser.is_superadmin === true) || !currentUser.id) {
+    if (errDiv) {
+      errDiv.innerText = 'Unauthorized: Only the platform owner (swimgeek751@gmail.com) can switch account roles.';
+      errDiv.style.display = 'block';
+    }
+    if (sel) sel.disabled = false;
+    return;
+  }
+
   const cleanRole = String(newRole || 'player').trim().toLowerCase();
   try {
-    if (window.api && typeof window.api.setAdminUserRole === 'function' && currentUser.id) {
-      await window.api.setAdminUserRole(currentUser.id, cleanRole);
+    if (!window.api || typeof window.api.setAdminUserRole !== 'function') {
+      throw new Error('Role management API unavailable.');
     }
-    currentUser.role = cleanRole;
-    currentUser.is_admin = (cleanRole === 'admin');
-    currentUser.can_access_to = (cleanRole === 'admin' || cleanRole === 'to' || cleanRole === 'organizer' || cleanRole === 'referee');
-    currentUser.can_access_cc = (cleanRole === 'admin' || cleanRole === 'creator' || cleanRole === 'cc' || cleanRole === 'content_creator');
+    const res = await window.api.setAdminUserRole(currentUser.id, cleanRole);
+    if (!res || res.error || res.success !== true) {
+      throw new Error((res && (res.error || res.detail)) || 'Server rejected role change (403 Forbidden).');
+    }
+    const appliedRole = String(res.role || cleanRole).trim().toLowerCase();
+    currentUser.role = appliedRole;
+    currentUser.is_admin = (appliedRole === 'admin');
+    currentUser.can_access_to = (appliedRole === 'admin' || appliedRole === 'to' || appliedRole === 'organizer' || appliedRole === 'referee');
+    currentUser.can_access_cc = (appliedRole === 'admin' || appliedRole === 'creator' || appliedRole === 'cc' || appliedRole === 'content_creator');
     currentUser.is_cc = currentUser.can_access_cc;
     currentUser.can_switch_role = true;
+    currentUser.is_superadmin = true;
     window.currentUser = currentUser;
     localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
 
@@ -1362,7 +1379,7 @@ async function handleSelfRoleSwitch(newRole) {
 
     if (successDiv) {
       const roleLabels = { player: 'Player', creator: 'Creator (CC)', to: 'Tournament Organizer (TO)', admin: 'Admin' };
-      successDiv.innerText = `✓ Active role switched to ${roleLabels[cleanRole] || cleanRole.toUpperCase()}! You are now viewing OmniTactica with ${roleLabels[cleanRole] || cleanRole} permissions.`;
+      successDiv.innerText = `✓ Active role switched to ${roleLabels[appliedRole] || appliedRole.toUpperCase()}! You are now viewing OmniTactica with ${roleLabels[appliedRole] || appliedRole} permissions.`;
       successDiv.style.display = 'block';
     }
   } catch (err) {

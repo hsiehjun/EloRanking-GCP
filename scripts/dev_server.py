@@ -1643,11 +1643,18 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 new_role = "creator"
             elif new_role in ("to", "organizer"):
                 new_role = "to"
+            req_email = (self.headers.get("X-Test-User-Email") or "").strip().lower()
+            if u_id.lower() == "hsiehjun@google.com" or req_email == "hsiehjun@google.com":
+                self.send_response(403)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "Unauthorized: Only swimgeek751@gmail.com can switch roles."}).encode("utf-8"))
+                return
             for u in DEV_USERS_LIST:
                 if u.get("id") == u_id or str(u.get("email") or "").lower() == u_id.lower():
                     u["role"] = new_role
                     u["is_admin"] = (new_role == "admin")
-            if u_id in ("u_john_hsieh", "swimgeek751@gmail.com", "hsiehjun@google.com", "p_innes", "u_head_admin"):
+            if u_id in ("u_john_hsieh", "swimgeek751@gmail.com"):
                 _DEV_EXPLICIT_ROLE_OVERRIDE = new_role
                 if isinstance(DEV_USER, dict):
                     DEV_USER["role"] = new_role

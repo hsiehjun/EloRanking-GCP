@@ -135,6 +135,49 @@ class TestCreatorHubAndLivestreams(unittest.TestCase):
             admin_users = auth_mgr.get_admin_users()
             self.assertEqual(admin_users[0]["role"], target_role)
 
+    def test_test_account_cannot_switch_role_or_pretend_admin(self):
+        """Verify hsiehjun@google.com (test account) has can_switch_role=False and cannot call api_admin_set_user_role."""
+        from core import HTTPException
+        mock_db = MagicMock()
+        auth_mgr = AuthManager(db=mock_db)
+        cursor_mock = MagicMock()
+        cursor_mock.__enter__.return_value = cursor_mock
+        mock_db.get_connection.return_value.__enter__.return_value.cursor.return_value = cursor_mock
+
+        row_test_acct = {
+            "id": "u_john4_test",
+            "email": "hsiehjun@google.com",
+            "display_name": "John4 Hsieh4",
+            "role": "admin",  # Even if DB had admin, must be normalized to player
+            "player_id": "DxHDrz4LFzzb",
+        }
+        cursor_mock.fetchone.return_value = row_test_acct
+        user_t = auth_mgr.get_user_by_id("u_john4_test")
+        self.assertEqual(user_t["role"], "player")
+        self.assertFalse(user_t["is_admin"])
+        self.assertFalse(user_t["can_switch_role"])
+        self.assertFalse(user_t["is_superadmin"])
+
+        auth_mgr._invalidate_session_user_cache()
+        sess_t = auth_mgr.get_session("tok_test_acct")
+        self.assertEqual(sess_t["role"], "player")
+        self.assertFalse(sess_t["is_admin"])
+        self.assertFalse(sess_t["can_switch_role"])
+        self.assertFalse(sess_t["is_superadmin"])
+
+        # Attempting to call api_admin_set_user_role as hsiehjun@google.com raises 403
+        mock_request = MagicMock(spec=Request)
+        with patch("routers.admin._get_admin_session_or_403", return_value={"id": "u_john4_test", "email": "hsiehjun@google.com", "role": "player", "is_admin": False}):
+            with self.assertRaises(HTTPException) as ctx:
+                api_admin_set_user_role("u_john4_test", AdminSetUserRolePayload(role="admin"), mock_request)
+            self.assertEqual(ctx.exception.status_code, 403)
+
+        # Attempting self-role switch as any non-superadmin raises 403
+        with patch("routers.admin._get_admin_session_or_403", return_value={"id": "u_other_admin", "email": "other@example.com", "role": "admin", "is_admin": True}):
+            with self.assertRaises(HTTPException) as ctx2:
+                api_admin_set_user_role("u_other_admin", AdminSetUserRolePayload(role="to"), mock_request)
+            self.assertEqual(ctx2.exception.status_code, 403)
+
     def test_parse_stream_embed_youtube_and_twitch(self):
         """Verify embed URL generation for YouTube watch, youtu.be, and Twitch channels."""
         yt_watch = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
