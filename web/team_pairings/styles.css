@@ -885,7 +885,8 @@ html, body {
   background: linear-gradient(135deg, #0284c7 0%, #1d4ed8 100%);
   border: 2px solid #7dd3fc;
   color: #ffffff;
-  text-shadow: 0 1px 3px rgba(2, 6, 23, 0.85);
+  text-shadow: none;
+  -webkit-font-smoothing: antialiased;
   font-family: var(--font-display);
   font-size: 0.75rem;
   font-weight: 900;
@@ -893,13 +894,13 @@ html, body {
   padding: 5px 14px;
   border-radius: 999px;
   cursor: pointer;
-  box-shadow: 0 0 18px rgba(0, 229, 255, 0.5);
-  transition: all 0.15s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .ygo-confirm-btn:hover:not(:disabled) {
-  transform: scale(1.04);
-  filter: brightness(1.1);
+  transform: none;
+  filter: none;
 }
 
 .ygo-confirm-btn:disabled {
@@ -1464,6 +1465,12 @@ html, body {
 .lobby-close-btn {
   width: 32px;
   height: 32px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
   border-radius: 8px;
   background: rgba(30, 41, 59, 0.85);
   border: 1px solid rgba(148, 163, 184, 0.35);
@@ -3175,8 +3182,8 @@ html, body {
 .coin-team-box.winner {
   border-color: var(--gold-bright);
   background: linear-gradient(145deg, rgba(245, 185, 66, 0.22), rgba(15, 23, 42, 0.95));
-  box-shadow: 0 0 24px rgba(245, 185, 66, 0.45);
-  transform: scale(1.03);
+  box-shadow: 0 0 16px rgba(245, 185, 66, 0.35);
+  transform: none;
 }
 
 .coin-team-tag {
@@ -3220,11 +3227,12 @@ html, body {
   width: 108px;
   height: 108px;
   position: relative;
-  transform-style: preserve-3d;
+  transform-style: flat;
   transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .coin-3d-object.spinning {
+  transform-style: preserve-3d;
   animation: ygoCoinSpin 0.85s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -3401,19 +3409,86 @@ html, body {
 }
 
 @media (max-width: 900px) {
+  .coin-modal-backdrop {
+    padding: 8px;
+  }
+
+  .coin-modal-card {
+    padding: 12px 14px;
+    gap: 10px;
+    max-height: 94vh;
+  }
+
+  .coin-modal-header h2 {
+    font-size: 0.92rem;
+  }
+
+  .coin-modal-header p {
+    font-size: 0.68rem;
+  }
+
+  .coin-modal-body {
+    gap: 10px;
+  }
+
   .coin-arena-row {
-    grid-template-columns: 1fr 92px 1fr;
-    padding: 10px;
+    grid-template-columns: 1fr 84px 1fr;
+    padding: 8px 10px;
     gap: 8px;
   }
 
+  .coin-team-box {
+    padding: 8px 6px;
+  }
+
+  .coin-team-name {
+    font-size: 0.84rem;
+  }
+
   .coin-3d-object {
-    width: 78px;
-    height: 78px;
+    width: 72px;
+    height: 72px;
+  }
+
+  .coin-emblem {
+    font-size: 1.45rem;
+  }
+
+  .coin-status-box {
+    padding: 8px 10px;
+    gap: 4px;
+  }
+
+  .coin-status-headline {
+    font-size: 0.86rem;
+  }
+
+  .coin-status-sub {
+    font-size: 0.68rem;
   }
 
   .coin-role-choice-grid {
     grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .coin-role-card {
+    padding: 10px 12px;
+    gap: 5px;
+  }
+
+  .crc-title {
+    font-size: 0.88rem;
+  }
+
+  .crc-desc {
+    font-size: 0.68rem;
+    line-height: 1.35;
+  }
+
+  .crc-cta {
+    padding: 7px 10px;
+    font-size: 0.72rem;
   }
 
   body.force-landscape-mobile .coin-modal-backdrop,
@@ -6395,6 +6470,10 @@ html, body {
   box-shadow: none !important;
 }
 
+.ygo-field-center {
+  perspective: none !important;
+}
+
 .ygo-playmat-3d {
   background: #0b111e !important;
   background-image:
@@ -6404,7 +6483,7 @@ html, body {
   border: 1px solid #1e293b !important;
   border-radius: 14px !important;
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55) !important;
-  transform: rotateX(3deg);
+  transform: none !important;
 }
 
 .ygo-playmat-3d::before {
@@ -6499,13 +6578,17 @@ html, body {
   font-family: 'JetBrains Mono', monospace !important;
   font-weight: 800 !important;
   letter-spacing: 0.04em !important;
-  box-shadow: 0 4px 12px rgba(56, 189, 248, 0.25) !important;
+  text-shadow: none !important;
+  filter: none !important;
+  -webkit-font-smoothing: antialiased !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35) !important;
 }
 
 .ygo-confirm-btn:hover:not(:disabled) {
   background: #7dd3fc !important;
   border-color: #7dd3fc !important;
-  transform: translateY(-1px);
+  transform: none !important;
+  filter: none !important;
 }
 
 .ygo-confirm-btn:disabled {
