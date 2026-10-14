@@ -1388,12 +1388,7 @@ class BestCoastPairingsScraper:
                             """
                             UPDATE events
                             SET current_round = GREATEST(COALESCE(current_round, 0), %s),
-                                num_rounds = GREATEST(COALESCE(num_rounds, 0), %s),
-                                raw_json = CASE
-                                    WHEN raw_json IS NOT NULL AND (raw_json::jsonb ? 'matches')
-                                    THEN (raw_json::jsonb - 'matches')::json
-                                    ELSE raw_json
-                                END
+                                num_rounds = GREATEST(COALESCE(num_rounds, 0), %s)
                             WHERE id = %s;
                             """,
                             (actual_rounds, actual_rounds, event_id),
