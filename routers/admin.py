@@ -295,6 +295,190 @@ def api_admin_set_user_role(user_id: str, payload: AdminSetUserRolePayload, requ
         raise HTTPException(status_code=404, detail="User not found")
     return {"success": True, "user_id": user_id, "role": new_role}
 
+
+def _get_superadmin_session_or_403(request: Request, token: Optional[str] = None) -> Dict[str, Any]:
+    """Strictly verify that the caller is the primary platform superadmin (swimgeek751@gmail.com).
+    Never allows standard admins, TOs, or players to invoke superadmin-only testing endpoints.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    session_token = (
+        token
+        or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        or request.cookies.get("session_token")
+    )
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    auth_mgr = get_auth_manager()
+    try:
+        session = auth_mgr.get_session(session_token, bypass_cache=True)
+    except TypeError:
+        session = auth_mgr.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    caller_email = str(session.get("email") or "").strip().lower()
+    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
+    if not superadmin_email or caller_email != superadmin_email or session.get("is_superadmin") is not True:
+        logger.warning(f"SECURITY: Blocked non-superadmin ({caller_email}) from accessing superadmin mock-player endpoint.")
+        raise HTTPException(
+            status_code=403,
+            detail="Strictly restricted to the platform superadmin (swimgeek751@gmail.com)."
+        )
+    return session
+
+
+class AdminMockPlayerPayload(BaseModel):
+    mode: str = "player"  # "player", "self_player", or "clear"
+    user_id: Optional[str] = ""
+    player_id: Optional[str] = ""
+    bcp_player_id: Optional[str] = ""
+    full_name: Optional[str] = ""
+    team_name: Optional[str] = ""
+    faction: Optional[str] = ""
+    detachment: Optional[str] = ""
+    event_id: Optional[str] = ""
+    is_captain: Optional[bool] = False
+    elo: Optional[float] = None
+
+
+@router.post("/api/admin/mock-player", summary="Superadmin-only: Build sanitized read-only player view from real user/player records")
+def api_admin_mock_player(payload: AdminMockPlayerPayload, request: Request, token: Optional[str] = Query(None)):
+    super_sess = _get_superadmin_session_or_403(request, token)
+    caller_email = str(super_sess.get("email") or "").strip().lower()
+    mode = str(payload.mode or "player").strip().lower()
+
+    if mode == "clear":
+        logger.info(f"AUDIT: Superadmin {caller_email} exited mock-player view.")
+        return {
+            "success": True,
+            "mock_active": False,
+            "mock_profile": None,
+        }
+
+    if mode in ("self_player", "unregistered"):
+        real_uid = str(super_sess.get("user_id") or super_sess.get("id") or "").strip()
+        real_name = str(super_sess.get("display_name") or "").strip()
+        parts = real_name.split(" ") if real_name else []
+        first_name = parts[0] if parts else ""
+        last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+        mock_profile = {
+            "id": real_uid,
+            "username": re.sub(r"[^a-z0-9_]+", "_", real_name.lower()).strip("_") if real_name else real_uid,
+            "display_name": real_name,
+            "full_name": real_name,
+            "first_name": first_name,
+            "last_name": last_name,
+            "role": "player",
+            "is_admin": False,
+            "is_superadmin": False,
+            "can_switch_role": False,
+            "can_access_to": False,
+            "can_access_cc": False,
+            "is_cc": False,
+            "bcp_connected": False,
+            "player_id": "",
+            "bcp_player_id": "",
+            "team_name": "",
+            "faction": "",
+            "detachment": "",
+            "is_captain": False,
+            "elo": None,
+            "is_mock_player": True,
+            "is_unregistered_mock": True,
+            "mocked_by_superadmin": caller_email,
+            "mock_event_id": str(payload.event_id or "").strip(),
+        }
+        logger.info(f"AUDIT: Superadmin {caller_email} activated standard non-registered player view.")
+        return {
+            "success": True,
+            "mock_active": True,
+            "mock_profile": mock_profile,
+        }
+
+    raw_uid = str(payload.user_id or "").strip()
+    raw_name = str(payload.full_name or "").strip()
+    raw_pid = str(payload.player_id or payload.bcp_player_id or "").strip()
+    bcp_pid = str(payload.bcp_player_id or "").strip()
+    resolved_elo = payload.elo
+    resolved_faction = str(payload.faction or "").strip()
+
+    # Fast single-row indexed lookup (<2ms) if user_id or player_id is in DB
+    db = get_database()
+    if db is not None and (raw_uid or raw_pid):
+        try:
+            with db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    if raw_uid:
+                        cur.execute(
+                            "SELECT id, display_name, bcp_user_id, bcp_player_id, bcp_player_name FROM users WHERE id = %s LIMIT 1;",
+                            (raw_uid,)
+                        )
+                        u_row = cur.fetchone()
+                        if u_row:
+                            raw_name = raw_name or str(u_row[1] or u_row[4] or "").strip()
+                            bcp_pid = bcp_pid or str(u_row[2] or u_row[3] or "").strip()
+                            raw_pid = raw_pid or bcp_pid or str(u_row[0]).strip()
+                    if raw_pid:
+                        cur.execute(
+                            "SELECT player_id, full_name, current_elo, top_faction FROM players WHERE player_id = %s LIMIT 1;",
+                            (raw_pid,)
+                        )
+                        p_row = cur.fetchone()
+                        if p_row:
+                            raw_name = raw_name or str(p_row[1] or "").strip()
+                            if resolved_elo is None and p_row[2] is not None:
+                                resolved_elo = float(p_row[2])
+                            if not resolved_faction and p_row[3]:
+                                resolved_faction = str(p_row[3]).strip()
+        except Exception as e:
+            logger.debug(f"Notice looking up real player/user for mock view: {e}")
+
+    if not raw_name and not raw_pid:
+        raise HTTPException(status_code=400, detail="Either full_name or player_id is required to mock a player.")
+
+    full_name = raw_name or raw_pid
+    parts = full_name.split(" ")
+    first_name = parts[0] if parts else ""
+    last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+    pid = raw_pid or re.sub(r"[^a-z0-9_]+", "_", full_name.lower()).strip("_")
+    bcp_pid = bcp_pid or pid
+
+    mock_profile = {
+        "id": raw_uid or pid,
+        "username": re.sub(r"[^a-z0-9_]+", "_", full_name.lower()).strip("_") or pid,
+        "display_name": full_name,
+        "full_name": full_name,
+        "first_name": first_name,
+        "last_name": last_name,
+        "role": "player",
+        "is_admin": False,
+        "is_superadmin": False,
+        "can_switch_role": False,
+        "can_access_to": False,
+        "can_access_cc": False,
+        "is_cc": False,
+        "bcp_connected": True,
+        "player_id": pid,
+        "bcp_player_id": bcp_pid,
+        "team_name": str(payload.team_name or "").strip(),
+        "faction": resolved_faction,
+        "detachment": str(payload.detachment or "").strip(),
+        "is_captain": bool(payload.is_captain),
+        "elo": float(resolved_elo) if resolved_elo is not None else None,
+        "is_mock_player": True,
+        "is_unregistered_mock": False,
+        "mocked_by_superadmin": caller_email,
+        "mock_event_id": str(payload.event_id or "").strip(),
+    }
+    logger.info(
+        f"AUDIT: Superadmin {caller_email} activated mock-player view as '{full_name}' "
+        f"(player_id={pid}, team={mock_profile['team_name']}, event={mock_profile['mock_event_id']})."
+    )
+    return {
+        "success": True,
+        "mock_active": True,
+        "mock_profile": mock_profile,
+    }
+
 class RequestToPayload(BaseModel):
     organization: Optional[str] = ""
     venue_or_store: Optional[str] = ""

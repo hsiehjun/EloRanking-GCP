@@ -140,6 +140,7 @@ if (document.readyState === 'loading') {
 }
 
 // Synchronously restore user from real cached session if valid token exists, or mock persona if explicitly requested via ?persona=
+var __realSuperadminUser = (typeof window !== 'undefined' && window.__realSuperadminUser) || null;
 try {
   const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || getCookieToken();
   const urlPersona = (typeof window !== 'undefined' && window.location) ? new URLSearchParams(window.location.search).get('persona') : null;
@@ -152,24 +153,78 @@ try {
     if (cached && token) {
       const parsed = JSON.parse(cached);
       // Ensure cached profile is not a stale mock persona
-      if (parsed && parsed.id !== 'p_innes' && parsed.username !== 'innes_wilson' && parsed.id !== 'dev_creator_wgl' && parsed.id !== 'dev_to_admin' && parsed.id !== 'viewer_guest_999') {
+      if (parsed && parsed.id !== 'p_innes' && parsed.username !== 'innes_wilson' && parsed.id !== 'dev_creator_wgl' && parsed.id !== 'dev_to_admin' && parsed.id !== 'viewer_guest_999' && !parsed.is_mock_player) {
         const cachedEmail = String(parsed.email || '').trim().toLowerCase();
         if (cachedEmail !== 'swimgeek751@gmail.com') {
           parsed.can_switch_role = false;
           parsed.is_superadmin = false;
+          __realSuperadminUser = null;
+          try { sessionStorage.removeItem('omni_superadmin_mock_player'); } catch (e) {}
+        } else {
+          __realSuperadminUser = parsed;
         }
         currentUser = parsed;
+        if (__realSuperadminUser && cachedEmail === 'swimgeek751@gmail.com') {
+          try {
+            const rawMock = sessionStorage.getItem('omni_superadmin_mock_player');
+            if (rawMock) {
+              const parsedMock = JSON.parse(rawMock);
+              if (parsedMock && parsedMock.is_mock_player === true && String(parsedMock.mocked_by_superadmin || '').toLowerCase() === 'swimgeek751@gmail.com') {
+                currentUser = parsedMock;
+              } else {
+                sessionStorage.removeItem('omni_superadmin_mock_player');
+              }
+            }
+          } catch (e) {}
+        }
       } else {
         currentUser = null;
       }
     } else {
       currentUser = null;
+      __realSuperadminUser = null;
+      try { sessionStorage.removeItem('omni_superadmin_mock_player'); } catch (e) {}
     }
   }
 } catch (e) {
   currentUser = null;
+  __realSuperadminUser = null;
 }
-if (typeof window !== 'undefined') window.currentUser = currentUser;
+if (typeof window !== 'undefined') {
+  window.currentUser = currentUser;
+  window.__realSuperadminUser = __realSuperadminUser;
+}
+
+function isVerifiedSuperadmin() {
+  const realUser = (typeof window !== 'undefined' && window.__realSuperadminUser) || __realSuperadminUser;
+  if (realUser && String(realUser.email || '').trim().toLowerCase() === 'swimgeek751@gmail.com' && (realUser.is_superadmin === true || realUser.can_switch_role === true)) {
+    return true;
+  }
+  const u = (typeof window !== 'undefined' && window.currentUser) || currentUser;
+  if (u && !u.is_mock_player && String(u.email || '').trim().toLowerCase() === 'swimgeek751@gmail.com' && (u.is_superadmin === true || u.can_switch_role === true)) {
+    return true;
+  }
+  return false;
+}
+window.isVerifiedSuperadmin = isVerifiedSuperadmin;
+
+function getActiveSuperadminMockPlayer() {
+  if (!isVerifiedSuperadmin()) {
+    try { sessionStorage.removeItem('omni_superadmin_mock_player'); } catch (e) {}
+    return null;
+  }
+  try {
+    const raw = sessionStorage.getItem('omni_superadmin_mock_player');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.is_mock_player === true && String(parsed.mocked_by_superadmin || '').toLowerCase() === 'swimgeek751@gmail.com') {
+      return parsed;
+    }
+    sessionStorage.removeItem('omni_superadmin_mock_player');
+  } catch (e) {}
+  return null;
+}
+window.getActiveSuperadminMockPlayer = getActiveSuperadminMockPlayer;
 
 function isUserTO(user) {
   if (!user) return false;
@@ -420,17 +475,31 @@ async function initAuth() {
       if (res && res.authenticated === true && res.user) {
         const prevRole = currentUser ? String(currentUser.role || 'player').toLowerCase() : '';
         const prevAdmin = Boolean(currentUser && currentUser.is_admin);
-        currentUser = res.user;
-        if (typeof window !== 'undefined') window.currentUser = currentUser;
-        localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
+        const verifiedEmail = String(res.user.email || '').trim().toLowerCase();
+        const isSuper = Boolean(verifiedEmail === 'swimgeek751@gmail.com' && (res.user.is_superadmin === true || res.user.can_switch_role === true));
+        if (isSuper) {
+          __realSuperadminUser = res.user;
+          if (typeof window !== 'undefined') window.__realSuperadminUser = res.user;
+        } else {
+          res.user.can_switch_role = false;
+          res.user.is_superadmin = false;
+          __realSuperadminUser = null;
+          if (typeof window !== 'undefined') window.__realSuperadminUser = null;
+          try { sessionStorage.removeItem('omni_superadmin_mock_player'); } catch (e) {}
+        }
+        localStorage.setItem('native_user_profile', JSON.stringify(res.user));
         localStorage.setItem('native_session_token', token);
         localStorage.setItem('elo_auth_token', token);
+        const activeMock = isSuper ? getActiveSuperadminMockPlayer() : null;
+        currentUser = activeMock || res.user;
+        if (typeof window !== 'undefined') window.currentUser = currentUser;
+        if (typeof renderSuperadminMockBanner === 'function') renderSuperadminMockBanner();
         if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
         syncAppAuthView();
         if (typeof syncPersonaButtons === 'function') syncPersonaButtons();
         const nextRole = String(currentUser.role || 'player').toLowerCase();
         const nextAdmin = Boolean(currentUser.is_admin || nextRole === 'admin');
-        if (prevRole !== nextRole || prevAdmin !== nextAdmin) {
+        if (prevRole !== nextRole || prevAdmin !== nextAdmin || activeMock) {
           syncRoleDependentViewsAfterAuthUpdate();
         }
         return;
@@ -1235,6 +1304,17 @@ function renderSettingsRoleDisplay(userObj) {
   const roleVal = document.getElementById('settings-role-display');
   if (!roleVal || !userObj) return;
   const userEmail = String(userObj.email || '').trim().toLowerCase();
+  const isSuper = isVerifiedSuperadmin();
+  if (isSuper && userObj.is_mock_player === true) {
+    roleVal.innerHTML = `
+      <div style="display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
+        <span style="background:rgba(245,158,11,0.18); border:1px solid rgba(245,158,11,0.45); color:#fbbf24; font-size:11px; font-weight:800; padding:2px 7px; border-radius:4px;">🎭 MOCK PLAYER</span>
+        <button type="button" onclick="closeUserSettingsModal(); openSuperadminMockPlayerModal();" style="background:rgba(56,189,248,0.14); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; font-size:11px; font-weight:700; padding:2px 7px; border-radius:4px; cursor:pointer;">🔄 Switch Player</button>
+        <button type="button" onclick="exitSuperadminMockPlayer();" style="background:rgba(239,68,68,0.18); border:1px solid rgba(239,68,68,0.45); color:#fca5a5; font-size:11px; font-weight:700; padding:2px 7px; border-radius:4px; cursor:pointer;">✕ Exit Mock</button>
+      </div>
+    `;
+    return;
+  }
   const canSwitchOwnRole = Boolean(
     userEmail === 'swimgeek751@gmail.com' &&
     (userObj.can_switch_role === true || userObj.is_superadmin === true)
@@ -1255,6 +1335,7 @@ function renderSettingsRoleDisplay(userObj) {
           <option value="to" ${normRole === 'to' ? 'selected' : ''}>🛠️ TO (Organizer)</option>
           <option value="admin" ${normRole === 'admin' ? 'selected' : ''}>🛡️ Admin</option>
         </select>
+        <button type="button" id="btn-settings-mock-player" onclick="closeUserSettingsModal(); openSuperadminMockPlayerModal();" style="background:rgba(245,158,11,0.16); border:1px solid rgba(245,158,11,0.45); color:#fbbf24; font-size:11px; font-weight:800; padding:2px 8px; border-radius:4px; cursor:pointer;">🎭 Mock Player</button>
         <a href="/admin" style="background:rgba(168,85,247,0.14); border:1px solid rgba(168,85,247,0.35); color:#c084fc; font-size:11px; font-weight:700; padding:2px 7px; border-radius:4px; text-decoration:none;">🛡️ Admin Panel</a>
       </div>
     `;
@@ -1281,6 +1362,7 @@ function renderSettingsRoleDisplay(userObj) {
 function syncRoleDependentViewsAfterAuthUpdate() {
   try {
     renderSettingsRoleDisplay(currentUser);
+    if (typeof renderSuperadminMockBanner === 'function') renderSuperadminMockBanner();
     if (typeof syncCreatorHubVisibility === 'function') syncCreatorHubVisibility();
     if (window.currentEventData) {
       const ev = window.currentEventData;
@@ -1319,7 +1401,7 @@ function openUserSettingsModal() {
 
   if (currentUser) {
     if (nameInput) nameInput.value = currentUser.display_name || '';
-    if (emailVal) emailVal.innerText = currentUser.email || '-';
+    if (emailVal) emailVal.innerText = currentUser.is_mock_player ? 'swimgeek751@gmail.com (Mock Player View)' : (currentUser.email || '-');
     renderSettingsRoleDisplay(currentUser);
     if (bcpVal) {
       if (currentUser.bcp_connected || currentUser.bcp_user_id) {
@@ -1347,11 +1429,30 @@ function openUserSettingsModal() {
   if (token && window.api && typeof window.api.getAuthMe === 'function') {
     window.api.getAuthMe(token).then(res => {
       if (res && res.authenticated === true && res.user) {
+        const verifiedEmail = String(res.user.email || '').trim().toLowerCase();
+        const isSuper = Boolean(verifiedEmail === 'swimgeek751@gmail.com' && (res.user.is_superadmin === true || res.user.can_switch_role === true));
+        if (isSuper) {
+          __realSuperadminUser = res.user;
+          if (typeof window !== 'undefined') window.__realSuperadminUser = res.user;
+        } else {
+          res.user.can_switch_role = false;
+          res.user.is_superadmin = false;
+          __realSuperadminUser = null;
+          if (typeof window !== 'undefined') window.__realSuperadminUser = null;
+          try { sessionStorage.removeItem('omni_superadmin_mock_player'); } catch (e) {}
+        }
+        localStorage.setItem('native_user_profile', JSON.stringify(res.user));
+        const activeMock = isSuper ? getActiveSuperadminMockPlayer() : null;
+        if (activeMock) {
+          currentUser = activeMock;
+          if (typeof window !== 'undefined') window.currentUser = currentUser;
+          renderSettingsRoleDisplay(currentUser);
+          return;
+        }
         const prevRole = currentUser ? String(currentUser.role || 'player').toLowerCase() : '';
         const prevAdmin = Boolean(currentUser && currentUser.is_admin);
         currentUser = res.user;
         if (typeof window !== 'undefined') window.currentUser = currentUser;
-        localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
         renderSettingsRoleDisplay(currentUser);
         const nextRole = String(currentUser.role || 'player').toLowerCase();
         const nextAdmin = Boolean(currentUser.is_admin || nextRole === 'admin');
@@ -1467,6 +1568,14 @@ async function handleSaveDisplayName(e) {
   const errDiv = document.getElementById('settings-error');
   const successDiv = document.getElementById('settings-success');
   const btn = document.getElementById('btn-save-name');
+
+  if (currentUser && currentUser.is_mock_player) {
+    if (errDiv) {
+      errDiv.innerText = 'Account mutations are blocked while in Superadmin Mock Player mode. Exit Mock Mode first.';
+      errDiv.style.display = 'block';
+    }
+    return;
+  }
 
   const newName = nameInput ? nameInput.value.trim() : '';
   if (!newName) return;
@@ -2305,5 +2414,560 @@ window.closeBcpLinkModal = closeBcpLinkModal;
 window.showBcpCredentialsForm = showBcpCredentialsForm;
 window.handleConnectBcp = handleConnectBcp;
 window.handleDisconnectBcp = handleDisconnectBcp;
+
+/* ==========================================================================
+   SUPERADMIN MOCK PLAYER / USER VIEW (Strictly restricted to swimgeek751@gmail.com)
+   ========================================================================== */
+
+function renderSuperadminMockBanner() {
+  if (typeof document === 'undefined' || !document.body) return;
+  let banner = document.getElementById('omni-superadmin-mock-banner');
+  const activeMock = getActiveSuperadminMockPlayer();
+
+  if (!isVerifiedSuperadmin() || !activeMock || !currentUser || !currentUser.is_mock_player) {
+    if (banner) banner.remove();
+    return;
+  }
+
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'omni-superadmin-mock-banner';
+    banner.style.cssText = 'position:sticky; top:0; left:0; right:0; z-index:9999; background:linear-gradient(90deg, rgba(120,53,15,0.96), rgba(30,41,59,0.98), rgba(120,53,15,0.96)); border-bottom:1.5px solid #f59e0b; padding:6px 14px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; box-shadow:0 4px 16px rgba(0,0,0,0.45); font-size:0.78rem; color:#fef3c7;';
+    const appShell = document.getElementById('app-shell');
+    if (appShell && appShell.parentNode) {
+      appShell.parentNode.insertBefore(banner, appShell);
+    } else {
+      document.body.insertBefore(banner, document.body.firstChild);
+    }
+  }
+
+  const mockName = String(activeMock.display_name || activeMock.full_name || 'Player');
+  const mockTeam = String(activeMock.team_name || '').trim();
+  const mockFac = String(activeMock.faction || '').trim();
+  const detailParts = [];
+  if (activeMock.is_unregistered_mock) {
+    detailParts.push('Unregistered User / Spectator');
+  } else {
+    if (mockTeam) detailParts.push(`Team: ${mockTeam}`);
+    if (mockFac) detailParts.push(mockFac);
+    detailParts.push('Role: PLAYER');
+  }
+  const detailStr = detailParts.join(' • ');
+
+  banner.innerHTML = `
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0;">
+      <span style="background:#f59e0b; color:#090d16; font-weight:900; font-size:0.68rem; padding:2px 7px; border-radius:4px; letter-spacing:0.04em; text-transform:uppercase;">🎭 SUPERADMIN MOCK VIEW</span>
+      <span style="color:#fff; font-weight:800;">Viewing as: <strong style="color:#38bdf8;">${escapeHtml(mockName)}</strong></span>
+      ${detailStr ? `<span style="color:#fde68a; font-size:0.74rem;">(${escapeHtml(detailStr)})</span>` : ''}
+      <span style="color:#94a3b8; font-size:0.7rem;">• Read-only testing mode for swimgeek751@gmail.com</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+      <button type="button" id="btn-banner-switch-mock-player" onclick="openSuperadminMockPlayerModal()" style="background:rgba(56,189,248,0.18); border:1px solid rgba(56,189,248,0.5); color:#38bdf8; font-weight:800; font-size:0.73rem; padding:3px 9px; border-radius:5px; cursor:pointer;">
+        🔄 Switch Player
+      </button>
+      <button type="button" id="btn-banner-exit-mock-player" onclick="exitSuperadminMockPlayer()" style="background:rgba(239,68,68,0.22); border:1px solid rgba(239,68,68,0.55); color:#fca5a5; font-weight:800; font-size:0.73rem; padding:3px 9px; border-radius:5px; cursor:pointer;">
+        ✕ Exit Mock Mode
+      </button>
+    </div>
+  `;
+}
+window.renderSuperadminMockBanner = renderSuperadminMockBanner;
+
+function collectCurrentEventMockCandidates() {
+  const ev = (typeof currentEventData !== 'undefined' && currentEventData) || (typeof window !== 'undefined' && window.currentEventData) || null;
+  if (!ev) return { eventName: '', eventId: '', teams: [], players: [] };
+  const evId = String(ev.id || ev.event_id || (typeof currentOpenEventId !== 'undefined' ? currentOpenEventId : '') || '');
+  const evName = String(ev.name || ev.event_name || 'Current Tournament');
+  const rawTeams = (Array.isArray(ev.teams) && ev.teams.length > 0)
+    ? ev.teams
+    : (Array.isArray(ev.team_standings) ? ev.team_standings : []);
+  const teamPairings = Array.isArray(ev.team_pairings) ? ev.team_pairings : [];
+  const activePairedTeams = new Set();
+  teamPairings.forEach(tp => {
+    if (tp.team1_name) activePairedTeams.add(String(tp.team1_name).trim().toLowerCase());
+    if (tp.team2_name) activePairedTeams.add(String(tp.team2_name).trim().toLowerCase());
+  });
+
+  const playersPool = Array.isArray(ev.players) && ev.players.length > 0
+    ? ev.players
+    : (typeof eventPlayersCache !== 'undefined' && Array.isArray(eventPlayersCache) ? eventPlayersCache : []);
+
+  const teamsOut = [];
+  const seenTeamNames = new Set();
+
+  rawTeams.forEach(t => {
+    const tName = String(t.name || t.team_name || '').trim();
+    if (!tName) return;
+    seenTeamNames.add(tName.toLowerCase());
+    const members = Array.isArray(t.members) && t.members.length > 0
+      ? t.members
+      : playersPool.filter(p => String(p.team || p.team_name || '').trim().toLowerCase() === tName.toLowerCase());
+    teamsOut.push({
+      name: tName,
+      hasActivePairing: activePairedTeams.has(tName.toLowerCase()),
+      members: members.map(m => {
+        const fullName = String(m.full_name || m.name || `${m.first_name || ''} ${m.last_name || ''}`).trim() || 'Player';
+        const pid = String(m.player_id || m.id || m.bcp_event_player_id || m.user_id || fullName).trim();
+        return {
+          player_id: pid,
+          bcp_player_id: String(m.bcp_event_player_id || pid),
+          full_name: fullName,
+          team_name: tName,
+          faction: String(m.faction || m.army_name || 'Unassigned'),
+          detachment: String(m.detachment || ''),
+          is_captain: Boolean(m.is_captain),
+          elo: Math.round(Number(m.elo || m.current_elo || 1500)),
+        };
+      }),
+    });
+  });
+
+  // Also include any teams present in team_pairings if not already in rawTeams
+  teamPairings.forEach(tp => {
+    [
+      { name: tp.team1_name, roster: tp.team1_roster },
+      { name: tp.team2_name, roster: tp.team2_roster },
+    ].forEach(side => {
+      const tName = String(side.name || '').trim();
+      if (!tName || seenTeamNames.has(tName.toLowerCase())) return;
+      seenTeamNames.add(tName.toLowerCase());
+      const roster = Array.isArray(side.roster) ? side.roster : [];
+      teamsOut.push({
+        name: tName,
+        hasActivePairing: true,
+        members: roster.map(m => {
+          const fullName = String(m.full_name || m.name || `${m.first_name || ''} ${m.last_name || ''}`).trim() || 'Player';
+          const pid = String(m.player_id || m.id || m.bcp_event_player_id || fullName).trim();
+          return {
+            player_id: pid,
+            bcp_player_id: String(m.bcp_event_player_id || pid),
+            full_name: fullName,
+            team_name: tName,
+            faction: String(m.faction || m.army_name || 'Unassigned'),
+            detachment: String(m.detachment || ''),
+            is_captain: Boolean(m.is_captain),
+            elo: Math.round(Number(m.elo || m.current_elo || 1500)),
+          };
+        }),
+      });
+    });
+  });
+
+  teamsOut.sort((a, b) => (Number(b.hasActivePairing) - Number(a.hasActivePairing)) || a.name.localeCompare(b.name));
+
+  const flatPlayers = playersPool.map(p => {
+    const fullName = String(p.full_name || p.name || `${p.first_name || ''} ${p.last_name || ''}`).trim() || 'Player';
+    const pid = String(p.player_id || p.id || p.bcp_event_player_id || p.user_id || fullName).trim();
+    return {
+      player_id: pid,
+      bcp_player_id: String(p.bcp_event_player_id || pid),
+      full_name: fullName,
+      team_name: String(p.team || p.team_name || '').trim(),
+      faction: String(p.faction || p.army_name || 'Unassigned'),
+      detachment: String(p.detachment || ''),
+      is_captain: Boolean(p.is_captain),
+      elo: Math.round(Number(p.current_elo || p.elo || 1500)),
+    };
+  });
+
+  return { eventName: evName, eventId: evId, teams: teamsOut, players: flatPlayers };
+}
+
+function activateSuperadminMockCandidateByIndex(idx) {
+  const list = (typeof window !== 'undefined' && Array.isArray(window._superadminMockCandidates)) ? window._superadminMockCandidates : [];
+  const item = list[Number(idx)];
+  if (!item) return;
+  activateSuperadminMockPlayer(item);
+}
+window.activateSuperadminMockCandidateByIndex = activateSuperadminMockCandidateByIndex;
+
+function renderSuperadminMockPlayerList(searchQuery = '') {
+  const listContainer = document.getElementById('superadmin-mock-player-candidates-list');
+  if (!listContainer) return;
+  const q = String(searchQuery || '').trim().toLowerCase();
+  const { eventName, eventId, teams, players } = collectCurrentEventMockCandidates();
+  const activeMock = getActiveSuperadminMockPlayer();
+  const activeMockPid = String(activeMock?.player_id || '').trim().toLowerCase();
+  const activeMockName = String(activeMock?.full_name || activeMock?.display_name || '').trim().toLowerCase();
+  const candidatePayloads = [];
+  if (typeof window !== 'undefined') window._superadminMockCandidates = candidatePayloads;
+
+  if (teams.length > 0) {
+    const filteredTeams = teams.map(t => {
+      const tMatches = !q || t.name.toLowerCase().includes(q);
+      const matchingMembers = t.members.filter(m =>
+        tMatches ||
+        m.full_name.toLowerCase().includes(q) ||
+        m.faction.toLowerCase().includes(q) ||
+        m.detachment.toLowerCase().includes(q)
+      );
+      return Object.assign({}, t, { members: matchingMembers });
+    }).filter(t => t.members.length > 0);
+
+    if (filteredTeams.length === 0) {
+      listContainer.innerHTML = `<div style="padding:1rem; text-align:center; color:#94a3b8; font-size:0.8rem;">No teams or players in ${escapeHtml(eventName)} match "${escapeHtml(searchQuery)}".</div>`;
+      return;
+    }
+
+    listContainer.innerHTML = filteredTeams.map(t => {
+      const rows = t.members.map(m => {
+        const isCurrentMock = Boolean(
+          activeMock && !activeMock.is_unregistered_mock && (
+            (activeMockPid && m.player_id.toLowerCase() === activeMockPid) ||
+            (activeMockName && m.full_name.toLowerCase() === activeMockName)
+          )
+        );
+        const candIdx = candidatePayloads.length;
+        candidatePayloads.push({
+          mode: 'player',
+          player_id: m.player_id,
+          bcp_player_id: m.bcp_player_id,
+          full_name: m.full_name,
+          team_name: m.team_name,
+          faction: m.faction,
+          detachment: m.detachment,
+          is_captain: m.is_captain,
+          elo: m.elo,
+          event_id: eventId,
+        });
+        return `
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 10px; border-radius:7px; background:${isCurrentMock ? 'rgba(245,158,11,0.16)' : 'rgba(9,14,26,0.65)'}; border:1px solid ${isCurrentMock ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.06)'};">
+            <div style="min-width:0; flex:1;">
+              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                <span style="font-weight:800; font-size:0.82rem; color:#f8fafc;">${escapeHtml(m.full_name)}</span>
+                ${m.is_captain ? `<span style="font-size:0.62rem; font-weight:800; padding:1px 5px; border-radius:4px; background:rgba(245,158,11,0.2); color:#fbbf24; border:1px solid rgba(245,158,11,0.4);">👑 CAPTAIN</span>` : ''}
+                ${isCurrentMock ? `<span style="font-size:0.62rem; font-weight:900; padding:1px 5px; border-radius:4px; background:#f59e0b; color:#090d16;">ACTIVE MOCK</span>` : ''}
+              </div>
+              <div style="font-size:0.71rem; color:#94a3b8;">
+                ${escapeHtml(m.faction)}${m.detachment ? ` • ${escapeHtml(m.detachment)}` : ''} • <span style="font-family:var(--font-mono); color:#38bdf8;">${m.elo} Elo</span>
+              </div>
+            </div>
+            <button type="button" class="btn-mock-candidate-select" data-candidate-idx="${candIdx}" onclick="activateSuperadminMockCandidateByIndex(${candIdx})" style="background:${isCurrentMock ? 'rgba(16,185,129,0.2)' : 'rgba(56,189,248,0.15)'}; border:1px solid ${isCurrentMock ? 'rgba(16,185,129,0.5)' : 'rgba(56,189,248,0.45)'}; color:${isCurrentMock ? '#34d399' : '#38bdf8'}; font-weight:800; font-size:0.73rem; padding:4px 10px; border-radius:6px; cursor:pointer; white-space:nowrap;">
+              ${isCurrentMock ? '✓ Mocking' : '🎭 Mock as Player'}
+            </button>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div style="background:rgba(15,23,42,0.82); border:1px solid rgba(56,189,248,0.25); border-radius:9px; padding:9px 11px; margin-bottom:8px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px; padding-bottom:5px; border-bottom:1px solid rgba(255,255,255,0.07);">
+            <div style="font-weight:900; font-size:0.86rem; color:#38bdf8;">🛡️ ${escapeHtml(t.name)} <span style="color:#94a3b8; font-weight:600; font-size:0.72rem;">(${t.members.length} Players)</span></div>
+            ${t.hasActivePairing ? `<span style="font-size:0.64rem; font-weight:800; padding:2px 6px; border-radius:4px; background:rgba(16,185,129,0.18); color:#34d399; border:1px solid rgba(16,185,129,0.4);">⚔️ Active Team Pairing</span>` : ''}
+          </div>
+          <div style="display:flex; flex-direction:column; gap:5px;">
+            ${rows}
+          </div>
+        </div>
+      `;
+    }).join('');
+    return;
+  }
+
+  if (players.length > 0) {
+    const filteredPlayers = players.filter(m =>
+      !q ||
+      m.full_name.toLowerCase().includes(q) ||
+      m.team_name.toLowerCase().includes(q) ||
+      m.faction.toLowerCase().includes(q)
+    ).slice(0, 60);
+
+    if (filteredPlayers.length === 0) {
+      listContainer.innerHTML = `<div style="padding:1rem; text-align:center; color:#94a3b8; font-size:0.8rem;">No players in ${escapeHtml(eventName)} match "${escapeHtml(searchQuery)}".</div>`;
+      return;
+    }
+
+    listContainer.innerHTML = `<div style="display:flex; flex-direction:column; gap:5px;">` + filteredPlayers.map(m => {
+      const candIdx = candidatePayloads.length;
+      candidatePayloads.push({
+        mode: 'player',
+        player_id: m.player_id,
+        bcp_player_id: m.bcp_player_id,
+        full_name: m.full_name,
+        team_name: m.team_name,
+        faction: m.faction,
+        detachment: m.detachment,
+        is_captain: m.is_captain,
+        elo: m.elo,
+        event_id: eventId,
+      });
+      return `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 10px; border-radius:7px; background:rgba(15,23,42,0.8); border:1px solid rgba(255,255,255,0.07);">
+          <div style="min-width:0; flex:1;">
+            <div style="font-weight:800; font-size:0.82rem; color:#f8fafc;">${escapeHtml(m.full_name)} ${m.team_name ? `<span style="color:#38bdf8; font-size:0.72rem;">(${escapeHtml(m.team_name)})</span>` : ''}</div>
+            <div style="font-size:0.71rem; color:#94a3b8;">${escapeHtml(m.faction)}${m.detachment ? ` • ${escapeHtml(m.detachment)}` : ''} • <span style="font-family:var(--font-mono); color:#38bdf8;">${m.elo} Elo</span></div>
+          </div>
+          <button type="button" class="btn-mock-candidate-select" data-candidate-idx="${candIdx}" onclick="activateSuperadminMockCandidateByIndex(${candIdx})" style="background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.45); color:#38bdf8; font-weight:800; font-size:0.73rem; padding:4px 10px; border-radius:6px; cursor:pointer; white-space:nowrap;">
+            🎭 Mock as Player
+          </button>
+        </div>
+      `;
+    }).join('') + `</div>`;
+    return;
+  }
+
+  listContainer.innerHTML = `
+    <div style="padding:0.9rem; text-align:center; color:#94a3b8; font-size:0.78rem; background:rgba(15,23,42,0.6); border:1px dashed rgba(255,255,255,0.12); border-radius:8px;">
+      Open any Tournament Event Hub to pick from its live team/player rosters with 1 click, or enter any player name below.
+    </div>
+  `;
+}
+window.renderSuperadminMockPlayerList = renderSuperadminMockPlayerList;
+
+function openSuperadminMockPlayerModal() {
+  if (!isVerifiedSuperadmin()) {
+    console.warn('SECURITY: Blocked non-superadmin attempt to open Mock Player modal.');
+    return;
+  }
+  let modal = document.getElementById('superadmin-mock-player-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'superadmin-mock-player-modal';
+    modal.className = 'modal-overlay';
+    modal.style.cssText = 'position:fixed; inset:0; background:rgba(3,7,18,0.82); backdrop-filter:blur(6px); z-index:10050; display:none; align-items:center; justify-content:center; padding:1rem;';
+    document.body.appendChild(modal);
+  }
+
+  const { eventName, eventId } = collectCurrentEventMockCandidates();
+  const activeMock = getActiveSuperadminMockPlayer();
+
+  modal.innerHTML = `
+    <div class="modal-card" onclick="event.stopPropagation()" style="width:100%; max-width:660px; max-height:88vh; overflow-y:auto; background:#0b1120; border:1.5px solid rgba(245,158,11,0.55); border-radius:14px; padding:1.25rem; box-shadow:0 20px 50px rgba(0,0,0,0.75); color:#f8fafc;">
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding-bottom:0.8rem; border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div>
+          <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+            <span style="background:rgba(245,158,11,0.2); border:1px solid rgba(245,158,11,0.5); color:#fbbf24; font-size:0.66rem; font-weight:900; padding:2px 7px; border-radius:4px; text-transform:uppercase;">🔒 Superadmin Only (swimgeek751@gmail.com)</span>
+          </div>
+          <h3 style="margin:0; font-size:1.1rem; font-weight:900; color:#fff;">🎭 Mock as Player / User</h3>
+          <p style="margin:3px 0 0 0; font-size:0.76rem; color:#94a3b8;">
+            Preview OmniTactica with the exact role, team station, and permissions that a specific player or spectator sees.
+          </p>
+        </div>
+        <button type="button" onclick="closeSuperadminMockPlayerModal()" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); color:#cbd5e1; border-radius:6px; padding:4px 9px; cursor:pointer; font-weight:800;">✕</button>
+      </div>
+
+      ${activeMock ? `
+        <div style="margin-top:0.8rem; padding:0.65rem 0.85rem; border-radius:8px; background:rgba(245,158,11,0.14); border:1px solid rgba(245,158,11,0.45); display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+          <div style="font-size:0.78rem; color:#fef3c7;">
+            Currently mocking: <strong style="color:#38bdf8;">${escapeHtml(activeMock.display_name || activeMock.full_name)}</strong>
+            ${activeMock.team_name ? `<span>• Team: <strong>${escapeHtml(activeMock.team_name)}</strong></span>` : ''}
+          </div>
+          <button type="button" onclick="exitSuperadminMockPlayer()" style="background:rgba(239,68,68,0.22); border:1px solid rgba(239,68,68,0.55); color:#fca5a5; font-weight:800; font-size:0.73rem; padding:4px 10px; border-radius:6px; cursor:pointer;">
+            ✕ Exit Mock & Restore Superadmin
+          </button>
+        </div>
+      ` : ''}
+
+      <!-- Quick Option 1: Unregistered Player / Spectator -->
+      <div style="margin-top:0.85rem; padding:0.7rem 0.9rem; border-radius:9px; background:rgba(15,23,42,0.85); border:1px solid rgba(148,163,184,0.25); display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+        <div>
+          <div style="font-weight:800; font-size:0.83rem; color:#e2e8f0;">👤 Unregistered Player / Spectator View</div>
+          <div style="font-size:0.72rem; color:#94a3b8;">See what a regular player who is NOT registered in this tournament sees (no My Station / no Team Pairing).</div>
+        </div>
+        <button type="button" id="btn-mock-unregistered-player" onclick="activateSuperadminMockPlayer({ mode: 'unregistered', event_id: '${escapeHtml(eventId)}' })" style="background:rgba(148,163,184,0.16); border:1px solid rgba(148,163,184,0.45); color:#f1f5f9; font-weight:800; font-size:0.75rem; padding:5px 11px; border-radius:6px; cursor:pointer; white-space:nowrap;">
+          👤 Mock Unregistered User
+        </button>
+      </div>
+
+      <!-- Option 2: Current Tournament Players & Teams -->
+      <div style="margin-top:0.95rem;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:0.5rem;">
+          <label style="font-size:0.76rem; font-weight:800; text-transform:uppercase; letter-spacing:0.04em; color:#38bdf8;">
+            ${eventName ? `🛡️ Players & Teams in ${escapeHtml(eventName)}` : '🛡️ Current Event Players'}
+          </label>
+          <input type="search" id="superadmin-mock-player-search" placeholder="Search player, team, or faction..." oninput="renderSuperadminMockPlayerList(this.value)" style="background:#090d16; border:1px solid rgba(56,189,248,0.35); color:#fff; border-radius:6px; padding:5px 10px; font-size:0.76rem; min-width:220px;">
+        </div>
+        <div id="superadmin-mock-player-candidates-list" style="max-height:290px; overflow-y:auto; padding-right:2px;"></div>
+      </div>
+
+      <!-- Option 3: Custom Player Name / Team -->
+      <div style="margin-top:0.95rem; padding-top:0.85rem; border-top:1px solid rgba(255,255,255,0.08);">
+        <div style="font-size:0.74rem; font-weight:800; text-transform:uppercase; letter-spacing:0.04em; color:#cbd5e1; margin-bottom:0.45rem;">
+          ✏️ Or Mock Custom Player Name / Team
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:8px; align-items:center;">
+          <input type="text" id="superadmin-custom-mock-name" placeholder="Player Full Name" style="background:#090d16; border:1px solid rgba(255,255,255,0.16); color:#fff; border-radius:6px; padding:6px 10px; font-size:0.78rem;">
+          <input type="text" id="superadmin-custom-mock-team" placeholder="Team Name (optional)" style="background:#090d16; border:1px solid rgba(255,255,255,0.16); color:#fff; border-radius:6px; padding:6px 10px; font-size:0.78rem;">
+          <button type="button" id="btn-mock-custom-player-submit" onclick="handleCustomSuperadminMockSubmit('${escapeHtml(eventId)}')" style="background:linear-gradient(135deg, #f59e0b, #d97706); border:1px solid #fbbf24; color:#090d16; font-weight:900; font-size:0.76rem; padding:6px 12px; border-radius:6px; cursor:pointer; white-space:nowrap;">
+            🎭 Mock Player
+          </button>
+        </div>
+        <div id="superadmin-mock-error" style="display:none; margin-top:6px; color:#f87171; font-size:0.75rem; font-weight:700;"></div>
+      </div>
+    </div>
+  `;
+
+  modal.style.display = 'flex';
+  modal.classList.add('active');
+  renderSuperadminMockPlayerList('');
+}
+window.openSuperadminMockPlayerModal = openSuperadminMockPlayerModal;
+
+function closeSuperadminMockPlayerModal() {
+  const modal = document.getElementById('superadmin-mock-player-modal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.remove('active');
+  }
+}
+window.closeSuperadminMockPlayerModal = closeSuperadminMockPlayerModal;
+
+function handleCustomSuperadminMockSubmit(eventId = '') {
+  const nameInput = document.getElementById('superadmin-custom-mock-name');
+  const teamInput = document.getElementById('superadmin-custom-mock-team');
+  const errEl = document.getElementById('superadmin-mock-error');
+  const fullName = String(nameInput?.value || '').trim();
+  const teamName = String(teamInput?.value || '').trim();
+  if (!fullName) {
+    if (errEl) {
+      errEl.innerText = 'Please enter a player full name to mock.';
+      errEl.style.display = 'block';
+    }
+    return;
+  }
+  activateSuperadminMockPlayer({
+    mode: 'player',
+    full_name: fullName,
+    team_name: teamName,
+    event_id: eventId,
+  });
+}
+window.handleCustomSuperadminMockSubmit = handleCustomSuperadminMockSubmit;
+
+async function activateSuperadminMockPlayer(payload = {}) {
+  const errEl = document.getElementById('superadmin-mock-error');
+  if (errEl) errEl.style.display = 'none';
+
+  if (!isVerifiedSuperadmin()) {
+    try { sessionStorage.removeItem('omni_superadmin_mock_player'); } catch (e) {}
+    if (errEl) {
+      errEl.innerText = 'Unauthorized: Strictly restricted to swimgeek751@gmail.com.';
+      errEl.style.display = 'block';
+    }
+    return false;
+  }
+
+  try {
+    if (!window.api || typeof window.api.mockAdminPlayer !== 'function') {
+      throw new Error('Mock player API is unavailable.');
+    }
+    const res = await window.api.mockAdminPlayer(payload);
+    if (!res || res.error || res.success !== true || !res.mock_profile) {
+      throw new Error((res && (res.detail || res.error)) || 'Server rejected mock-player request (403 Forbidden).');
+    }
+    const mockProfile = res.mock_profile;
+    sessionStorage.setItem('omni_superadmin_mock_player', JSON.stringify(mockProfile));
+    currentUser = mockProfile;
+    if (typeof window !== 'undefined') window.currentUser = currentUser;
+
+    if (typeof currentEventRegistration !== 'undefined') {
+      currentEventRegistration = null;
+    }
+    if (typeof window !== 'undefined' && window._stationAdminSelectedTeamByEvent) {
+      window._stationAdminSelectedTeamByEvent = {};
+    }
+
+    closeSuperadminMockPlayerModal();
+    renderSuperadminMockBanner();
+    renderHeaderAuth();
+    syncAppAuthView();
+
+    const ev = (typeof currentEventData !== 'undefined' && currentEventData) || (typeof window !== 'undefined' && window.currentEventData) || null;
+    if (ev && typeof synthesizeClientUserEventRegistration === 'function') {
+      const synthReg = synthesizeClientUserEventRegistration(ev, null);
+      if (typeof currentEventRegistration !== 'undefined') {
+        currentEventRegistration = (synthReg && synthReg.is_registered) ? synthReg : null;
+      }
+      if (typeof renderPlayerStation === 'function') {
+        await renderPlayerStation(ev, synthReg);
+      }
+      if (typeof renderEventHubHeroSection === 'function') {
+        renderEventHubHeroSection(ev, synthReg);
+      }
+      if (typeof renderPersonalEventScorecard === 'function') {
+        renderPersonalEventScorecard(ev, synthReg);
+      }
+      if (typeof renderEventPairingsRows === 'function') {
+        renderEventPairingsRows();
+      }
+      if (synthReg && synthReg.is_registered && typeof switchEventModalTab === 'function') {
+        switchEventModalTab('player');
+      }
+    }
+    return true;
+  } catch (err) {
+    if (errEl) {
+      errEl.innerText = 'Failed to activate Mock Player view: ' + (err.message || String(err));
+      errEl.style.display = 'block';
+    }
+    return false;
+  }
+}
+window.activateSuperadminMockPlayer = activateSuperadminMockPlayer;
+
+async function exitSuperadminMockPlayer() {
+  try {
+    if (window.api && typeof window.api.mockAdminPlayer === 'function' && isVerifiedSuperadmin()) {
+      await window.api.mockAdminPlayer({ mode: 'clear' }).catch(() => {});
+    }
+  } catch (e) {}
+
+  try {
+    sessionStorage.removeItem('omni_superadmin_mock_player');
+  } catch (e) {}
+
+  const realUser = (typeof window !== 'undefined' && window.__realSuperadminUser) || __realSuperadminUser;
+  if (realUser) {
+    currentUser = realUser;
+  } else {
+    try {
+      const cached = localStorage.getItem('native_user_profile');
+      currentUser = cached ? JSON.parse(cached) : null;
+    } catch (e) {
+      currentUser = null;
+    }
+  }
+  if (typeof window !== 'undefined') window.currentUser = currentUser;
+
+  if (typeof currentEventRegistration !== 'undefined') {
+    currentEventRegistration = null;
+  }
+
+  closeSuperadminMockPlayerModal();
+  renderSuperadminMockBanner();
+  renderHeaderAuth();
+  syncAppAuthView();
+
+  const ev = (typeof currentEventData !== 'undefined' && currentEventData) || (typeof window !== 'undefined' && window.currentEventData) || null;
+  if (ev) {
+    const synthReg = (typeof synthesizeClientUserEventRegistration === 'function')
+      ? synthesizeClientUserEventRegistration(ev, null)
+      : null;
+    if (typeof currentEventRegistration !== 'undefined') {
+      currentEventRegistration = (synthReg && synthReg.is_registered) ? synthReg : null;
+    }
+    if (typeof renderPlayerStation === 'function') {
+      await renderPlayerStation(ev, synthReg);
+    }
+    if (typeof renderEventHubHeroSection === 'function') {
+      renderEventHubHeroSection(ev, synthReg);
+    }
+    if (typeof renderPersonalEventScorecard === 'function') {
+      renderPersonalEventScorecard(ev, synthReg);
+    }
+    if (typeof renderEventPairingsRows === 'function') {
+      renderEventPairingsRows();
+    }
+  }
+}
+window.exitSuperadminMockPlayer = exitSuperadminMockPlayer;
+
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderSuperadminMockBanner);
+  } else {
+    renderSuperadminMockBanner();
+  }
+}
 
 

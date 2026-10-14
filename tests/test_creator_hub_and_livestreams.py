@@ -284,6 +284,83 @@ class TestCreatorHubAndLivestreams(unittest.TestCase):
                     api_save_event_livestream("ev_test", payload, mock_req)
                 self.assertEqual(ctx.exception.status_code, 403)
 
+    def test_superadmin_mock_player_security_and_profile_sanitization(self):
+        """Verify POST /api/admin/mock-player strictly rejects non-superadmins (including other admins like hsiehjun@google.com) and returns a sanitized player profile for swimgeek751@gmail.com."""
+        from routers.admin import api_admin_mock_player, AdminMockPlayerPayload
+
+        mock_req = MagicMock(spec=Request)
+        mock_req.headers = {"Authorization": "Bearer test_tok"}
+        mock_req.cookies = {}
+
+        payload = AdminMockPlayerPayload(
+            mode="player",
+            player_id="p_marco",
+            full_name="Marco Esteban",
+            team_name="Wargames Adictos",
+            faction="Chaos Knights",
+            detachment="Traitoris Lance",
+            event_id="goVnKElgpZXE",
+            is_captain=True,
+            elo=1820.0,
+        )
+
+        # 1. Non-superadmin Admin (hsiehjun@google.com) MUST be blocked with 403 Forbidden
+        other_admin_sess = {
+            "id": "u_john4",
+            "email": "hsiehjun@google.com",
+            "role": "admin",
+            "is_admin": True,
+            "is_superadmin": False,
+            "can_switch_role": False,
+        }
+        with patch("routers.admin.get_auth_manager") as mock_get_auth:
+            mock_get_auth.return_value.get_session.return_value = other_admin_sess
+            with self.assertRaises(HTTPException) as ctx:
+                api_admin_mock_player(payload, mock_req)
+            self.assertEqual(ctx.exception.status_code, 403)
+
+        # 2. Normal Player MUST be blocked with 403 Forbidden
+        player_sess = {
+            "id": "u_player1",
+            "email": "player@example.com",
+            "role": "player",
+            "is_admin": False,
+            "is_superadmin": False,
+        }
+        with patch("routers.admin.get_auth_manager") as mock_get_auth:
+            mock_get_auth.return_value.get_session.return_value = player_sess
+            with self.assertRaises(HTTPException) as ctx:
+                api_admin_mock_player(payload, mock_req)
+            self.assertEqual(ctx.exception.status_code, 403)
+
+        # 3. Primary Superadmin (swimgeek751@gmail.com) succeeds and gets a strictly non-admin player mock profile
+        superadmin_sess = {
+            "id": "u_super",
+            "email": "swimgeek751@gmail.com",
+            "role": "admin",
+            "is_admin": True,
+            "is_superadmin": True,
+            "can_switch_role": True,
+        }
+        with patch("routers.admin.get_auth_manager") as mock_get_auth:
+            mock_get_auth.return_value.get_session.return_value = superadmin_sess
+            res = api_admin_mock_player(payload, mock_req)
+            self.assertTrue(res["success"])
+            self.assertTrue(res["mock_active"])
+            prof = res["mock_profile"]
+            self.assertEqual(prof["full_name"], "Marco Esteban")
+            self.assertEqual(prof["team_name"], "Wargames Adictos")
+            self.assertEqual(prof["role"], "player")
+            self.assertFalse(prof["is_admin"])
+            self.assertFalse(prof["is_superadmin"])
+            self.assertFalse(prof["can_switch_role"])
+            self.assertFalse(prof["can_access_to"])
+            self.assertFalse(prof["can_access_cc"])
+            self.assertTrue(prof["is_mock_player"])
+            self.assertEqual(prof["mocked_by_superadmin"], "swimgeek751@gmail.com")
+            self.assertNotIn("token", res)
+            self.assertNotIn("email", prof)
+
 
 if __name__ == "__main__":
     unittest.main()

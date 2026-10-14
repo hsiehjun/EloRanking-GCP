@@ -1572,7 +1572,56 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
 
     ev_gs = str(event_details.get("game_system") or "40k").strip()
     ev_players = event_details.get("players") or []
-    ev_teams = event_details.get("teams") or []
+    ev_teams = event_details.get("teams") or event_details.get("team_standings") or []
+    raw_ev_meta = event_details.get("raw_json") if isinstance(event_details.get("raw_json"), dict) else {}
+    if not ev_teams and ev_players and (
+        event_details.get("is_team_event")
+        or raw_ev_meta.get("teamEvent")
+        or any(isinstance(p, dict) and p.get("team_player_id") for p in ev_players)
+    ):
+        derived_teams_map: Dict[str, Dict[str, Any]] = {}
+        for p in ev_players:
+            if not isinstance(p, dict):
+                continue
+            t_name = str(p.get("team") or p.get("team_name") or "").strip()
+            t_id = str(p.get("team_player_id") or p.get("teamPlayerId") or t_name).strip()
+            if not t_name and not t_id:
+                continue
+            key = t_id or t_name.lower()
+            if key not in derived_teams_map:
+                derived_teams_map[key] = {
+                    "id": t_id or key,
+                    "team_id": t_id or key,
+                    "name": t_name or t_id,
+                    "members": [],
+                    "member_ids": [],
+                    "member_names": [],
+                }
+            tm_entry = derived_teams_map[key]
+            tm_entry["members"].append(p)
+            pid_v = str(p.get("player_id") or p.get("id") or "").strip()
+            if pid_v:
+                tm_entry["member_ids"].append(pid_v)
+            pnm_v = str(p.get("full_name") or p.get("name") or "").strip()
+            if pnm_v:
+                tm_entry["member_names"].append(pnm_v)
+        if derived_teams_map:
+            ev_teams = list(derived_teams_map.values())
+            for idx_t, tm_obj in enumerate(ev_teams, 1):
+                m_list = tm_obj.get("members") or []
+                elos_m = [float(m.get("current_elo") or m.get("elo") or 1500.0) for m in m_list if isinstance(m, dict)]
+                tm_obj["avg_elo"] = round(sum(elos_m) / len(elos_m), 1) if elos_m else 1500.0
+                tm_obj["member_count"] = len(m_list)
+                tm_obj["placing"] = tm_obj.get("placing") or idx_t
+            event_details["teams"] = ev_teams
+            if not event_details.get("team_standings"):
+                event_details["team_standings"] = ev_teams
+            event_details["total_teams"] = len(ev_teams)
+            event_details["is_team_event"] = True
+            if raw_ev_meta.get("doublesEvent") is True:
+                event_details["is_doubles_event"] = True
+            elif raw_ev_meta.get("doublesEvent") is False:
+                event_details["is_doubles_event"] = False
 
     # 1. Hydrate live Elos strictly from database / canonical career ratings (<0.5ms)
     if fs_engine is not None and ev_players and not event_details.get("_live_elos_hydrated"):

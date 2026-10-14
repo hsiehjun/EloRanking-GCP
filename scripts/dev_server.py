@@ -616,8 +616,11 @@ def get_persona_user(persona):
             "id": "p_innes",
             "username": "innes_wilson",
             "display_name": "Innes Wilson",
+            "email": "swimgeek751@gmail.com",
             "role": "player",
             "is_admin": True,
+            "is_superadmin": True,
+            "can_switch_role": True,
             "is_cc": False,
             "can_access_to": False,
             "can_access_cc": False,
@@ -1670,6 +1673,109 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps({"success": True, "user_id": u_id, "role": new_role}).encode("utf-8"))
+            return
+
+        if clean_path in ("api/admin/mock-player", "api/admin/mock-player/"):
+            import re
+            body_data = json.loads(body.decode("utf-8")) if body else {}
+            req_email = (self.headers.get("X-Test-User-Email") or "").strip().lower()
+            dev_u = globals().get("DEV_USER") or {}
+            cur_dev_email = str(((dev_u.get("user") if isinstance(dev_u, dict) else None) or dev_u or {}).get("email") or "swimgeek751@gmail.com").strip().lower()
+            caller_email = req_email or cur_dev_email
+            if caller_email != "swimgeek751@gmail.com":
+                self.send_response(403)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": "Strictly restricted to the platform superadmin (swimgeek751@gmail.com)."}).encode("utf-8"))
+                return
+            mode = str(body_data.get("mode") or "player").strip().lower()
+            if mode == "clear":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "mock_active": False, "mock_profile": None}).encode("utf-8"))
+                return
+            if mode in ("self_player", "unregistered"):
+                real_user = (dev_u.get("user") if isinstance(dev_u, dict) else None) or dev_u or {}
+                real_uid = str(real_user.get("id") or "superadmin").strip()
+                real_name = str(real_user.get("display_name") or caller_email.split("@")[0]).strip()
+                parts = real_name.split(" ") if real_name else []
+                first_name = parts[0] if parts else ""
+                last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+                mock_profile = {
+                    "id": real_uid,
+                    "username": re.sub(r"[^a-z0-9_]+", "_", real_name.lower()).strip("_") or real_uid,
+                    "display_name": real_name,
+                    "full_name": real_name,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "role": "player",
+                    "is_admin": False,
+                    "is_superadmin": False,
+                    "can_switch_role": False,
+                    "can_access_to": False,
+                    "can_access_cc": False,
+                    "is_cc": False,
+                    "bcp_connected": False,
+                    "player_id": "",
+                    "bcp_player_id": "",
+                    "team_name": "",
+                    "faction": "",
+                    "detachment": "",
+                    "is_captain": False,
+                    "elo": None,
+                    "is_mock_player": True,
+                    "is_unregistered_mock": True,
+                    "mocked_by_superadmin": caller_email,
+                    "mock_event_id": str(body_data.get("event_id") or "").strip(),
+                }
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "mock_active": True, "mock_profile": mock_profile}).encode("utf-8"))
+                return
+            full_name = str(body_data.get("full_name") or "").strip()
+            if not full_name:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"detail": "A valid player full_name or player_id is required."}).encode("utf-8"))
+                return
+            parts = full_name.split(" ")
+            first_name = parts[0] if parts else ""
+            last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+            pid = str(body_data.get("player_id") or body_data.get("bcp_player_id") or re.sub(r"[^a-z0-9_]+", "_", full_name.lower()).strip("_")).strip()
+            mock_profile = {
+                "id": str(body_data.get("user_id") or pid),
+                "username": re.sub(r"[^a-z0-9_]+", "_", full_name.lower()).strip("_") or pid,
+                "display_name": full_name,
+                "full_name": full_name,
+                "first_name": first_name,
+                "last_name": last_name,
+                "role": "player",
+                "is_admin": False,
+                "is_superadmin": False,
+                "can_switch_role": False,
+                "can_access_to": False,
+                "can_access_cc": False,
+                "is_cc": False,
+                "bcp_connected": True,
+                "player_id": pid,
+                "bcp_player_id": str(body_data.get("bcp_player_id") or pid).strip(),
+                "team_name": str(body_data.get("team_name") or "").strip(),
+                "faction": str(body_data.get("faction") or "").strip(),
+                "detachment": str(body_data.get("detachment") or "").strip(),
+                "is_captain": bool(body_data.get("is_captain")),
+                "elo": float(body_data.get("elo")) if body_data.get("elo") is not None else None,
+                "is_mock_player": True,
+                "is_unregistered_mock": False,
+                "mocked_by_superadmin": caller_email,
+                "mock_event_id": str(body_data.get("event_id") or "").strip(),
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "mock_active": True, "mock_profile": mock_profile}).encode("utf-8"))
             return
 
         if clean_path in ("api/auth/login", "api/auth/register"):

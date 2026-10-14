@@ -1476,6 +1476,15 @@ window.api = {
     });
   },
 
+  // Superadmin Only (swimgeek751@gmail.com): Mock Player / User View for Testing
+  async mockAdminPlayer(payload = {}) {
+    return this._fetchJson('/api/admin/mock-player', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
+      body: JSON.stringify(payload || {})
+    });
+  },
+
   // User: Request TO Verification
   async requestToStatus(organization = '', venueOrStore = '', details = '') {
     return this._fetchJson('/api/auth/request-to', {

@@ -904,8 +904,54 @@ function synthesizeClientUserEventRegistration(ev, existingReg = null) {
   const u = (typeof authState !== 'undefined' && authState && authState.user) ||
             (typeof currentUser !== 'undefined' ? currentUser : null) ||
             (typeof window !== 'undefined' ? window.currentUser : null);
-  if (!u || !ev || !Array.isArray(ev.players) || ev.players.length === 0) {
+  if (u && u.is_mock_player === true) {
+    // Never inherit backend registration from the real superadmin session when mocking a player/user
+    existingReg = null;
+    if (u.is_unregistered_mock === true) {
+      return {
+        is_registered: false,
+        is_ended: Boolean(ev && (ev.is_ended || ev.ended)),
+        ended: Boolean(ev && (ev.is_ended || ev.ended)),
+      };
+    }
+  }
+  if (!u || !ev) {
     return existingReg;
+  }
+  const pool = [];
+  if (Array.isArray(ev.players)) {
+    pool.push(...ev.players);
+  }
+  const rawTeams = (Array.isArray(ev.teams) && ev.teams.length > 0)
+    ? ev.teams
+    : (Array.isArray(ev.team_standings) ? ev.team_standings : []);
+  rawTeams.forEach(t => {
+    const tName = String((t && (t.name || t.team_name)) || '').trim();
+    if (t && Array.isArray(t.members)) {
+      t.members.forEach(m => {
+        if (m && typeof m === 'object') {
+          pool.push(Object.assign({ team: m.team || tName }, m));
+        }
+      });
+    }
+  });
+  if (Array.isArray(ev.team_pairings)) {
+    ev.team_pairings.forEach(tp => {
+      if (!tp) return;
+      if (Array.isArray(tp.team1_roster)) {
+        tp.team1_roster.forEach(m => {
+          if (m && typeof m === 'object') pool.push(Object.assign({ team: m.team || tp.team1_name || '' }, m));
+        });
+      }
+      if (Array.isArray(tp.team2_roster)) {
+        tp.team2_roster.forEach(m => {
+          if (m && typeof m === 'object') pool.push(Object.assign({ team: m.team || tp.team2_name || '' }, m));
+        });
+      }
+    });
+  }
+  if (pool.length === 0) {
+    return u.is_mock_player ? { is_registered: false } : existingReg;
   }
   const candIds = new Set(
     [u.player_id, u.bcp_user_id, u.bcp_player_id, u.id, u.user_id, ...(Array.isArray(u.linked_players) ? u.linked_players : [])]
@@ -918,9 +964,9 @@ function synthesizeClientUserEventRegistration(ev, existingReg = null) {
       .map(x => String(x).trim().toLowerCase())
   );
   if (candIds.size === 0 && candNames.size === 0) {
-    return existingReg;
+    return u.is_mock_player ? { is_registered: false } : existingReg;
   }
-  const matched = ev.players.find(p => {
+  const matched = pool.find(p => {
     if (!p || typeof p !== 'object') return false;
     const pIds = [p.player_id, p.user_id, p.id, p.bcp_event_player_id, p.bcp_player_id]
       .filter(Boolean)
@@ -931,7 +977,7 @@ function synthesizeClientUserEventRegistration(ev, existingReg = null) {
     return false;
   });
   if (!matched) {
-    return existingReg;
+    return u.is_mock_player ? { is_registered: false } : existingReg;
   }
   const fullName = String(matched.full_name || matched.name || u.competitor_name || u.display_name || 'Competitor').trim();
   const parts = fullName.split(' ');
@@ -1423,12 +1469,9 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     );
 
     const subtabPlayer = document.getElementById('event-subtab-player');
-    const isAdmin = isUserEventAdmin();
-    const isRegisteredPlayer = Boolean(
-      (userRegData && userRegData.is_registered && !userRegData.is_admin_preview) ||
-      (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor')
-    );
-    const shouldShowMyStation = Boolean(isRegisteredPlayer || isAdmin || canAccessToHub || isCC);
+    const availableStationSubtabs = getMyStationAvailableSubtabs(ev, userRegData);
+    const hasPlayerStationSubtab = availableStationSubtabs.some(t => t.key === 'match');
+    const shouldShowMyStation = availableStationSubtabs.length > 0;
 
     if (userRegData && userRegData.is_registered) {
       currentEventRegistration = userRegData;
@@ -1496,7 +1539,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
 
     if (initialTab && initialTab !== 'elo' && (initialTab !== 'teams' || teamsList.length > 0) && (initialTab !== 'player' || shouldShowMyStation) && (initialTab !== 'to-hub' || canAccessToHub) && (initialTab !== 'creator' || isCC)) {
       switchEventModalTab(initialTab);
-    } else if (isRegisteredPlayer) {
+    } else if (hasPlayerStationSubtab) {
       _currentMyStationSubtab = 'match';
       switchEventModalTab('player');
     } else if (isOngoing && eventMatchesCache.length > 0) {
@@ -5491,6 +5534,11 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
         </div>
 
         <div class="profile-hero-actions" style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+          ${(typeof isVerifiedSuperadmin === 'function' && isVerifiedSuperadmin()) ? `
+            <button type="button" id="btn-event-hero-mock-player" class="btn btn-outline" onclick="openSuperadminMockPlayerModal()" style="border-color:rgba(245,158,11,0.55); background:rgba(245,158,11,0.16); color:#fbbf24; font-weight:800; font-size:0.82rem; padding:0.48rem 0.95rem; cursor:pointer;" title="Superadmin Only (swimgeek751@gmail.com): Mock a player/team in this event">
+              🎭 ${(typeof currentUser !== 'undefined' && currentUser && currentUser.is_mock_player) ? 'Mocking: ' + escapeHtml(currentUser.display_name || currentUser.full_name || 'Player') : 'Mock Player'}
+            </button>
+          ` : ''}
           <button type="button" class="btn btn-outline" onclick="copyEventHubLink('${escapeHtml(eventId)}', '${sys}')" style="font-weight: 600; font-size: 0.82rem; padding: 0.48rem 0.95rem; cursor: pointer;">
             <span class="btn-text-desktop">🔗 Share Event Link</span>
             <span class="btn-text-mobile">🔗 Share</span>
@@ -5860,64 +5908,70 @@ function resolveTeamEventStationRegistration(ev, regData) {
   const teams = (Array.isArray(ev.teams) && ev.teams.length > 0)
     ? ev.teams
     : (Array.isArray(ev.team_standings) ? ev.team_standings : []);
+  const teamPairings = Array.isArray(ev.team_pairings) ? ev.team_pairings : [];
 
-  const isAdmin = isUserEventAdmin();
   const isCompetitorPersona = Boolean(typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor');
-  const adminExplicitTeam = String(window._stationAdminSelectedTeamByEvent?.[evId] || '').trim().toLowerCase();
 
-  // 1. Check if current user actually matches a real registered competitor in this event
+  // Build full candidate pool from event players + team rosters + team_pairings rosters
+  const allRosterMembers = [...players];
+  teams.forEach(t => {
+    const tName = String((t && (t.name || t.team_name)) || '').trim();
+    if (t && Array.isArray(t.members)) {
+      t.members.forEach(m => {
+        if (m && typeof m === 'object') {
+          allRosterMembers.push(Object.assign({ team: m.team || tName }, m));
+        }
+      });
+    }
+  });
+  teamPairings.forEach(tp => {
+    if (!tp) return;
+    if (Array.isArray(tp.team1_roster)) {
+      tp.team1_roster.forEach(m => {
+        if (m && typeof m === 'object') allRosterMembers.push(Object.assign({ team: m.team || tp.team1_name || '' }, m));
+      });
+    }
+    if (Array.isArray(tp.team2_roster)) {
+      tp.team2_roster.forEach(m => {
+        if (m && typeof m === 'object') allRosterMembers.push(Object.assign({ team: m.team || tp.team2_name || '' }, m));
+      });
+    }
+  });
+
+  // 1. Check if current user (or active Superadmin Mock Player) actually matches a registered competitor on a team in this event
   let matchedPlayer = null;
-  let isAdminPreview = false;
+  let candidateTeamName = '';
 
-  if (!adminExplicitTeam) {
-    const candidateReg = (regData && regData.is_registered && !regData.is_admin_preview && !regData.is_team_station_bound)
-      ? regData
-      : synthesizeClientUserEventRegistration(ev, null);
-    if (candidateReg && candidateReg.is_registered) {
-      const preg = candidateReg.player_registration || candidateReg.player || {};
-      const rPid = String(preg.player_id || preg.bcp_player_id || '').trim().toLowerCase();
-      const rName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
-      if (rPid && rPid !== 'p_innes') {
-        matchedPlayer = players.find(p => {
-          const pid = String(p.player_id || p.id || p.bcp_event_player_id || p.user_id || '').trim().toLowerCase();
-          return pid && pid === rPid;
-        });
-      }
-      if (!matchedPlayer && rName && rName !== 'innes wilson') {
-        matchedPlayer = players.find(p => {
-          const pn = String(p.full_name || p.name || `${p.first_name || ''} ${p.last_name || ''}`).trim().toLowerCase();
-          return pn && pn === rName;
-        });
-      }
+  const candidateReg = (regData && regData.is_registered && !regData.is_admin_preview && !regData.is_team_station_bound)
+    ? regData
+    : synthesizeClientUserEventRegistration(ev, null);
+  if (candidateReg && candidateReg.is_registered) {
+    const preg = candidateReg.player_registration || candidateReg.player || {};
+    const rPid = String(preg.player_id || preg.bcp_player_id || '').trim().toLowerCase();
+    const rName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
+    candidateTeamName = String(preg.team_name || '').trim();
+    if (rPid && rPid !== 'p_innes') {
+      matchedPlayer = allRosterMembers.find(p => {
+        const pid = String(p.player_id || p.id || p.bcp_event_player_id || p.user_id || '').trim().toLowerCase();
+        return pid && pid === rPid;
+      });
+    }
+    if (!matchedPlayer && rName && rName !== 'innes wilson') {
+      matchedPlayer = allRosterMembers.find(p => {
+        const pn = String(p.full_name || p.name || `${p.first_name || ''} ${p.last_name || ''}`).trim().toLowerCase();
+        return pn && pn === rName;
+      });
     }
   }
 
-  // 2. If user is NOT a registered competitor in this event, only allow Admin (or dev competitor persona) to preview a single team's station
+  // 2. Only fall back to a default competitor when explicitly in ?persona=competitor dev mode (never auto-bind Admins!)
   if (!matchedPlayer) {
-    if (!isAdmin && !isCompetitorPersona) {
+    if (!isCompetitorPersona) {
       return null;
     }
-    isAdminPreview = true;
-    const teamPairings = Array.isArray(ev.team_pairings) ? ev.team_pairings : [];
-    const selectedPodId = String(window._stationWtcSelectedPodByEvent?.[evId] || '').trim();
-    const targetPodFromReturn = selectedPodId
-      ? teamPairings.find(tp => String(tp.team_pairing_id) === selectedPodId)
-      : null;
-
-    let targetTeamName = adminExplicitTeam || String(targetPodFromReturn?.team1_name || '').trim().toLowerCase();
-    let targetTeamObj = targetTeamName
-      ? teams.find(t => String(t.name || '').trim().toLowerCase() === targetTeamName)
-      : null;
-    if (!targetTeamObj && teams.length > 0) {
-      targetTeamObj = teams[0];
-    }
-
-    if (targetTeamObj && Array.isArray(targetTeamObj.members) && targetTeamObj.members.length > 0) {
-      const capOrFirst = targetTeamObj.members.find(m => m.is_captain) || targetTeamObj.members[0];
-      matchedPlayer = Object.assign({}, capOrFirst, { team: targetTeamObj.name || capOrFirst.team || '' });
-    } else if (targetPodFromReturn && Array.isArray(targetPodFromReturn.team1_roster) && targetPodFromReturn.team1_roster.length > 0) {
-      const capOrFirst = targetPodFromReturn.team1_roster.find(m => m.is_captain) || targetPodFromReturn.team1_roster[0];
-      matchedPlayer = Object.assign({}, capOrFirst, { team: targetPodFromReturn.team1_name || capOrFirst.team || '' });
+    if (teams.length > 0 && Array.isArray(teams[0].members) && teams[0].members.length > 0) {
+      const capOrFirst = teams[0].members.find(m => m.is_captain) || teams[0].members[0];
+      matchedPlayer = Object.assign({}, capOrFirst, { team: teams[0].name || capOrFirst.team || '' });
     } else if (teamPairings.length > 0 && Array.isArray(teamPairings[0].team1_roster) && teamPairings[0].team1_roster.length > 0) {
       const capOrFirst = teamPairings[0].team1_roster.find(m => m.is_captain) || teamPairings[0].team1_roster[0];
       matchedPlayer = Object.assign({}, capOrFirst, { team: teamPairings[0].team1_name || capOrFirst.team || '' });
@@ -5928,9 +5982,9 @@ function resolveTeamEventStationRegistration(ev, regData) {
 
   if (!matchedPlayer) return null;
 
-  const fullName = String(matchedPlayer.full_name || matchedPlayer.name || `${matchedPlayer.first_name || ''} ${matchedPlayer.last_name || ''}`).trim() || 'Team Captain';
+  const fullName = String(matchedPlayer.full_name || matchedPlayer.name || `${matchedPlayer.first_name || ''} ${matchedPlayer.last_name || ''}`).trim() || 'Team Player';
   const parts = fullName.split(' ');
-  const firstName = matchedPlayer.first_name || parts[0] || 'Captain';
+  const firstName = matchedPlayer.first_name || parts[0] || 'Player';
   const lastName = matchedPlayer.last_name || parts.slice(1).join(' ') || '';
   const pid = String(matchedPlayer.player_id || matchedPlayer.id || matchedPlayer.bcp_event_player_id || matchedPlayer.user_id || fullName).trim();
 
@@ -5941,14 +5995,14 @@ function resolveTeamEventStationRegistration(ev, regData) {
     return (pid && pPid === pid.toLowerCase()) || (fullName && pName === fullName.toLowerCase());
   }) || matchedPlayer;
 
-  const resolvedTeamName = String(matchedPlayer.team || fullRec.team || '').trim();
-  if (isAdminPreview && resolvedTeamName) {
-    window._stationAdminSelectedTeamByEvent[evId] = resolvedTeamName;
+  const resolvedTeamName = String(matchedPlayer.team || fullRec.team || candidateTeamName || '').trim();
+  if (!resolvedTeamName) {
+    return null;
   }
 
   return {
     is_registered: true,
-    is_admin_preview: isAdminPreview,
+    is_admin_preview: false,
     is_team_station_bound: true,
     event_id: evId,
     player_registration: {
@@ -5974,18 +6028,98 @@ function resolveTeamEventStationRegistration(ev, regData) {
   };
 }
 
+function resolveActiveWtcTeamPairingPodForPlayer(ev, regData) {
+  if (!isWtcTeamEvent(ev)) return null;
+  const teamPairings = Array.isArray(ev.team_pairings) ? ev.team_pairings : [];
+  if (teamPairings.length === 0) return null;
+  if (!regData || !regData.is_registered) return null;
+
+  const preg = regData.player_registration || regData.player || {};
+  const myPid = String(preg.player_id || preg.bcp_player_id || '').trim().toLowerCase();
+  const myName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
+  const myTeamNameRaw = String(preg.team_name || '').trim();
+  const myTeamName = myTeamNameRaw.toLowerCase();
+  if (!myTeamName && !myPid && !myName) return null;
+
+  const evId = String(ev.id || ev.event_id || currentOpenEventId || '');
+  const roundSet = new Set();
+  teamPairings.forEach(tp => roundSet.add(Number(tp.round || 1)));
+  const availableRounds = Array.from(roundSet).sort((a, b) => a - b);
+  if (availableRounds.length === 0) return null;
+
+  const matchesPlayerTeamPod = (tp) => {
+    if (!tp) return false;
+    const t1n = String(tp.team1_name || '').trim().toLowerCase();
+    const t2n = String(tp.team2_name || '').trim().toLowerCase();
+    if (myTeamName && (t1n === myTeamName || t2n === myTeamName)) return true;
+    const allMembers = [...(tp.team1_roster || []), ...(tp.team2_roster || [])];
+    return allMembers.some(m => {
+      const mPid = String(m.player_id || m.id || '').trim().toLowerCase();
+      const mName = String(m.full_name || m.name || '').trim().toLowerCase();
+      return (myPid && mPid === myPid) || (myName && mName === myName);
+    });
+  };
+
+  // Determine the active started round automatically (no manual round switcher for players)
+  let selectedRound = 0;
+  if (
+    window._lastWtcReturnPayload &&
+    String(window._lastWtcReturnPayload.event_id || evId) === evId &&
+    roundSet.has(Number(window._lastWtcReturnPayload.round_num))
+  ) {
+    selectedRound = Number(window._lastWtcReturnPayload.round_num);
+  }
+  if (!selectedRound) {
+    const explicitEvRound = Number(ev.current_round || ev.currentRound || 0);
+    if (explicitEvRound && roundSet.has(explicitEvRound)) {
+      selectedRound = explicitEvRound;
+    }
+  }
+  if (!selectedRound) {
+    // Prefer a round where this player's team has an active/paired WTC pairing, otherwise the latest started round
+    const myTeamPods = teamPairings.filter(matchesPlayerTeamPod);
+    const podWithWtc = myTeamPods.find(tp => tp.wtc_pairing && (tp.wtc_pairing.status === 'in_progress' || (Array.isArray(tp.wtc_pairing.individual_pairings) && tp.wtc_pairing.individual_pairings.length > 0)));
+    if (podWithWtc) {
+      selectedRound = Number(podWithWtc.round || 1);
+    } else if (myTeamPods.length > 0) {
+      selectedRound = Number(myTeamPods[myTeamPods.length - 1].round || 1);
+    } else {
+      selectedRound = availableRounds[availableRounds.length - 1] || 1;
+    }
+  }
+
+  const roundPods = teamPairings.filter(tp => Number(tp.round || 1) === selectedRound);
+  const activePod = roundPods.find(matchesPlayerTeamPod) || null;
+  if (!activePod) return null;
+
+  return {
+    selectedRound,
+    activePod,
+    myPid,
+    myName,
+    myTeamNameRaw,
+    myTeamName,
+  };
+}
+window.resolveActiveWtcTeamPairingPodForPlayer = resolveActiveWtcTeamPairingPodForPlayer;
+
+function hasStartedWtcTeamPairingForPlayer(ev, regData) {
+  return Boolean(resolveActiveWtcTeamPairingPodForPlayer(ev, regData));
+}
+window.hasStartedWtcTeamPairingForPlayer = hasStartedWtcTeamPairingForPlayer;
+
 function getMyStationAvailableSubtabs(ev, userRegData) {
   const eventObj = ev || currentEventData || {};
   const isWtcTeam = isWtcTeamEvent(eventObj);
-  const isAdmin = isUserEventAdmin();
-  const validUserReg = Boolean(userRegData && userRegData.is_registered && (!userRegData.is_admin_preview || isAdmin));
-  const validCurrReg = Boolean(currentEventRegistration && currentEventRegistration.is_registered && (!currentEventRegistration.is_admin_preview || isAdmin));
-  const isPlayer = Boolean(
-    validUserReg ||
-    validCurrReg ||
-    (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor') ||
-    (isWtcTeam && isAdmin)
-  );
+  const candidateReg = isWtcTeam
+    ? resolveTeamEventStationRegistration(eventObj, userRegData || currentEventRegistration)
+    : (userRegData || currentEventRegistration);
+  const isPlayer = isWtcTeam
+    ? hasStartedWtcTeamPairingForPlayer(eventObj, candidateReg)
+    : Boolean(
+        (candidateReg && candidateReg.is_registered && !candidateReg.is_admin_preview) ||
+        (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor')
+      );
   const isTO = Boolean(typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(eventObj));
   const isCC = Boolean(
     typeof isUserCC === 'function'
@@ -6243,15 +6377,8 @@ function renderPlayerStationWtcTeamMatchingPanel(ev, regData) {
   }
   if (!panel) return;
 
-  if (!isWtcTeamEvent(ev)) {
-    panel.style.display = 'none';
-    panel.innerHTML = '';
-    return;
-  }
-
-  const evId = String(ev.id || ev.event_id || currentOpenEventId || '');
-  const teamPairings = Array.isArray(ev.team_pairings) ? ev.team_pairings : [];
-  if (teamPairings.length === 0) {
+  const podCtx = resolveActiveWtcTeamPairingPodForPlayer(ev, regData);
+  if (!podCtx) {
     panel.style.display = 'none';
     panel.innerHTML = '';
     return;
@@ -6259,50 +6386,9 @@ function renderPlayerStationWtcTeamMatchingPanel(ev, regData) {
 
   panel.style.display = 'block';
 
-  // Available rounds with team pairings
-  const roundSet = new Set();
-  teamPairings.forEach(tp => roundSet.add(Number(tp.round || 1)));
-  const availableRounds = Array.from(roundSet).sort((a, b) => a - b);
-
-  // Determine selected round
-  let selectedRound = Number(window._stationWtcSelectedRoundByEvent?.[evId] || 0);
-  if (!selectedRound || !roundSet.has(selectedRound)) {
-    const roundWithActiveWtc = teamPairings.find(tp => tp.wtc_pairing && Array.isArray(tp.wtc_pairing.individual_pairings) && tp.wtc_pairing.individual_pairings.length > 0);
-    selectedRound = roundWithActiveWtc ? Number(roundWithActiveWtc.round) : (availableRounds[availableRounds.length - 1] || 1);
-    window._stationWtcSelectedRoundByEvent[evId] = selectedRound;
-  }
-
-  const roundPods = teamPairings.filter(tp => Number(tp.round || 1) === selectedRound);
-  const preg = (regData && (regData.player_registration || regData.player)) || {};
-  const myPid = String(preg.player_id || preg.bcp_player_id || '').trim().toLowerCase();
-  const myName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
-  const myTeamNameRaw = String(preg.team_name || '').trim();
-  const myTeamName = myTeamNameRaw.toLowerCase();
-  const isAdmin = isUserEventAdmin();
-
-  if (!regData || !regData.is_registered || (!myTeamName && !myPid && !myName)) {
-    panel.style.display = 'none';
-    panel.innerHTML = '';
-    return;
-  }
-
-  // Strictly find the single matchup pod for the player's own team in the selected round
-  let activePod = roundPods.find(tp => {
-    const t1n = String(tp.team1_name || '').trim().toLowerCase();
-    const t2n = String(tp.team2_name || '').trim().toLowerCase();
-    if (myTeamName && (t1n === myTeamName || t2n === myTeamName)) return true;
-    const allMembers = [...(tp.team1_roster || []), ...(tp.team2_roster || [])];
-    return allMembers.some(m => {
-      const mPid = String(m.player_id || m.id || '').trim().toLowerCase();
-      const mName = String(m.full_name || m.name || '').trim().toLowerCase();
-      return (myPid && mPid === myPid) || (myName && mName === myName);
-    });
-  }) || (isAdmin ? roundPods[0] : null);
-
-  if (!activePod) {
-    panel.style.display = 'none';
-    return;
-  }
+  const evId = String(ev.id || ev.event_id || currentOpenEventId || '');
+  const { selectedRound, activePod, myPid, myName, myTeamNameRaw, myTeamName } = podCtx;
+  window._stationWtcSelectedRoundByEvent[evId] = selectedRound;
 
   const podId = String(activePod.team_pairing_id || `r${selectedRound}_pod1`);
   window._stationWtcSelectedPodByEvent[evId] = podId;
@@ -6363,32 +6449,8 @@ function renderPlayerStationWtcTeamMatchingPanel(ev, regData) {
     statusBadgeHtml = `<span class="badge" style="background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.45); font-size:0.73rem; font-weight:800; padding:3px 9px;">⚔️ PAIRING IN PROGRESS</span>`;
   }
 
-  // Round pills HTML
-  const roundPillsHtml = availableRounds.map(rNum => {
-    const isAct = rNum === selectedRound;
-    return `
-      <button type="button" onclick="switchStationWtcRound('${escapeHtml(evId)}', ${rNum})" style="padding:3px 9px; border-radius:6px; font-size:0.72rem; font-weight:800; cursor:pointer; border:1px solid ${isAct ? '#38bdf8' : 'rgba(255,255,255,0.12)'}; background:${isAct ? 'rgba(56,189,248,0.2)' : 'rgba(15,23,42,0.7)'}; color:${isAct ? '#38bdf8' : '#94a3b8'};">
-        R${rNum}
-      </button>
-    `;
-  }).join('');
-
-  // Team context badge (or Admin single-team selector when Admin is inspecting a team station)
-  const allEventTeams = (Array.isArray(ev.teams) && ev.teams.length > 0)
-    ? ev.teams
-    : (Array.isArray(ev.team_standings) ? ev.team_standings : []);
-  const adminTeamSelectHtml = (isAdmin && allEventTeams.length > 0) ? `
-    <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
-      <span style="font-size:0.66rem; font-weight:800; color:#fbbf24; text-transform:uppercase; letter-spacing:0.04em;">🛡️ Admin View — Team:</span>
-      <select id="station-wtc-admin-team-select" aria-label="Admin Team Station Preview" onchange="switchStationAdminTeam('${escapeHtml(evId)}', this.value)" style="background:#090d16; color:#38bdf8; border:1px solid rgba(56,189,248,0.45); border-radius:6px; padding:4px 8px; font-size:0.73rem; font-weight:800; max-width:240px; cursor:pointer;">
-        ${allEventTeams.map(t => {
-          const tName = String(t.name || '');
-          const isSel = tName.trim().toLowerCase() === String(myTeamDisplayName).trim().toLowerCase();
-          return `<option value="${escapeHtml(tName)}" ${isSel ? 'selected' : ''}>🛡️ ${escapeHtml(tName)}</option>`;
-        }).join('')}
-      </select>
-    </div>
-  ` : `
+  // Player's own team badge (no Round R1..R5 selector and no Admin View team dropdown on player view)
+  const playerTeamBadgeHtml = `
     <div style="display:inline-flex; align-items:center; gap:0.35rem; padding:4px 10px; border-radius:6px; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.38); font-size:0.73rem; font-weight:800; color:#38bdf8;">
       <span>🛡️ Your Team: ${escapeHtml(myTeamDisplayName)}</span>
     </div>
@@ -6577,14 +6639,10 @@ function renderPlayerStationWtcTeamMatchingPanel(ev, regData) {
           </div>
         </div>
 
-        <!-- Round Pills & Your Team Badge -->
-        <div style="display:flex; flex-direction:column; align-items:flex-start; gap:0.45rem; flex:0 1 auto; max-width:100%;">
-          <div style="display:flex; align-items:center; gap:0.3rem; flex-wrap:wrap;">
-            <span style="font-size:0.68rem; font-weight:700; color:#94a3b8; text-transform:uppercase; margin-right:2px;">Round:</span>
-            ${roundPillsHtml}
-          </div>
+        <!-- Player's Team Badge (No Round Selector / No Admin View Selector) -->
+        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.45rem; flex:0 1 auto; max-width:100%;">
           <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; width:100%;">
-            ${adminTeamSelectHtml}
+            ${playerTeamBadgeHtml}
           </div>
         </div>
       </div>
@@ -6798,7 +6856,7 @@ async function renderPlayerStation(ev, userRegData) {
   }
 
   const availableTabs = getMyStationAvailableSubtabs(eventObj, regData);
-  const isPlayer = Boolean(regData && regData.is_registered);
+  const isPlayer = Boolean(availableTabs.some(t => t.key === 'match'));
   const isTO = Boolean(typeof canUserAccessEventToHub === 'function' && canUserAccessEventToHub(eventObj));
   const isCC = Boolean(
     typeof isUserCC === 'function'
@@ -6952,12 +7010,12 @@ async function renderPlayerStation(ev, userRegData) {
   // 1.5. Render WTC Team Matching & Pairing Room Station (for WTC Team Events)
   renderPlayerStationWtcTeamMatchingPanel(eventObj, regData);
 
-  if (regData && regData.is_admin_preview) {
+  if (isWtcTeamEvent(eventObj) && hasStartedWtcTeamPairingForPlayer(eventObj, regData)) {
     if (activeHero) activeHero.style.display = 'none';
     if (waitingHero) waitingHero.style.display = 'none';
     if (concludedHero) concludedHero.style.display = 'none';
     if (rosterAccordion) rosterAccordion.style.display = 'none';
-    renderPersonalEventScorecard(eventObj, null);
+    renderPersonalEventScorecard(eventObj, regData);
     if (typeof renderEventClockAndScheduleWidgets === 'function') {
       renderEventClockAndScheduleWidgets(eventObj);
     }
