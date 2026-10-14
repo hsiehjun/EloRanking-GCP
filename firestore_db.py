@@ -4188,13 +4188,19 @@ class FirestoreRoomEngine:
                 "reason": str(m.get("reason") or f"Cycle {m.get('cycle', 1)}"),
             })
 
-        prev_sub_status = str(existing.get("submission_status") or "").strip()
-        if prev_sub_status in ("submitted_to_bcp", "queued_for_to"):
-            sub_status = prev_sub_status
+        prev_sub_status = str(existing.get("submission_status") or existing.get("status") or "").strip().lower()
+        if prev_sub_status in ("submitted_to_bcp", "submitted_bcp"):
+            sub_status = "submitted_to_bcp"
+            status_val = "submitted_bcp"
+        elif prev_sub_status in ("queued_for_to", "queued_to_hub"):
+            sub_status = "queued_for_to"
+            status_val = "queued_to_hub"
         elif all_paired:
             sub_status = "ready_to_submit"
+            status_val = "completed"
         else:
             sub_status = "in_progress"
+            status_val = "in_progress"
 
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         payload_obj: Dict[str, Any] = {
@@ -4217,7 +4223,7 @@ class FirestoreRoomEngine:
             "coin_flip_winner": room.get("coin_flip_winner"),
             "defender_role": room.get("defender_role"),
             "attacker_role": room.get("attacker_role"),
-            "status": "completed" if all_paired else "in_progress",
+            "status": status_val,
             "is_completed": all_paired,
             "is_finished": bool(is_finished or room.get("is_finished")),
             "submission_status": sub_status,
@@ -4269,9 +4275,19 @@ class FirestoreRoomEngine:
         # If caller didn't pass full team rosters in body, resolve from cached event details in <1ms
         ev_cached_data = None
         try:
-            from routers.leaderboard import _event_details_cache, _sync_api_event_details
+            from routers.leaderboard import _event_details_cache, _load_event_l2_cache, _enrich_event_team_pairings, _sync_api_event_details
             entry = _event_details_cache.get(clean_eid)
             ev_cached_data = entry.get("data") if isinstance(entry, dict) else None
+            if not ev_cached_data:
+                import time as _t_mod
+                l2_ev = _load_event_l2_cache(clean_eid, _t_mod.time())
+                if isinstance(l2_ev, dict):
+                    ev_cached_data = _enrich_event_team_pairings(l2_ev, clean_eid)
+                    _event_details_cache[clean_eid] = {
+                        "data": ev_cached_data,
+                        "timestamp": _t_mod.time(),
+                        "is_ended": bool(ev_cached_data.get("is_ended")),
+                    }
             if not ev_cached_data and not (team_a_in.get("members") and team_b_in.get("members")):
                 ev_cached_data = _sync_api_event_details(clean_eid)
         except Exception:
@@ -4384,7 +4400,8 @@ class FirestoreRoomEngine:
         if hasattr(self, "_discarded_pairing_rooms"):
             self._discarded_pairing_rooms.discard(room_code)
 
-        viewer_side = str(req.get("viewer_side") or req.get("side") or "A").strip().upper()
+        raw_side = str(req.get("viewer_side") or req.get("side") or req.get("my_team_side") or "A").strip().upper()
+        viewer_side = "B" if raw_side in ("B", "TEAM2", "2") else "A"
         viewer_role = "captain_b" if viewer_side == "B" else "captain_a"
 
         # If room already exists and force_reset is not requested, return existing room
@@ -4727,11 +4744,20 @@ class FirestoreRoomEngine:
                     m_target["player2_list_id"] = bp.get("player2_list_id") or m_target.get("player2_list_id")
                     m_target["_p1_win_prob"] = int(bp.get("win_prob_a") or 50)
                     m_target["_p2_win_prob"] = 100 - int(bp.get("win_prob_a") or 50)
+                    if status_tag == "submitted_to_bcp":
+                        m_target["player1_score"] = None
+                        m_target["player2_score"] = None
+                        m_target["winner_id"] = None
+                        m_target["loser_id"] = None
+                        m_target["is_done"] = False
+                        m_target["status"] = "in_progress"
+                        m_target["_wtc_applied_stamp"] = now_ms
             except Exception as err_cache:
                 logger.debug(f"Notice updating cached event matches for WTC pairing {clean_eid}: {err_cache}")
 
-        if submit_mode == "to_hub":
+        if submit_mode in ("to_hub", "to_approval", "queue"):
             target_entry["submission_status"] = "queued_for_to"
+            target_entry["status"] = "queued_to_hub"
             target_entry["queued_at"] = now_ms
             target_entry["queued_by"] = actor_label
             target_entry["updated_at"] = now_ms
@@ -4739,6 +4765,7 @@ class FirestoreRoomEngine:
             return {
                 "ok": True,
                 "success": True,
+                "status": "queued_to_hub",
                 "submission_status": "queued_for_to",
                 "bcp_pushed": False,
                 "wtc_pairing": copy.deepcopy(target_entry),
@@ -4759,6 +4786,7 @@ class FirestoreRoomEngine:
 
         # In Captain / TO Hub submission flow, mark as submitted_to_bcp and sync boards to event matches + TO Hub
         target_entry["submission_status"] = "submitted_to_bcp"
+        target_entry["status"] = "submitted_bcp"
         target_entry["submitted_at"] = now_ms
         target_entry["submitted_by"] = actor_label
         target_entry["bcp_pushed"] = bool(bcp_ok)
@@ -4769,6 +4797,7 @@ class FirestoreRoomEngine:
         return {
             "ok": True,
             "success": True,
+            "status": "submitted_bcp",
             "submission_status": "submitted_to_bcp",
             "bcp_pushed": bool(bcp_ok),
             "bcp_meta": bcp_meta,

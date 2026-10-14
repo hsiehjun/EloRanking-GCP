@@ -5360,6 +5360,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             from routers.leaderboard import _enrich_event_team_pairings, _load_event_l2_cache, _event_details_cache
             if not force_sync_q and ev_param in DEV_EVENT_CACHE:
                 enriched_cached = _enrich_event_team_pairings(DEV_EVENT_CACHE[ev_param], ev_param)
+                _event_details_cache[ev_param] = {
+                    "data": enriched_cached,
+                    "timestamp": time.time(),
+                    "is_ended": bool(enriched_cached.get("is_ended")),
+                }
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()

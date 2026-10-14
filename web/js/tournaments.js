@@ -6108,6 +6108,23 @@ function hasStartedWtcTeamPairingForPlayer(ev, regData) {
 }
 window.hasStartedWtcTeamPairingForPlayer = hasStartedWtcTeamPairingForPlayer;
 
+function isWtcPodSubmittedToBcp(ev, regData) {
+  const podCtx = resolveActiveWtcTeamPairingPodForPlayer(ev, regData);
+  if (!podCtx || !podCtx.activePod) return false;
+  const { selectedRound, activePod } = podCtx;
+  const podId = String(activePod.team_pairing_id || `r${selectedRound}_pod1`);
+  const wtcKey = `${selectedRound}:${podId}`;
+  const wtcPairing = activePod.wtc_pairing
+    || (ev && ev.wtc_pairings_by_key && ev.wtc_pairings_by_key[wtcKey])
+    || (ev && Array.isArray(ev.wtc_pairings) && ev.wtc_pairings.find(w => Number(w.round_num) === selectedRound && String(w.team_pairing_id) === podId))
+    || null;
+  if (!wtcPairing) return false;
+  const st = String(wtcPairing.status || '').trim().toLowerCase();
+  const subSt = String(wtcPairing.submission_status || '').trim().toLowerCase();
+  return st === 'submitted_bcp' || st === 'submitted_to_bcp' || subSt === 'submitted_bcp' || subSt === 'submitted_to_bcp';
+}
+window.isWtcPodSubmittedToBcp = isWtcPodSubmittedToBcp;
+
 function getMyStationAvailableSubtabs(ev, userRegData) {
   const eventObj = ev || currentEventData || {};
   const isWtcTeam = isWtcTeamEvent(eventObj);
@@ -6140,24 +6157,29 @@ function getMyStationAvailableSubtabs(ev, userRegData) {
 
   const tabs = [];
   if (isPlayer) {
+    const podSubmittedToBcp = isWtcTeam && isWtcPodSubmittedToBcp(eventObj, candidateReg);
     const wtcCompletedCount = Array.isArray(eventObj.wtc_pairings)
       ? eventObj.wtc_pairings.filter(w => Array.isArray(w.individual_pairings) && w.individual_pairings.length > 0).length
       : 0;
     tabs.push({
       key: 'match',
       icon: '⚔️',
-      label: isWtcTeam ? 'Team Matchup & WTC Pairing' : 'My Match & Roster',
+      label: (isWtcTeam && !podSubmittedToBcp) ? 'Team Matchup & WTC Pairing' : 'My Match & Roster',
       accent: '#38bdf8',
       accentBg: 'rgba(56,189,248,0.16)',
       accentBorder: 'rgba(56,189,248,0.48)',
-      badge: isWtcTeam ? (wtcCompletedCount > 0 ? 'PAIRED' : 'WTC') : '',
+      badge: (isWtcTeam && !podSubmittedToBcp) ? (wtcCompletedCount > 0 ? 'PAIRED' : 'WTC') : '',
       badgeBg: wtcCompletedCount > 0 ? 'rgba(16,185,129,0.25)' : 'rgba(56,189,248,0.22)',
       badgeColor: wtcCompletedCount > 0 ? '#34d399' : '#38bdf8',
     });
   }
   if (isTO) {
     const wtcQueuedCount = Array.isArray(eventObj.wtc_pairings)
-      ? eventObj.wtc_pairings.filter(w => Array.isArray(w.individual_pairings) && w.individual_pairings.length > 0 && w.status !== 'submitted_bcp').length
+      ? eventObj.wtc_pairings.filter(w => {
+          const st = String(w.status || '').toLowerCase();
+          const subSt = String(w.submission_status || '').toLowerCase();
+          return Array.isArray(w.individual_pairings) && w.individual_pairings.length > 0 && st !== 'submitted_bcp' && st !== 'submitted_to_bcp' && subSt !== 'submitted_to_bcp' && subSt !== 'submitted_bcp';
+        }).length
       : 0;
     tabs.push(
       {
@@ -6378,7 +6400,7 @@ function renderPlayerStationWtcTeamMatchingPanel(ev, regData) {
   if (!panel) return;
 
   const podCtx = resolveActiveWtcTeamPairingPodForPlayer(ev, regData);
-  if (!podCtx) {
+  if (!podCtx || isWtcPodSubmittedToBcp(ev, regData)) {
     panel.style.display = 'none';
     panel.innerHTML = '';
     return;
@@ -6434,7 +6456,13 @@ function renderPlayerStationWtcTeamMatchingPanel(ev, regData) {
   }
 
   const indivPairings = (wtcPairing && Array.isArray(wtcPairing.individual_pairings)) ? wtcPairing.individual_pairings : [];
-  const wtcStatus = String((wtcPairing && wtcPairing.status) || 'not_started');
+  const rawWtcSt = String((wtcPairing && (wtcPairing.status || wtcPairing.submission_status)) || 'not_started').toLowerCase();
+  const rawWtcSubSt = String((wtcPairing && wtcPairing.submission_status) || '').toLowerCase();
+  const wtcStatus = (rawWtcSt === 'submitted_bcp' || rawWtcSt === 'submitted_to_bcp' || rawWtcSubSt === 'submitted_to_bcp' || rawWtcSubSt === 'submitted_bcp')
+    ? 'submitted_bcp'
+    : ((rawWtcSt === 'queued_to_hub' || rawWtcSt === 'queued_for_to' || rawWtcSubSt === 'queued_for_to' || rawWtcSubSt === 'queued_to_hub')
+      ? 'queued_to_hub'
+      : rawWtcSt);
   const roomCode = (wtcPairing && wtcPairing.room_code) || '';
 
   // Status badge styling
@@ -6693,13 +6721,20 @@ function renderToHubWtcPairingsQueueCard(eventId, eventObj) {
   wtcList.forEach(w => {
     const key = `${w.round_num}:${w.team_pairing_id}`;
     seenKeys.add(key);
+    const rawSt = String(w.status || w.submission_status || 'completed').toLowerCase();
+    const rawSubSt = String(w.submission_status || '').toLowerCase();
+    const normSt = (rawSt === 'submitted_bcp' || rawSt === 'submitted_to_bcp' || rawSubSt === 'submitted_to_bcp' || rawSubSt === 'submitted_bcp')
+      ? 'submitted_bcp'
+      : ((rawSt === 'queued_to_hub' || rawSt === 'queued_for_to' || rawSubSt === 'queued_for_to' || rawSubSt === 'queued_to_hub')
+        ? 'queued_to_hub'
+        : rawSt);
     items.push({
       round_num: Number(w.round_num || 1),
       team_pairing_id: String(w.team_pairing_id || ''),
       table_num: w.table_num || w.team_table || w.pod_number || 1,
       team1_name: w.team1_name || w.team_a_name || 'Team 1',
       team2_name: w.team2_name || w.team_b_name || 'Team 2',
-      status: w.status || w.submission_status || 'completed',
+      status: normSt,
       room_code: w.room_code || '',
       individual_pairings: Array.isArray(w.individual_pairings) ? w.individual_pairings : [],
     });
@@ -6989,28 +7024,35 @@ async function renderPlayerStation(ev, userRegData) {
   });
 
   // 1. Update Subtab Badge based on Lifecycle (keep label as ⚡ My Station)
-  if (ended) {
+  if (activeMatch) {
+    if (subtabBadge) {
+      subtabBadge.style.display = 'inline-block';
+      subtabBadge.innerText = 'ACTIVE';
+      subtabBadge.style.background = '#10b981';
+      subtabBadge.style.color = '#000';
+    }
+  } else if (ended) {
     if (subtabBadge) {
       subtabBadge.style.display = 'inline-block';
       subtabBadge.innerText = 'FINAL';
       subtabBadge.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
       subtabBadge.style.color = '#000';
     }
-  } else if (activeMatch || (eventMatchesCache && eventMatchesCache.length > 0)) {
+  } else if (eventMatchesCache && eventMatchesCache.length > 0) {
     if (subtabBadge) {
       subtabBadge.style.display = 'inline-block';
-      subtabBadge.innerText = activeMatch ? 'ACTIVE' : 'WAITING';
-      subtabBadge.style.background = activeMatch ? '#10b981' : '#f59e0b';
+      subtabBadge.innerText = 'WAITING';
+      subtabBadge.style.background = '#f59e0b';
       subtabBadge.style.color = '#000';
     }
   } else {
     if (subtabBadge) subtabBadge.style.display = 'none';
   }
 
-  // 1.5. Render WTC Team Matching & Pairing Room Station (for WTC Team Events)
+  // 1.5. Render WTC Team Matching & Pairing Room Station (for WTC Team Events when individual pairings are not yet submitted to BCP)
   renderPlayerStationWtcTeamMatchingPanel(eventObj, regData);
 
-  if (isWtcTeamEvent(eventObj) && hasStartedWtcTeamPairingForPlayer(eventObj, regData)) {
+  if (isWtcTeamEvent(eventObj) && hasStartedWtcTeamPairingForPlayer(eventObj, regData) && !isWtcPodSubmittedToBcp(eventObj, regData)) {
     if (activeHero) activeHero.style.display = 'none';
     if (waitingHero) waitingHero.style.display = 'none';
     if (concludedHero) concludedHero.style.display = 'none';
@@ -7025,8 +7067,8 @@ async function renderPlayerStation(ev, userRegData) {
     rosterAccordion.style.display = '';
   }
 
-  // 2. Render Lifecycle Hero
-  if (ended) {
+  // 2. Render Lifecycle Hero (once individual pairings are submitted, renders identically to an Individual BCP Event!)
+  if (ended && !activeMatch) {
     // STATE: CONCLUDED
     if (activeHero) activeHero.style.display = 'none';
     if (waitingHero) waitingHero.style.display = 'none';

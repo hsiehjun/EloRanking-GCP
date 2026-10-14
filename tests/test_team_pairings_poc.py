@@ -2280,8 +2280,34 @@ class TestTeamPairingsPoC(unittest.TestCase):
             sub_bcp_res = _unwrap_json(sub_bcp_resp)
             self.assertTrue(sub_bcp_res.get("ok"))
             self.assertEqual(sub_bcp_res["wtc_pairing"]["submission_status"], "submitted_to_bcp")
+            self.assertEqual(sub_bcp_res["wtc_pairing"]["status"], "submitted_bcp")
             self.assertTrue(sub_bcp_res["bcp_pushed"])
             self.assertEqual(sub_bcp_res["bcp_meta"]["pairings_count"], 8)
+
+            # 7. Verify subsequent room polling does NOT overwrite submitted_bcp / submitted_to_bcp status,
+            #    and _enrich_event_team_pairings syncs the 8 submitted 1v1 boards onto event_details["matches"]
+            #    as active in-progress matches (player1_score=None, player2_score=None) in < 1.0s!
+            wtc_after_resp = server.api_get_event_wtc_pairings("uC7tqqdPYLtT", round_num=round_num, team_pairing_id=pod_id)
+            wtc_after = _unwrap_json(wtc_after_resp)["wtc_pairings"][0]
+            self.assertEqual(wtc_after["status"], "submitted_bcp")
+            self.assertEqual(wtc_after["submission_status"], "submitted_to_bcp")
+
+            from routers.leaderboard import _enrich_event_team_pairings
+            t_enrich0 = time.perf_counter()
+            _enrich_event_team_pairings(ev_warm, "uC7tqqdPYLtT")
+            self.assertLess(time.perf_counter() - t_enrich0, 1.0)
+            submitted_board_1 = sub_bcp_res["wtc_pairing"]["individual_pairings"][0]
+            b1_p1 = str(submitted_board_1["player1_name"]).strip().lower()
+            b1_p2 = str(submitted_board_1["player2_name"]).strip().lower()
+            matching_live_1v1 = [
+                m for m in (ev_warm.get("matches") or [])
+                if int(m.get("round") or 0) == int(round_num)
+                and {str(m.get("player1_name") or "").strip().lower(), str(m.get("player2_name") or "").strip().lower()} == {b1_p1, b1_p2}
+            ]
+            self.assertTrue(len(matching_live_1v1) >= 1, "Expected submitted WTC 1v1 board pairing to be synced as an active 1v1 match in event_details['matches']")
+            self.assertIsNone(matching_live_1v1[0].get("player1_score"))
+            self.assertIsNone(matching_live_1v1[0].get("player2_score"))
+            self.assertEqual(matching_live_1v1[0].get("status"), "in_progress")
 
 
 if __name__ == "__main__":

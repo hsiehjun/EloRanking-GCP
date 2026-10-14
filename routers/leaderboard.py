@@ -1701,6 +1701,85 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
     event_details["wtc_pairings"] = wtc_list
     event_details["wtc_pairings_by_key"] = wtc_by_key
 
+    # Sync any submitted-to-BCP WTC individual board pairings directly onto event_details["matches"] (<0.2ms)
+    if wtc_list:
+        matches_list = event_details.get("matches")
+        if not isinstance(matches_list, list):
+            matches_list = []
+            event_details["matches"] = matches_list
+        for wp in wtc_list:
+            if not isinstance(wp, dict):
+                continue
+            wp_st = str(wp.get("submission_status") or wp.get("status") or "").strip().lower()
+            if wp_st not in ("submitted_to_bcp", "submitted_bcp"):
+                continue
+            indiv_bps = wp.get("individual_pairings") or []
+            if not indiv_bps:
+                continue
+            r_num_wp = int(wp.get("round_num") or 1)
+            t_pair_id_wp = str(wp.get("team_pairing_id") or "").strip()
+            stamp_wp = wp.get("submitted_at") or wp.get("updated_at") or True
+            pod_pids = set()
+            for bp in indiv_bps:
+                if bp.get("player1_id"):
+                    pod_pids.add(str(bp["player1_id"]))
+                if bp.get("player2_id"):
+                    pod_pids.add(str(bp["player2_id"]))
+            pod_matches = [
+                m for m in matches_list
+                if isinstance(m, dict)
+                and int(m.get("round") or 1) == r_num_wp
+                and (
+                    (t_pair_id_wp and str(m.get("team_pairing_id") or "") == t_pair_id_wp)
+                    or str(m.get("player1_id") or "") in pod_pids
+                    or str(m.get("player2_id") or "") in pod_pids
+                )
+            ]
+            pod_matches.sort(key=lambda m: int(m.get("table_number") or m.get("table") or 9999))
+            for idx, bp in enumerate(indiv_bps):
+                if idx < len(pod_matches):
+                    m_target = pod_matches[idx]
+                else:
+                    tbl_n = int(bp.get("table") or bp.get("table_num") or bp.get("board_number") or (idx + 1))
+                    m_target = {
+                        "id": f"wtc-{event_id_str}-r{r_num_wp}-b{idx + 1}",
+                        "event_id": event_id_str,
+                        "round": r_num_wp,
+                        "table_number": tbl_n,
+                        "table": tbl_n,
+                        "player1_score": None,
+                        "player2_score": None,
+                        "winner_id": None,
+                        "loser_id": None,
+                        "is_draw": False,
+                        "is_bye": False,
+                        "is_done": False,
+                        "published": True,
+                    }
+                    matches_list.append(m_target)
+                m_target["team_pairing_id"] = t_pair_id_wp
+                m_target["wtc_board_number"] = int(bp.get("board_number") or bp.get("board_num") or (idx + 1))
+                m_target["wtc_room_code"] = wp.get("room_code")
+                m_target["wtc_submission_status"] = "submitted_to_bcp"
+                m_target["player1_id"] = bp.get("player1_id") or m_target.get("player1_id")
+                m_target["player1_name"] = bp.get("player1_name") or m_target.get("player1_name")
+                m_target["player1_faction"] = bp.get("player1_faction") or m_target.get("player1_faction")
+                m_target["player1_list_id"] = bp.get("player1_list_id") or m_target.get("player1_list_id")
+                m_target["player2_id"] = bp.get("player2_id") or m_target.get("player2_id")
+                m_target["player2_name"] = bp.get("player2_name") or m_target.get("player2_name")
+                m_target["player2_faction"] = bp.get("player2_faction") or m_target.get("player2_faction")
+                m_target["player2_list_id"] = bp.get("player2_list_id") or m_target.get("player2_list_id")
+                m_target["_p1_win_prob"] = int(bp.get("win_prob_a") or 50)
+                m_target["_p2_win_prob"] = 100 - int(bp.get("win_prob_a") or 50)
+                if m_target.get("_wtc_applied_stamp") != stamp_wp:
+                    m_target["player1_score"] = None
+                    m_target["player2_score"] = None
+                    m_target["winner_id"] = None
+                    m_target["loser_id"] = None
+                    m_target["is_done"] = False
+                    m_target["status"] = "in_progress"
+                    m_target["_wtc_applied_stamp"] = stamp_wp
+
     if not event_details.get("is_team_event") or event_details.get("is_doubles_event") or not ev_teams:
         return event_details
 
@@ -1734,7 +1813,7 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
                         or (wp_na and wp_nb and {wp_na, wp_nb} == {t1_nm_p, t2_nm_p})
                     ):
                         pod_obj["wtc_pairing"] = wp
-                        pod_obj["wtc_status"] = wp.get("submission_status") or "in_progress"
+                        pod_obj["wtc_status"] = wp.get("status") or wp.get("submission_status") or "in_progress"
                         if wp.get("room_code"):
                             pod_obj["room_code"] = wp["room_code"]
                         break
