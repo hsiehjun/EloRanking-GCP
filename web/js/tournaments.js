@@ -3524,7 +3524,7 @@ function renderEventPairingsRows(roundArg) {
               🔍 Matchup & Dossiers
             </span>
             <div style="display:flex; align-items:center; gap:0.3rem;">
-              ${(!isBye && !isDone && isMyTable) ? `
+              ${(!isBye && !isDone && isMyTable && (typeof hasGameTracker === 'function' ? hasGameTracker() : true)) ? `
                 <button type="button" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${rNumInt}, ${tNumInt}, '${escapeHtml(targetP1Name)}', '${escapeHtml(targetP2Name)}', '${escapeHtml(targetP1Id)}', '${escapeHtml(targetP2Id)}', '${escapeHtml(String(m.id || m.pairing_id || ''))}')" style="font-size:0.66rem; padding:2px 7px; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:5px; font-weight:700; cursor:pointer;">
                   🎲 Track
                 </button>
@@ -4893,9 +4893,11 @@ function renderQuickEventModal(ev, userRegData) {
     metaEl.innerHTML = buildEventModalMetaHtml(ev, kpi.numRounds);
   }
   const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k').toLowerCase();
+  const sysIcon = (typeof getGameSystemIcon === 'function') ? getGameSystemIcon(sys) : (sys === 'aos' ? '⚡' : '⚔️');
+  const sysLabel = (typeof getGameSystemLabel === 'function') ? getGameSystemLabel(sys) : (sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K');
   const sysBadge = sys === 'aos'
     ? `<span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-size:0.72rem; font-weight:700;">⚡ Age of Sigmar</span>`
-    : `<span class="badge" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.72rem; font-weight:700;">⚔️ Warhammer 40K</span>`;
+    : `<span class="badge" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.72rem; font-weight:700;">${sysIcon} ${escapeHtml(sysLabel)}</span>`;
 
   const statusBadge = kpi.ended
     ? `<span class="badge" style="background:rgba(34,197,94,0.16); color:#4ade80; border:1px solid rgba(34,197,94,0.35); font-size:0.72rem; font-weight:700;">🟢 COMPLETED</span>`
@@ -5277,7 +5279,7 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
       <div class="profile-hero-card" style="padding: 2.5rem 1.5rem; text-align: center; margin-bottom: 1.25rem;">
         <div class="spinner"></div>
         <div style="margin-top: 0.85rem; font-weight: 600; color: var(--text-secondary);">
-          Loading ${targetSys === 'aos' ? 'AoS' : '40K'} Event Hub & BCP Standings...
+          Loading ${(typeof getGameSystemShortLabel === 'function') ? getGameSystemShortLabel(targetSys) : (targetSys === 'aos' ? 'AoS' : '40K')} Event Hub & BCP Standings...
         </div>
       </div>
     `;
@@ -5457,9 +5459,11 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
   const loc = locInfo.displayLabel || 'Online / Unspecified';
   const dStr = (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(ev) : '') || (ev.event_date || '').slice(0, 10);
 
+  const sysIconHero = (typeof getGameSystemIcon === 'function') ? getGameSystemIcon(sys) : (sys === 'aos' ? '⚡' : '⚔️');
+  const sysLabelHero = (typeof getGameSystemLabel === 'function') ? getGameSystemLabel(sys) : (sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K');
   const sysBadge = sys === 'aos'
     ? `<span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-size:0.75rem; font-weight:700;">⚡ Age of Sigmar</span>`
-    : `<span class="badge" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.75rem; font-weight:700;">⚔️ Warhammer 40K</span>`;
+    : `<span class="badge" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.75rem; font-weight:700;">${sysIconHero} ${escapeHtml(sysLabelHero)}</span>`;
 
   const statusBadge = kpi.ended
     ? `<span class="badge" style="background:rgba(34,197,94,0.16); color:#4ade80; border:1px solid rgba(34,197,94,0.35); font-size:0.75rem; font-weight:700;">🟢 COMPLETED</span>`
@@ -5828,7 +5832,9 @@ function renderPersonalEventScorecard(ev, userRegData) {
       actionBtns.push(`<button type="button" class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.55rem; display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); font-weight:600;" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(oppInfo.pid || oppInfo.name)}', '${escapeHtml(oppInfo.listId)}')" title="View ${escapeHtml(oppName)}'s Army Roster">📋 Roster</button>`);
     }
     if (!hasScore) {
-      actionBtns.push(`<button type="button" class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${roundNum}, ${tableNum}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="Create / Open Live Game Tracker Room">🎲 Track / Room</button>`);
+      if (typeof hasGameTracker === 'function' ? hasGameTracker() : true) {
+        actionBtns.push(`<button type="button" class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${roundNum}, ${tableNum}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="Create / Open Live Game Tracker Room">🎲 Track / Room</button>`);
+      }
     } else {
       actionBtns.push(`<button type="button" class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="View Turn-by-Turn Digital Scorecard">📄 Scorecard</button>`);
     }
@@ -7653,9 +7659,11 @@ async function renderPlayerStation(ev, userRegData) {
 
           <!-- Action Buttons Bar -->
           <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
+            ${(typeof hasGameTracker === 'function' ? hasGameTracker() : true) ? `
             <button type="button" class="btn btn-primary" onclick="launchTournamentTracker('${safeEventId}', ${roundNum}, ${tableNum}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" style="flex:1; min-width:180px; font-size:0.88rem; font-weight:800; padding:0.65rem 1.25rem; background:linear-gradient(135deg, #0284c7, #2563eb); border:1px solid #38bdf8; box-shadow:0 0 15px rgba(56,189,248,0.3); color:#fff; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:0.45rem; border-radius:8px;">
               🎲 Track Live Game (Room)
             </button>
+            ` : ''}
             ${(!isBye && oppInfo && oppInfo.hasList) ? `
               <button type="button" class="btn btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(oppInfo.pid || oppInfo.name)}', '${escapeHtml(oppInfo.listId)}')" style="font-size:0.82rem; font-weight:700; padding:0.65rem 1rem; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem; border-radius:8px;">
                 📋 Opponent Roster

@@ -1,5 +1,5 @@
 /**
- * Factions and Detachments for Warhammer 40,000 11th Edition (MFM v1.5)
+ * Factions and Detachments for Warhammer 40,000 11th Edition (MFM v1.6)
  */
 
 export const FACTIONS_BY_CATEGORY = [
@@ -239,15 +239,19 @@ export const DETACHMENTS_BY_FACTION = {
     detachment("Valourstrike Lance", "purge", 2)
   ],
   "adeptus-custodes": [
-    detachment("Auric Champions", "priority", 2),
-    detachment("Lions of the Emperor", ["hold", "disruption"], 3, "LIONS"),
-    detachment("Might of the Moritoi", "hold", 1, "ARMOURY"),
-    detachment("Null Maiden Vigil", "recon", 2),
-    detachment("Shield Host", "purge", 2),
-    detachment("Silent Hunters", "recon", 1),
-    detachment("Solar Spearhead", "hold", 2, "ARMOURY"),
-    detachment("Talons of the Emperor", ["hold", "priority"], 3),
-    detachment("Tharanatoi Hammerblow", "disruption", 1, "LIONS")
+    detachment("Aquilan Shield", "hold", 1, "SHIELD HOST"),
+    detachment("Auric Champions", "purge", 1),
+    detachment("Dread Host", "purge", 1, "SHIELD HOST"),
+    detachment("Emissaries Imperatus", "priority", 1, "SHIELD HOST"),
+    detachment("Emperor’s Chosen", "priority", 1, "SHIELD HOST"),
+    detachment("Grav-Assault Force", "recon", 1),
+    detachment("Guardians of the Throne", ["priority", "purge"], 3),
+    detachment("Honoured Companions", "hold", 1),
+    detachment("Lions of the Emperor", "disruption", 1),
+    detachment("Might of the Moritoi", "hold", 1),
+    detachment("Null Maiden Vigil", "disruption", 1),
+    detachment("Shadowkeepers", "purge", 1, "SHIELD HOST"),
+    detachment("Solar Watch", "recon", 1, "SHIELD HOST")
   ],
   "agents-of-imperium": [
     detachment("Imperialis Fleet", "recon", 2),

@@ -780,7 +780,7 @@ window.api = {
       limit = limitOrSystem;
       if (gameSystem && typeof gameSystem === 'string') sys = gameSystem;
     } else if (typeof limitOrSystem === 'string') {
-      if (limitOrSystem === '40k' || limitOrSystem === 'aos') {
+      if (limitOrSystem === '40k' || limitOrSystem === 'aos' || (!/^\d+(d|m|mo|y|yr)$/i.test(limitOrSystem) && limitOrSystem !== 'all' && limitOrSystem !== 'ytd')) {
         sys = limitOrSystem;
       }
       if (gameSystem && typeof gameSystem === 'string') {

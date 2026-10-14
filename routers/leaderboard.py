@@ -22,7 +22,9 @@ from core import (
     DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR, MIN_MATCHES_FOR_RANKING,
     BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT, GOOGLE_MAPS_API_KEY,
     TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id,
-    GAME_SYSTEMS, AOS_GAME_SYSTEM_ID, DEFAULT_GAME_SYSTEM, ENABLE_AOS
+    GAME_SYSTEMS, AOS_GAME_SYSTEM_ID, DEFAULT_GAME_SYSTEM, ENABLE_AOS,
+    BCP_GAME_SYSTEMS_CATALOG, normalize_game_system, resolve_event_game_system,
+    get_bcp_game_system_id, get_game_system_meta, has_game_tracker
 )
 
 router = APIRouter(tags=["Leaderboard & Analytics"])
@@ -34,6 +36,15 @@ _active_event_syncs: set = set()
 @router.get("/api/health", summary="Fast uptime health check")
 async def health_check():
     return {"status": "ok"}
+
+# API: Supported BCP Game Systems Catalog
+@router.get("/api/game_systems", summary="List all supported BCP game systems sorted by popularity")
+async def api_game_systems():
+    return {
+        "systems": BCP_GAME_SYSTEMS_CATALOG,
+        "total": len(BCP_GAME_SYSTEMS_CATALOG),
+        "default_system": "40k",
+    }
 
 # API: Summary Stats Ribbon
 @router.get("/api/stats", summary="Get global summary statistics")
@@ -593,7 +604,10 @@ def api_events_recommended(
                         detected_city = loc_row.get("city")
 
                 if player_id_clean:
-                    cursor.execute("SELECT current_elo FROM player_ratings WHERE player_id = %s;", (player_id_clean,))
+                    cursor.execute(
+                        "SELECT current_elo FROM player_ratings WHERE player_id = %s AND COALESCE(game_system, '40k') = %s;",
+                        (player_id_clean, normalize_game_system(game_system)),
+                    )
                     elo_row = cursor.fetchone()
                     if elo_row and user_elo is None:
                         user_elo = float(elo_row.get("current_elo") or 1500.0)
@@ -611,9 +625,8 @@ def api_events_recommended(
     now_ts = time.time()
     effective_radius = int(radius_miles) if radius_miles and radius_miles > 0 else 50
     days_ahead = max(30, int(months_ahead * 30.5))
-    target_sys = (game_system.strip().lower() if game_system else "40k")
-    target_sys = "aos" if target_sys == "aos" else "40k"
-    bcp_sys_id = "OY8FCPBf6O" if target_sys == "aos" else DEFAULT_GAME_SYSTEM_ID
+    target_sys = normalize_game_system(game_system)
+    bcp_sys_id = get_bcp_game_system_id(target_sys)
     geo_key = f"{target_sys}_{round(user_lat, 2) if user_lat else None}_{round(user_lng, 2) if user_lng else None}_{effective_radius}_{months_ahead}"
     
     if not hasattr(api_events_recommended, "_cache"):
@@ -3677,6 +3690,17 @@ def api_cron_sync_tournaments(
                 res_aos = scraper.scrape_date_range(start_date=start_str, end_date=end_str, game_system_id=AOS_GAME_SYSTEM_ID, max_events=None)
                 logger.info(f"⏰ [CRON SYNC] AoS Scraped {res_aos.get('events_scraped', 0)} events, {res_aos.get('matches_scraped', 0)} matches.")
 
+            if target_sys == "all" and hasattr(scraper, "scrape_other_systems_date_range"):
+                logger.info(f"⏰ [CRON SYNC] Scraping all other BCP game systems from {start_str} to {end_str}...")
+                res_other = scraper.scrape_other_systems_date_range(start_date=start_str, end_date=end_str, max_events=None)
+                logger.info(f"⏰ [CRON SYNC] Other BCP Systems Scraped {res_other.get('events_scraped', 0)} events, {res_other.get('matches_scraped', 0)} matches.")
+            elif target_sys not in ("40k", "aos", "warhammer_aos", "all"):
+                norm_sys = normalize_game_system(target_sys)
+                sys_bcp_id = get_bcp_game_system_id(norm_sys)
+                logger.info(f"⏰ [CRON SYNC] Scraping {norm_sys} tournaments from {start_str} to {end_str}...")
+                res_custom = scraper.scrape_date_range(start_date=start_str, end_date=end_str, game_system_id=sys_bcp_id, max_events=None)
+                logger.info(f"⏰ [CRON SYNC] {norm_sys} Scraped {res_custom.get('events_scraped', 0)} events, {res_custom.get('matches_scraped', 0)} matches.")
+
             try:
                 res_ong = scraper.rescrape_incomplete_and_ongoing_events(days=90, game_system=target_sys, max_events=60)
                 logger.info(f"⏰ [CRON SYNC] Ongoing/Leagues re-scraped {res_ong.get('events_rescraped', 0)} events, {res_ong.get('matches_rescraped', 0)} matches.")
@@ -3920,8 +3944,9 @@ def _get_elo_tier_label(elo: float, matches: int, sys: str = "40k") -> Tuple[str
 @router.get("/api/og/player/{sys}/{player_id}.svg", summary="Generate dynamic SVG social card for player profile")
 @router.get("/api/og/player/{sys}/{player_id}", include_in_schema=False)
 async def api_og_player_card_svg(sys: str, player_id: str, name: Optional[str] = Query(None)):
-    gs = "aos" if (sys or "").lower() == "aos" else "40k"
-    sys_title = "WARHAMMER: AGE OF SIGMAR" if gs == "aos" else "WARHAMMER 40,000"
+    gs = normalize_game_system(sys)
+    gs_meta = get_game_system_meta(gs)
+    sys_title = ("WARHAMMER: AGE OF SIGMAR" if gs == "aos" else ("WARHAMMER 40,000" if gs == "40k" else str(gs_meta.get("name") or gs).upper()[:28]))
     pid = urllib.parse.unquote(player_id or "").strip()
 
     try:
@@ -4035,8 +4060,9 @@ async def api_og_player_card_svg(sys: str, player_id: str, name: Optional[str] =
 
 @router.get("/p/{sys}/{player_id}", summary="Public Player Share Link with OpenGraph Social Preview")
 async def public_player_share_page(sys: str, player_id: str, request: Request, name: Optional[str] = Query(None)):
-    gs = "aos" if (sys or "").lower() == "aos" else "40k"
-    sys_label = "Age of Sigmar" if gs == "aos" else "Warhammer 40K"
+    gs = normalize_game_system(sys)
+    gs_meta = get_game_system_meta(gs)
+    sys_label = ("Age of Sigmar" if gs == "aos" else ("Warhammer 40K" if gs == "40k" else str(gs_meta.get("name") or gs)))
     pid = urllib.parse.unquote(player_id or "").strip()
 
     try:

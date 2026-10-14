@@ -6604,6 +6604,7 @@ _NR_BSDATA_DETACHMENT_NAME_MAP = {
     "Serpent's Brood": "Serpent’s Brood",
     "Reaper's Wager": "Reaper’s Wager",
     "Mont'ka": "Mont’ka",
+    "Emperor's Chosen": "Emperor’s Chosen",
 }
 
 _NR_SINGLE_FACTION_BOOK_IDS = {
@@ -6719,6 +6720,28 @@ def _get_mfm_v15_space_marines_fallback() -> Dict[str, List[Dict[str, Any]]]:
             *dw_core,
         ],
     }
+
+
+def _get_mfm_v16_adeptus_custodes_fallback() -> List[Dict[str, Any]]:
+    """
+    Baseline MFM v1.6 Adeptus Custodes detachment definitions used when NewRecruit's
+    Adeptus Custodes book (2461408627) is still at nrversion <= 18 (MFM v1.5).
+    """
+    return [
+        _make_det("Aquilan Shield", "hold", 1, "SHIELD HOST"),
+        _make_det("Auric Champions", "purge", 1),
+        _make_det("Dread Host", "purge", 1, "SHIELD HOST"),
+        _make_det("Emissaries Imperatus", "priority", 1, "SHIELD HOST"),
+        _make_det("Emperor’s Chosen", "priority", 1, "SHIELD HOST"),
+        _make_det("Grav-Assault Force", "recon", 1),
+        _make_det("Guardians of the Throne", ["priority", "purge"], 3),
+        _make_det("Honoured Companions", "hold", 1),
+        _make_det("Lions of the Emperor", "disruption", 1),
+        _make_det("Might of the Moritoi", "hold", 1),
+        _make_det("Null Maiden Vigil", "disruption", 1),
+        _make_det("Shadowkeepers", "purge", 1, "SHIELD HOST"),
+        _make_det("Solar Watch", "recon", 1, "SHIELD HOST"),
+    ]
 
 
 def _parse_nr_detachment_upgrade_node(node: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], List[Any]]]:
@@ -6852,6 +6875,11 @@ def get_nr_detachments_catalog(force_refresh: bool = False) -> Dict[str, Any]:
         _scan_single(bdata)
         if dets_map:
             detachments_by_faction[slug] = sorted(dets_map.values(), key=lambda d: d["name"])
+
+    # Ensure Adeptus Custodes uses MFM v1.6 detachments until NewRecruit book 2461408627 updates past v18
+    cust_dets = detachments_by_faction.get("adeptus-custodes") or []
+    if not any(d.get("name") == "Guardians of the Throne" for d in cust_dets):
+        detachments_by_faction["adeptus-custodes"] = _get_mfm_v16_adeptus_custodes_fallback()
 
     # 3. Shared Aeldari Library (123062806) -> Aeldari & Drukhari
     aeldari_bdata = _load_nr_book_json_via_proxy(123062806)

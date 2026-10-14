@@ -30,7 +30,8 @@ except ImportError:
     except ImportError:
         from config import (
             DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR,
-            MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL
+            MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
+            normalize_game_system, get_bcp_game_system_id
         )
         from database import Database, get_db
         from scraper import BestCoastPairingsScraper
@@ -106,23 +107,38 @@ def cmd_scrape(args):
 
         systems_to_scrape = []
         if game_system_id:
-            systems_to_scrape.append((game_system, game_system_id))
+            systems_to_scrape.append((normalize_game_system(game_system), game_system_id))
+        elif "," in game_system:
+            for part in [p.strip() for p in game_system.split(",") if p.strip()]:
+                if part in ("other", "others", "non_40k_aos", "all_other"):
+                    systems_to_scrape.append(("other", None))
+                else:
+                    norm_part = normalize_game_system(part)
+                    systems_to_scrape.append((norm_part, get_bcp_game_system_id(norm_part)))
         elif game_system in ("40k", "wh40k"):
             systems_to_scrape.append(("40k", DEFAULT_GAME_SYSTEM_ID))
         elif game_system in ("aos", "warhammer_aos", "sigmar"):
             systems_to_scrape.append(("aos", AOS_GAME_SYSTEM_ID))
+        elif game_system in ("other", "others", "non_40k_aos", "all_other"):
+            systems_to_scrape.append(("other", None))
         elif game_system == "all":
             systems_to_scrape.append(("40k", DEFAULT_GAME_SYSTEM_ID))
             systems_to_scrape.append(("aos", AOS_GAME_SYSTEM_ID))
+            systems_to_scrape.append(("other", None))
         else:
-            systems_to_scrape.append(("40k", DEFAULT_GAME_SYSTEM_ID))
+            norm_sys = normalize_game_system(game_system)
+            systems_to_scrape.append((norm_sys, get_bcp_game_system_id(norm_sys)))
 
         total_ev = 0
         total_ma = 0
         for sys_name, sys_id in systems_to_scrape:
-            print(f"[*] Scraping {sys_name.upper()} events between {start_date} and {end_date} (GameSystemId: {sys_id}, Max: {max_events_arg or 'Unlimited'})...")
-            print(f"[*] Writing to database: {db.db_path}")
-            res = scraper.scrape_date_range(start_date=start_date, end_date=end_date, game_system_id=sys_id, max_events=max_events_arg)
+            if sys_name == "other" and sys_id is None:
+                print(f"[*] Scraping ALL OTHER BCP game systems (excluding 40K & AoS) between {start_date} and {end_date} (Max: {max_events_arg or 'Unlimited'})...")
+                res = scraper.scrape_other_systems_date_range(start_date=start_date, end_date=end_date, max_events=max_events_arg)
+            else:
+                print(f"[*] Scraping {sys_name.upper()} events between {start_date} and {end_date} (GameSystemId: {sys_id}, Max: {max_events_arg or 'Unlimited'})...")
+                print(f"[*] Writing to database: {db.db_path}")
+                res = scraper.scrape_date_range(start_date=start_date, end_date=end_date, game_system_id=sys_id, max_events=max_events_arg)
             total_ev += res.get("events_scraped", 0)
             total_ma += res.get("matches_scraped", 0)
             print(f"[+] {sys_name.upper()} scraping finished: {res['events_scraped']} events, {res['matches_scraped']} matches.")
@@ -133,14 +149,13 @@ def cmd_scrape(args):
     # Optional auto-reconstruct
     reconstruct_all = getattr(args, "reconstruct_all", False) or os.getenv("RECONSTRUCT_ALL", "").lower() in ("true", "1", "yes")
     reconstruct = getattr(args, "reconstruct", False) or os.getenv("RECONSTRUCT", "").lower() in ("true", "1", "yes")
+    target_recon = (getattr(args, "game_system", None) or os.getenv("GAME_SYSTEM", "40k") or "40k").lower()
     if reconstruct_all:
-        target_recon = getattr(args, "game_system", "40k") or "40k"
         print(f"\n[*] Automatically recomputing FULL Elo ratings for {target_recon.upper()} from scratch...")
         engine = EloEngine(db=db)
         res_recon = engine.reconstruct_all_rankings(game_system=target_recon)
         print(f"[+] Full Elo Reconstruction Finished: {res_recon}")
-    elif reconstruct:
-        target_recon = getattr(args, "game_system", "40k") or "40k"
+    elif reconstruct or target_recon in ("other", "others", "non_40k_aos", "all_other"):
         print(f"\n[*] Automatically recomputing Elo ratings for {target_recon.upper()} across historical matches...")
         engine = EloEngine(db=db)
         res_recon = engine.reconstruct_incremental(game_system=target_recon)
@@ -369,7 +384,7 @@ def main():
     p_scrape.add_argument("--end-date", "--to", dest="end_date", help="End date (e.g. 2026-08-15 or 2026-08-15T23:59:59.999Z)")
     p_scrape.add_argument("--days", type=int, default=30, help="Number of past days to scrape if start-date not set (default: 30)")
     p_scrape.add_argument("--max-events", type=int, default=None, help="Maximum number of events to scrape")
-    p_scrape.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "40k"), help="Game system to scrape (default: 40k)")
+    p_scrape.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "40k"), help="Game system to scrape (default: 40k)")
     p_scrape.add_argument("--game-system-id", default=os.getenv("GAME_SYSTEM_ID"), help="Explicit BCP gameSystemId override")
     p_scrape.add_argument("--event-id", help="Scrape a single specific event by BCP ID")
     p_scrape.add_argument("--delay", type=float, default=0.4, help="Delay between API calls in seconds")
@@ -381,7 +396,7 @@ def main():
     p_recon = subparsers.add_parser("reconstruct", help="Reconstruct Elo ratings from historical matches")
     p_recon.add_argument("-i", "--incremental", action="store_true", help="Incrementally update ratings for newly scraped matches only (blazing fast)")
     p_recon.add_argument("--chunk-size", type=int, default=50000, help="Chronological window chunk size for memory-safe replay (default: 50000)")
-    p_recon.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "40k"), help="Game system to reconstruct (default: 40k)")
+    p_recon.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "40k"), help="Game system to reconstruct (default: 40k)")
     p_recon.add_argument("--initial-elo", type=float, default=INITIAL_ELO, help="Base starting Elo (default: 1500)")
     p_recon.add_argument("--k-factor", type=float, default=DEFAULT_K_FACTOR, help="Default K-factor (default: 32)")
     p_recon.add_argument("--db", help="PostgreSQL connection string (DSN)")
@@ -400,24 +415,24 @@ def main():
     p_lead = subparsers.add_parser("leaderboard", help="View player Elo rankings")
     p_lead.add_argument("--top", type=int, default=30, help="Number of top players to display")
     p_lead.add_argument("--min-matches", type=int, default=MIN_MATCHES_FOR_RANKING, help="Minimum matches to qualify")
-    p_lead.add_argument("--game-system", choices=["40k", "aos"], default="40k", help="Game system leaderboard (default: 40k)")
+    p_lead.add_argument("--game-system", default="40k", help="Game system leaderboard (default: 40k)")
     p_lead.add_argument("--db", help="PostgreSQL connection string (DSN)")
 
     # Player command
     p_player = subparsers.add_parser("player", help="Inspect a player's win path and match progression")
     p_player.add_argument("name", help="Player full name, partial name, or User ID")
-    p_player.add_argument("--game-system", choices=["40k", "aos"], default="40k", help="Game system profile (default: 40k)")
+    p_player.add_argument("--game-system", default="40k", help="Game system profile (default: 40k)")
     p_player.add_argument("--db", help="PostgreSQL connection string (DSN)")
 
     # Sync command (Cloud Run Job wrapper)
     p_sync = subparsers.add_parser("sync", help="Run automated tournament sync and Elo recalculation")
-    p_sync.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "all"), help="Game system to sync (default: all)")
+    p_sync.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="Game system to sync (default: all)")
     p_sync.add_argument("--days", type=int, default=int(os.getenv("DAYS", "3")), help="Days of past tournaments to scrape (default: 3)")
     p_sync.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS")) if os.getenv("MAX_EVENTS") else None, help="Max tournaments to scrape per game system (default: None for unlimited)")
 
     # Player name sync command
     p_psync = subparsers.add_parser("sync-players", aliases=["player-sync"], help="Sync and repair placeholder player names ('Player 1', 'Player 2') from BCP")
-    p_psync.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "all"), help="Game system to check (default: all)")
+    p_psync.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="Game system to check (default: all)")
     p_psync.add_argument("--limit", "--max-calls", dest="limit", type=int, default=None, help="Maximum BCP API calls to perform (e.g. 500, 1000)")
     p_psync.add_argument("--concurrency", "--workers", dest="concurrency", type=int, default=8, help="Number of concurrent worker threads (default: 8)")
     p_psync.add_argument("--batch-commit", type=int, default=100, help="Commit to database every N resolved names (default: 100)")
@@ -425,14 +440,14 @@ def main():
 
     # Stats command
     p_stats = subparsers.add_parser("stats", help="View database statistics")
-    p_stats.add_argument("--game-system", choices=["40k", "aos"], default="40k", help="Game system stats (default: 40k)")
+    p_stats.add_argument("--game-system", default="40k", help="Game system stats (default: 40k)")
     p_stats.add_argument("--db", help="PostgreSQL connection string (DSN)")
 
     # Export command
     p_export = subparsers.add_parser("export", help="Export data to CSV or JSON")
     p_export.add_argument("--type", choices=["rankings", "matches"], default="rankings", help="Data type to export")
     p_export.add_argument("--output", default="rankings.csv", help="Output file path (.csv or .json)")
-    p_export.add_argument("--game-system", choices=["40k", "aos"], default="40k", help="Game system export (default: 40k)")
+    p_export.add_argument("--game-system", default="40k", help="Game system export (default: 40k)")
     p_export.add_argument("--db", help="PostgreSQL connection string (DSN)")
 
     # Serve command

@@ -189,7 +189,9 @@ except ImportError:
             MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
             BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
             GOOGLE_MAPS_API_KEY, GAME_SYSTEMS, AOS_GAME_SYSTEM_ID,
-            DEFAULT_GAME_SYSTEM, ENABLE_AOS
+            DEFAULT_GAME_SYSTEM, ENABLE_AOS, BCP_GAME_SYSTEMS_CATALOG,
+            normalize_game_system, resolve_event_game_system,
+            get_bcp_game_system_id, get_game_system_meta, has_game_tracker
         )
         from database import Database, get_db, normalize_ticket_price
         from scraper import BestCoastPairingsScraper

@@ -21,7 +21,8 @@ from core import (
     BestCoastPairingsScraper, _decode_jwt_payload, init_tracker_room_from_chat, _roster_cache, extras,
     DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR, MIN_MATCHES_FOR_RANKING,
     BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT, GOOGLE_MAPS_API_KEY,
-    TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id
+    TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id,
+    normalize_game_system, resolve_event_game_system
 )
 
 router = APIRouter(tags=["Native Authentication & Accounts"])
@@ -643,9 +644,11 @@ def _sync_api_user_registered_tournaments(
         t["event_name"] = t.get("event_name") or t.get("name") or "Tournament"
         if not t.get("faction") and (t.get("army") or t.get("armyName")):
             t["faction"] = t.get("army") or t.get("armyName")
-        gs_id = str(t.get("gamesystem_id") or t.get("game_system_id") or "")
-        if not t.get("game_system"):
-            t["game_system"] = "aos" if (gs_id in (AOS_GAME_SYSTEM_ID, "OY8FCPBf6O", "23qDprPABN")) else "40k"
+        gs_id = str(t.get("gamesystem_id") or t.get("game_system_id") or t.get("gameSystemId") or "")
+        if not t.get("game_system") or (t.get("game_system") == "40k" and gs_id and gs_id != DEFAULT_GAME_SYSTEM_ID):
+            t["game_system"] = resolve_event_game_system(t, game_system_id=gs_id)
+        else:
+            t["game_system"] = normalize_game_system(t.get("game_system"), default="40k")
 
     # Build hosted_tournaments list from BCP hosted cache, organizer-flagged items, and DB hosted events
     hosted_by_id: Dict[str, Dict[str, Any]] = {}
@@ -793,9 +796,15 @@ def _sync_api_user_registered_tournaments(
     ]
 
     if game_system:
-        target_sys = game_system.strip().lower()
-        combined_tournaments = [t for t in combined_tournaments if t.get("game_system", "40k") == target_sys]
-        hosted_tournaments = [ht for ht in hosted_tournaments if ht.get("game_system", "40k") == target_sys]
+        target_sys = normalize_game_system(game_system, default="40k")
+        combined_tournaments = [
+            t for t in combined_tournaments
+            if normalize_game_system(t.get("game_system"), default="40k") == target_sys
+        ]
+        hosted_tournaments = [
+            ht for ht in hosted_tournaments
+            if normalize_game_system(resolve_event_game_system(ht, game_system_id=str(ht.get("gamesystem_id") or ht.get("game_system_id") or "")), default="40k") == target_sys
+        ]
 
     result = {
         "success": True,

@@ -13,18 +13,21 @@ from typing import Optional, Dict, Any, Tuple, List, Set
 try:
     from google3.experimental.users.hsiehjun.EloRanking.config import (
         BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
-        DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
+        DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID,
+        normalize_game_system, resolve_event_game_system, get_bcp_game_system_id, GAME_SYSTEMS
     )
 except ImportError:
     try:
         from experimental.users.hsiehjun.EloRanking.config import (
             BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
-            DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
+            DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID,
+            normalize_game_system, resolve_event_game_system, get_bcp_game_system_id, GAME_SYSTEMS
         )
     except ImportError:
         from config import (
             BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
-            DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
+            DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID,
+            normalize_game_system, resolve_event_game_system, get_bcp_game_system_id, GAME_SYSTEMS
         )
 
 logger = logging.getLogger("BcpAdapter")
@@ -490,6 +493,8 @@ class BcpAdapter:
             clean_sid = "WGMSzfKFYA"
         elif sid_lower in ("2", "aos", "warhammer_aos", "age_of_sigmar", "age of sigmar", "23qdprpabn"):
             clean_sid = "OY8FCPBf6O"
+        elif sid_lower in GAME_SYSTEMS:
+            clean_sid = get_bcp_game_system_id(sid_lower)
         else:
             clean_sid = raw_sid
 
@@ -1619,7 +1624,7 @@ class BcpAdapter:
             )
 
             gamesystem_id = item.get("gameSystemId") or item.get("gamesystem") or item.get("systemId") or "WGMSzfKFYA"
-            ev_game_sys = "aos" if (gamesystem_id == AOS_GAME_SYSTEM_ID or str(gamesystem_id) in ("OY8FCPBf6O", "23qDprPABN")) else "40k"
+            ev_game_sys = resolve_event_game_system(item, game_system_id=str(gamesystem_id))
             ev_start_raw = str(item.get("eventDate") or item.get("startDate") or item.get("eventStartDate") or "").strip()
             ev_end_raw = str(item.get("endDate") or item.get("eventEndDate") or "").strip()
             item_status = item.get("status")

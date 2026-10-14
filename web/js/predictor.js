@@ -246,7 +246,7 @@ function updatePredictCard(colNum, p) {
   if (selRow && selEl) {
     selRow.style.display = 'block';
     const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
-    const catalogFacs = sys === 'aos' ? STANDARD_AOS_FACTIONS : STANDARD_40K_FACTIONS;
+    const catalogFacs = sys === 'aos' ? STANDARD_AOS_FACTIONS : (sys === '40k' ? STANDARD_40K_FACTIONS : []);
     const summaryFacs = Object.keys(predFaction3MoSummary || {});
     const allKnownSet = new Map();
     [...catalogFacs, ...summaryFacs].forEach(fn => {
@@ -271,7 +271,8 @@ function updatePredictCard(colNum, p) {
       optHtml += `</optgroup>`;
     }
     if (otherFacs.length > 0) {
-      optHtml += `<optgroup label="All ${sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40k'} Factions">`;
+      const sysLabel = (typeof getGameSystemLabel === 'function') ? getGameSystemLabel(sys) : (sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40k');
+      optHtml += `<optgroup label="All ${escapeHtml(sysLabel)} Factions">`;
       otherFacs.forEach(fn => {
         const isSel = _isSamePredFac(fn, activeFac);
         optHtml += `<option value="${escapeHtml(fn)}" ${isSel ? 'selected' : ''}>${escapeHtml(fn)}</option>`;

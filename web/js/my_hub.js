@@ -5,8 +5,15 @@
 var myHubData = (typeof window !== 'undefined' && window.myHubData) || null;
 if (typeof window !== 'undefined') window.myHubData = myHubData;
 
-function buildMyHubShellData(u) {
+function buildMyHubShellData(u, gs = '40k') {
   if (!u) return null;
+  const normGs = (typeof normalizeGameSystem === 'function')
+    ? normalizeGameSystem(gs)
+    : String(gs || '40k').trim().toLowerCase();
+  const userSys = (typeof normalizeGameSystem === 'function')
+    ? normalizeGameSystem(u.game_system || '40k')
+    : String(u.game_system || '40k').trim().toLowerCase();
+  const matchesUserSys = (normGs === userSys);
   let initialGlory = Number(u.spendable_glory ?? u.glory_balance ?? 0);
   if (!initialGlory && typeof window !== 'undefined' && window.Armory && typeof window.Armory.getGlory === 'function') {
     const g = window.Armory.getGlory();
@@ -18,18 +25,19 @@ function buildMyHubShellData(u) {
   return {
     player: {
       player_name: u.display_name || '',
-      current_elo: u.current_elo || 1500.0,
-      peak_elo: u.peak_elo || u.current_elo || 1500.0,
-      win_rate: u.win_rate || 0.0,
-      matches_played: u.matches_played || 0,
-      wins: u.wins || 0,
-      losses: u.losses || 0,
-      top_faction: u.top_faction || '',
+      game_system: normGs,
+      current_elo: matchesUserSys ? (u.current_elo || 1500.0) : 1500.0,
+      peak_elo: matchesUserSys ? (u.peak_elo || u.current_elo || 1500.0) : 1500.0,
+      win_rate: matchesUserSys ? (u.win_rate || 0.0) : 0.0,
+      matches_played: matchesUserSys ? (u.matches_played || 0) : 0,
+      wins: matchesUserSys ? (u.wins || 0) : 0,
+      losses: matchesUserSys ? (u.losses || 0) : 0,
+      top_faction: matchesUserSys ? (u.top_faction || '') : '',
       team: u.team || ''
     },
     rankings: {
-      global_rank: u.global_rank || null,
-      faction_rank: u.faction_rank || null
+      global_rank: matchesUserSys ? (u.global_rank || null) : null,
+      faction_rank: matchesUserSys ? (u.faction_rank || null) : null
     },
     spendable_glory: initialGlory,
     glory_balance: initialGlory,
@@ -39,6 +47,7 @@ function buildMyHubShellData(u) {
     upcoming_events: [],
     registered_tournaments: [],
     active_sessions: [],
+    _gameSystem: normGs,
     _isSkeleton: true
   };
 }
@@ -92,7 +101,11 @@ function formatHubMatchDate(rawVal, fallbackObj = null) {
 }
 
 function getLocalTrackerSessions(gs = '40k') {
-  const isAos = gs === 'aos';
+  const normGs = String(gs || '40k').trim().toLowerCase();
+  if (normGs !== '40k' && normGs !== 'aos') {
+    return { active: [], completed: [] };
+  }
+  const isAos = normGs === 'aos';
   const historyKey = isAos ? 'omni-aos-tracker-history' : 'gdm-11e-tracker-history';
   const stateKey = isAos ? 'omni-aos-tracker-state' : 'gdm-11e-tracker-state';
   let hidden = [];
@@ -236,7 +249,11 @@ async function loadMyHubDashboard() {
 
   // Ensure local active and completed tracker matches are instantly reflected in optimistic render
   const localInitial = getLocalTrackerSessions(gs);
-  const alreadyMounted = Boolean(document.getElementById('my-hub-container'));
+  const alreadyMounted = Boolean(
+    document.getElementById('my-hub-container') &&
+    window.currentHubData &&
+    window.currentHubData._gameSystem === gs
+  );
   const bootSplashActive = Boolean(document.getElementById('app-boot-splash'));
   if (cachedData) {
     if (Array.isArray(cachedData.active_sessions) && cachedData.active_sessions.length > 1) {
@@ -273,7 +290,7 @@ async function loadMyHubDashboard() {
       prefetchHubTopTournaments(cachedData);
     }
   } else if (currentUser) {
-    const shell = buildMyHubShellData(currentUser);
+    const shell = buildMyHubShellData(currentUser, gs);
     shell.active_sessions = localInitial.active;
     shell.primary_active = localInitial.active[0] || null;
     shell.unfinished_sessions = localInitial.active.slice(1);
@@ -310,6 +327,22 @@ async function loadMyHubDashboard() {
     }
 
     const data = dashRes.value;
+    if (
+      gs === '40k' &&
+      Number((data && data.player && data.player.matches_played) || 0) === 0 &&
+      data &&
+      data.preferred_game_system &&
+      data.preferred_game_system !== '40k'
+    ) {
+      let userExplicitlySelected = false;
+      try {
+        userExplicitlySelected = localStorage.getItem('omni_game_system_user_selected') === '1';
+      } catch (e) {}
+      if (!userExplicitlySelected && typeof applyGameSystem === 'function') {
+        applyGameSystem(data.preferred_game_system, true);
+        return loadMyHubDashboard();
+      }
+    }
     const sessData = (sessRes.status === 'fulfilled' && sessRes.value) ? sessRes.value : null;
 
     let hidden = [];
@@ -1056,7 +1089,8 @@ async function openUserLeagueGamesQuickModal(entryId) {
 
   if (!ev) {
     try {
-      const resp = await fetch('/api/user/registered-tournaments');
+      const gsReq = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+      const resp = await fetch(`/api/user/registered-tournaments?game_system=${encodeURIComponent(gsReq)}`);
       if (resp.ok) {
         try {
           const json = await resp.json();
@@ -1621,7 +1655,9 @@ function renderMyHub(data) {
   const isBcpConnected = !!((currentUser && (currentUser.bcp_connected || currentUser.bcp_user_id || currentUser.bcp_token || currentUser.bcp_email)) || (p && p.is_bcp_connected));
   const bcpEmail = (currentUser && currentUser.bcp_email) || (p && p.bcp_email) || '';
   const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
-  const sysLabel = sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K';
+  const sysLabel = (typeof getGameSystemLabel === 'function')
+    ? getGameSystemLabel(sys)
+    : (sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K');
 
   const competitorName = (currentUser && currentUser.display_name && currentUser.display_name.trim() !== '' && currentUser.display_name.toLowerCase() !== 'competitor')
     ? currentUser.display_name
@@ -3611,10 +3647,12 @@ window.getDefaultNrStudioSystemIdForGameSystem = getDefaultNrStudioSystemIdForGa
 
 function resolveHubListGameSystemAndEdition(list) {
   if (!list || typeof list !== 'object') {
-    const defSys = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? 'aos' : '40k';
+    const defSys = (typeof currentGameSystem !== 'undefined' && currentGameSystem)
+      ? ((typeof normalizeGameSystem === 'function') ? normalizeGameSystem(currentGameSystem) : String(currentGameSystem).toLowerCase())
+      : '40k';
     return {
       gameSystem: defSys,
-      edition: defSys === 'aos' ? 'AoS 4.0' : '11th Ed',
+      edition: defSys === 'aos' ? 'AoS 4.0' : (defSys === '40k' ? '11th Ed' : ((typeof getGameSystemShortLabel === 'function') ? getGameSystemShortLabel(defSys) : defSys.toUpperCase())),
       sysId: getDefaultNrStudioSystemIdForGameSystem(defSys)
     };
   }
@@ -3635,7 +3673,7 @@ function resolveHubListGameSystemAndEdition(list) {
     return { gameSystem: '40k', edition: '10th Ed', sysId: 2821148162 };
   }
 
-  const gsHint = String(list.game_system || row._omnitactica_system_name || '').toLowerCase();
+  const gsHint = String(list.game_system || row._omnitactica_system_name || '').trim().toLowerCase();
   const edHint = String(list.system_edition || '').trim();
   const facHint = String(list.faction || row._omnitactica_book_name || '').toLowerCase().replace(/-/g, ' ');
   const aosFactionKeywords = [
@@ -3654,6 +3692,16 @@ function resolveHubListGameSystemAndEdition(list) {
       edition: edHint || (is3e ? 'AoS 3.0' : 'AoS 4.0'),
       sysId: is3e ? 4194757354 : 4255553472
     };
+  }
+  if (gsHint && gsHint !== '40k' && !gsHint.includes('40,000') && !gsHint.includes('40k')) {
+    const normGs = (typeof normalizeGameSystem === 'function') ? normalizeGameSystem(gsHint) : gsHint;
+    if (normGs && normGs !== '40k') {
+      return {
+        gameSystem: normGs,
+        edition: edHint || ((typeof getGameSystemShortLabel === 'function') ? getGameSystemShortLabel(normGs) : normGs.toUpperCase()),
+        sysId: getDefaultNrStudioSystemIdForGameSystem(normGs)
+      };
+    }
   }
   const is10e = edHint.includes('10');
   return {
@@ -3810,7 +3858,9 @@ function computeHubActiveRostersCount(dataOverride = null, listsOverride = null)
   const regTournaments = (d.registered_tournaments || []).filter(isValidRegisteredTournament);
   const rawHosted = Array.isArray(d.hosted_tournaments) ? d.hosted_tournaments : [];
   const hostedLen = rawHosted.filter(h => h && (h.id || h.bcp_event_id)).length;
-  const activeSys = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? 'aos' : '40k';
+  const activeSys = (typeof currentGameSystem !== 'undefined' && currentGameSystem)
+    ? ((typeof normalizeGameSystem === 'function') ? normalizeGameSystem(currentGameSystem) : String(currentGameSystem).toLowerCase())
+    : '40k';
   const rawLists = Array.isArray(listsOverride) ? listsOverride : (Array.isArray(hubSavedLists) ? hubSavedLists : []);
   const rosterLen = rawLists.filter(l => resolveHubListGameSystemAndEdition(l).gameSystem === activeSys).length;
   return (regTournaments.length || 0) + hostedLen + rosterLen;
@@ -3832,26 +3882,34 @@ function renderHubArmyLists(lists) {
   const container = document.getElementById('hub-armylists-list-container');
   if (!container) return;
 
-  const activeSys = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? 'aos' : '40k';
+  const activeSys = (typeof currentGameSystem !== 'undefined' && currentGameSystem)
+    ? ((typeof normalizeGameSystem === 'function') ? normalizeGameSystem(currentGameSystem) : String(currentGameSystem).toLowerCase())
+    : '40k';
   const filteredLists = allLists.filter(l => resolveHubListGameSystemAndEdition(l).gameSystem === activeSys);
   const otherSysCount = allLists.length - filteredLists.length;
 
-  const sysDisplayName = activeSys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K';
-  const latestEditionName = activeSys === 'aos' ? 'Age of Sigmar 4.0' : 'Warhammer 40K 11th Edition';
-  const otherSysName = activeSys === 'aos' ? 'Warhammer 40K' : 'Age of Sigmar';
+  const sysDisplayName = (typeof getGameSystemLabel === 'function')
+    ? getGameSystemLabel(activeSys)
+    : (activeSys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K');
+  const sysIcon = (typeof getGameSystemIcon === 'function')
+    ? getGameSystemIcon(activeSys)
+    : (activeSys === 'aos' ? '⚡' : '⚔️');
+  const latestEditionName = activeSys === 'aos'
+    ? 'Age of Sigmar 4.0'
+    : (activeSys === '40k' ? 'Warhammer 40K 11th Edition' : sysDisplayName);
 
   if (filteredLists.length === 0) {
     container.innerHTML = `
       <div style="padding: 1.35rem 1rem 0.65rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
-        <div style="font-size: 1.75rem; margin-bottom: 0.35rem;">${activeSys === 'aos' ? '⚡' : '⚔️'}</div>
-        <div style="font-size: 1rem; font-weight: 800; color: #fff; margin-bottom: 0.3rem;">No ${sysDisplayName} Lists Created Yet</div>
+        <div style="font-size: 1.75rem; margin-bottom: 0.35rem;">${sysIcon}</div>
+        <div style="font-size: 1rem; font-weight: 800; color: #fff; margin-bottom: 0.3rem;">No ${escapeHtml(sysDisplayName)} Lists Created Yet</div>
         <div style="font-size: 0.78rem; max-width: 460px; margin: 0 auto 0.95rem; color: #94a3b8; line-height: 1.5;">
-          Create, view, and manage your <b>${latestEditionName}</b> rosters — or switch between game systems &amp; editions — directly inside <b>NewRecruit Studio</b>. Your lists persist on this device and sync to My Hub automatically!
-          ${otherSysCount > 0 ? `<div style="margin-top: 0.45rem; color: #38bdf8; font-weight: 600;">💡 You also have ${otherSysCount} saved ${otherSysName} ${otherSysCount === 1 ? 'roster' : 'rosters'}.</div>` : ''}
+          Create, view, and manage your <b>${escapeHtml(latestEditionName)}</b> rosters — or switch between game systems &amp; editions — directly inside <b>NewRecruit Studio</b>. Your lists persist on this device and sync to My Hub automatically!
+          ${otherSysCount > 0 ? `<div style="margin-top: 0.45rem; color: #38bdf8; font-weight: 600;">💡 You also have ${otherSysCount} saved ${otherSysCount === 1 ? 'roster' : 'rosters'} in other game systems.</div>` : ''}
         </div>
         <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem; flex-wrap: wrap;">
           <button id="hub-empty-launch-nr-studio" class="bcp-login-btn" onpointerenter="ensureBackgroundNrStudioWarmup()" ontouchstart="ensureBackgroundNrStudioWarmup()" onclick="openNewRecruitStudioDrawer('/nr/app/Lists')" style="font-size: 0.82rem; padding: 0.45rem 1rem; background: var(--accent); color: #0f172a; font-weight: 800; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
-            ${activeSys === 'aos' ? '⚡' : '⚔️'} Launch NewRecruit Studio (${activeSys === 'aos' ? 'AoS 4.0' : '11th Ed'})
+            ${sysIcon} Launch NewRecruit Studio (${escapeHtml(activeSys === 'aos' ? 'AoS 4.0' : (activeSys === '40k' ? '11th Ed' : sysDisplayName))})
           </button>
         </div>
       </div>

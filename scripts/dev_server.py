@@ -27,6 +27,42 @@ WEB_DIR = REPO_ROOT / "web"
 TRACKER_DIR = WEB_DIR / "tracker"
 TRACKER_STATIC_DIR = TRACKER_DIR / "static"
 
+_DEV_SYSTEM_FACTIONS_MAP = {
+    "kill_team": ["Angels of Death", "Kommandos", "Veteran Guardsmen", "Kasrkin", "Nemesis Claw", "Fellgor Ravagers"],
+    "the_old_world": ["Empire of Man", "Kingdom of Bretonnia", "Tomb Kings of Khemri", "Orc & Goblin Tribes", "High Elf Realms", "Warriors of Chaos"],
+    "horus_heresy": ["Sons of Horus", "Imperial Fists", "Blood Angels", "Dark Angels", "Alpha Legion", "Mechaniccum"],
+    "spearhead": ["Stormcast Eternals", "Skaven", "Sylvaneth", "Blades of Khorne", "Seraphon", "Nighthaunt"],
+    "blood_bowl": ["Orc", "Undead", "Skaven", "Dark Elf", "Lizardmen", "Dwarf"],
+    "middle_earth": ["Mordor", "Minas Tirith", "Rohan", "Isengard", "Lothlorien", "Iron Hills"],
+    "underworlds": ["Domitan's Stormcoven", "Ephilim's Pandaemonium", "Headsman's Curse", "Skabbik's Plaguepack"],
+    "warcry": ["Horns of Hashut", "Rotmire Creed", "Jade Obelisk", "Askari"],
+    "necromunda": ["House Escher", "House Goliath", "House Van Saar", "House Orlock", "Palanite Enforcers"],
+    "legions_imp": ["Legiones Astartes", "Solar Auxilia", "Collegia Titanica", "Mechanicum Taghmata"],
+    "bolt_action": ["Germany", "United States", "Great Britain", "Soviet Union", "Imperial Japan"],
+    "mcp": ["Avengers", "Cabal", "X-Men", "Brotherhood of Mutants", "Spider-Foes", "Guardians of the Galaxy"],
+    "sw_legion": ["Galactic Empire", "Rebel Alliance", "Galactic Republic", "Separatist Alliance", "Shadow Collective"],
+    "shatterpoint": ["Galactic Republic", "Separatist Alliance", "Rebel Alliance", "Galactic Empire"],
+    "trench_crusade": ["New Antioch", "Trench Pilgrims", "Iron Sultanate", "Heretic Legion", "Court of the Seven-Headed Serpent", "Black Grail"],
+    "battletech": ["Clan Wolf", "House Davion", "House Steiner", "House Kurita", "Clan Jade Falcon", "ComStar"],
+    "bt_alpha_strike": ["Clan Wolf", "FedCom", "Draconis Combine", "Clan Ghost Bear", "Mercenaries"],
+    "conquest": ["The Hundred Kingdoms", "The Spires", "Dweghom", "Nords", "Old Dominion", "City States"],
+    "warmachine": ["Cygnar", "Khador", "Orgoth", "Dusk", "Brineblood Marauders", "Khymaera"],
+    "infinity": ["PanOceania", "Yu Jing", "Nomads", "Combined Army", "ALEPH", "Haqqislam"],
+    "malifaux": ["The Guild", "Resurrectionists", "Arcanists", "Neverborn", "Outcasts", "Bayou"],
+    "asoiaf": ["House Stark", "House Lannister", "Night's Watch", "Free Folk", "House Baratheon", "House Targaryen"],
+}
+
+def _get_dev_system_factions(sys_val: str, sys_label: str = "") -> list:
+    from database import PostgresDatabase
+    if sys_val == "40k":
+        return list(PostgresDatabase.DEFAULT_40K_STATS["factions"])
+    if sys_val == "aos":
+        return list(PostgresDatabase.DEFAULT_AOS_STATS["factions"])
+    if sys_val in _DEV_SYSTEM_FACTIONS_MAP:
+        return list(_DEV_SYSTEM_FACTIONS_MAP[sys_val])
+    lbl = sys_label or sys_val.replace("_", " ").title()
+    return [f"{lbl} Vanguard", f"{lbl} Strikeforce", f"{lbl} Syndicate", f"{lbl} Sentinel"]
+
 EVENT_LIVESTREAMS_DB = {
     "ev_ongoing_gt_live": [
         {
@@ -3334,6 +3370,45 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         clean_path = raw_path.strip("/")
 
         # 1. API routes
+        if clean_path in ("api/game_systems", "api/game_systems/"):
+            from config import BCP_GAME_SYSTEMS_CATALOG
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "systems": BCP_GAME_SYSTEMS_CATALOG,
+                    "total": len(BCP_GAME_SYSTEMS_CATALOG),
+                    "default_system": "40k",
+                }).encode("utf-8"))
+            return
+
+        if clean_path in ("api/stats", "api/stats/", "api/events/stats", "api/events/stats/"):
+            from config import normalize_game_system, get_game_system_meta
+            from database import PostgresDatabase
+            sys_val = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
+            if sys_val == "40k":
+                stats_res = dict(PostgresDatabase.DEFAULT_40K_STATS)
+            elif sys_val == "aos":
+                stats_res = dict(PostgresDatabase.DEFAULT_AOS_STATS)
+            else:
+                meta = get_game_system_meta(sys_val)
+                sys_label = meta.get("label", sys_val.replace("_", " ").title())
+                dev_facs = _get_dev_system_factions(sys_val, sys_label)
+                stats_res = {
+                    "total_players": 480,
+                    "total_matches": 1420,
+                    "total_events": 64,
+                    "factions": dev_facs,
+                    "game_system": sys_val,
+                }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(stats_res).encode("utf-8"))
+            return
+
         if clean_path in ("api/version", "version.json"):
             v_file = WEB_DIR / "version.json"
             v_str = "1.0.0"
@@ -4600,7 +4675,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path in ("api/community/bcp_majors", "api/community/bcp-majors"):
-            req_sys = "aos" if "game_system=aos" in query_str else "40k"
+            from config import normalize_game_system
+            req_sys = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
             try:
                 from routers.community import fetch_live_bcp_majors
                 majors_list = fetch_live_bcp_majors(game_system=req_sys)
@@ -4623,14 +4699,21 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path in ("api/events/recommended", "api/community/overview", "api/community/bcp-upcoming", "api/community/bcp_upcoming"):
+            from config import normalize_game_system, get_game_system_meta
+            req_sys = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
+            sys_meta = get_game_system_meta(req_sys)
+            sys_label = sys_meta.get("label", "Warhammer 40k")
+            sys_facs = _get_dev_system_factions(req_sys, sys_label)
             now_dt = datetime.now(timezone.utc)
             today_iso = now_dt.strftime("%Y-%m-%d")
             tomorrow_iso = (now_dt + timedelta(days=1)).strftime("%Y-%m-%d")
             yesterday_iso = (now_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+            ongoing_name = "Warhammer 40k US Open Series 2026" if req_sys == "40k" else f"{sys_label} US Open Series 2026"
             ongoing_ev = {
-                "id": "ev_ongoing_gt_live",
-                "event_id": "ev_ongoing_gt_live",
-                "name": "Warhammer 40k US Open Series 2026",
+                "id": "ev_ongoing_gt_live" if req_sys == "40k" else f"ev_ongoing_{req_sys}_live",
+                "event_id": "ev_ongoing_gt_live" if req_sys == "40k" else f"ev_ongoing_{req_sys}_live",
+                "name": ongoing_name,
+                "game_system": req_sys,
                 "event_date": yesterday_iso,
                 "end_date": tomorrow_iso,
                 "city": "Atlanta",
@@ -4649,9 +4732,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             upcoming_list = [
                 ongoing_ev,
                 {
-                    "id": "ev_upcoming_rtt_sep",
-                    "event_id": "ev_upcoming_rtt_sep",
-                    "name": "Critical Hit Games September RTT 2026",
+                    "id": "ev_upcoming_rtt_sep" if req_sys == "40k" else f"ev_upcoming_{req_sys}_rtt",
+                    "event_id": "ev_upcoming_rtt_sep" if req_sys == "40k" else f"ev_upcoming_{req_sys}_rtt",
+                    "name": "Critical Hit Games September RTT 2026" if req_sys == "40k" else f"Critical Hit {sys_label} RTT 2026",
+                    "game_system": req_sys,
                     "event_date": "2026-09-26",
                     "end_date": "2026-09-26",
                     "city": "Seattle",
@@ -4668,9 +4752,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "raw_json": {"active": True, "isActive": True, "currentRound": 0, "started": False}
                 },
                 {
-                    "id": "ev_upcoming_gt_oct",
-                    "event_id": "ev_upcoming_gt_oct",
-                    "name": "Pacific Northwest Autumn GT 2026",
+                    "id": "ev_upcoming_gt_oct" if req_sys == "40k" else f"ev_upcoming_{req_sys}_gt",
+                    "event_id": "ev_upcoming_gt_oct" if req_sys == "40k" else f"ev_upcoming_{req_sys}_gt",
+                    "name": "Pacific Northwest Autumn GT 2026" if req_sys == "40k" else f"Pacific Northwest {sys_label} GT 2026",
+                    "game_system": req_sys,
                     "event_date": "2026-10-24",
                     "end_date": "2026-10-25",
                     "city": "Portland",
@@ -4688,16 +4773,16 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 }
             ]
             local_lb = [
-                {"rank": 1, "player_id": "p_innes", "player_name": "Innes Wilson", "current_elo": 2185.4, "peak_elo": 2210.0, "wins": 28, "losses": 4, "draws": 0, "matches_played": 32, "win_rate": 87.5, "team": "Art of War", "top_faction": "Adeptus Custodes", "city": "San Diego", "state": "CA"},
-                {"rank": 2, "player_id": "p_david", "player_name": "David Gaylard", "current_elo": 2120.0, "peak_elo": 2145.0, "wins": 22, "losses": 5, "draws": 0, "matches_played": 27, "win_rate": 81.5, "team": "Team Zero Comp", "top_faction": "Necrons", "city": "San Diego", "state": "CA"},
-                {"rank": 3, "player_id": "p_jack", "player_name": "Jack Harpster", "current_elo": 2095.8, "peak_elo": 2118.0, "wins": 19, "losses": 5, "draws": 0, "matches_played": 24, "win_rate": 79.2, "team": "Art of War", "top_faction": "Blood Angels", "city": "Seattle", "state": "WA"},
-                {"rank": 4, "player_id": "Te1Q9lp3By", "player_name": "Junior Aflleje", "current_elo": 2068.2, "peak_elo": 2090.0, "wins": 21, "losses": 6, "draws": 1, "matches_played": 28, "win_rate": 75.0, "team": "Dicehammer", "top_faction": "Leagues of Votann", "city": "San Diego", "state": "CA"},
-                {"rank": 5, "player_id": "p_vik", "player_name": "Vik Vijay", "current_elo": 2042.1, "peak_elo": 2060.0, "wins": 16, "losses": 5, "draws": 0, "matches_played": 21, "win_rate": 76.2, "team": "Team Ignite", "top_faction": "Aeldari", "city": "Portland", "state": "OR"}
+                {"rank": 1, "player_id": "p_innes", "player_name": "Innes Wilson", "current_elo": 2185.4, "peak_elo": 2210.0, "wins": 28, "losses": 4, "draws": 0, "matches_played": 32, "win_rate": 87.5, "team": "Art of War", "top_faction": "Adeptus Custodes" if req_sys == "40k" else sys_facs[0], "city": "San Diego", "state": "CA", "game_system": req_sys},
+                {"rank": 2, "player_id": "p_david", "player_name": "David Gaylard", "current_elo": 2120.0, "peak_elo": 2145.0, "wins": 22, "losses": 5, "draws": 0, "matches_played": 27, "win_rate": 81.5, "team": "Team Zero Comp", "top_faction": "Necrons" if req_sys == "40k" else sys_facs[1 % len(sys_facs)], "city": "San Diego", "state": "CA", "game_system": req_sys},
+                {"rank": 3, "player_id": "p_jack", "player_name": "Jack Harpster", "current_elo": 2095.8, "peak_elo": 2118.0, "wins": 19, "losses": 5, "draws": 0, "matches_played": 24, "win_rate": 79.2, "team": "Art of War", "top_faction": "Blood Angels" if req_sys == "40k" else sys_facs[2 % len(sys_facs)], "city": "Seattle", "state": "WA", "game_system": req_sys},
+                {"rank": 4, "player_id": "Te1Q9lp3By", "player_name": "Junior Aflleje", "current_elo": 2068.2, "peak_elo": 2090.0, "wins": 21, "losses": 6, "draws": 1, "matches_played": 28, "win_rate": 75.0, "team": "Dicehammer", "top_faction": "Leagues of Votann" if req_sys == "40k" else sys_facs[3 % len(sys_facs)], "city": "San Diego", "state": "CA", "game_system": req_sys},
+                {"rank": 5, "player_id": "p_vik", "player_name": "Vik Vijay", "current_elo": 2042.1, "peak_elo": 2060.0, "wins": 16, "losses": 5, "draws": 0, "matches_played": 21, "win_rate": 76.2, "team": "Team Ignite", "top_faction": "Aeldari" if req_sys == "40k" else sys_facs[4 % len(sys_facs)], "city": "Portland", "state": "OR", "game_system": req_sys}
             ]
             local_teams = [
-                {"rank": 1, "id": "team-art-of-war", "name": "Art of War", "team": "Art of War", "short_tag": "AOW", "power_rating": 2195.4, "active_avg_elo": 2145.2, "active_roster_count": 8, "total_wins": 142, "total_losses": 28, "team_win_rate": 83.5, "home_city": "San Diego", "home_state": "CA"},
-                {"rank": 2, "id": "team-dicehammer", "name": "Dicehammer", "team": "Dicehammer", "short_tag": "DHM", "power_rating": 2088.6, "active_avg_elo": 2032.0, "active_roster_count": 12, "total_wins": 118, "total_losses": 42, "team_win_rate": 73.8, "home_city": "San Diego", "home_state": "CA"},
-                {"rank": 3, "id": "team-stat-check", "name": "Stat Check", "team": "Stat Check", "short_tag": "STC", "power_rating": 2054.1, "active_avg_elo": 2005.8, "active_roster_count": 7, "total_wins": 96, "total_losses": 34, "team_win_rate": 73.8, "home_city": "Seattle", "state": "WA"}
+                {"rank": 1, "id": "team-art-of-war", "name": "Art of War", "team": "Art of War", "short_tag": "AOW", "power_rating": 2195.4, "active_avg_elo": 2145.2, "active_roster_count": 8, "total_wins": 142, "total_losses": 28, "team_win_rate": 83.5, "home_city": "San Diego", "home_state": "CA", "game_system": req_sys},
+                {"rank": 2, "id": "team-dicehammer", "name": "Dicehammer", "team": "Dicehammer", "short_tag": "DHM", "power_rating": 2088.6, "active_avg_elo": 2032.0, "active_roster_count": 12, "total_wins": 118, "total_losses": 42, "team_win_rate": 73.8, "home_city": "San Diego", "home_state": "CA", "game_system": req_sys},
+                {"rank": 3, "id": "team-stat-check", "name": "Stat Check", "team": "Stat Check", "short_tag": "STC", "power_rating": 2054.1, "active_avg_elo": 2005.8, "active_roster_count": 7, "total_wins": 96, "total_losses": 34, "team_win_rate": 73.8, "home_city": "Seattle", "state": "WA", "game_system": req_sys}
             ]
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -4705,6 +4790,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             if not is_head:
                 self.wfile.write(json.dumps({
                     "success": True,
+                    "game_system": req_sys,
                     "events": upcoming_list,
                     "events_upcoming": upcoming_list,
                     "upcoming_events": upcoming_list,
@@ -5043,35 +5129,62 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path == "api/user/registered-tournaments" or clean_path.startswith("api/user/registered-tournaments"):
-            from leagues_hub_service import get_leagues_hub_service
-            lh_svc = get_leagues_hub_service()
-            native_leagues = lh_svc.get_user_registered_leagues(
-                user_id=DEV_USER.get("id", "u_john_hsieh"),
-                player_id=DEV_USER.get("bcp_player_id", "MEV83VFANA"),
-                player_name=DEV_USER.get("display_name") or DEV_USER.get("bcp_player_name") or "John Hsieh"
-            )
-            base_tournaments = list(native_leagues) + [
-                {
-                    "id": "ev_active_lvo_2026",
-                    "bcp_event_id": "ev_active_lvo_2026",
-                    "event_name": "LVO 2026 Warhammer 40K Champs",
-                    "event_date": "2026-11-18",
-                    "city": "Las Vegas",
-                    "state": "NV",
-                    "checked_in": True,
-                    "faction": "Necrons",
-                    "detachment": "Canoptek Court",
-                    "has_list_submitted": True,
-                    "points_limit": 2000,
-                    "rounds": 5,
-                    "player_id": "MEV83VFANA"
-                }
-            ]
+            from config import normalize_game_system, get_game_system_meta
+            req_reg_sys = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
+            reg_meta = get_game_system_meta(req_reg_sys)
+            reg_label = reg_meta.get("label", "Warhammer 40K")
+            reg_facs = _get_dev_system_factions(req_reg_sys, reg_label)
+            if req_reg_sys == "40k":
+                from leagues_hub_service import get_leagues_hub_service
+                lh_svc = get_leagues_hub_service()
+                native_leagues = lh_svc.get_user_registered_leagues(
+                    user_id=DEV_USER.get("id", "u_john_hsieh"),
+                    player_id=DEV_USER.get("bcp_player_id", "MEV83VFANA"),
+                    player_name=DEV_USER.get("display_name") or DEV_USER.get("bcp_player_name") or "John Hsieh"
+                )
+                base_tournaments = list(native_leagues) + [
+                    {
+                        "id": "ev_active_lvo_2026",
+                        "bcp_event_id": "ev_active_lvo_2026",
+                        "event_name": "LVO 2026 Warhammer 40K Champs",
+                        "event_date": "2026-11-18",
+                        "city": "Las Vegas",
+                        "state": "NV",
+                        "checked_in": True,
+                        "faction": "Necrons",
+                        "detachment": "Canoptek Court",
+                        "has_list_submitted": True,
+                        "points_limit": 2000,
+                        "rounds": 5,
+                        "player_id": "MEV83VFANA",
+                        "game_system": "40k"
+                    }
+                ]
+            else:
+                base_tournaments = [
+                    {
+                        "id": f"ev_active_lvo_{req_reg_sys}_2026",
+                        "bcp_event_id": f"ev_active_lvo_{req_reg_sys}_2026",
+                        "event_name": f"LVO 2026 {reg_label} Champs",
+                        "event_date": "2026-11-18",
+                        "city": "Las Vegas",
+                        "state": "NV",
+                        "checked_in": True,
+                        "faction": reg_facs[0],
+                        "detachment": f"{reg_facs[0]} Core",
+                        "has_list_submitted": True,
+                        "points_limit": 2000 if req_reg_sys == "aos" else 1000,
+                        "rounds": 5 if req_reg_sys == "aos" else 4,
+                        "player_id": "MEV83VFANA",
+                        "game_system": req_reg_sys
+                    }
+                ]
             res = {
                 "success": True,
                 "bcp_connected": True,
                 "count": len(base_tournaments),
-                "tournaments": base_tournaments
+                "tournaments": base_tournaments,
+                "game_system": req_reg_sys
             }
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -6479,6 +6592,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path in ("api/teams", "api/teams/", "api/leaderboard/teams"):
             import teams_hub_service
+            from config import normalize_game_system, get_game_system_meta
             svc = teams_hub_service.get_teams_hub_service()
             p = int(query_params.get("page", [1])[0])
             ps = int(query_params.get("page_size", [25])[0])
@@ -6486,7 +6600,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             sb = query_params.get("sort_by", ["power_rating"])[0]
             od = query_params.get("order", ["DESC"])[0]
             mr = int(query_params.get("min_roster", [1])[0])
-            gs = (query_params.get("game_system", ["40k"])[0]).lower()
+            gs = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
             res = svc.get_teams_leaderboard(
                 game_system=gs,
                 page=p,
@@ -6496,6 +6610,94 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 order=od,
                 min_roster=mr
             )
+            if not (res.get("items") or res.get("teams")) and gs not in ("40k", "aos"):
+                import hashlib
+                sys_meta = get_game_system_meta(gs)
+                sys_short = sys_meta.get("short_label") or sys_meta.get("label") or gs.upper()
+                h_val = int(hashlib.md5(gs.encode("utf-8")).hexdigest()[:8], 16)
+                synth_teams = [
+                    {
+                        "rank": 1,
+                        "id": f"team_{gs}_vanguard",
+                        "name": f"{sys_short} Vanguard",
+                        "team": f"{sys_short} Vanguard",
+                        "team_name": f"{sys_short} Vanguard",
+                        "short_tag": f"{gs[:3].upper()}V",
+                        "captain_name": "Marcus Sterling",
+                        "home_venue": "Apex Tabletop Arena",
+                        "home_city": "San Diego",
+                        "home_state": "CA",
+                        "home_country": "USA",
+                        "power_rating": round(2180.0 + (h_val % 95), 1),
+                        "skill_baseline": round(2080.0 + (h_val % 70), 1),
+                        "maturity_pct": 100.0,
+                        "combat_factor": 1.092,
+                        "top5_avg": round(2120.0 + (h_val % 60), 1),
+                        "top5_avg_elo": round(2120.0 + (h_val % 60), 1),
+                        "top_player_elo": round(2260.0 + (h_val % 80), 1),
+                        "top_player_name": "Marcus Sterling",
+                        "top_player_id": f"p_{gs}_1",
+                        "active_avg_elo": round(2040.0 + (h_val % 55), 1),
+                        "avg_elo": round(2040.0 + (h_val % 55), 1),
+                        "active_roster_count": 14,
+                        "roster_count": 14,
+                        "team_win_rate": 74.2,
+                        "win_rate": 74.2,
+                        "total_wins": 89,
+                        "total_losses": 31,
+                        "total_draws": 0,
+                        "total_matches": 120,
+                        "is_qualified": True,
+                        "glory_score": 4850,
+                        "team_glory_honor": 4850,
+                        "game_system": gs
+                    },
+                    {
+                        "rank": 2,
+                        "id": f"team_{gs}_syndicate",
+                        "name": f"Iron {sys_short} Syndicate",
+                        "team": f"Iron {sys_short} Syndicate",
+                        "team_name": f"Iron {sys_short} Syndicate",
+                        "short_tag": f"I{gs[:2].upper()}S",
+                        "captain_name": "Elena Vance",
+                        "home_venue": "Citadel Wargaming Club",
+                        "home_city": "Austin",
+                        "home_state": "TX",
+                        "home_country": "USA",
+                        "power_rating": round(2095.0 + (h_val % 75), 1),
+                        "skill_baseline": round(2015.0 + (h_val % 60), 1),
+                        "maturity_pct": 96.5,
+                        "combat_factor": 1.074,
+                        "top5_avg": round(2055.0 + (h_val % 50), 1),
+                        "top5_avg_elo": round(2055.0 + (h_val % 50), 1),
+                        "top_player_elo": round(2195.0 + (h_val % 65), 1),
+                        "top_player_name": "Elena Vance",
+                        "top_player_id": f"p_{gs}_2",
+                        "active_avg_elo": round(1985.0 + (h_val % 45), 1),
+                        "avg_elo": round(1985.0 + (h_val % 45), 1),
+                        "active_roster_count": 11,
+                        "roster_count": 11,
+                        "team_win_rate": 69.8,
+                        "win_rate": 69.8,
+                        "total_wins": 67,
+                        "total_losses": 29,
+                        "total_draws": 0,
+                        "total_matches": 96,
+                        "is_qualified": True,
+                        "glory_score": 3400,
+                        "team_glory_honor": 3400,
+                        "game_system": gs
+                    }
+                ]
+                res = {
+                    "teams": synth_teams,
+                    "items": synth_teams,
+                    "total": len(synth_teams),
+                    "page": 1,
+                    "page_size": ps,
+                    "total_pages": 1,
+                    "game_system": gs
+                }
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -6547,169 +6749,388 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if "leaderboard" in clean_path or "players" in clean_path:
-            players_data = [
-                {
-                    "rank": 1,
-                    "player_id": "p_innes_wilson",
-                    "player_name": "Innes Wilson",
-                    "current_elo": 2375.2,
-                    "peak_elo": 2390.0,
-                    "record": "120-15-2",
-                    "wins": 120,
-                    "losses": 15,
-                    "draws": 2,
-                    "matches_played": 137,
-                    "win_rate": 87.6,
-                    "team": "Art of War",
-                    "factions": "Dark Angels, Space Marines (Astartes), Genestealer Cult, Chaos Space Marines, Adeptus Astartes, Tyranids, Aeldari, Blood Angels, Grey Knights, World Eaters, T'au Empire, Legion of the Damned, Elysian Drop Troops, Black Templars, Thousand Sons",
-                    "top_faction": "Space Marines, Dark Angels",
-                    "last_active": "2026-01-20",
-                    "has_account": True
-                },
-                {
-                    "rank": 2,
-                    "player_id": "p_folger_pyles",
-                    "player_name": "Folger Pyles",
-                    "current_elo": 2350.0,
-                    "peak_elo": 2365.0,
-                    "record": "145-20-1",
-                    "wins": 145,
-                    "losses": 20,
-                    "draws": 1,
-                    "matches_played": 166,
-                    "win_rate": 87.3,
-                    "team": "Art of War",
-                    "factions": "Adeptus Custodes, Aeldari, Necrons, Drukhari, Imperial Agents, Chaos Space Marines, Ynnari, Death Guard, World Eaters",
-                    "top_faction": "Adeptus Custodes, Aeldari",
-                    "last_active": "2026-01-18",
-                    "has_account": True
-                },
-                {
-                    "rank": 3,
-                    "player_id": "p_david_gaylard",
-                    "player_name": "David Gaylard",
-                    "current_elo": 2280.4,
-                    "peak_elo": 2310.0,
-                    "record": "98-18-0",
-                    "wins": 98,
-                    "losses": 18,
-                    "draws": 0,
-                    "matches_played": 116,
-                    "win_rate": 84.5,
-                    "team": "Team Zero Comp",
-                    "top_faction": "Necrons, Custodes",
-                    "last_active": "2026-01-15",
-                    "has_account": False
-                },
-                {
-                    "rank": 4,
-                    "player_id": "p_jack_harpster",
-                    "player_name": "Jack Harpster",
-                    "current_elo": 2240.1,
-                    "peak_elo": 2260.0,
-                    "record": "85-22-1",
-                    "wins": 85,
-                    "losses": 22,
-                    "draws": 1,
-                    "matches_played": 108,
-                    "win_rate": 78.7,
-                    "team": "Art of War",
-                    "top_faction": "Blood Angels",
-                    "last_active": "2026-01-14",
-                    "has_account": True
-                },
-                {
-                    "rank": 5,
-                    "player_id": "p_john_lennon",
-                    "player_name": "John Lennon",
-                    "current_elo": 2210.8,
-                    "peak_elo": 2235.0,
-                    "record": "110-28-2",
-                    "wins": 110,
-                    "losses": 28,
-                    "draws": 2,
-                    "matches_played": 140,
-                    "win_rate": 78.6,
-                    "team": "Art of War",
-                    "top_faction": "Ultramarines",
-                    "last_active": "2026-01-12",
-                    "has_account": True
-                },
-                {
-                    "rank": 6,
-                    "player_id": "p_richard_siegler",
-                    "player_name": "Richard Siegler",
-                    "current_elo": 2195.0,
-                    "peak_elo": 2240.0,
-                    "record": "130-35-3",
-                    "wins": 130,
-                    "losses": 35,
-                    "draws": 3,
-                    "matches_played": 168,
-                    "win_rate": 77.4,
-                    "team": "Art of War",
-                    "top_faction": "Adeptus Mechanicus",
-                    "last_active": "2026-01-10",
-                    "has_account": True
-                },
-                {
-                    "rank": 7,
-                    "player_id": "p_manning_feinleib",
-                    "player_name": "Manning Feinleib",
-                    "current_elo": 2170.2,
-                    "peak_elo": 2190.0,
-                    "record": "75-21-1",
-                    "wins": 75,
-                    "losses": 21,
-                    "draws": 1,
-                    "matches_played": 97,
-                    "win_rate": 77.3,
-                    "team": "Team Zero Comp",
-                    "top_faction": "Tyranids",
-                    "last_active": "2026-01-08",
-                    "has_account": False
-                }
-            ]
+            import hashlib
+            from config import normalize_game_system, get_game_system_meta
+            req_sys = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
+            sys_meta = get_game_system_meta(req_sys)
+            sys_short = sys_meta.get("short_label") or sys_meta.get("label") or req_sys.upper()
+            sys_facs = _get_dev_system_factions(req_sys, sys_meta.get("label", ""))
+            if req_sys == "40k":
+                players_data = [
+                    {
+                        "rank": 1,
+                        "player_id": "p_innes_wilson",
+                        "player_name": "Innes Wilson",
+                        "current_elo": 2375.2,
+                        "peak_elo": 2390.0,
+                        "record": "120-15-2",
+                        "wins": 120,
+                        "losses": 15,
+                        "draws": 2,
+                        "matches_played": 137,
+                        "win_rate": 87.6,
+                        "team": "Art of War",
+                        "factions": "Dark Angels, Space Marines (Astartes), Genestealer Cult, Chaos Space Marines, Adeptus Astartes, Tyranids, Aeldari, Blood Angels, Grey Knights, World Eaters, T'au Empire, Legion of the Damned, Elysian Drop Troops, Black Templars, Thousand Sons",
+                        "top_faction": "Space Marines, Dark Angels",
+                        "last_active": "2026-01-20",
+                        "has_account": True,
+                        "game_system": "40k"
+                    },
+                    {
+                        "rank": 2,
+                        "player_id": "p_folger_pyles",
+                        "player_name": "Folger Pyles",
+                        "current_elo": 2350.0,
+                        "peak_elo": 2365.0,
+                        "record": "145-20-1",
+                        "wins": 145,
+                        "losses": 20,
+                        "draws": 1,
+                        "matches_played": 166,
+                        "win_rate": 87.3,
+                        "team": "Art of War",
+                        "factions": "Adeptus Custodes, Aeldari, Necrons, Drukhari, Imperial Agents, Chaos Space Marines, Ynnari, Death Guard, World Eaters",
+                        "top_faction": "Adeptus Custodes, Aeldari",
+                        "last_active": "2026-01-18",
+                        "has_account": True,
+                        "game_system": "40k"
+                    },
+                    {
+                        "rank": 3,
+                        "player_id": "p_david_gaylard",
+                        "player_name": "David Gaylard",
+                        "current_elo": 2280.4,
+                        "peak_elo": 2310.0,
+                        "record": "98-18-0",
+                        "wins": 98,
+                        "losses": 18,
+                        "draws": 0,
+                        "matches_played": 116,
+                        "win_rate": 84.5,
+                        "team": "Team Zero Comp",
+                        "top_faction": "Necrons, Custodes",
+                        "last_active": "2026-01-15",
+                        "has_account": False,
+                        "game_system": "40k"
+                    },
+                    {
+                        "rank": 4,
+                        "player_id": "p_jack_harpster",
+                        "player_name": "Jack Harpster",
+                        "current_elo": 2240.1,
+                        "peak_elo": 2260.0,
+                        "record": "85-22-1",
+                        "wins": 85,
+                        "losses": 22,
+                        "draws": 1,
+                        "matches_played": 108,
+                        "win_rate": 78.7,
+                        "team": "Art of War",
+                        "top_faction": "Blood Angels",
+                        "last_active": "2026-01-14",
+                        "has_account": True,
+                        "game_system": "40k"
+                    },
+                    {
+                        "rank": 5,
+                        "player_id": "p_john_lennon",
+                        "player_name": "John Lennon",
+                        "current_elo": 2210.8,
+                        "peak_elo": 2235.0,
+                        "record": "110-28-2",
+                        "wins": 110,
+                        "losses": 28,
+                        "draws": 2,
+                        "matches_played": 140,
+                        "win_rate": 78.6,
+                        "team": "Art of War",
+                        "top_faction": "Ultramarines",
+                        "last_active": "2026-01-12",
+                        "has_account": True,
+                        "game_system": "40k"
+                    },
+                    {
+                        "rank": 6,
+                        "player_id": "p_richard_siegler",
+                        "player_name": "Richard Siegler",
+                        "current_elo": 2195.0,
+                        "peak_elo": 2240.0,
+                        "record": "130-35-3",
+                        "wins": 130,
+                        "losses": 35,
+                        "draws": 3,
+                        "matches_played": 168,
+                        "win_rate": 77.4,
+                        "team": "Art of War",
+                        "top_faction": "Adeptus Mechanicus",
+                        "last_active": "2026-01-10",
+                        "has_account": True,
+                        "game_system": "40k"
+                    },
+                    {
+                        "rank": 7,
+                        "player_id": "p_manning_feinleib",
+                        "player_name": "Manning Feinleib",
+                        "current_elo": 2170.2,
+                        "peak_elo": 2190.0,
+                        "record": "75-21-1",
+                        "wins": 75,
+                        "losses": 21,
+                        "draws": 1,
+                        "matches_played": 97,
+                        "win_rate": 77.3,
+                        "team": "Team Zero Comp",
+                        "top_faction": "Tyranids",
+                        "last_active": "2026-01-08",
+                        "has_account": False,
+                        "game_system": "40k"
+                    }
+                ]
+            elif req_sys == "aos":
+                players_data = [
+                    {
+                        "rank": 1,
+                        "player_id": "p_aos_nicolas_tassone",
+                        "player_name": "Nicolas Tassone",
+                        "current_elo": 2364.8,
+                        "peak_elo": 2382.0,
+                        "record": "114-14-1",
+                        "wins": 114,
+                        "losses": 14,
+                        "draws": 1,
+                        "matches_played": 129,
+                        "win_rate": 88.4,
+                        "team": "Hammerhal Vanguard",
+                        "factions": "Stormcast Eternals, Lumineth Realm-lords, Seraphon",
+                        "top_faction": "Stormcast Eternals",
+                        "last_active": "2026-01-20",
+                        "has_account": True,
+                        "game_system": "aos"
+                    },
+                    {
+                        "rank": 2,
+                        "player_id": "p_aos_will_brittain",
+                        "player_name": "Will Brittain",
+                        "current_elo": 2318.5,
+                        "peak_elo": 2340.0,
+                        "record": "102-16-2",
+                        "wins": 102,
+                        "losses": 16,
+                        "draws": 2,
+                        "matches_played": 120,
+                        "win_rate": 85.0,
+                        "team": "Aqshy Reavers",
+                        "factions": "Blades of Khorne, Slaves to Darkness",
+                        "top_faction": "Blades of Khorne",
+                        "last_active": "2026-01-19",
+                        "has_account": True,
+                        "game_system": "aos"
+                    },
+                    {
+                        "rank": 3,
+                        "player_id": "p_aos_gavin_grigar",
+                        "player_name": "Gavin Grigar",
+                        "current_elo": 2269.0,
+                        "peak_elo": 2295.0,
+                        "record": "92-17-1",
+                        "wins": 92,
+                        "losses": 17,
+                        "draws": 1,
+                        "matches_played": 110,
+                        "win_rate": 83.6,
+                        "team": "Shyish Deathlords",
+                        "factions": "Soulblight Gravelords, Nighthaunt, Ossiarch Bonereapers",
+                        "top_faction": "Soulblight Gravelords",
+                        "last_active": "2026-01-17",
+                        "has_account": True,
+                        "game_system": "aos"
+                    },
+                    {
+                        "rank": 4,
+                        "player_id": "p_aos_mat_mabbott",
+                        "player_name": "Mat Mabbott",
+                        "current_elo": 2234.2,
+                        "peak_elo": 2255.0,
+                        "record": "84-19-1",
+                        "wins": 84,
+                        "losses": 19,
+                        "draws": 1,
+                        "matches_played": 104,
+                        "win_rate": 80.8,
+                        "team": "Ghyran Guardians",
+                        "factions": "Sylvaneth, Daughters of Khaine",
+                        "top_faction": "Sylvaneth",
+                        "last_active": "2026-01-15",
+                        "has_account": False,
+                        "game_system": "aos"
+                    },
+                    {
+                        "rank": 5,
+                        "player_id": "p_aos_terry_pike",
+                        "player_name": "Terry Pike",
+                        "current_elo": 2198.6,
+                        "peak_elo": 2220.0,
+                        "record": "78-20-2",
+                        "wins": 78,
+                        "losses": 20,
+                        "draws": 2,
+                        "matches_played": 100,
+                        "win_rate": 78.0,
+                        "team": "Hammerhal Vanguard",
+                        "factions": "Ogor Mawtribes, Sons of Behemat",
+                        "top_faction": "Ogor Mawtribes",
+                        "last_active": "2026-01-13",
+                        "has_account": True,
+                        "game_system": "aos"
+                    },
+                    {
+                        "rank": 6,
+                        "player_id": "p_aos_chris_donnan",
+                        "player_name": "Chris Donnan",
+                        "current_elo": 2175.4,
+                        "peak_elo": 2204.0,
+                        "record": "74-21-1",
+                        "wins": 74,
+                        "losses": 21,
+                        "draws": 1,
+                        "matches_played": 96,
+                        "win_rate": 77.1,
+                        "team": "Aqshy Reavers",
+                        "factions": "Idoneth Deepkin, Kharadron Overlords",
+                        "top_faction": "Idoneth Deepkin",
+                        "last_active": "2026-01-11",
+                        "has_account": False,
+                        "game_system": "aos"
+                    },
+                    {
+                        "rank": 7,
+                        "player_id": "p_aos_anthony_trier",
+                        "player_name": "Anthony Trier",
+                        "current_elo": 2148.0,
+                        "peak_elo": 2180.0,
+                        "record": "69-21-1",
+                        "wins": 69,
+                        "losses": 21,
+                        "draws": 1,
+                        "matches_played": 91,
+                        "win_rate": 75.8,
+                        "team": "Shyish Deathlords",
+                        "factions": "Lumineth Realm-lords, Cities of Sigmar",
+                        "top_faction": "Lumineth Realm-lords",
+                        "last_active": "2026-01-09",
+                        "has_account": True,
+                        "game_system": "aos"
+                    }
+                ]
+            else:
+                first_names = [
+                    "Marcus", "Elena", "Julian", "Kieran", "Devon", "Soren", "Lucas", "Clara",
+                    "Adrian", "Nolan", "Tristan", "Damon", "gideon", "Valerie", "Rowan", "silas",
+                    "Caleb", "Dominic", "freya", "Garrett", "Henrik", "Isaac", "Jude", "Keegan"
+                ]
+                last_names = [
+                    "Sterling", "Vance", "Blackwood", "Mercer", "Thorne", "Kovacs", "Lindqvist", "Rostova",
+                    "Ashford", "Callahan", "Holloway", "Falk", "Moreau", "Castellano", "Bauer", "Vargas",
+                    "Sinclair", "Whitlock", "Drummond", "Kessler", "Alverez", "Brennan", "Cavanaugh", "Dempsey"
+                ]
+                h_seed = int(hashlib.md5(req_sys.encode("utf-8")).hexdigest()[:8], 16)
+                players_data = []
+                for idx in range(7):
+                    fn = first_names[(h_seed + idx * 5) % len(first_names)].title()
+                    ln = last_names[(h_seed // 7 + idx * 3) % len(last_names)].title()
+                    pname = f"{fn} {ln}"
+                    elo_val = round(2310.0 - idx * 24.5 - ((h_seed + idx * 11) % 14), 1)
+                    wins_val = max(24, 92 - idx * 8 - ((h_seed + idx) % 6))
+                    losses_val = max(6, 14 + idx * 2 + ((h_seed + idx * 3) % 4))
+                    draws_val = (h_seed + idx) % 2
+                    mp_val = wins_val + losses_val + draws_val
+                    wr_val = round((wins_val * 100.0) / mp_val, 1)
+                    fac_primary = sys_facs[idx % len(sys_facs)]
+                    fac_secondary = sys_facs[(idx + 1) % len(sys_facs)]
+                    team_name = f"{sys_short} Vanguard" if idx % 2 == 0 else f"Iron {sys_short} Syndicate"
+                    players_data.append({
+                        "rank": idx + 1,
+                        "player_id": f"p_{req_sys}_{idx + 1}",
+                        "player_name": pname,
+                        "current_elo": elo_val,
+                        "peak_elo": round(elo_val + 18.0, 1),
+                        "record": f"{wins_val}-{losses_val}-{draws_val}",
+                        "wins": wins_val,
+                        "losses": losses_val,
+                        "draws": draws_val,
+                        "matches_played": mp_val,
+                        "win_rate": wr_val,
+                        "team": team_name,
+                        "factions": f"{fac_primary}, {fac_secondary}",
+                        "top_faction": fac_primary,
+                        "last_active": f"2026-01-{20 - idx * 2:02d}",
+                        "has_account": bool(idx % 2 == 0),
+                        "game_system": req_sys
+                    })
+
+            q_filter = (query_params.get("query", [None])[0] or query_params.get("search", [None])[0] or "").strip().lower()
+            fac_filter = (query_params.get("faction", ["All"])[0] or "All").strip()
+            if fac_filter and fac_filter.lower() not in ("all", "all factions"):
+                fl = fac_filter.lower()
+                players_data = [
+                    p for p in players_data
+                    if fl in str(p.get("top_faction") or "").lower() or fl in str(p.get("factions") or "").lower()
+                ]
+            if q_filter:
+                players_data = [
+                    p for p in players_data
+                    if q_filter in str(p.get("player_name") or "").lower()
+                    or q_filter in str(p.get("team") or "").lower()
+                    or q_filter in str(p.get("top_faction") or "").lower()
+                ]
+            for r_idx, p_item in enumerate(players_data, 1):
+                p_item["rank"] = r_idx
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps({"players": players_data, "leaderboard": players_data, "items": players_data, "count": len(players_data), "total": len(players_data)}).encode("utf-8"))
+                self.wfile.write(json.dumps({"players": players_data, "leaderboard": players_data, "items": players_data, "count": len(players_data), "total": len(players_data), "game_system": req_sys}).encode("utf-8"))
             return
 
         if clean_path == "api/events":
+            from config import normalize_game_system, get_game_system_meta
+            req_sys = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
+            sys_label = get_game_system_meta(req_sys).get("label", "Warhammer 40k")
             now_dt = datetime.now(timezone.utc)
             events_list = [
                 {
-                    "id": "ev_ongoing_gt_live",
-                    "name": "Warhammer 40k US Open Series 2026 - Atlanta Major",
+                    "id": "ev_ongoing_gt_live" if req_sys == "40k" else f"ev_ongoing_{req_sys}_live",
+                    "name": "Warhammer 40k US Open Series 2026 - Atlanta Major" if req_sys == "40k" else f"{sys_label} US Open Series 2026 - Atlanta Major",
+                    "game_system": req_sys,
                     "event_date": (now_dt - timedelta(days=1)).strftime("%Y-%m-%d"),
                     "city": "Atlanta",
                     "state": "GA",
                     "country": "United States",
                     "total_players": 12,
-                    "num_rounds": 5,
+                    "num_rounds": 5 if req_sys in ("40k", "aos") else 4,
                     "match_count": 18,
                     "is_ended": False,
                     "status": "ongoing"
                 },
                 {
-                    "id": "FKsBtHI4ZqHx",
-                    "name": "Bay Area Open 2026 - Warhammer 40k Champs",
+                    "id": "FKsBtHI4ZqHx" if req_sys == "40k" else f"ev_bao_{req_sys}_2026",
+                    "name": "Bay Area Open 2026 - Warhammer 40k Champs" if req_sys == "40k" else f"Bay Area Open 2026 - {sys_label} Champs",
+                    "game_system": req_sys,
                     "event_date": "2025-05-23",
                     "city": "Burlingame",
                     "state": "CA",
                     "country": "United States",
-                    "total_players": 161,
-                    "num_rounds": 6,
-                    "match_count": 437,
+                    "total_players": 161 if req_sys == "40k" else 48,
+                    "num_rounds": 6 if req_sys == "40k" else 4,
+                    "match_count": 437 if req_sys == "40k" else 96,
                     "is_ended": True,
                     "ended": True,
                     "status": "ended"
                 },
                 {
-                    "id": "73q0VFQZIVGo",
-                    "name": "FLG Monthly 40K RTT - September",
+                    "id": "73q0VFQZIVGo" if req_sys == "40k" else f"ev_flg_{req_sys}_rtt",
+                    "name": "FLG Monthly 40K RTT - September" if req_sys == "40k" else f"FLG Monthly {sys_label} RTT - September",
+                    "game_system": req_sys,
                     "event_date": "2026-09-12",
                     "city": "Las Vegas",
                     "state": "NV",
@@ -6721,27 +7142,29 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "status": "ended"
                 },
                 {
-                    "id": "ev_riverside_2026",
-                    "name": "The Riverside Classic by Green Banner Event Co.",
+                    "id": "ev_riverside_2026" if req_sys == "40k" else f"ev_riverside_{req_sys}_2026",
+                    "name": "The Riverside Classic by Green Banner Event Co." if req_sys == "40k" else f"The Riverside {sys_label} Classic",
+                    "game_system": req_sys,
                     "event_date": "2026-03-28",
                     "city": "Riverside",
                     "state": "CA",
                     "country": "United States",
-                    "total_players": 4,
+                    "total_players": 4 if req_sys == "40k" else 16,
                     "num_rounds": 3,
-                    "match_count": 6,
+                    "match_count": 6 if req_sys == "40k" else 24,
                     "is_ended": True,
                     "status": "ended"
                 },
                 {
-                    "id": "ev_active_lvo_2026",
-                    "name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open",
+                    "id": "ev_active_lvo_2026" if req_sys == "40k" else f"ev_active_lvo_{req_sys}_2026",
+                    "name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open" if req_sys == "40k" else f"LVO 2026 - {sys_label} Championships",
+                    "game_system": req_sys,
                     "event_date": "2026-10-02",
                     "city": "Las Vegas",
                     "state": "NV",
                     "country": "United States",
-                    "total_players": 6,
-                    "num_rounds": 3,
+                    "total_players": 6 if req_sys == "40k" else 32,
+                    "num_rounds": 3 if req_sys == "40k" else 4,
                     "match_count": 0,
                     "is_ended": False,
                     "status": "upcoming"
@@ -6751,7 +7174,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps({"items": events_list, "total": len(events_list), "page": 1, "page_size": 25, "total_pages": 1}).encode("utf-8"))
+                self.wfile.write(json.dumps({"items": events_list, "total": len(events_list), "page": 1, "page_size": 25, "total_pages": 1, "game_system": req_sys}).encode("utf-8"))
             return
 
         if clean_path in ("api/community/feed", "api/notifications/unread-count"):
@@ -6763,468 +7186,193 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
 
-        if clean_path in ("api/user/dashboard",):
-            res = {
-                "player": {
-                    "player_id": "p_dev_commander",
-                    "player_name": "Commander",
-                    "top_faction": "Space Marines",
-                    "current_elo": 1845.5,
-                    "peak_elo": 1890.0,
-                    "win_rate": 67.5,
-                    "matches_played": 40,
-                    "wins": 27,
-                    "losses": 13,
-                    "team": "Iron Hands Veterans",
-                    "is_bcp_connected": True
-                },
-                "rankings": {
-                    "global_rank": 142,
-                    "faction_rank": 18,
-                    "total_ranked_players": 77322
-                },
-                "matchup_matrix": [
-                    {
-                        "enemy_faction": "Orks",
-                        "total_encounters": 10,
-                        "wins": 8,
-                        "losses": 2,
-                        "draws": 0,
-                        "win_rate": 80.0
+        if clean_path in ("api/user/dashboard", "api/auth/me/hub"):
+            import hashlib
+            from config import normalize_game_system, get_game_system_meta
+            req_dash_sys = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
+            dash_meta = get_game_system_meta(req_dash_sys)
+            dash_label = dash_meta.get("label", "Warhammer 40K")
+            dash_short = dash_meta.get("short_label") or dash_label
+            dash_facs = _get_dev_system_factions(req_dash_sys, dash_label)
+            if req_dash_sys == "40k":
+                res = {
+                    "game_system": "40k",
+                    "preferred_game_system": "40k",
+                    "player": {
+                        "player_id": "p_dev_commander",
+                        "player_name": "Commander",
+                        "top_faction": "Space Marines",
+                        "current_elo": 1845.5,
+                        "peak_elo": 1890.0,
+                        "win_rate": 67.5,
+                        "matches_played": 40,
+                        "wins": 27,
+                        "losses": 13,
+                        "team": "Iron Hands Veterans",
+                        "is_bcp_connected": True,
+                        "game_system": "40k"
                     },
-                    {
-                        "enemy_faction": "Necrons",
-                        "total_encounters": 8,
-                        "wins": 6,
-                        "losses": 2,
-                        "draws": 0,
-                        "win_rate": 75.0
+                    "rankings": {
+                        "global_rank": 142,
+                        "faction_rank": 18,
+                        "total_ranked_players": 77322
                     },
-                    {
-                        "enemy_faction": "Chaos Space Marines",
-                        "total_encounters": 7,
-                        "wins": 5,
-                        "losses": 2,
-                        "draws": 0,
-                        "win_rate": 71.4
+                    "matchup_matrix": [
+                        {"enemy_faction": "Orks", "total_encounters": 10, "wins": 8, "losses": 2, "draws": 0, "win_rate": 80.0},
+                        {"enemy_faction": "Necrons", "total_encounters": 8, "wins": 6, "losses": 2, "draws": 0, "win_rate": 75.0},
+                        {"enemy_faction": "Chaos Space Marines", "total_encounters": 7, "wins": 5, "losses": 2, "draws": 0, "win_rate": 71.4},
+                        {"enemy_faction": "Tyranids", "total_encounters": 5, "wins": 4, "losses": 1, "draws": 0, "win_rate": 80.0},
+                        {"enemy_faction": "Aeldari", "total_encounters": 6, "wins": 1, "losses": 5, "draws": 0, "win_rate": 16.7},
+                        {"enemy_faction": "World Eaters", "total_encounters": 3, "wins": 2, "losses": 1, "draws": 0, "win_rate": 66.7},
+                        {"enemy_faction": "Imperial Knights", "total_encounters": 1, "wins": 1, "losses": 0, "draws": 0, "win_rate": 100.0}
+                    ],
+                    "faction_mastery": [
+                        {"faction": "Space Marines", "games": 30, "wins": 21, "losses": 9, "draws": 0, "win_rate": 70.0, "avg_score": 78.5},
+                        {"faction": "Adeptus Custodes", "games": 10, "wins": 6, "losses": 4, "draws": 0, "win_rate": 60.0, "avg_score": 72.0}
+                    ],
+                    "history": [
+                        {"match_date": "2026-05-10", "event_id": "ev_atlanta_2026", "event_name": "Warhammer Open Atlanta", "round": 1, "result": "W", "player_score": 85, "opponent_score": 45, "player_faction": "Space Marines", "opponent_name": "Marcus Vance", "opponent_elo": 1720.0, "opponent_faction": "Orks", "delta_elo": 12.0, "new_elo": 1780.0},
+                        {"match_date": "2026-06-14", "event_id": "ev_lso_2026", "event_name": "Lone Star Open 2026", "round": 2, "result": "L", "player_score": 52, "opponent_score": 78, "player_faction": "Space Marines", "opponent_name": "Elena Rostova", "opponent_elo": 1910.0, "opponent_faction": "Aeldari", "delta_elo": -10.5, "new_elo": 1795.0},
+                        {"match_date": "2026-07-20", "event_id": "ev_tacoma_gt_2026", "event_name": "US Open Tacoma GT 2026", "round": 3, "result": "W", "player_score": 90, "opponent_score": 55, "player_faction": "Space Marines", "opponent_name": "Gorgutz 'Eadsplitter", "opponent_elo": 1750.0, "opponent_faction": "Orks", "delta_elo": 14.2, "new_elo": 1815.0},
+                        {"match_date": "2026-08-01", "event_id": "ev_bayarea_2026", "event_name": "Bay Area Cup 2026", "round": 4, "result": "W", "player_score": 88, "opponent_score": 60, "player_faction": "Space Marines", "opponent_name": "Waaagh Boss Da Boss", "opponent_elo": 1800.0, "opponent_faction": "Orks", "delta_elo": 15.0, "new_elo": 1830.0},
+                        {"match_date": "2026-08-15", "event_id": "ev_nova_2026", "event_name": "Nova Open 2026", "round": 5, "result": "L", "player_score": 45, "opponent_score": 82, "player_faction": "Space Marines", "opponent_name": "Farseer Eldrad", "opponent_elo": 1950.0, "opponent_faction": "Aeldari", "delta_elo": -11.0, "new_elo": 1825.0},
+                        {"match_date": "2026-08-28", "event_id": "ev_lgt_2026", "event_name": "LGT Masters 2026", "round": 6, "result": "L", "player_score": 58, "opponent_score": 80, "player_faction": "Space Marines", "opponent_name": "Yriel Swiftwind", "opponent_elo": 1920.0, "opponent_faction": "Aeldari", "delta_elo": -9.5, "new_elo": 1830.5},
+                        {"match_date": "2026-09-02", "event_id": "ev_tacoma_gt_2026", "event_name": "US Open Tacoma GT 2026", "round": 7, "result": "W", "player_score": 95, "opponent_score": 42, "player_faction": "Space Marines", "opponent_name": "Big Mek Ghaz", "opponent_elo": 1810.0, "opponent_faction": "Orks", "delta_elo": 15.0, "new_elo": 1845.5},
+                        {"match_date": "2026-09-02", "event_id": "ev_tacoma_2026", "event_name": "US Open Tacoma Major 2026", "round": 7, "result": "W", "player_score": 98, "opponent_score": 68, "player_faction": "Adeptus Custodes", "opponent_name": "Marcus Vance", "opponent_elo": 1980.0, "opponent_faction": "Space Marines", "delta_elo": 16.5, "new_elo": 1862.0}
+                    ],
+                    "tracker_history": [
+                        {"session_id": "trk_s26_01", "game_system": "40k", "date": "2026-02-14", "completed": True, "player_score": 92, "opponent_score": 58, "final_round": 5, "rounds_completed": 5, "secondary_points": 38, "mode": "competitive"},
+                        {"session_id": "trk_s26_02", "game_system": "40k", "date": "2026-03-05", "completed": True, "player_score": 88, "opponent_score": 72, "final_round": 5, "rounds_completed": 5, "secondary_points": 35, "mode": "competitive"},
+                        {"session_id": "trk_s26_03", "game_system": "40k", "date": "2026-04-12", "completed": True, "player_score": 79, "opponent_score": 64, "final_round": 5, "rounds_completed": 5, "secondary_points": 30, "mode": "competitive"}
+                    ],
+                    "army_lists": [
+                        {"id": "list_s26_01", "name": "2026 Strike Force Vanguard", "game_system": "40k", "faction": "Space Marines", "points": 2000, "created_at": "2026-01-10T12:00:00Z"},
+                        {"id": "list_s26_02", "name": "Canoptek Swarm 2026", "game_system": "40k", "faction": "Necrons", "points": 2000, "created_at": "2026-02-01T15:30:00Z"}
+                    ],
+                    "active_sessions": [],
+                    "events_attended": [
+                        {"event_id": "ev_tacoma_2026", "event_name": "US Open Tacoma Major 2026", "event_date": "2026-09-02", "date": "2026-09-02", "num_rounds": 7, "rounds": 7, "placement": 1, "finish": 1, "total_players": 128, "wins": 7, "losses": 0, "draws": 0, "registered_faction": "Adeptus Custodes", "faction": "Adeptus Custodes", "is_gt": True},
+                        {"event_id": "ev_tacoma_gt_2026", "event_name": "US Open Tacoma GT 2026", "event_date": "2026-09-02", "date": "2026-09-02", "num_rounds": 5, "rounds": 5, "placement": 2, "finish": 2, "total_players": 64, "wins": 4, "losses": 1, "draws": 0, "registered_faction": "Space Marines", "faction": "Space Marines", "is_gt": True},
+                        {"event_id": "ev_lgt_2026", "event_name": "LGT Masters 2026", "event_date": "2026-08-28", "date": "2026-08-28", "num_rounds": 6, "rounds": 6, "placement": 12, "finish": 12, "total_players": 160, "wins": 4, "losses": 2, "draws": 0, "registered_faction": "Space Marines", "faction": "Space Marines", "is_gt": True},
+                        {"event_id": "ev_nova_2026", "event_name": "Nova Open 2026", "event_date": "2026-08-15", "date": "2026-08-15", "num_rounds": 6, "rounds": 6, "placement": 18, "finish": 18, "total_players": 256, "wins": 4, "losses": 2, "draws": 0, "registered_faction": "Space Marines", "faction": "Space Marines", "is_gt": True},
+                        {"event_id": "ev_bayarea_2026", "event_name": "Bay Area Cup 2026", "event_date": "2026-08-01", "date": "2026-08-01", "num_rounds": 5, "rounds": 5, "placement": 3, "finish": 3, "total_players": 48, "wins": 4, "losses": 1, "draws": 0, "registered_faction": "Space Marines", "faction": "Space Marines", "is_gt": True},
+                        {"event_id": "ev_lso_2026", "event_name": "Lone Star Open 2026", "event_date": "2026-06-14", "date": "2026-06-14", "num_rounds": 6, "rounds": 6, "placement": 7, "finish": 7, "total_players": 240, "wins": 5, "losses": 1, "draws": 0, "registered_faction": "Space Marines", "faction": "Space Marines", "is_gt": True},
+                        {"event_id": "ev_atlanta_2026", "event_name": "Warhammer Open Atlanta", "event_date": "2026-05-10", "date": "2026-05-10", "num_rounds": 5, "rounds": 5, "placement": 5, "finish": 5, "total_players": 96, "wins": 4, "losses": 1, "draws": 0, "registered_faction": "Space Marines", "faction": "Space Marines", "is_gt": True},
+                        {"event_id": "ev_pnw_gt_2026", "event_name": "Pacific Northwest GT 2026", "event_date": "2026-06-15", "date": "2026-06-15", "num_rounds": 5, "rounds": 5, "placement": 1, "finish": 1, "total_players": 56, "wins": 5, "losses": 0, "draws": 0, "registered_faction": "Necrons", "faction": "Necrons", "is_gt": True},
+                        {"event_id": "ev_dicehead_rtt_2026", "event_name": "Dicehead Spring RTT 2026", "event_date": "2026-03-22", "date": "2026-03-22", "num_rounds": 3, "rounds": 3, "placement": 1, "finish": 1, "total_players": 24, "wins": 3, "losses": 0, "draws": 0, "registered_faction": "Space Marines", "faction": "Space Marines", "is_gt": False},
+                        {"event_id": "ev_active_lvo_2026", "event_name": "LVO 2026 Warhammer 40K Champs", "event_date": "2026-01-18", "date": "2026-01-18", "rounds": 5, "finish": 4, "total_players": 128, "is_gt": True}
+                    ],
+                    "upcoming_events": [],
+                    "bcp_linked": True,
+                    "is_bcp_connected": True,
+                    "registered_tournaments": [
+                        {
+                            "id": "ev_active_lvo_2026",
+                            "bcp_event_id": "ev_active_lvo_2026",
+                            "event_name": "LVO 2026 Warhammer 40K Champs",
+                            "event_date": "2026-11-18",
+                            "city": "Las Vegas",
+                            "state": "NV",
+                            "checked_in": True,
+                            "faction": "Necrons",
+                            "detachment": "Canoptek Court",
+                            "has_list_submitted": True,
+                            "points_limit": 2000,
+                            "rounds": 5,
+                            "game_system": "40k"
+                        }
+                    ]
+                }
+            else:
+                h_seed = int(hashlib.md5(req_dash_sys.encode("utf-8")).hexdigest()[:8], 16)
+                f0 = dash_facs[0 % len(dash_facs)]
+                f1 = dash_facs[1 % len(dash_facs)]
+                f2 = dash_facs[2 % len(dash_facs)]
+                f3 = dash_facs[3 % len(dash_facs)]
+                f4 = dash_facs[4 % len(dash_facs)]
+                f5 = dash_facs[5 % len(dash_facs)]
+                cur_elo = round(1820.0 + (h_seed % 65), 1)
+                pk_elo = round(cur_elo + 32.5, 1)
+                wins_v = 18 + (h_seed % 9)
+                losses_v = 6 + (h_seed % 5)
+                mp_v = wins_v + losses_v
+                wr_v = round((wins_v * 100.0) / mp_v, 1)
+                team_v = "Hammerhal Vanguard" if req_dash_sys == "aos" else f"{dash_short} Vanguard"
+                res = {
+                    "game_system": req_dash_sys,
+                    "preferred_game_system": req_dash_sys,
+                    "player": {
+                        "player_id": "p_dev_commander",
+                        "player_name": "Commander",
+                        "top_faction": f0,
+                        "current_elo": cur_elo,
+                        "peak_elo": pk_elo,
+                        "win_rate": wr_v,
+                        "matches_played": mp_v,
+                        "wins": wins_v,
+                        "losses": losses_v,
+                        "team": team_v,
+                        "is_bcp_connected": True,
+                        "game_system": req_dash_sys
                     },
-                    {
-                        "enemy_faction": "Tyranids",
-                        "total_encounters": 5,
-                        "wins": 4,
-                        "losses": 1,
-                        "draws": 0,
-                        "win_rate": 80.0
+                    "rankings": {
+                        "global_rank": 38 + (h_seed % 60),
+                        "faction_rank": 6 + (h_seed % 12),
+                        "total_ranked_players": 15420 if req_dash_sys == "aos" else (1800 + (h_seed % 3200))
                     },
-                    {
-                        "enemy_faction": "Aeldari",
-                        "total_encounters": 6,
-                        "wins": 1,
-                        "losses": 5,
-                        "draws": 0,
-                        "win_rate": 16.7
-                    },
-                    {
-                        "enemy_faction": "World Eaters",
-                        "total_encounters": 3,
-                        "wins": 2,
-                        "losses": 1,
-                        "draws": 0,
-                        "win_rate": 66.7
-                    },
-                    {
-                        "enemy_faction": "Imperial Knights",
-                        "total_encounters": 1,
-                        "wins": 1,
-                        "losses": 0,
-                        "draws": 0,
-                        "win_rate": 100.0
-                    }
-                ],
-                "faction_mastery": [
-                    {
-                        "faction": "Space Marines",
-                        "games": 30,
-                        "wins": 21,
-                        "losses": 9,
-                        "draws": 0,
-                        "win_rate": 70.0,
-                        "avg_score": 78.5
-                    },
-                    {
-                        "faction": "Adeptus Custodes",
-                        "games": 10,
-                        "wins": 6,
-                        "losses": 4,
-                        "draws": 0,
-                        "win_rate": 60.0,
-                        "avg_score": 72.0
-                    }
-                ],
-                "history": [
-                    {
-                        "match_date": "2026-05-10",
-                        "event_id": "ev_atlanta_2026",
-                        "event_name": "Warhammer Open Atlanta",
-                        "round": 1,
-                        "result": "W",
-                        "player_score": 85,
-                        "opponent_score": 45,
-                        "player_faction": "Space Marines",
-                        "opponent_name": "Marcus Vance",
-                        "opponent_elo": 1720.0,
-                        "opponent_faction": "Orks",
-                        "delta_elo": 12.0,
-                        "new_elo": 1780.0
-                    },
-                    {
-                        "match_date": "2026-06-14",
-                        "event_id": "ev_lso_2026",
-                        "event_name": "Lone Star Open 2026",
-                        "round": 2,
-                        "result": "L",
-                        "player_score": 52,
-                        "opponent_score": 78,
-                        "player_faction": "Space Marines",
-                        "opponent_name": "Elena Rostova",
-                        "opponent_elo": 1910.0,
-                        "opponent_faction": "Aeldari",
-                        "delta_elo": -10.5,
-                        "new_elo": 1795.0
-                    },
-                    {
-                        "match_date": "2026-07-20",
-                        "event_id": "ev_tacoma_gt_2026",
-                        "event_name": "US Open Tacoma GT 2026",
-                        "round": 3,
-                        "result": "W",
-                        "player_score": 90,
-                        "opponent_score": 55,
-                        "player_faction": "Space Marines",
-                        "opponent_name": "Gorgutz 'Eadsplitter",
-                        "opponent_elo": 1750.0,
-                        "opponent_faction": "Orks",
-                        "delta_elo": 14.2,
-                        "new_elo": 1815.0
-                    },
-                    {
-                        "match_date": "2026-08-01",
-                        "event_id": "ev_bayarea_2026",
-                        "event_name": "Bay Area Cup 2026",
-                        "round": 4,
-                        "result": "W",
-                        "player_score": 88,
-                        "opponent_score": 60,
-                        "player_faction": "Space Marines",
-                        "opponent_name": "Waaagh Boss Da Boss",
-                        "opponent_elo": 1800.0,
-                        "opponent_faction": "Orks",
-                        "delta_elo": 15.0,
-                        "new_elo": 1830.0
-                    },
-                    {
-                        "match_date": "2026-08-15",
-                        "event_id": "ev_nova_2026",
-                        "event_name": "Nova Open 2026",
-                        "round": 5,
-                        "result": "L",
-                        "player_score": 45,
-                        "opponent_score": 82,
-                        "player_faction": "Space Marines",
-                        "opponent_name": "Farseer Eldrad",
-                        "opponent_elo": 1950.0,
-                        "opponent_faction": "Aeldari",
-                        "delta_elo": -11.0,
-                        "new_elo": 1825.0
-                    },
-                    {
-                        "match_date": "2026-08-28",
-                        "event_id": "ev_lgt_2026",
-                        "event_name": "LGT Masters 2026",
-                        "round": 6,
-                        "result": "L",
-                        "player_score": 58,
-                        "opponent_score": 80,
-                        "player_faction": "Space Marines",
-                        "opponent_name": "Yriel Swiftwind",
-                        "opponent_elo": 1920.0,
-                        "opponent_faction": "Aeldari",
-                        "delta_elo": -9.5,
-                        "new_elo": 1830.5
-                    },
-                    {
-                        "match_date": "2026-09-02",
-                        "event_id": "ev_tacoma_gt_2026",
-                        "event_name": "US Open Tacoma GT 2026",
-                        "round": 7,
-                        "result": "W",
-                        "player_score": 95,
-                        "opponent_score": 42,
-                        "player_faction": "Space Marines",
-                        "opponent_name": "Big Mek Ghaz",
-                        "opponent_elo": 1810.0,
-                        "opponent_faction": "Orks",
-                        "delta_elo": 15.0,
-                        "new_elo": 1845.5
-                    },
-                    {
-                        "match_date": "2026-09-02",
-                        "event_id": "ev_tacoma_2026",
-                        "event_name": "US Open Tacoma Major 2026",
-                        "round": 7,
-                        "result": "W",
-                        "player_score": 98,
-                        "opponent_score": 68,
-                        "player_faction": "Adeptus Custodes",
-                        "opponent_name": "Marcus Vance",
-                        "opponent_elo": 1980.0,
-                        "opponent_faction": "Space Marines",
-                        "delta_elo": 16.5,
-                        "new_elo": 1862.0
-                    }
-                ],
-                "tracker_history": [
-                    {
-                        "session_id": "trk_s26_01",
-                        "game_system": "40k",
-                        "date": "2026-02-14",
-                        "completed": True,
-                        "player_score": 92,
-                        "opponent_score": 58,
-                        "final_round": 5,
-                        "rounds_completed": 5,
-                        "secondary_points": 38,
-                        "mode": "competitive"
-                    },
-                    {
-                        "session_id": "trk_s26_02",
-                        "game_system": "40k",
-                        "date": "2026-03-05",
-                        "completed": True,
-                        "player_score": 88,
-                        "opponent_score": 72,
-                        "final_round": 5,
-                        "rounds_completed": 5,
-                        "secondary_points": 35,
-                        "mode": "competitive"
-                    },
-                    {
-                        "session_id": "trk_s26_03",
-                        "game_system": "40k",
-                        "date": "2026-04-12",
-                        "completed": True,
-                        "player_score": 79,
-                        "opponent_score": 64,
-                        "final_round": 5,
-                        "rounds_completed": 5,
-                        "secondary_points": 30,
-                        "mode": "competitive"
-                    }
-                ],
-                "army_lists": [
-                    {
-                        "id": "list_s26_01",
-                        "name": "2026 Strike Force Vanguard",
-                        "game_system": "40k",
-                        "faction": "Space Marines",
-                        "points": 2000,
-                        "created_at": "2026-01-10T12:00:00Z"
-                    },
-                    {
-                        "id": "list_s26_02",
-                        "name": "Canoptek Swarm 2026",
-                        "game_system": "40k",
-                        "faction": "Necrons",
-                        "points": 2000,
-                        "created_at": "2026-02-01T15:30:00Z"
-                    }
-                ],
-                "active_sessions": [],
-                "events_attended": [
-                    {
-                        "event_id": "ev_tacoma_2026",
-                        "event_name": "US Open Tacoma Major 2026",
-                        "event_date": "2026-09-02",
-                        "date": "2026-09-02",
-                        "num_rounds": 7,
-                        "rounds": 7,
-                        "placement": 1,
-                        "finish": 1,
-                        "total_players": 128,
-                        "wins": 7,
-                        "losses": 0,
-                        "draws": 0,
-                        "registered_faction": "Adeptus Custodes",
-                        "faction": "Adeptus Custodes",
-                        "is_gt": True
-                    },
-                    {
-                        "event_id": "ev_tacoma_gt_2026",
-                        "event_name": "US Open Tacoma GT 2026",
-                        "event_date": "2026-09-02",
-                        "date": "2026-09-02",
-                        "num_rounds": 5,
-                        "rounds": 5,
-                        "placement": 2,
-                        "finish": 2,
-                        "total_players": 64,
-                        "wins": 4,
-                        "losses": 1,
-                        "draws": 0,
-                        "registered_faction": "Space Marines",
-                        "faction": "Space Marines",
-                        "is_gt": True
-                    },
-                    {
-                        "event_id": "ev_lgt_2026",
-                        "event_name": "LGT Masters 2026",
-                        "event_date": "2026-08-28",
-                        "date": "2026-08-28",
-                        "num_rounds": 6,
-                        "rounds": 6,
-                        "placement": 12,
-                        "finish": 12,
-                        "total_players": 160,
-                        "wins": 4,
-                        "losses": 2,
-                        "draws": 0,
-                        "registered_faction": "Space Marines",
-                        "faction": "Space Marines",
-                        "is_gt": True
-                    },
-                    {
-                        "event_id": "ev_nova_2026",
-                        "event_name": "Nova Open 2026",
-                        "event_date": "2026-08-15",
-                        "date": "2026-08-15",
-                        "num_rounds": 6,
-                        "rounds": 6,
-                        "placement": 18,
-                        "finish": 18,
-                        "total_players": 256,
-                        "wins": 4,
-                        "losses": 2,
-                        "draws": 0,
-                        "registered_faction": "Space Marines",
-                        "faction": "Space Marines",
-                        "is_gt": True
-                    },
-                    {
-                        "event_id": "ev_bayarea_2026",
-                        "event_name": "Bay Area Cup 2026",
-                        "event_date": "2026-08-01",
-                        "date": "2026-08-01",
-                        "num_rounds": 5,
-                        "rounds": 5,
-                        "placement": 3,
-                        "finish": 3,
-                        "total_players": 48,
-                        "wins": 4,
-                        "losses": 1,
-                        "draws": 0,
-                        "registered_faction": "Space Marines",
-                        "faction": "Space Marines",
-                        "is_gt": True
-                    },
-                    {
-                        "event_id": "ev_lso_2026",
-                        "event_name": "Lone Star Open 2026",
-                        "event_date": "2026-06-14",
-                        "date": "2026-06-14",
-                        "num_rounds": 6,
-                        "rounds": 6,
-                        "placement": 7,
-                        "finish": 7,
-                        "total_players": 240,
-                        "wins": 5,
-                        "losses": 1,
-                        "draws": 0,
-                        "registered_faction": "Space Marines",
-                        "faction": "Space Marines",
-                        "is_gt": True
-                    },
-                    {
-                        "event_id": "ev_atlanta_2026",
-                        "event_name": "Warhammer Open Atlanta",
-                        "event_date": "2026-05-10",
-                        "date": "2026-05-10",
-                        "num_rounds": 5,
-                        "rounds": 5,
-                        "placement": 5,
-                        "finish": 5,
-                        "total_players": 96,
-                        "wins": 4,
-                        "losses": 1,
-                        "draws": 0,
-                        "registered_faction": "Space Marines",
-                        "faction": "Space Marines",
-                        "is_gt": True
-                    },
-                    {
-                        "event_id": "ev_pnw_gt_2026",
-                        "event_name": "Pacific Northwest GT 2026",
-                        "event_date": "2026-06-15",
-                        "date": "2026-06-15",
-                        "num_rounds": 5,
-                        "rounds": 5,
-                        "placement": 1,
-                        "finish": 1,
-                        "total_players": 56,
-                        "wins": 5,
-                        "losses": 0,
-                        "draws": 0,
-                        "registered_faction": "Necrons",
-                        "faction": "Necrons",
-                        "is_gt": True
-                    },
-                    {
-                        "event_id": "ev_dicehead_rtt_2026",
-                        "event_name": "Dicehead Spring RTT 2026",
-                        "event_date": "2026-03-22",
-                        "date": "2026-03-22",
-                        "num_rounds": 3,
-                        "rounds": 3,
-                        "placement": 1,
-                        "finish": 1,
-                        "total_players": 24,
-                        "wins": 3,
-                        "losses": 0,
-                        "draws": 0,
-                        "registered_faction": "Space Marines",
-                        "faction": "Space Marines",
-                        "is_gt": False
-                    },
-                    {
-                        "event_id": "ev_active_lvo_2026",
-                        "event_name": "LVO 2026 Warhammer 40K Champs",
-                        "event_date": "2026-01-18",
-                        "date": "2026-01-18",
-                        "rounds": 5,
-                        "finish": 4,
-                        "total_players": 128,
-                        "is_gt": True
-                    }
-                ],
-                "upcoming_events": [],
-                "bcp_linked": True,
-                "is_bcp_connected": True,
-                "registered_tournaments": [
-                    {
-                        "id": "ev_active_lvo_2026",
-                        "bcp_event_id": "ev_active_lvo_2026",
-                        "event_name": "LVO 2026 Warhammer 40K Champs",
-                        "event_date": "2026-11-18",
-                        "city": "Las Vegas",
-                        "state": "NV",
-                        "checked_in": True,
-                        "faction": "Necrons",
-                        "detachment": "Canoptek Court",
-                        "has_list_submitted": True,
-                        "points_limit": 2000,
-                        "rounds": 5
-                    }
-                ]
-            }
+                    "matchup_matrix": [
+                        {"enemy_faction": f1, "total_encounters": 7, "wins": 5, "losses": 2, "draws": 0, "win_rate": 71.4},
+                        {"enemy_faction": f2, "total_encounters": 6, "wins": 5, "losses": 1, "draws": 0, "win_rate": 83.3},
+                        {"enemy_faction": f3, "total_encounters": 5, "wins": 4, "losses": 1, "draws": 0, "win_rate": 80.0},
+                        {"enemy_faction": f4, "total_encounters": 4, "wins": 1, "losses": 3, "draws": 0, "win_rate": 25.0},
+                        {"enemy_faction": f5, "total_encounters": 3, "wins": 2, "losses": 1, "draws": 0, "win_rate": 66.7}
+                    ],
+                    "faction_mastery": [
+                        {"faction": f0, "games": wins_v, "wins": max(1, wins_v - 4), "losses": 4, "draws": 0, "win_rate": round((max(1, wins_v - 4) * 100.0) / max(1, wins_v), 1), "avg_score": 28.5 if req_dash_sys == "aos" else 74.0},
+                        {"faction": f1, "games": losses_v, "wins": 4, "losses": max(1, losses_v - 4), "draws": 0, "win_rate": round((400.0) / max(4, losses_v), 1), "avg_score": 24.0 if req_dash_sys == "aos" else 66.5}
+                    ],
+                    "history": [
+                        {"match_date": "2026-05-10", "event_id": f"ev_atlanta_{req_dash_sys}_2026", "event_name": f"{dash_label} Open Atlanta", "round": 1, "result": "W", "player_score": 32 if req_dash_sys == "aos" else 82, "opponent_score": 18 if req_dash_sys == "aos" else 48, "player_faction": f0, "opponent_name": "Julian Blackwood", "opponent_elo": 1730.0, "opponent_faction": f1, "delta_elo": 12.5, "new_elo": round(cur_elo - 28.0, 1)},
+                        {"match_date": "2026-06-14", "event_id": f"ev_lso_{req_dash_sys}_2026", "event_name": f"Lone Star {dash_short} Open 2026", "round": 2, "result": "L", "player_score": 19 if req_dash_sys == "aos" else 54, "opponent_score": 28 if req_dash_sys == "aos" else 79, "player_faction": f0, "opponent_name": "Kieran Mercer", "opponent_elo": 1895.0, "opponent_faction": f4, "delta_elo": -9.5, "new_elo": round(cur_elo - 37.5, 1)},
+                        {"match_date": "2026-07-20", "event_id": f"ev_tacoma_gt_{req_dash_sys}_2026", "event_name": f"US Open Tacoma {dash_short} GT 2026", "round": 3, "result": "W", "player_score": 30 if req_dash_sys == "aos" else 88, "opponent_score": 20 if req_dash_sys == "aos" else 56, "player_faction": f0, "opponent_name": "Devon Thorne", "opponent_elo": 1765.0, "opponent_faction": f2, "delta_elo": 14.0, "new_elo": round(cur_elo - 23.5, 1)},
+                        {"match_date": "2026-08-01", "event_id": f"ev_bayarea_{req_dash_sys}_2026", "event_name": f"Bay Area {dash_short} Cup 2026", "round": 4, "result": "W", "player_score": 34 if req_dash_sys == "aos" else 90, "opponent_score": 16 if req_dash_sys == "aos" else 60, "player_faction": f0, "opponent_name": "Soren Kovacs", "opponent_elo": 1810.0, "opponent_faction": f3, "delta_elo": 11.5, "new_elo": round(cur_elo - 12.0, 1)},
+                        {"match_date": "2026-09-02", "event_id": f"ev_tacoma_{req_dash_sys}_2026", "event_name": f"US Open Tacoma {dash_short} Major 2026", "round": 5, "result": "W", "player_score": 36 if req_dash_sys == "aos" else 94, "opponent_score": 22 if req_dash_sys == "aos" else 64, "player_faction": f1, "opponent_name": "Lucas Lindqvist", "opponent_elo": 1920.0, "opponent_faction": f2, "delta_elo": 12.0, "new_elo": cur_elo}
+                    ],
+                    "tracker_history": [
+                        {"session_id": f"trk_{req_dash_sys}_01", "game_system": "aos", "date": "2026-03-14", "completed": True, "player_score": 32, "opponent_score": 22, "final_round": 5, "rounds_completed": 5, "secondary_points": 10, "mode": "competitive"}
+                    ] if req_dash_sys == "aos" else [],
+                    "army_lists": [
+                        {"id": f"list_{req_dash_sys}_01", "name": f"2026 {f0} Vanguard", "game_system": req_dash_sys, "faction": f0, "points": 2000 if req_dash_sys == "aos" else 1000, "created_at": "2026-02-10T12:00:00Z"}
+                    ],
+                    "active_sessions": [],
+                    "events_attended": [
+                        {"event_id": f"ev_tacoma_{req_dash_sys}_2026", "event_name": f"US Open Tacoma {dash_short} Major 2026", "event_date": "2026-09-02", "date": "2026-09-02", "num_rounds": 5, "rounds": 5, "placement": 1, "finish": 1, "total_players": 64, "wins": 5, "losses": 0, "draws": 0, "registered_faction": f1, "faction": f1, "is_gt": True, "game_system": req_dash_sys},
+                        {"event_id": f"ev_bayarea_{req_dash_sys}_2026", "event_name": f"Bay Area {dash_short} Cup 2026", "event_date": "2026-08-01", "date": "2026-08-01", "num_rounds": 5, "rounds": 5, "placement": 2, "finish": 2, "total_players": 48, "wins": 4, "losses": 1, "draws": 0, "registered_faction": f0, "faction": f0, "is_gt": True, "game_system": req_dash_sys},
+                        {"event_id": f"ev_tacoma_gt_{req_dash_sys}_2026", "event_name": f"US Open Tacoma {dash_short} GT 2026", "event_date": "2026-07-20", "date": "2026-07-20", "num_rounds": 5, "rounds": 5, "placement": 3, "finish": 3, "total_players": 40, "wins": 4, "losses": 1, "draws": 0, "registered_faction": f0, "faction": f0, "is_gt": True, "game_system": req_dash_sys},
+                        {"event_id": f"ev_lso_{req_dash_sys}_2026", "event_name": f"Lone Star {dash_short} Open 2026", "event_date": "2026-06-14", "date": "2026-06-14", "num_rounds": 5, "rounds": 5, "placement": 6, "finish": 6, "total_players": 72, "wins": 4, "losses": 1, "draws": 0, "registered_faction": f0, "faction": f0, "is_gt": True, "game_system": req_dash_sys},
+                        {"event_id": f"ev_atlanta_{req_dash_sys}_2026", "event_name": f"{dash_label} Open Atlanta", "event_date": "2026-05-10", "date": "2026-05-10", "num_rounds": 4, "rounds": 4, "placement": 2, "finish": 2, "total_players": 32, "wins": 3, "losses": 1, "draws": 0, "registered_faction": f0, "faction": f0, "is_gt": True, "game_system": req_dash_sys}
+                    ],
+                    "upcoming_events": [],
+                    "bcp_linked": True,
+                    "is_bcp_connected": True,
+                    "registered_tournaments": [
+                        {
+                            "id": f"ev_active_lvo_{req_dash_sys}_2026",
+                            "bcp_event_id": f"ev_active_lvo_{req_dash_sys}_2026",
+                            "event_name": f"LVO 2026 {dash_label} Champs",
+                            "event_date": "2026-11-18",
+                            "city": "Las Vegas",
+                            "state": "NV",
+                            "checked_in": True,
+                            "faction": f0,
+                            "detachment": f"{f0} Core",
+                            "has_list_submitted": True,
+                            "points_limit": 2000 if req_dash_sys == "aos" else 1000,
+                            "rounds": 5 if req_dash_sys == "aos" else 4,
+                            "game_system": req_dash_sys
+                        }
+                    ]
+                }
             import badges
             req_game_sys = query_params.get("game_system", ["40k"])[0].lower() if "query_params" in locals() else "40k"
             user_pinned = DEV_USER.get("pinned_badges") if isinstance(DEV_USER, dict) else None
@@ -7935,15 +8083,21 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            is_aos = "game_system=aos" in query_str
-            is_grouped = "grouped=true" in query_str or "grouped=1" in query_str
+            from config import normalize_game_system, get_game_system_meta
             from database import PostgresDatabase
-            data = PostgresDatabase.get_factions(game_system="aos" if is_aos else "40k", grouped=is_grouped)
+            sys_val = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
+            is_grouped = "grouped=true" in query_str or "grouped=1" in query_str
+            data = PostgresDatabase.get_factions(game_system=sys_val, grouped=is_grouped)
+            if not data and sys_val not in ("40k", "aos"):
+                meta = get_game_system_meta(sys_val)
+                dev_facs = _get_dev_system_factions(sys_val, meta.get("label", ""))
+                data = [{"group": "Factions", "factions": dev_facs}] if is_grouped else dev_facs
             self.wfile.write(json.dumps(data).encode("utf-8"))
             return
 
         if clean_path.startswith("api/factions/meta"):
-            sys_val = "aos" if "game_system=aos" in query_str else "40k"
+            from config import normalize_game_system, get_game_system_meta
+            sys_val = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
             if sys_val == "aos":
                 f_list = [
                     {"faction": "Stormcast Eternals", "win_rate": 56.4, "non_mirror_win_rate": 56.8, "total_matches": 420, "wins": 237, "losses": 183, "draws": 0, "meta_share": 18.2, "ci_margin": 3.8, "unique_pilots": 112, "x0_runs": 14, "x1_runs": 28, "tiwp_rate": 12.5, "over_rep_ratio": 1.38, "avg_score": 31.8, "avg_opp_score": 25.4, "avg_margin": 6.4, "tier": "S", "tier_label": "Overperforming (55%+)", "best_matchup": {"faction": "Skaven", "win_rate": 63.2, "matches": 38}, "worst_matchup": {"faction": "Nighthaunt", "win_rate": 46.2, "matches": 26}},
@@ -7955,6 +8109,46 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     {"month": "2026-06", "faction": "Stormcast Eternals", "win_rate": 55.0, "matches_in_month": 40, "meta_share": 17.5},
                     {"month": "2026-07", "faction": "Stormcast Eternals", "win_rate": 56.2, "matches_in_month": 42, "meta_share": 18.0},
                     {"month": "2026-08", "faction": "Stormcast Eternals", "win_rate": 56.4, "matches_in_month": 45, "meta_share": 18.2}
+                ]
+            elif sys_val != "40k":
+                meta = get_game_system_meta(sys_val)
+                dev_facs = _get_dev_system_factions(sys_val, meta.get("label", ""))
+                sample_wrs = [55.8, 53.6, 51.9, 50.4, 48.9, 47.2]
+                f_list = []
+                for idx, fac_nm in enumerate(dev_facs[:6]):
+                    wr = sample_wrs[idx % len(sample_wrs)]
+                    tot_m = max(40, 220 - idx * 28)
+                    wins_c = int(round(tot_m * wr / 100.0))
+                    losses_c = tot_m - wins_c
+                    best_opp = dev_facs[(idx + 1) % len(dev_facs)]
+                    worst_opp = dev_facs[(idx + 2) % len(dev_facs)]
+                    f_list.append({
+                        "faction": fac_nm,
+                        "win_rate": wr,
+                        "non_mirror_win_rate": round(wr + 0.3, 1),
+                        "total_matches": tot_m,
+                        "wins": wins_c,
+                        "losses": losses_c,
+                        "draws": 0,
+                        "meta_share": round(100.0 / max(1, len(dev_facs[:6])), 1),
+                        "ci_margin": 3.5,
+                        "unique_pilots": max(15, tot_m // 3),
+                        "x0_runs": max(2, 10 - idx * 2),
+                        "x1_runs": max(5, 22 - idx * 3),
+                        "tiwp_rate": round(max(4.5, 12.8 - idx * 1.4), 1),
+                        "over_rep_ratio": round(max(0.82, 1.36 - idx * 0.11), 2),
+                        "avg_score": round(18.5 - idx * 0.6, 1),
+                        "avg_opp_score": round(14.2 + idx * 0.4, 1),
+                        "avg_margin": round(4.3 - idx * 1.0, 1),
+                        "tier": "S" if wr >= 55.0 else ("A" if wr >= 50.0 else "B"),
+                        "tier_label": "Overperforming (55%+)" if wr >= 55.0 else ("Balanced High (50-55%)" if wr >= 50.0 else "Balanced Low (45-50%)"),
+                        "best_matchup": {"faction": best_opp, "win_rate": 61.5, "matches": 18},
+                        "worst_matchup": {"faction": worst_opp, "win_rate": 43.8, "matches": 16},
+                    })
+                trends = [
+                    {"month": "2026-06", "faction": dev_facs[0], "win_rate": 54.5, "matches_in_month": 28, "meta_share": 18.0},
+                    {"month": "2026-07", "faction": dev_facs[0], "win_rate": 55.2, "matches_in_month": 32, "meta_share": 18.5},
+                    {"month": "2026-08", "faction": dev_facs[0], "win_rate": 55.8, "matches_in_month": 36, "meta_share": 19.0},
                 ]
             else:
                 f_list = [
@@ -7973,18 +8167,20 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     {"month": "2026-08", "faction": "Necrons", "win_rate": 53.2, "matches_in_month": 150, "meta_share": 8.1}
                 ]
 
+            most_pop_fac = max(f_list, key=lambda x: x.get("total_matches", 0)) if f_list else {"faction": "Unknown", "meta_share": 0.0, "total_matches": 0, "win_rate": 0.0, "unique_pilots": 0}
+            top_win_fac = max(f_list, key=lambda x: x.get("x0_runs", 0)) if f_list else {"faction": "Unknown", "x0_runs": 0, "x1_runs": 0, "tiwp_rate": 0.0, "over_rep_ratio": 1.0, "win_rate": 0.0}
             summary_kpis = {
-                "total_matches": 14820,
-                "total_appearances": 29640,
-                "total_pilots": 4105,
-                "total_x0_runs": 127,
-                "total_x1_runs": 340,
+                "total_matches": sum(x["total_matches"] for x in f_list) if sys_val != "40k" else 14820,
+                "total_appearances": sum(x["total_matches"] for x in f_list) * 2 if sys_val != "40k" else 29640,
+                "total_pilots": sum(x["unique_pilots"] for x in f_list) if sys_val != "40k" else 4105,
+                "total_x0_runs": sum(x["x0_runs"] for x in f_list) if sys_val != "40k" else 127,
+                "total_x1_runs": sum(x["x1_runs"] for x in f_list) if sys_val != "40k" else 340,
                 "active_factions": len(f_list),
                 "goldilocks_count": sum(1 for x in f_list if 45.0 <= x["win_rate"] <= 55.0),
                 "goldilocks_pct": round(sum(1 for x in f_list if 45.0 <= x["win_rate"] <= 55.0) * 100.0 / len(f_list), 1),
-                "most_popular": {"faction": "Space Marines", "meta_share": 14.2, "total_matches": 2100, "win_rate": 51.5, "unique_pilots": 1120},
+                "most_popular": {"faction": "Space Marines", "meta_share": 14.2, "total_matches": 2100, "win_rate": 51.5, "unique_pilots": 1120} if sys_val == "40k" else {"faction": most_pop_fac["faction"], "meta_share": most_pop_fac["meta_share"], "total_matches": most_pop_fac["total_matches"], "win_rate": most_pop_fac["win_rate"], "unique_pilots": most_pop_fac["unique_pilots"]},
                 "highest_win_rate": {"faction": f_list[0]["faction"], "win_rate": f_list[0]["win_rate"], "non_mirror_win_rate": f_list[0].get("non_mirror_win_rate", f_list[0]["win_rate"]), "total_matches": f_list[0]["total_matches"], "meta_share": f_list[0].get("meta_share", 5.0)},
-                "top_event_winner": {"faction": "Adeptus Custodes", "x0_runs": 33, "x1_runs": 71, "tiwp_rate": 11.4, "over_rep_ratio": 1.80, "win_rate": 52.8},
+                "top_event_winner": {"faction": "Adeptus Custodes", "x0_runs": 33, "x1_runs": 71, "tiwp_rate": 11.4, "over_rep_ratio": 1.80, "win_rate": 52.8} if sys_val == "40k" else {"faction": top_win_fac["faction"], "x0_runs": top_win_fac["x0_runs"], "x1_runs": top_win_fac["x1_runs"], "tiwp_rate": top_win_fac["tiwp_rate"], "over_rep_ratio": top_win_fac["over_rep_ratio"], "win_rate": top_win_fac["win_rate"]},
                 "highest_vp_margin": {"faction": f_list[0]["faction"], "avg_margin": f_list[0].get("avg_margin", 9.2), "avg_score": f_list[0].get("avg_score", 78.4), "avg_opp_score": f_list[0].get("avg_opp_score", 69.2), "win_rate": f_list[0]["win_rate"]},
             }
 
@@ -7993,6 +8189,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps({
+                    "game_system": sys_val,
                     "factions": f_list,
                     "monthly_trends": trends,
                     "summary_kpis": summary_kpis,
@@ -8003,8 +8200,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path.startswith("api/faction/"):
+            from config import normalize_game_system
             fname = urllib.parse.unquote(clean_path.replace("api/faction/", "").strip("/"))
-            sys_val = "aos" if "game_system=aos" in query_str else "40k"
+            sys_val = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
             tf_val = "1yr"
             for cand_tf in ("30d", "3mo", "6mo", "1yr", "all"):
                 if f"timeframe={cand_tf}" in query_str:

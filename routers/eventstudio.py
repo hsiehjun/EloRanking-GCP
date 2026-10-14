@@ -21,7 +21,8 @@ from core import (
     BestCoastPairingsScraper, _decode_jwt_payload, init_tracker_room_from_chat, _roster_cache, extras,
     DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR, MIN_MATCHES_FOR_RANKING,
     BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT, GOOGLE_MAPS_API_KEY,
-    TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id
+    TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id,
+    resolve_event_game_system, get_bcp_game_system_id, normalize_game_system
 )
 
 try:
@@ -1076,7 +1077,7 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
         "organizer_id": user_id,
         "organizer_bcp_id": bcp_user_id,
         "game_system_id": game_sys,
-        "game_system": "aos" if (game_sys == AOS_GAME_SYSTEM_ID or game_sys in ("23qDprPABN", "OY8FCPBf6O")) else "40k",
+        "game_system": resolve_event_game_system({"gameSystemId": game_sys, "name": payload.name}, default_system="40k"),
         "using_online_reg": bool(payload.using_online_reg),
         "num_tickets": int(payload.num_tickets or payload.capacity or 32),
         "ticket_price": float(payload.ticket_price or 0.0),
@@ -1438,8 +1439,8 @@ def api_eventstudio_search_locations(q: str = Query("")):
 
 @router.get("/api/eventstudio/circuits", summary="Get available Warhammer circuits from BCP")
 def api_eventstudio_get_circuits(request: Request, game_system: Optional[str] = Query("40k")):
-    target_sys = (game_system or "40k").strip().lower()
-    bcp_sys_id = AOS_GAME_SYSTEM_ID if target_sys == "aos" else DEFAULT_GAME_SYSTEM_ID
+    target_sys = normalize_game_system(game_system or "40k", default="40k")
+    bcp_sys_id = get_bcp_game_system_id(target_sys)
     try:
         import urllib.request, json
         url = f"{BCP_API_BASE}/leagues?limit=50&gameSystemId={bcp_sys_id}&active=true"

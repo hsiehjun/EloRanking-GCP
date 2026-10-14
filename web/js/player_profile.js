@@ -197,7 +197,7 @@ async function openPlayerProfilePage(playerId, gameSystem = '', options = {}, pl
       <div class="empty-state" style="padding: 4rem 1rem;">
         <div class="spinner"></div>
         <div style="margin-top: 1rem; font-weight: 600; color: var(--text-secondary);">
-          Loading ${targetSys === 'aos' ? 'AoS' : '40K'} competitive profile...
+          Loading ${(typeof getGameSystemShortLabel === 'function') ? getGameSystemShortLabel(targetSys) : (targetSys === 'aos' ? 'AoS' : '40K')} competitive profile...
         </div>
       </div>
     `;
@@ -272,8 +272,8 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
 
   const p = data.player || data || {};
   const sys = (gameSystem || '40k').toLowerCase();
-  const sysLabel = (sys === 'aos') ? 'Age of Sigmar' : 'Warhammer 40,000';
-  const sysIcon = (sys === 'aos') ? '⚡' : '⚔️';
+  const sysLabel = (typeof getGameSystemLabel === 'function') ? getGameSystemLabel(sys) : ((sys === 'aos') ? 'Age of Sigmar' : 'Warhammer 40,000');
+  const sysIcon = (typeof getGameSystemIcon === 'function') ? getGameSystemIcon(sys) : ((sys === 'aos') ? '⚡' : '⚔️');
 
   const playerName = (p.player_name && p.player_name !== 'Unknown') ? p.player_name : (p.full_name || 'Player Profile');
   const currentElo = Number(p.current_elo || 1500);
@@ -965,7 +965,7 @@ function updateToggleAllButtonState(containerSelector = '#profile-events-accordi
  */
 function copyPlayerProfileLink(playerId, sys = '', useSmartOgUrl = true) {
   const targetSys = (sys || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
-  const sysLabel = (targetSys === 'aos') ? 'AoS' : '40K';
+  const sysLabel = (typeof getGameSystemShortLabel === 'function') ? getGameSystemShortLabel(targetSys) : ((targetSys === 'aos') ? 'AoS' : '40K');
   const url = useSmartOgUrl
     ? `${window.location.origin}/p/${targetSys}/${encodeURIComponent(playerId)}`
     : `${window.location.origin}/#/${targetSys}/player/${encodeURIComponent(playerId)}`;
@@ -1172,8 +1172,8 @@ function _extractNormalizedShareData(rawData, fallbackPlayerId, sys) {
     playerId,
     playerName,
     sys: (sys || '40k').toLowerCase(),
-    sysLabel: (sys || '40k').toLowerCase() === 'aos' ? 'AGE OF SIGMAR' : 'WARHAMMER 40,000',
-    sysShort: (sys || '40k').toLowerCase() === 'aos' ? 'AoS' : '40K',
+    sysLabel: (typeof getGameSystemLabel === 'function') ? getGameSystemLabel(sys).toUpperCase() : ((sys || '40k').toLowerCase() === 'aos' ? 'AGE OF SIGMAR' : 'WARHAMMER 40,000'),
+    sysShort: (typeof getGameSystemShortLabel === 'function') ? getGameSystemShortLabel(sys) : ((sys || '40k').toLowerCase() === 'aos' ? 'AoS' : '40K'),
     currentElo,
     peakElo,
     wins,

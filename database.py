@@ -22,6 +22,10 @@ try:
         DEFAULT_HEADERS,
         DEFAULT_GAME_SYSTEM_ID,
         AOS_GAME_SYSTEM_ID,
+        BCP_GAME_SYSTEMS_CATALOG,
+        get_bcp_game_system_id,
+        normalize_game_system,
+        resolve_event_game_system,
     )
 except ImportError:
     try:
@@ -30,6 +34,10 @@ except ImportError:
             DEFAULT_HEADERS,
             DEFAULT_GAME_SYSTEM_ID,
             AOS_GAME_SYSTEM_ID,
+            BCP_GAME_SYSTEMS_CATALOG,
+            get_bcp_game_system_id,
+            normalize_game_system,
+            resolve_event_game_system,
         )
     except ImportError:
         try:
@@ -38,6 +46,10 @@ except ImportError:
                 DEFAULT_HEADERS,
                 DEFAULT_GAME_SYSTEM_ID,
                 AOS_GAME_SYSTEM_ID,
+                BCP_GAME_SYSTEMS_CATALOG,
+                get_bcp_game_system_id,
+                normalize_game_system,
+                resolve_event_game_system,
             )
         except ImportError:
             BCP_API_BASE = "https://newprod-api.bestcoastpairings.com/v1"
@@ -51,6 +63,14 @@ except ImportError:
                 "Referer": "https://www.bestcoastpairings.com/",
             }
             DEFAULT_GAME_SYSTEM_ID = "WGMSzfKFYA"
+            AOS_GAME_SYSTEM_ID = "OY8FCPBf6O"
+            BCP_GAME_SYSTEMS_CATALOG = []
+            def normalize_game_system(val: Optional[str], default: str = "40k") -> str:
+                return (val or default).strip().lower()[:16]
+            def resolve_event_game_system(event_data=None, game_system_id=None, game_system_name=None, default="40k") -> str:
+                return default
+            def get_bcp_game_system_id(slug_or_id: Optional[str], default: str = "WGMSzfKFYA") -> str:
+                return default
 
 try:
     import psycopg2
@@ -193,13 +213,62 @@ class PostgresDatabase:
         }
     ]
 
+    _dynamic_factions_cache_dict: Dict[str, Any] = {}
+
     @classmethod
     def get_factions(cls, game_system: Optional[str] = "40k", grouped: bool = False) -> Any:
-        sys_val = (game_system or "40k").lower().strip()
-        is_aos = sys_val in ("aos", "warhammer_aos")
+        sys_val = normalize_game_system(game_system, default="40k")
+        if sys_val == "40k":
+            return cls.FACTION_40K_GROUPS if grouped else cls.DEFAULT_40K_STATS["factions"]
+        if sys_val == "aos":
+            return cls.FACTION_AOS_GROUPS if grouped else cls.DEFAULT_AOS_STATS["factions"]
+
+        # Dynamic factions for all other BCP game systems (never leak 40k factions)
+        dyn_factions: List[str] = []
+        cached_list = cls.get_cached(cls._dynamic_factions_cache_dict, sys_val, ttl=600)
+        if cached_list is not None:
+            dyn_factions = list(cached_list)
+        else:
+            for p_k in ("90d", "180d", "1yr", "all"):
+                meta_entry = cls.get_cached(cls._faction_meta_cache_dict, f"preset_{p_k}_{sys_val}", ttl=86400)
+                if isinstance(meta_entry, dict) and isinstance(meta_entry.get("factions"), list) and meta_entry["factions"]:
+                    dyn_factions = sorted({
+                        str(f.get("faction") or "").strip()
+                        for f in meta_entry["factions"]
+                        if isinstance(f, dict) and str(f.get("faction") or "").strip()
+                    })
+                    break
+            if not dyn_factions and cls._pool is not None:
+                try:
+                    conn = cls._pool.getconn()
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute("SET LOCAL statement_timeout = '300ms';")
+                            cur.execute(
+                                """
+                                SELECT DISTINCT TRIM(fac) AS faction
+                                FROM (
+                                    SELECT player1_faction AS fac FROM matches WHERE is_done = TRUE AND COALESCE(game_system, '40k') = %s
+                                    UNION ALL
+                                    SELECT player2_faction AS fac FROM matches WHERE is_done = TRUE AND is_bye = FALSE AND COALESCE(game_system, '40k') = %s
+                                ) t
+                                WHERE fac IS NOT NULL AND TRIM(fac) != '' AND LOWER(TRIM(fac)) NOT IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various')
+                                ORDER BY faction ASC
+                                LIMIT 200;
+                                """,
+                                (sys_val, sys_val),
+                            )
+                            dyn_factions = [str(r[0]).strip() for r in cur.fetchall() if r and r[0]]
+                    finally:
+                        cls._pool.putconn(conn)
+                except Exception:
+                    pass
+            if dyn_factions:
+                cls.set_cached(cls._dynamic_factions_cache_dict, sys_val, dyn_factions, max_size=200)
+
         if grouped:
-            return cls.FACTION_AOS_GROUPS if is_aos else cls.FACTION_40K_GROUPS
-        return cls.DEFAULT_AOS_STATS["factions"] if is_aos else cls.DEFAULT_40K_STATS["factions"]
+            return [{"group": "Factions", "factions": dyn_factions}] if dyn_factions else []
+        return dyn_factions
 
     _all_teams_cache = None
     _all_teams_cache_time = 0
@@ -3246,12 +3315,14 @@ class PostgresDatabase:
 
             game_sys_id = event_data.get("gameSystemId", event_data.get("game_system_id"))
             raw_gs = (event_data.get("game_system") or "").strip().lower()
-            if raw_gs:
-                game_sys = raw_gs
-            elif str(game_sys_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O"):
+            if str(game_sys_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O") or raw_gs == "aos":
                 game_sys = "aos"
             else:
-                game_sys = "40k"
+                game_sys = resolve_event_game_system(
+                    event_data,
+                    game_system_id=str(game_sys_id) if game_sys_id else None,
+                    default=normalize_game_system(raw_gs, default="40k") if raw_gs else "40k",
+                )
 
             status_dict = event_data.get("status") if isinstance(event_data.get("status"), dict) else {}
             is_ended_calc = bool(
@@ -4256,8 +4327,21 @@ class PostgresDatabase:
         """Returns dashboard summary counts (ultra-fast cached, resilient to DB latency and thundering herd)."""
         now = time.time()
         raw_key = (game_system or "40k").lower().strip()
-        cache_key = "aos" if raw_key == "aos" else ("all" if raw_key == "all" else "40k")
-        default_stats = PostgresDatabase.DEFAULT_AOS_STATS if cache_key == "aos" else PostgresDatabase.DEFAULT_40K_STATS
+        cache_key = "all" if raw_key == "all" else normalize_game_system(raw_key, default="40k")
+        if cache_key == "aos":
+            default_stats = PostgresDatabase.DEFAULT_AOS_STATS
+        elif cache_key in ("40k", "all"):
+            default_stats = PostgresDatabase.DEFAULT_40K_STATS
+        else:
+            default_stats = {
+                "total_players": 0,
+                "total_matches": 0,
+                "total_events": 0,
+                "top_player_name": "N/A",
+                "top_player_elo": 1500.0,
+                "factions": [],
+                "game_system": cache_key,
+            }
 
         if not hasattr(PostgresDatabase, "_stats_cache_map"):
             PostgresDatabase._stats_cache_map = {}
@@ -4339,9 +4423,15 @@ class PostgresDatabase:
 
                     top_query = f"SELECT player_name, current_elo FROM player_ratings {where_pr_top} ORDER BY current_elo DESC LIMIT 1;"
                     cursor.execute(top_query, tuple(params_sys))
-                    top_p = cursor.fetchone() or {"player_name": default_stats["top_player_name"], "current_elo": default_stats["top_player_elo"]}
+                    top_p = cursor.fetchone()
+                    if not top_p and cache_key not in ("40k", "aos", "all"):
+                        where_pr_any = where_pr_top.replace("matches_played >= 3", "matches_played >= 1")
+                        cursor.execute(f"SELECT player_name, current_elo FROM player_ratings {where_pr_any} ORDER BY current_elo DESC LIMIT 1;", tuple(params_sys))
+                        top_p = cursor.fetchone()
+                    if not top_p:
+                        top_p = {"player_name": default_stats["top_player_name"], "current_elo": default_stats["top_player_elo"]}
 
-                    factions = default_stats["factions"]
+                    factions = default_stats["factions"] if cache_key in ("40k", "aos", "all") else PostgresDatabase.get_factions(cache_key)
 
                     res = {
                         "total_players": total_players,
@@ -6297,7 +6387,7 @@ class PostgresDatabase:
         """Returns computed average Elo, top seed Elo, and rated player count for a list of event IDs based on enrolled participants."""
         if not event_ids:
             return {}
-        target_sys = "aos" if (game_system or "").lower() == "aos" else "40k"
+        target_sys = normalize_game_system(game_system, default="40k")
         is_mock_self = type(self).__module__.startswith("unittest.mock")
         result: Dict[str, Dict[str, Any]] = {}
         missing_ids: List[str] = []
@@ -7115,7 +7205,9 @@ class PostgresDatabase:
     ) -> List[Dict[str, Any]]:
         """Returns precomputed/cached Global or Regional ITC Rankings in <15ms using L1 memory + L2 seed/DB + SWR multi-page BCP sync."""
         now = time.time()
-        sys_key = "aos" if str(game_system or "40k").strip().lower() == "aos" else "40k"
+        sys_key = normalize_game_system(game_system, default="40k")
+        if sys_key not in ("40k", "aos"):
+            return []
         ptype = "team" if str(category or "players").strip().lower() in ("team", "teams", "club", "clubs") else "player"
         reg_id = self._normalize_itc_region_id(region_id)
         cache_key = f"{sys_key}:{ptype}:{reg_id}"
@@ -7251,7 +7343,7 @@ class PostgresDatabase:
         offset = (page - 1) * page_size
 
         reg_id = self._normalize_itc_region_id(region_id)
-        sys_norm = "aos" if str(game_system or "40k").strip().lower() == "aos" else "40k"
+        sys_norm = normalize_game_system(game_system, default="40k")
         is_teams = str(category or "players").strip().lower() in ("team", "teams", "club", "clubs")
         ptype = "team" if is_teams else "player"
         cache_key = f"{sys_norm}:{ptype}:{reg_id}"
@@ -10144,8 +10236,8 @@ class PostgresDatabase:
                                    COUNT(DISTINCT player_id) AS unique_pilots,
                                    COUNT(DISTINCT CASE WHEN event_id != 'no_ev' THEN event_id END) AS events_played,
                                    COUNT(*) FILTER (WHERE event_id != 'no_ev' AND games_in_event >= 3) AS event_runs_count,
-                                   COUNT(*) FILTER (WHERE event_id != 'no_ev' AND games_in_event >= 4 AND losses_in_event = 0 AND draws_in_event = 0) AS x0_runs,
-                                   COUNT(*) FILTER (WHERE event_id != 'no_ev' AND games_in_event >= 4 AND losses_in_event <= 1 AND wins_in_event >= 3) AS x1_runs
+                                   COUNT(*) FILTER (WHERE event_id != 'no_ev' AND games_in_event >= {4 if sys_norm in ('40k', 'aos') else 3} AND losses_in_event = 0 AND draws_in_event = 0) AS x0_runs,
+                                   COUNT(*) FILTER (WHERE event_id != 'no_ev' AND games_in_event >= {4 if sys_norm in ('40k', 'aos') else 3} AND losses_in_event <= 1 AND wins_in_event >= {3 if sys_norm in ('40k', 'aos') else 2}) AS x1_runs
                             FROM event_runs
                             GROUP BY faction
                         ),
@@ -13013,14 +13105,16 @@ class PostgresDatabase:
         
         game_system_id = event_data.get("game_system_id") or event_data.get("gameSystemId")
         raw_gs = (event_data.get("game_system") or "").strip().lower()
-        if raw_gs:
-            game_system = raw_gs
-        elif str(game_system_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O"):
+        if str(game_system_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O") or raw_gs == "aos":
             game_system = "aos"
         else:
-            game_system = "40k"
+            game_system = resolve_event_game_system(
+                event_data,
+                game_system_id=str(game_system_id) if game_system_id else None,
+                default=normalize_game_system(raw_gs, default="40k") if raw_gs else "40k",
+            )
         if not game_system_id:
-            game_system_id = AOS_GAME_SYSTEM_ID if game_system == "aos" else "WGMSzfKFYA"
+            game_system_id = AOS_GAME_SYSTEM_ID if game_system == "aos" else get_bcp_game_system_id(game_system)
 
         roster_json = json.dumps(event_data.get("roster") or [], default=str)
         pairings_json = json.dumps(event_data.get("pairings") or {}, default=str)
@@ -13202,25 +13296,25 @@ class PostgresDatabase:
         """No-op: NewRecruit is the single source of truth; backend DB never stores army lists."""
         return True
 
-    def get_user_registered_tournaments(self, user_id: str) -> List[Dict[str, Any]]:
+    def get_user_registered_tournaments(self, user_id: str, game_system: Optional[str] = None) -> List[Dict[str, Any]]:
         """Retrieves active/upcoming registered tournaments for a user by querying events and event_participants."""
         if not user_id:
             return []
         try:
-            return self._query_user_registered_tournaments(user_id)
+            return self._query_user_registered_tournaments(user_id, game_system=game_system)
         except Exception as e:
             err_str = str(e).lower()
             if "detachment" in err_str or "army_list" in err_str or "has_list_submitted" in err_str or "bcp_player_id" in err_str or "army_id" in err_str or "sub_faction_id" in err_str or "undefinedcolumn" in err_str:
                 self._ensure_event_participant_columns()
                 try:
-                    return self._query_user_registered_tournaments(user_id)
+                    return self._query_user_registered_tournaments(user_id, game_system=game_system)
                 except Exception as retry_err:
                     logger.error(f"Failed to query registered tournaments after column check: {retry_err}")
                     return []
             logger.error(f"get_user_registered_tournaments error: {e}")
             return []
 
-    def _query_user_registered_tournaments(self, user_id: str) -> List[Dict[str, Any]]:
+    def _query_user_registered_tournaments(self, user_id: str, game_system: Optional[str] = None) -> List[Dict[str, Any]]:
         target_pids = [user_id]
         try:
             with self.get_connection() as conn:
@@ -13247,6 +13341,7 @@ class PostgresDatabase:
                     e.name,
                     e.event_date,
                     e.end_date,
+                    COALESCE(e.game_system, '40k') AS game_system,
                     COALESCE(e.venue_name, e.venue, '') AS venue_name,
                     COALESCE(e.city, '') AS city,
                     COALESCE(e.state, '') AS state,
@@ -13317,7 +13412,14 @@ class PostgresDatabase:
                             existing["bcp_player_id"] = item["bcp_player_id"]
                         if item.get("player_id") and not existing.get("player_id"):
                             existing["player_id"] = item["player_id"]
-                return list(by_event.values())
+                results = list(by_event.values())
+                if game_system:
+                    target_sys = normalize_game_system(game_system, default="40k")
+                    results = [
+                        item for item in results
+                        if normalize_game_system(item.get("game_system") or "40k", default="40k") == target_sys
+                    ]
+                return results
 
     def get_user_hosted_tournaments(self, user_id: str, bcp_user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Retrieves tournaments hosted or staffed by the user from the events table."""
@@ -15040,8 +15142,8 @@ class PostgresDatabase:
         if user_lat is None or user_lng is None:
             return []
 
-        target_sys = "aos" if (game_system or "").lower() == "aos" else "40k"
-        bcp_game_sys = AOS_GAME_SYSTEM_ID if target_sys == "aos" else DEFAULT_GAME_SYSTEM_ID
+        target_sys = normalize_game_system(game_system, default="40k")
+        bcp_game_sys = AOS_GAME_SYSTEM_ID if target_sys == "aos" else get_bcp_game_system_id(target_sys)
 
         effective_radius = max(5, int(round(radius_miles)))
         cache_key = (
@@ -15329,7 +15431,7 @@ class PostgresDatabase:
         - Local community leaderboard derived exclusively from competitors who played in those tournaments
         - Local competitors discovered via tournament participation
         """
-        target_sys = "aos" if (game_system or "").lower() == "aos" else "40k"
+        target_sys = normalize_game_system(game_system, default="40k")
         try:
             radius_miles = float(radius_miles or 50.0)
         except (ValueError, TypeError):

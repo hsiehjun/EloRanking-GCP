@@ -312,7 +312,9 @@ function renderTeamProfilePage(data, sys) {
   const losses = stats.total_losses || 0;
   const draws = stats.total_draws || 0;
   const isAos = sys === 'aos';
-  const systemLabel = isAos ? '⚡ Age of Sigmar' : '⚔️ Warhammer 40,000';
+  const sysIcon = (typeof getGameSystemIcon === 'function') ? getGameSystemIcon(sys) : (isAos ? '⚡' : '⚔️');
+  const sysName = (typeof getGameSystemLabel === 'function') ? getGameSystemLabel(sys) : (isAos ? 'Age of Sigmar' : 'Warhammer 40,000');
+  const systemLabel = `${sysIcon} ${sysName}`;
   const tierName = isAos ? '💠 LORD-CELESTANT' : '🔥 HIGH WARLORD';
   const championships = data.championships || { total: 0, items: [], top_champions: [], factions_distribution: [] };
   const champCount = championships.total || (Array.isArray(championships.items) ? championships.items.length : 0);

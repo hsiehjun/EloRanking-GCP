@@ -10,14 +10,38 @@ import urllib.request
 from datetime import datetime, timezone, timedelta
 
 try:
-    from google3.experimental.users.hsiehjun.EloRanking.config import BCP_API_BASE, DEFAULT_HEADERS, DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
+    from google3.experimental.users.hsiehjun.EloRanking.config import (
+        BCP_API_BASE,
+        DEFAULT_HEADERS,
+        DEFAULT_GAME_SYSTEM_ID,
+        AOS_GAME_SYSTEM_ID,
+        get_bcp_game_system_id,
+        normalize_game_system,
+        resolve_event_game_system,
+    )
     from google3.experimental.users.hsiehjun.EloRanking.database import Database
 except ImportError:
     try:
-        from experimental.users.hsiehjun.EloRanking.config import BCP_API_BASE, DEFAULT_HEADERS, DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
+        from experimental.users.hsiehjun.EloRanking.config import (
+            BCP_API_BASE,
+            DEFAULT_HEADERS,
+            DEFAULT_GAME_SYSTEM_ID,
+            AOS_GAME_SYSTEM_ID,
+            get_bcp_game_system_id,
+            normalize_game_system,
+            resolve_event_game_system,
+        )
         from experimental.users.hsiehjun.EloRanking.database import Database
     except ImportError:
-        from config import BCP_API_BASE, DEFAULT_HEADERS, DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
+        from config import (
+            BCP_API_BASE,
+            DEFAULT_HEADERS,
+            DEFAULT_GAME_SYSTEM_ID,
+            AOS_GAME_SYSTEM_ID,
+            get_bcp_game_system_id,
+            normalize_game_system,
+            resolve_event_game_system,
+        )
         from database import Database, get_db
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -199,23 +223,24 @@ class BestCoastPairingsScraper:
         self,
         start_date: str,
         end_date: str,
-        game_system_id: str = DEFAULT_GAME_SYSTEM_ID,
+        game_system_id: Optional[str] = DEFAULT_GAME_SYSTEM_ID,
         limit_per_page: int = 50,
         max_events: Optional[int] = None
     ) -> Generator[Dict[str, Any], None, None]:
-        """Paginates through Warhammer 40k events in the given date range."""
+        """Paginates through BCP events in the given date range (for a specific gameSystemId or all game systems if None/'all')."""
         next_key = None
         total_yielded = 0
 
-        logger.info(f"Fetching events from {start_date} to {end_date} for gameSystemId={game_system_id}")
+        logger.info(f"Fetching events from {start_date} to {end_date} for gameSystemId={game_system_id or 'ALL'}")
 
         while True:
             params: Dict[str, Any] = {
                 "limit": limit_per_page,
-                "gameSystemId": game_system_id,
                 "startDate": start_date,
                 "endDate": end_date,
             }
+            if game_system_id and str(game_system_id).lower() not in ("all", "*"):
+                params["gameSystemId"] = game_system_id
             if next_key:
                 params["nextKey"] = next_key
 
@@ -952,12 +977,15 @@ class BestCoastPairingsScraper:
 
         game_sys_id = event_data.get("gameSystemId") or event_data.get("game_system_id") or pairing.get("gameSystemId")
         raw_gs = (event_data.get("game_system") or pairing.get("game_system") or "").strip().lower()
-        if raw_gs:
-            game_system = raw_gs
-        elif str(game_sys_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O"):
+        if str(game_sys_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O") or raw_gs == "aos":
             game_system = "aos"
         else:
-            game_system = "40k"
+            game_system = resolve_event_game_system(
+                event_data,
+                game_system_id=str(game_sys_id) if game_sys_id else None,
+                game_system_name=pairing.get("gameSystemName") or event_data.get("gameSystemName"),
+                default=normalize_game_system(raw_gs, default="40k") if raw_gs else "40k",
+            )
 
         p1_obj = pairing.get("player1") or {}
         p2_obj = pairing.get("player2") or {}
@@ -1194,7 +1222,7 @@ class BestCoastPairingsScraper:
             "is_bye": is_bye,
             "is_done": is_officially_done,
             "game_system": game_system,
-            "game_system_id": game_sys_id or (AOS_GAME_SYSTEM_ID if game_system == "aos" else DEFAULT_GAME_SYSTEM_ID),
+            "game_system_id": game_sys_id or (AOS_GAME_SYSTEM_ID if game_system == "aos" else get_bcp_game_system_id(game_system)),
             "raw_json": pairing,
         }
 
@@ -1220,8 +1248,18 @@ class BestCoastPairingsScraper:
 
         event_data["id"] = event_data.get("id") or event_data.get("objectId") or event_id
         game_sys_id = event_data.get("gameSystemId") or event_data.get("game_system_id")
-        if "game_system" not in event_data:
-            event_data["game_system"] = "aos" if str(game_sys_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O") else "40k"
+        if not game_sys_id and isinstance(fallback_event_data, dict):
+            game_sys_id = fallback_event_data.get("gameSystemId") or fallback_event_data.get("game_system_id")
+            if game_sys_id:
+                event_data["gameSystemId"] = game_sys_id
+        if str(game_sys_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O"):
+            event_data["game_system"] = "aos"
+        else:
+            event_data["game_system"] = resolve_event_game_system(
+                event_data,
+                game_system_id=str(game_sys_id) if game_sys_id else None,
+                default=normalize_game_system(event_data.get("game_system"), default="40k"),
+            )
         self.db.upsert_event(event_data)
 
         # Check team event and fetch team standings
@@ -1388,7 +1426,9 @@ class BestCoastPairingsScraper:
         try:
             gs_filter_sql = ""
             params: List[Any] = [max(7, int(days or 90))]
-            if game_system and game_system not in ("all", "*"):
+            if game_system and str(game_system).lower() in ("other", "others", "non_40k_aos", "all_other"):
+                gs_filter_sql = "AND COALESCE(e.game_system, '40k') NOT IN ('40k', 'aos')"
+            elif game_system and game_system not in ("all", "*"):
                 gs_filter_sql = "AND COALESCE(e.game_system, '40k') = %s"
                 params.append(str(game_system))
             params.append(max(1, int(max_events or 60)))
@@ -1474,6 +1514,61 @@ class BestCoastPairingsScraper:
         logger.info(f"Finished scraping date range [{start_date} to {end_date}] for gameSystemId={game_system_id}: {events_count} events, {matches_count} matches.")
         return {"events_scraped": events_count, "matches_scraped": matches_count}
 
+    def scrape_other_systems_date_range(
+        self,
+        start_date: str,
+        end_date: str,
+        max_events: Optional[int] = None,
+        exclude_system_ids: Optional[List[str]] = None,
+    ) -> Dict[str, int]:
+        """Scrapes BCP events across all non-40k/AoS game systems in a single paginated stream."""
+        excluded = set(
+            exclude_system_ids
+            or [
+                str(DEFAULT_GAME_SYSTEM_ID),
+                "WGMSzfKFYA",
+                "1",
+                "f953V0Iv24",
+                str(AOS_GAME_SYSTEM_ID),
+                "OY8FCPBf6O",
+                "4",
+                "23qDprPABN",
+            ]
+        )
+        events_count = 0
+        matches_count = 0
+
+        for event in self.fetch_events(start_date=start_date, end_date=end_date, game_system_id=None, limit_per_page=100):
+            gs_id = str(
+                event.get("gameSystemId")
+                or event.get("game_system_id")
+                or (event.get("gameSystem") or {}).get("id")
+                or (event.get("gameSystem") or {}).get("objectId")
+                or ""
+            ).strip()
+            if gs_id in excluded:
+                continue
+            resolved_sys = resolve_event_game_system(event, game_system_id=gs_id or None, default="other_games")
+            if resolved_sys in ("40k", "aos"):
+                continue
+            event_id = event.get("id") or event.get("objectId")
+            if not event_id:
+                continue
+            event["game_system"] = resolved_sys
+
+            events_count += 1
+            try:
+                matches = self.scrape_event(event_id, fallback_event_data=event)
+                matches_count += matches
+            except Exception as e:
+                logger.error(f"Error scraping multi-system event {event_id} ({event.get('name')}): {e}")
+
+            if max_events and events_count >= max_events:
+                break
+
+        logger.info(f"Finished scraping non-40k/AoS game systems [{start_date} to {end_date}]: {events_count} events, {matches_count} matches.")
+        return {"events_scraped": events_count, "matches_scraped": matches_count}
+
     def sync_upcoming_events(self, game_system_id: str = DEFAULT_GAME_SYSTEM_ID, max_pages_per_month: int = 15) -> int:
         """Fetches live future upcoming tournaments across multiple monthly windows from Best Coast Pairings API and caches them."""
         now_dt = datetime.now(timezone.utc)
@@ -1506,12 +1601,13 @@ class BestCoastPairingsScraper:
         for start_iso, end_iso in month_windows:
             next_key = None
             for _ in range(max_pages_per_month):
-                params = {
+                params: Dict[str, Any] = {
                     "limit": 50,
-                    "gameSystemId": game_system_id,
                     "startDate": start_iso,
                     "endDate": end_iso
                 }
+                if game_system_id and str(game_system_id).lower() not in ("all", "*"):
+                    params["gameSystemId"] = game_system_id
                 if next_key:
                     params["nextKey"] = next_key
 
@@ -1525,7 +1621,11 @@ class BestCoastPairingsScraper:
 
                 for ev in events:
                     if "game_system" not in ev:
-                        ev["game_system"] = "aos" if str(game_system_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O") else "40k"
+                        ev_gs_id = ev.get("gameSystemId") or ev.get("game_system_id") or game_system_id
+                        if str(ev_gs_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O"):
+                            ev["game_system"] = "aos"
+                        else:
+                            ev["game_system"] = resolve_event_game_system(ev, game_system_id=str(ev_gs_id) if ev_gs_id else None, default="40k")
                     self.db.upsert_event(ev)
                     total_synced += 1
 

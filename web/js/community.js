@@ -517,7 +517,9 @@ function renderCommunityHeader(locInfo) {
   const rad = locInfo?.radius_miles || communityState.radiusMiles || 50;
   const locName = locInfo?.location_name || locInfo?.name || communityState.locationName || 'Your Location';
 
-  const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? 'AoS' : '40K';
+  const gs = (typeof getGameSystemShortLabel === 'function')
+    ? getGameSystemShortLabel(typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')
+    : ((typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? 'AoS' : '40K');
   if (badgeEl) badgeEl.textContent = `📍 ${rad}-Mile Tournament Radius`;
   if (titleEl) titleEl.textContent = `Local ${gs} Scene within ${rad} miles of ${locName}`;
   if (descEl) descEl.textContent = `Local tournaments, sparring radar, game stores, and regional player standings.`;

@@ -6,7 +6,7 @@
   <title>OmniTactica • Tactical Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=112f1b1eb0">
+  <link rel="manifest" href="/manifest.json?v=0347b64a3d">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=112f1b1eb0">
-  <link rel="stylesheet" href="/css/styles.min.css?v=112f1b1eb0">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=112f1b1eb0">
-  <link rel="preload" href="/js/app.bundle.min.js?v=112f1b1eb0" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=0347b64a3d">
+  <link rel="stylesheet" href="/css/styles.min.css?v=0347b64a3d">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=0347b64a3d">
+  <link rel="preload" href="/js/app.bundle.min.js?v=0347b64a3d" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "112f1b1eb0";</script>
+  <script>window.APP_VERSION = "0347b64a3d";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -439,13 +439,27 @@
 
       <!-- User Account Action & Feedback Area -->
       <div class="header-actions-group" style="display: flex; align-items: center; gap: 0.6rem;">
-        <div class="game-system-switcher desktop-only" id="desktop-game-switcher" role="radiogroup" aria-label="Game System">
-          <button type="button" class="game-system-pill active" data-sys="40k" onclick="switchGameSystem('40k')" title="Warhammer 40,000">
-            <span class="sys-icon">⚔️</span> <span class="sys-label">40K</span>
+        <div class="game-system-switcher desktop-only" id="desktop-game-switcher" role="radiogroup" aria-label="Game System" style="position: relative;">
+          <button type="button" id="desktop-game-system-trigger" class="game-system-pill active" onclick="toggleGameSystemPicker(event)" title="Select Game System (118 BCP Game Systems)">
+            <span class="sys-icon" id="desktop-sys-icon">⚔️</span> <span class="sys-label" id="desktop-sys-label">40K</span> <span class="sys-caret" style="font-size:0.65rem; opacity:0.75; margin-left:2px;">▾</span>
           </button>
-          <button type="button" class="game-system-pill" data-sys="aos" onclick="switchGameSystem('aos')" title="Warhammer Age of Sigmar">
-            <span class="sys-icon">⚡</span> <span class="sys-label">AoS</span>
-          </button>
+          <div id="game-system-picker-popover" class="game-system-picker-popover" style="display: none;" onclick="event.stopPropagation();">
+            <div class="game-system-picker-header">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                <span style="font-size:0.7rem; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; color:#94a3b8;">🎮 Game System</span>
+                <span id="game-system-picker-count" style="font-size:0.66rem; font-family:var(--font-mono); color:#64748b;">Sorted by Popularity</span>
+              </div>
+              <input type="text" id="game-system-picker-search" class="game-system-picker-search" placeholder="Search 118 BCP game systems..." oninput="filterGameSystemPicker(this.value)" autocomplete="off">
+            </div>
+            <div id="game-system-picker-list" class="game-system-picker-list">
+              <button type="button" class="game-system-option game-system-pill active" data-sys="40k" onclick="switchGameSystem('40k')" title="Warhammer 40,000">
+                <span class="sys-icon">⚔️</span> <span class="sys-label">40K</span>
+              </button>
+              <button type="button" class="game-system-option game-system-pill" data-sys="aos" onclick="switchGameSystem('aos')" title="Warhammer Age of Sigmar">
+                <span class="sys-icon">⚡</span> <span class="sys-label">AoS</span>
+              </button>
+            </div>
+          </div>
         </div>
         <button id="nav-btn-feedback" onclick="openFeedbackModal()" class="nav-btn" style="padding: 5px 12px; font-size: 0.82rem; display: none; align-items: center; gap: 5px; color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); border-radius: 9999px; background: rgba(15,23,42,0.6); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#38bdf8'; this.style.borderColor='rgba(56,189,248,0.4)';" onmouseout="this.style.color='#94a3b8'; this.style.borderColor='rgba(255,255,255,0.1)';" title="Send Feedback or Report an Issue">
           <span>💬</span> <span style="font-weight: 600;">Feedback</span>
@@ -1882,10 +1896,28 @@
                 <select id="create-event-game-system" class="form-input" style="width: 100%; box-sizing: border-box;" onchange="typeof onGameSystemChange === 'function' && onGameSystemChange()">
                   <option value="WGMSzfKFYA" selected>Warhammer 40k</option>
                   <option value="OY8FCPBf6O">Warhammer: Age of Sigmar</option>
-                  <option value="dJtT7U0Wv2" disabled>Warhammer: The Old World (Coming Soon)</option>
-                  <option value="vyeOD0fcYY" disabled>Kill Team (Coming Soon)</option>
-                  <option value="starwars_legion" disabled>Star Wars: Legion (Coming Soon)</option>
-                  <option value="marvel_cp" disabled>Marvel: Crisis Protocol (Coming Soon)</option>
+                  <option value="vyeOD0fcYY">Kill Team</option>
+                  <option value="dJtT7U0Wv2">Warhammer: The Old World</option>
+                  <option value="6p119129pL">Warhammer: The Horus Heresy</option>
+                  <option value="0b3e76fa-e943-432b-ab14-fd9f8fb0fb1f">Age of Sigmar: Spearhead</option>
+                  <option value="413r539n11">Blood Bowl</option>
+                  <option value="cZ33E3tH2z">Middle-earth Strategy Battle Game</option>
+                  <option value="61c2k9332H">Warhammer Underworlds</option>
+                  <option value="t357b79w24">Warcry</option>
+                  <option value="O3uG413y61">Necromunda</option>
+                  <option value="a93e6be8-d141-4bc9-a9f8-8cd4ebae9c94">Legions Imperialis</option>
+                  <option value="23H1180541">Bolt Action</option>
+                  <option value="3p2L1Z7t8r">Marvel: Crisis Protocol</option>
+                  <option value="4yG2vX6H8p">Star Wars: Legion</option>
+                  <option value="83b0f568-545d-4d04-b082-d7952cd0aa08">Star Wars: Shatterpoint</option>
+                  <option value="a78dfcd4-e8df-40e0-bc5d-8842d5e87a08">Trench Crusade</option>
+                  <option value="5rX9v81b6q">BattleTech (Classic)</option>
+                  <option value="1d2a79f5-82bb-42c3-85cb-b1fd88c99a08">BattleTech: Alpha Strike</option>
+                  <option value="N2vB5tR8yU">Conquest: TLAoK</option>
+                  <option value="8kL3mN6pQ9">Warmachine</option>
+                  <option value="9vX2zB5nM8">Infinity</option>
+                  <option value="4tY7uI0oP3">Malifaux</option>
+                  <option value="7wE0rT3yU6">A Song of Ice and Fire</option>
                 </select>
               </div>
 
@@ -3830,7 +3862,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=112f1b1eb0"></script>
+  <script src="/js/app.bundle.min.js?v=0347b64a3d"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

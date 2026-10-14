@@ -22,7 +22,7 @@ from core import (
     DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR, MIN_MATCHES_FOR_RANKING,
     BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT, GOOGLE_MAPS_API_KEY,
     TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id,
-    normalize_ticket_price
+    normalize_ticket_price, normalize_game_system, get_bcp_game_system_id, get_game_system_meta
 )
 
 router = APIRouter(tags=["Regional Community Hub"])
@@ -158,7 +158,79 @@ def classify_tournament_tier(name: str, total_players: int = 0, num_tickets: int
 def get_fallback_majors(game_system: str) -> List[Dict[str, Any]]:
     """Graceful mock fallback for premier events if BCP network is temporarily unreachable in dev/test."""
     now_utc = datetime.now(timezone.utc)
-    if game_system == "aos":
+    sys_val = normalize_game_system(game_system, default="40k")
+    if sys_val not in ("40k", "aos"):
+        meta = get_game_system_meta(sys_val)
+        sys_label = meta.get("label", sys_val.replace("_", " ").title())
+        return [
+            {
+                "id": f"bcp_{sys_val}_lvo_2026",
+                "name": f"LVO 2026 - {sys_label} Championships",
+                "event_date": (now_utc + timedelta(days=18)).strftime("%Y-%m-%dT09:00:00.000Z"),
+                "end_date": (now_utc + timedelta(days=20)).strftime("%Y-%m-%dT18:00:00.000Z"),
+                "city": "Las Vegas",
+                "state": "NV",
+                "country": "United States",
+                "venue": "Rio All-Suite Hotel & Casino",
+                "total_players": 64,
+                "num_tickets": 96,
+                "circuits": [{"name": f"{sys_label} Premier Series"}],
+                "tier": "major",
+                "tier_badge": "🌟 MAJOR",
+                "tier_color": "#38bdf8",
+                "tier_weight": 3,
+                "countdown_label": "in 18d",
+                "game_system": sys_val,
+                "is_started": False,
+                "is_ended": False,
+                "external_url": f"https://www.bestcoastpairings.com/event/bcp_{sys_val}_lvo_2026"
+            },
+            {
+                "id": f"bcp_{sys_val}_adepticon_2027",
+                "name": f"AdeptiCon 2027 - {sys_label} Open",
+                "event_date": (now_utc + timedelta(days=45)).strftime("%Y-%m-%dT09:00:00.000Z"),
+                "end_date": (now_utc + timedelta(days=47)).strftime("%Y-%m-%dT18:00:00.000Z"),
+                "city": "Schaumburg",
+                "state": "IL",
+                "country": "United States",
+                "venue": "Renaissance Schaumburg Convention Center",
+                "total_players": 48,
+                "num_tickets": 64,
+                "circuits": [{"name": "AdeptiCon Premier"}],
+                "tier": "gt",
+                "tier_badge": "🏆 GRAND TOURNAMENT",
+                "tier_color": "#10b981",
+                "tier_weight": 2,
+                "countdown_label": "in 45d",
+                "game_system": sys_val,
+                "is_started": False,
+                "is_ended": False,
+                "external_url": f"https://www.bestcoastpairings.com/event/bcp_{sys_val}_adepticon_2027"
+            },
+            {
+                "id": f"bcp_{sys_val}_nova_2026",
+                "name": f"NOVA Open 2026 - {sys_label} Grand Tournament",
+                "event_date": (now_utc + timedelta(days=72)).strftime("%Y-%m-%dT09:00:00.000Z"),
+                "end_date": (now_utc + timedelta(days=74)).strftime("%Y-%m-%dT18:00:00.000Z"),
+                "city": "Washington",
+                "state": "DC",
+                "country": "United States",
+                "venue": "Washington Hilton",
+                "total_players": 36,
+                "num_tickets": 48,
+                "circuits": [{"name": "NOVA Open Circuit"}],
+                "tier": "gt",
+                "tier_badge": "🏆 GRAND TOURNAMENT",
+                "tier_color": "#10b981",
+                "tier_weight": 2,
+                "countdown_label": "in 72d",
+                "game_system": sys_val,
+                "is_started": False,
+                "is_ended": False,
+                "external_url": f"https://www.bestcoastpairings.com/event/bcp_{sys_val}_nova_2026"
+            }
+        ]
+    if sys_val == "aos":
         return [
             {
                 "id": "bcp_aos_adepticon_2027",
@@ -419,7 +491,9 @@ def _fetch_bcp_events_window(bcp_game_sys: str, start_iso: str, end_iso: str, li
 
 
 def _refresh_bcp_majors_sync(target_sys: str, days_ahead: int = 180, min_players: int = 28) -> List[Dict[str, Any]]:
-    bcp_game_sys = AOS_GAME_SYSTEM_ID if target_sys == "aos" else DEFAULT_GAME_SYSTEM_ID
+    target_sys = normalize_game_system(target_sys, default="40k")
+    bcp_game_sys = get_bcp_game_system_id(target_sys)
+    eff_min_players = min_players if target_sys in ("40k", "aos") else min(min_players, 12)
     now_ts = time.time()
     now_utc = datetime.now(timezone.utc)
     today_utc_str = now_utc.strftime("%Y-%m-%d")
@@ -525,10 +599,10 @@ def _refresh_bcp_majors_sync(target_sys: str, days_ahead: int = 180, min_players
 
         tier_info = classify_tournament_tier(name, total_players, num_tickets, circuits, num_rounds=num_rounds)
 
-        # Global events must only be weekend large tournaments (GT, Major, Super Major), never RTTs
-        if tier_info["tier"] not in ("super_major", "major", "gt"):
+        # Global events must only be weekend large tournaments (GT, Major, Super Major), or >= 12 players for non-40k/aos systems
+        if target_sys in ("40k", "aos") and tier_info["tier"] not in ("super_major", "major", "gt"):
             continue
-        if total_players < min_players and num_tickets < 48:
+        if total_players < eff_min_players and num_tickets < (48 if target_sys in ("40k", "aos") else 16):
             continue
 
         seen_ids.add(eid)
@@ -623,8 +697,7 @@ def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 
     Uses an in-memory Python RAM cache (2-hour TTL) with stale-while-revalidate for <5ms response latency.
     STRICT POLICY: Zero SQL writes / Zero database mutations.
     """
-    clean_sys = (game_system or "40k").strip().lower()
-    target_sys = "aos" if clean_sys in ("aos", "warhammer_aos") else "40k"
+    target_sys = normalize_game_system(game_system, default="40k")
 
     now_ts = time.time()
     cached = _bcp_majors_cache.get(target_sys)
@@ -656,12 +729,13 @@ def api_community_bcp_majors(
     Returns upcoming and recent past premier Super Majors, Majors, and GTs without spatial radius boundaries.
     100% read-only, backed by 2-hour Python RAM cache. Zero DB mutations.
     """
-    majors = fetch_live_bcp_majors(game_system=game_system, days_ahead=days_ahead)
+    target_sys = normalize_game_system(game_system, default="40k")
+    majors = fetch_live_bcp_majors(game_system=target_sys, days_ahead=days_ahead)
     return {
         "success": True,
         "events": majors,
         "count": len(majors),
-        "game_system": "aos" if (game_system or "").lower() == "aos" else "40k"
+        "game_system": target_sys
     }
 
 _community_field_stats_cache: Dict[str, Dict[str, Any]] = {}
@@ -669,7 +743,7 @@ _community_field_stats_cache: Dict[str, Dict[str, Any]] = {}
 def compute_live_bcp_field_stats(eid: str, db, game_system: Optional[str] = "40k") -> Dict[str, Any]:
     """Fetches live roster from BCP API and computes field avg / top seed Elo without mutating backend DB."""
     try:
-        target_sys = "aos" if (game_system or "").lower() == "aos" else "40k"
+        target_sys = normalize_game_system(game_system, default="40k")
         s = BestCoastPairingsScraper(db=db, request_delay=0.0)
         roster = s.fetch_event_players(eid)
         if not roster:
@@ -786,7 +860,7 @@ async def api_community_events_field_stats(
     game_system: Optional[str] = Query("40k")
 ):
     target_ids: List[str] = []
-    target_sys = "aos" if (game_system or "").lower() == "aos" else "40k"
+    target_sys = normalize_game_system(game_system, default="40k")
     if event_ids:
         target_ids.extend([eid.strip() for eid in event_ids.split(",") if eid.strip()])
     if request.method == "POST":
@@ -794,7 +868,7 @@ async def api_community_events_field_stats(
             body = await request.json()
             if isinstance(body, dict):
                 if body.get("game_system"):
-                    target_sys = "aos" if str(body["game_system"]).strip().lower() == "aos" else "40k"
+                    target_sys = normalize_game_system(body["game_system"], default="40k")
                 t_list = body.get("event_ids") or body.get("ids") or []
                 if isinstance(t_list, list):
                     target_ids.extend([str(x).strip() for x in t_list if str(x).strip()])

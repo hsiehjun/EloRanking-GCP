@@ -22,40 +22,158 @@ if (typeof window !== 'undefined') {
 var activeTab = (typeof window !== 'undefined' && window.activeTab) || 'my-hub';
 if (typeof window !== 'undefined') window.activeTab = activeTab;
 
-// Game system state: '40k' or 'aos'
+// Game system state: '40k', 'aos', or any of the 118 BCP game systems
 var currentGameSystem = (typeof window !== 'undefined' && window.currentGameSystem) || '40k';
 if (typeof window !== 'undefined') window.currentGameSystem = currentGameSystem;
 
 function initGameSystem() {
   const path = (window.location.pathname || '').toLowerCase();
   const params = new URLSearchParams(window.location.search);
-  const querySys = (params.get('game') || params.get('sys') || '').toLowerCase();
+  const querySys = (params.get('game') || params.get('sys') || params.get('game_system') || '').toLowerCase().trim();
   let storedSys = '';
   try {
-    storedSys = (localStorage.getItem('omni_game_system') || '').toLowerCase();
+    storedSys = (localStorage.getItem('omni_game_system') || localStorage.getItem('preferred_game_system') || '').toLowerCase().trim();
   } catch (e) {}
 
   let initialSys = '40k';
   const hash = (window.location.hash || '').toLowerCase();
+  const hashSysMatch = hash.match(/^#\/([a-z0-9_]+)\/(?:player|event|team|league)\b/i);
   if (path.startsWith('/aos') || hash.startsWith('#/aos') || hash.includes('/aos/')) {
     initialSys = 'aos';
   } else if (path.startsWith('/40k') || hash.startsWith('#/40k') || hash.includes('/40k/')) {
     initialSys = '40k';
-  } else if (querySys === 'aos' || querySys === '40k') {
-    initialSys = querySys;
-  } else if (storedSys === 'aos' || storedSys === '40k') {
-    initialSys = storedSys;
+  } else if (hashSysMatch && typeof normalizeGameSystem === 'function') {
+    initialSys = normalizeGameSystem(hashSysMatch[1], '40k');
+  } else if (querySys) {
+    initialSys = (typeof normalizeGameSystem === 'function') ? normalizeGameSystem(querySys, '40k') : ((querySys === 'aos') ? 'aos' : '40k');
+    try { localStorage.setItem('omni_game_system_user_selected', '1'); } catch (e) {}
+  } else if (storedSys) {
+    initialSys = (typeof normalizeGameSystem === 'function') ? normalizeGameSystem(storedSys, '40k') : ((storedSys === 'aos') ? 'aos' : '40k');
   }
 
   applyGameSystem(initialSys, false);
 }
 
+function renderGameSystemPickerList(query = '') {
+  const listEl = document.getElementById('game-system-picker-list');
+  if (!listEl) return;
+  const catalog = (typeof window !== 'undefined' && Array.isArray(window.BCP_GAME_SYSTEMS_CATALOG) && window.BCP_GAME_SYSTEMS_CATALOG.length > 0)
+    ? window.BCP_GAME_SYSTEMS_CATALOG
+    : [
+        { slug: '40k', name: 'Warhammer 40,000', short_label: '40K', icon: '⚔️', popularity_rank: 1, category: 'Games Workshop' },
+        { slug: 'aos', name: 'Warhammer: Age of Sigmar', short_label: 'AoS', icon: '⚡', popularity_rank: 2, category: 'Games Workshop' }
+      ];
+  const q = String(query || '').trim().toLowerCase();
+  const filtered = q
+    ? catalog.filter(item =>
+        (item.name || '').toLowerCase().includes(q) ||
+        (item.short_label || item.short_name || '').toLowerCase().includes(q) ||
+        (item.slug || '').toLowerCase().includes(q) ||
+        (item.category || item.manufacturer || '').toLowerCase().includes(q)
+      )
+    : catalog;
+
+  const countEl = document.getElementById('game-system-picker-count');
+  if (countEl) {
+    countEl.textContent = q ? `${filtered.length} matching` : `${catalog.length} BCP Systems`;
+  }
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `<div style="padding:14px 10px; text-align:center; color:#64748b; font-size:0.78rem;">No game systems matching "${escapeHtml(q)}"</div>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map((item) => {
+    const isAct = item.slug === currentGameSystem;
+    const safeSlug = String(item.slug).replace(/'/g, "\\'");
+    const rankNum = item.popularity_rank || '';
+    return `
+      <button type="button" class="game-system-option game-system-pill ${isAct ? 'active' : ''}" data-sys="${escapeHtml(item.slug)}" onclick="closeGameSystemPicker(); switchGameSystem('${safeSlug}')" title="${escapeHtml(item.name)}">
+        <span style="display:inline-flex; align-items:center; gap:7px; min-width:0; overflow:hidden;">
+          <span class="sys-icon" style="flex-shrink:0; font-size:0.9rem;">${item.icon || '🎮'}</span>
+          <span class="sys-label" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.name)}</span>
+        </span>
+        <span style="display:inline-flex; align-items:center; gap:5px; flex-shrink:0; margin-left:6px;">
+          ${isAct ? '<span style="color:#38bdf8; font-weight:900; font-size:0.75rem;">✓</span>' : `<span style="font-size:0.64rem; color:#64748b; font-family:var(--font-mono);">#${rankNum}</span>`}
+        </span>
+      </button>
+    `;
+  }).join('');
+}
+
+function toggleGameSystemPicker(e) {
+  if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+  const pop = document.getElementById('game-system-picker-popover');
+  if (!pop) return;
+  const isOpen = pop.style.display !== 'none';
+  if (isOpen) {
+    closeGameSystemPicker();
+    return;
+  }
+  const searchInput = document.getElementById('game-system-picker-search');
+  if (searchInput) searchInput.value = '';
+  renderGameSystemPickerList('');
+  pop.style.display = 'flex';
+  if (window.innerWidth <= 768) {
+    pop.classList.add('mobile-open');
+    document.body.appendChild(pop);
+  } else {
+    pop.classList.remove('mobile-open');
+    const switcher = document.getElementById('desktop-game-switcher');
+    if (switcher && pop.parentElement !== switcher) {
+      switcher.appendChild(pop);
+    }
+  }
+  if (searchInput && window.innerWidth > 768) {
+    setTimeout(() => { try { searchInput.focus(); } catch (_) {} }, 30);
+  }
+}
+
+function closeGameSystemPicker() {
+  const pop = document.getElementById('game-system-picker-popover');
+  if (pop) {
+    pop.style.display = 'none';
+    pop.classList.remove('mobile-open');
+  }
+}
+
+function filterGameSystemPicker(query) {
+  renderGameSystemPickerList(query);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', function(e) {
+    const pop = document.getElementById('game-system-picker-popover');
+    if (!pop || pop.style.display === 'none') return;
+    const trigger = document.getElementById('desktop-game-system-trigger');
+    const mobTrigger = document.getElementById('mobile-game-switcher');
+    if (pop.contains(e.target) || (trigger && trigger.contains(e.target)) || (mobTrigger && mobTrigger.contains(e.target))) {
+      return;
+    }
+    closeGameSystemPicker();
+  });
+}
+
 function applyGameSystem(sys, updateUrl = true) {
-  currentGameSystem = (sys === 'aos') ? 'aos' : '40k';
+  currentGameSystem = (typeof normalizeGameSystem === 'function')
+    ? normalizeGameSystem(sys, '40k')
+    : ((sys === 'aos') ? 'aos' : '40k');
   window.currentGameSystem = currentGameSystem;
   try {
     localStorage.setItem('omni_game_system', currentGameSystem);
+    localStorage.setItem('preferred_game_system', currentGameSystem);
   } catch (e) {}
+
+  const meta = (typeof getGameSystemMeta === 'function')
+    ? getGameSystemMeta(currentGameSystem)
+    : {
+        slug: currentGameSystem,
+        name: currentGameSystem === 'aos' ? 'Warhammer: Age of Sigmar' : 'Warhammer 40,000',
+        short_label: currentGameSystem === 'aos' ? 'AoS' : '40K',
+        icon: currentGameSystem === 'aos' ? '⚡' : '⚔️',
+        has_tracker: currentGameSystem === '40k' || currentGameSystem === 'aos'
+      };
+  const hasTracker = Boolean(meta.has_tracker);
 
   // Update root attribute for styling
   if (document.documentElement) {
@@ -64,12 +182,26 @@ function applyGameSystem(sys, updateUrl = true) {
 
   // Update branding subtitle
   const subEl = document.getElementById('app-logo-subtitle');
+  const shortText = meta.short_label || meta.short_name || meta.name || '40K';
   if (subEl) {
-    subEl.textContent = 'Tactical Suite';
+    subEl.textContent = (currentGameSystem === '40k' || currentGameSystem === 'aos')
+      ? 'Tactical Suite'
+      : `${shortText} Suite`;
   }
 
-  // Update desktop segmented switcher buttons
-  const desktopBtns = document.querySelectorAll('.game-system-pill');
+  // Update desktop single active pill trigger
+  const deskIcon = document.getElementById('desktop-sys-icon');
+  const deskLabel = document.getElementById('desktop-sys-label');
+  const deskTrigger = document.getElementById('desktop-game-system-trigger');
+  if (deskIcon) deskIcon.textContent = meta.icon || '⚔️';
+  if (deskLabel) deskLabel.textContent = shortText;
+  if (deskTrigger) {
+    deskTrigger.title = `${meta.name || 'Warhammer 40,000'} — Click to switch game system`;
+    deskTrigger.classList.add('active');
+  }
+
+  // Update game system options inside picker list
+  const desktopBtns = document.querySelectorAll('.game-system-option');
   desktopBtns.forEach(btn => {
     const btnSys = btn.getAttribute('data-sys');
     btn.classList.toggle('active', btnSys === currentGameSystem);
@@ -80,14 +212,11 @@ function applyGameSystem(sys, updateUrl = true) {
   const mobLabel = document.getElementById('mobile-sys-label');
   const mobBtn = document.getElementById('mobile-game-switcher');
   if (mobIcon && mobLabel) {
-    if (currentGameSystem === 'aos') {
-      mobIcon.textContent = '⚡';
-      mobLabel.textContent = 'AoS';
-      if (mobBtn) mobBtn.classList.add('aos-active');
-    } else {
-      mobIcon.textContent = '⚔️';
-      mobLabel.textContent = '40K';
-      if (mobBtn) mobBtn.classList.remove('aos-active');
+    mobIcon.textContent = meta.icon || '⚔️';
+    mobLabel.textContent = shortText;
+    if (mobBtn) {
+      mobBtn.classList.toggle('aos-active', currentGameSystem === 'aos');
+      mobBtn.title = `${meta.name || 'Warhammer 40,000'} — Tap to switch game system`;
     }
   }
 
@@ -96,18 +225,50 @@ function applyGameSystem(sys, updateUrl = true) {
     populateSettingsFactionDropdown();
   }
 
-  // Update desktop navbar tracker link href
+  // Hide or show Game Tracker tab on desktop, mobile dropdown, and mobile bottom nav
   const navTrackerBtn = document.getElementById('nav-btn-tracker');
   if (navTrackerBtn) {
+    navTrackerBtn.style.display = hasTracker ? '' : 'none';
     navTrackerBtn.href = (currentGameSystem === 'aos') ? '/11th/tracker/aos' : '/11th/tracker';
+  }
+  const mobSelect = document.getElementById('mobile-nav-select');
+  if (mobSelect) {
+    const trackerOpt = mobSelect.querySelector('option[value="tracker"]');
+    if (trackerOpt) {
+      trackerOpt.hidden = !hasTracker;
+      trackerOpt.disabled = !hasTracker;
+      trackerOpt.style.display = hasTracker ? '' : 'none';
+    }
+  }
+  document.querySelectorAll('.mobile-bottom-nav .mobile-nav-item[data-tab="tracker"]').forEach(el => {
+    el.style.display = hasTracker ? '' : 'none';
+    el.href = (currentGameSystem === 'aos') ? '/11th/tracker/aos' : '/11th/tracker';
+  });
+  const chatTrackerBtn = document.getElementById('chat-invite-room-btn');
+  if (chatTrackerBtn) {
+    chatTrackerBtn.style.display = hasTracker ? '' : 'none';
+  }
+
+  // Hide ITC Circuit subtab on non-40K/AoS systems
+  const itcSubBtn = document.getElementById('lead-subtab-itc');
+  if (itcSubBtn) {
+    const hasItc = (currentGameSystem === '40k' || currentGameSystem === 'aos');
+    itcSubBtn.style.display = hasItc ? '' : 'none';
+    if (!hasItc && itcSubBtn.classList.contains('active') && typeof switchLeaderboardSubtab === 'function') {
+      switchLeaderboardSubtab('players');
+    }
   }
 
   // Update URL if requested
   if (updateUrl && window.history && window.history.replaceState) {
-    const prefix = (currentGameSystem === 'aos') ? '/aos' : '';
     const hash = window.location.hash || ('#' + activeTab);
-    const targetPath = `${prefix}${prefix ? '/' : ''}${hash}`;
-    window.history.replaceState(null, '', targetPath || `/${hash}`);
+    if (currentGameSystem === 'aos') {
+      window.history.replaceState(null, '', `/aos/${hash}`);
+    } else if (currentGameSystem === '40k') {
+      window.history.replaceState(null, '', `/${hash}`);
+    } else {
+      window.history.replaceState(null, '', `/?game=${encodeURIComponent(currentGameSystem)}${hash}`);
+    }
   }
 
   // Synchronize Retribution Armory game system & decorations
@@ -121,16 +282,24 @@ function applyGameSystem(sys, updateUrl = true) {
 }
 
 function showGameSystemTransitionScreen(targetSys) {
-  const isAos = targetSys === 'aos';
+  const normSys = (typeof normalizeGameSystem === 'function') ? normalizeGameSystem(targetSys) : ((targetSys === 'aos') ? 'aos' : '40k');
+  const meta = (typeof getGameSystemMeta === 'function')
+    ? getGameSystemMeta(normSys)
+    : { name: normSys === 'aos' ? 'Warhammer: Age of Sigmar' : 'Warhammer 40,000', icon: normSys === 'aos' ? '⚡' : '⚔️', category: 'Games Workshop' };
+  const isAos = normSys === 'aos';
   const accent = isAos ? '#f59e0b' : '#38bdf8';
   const accentGlow = isAos ? 'rgba(245, 158, 11, 0.22)' : 'rgba(56, 189, 248, 0.22)';
   const accentBorder = isAos ? 'rgba(245, 158, 11, 0.55)' : 'rgba(56, 189, 248, 0.55)';
-  const icon = isAos ? '⚡' : '⚔️';
-  const kicker = isAos ? 'ENTERING THE MORTAL REALMS' : 'ENTERING THE 41ST MILLENNIUM';
-  const title = isAos ? 'Warhammer: Age of Sigmar' : 'Warhammer 40,000';
+  const icon = meta.icon || (isAos ? '⚡' : '⚔️');
+  const kicker = isAos
+    ? 'ENTERING THE MORTAL REALMS'
+    : (normSys === '40k' ? 'ENTERING THE 41ST MILLENNIUM' : `SWITCHING TO ${(meta.category || meta.manufacturer || 'COMPETITIVE SYSTEM').toUpperCase()}`);
+  const title = meta.name || (isAos ? 'Warhammer: Age of Sigmar' : 'Warhammer 40,000');
   const subtitle = isAos
     ? 'Loading AoS 4.0 Rankings, Grand Alliances & Tournament Telemetry...'
-    : 'Loading 40K Rankings, Factions & Tournament Telemetry...';
+    : (normSys === '40k'
+      ? 'Loading 40K Rankings, Factions & Tournament Telemetry...'
+      : `Loading ${meta.name} Elo Rankings, Meta Intel & BCP Events...`);
 
   if (!document.getElementById('omni-sys-switch-keyframes')) {
     const styleEl = document.createElement('style');
@@ -277,7 +446,13 @@ function hideGameSystemTransitionScreen() {
 }
 
 function switchGameSystem(sys) {
-  const normalizedTarget = (sys === 'aos') ? 'aos' : '40k';
+  const normalizedTarget = (typeof normalizeGameSystem === 'function')
+    ? normalizeGameSystem(sys, '40k')
+    : ((sys === 'aos') ? 'aos' : '40k');
+  try {
+    localStorage.setItem('omni_game_system_user_selected', '1');
+  } catch (e) {}
+  closeGameSystemPicker();
   if (normalizedTarget === currentGameSystem) return;
 
   showGameSystemTransitionScreen(normalizedTarget);
@@ -402,8 +577,7 @@ function switchGameSystem(sys) {
 }
 
 function toggleGameSystemMobile() {
-  const nextSys = (currentGameSystem === 'aos') ? '40k' : 'aos';
-  switchGameSystem(nextSys);
+  toggleGameSystemPicker();
 }
 
 function openAosTrackerModal() {
@@ -418,6 +592,11 @@ function closeAosTrackerModal() {
 }
 
 function handleTrackerNavClick(e) {
+  if (typeof hasGameTracker === 'function' && !hasGameTracker(currentGameSystem)) {
+    if (e && e.preventDefault) e.preventDefault();
+    switchTab('my-hub');
+    return false;
+  }
   if (currentGameSystem === 'aos') {
     if (e && e.preventDefault) e.preventDefault();
     window.location.href = '/11th/tracker/aos';
@@ -430,6 +609,10 @@ window.initGameSystem = initGameSystem;
 window.applyGameSystem = applyGameSystem;
 window.switchGameSystem = switchGameSystem;
 window.toggleGameSystemMobile = toggleGameSystemMobile;
+window.toggleGameSystemPicker = toggleGameSystemPicker;
+window.closeGameSystemPicker = closeGameSystemPicker;
+window.filterGameSystemPicker = filterGameSystemPicker;
+window.renderGameSystemPickerList = renderGameSystemPickerList;
 window.openAosTrackerModal = openAosTrackerModal;
 window.closeAosTrackerModal = closeAosTrackerModal;
 window.handleTrackerNavClick = handleTrackerNavClick;
@@ -490,9 +673,13 @@ function switchTab(tabName) {
   if (tabName === 'eventstudio') tabName = 'event-studio';
   if (tabName === 'myhub') tabName = 'my-hub';
   if (tabName === 'tracker' || tabName === 'game-tracker' || tabName === 'gametracker') {
-    const isAos = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos');
-    window.location.href = isAos ? '/11th/tracker/aos' : '/11th/tracker';
-    return;
+    if (typeof hasGameTracker === 'function' && !hasGameTracker(currentGameSystem)) {
+      tabName = 'my-hub';
+    } else {
+      const isAos = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos');
+      window.location.href = isAos ? '/11th/tracker/aos' : '/11th/tracker';
+      return;
+    }
   }
 
   activeTab = tabName;
@@ -555,10 +742,14 @@ function switchTab(tabName) {
     let cleanPath = (window.location.pathname || '').replace(/\/+$/, '');
     if (currentGameSystem === 'aos') {
       if (!cleanPath.startsWith('/aos')) cleanPath = '/aos';
+      window.history.replaceState(null, '', `${cleanPath || '/'}#${tabName}`);
+    } else if (currentGameSystem === '40k') {
+      if (cleanPath.startsWith('/aos')) cleanPath = '';
+      window.history.replaceState(null, '', `${cleanPath || '/'}#${tabName}`);
     } else {
       if (cleanPath.startsWith('/aos')) cleanPath = '';
+      window.history.replaceState(null, '', `${cleanPath || '/'}?game=${encodeURIComponent(currentGameSystem)}#${tabName}`);
     }
-    window.history.replaceState(null, '', `${cleanPath || '/'}#${tabName}`);
   }
 
   // Trigger lazy loading of view data
@@ -715,21 +906,25 @@ window.handleMobileNavChange = handleMobileNavChange;
 function handleAppRoute(routeStr) {
   if (!routeStr) return false;
   let clean = routeStr.replace(/^[#/]+/, '').trim();
+  const resolveRouteSys = (rawSys) => {
+    if (!rawSys) return (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    return (typeof normalizeGameSystem === 'function') ? normalizeGameSystem(rawSys) : rawSys.toLowerCase();
+  };
 
-  // Route: /#/aos/player/:id or /#/40k/player/:id or /#/player/:id
-  const playerMatch = clean.match(/^(?:(aos|40k)\/)?player\/([^/?#]+)/i);
+  // Route: /#/:sys/player/:id or /#/player/:id
+  const playerMatch = clean.match(/^(?:([a-z0-9_]+)\/)?player\/([^/?#]+)/i);
   if (playerMatch) {
-    const routeSys = playerMatch[1] ? playerMatch[1].toLowerCase() : (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const routeSys = resolveRouteSys(playerMatch[1]);
     const pid = decodeURIComponent(playerMatch[2]);
     if (typeof openPlayerProfilePage === 'function') {
       return openPlayerProfilePage(pid, routeSys, { replaceUrl: true }) || true;
     }
   }
 
-  // Route: /#/aos/event/:id or /#/40k/event/:id or /#/event/:id (with optional subtab /matches, /player, /creator, etc.)
-  const eventMatch = clean.match(/^(?:(aos|40k)\/)?event\/([^/?#]+)(?:\/([a-z0-9_-]+))?/i);
+  // Route: /#/:sys/event/:id or /#/event/:id (with optional subtab /matches, /player, /creator, etc.)
+  const eventMatch = clean.match(/^(?:([a-z0-9_]+)\/)?event\/([^/?#]+)(?:\/([a-z0-9_-]+))?/i);
   if (eventMatch) {
-    const routeSys = eventMatch[1] ? eventMatch[1].toLowerCase() : (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const routeSys = resolveRouteSys(eventMatch[1]);
     const eid = decodeURIComponent(eventMatch[2]);
     let subtab = eventMatch[3] ? eventMatch[3].toLowerCase() : null;
     try {
@@ -741,10 +936,10 @@ function handleAppRoute(routeStr) {
     }
   }
 
-  // Route: /#/aos/team/:name or /#/40k/team/:name or /#/team/:name or bare /#/40k/team/ or /#/team/ or /#/team
-  const teamMatch = clean.match(/^(?:(aos|40k)\/)?team(?:\/(.*))?$/i);
+  // Route: /#/:sys/team/:name or /#/team/:name or bare /#/40k/team/ or /#/team/ or /#/team
+  const teamMatch = clean.match(/^(?:([a-z0-9_]+)\/)?team(?:\/(.*))?$/i);
   if (teamMatch) {
-    const routeSys = teamMatch[1] ? teamMatch[1].toLowerCase() : (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const routeSys = resolveRouteSys(teamMatch[1]);
     const rawName = (teamMatch[2] || '').trim();
     const tname = rawName ? decodeURIComponent(rawName).trim() : '';
     if (tname) {
@@ -758,10 +953,10 @@ function handleAppRoute(routeStr) {
     }
   }
 
-  // Route: /#/aos/league/:id or /#/40k/league/:id or /#/league/:id (with optional subtab /hof, /methodology, /pod/1)
-  const leagueMatch = clean.match(/^(?:(aos|40k)\/)?league\/([^/?#]+)(?:\/([a-z0-9_-]+))?/i);
+  // Route: /#/:sys/league/:id or /#/league/:id (with optional subtab /hof, /methodology, /pod/1)
+  const leagueMatch = clean.match(/^(?:([a-z0-9_]+)\/)?league\/([^/?#]+)(?:\/([a-z0-9_-]+))?/i);
   if (leagueMatch) {
-    const routeSys = leagueMatch[1] ? leagueMatch[1].toLowerCase() : (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const routeSys = resolveRouteSys(leagueMatch[1]);
     const lid = decodeURIComponent(leagueMatch[2]);
     let sub = leagueMatch[3] ? leagueMatch[3].toLowerCase() : null;
     let podNum = null;

@@ -1326,6 +1326,60 @@ class EloEngine:
         import time
 
         sys_target = (game_system or "40k").lower()
+        if "," in sys_target:
+            parts = [p.strip() for p in sys_target.split(",") if p.strip()]
+            multi_res = {}
+            t_new, t_upd, t_hist = 0, 0, 0
+            for p_sys in parts:
+                r_p = self.reconstruct_incremental(
+                    batch_limit=batch_limit,
+                    game_system=p_sys,
+                    since_date=since_date,
+                    skip_stale_check=skip_stale_check,
+                )
+                multi_res[p_sys] = r_p
+                t_new += int(r_p.get("total_new_matches", 0) or 0)
+                t_upd += int(r_p.get("players_updated", 0) or 0)
+                t_hist += int(r_p.get("history_points_saved", 0) or 0)
+            return {
+                "game_system": sys_target,
+                "systems": multi_res,
+                "total_new_matches": t_new,
+                "players_updated": t_upd,
+                "history_points_saved": t_hist,
+            }
+        if sys_target in ("other", "others", "non_40k_aos", "all_other"):
+            extra_systems_only: List[str] = []
+            try:
+                if self.db and hasattr(self.db, "get_connection") and type(getattr(self.db, "get_connection", None)).__name__ != "MagicMock":
+                    with self.db.get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT DISTINCT COALESCE(game_system, '40k') FROM matches WHERE is_done = TRUE AND game_system IS NOT NULL AND game_system NOT IN ('40k', 'aos', '');")
+                            for (gs_row,) in cur.fetchall():
+                                if gs_row and str(gs_row).strip() not in ("40k", "aos"):
+                                    extra_systems_only.append(str(gs_row).strip())
+            except Exception:
+                pass
+            extra_results_only = {}
+            extra_new_only, extra_upd_only, extra_hist_only = 0, 0, 0
+            for gs_extra in extra_systems_only:
+                r_ex = self.reconstruct_incremental(
+                    batch_limit=batch_limit,
+                    game_system=gs_extra,
+                    since_date=since_date,
+                    skip_stale_check=skip_stale_check,
+                )
+                extra_results_only[gs_extra] = r_ex
+                extra_new_only += int(r_ex.get("total_new_matches", 0) or 0)
+                extra_upd_only += int(r_ex.get("players_updated", 0) or 0)
+                extra_hist_only += int(r_ex.get("history_points_saved", 0) or 0)
+            return {
+                "game_system": "other",
+                "other_systems": extra_results_only,
+                "total_new_matches": extra_new_only,
+                "players_updated": extra_upd_only,
+                "history_points_saved": extra_hist_only,
+            }
         if sys_target == "all":
             r_40k = self.reconstruct_incremental(
                 batch_limit=batch_limit,
@@ -1339,13 +1393,40 @@ class EloEngine:
                 since_date=since_date,
                 skip_stale_check=skip_stale_check,
             )
+            extra_systems: List[str] = []
+            try:
+                if self.db and hasattr(self.db, "get_connection") and type(getattr(self.db, "get_connection", None)).__name__ != "MagicMock":
+                    with self.db.get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT DISTINCT COALESCE(game_system, '40k') FROM matches WHERE is_done = TRUE AND game_system IS NOT NULL AND game_system NOT IN ('40k', 'aos', '');")
+                            for (gs_row,) in cur.fetchall():
+                                if gs_row and str(gs_row).strip() not in ("40k", "aos"):
+                                    extra_systems.append(str(gs_row).strip())
+            except Exception:
+                pass
+            extra_results = {}
+            extra_new = 0
+            extra_upd = 0
+            extra_hist = 0
+            for gs_extra in extra_systems:
+                r_ex = self.reconstruct_incremental(
+                    batch_limit=batch_limit,
+                    game_system=gs_extra,
+                    since_date=since_date,
+                    skip_stale_check=skip_stale_check,
+                )
+                extra_results[gs_extra] = r_ex
+                extra_new += int(r_ex.get("total_new_matches", 0) or 0)
+                extra_upd += int(r_ex.get("players_updated", 0) or 0)
+                extra_hist += int(r_ex.get("history_points_saved", 0) or 0)
             return {
                 "game_system": "all",
                 "40k": r_40k,
                 "aos": r_aos,
-                "total_new_matches": r_40k.get("total_new_matches", 0) + r_aos.get("total_new_matches", 0),
-                "players_updated": r_40k.get("players_updated", 0) + r_aos.get("players_updated", 0),
-                "history_points_saved": r_40k.get("history_points_saved", 0) + r_aos.get("history_points_saved", 0)
+                "other_systems": extra_results,
+                "total_new_matches": r_40k.get("total_new_matches", 0) + r_aos.get("total_new_matches", 0) + extra_new,
+                "players_updated": r_40k.get("players_updated", 0) + r_aos.get("players_updated", 0) + extra_upd,
+                "history_points_saved": r_40k.get("history_points_saved", 0) + r_aos.get("history_points_saved", 0) + extra_hist
             }
 
         t0 = time.time()
@@ -1758,16 +1839,82 @@ class EloEngine:
         import time
 
         sys_target = (game_system or "40k").lower()
+        if "," in sys_target:
+            parts = [p.strip() for p in sys_target.split(",") if p.strip()]
+            multi_res = {}
+            t_pl, t_ma, t_hi = 0, 0, 0
+            for p_sys in parts:
+                r_p = self.reconstruct_all_rankings(chunk_size=chunk_size, game_system=p_sys)
+                multi_res[p_sys] = r_p
+                t_pl += int(r_p.get("total_players_ranked", 0) or 0)
+                t_ma += int(r_p.get("total_matches_processed", 0) or 0)
+                t_hi += int(r_p.get("history_points_saved", 0) or 0)
+            return {
+                "game_system": sys_target,
+                "systems": multi_res,
+                "total_players_ranked": t_pl,
+                "total_matches_processed": t_ma,
+                "history_points_saved": t_hi,
+            }
+        if sys_target in ("other", "others", "non_40k_aos", "all_other"):
+            extra_systems_only: List[str] = []
+            try:
+                if self.db and hasattr(self.db, "get_connection") and type(getattr(self.db, "get_connection", None)).__name__ != "MagicMock":
+                    with self.db.get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT DISTINCT COALESCE(game_system, '40k') FROM matches WHERE is_done = TRUE AND game_system IS NOT NULL AND game_system NOT IN ('40k', 'aos', '');")
+                            for (gs_row,) in cur.fetchall():
+                                if gs_row and str(gs_row).strip() not in ("40k", "aos"):
+                                    extra_systems_only.append(str(gs_row).strip())
+            except Exception:
+                pass
+            extra_results_only = {}
+            extra_pl_only, extra_ma_only, extra_hi_only = 0, 0, 0
+            for gs_extra in extra_systems_only:
+                r_ex = self.reconstruct_all_rankings(chunk_size=chunk_size, game_system=gs_extra)
+                extra_results_only[gs_extra] = r_ex
+                extra_pl_only += int(r_ex.get("total_players_ranked", 0) or 0)
+                extra_ma_only += int(r_ex.get("total_matches_processed", 0) or 0)
+                extra_hi_only += int(r_ex.get("history_points_saved", 0) or 0)
+            return {
+                "game_system": "other",
+                "other_systems": extra_results_only,
+                "total_players_ranked": extra_pl_only,
+                "total_matches_processed": extra_ma_only,
+                "history_points_saved": extra_hi_only,
+            }
         if sys_target == "all":
             r_40k = self.reconstruct_all_rankings(chunk_size=chunk_size, game_system="40k")
             r_aos = self.reconstruct_all_rankings(chunk_size=chunk_size, game_system="aos")
+            extra_systems: List[str] = []
+            try:
+                if self.db and hasattr(self.db, "get_connection") and type(getattr(self.db, "get_connection", None)).__name__ != "MagicMock":
+                    with self.db.get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT DISTINCT COALESCE(game_system, '40k') FROM matches WHERE is_done = TRUE AND game_system IS NOT NULL AND game_system NOT IN ('40k', 'aos', '');")
+                            for (gs_row,) in cur.fetchall():
+                                if gs_row and str(gs_row).strip() not in ("40k", "aos"):
+                                    extra_systems.append(str(gs_row).strip())
+            except Exception:
+                pass
+            extra_results = {}
+            extra_pl = 0
+            extra_ma = 0
+            extra_hi = 0
+            for gs_extra in extra_systems:
+                r_ex = self.reconstruct_all_rankings(chunk_size=chunk_size, game_system=gs_extra)
+                extra_results[gs_extra] = r_ex
+                extra_pl += int(r_ex.get("total_players_ranked", 0) or 0)
+                extra_ma += int(r_ex.get("total_matches_processed", 0) or 0)
+                extra_hi += int(r_ex.get("history_points_saved", 0) or 0)
             return {
                 "game_system": "all",
                 "40k": r_40k,
                 "aos": r_aos,
-                "total_players_ranked": r_40k.get("total_players_ranked", 0) + r_aos.get("total_players_ranked", 0),
-                "total_matches_processed": r_40k.get("total_matches_processed", 0) + r_aos.get("total_matches_processed", 0),
-                "history_points_saved": r_40k.get("history_points_saved", 0) + r_aos.get("history_points_saved", 0)
+                "other_systems": extra_results,
+                "total_players_ranked": r_40k.get("total_players_ranked", 0) + r_aos.get("total_players_ranked", 0) + extra_pl,
+                "total_matches_processed": r_40k.get("total_matches_processed", 0) + r_aos.get("total_matches_processed", 0) + extra_ma,
+                "history_points_saved": r_40k.get("history_points_saved", 0) + r_aos.get("history_points_saved", 0) + extra_hi
             }
 
         t0 = time.time()

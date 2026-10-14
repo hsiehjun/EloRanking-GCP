@@ -15,7 +15,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from config import DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
+from config import DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID, get_bcp_game_system_id, normalize_game_system
 from database import get_database
 from scraper import BestCoastPairingsScraper
 from elo import get_elo_engine
@@ -72,16 +72,23 @@ def run_historical_scrape(
     if game_system_id:
         # Custom ID override
         systems_to_scrape.append((sys_target, game_system_id))
+    elif "," in sys_target:
+        for part in [p.strip() for p in sys_target.split(",") if p.strip()]:
+            if part not in ("other", "others", "non_40k_aos", "all_other"):
+                norm_part = normalize_game_system(part, default="40k")
+                systems_to_scrape.append((norm_part, get_bcp_game_system_id(norm_part)))
     elif sys_target in ("40k", "wh40k"):
         systems_to_scrape.append(("40k", DEFAULT_GAME_SYSTEM_ID))
     elif sys_target in ("aos", "warhammer_aos", "sigmar"):
         systems_to_scrape.append(("aos", AOS_GAME_SYSTEM_ID))
+    elif sys_target in ("other", "others", "non_40k_aos", "all_other"):
+        pass
     elif sys_target == "all":
         systems_to_scrape.append(("40k", DEFAULT_GAME_SYSTEM_ID))
         systems_to_scrape.append(("aos", AOS_GAME_SYSTEM_ID))
     else:
-        logger.warning(f"Unknown game system '{sys_target}', defaulting to 40k")
-        systems_to_scrape.append(("40k", DEFAULT_GAME_SYSTEM_ID))
+        norm_sys = normalize_game_system(sys_target, default="40k")
+        systems_to_scrape.append((norm_sys, get_bcp_game_system_id(norm_sys)))
 
     for sys_name, sys_id in systems_to_scrape:
         logger.info(f"📅 Scraping {sys_name.upper()} tournaments (GameSystemID: {sys_id}) from {start_str} to {end_str} (Max: {max_events or 'Unlimited'})...")
@@ -92,6 +99,16 @@ def run_historical_scrape(
         total_matches += ma_count
         logger.info(f"✅ {sys_name.upper()} Scraped: {ev_count} events, {ma_count} matches.")
 
+    if (
+        sys_target in ("all", "other", "others", "non_40k_aos", "all_other")
+        or any(p.strip() in ("other", "others", "non_40k_aos", "all_other") for p in sys_target.split(","))
+    ) and not game_system_id and hasattr(scraper, "scrape_other_systems_date_range") and type(scraper).__name__ != "MagicMock":
+        logger.info(f"📅 Scraping all other BCP game systems (excluding 40K & AoS) from {start_str} to {end_str}...")
+        res_other = scraper.scrape_other_systems_date_range(start_date=start_str, end_date=end_str, max_events=max_events)
+        if isinstance(res_other, dict):
+            total_events += int(res_other.get("events_scraped", 0) or 0)
+            total_matches += int(res_other.get("matches_scraped", 0) or 0)
+
     logger.info(f"🎉 Historical Scrape Finished: {total_events} events, {total_matches} matches stored.")
 
     if reconstruct_all:
@@ -99,7 +116,7 @@ def run_historical_scrape(
         engine = get_elo_engine()
         recon_res = engine.reconstruct_all_rankings(game_system=sys_target)
         logger.info(f"🏆 Full Elo Reconstruction complete: {recon_res}")
-    elif reconstruct:
+    elif reconstruct or sys_target in ("other", "others", "non_40k_aos", "all_other"):
         logger.info(f"📈 Automatically recomputing incremental Elo ratings for game system(s): {sys_target}...")
         engine = get_elo_engine()
         recon_res = engine.reconstruct_incremental(game_system=sys_target)
@@ -118,7 +135,7 @@ def main():
     parser = argparse.ArgumentParser(description="BCP Historical Tournament Scrape Job")
     parser.add_argument("--start-date", "--from", dest="start_date", default=os.getenv("START_DATE"), help="Start date (YYYY-MM-DD or ISO8601)")
     parser.add_argument("--end-date", "--to", dest="end_date", default=os.getenv("END_DATE"), help="End date (YYYY-MM-DD or ISO8601)")
-    parser.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "40k"), help="Game system to scrape (default: 40k)")
+    parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "40k"), help="Game system to scrape (e.g. 40k, aos, other, all, kill_team, the_old_world)")
     parser.add_argument("--game-system-id", default=os.getenv("GAME_SYSTEM_ID"), help="Explicit BCP gameSystemId override")
     parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "30")), help="Past days if start date omitted (default: 30)")
     parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS")) if os.getenv("MAX_EVENTS") else None, help="Max events to scrape")

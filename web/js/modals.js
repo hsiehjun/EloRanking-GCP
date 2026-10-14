@@ -1613,7 +1613,9 @@ function applyFactionModalData(data, sys, tf) {
   currentFactionStats = data.stats || {};
 
   const tfLabels = { '30d': '1 Month', '3mo': '3 Months', '6mo': '6 Months', '1yr': '1 Year', 'all': 'All Time' };
-  const sysLabel = sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K';
+  const sysLabel = (typeof getGameSystemLabel === 'function')
+    ? getGameSystemLabel(sys)
+    : (sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K');
 
   const totalGamesInMatchups = matchups.reduce((acc, m) => acc + (Number(m.total_matches) || 0), 0);
   const totalMatchesCount = (data.stats && data.stats.total_matches) || data.total_matches || totalGamesInMatchups || matches.length;

@@ -2643,8 +2643,9 @@ class AuthManager:
         """Generates comprehensive personalized Competitor Hub analytics."""
         import time
         import copy
+        from config import normalize_game_system
         target_pid = player_id
-        target_sys = (game_system or "40k").lower()
+        target_sys = normalize_game_system(game_system)
         user_info = None
         if user_id:
             user_info = self.get_user_by_id(user_id)
@@ -2820,10 +2821,28 @@ class AuthManager:
                     if p_stat.get("player_name") == "Competitor" or not p_stat.get("player_name"):
                         p_stat["player_name"] = display_name
 
-                # Calculate Global & Faction Rank
-                cur.execute("SELECT COUNT(*) + 1 as rank FROM player_ratings WHERE current_elo > %s AND matches_played >= 3 AND COALESCE(game_system, '40k') = %s;", (p_stat["current_elo"], target_sys))
-                g_row = cur.fetchone()
-                global_rank = g_row.get("rank", 1) if (g_row and isinstance(g_row, dict)) else 1
+                preferred_game_system = target_sys
+                is_mock_db = hasattr(self.db, "_is_mock_instance") and self.db._is_mock_instance()
+                if int(p_stat.get("matches_played") or 0) == 0 and not is_mock_db and getattr(getattr(self, "db", None).__class__, "__name__", "") == "PostgresDatabase":
+                    try:
+                        cur.execute(
+                            "SELECT COALESCE(game_system, '40k') AS gs, matches_played FROM player_ratings WHERE player_id = %s AND matches_played > 0 ORDER BY matches_played DESC, last_active_date DESC NULLS LAST LIMIT 1;",
+                            (target_pid,),
+                        )
+                        pref_row = cur.fetchone()
+                        if pref_row and isinstance(pref_row, dict) and pref_row.get("gs"):
+                            preferred_game_system = str(pref_row["gs"])
+                    except Exception:
+                        pass
+                p_stat["preferred_game_system"] = preferred_game_system
+
+                # Calculate Global & Faction Rank (only when competitor has played matches in this game system)
+                has_system_matches = int(p_stat.get("matches_played") or 0) > 0
+                global_rank = None
+                if has_system_matches:
+                    cur.execute("SELECT COUNT(*) + 1 as rank FROM player_ratings WHERE current_elo > %s AND matches_played >= 3 AND COALESCE(game_system, '40k') = %s;", (p_stat["current_elo"], target_sys))
+                    g_row = cur.fetchone()
+                    global_rank = g_row.get("rank", 1) if (g_row and isinstance(g_row, dict)) else 1
 
                 if not total_ranked:
                     cur.execute("SELECT COUNT(*) as cnt FROM player_ratings WHERE matches_played >= 3 AND COALESCE(game_system, '40k') = %s;", (target_sys,))
@@ -2833,7 +2852,7 @@ class AuthManager:
                         self._TOTAL_RANKED_CACHE[target_sys] = (now_ts, total_ranked)
 
                 faction_rank = None
-                if p_stat.get("top_faction"):
+                if has_system_matches and p_stat.get("top_faction"):
                     cur.execute("""
                     SELECT COUNT(*) + 1 as rank FROM player_ratings 
                     WHERE current_elo > %s AND top_faction ILIKE %s AND matches_played >= 3 AND COALESCE(game_system, '40k') = %s;
@@ -3141,7 +3160,11 @@ class AuthManager:
 
         import badges
         user_pinned = user_info.get("pinned_badges") if (user_info and user_info.get("pinned_badges")) else None
-        reg_tournaments = list(self.db.get_user_registered_tournaments(user_id)) if user_id else []
+        raw_reg_tournaments = list(self.db.get_user_registered_tournaments(user_id)) if user_id else []
+        reg_tournaments = [
+            t for t in raw_reg_tournaments
+            if not isinstance(t, dict) or str(t.get("game_system") or "40k").strip().lower() == target_sys
+        ]
         if target_sys == "40k" and os.environ.get("ENABLE_LEAGUE_FEATURES", "0") == "1":
             try:
                 from leagues_hub_service import get_leagues_hub_service
@@ -3160,11 +3183,15 @@ class AuthManager:
                         reg_tournaments.insert(0, nl)
             except Exception as e:
                 logger.debug(f"Error merging native leagues into registered_tournaments: {e}")
-        user_lists = self.db.get_user_army_lists(user_id) if (user_id and hasattr(self.db, "get_user_army_lists")) else []
-        if not user_lists and user_id:
+        raw_user_lists = self.db.get_user_army_lists(user_id) if (user_id and hasattr(self.db, "get_user_army_lists")) else []
+        user_lists = [
+            lst for lst in (raw_user_lists or [])
+            if not isinstance(lst, dict) or not lst.get("game_system") or str(lst.get("game_system")).strip().lower() == target_sys
+        ]
+        if not user_lists and user_id and target_sys in ("40k", "aos"):
             try:
                 from newrecruit_integration import user_has_saved_roster, _resolve_nr_cloud_account, fetch_nr_cloud_lists_for_user
-                if user_has_saved_roster(str(user_id)):
+                if target_sys == "40k" and user_has_saved_roster(str(user_id)):
                     user_lists = [{"id": "nr_studio_roster", "source_format": "NewRecruit Studio"}]
                 else:
                     nr_acct = _resolve_nr_cloud_account(str(user_id))
@@ -3225,6 +3252,7 @@ class AuthManager:
 
         hub_payload = {
             "player": p_stat,
+            "preferred_game_system": p_stat.get("preferred_game_system", target_sys),
             "rankings": {
                 "global_rank": global_rank,
                 "faction_rank": faction_rank,

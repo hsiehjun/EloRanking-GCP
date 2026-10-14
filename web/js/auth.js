@@ -1272,8 +1272,8 @@ function populateSettingsFactionDropdown(selectedVal = '') {
 
   const currentVal = selectedVal || factionSelect.value || '';
   const isAos = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos');
-  const sysKey = isAos ? 'aos' : '40k';
-  const localFallback = isAos ? FACTIONS_AOS_DATA : FACTIONS_40K_DATA;
+  const sysKey = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : (isAos ? 'aos' : '40k');
+  const localFallback = sysKey === 'aos' ? FACTIONS_AOS_DATA : (sysKey === '40k' ? FACTIONS_40K_DATA : []);
   const cachedData = _factionsApiCache[sysKey];
 
   // 1. Immediate synchronous render from memory / local Wahapedia dataset
