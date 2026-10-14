@@ -418,6 +418,8 @@ async function initAuth() {
         return;
       }
       if (res && res.authenticated === true && res.user) {
+        const prevRole = currentUser ? String(currentUser.role || 'player').toLowerCase() : '';
+        const prevAdmin = Boolean(currentUser && currentUser.is_admin);
         currentUser = res.user;
         if (typeof window !== 'undefined') window.currentUser = currentUser;
         localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
@@ -426,6 +428,11 @@ async function initAuth() {
         if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
         syncAppAuthView();
         if (typeof syncPersonaButtons === 'function') syncPersonaButtons();
+        const nextRole = String(currentUser.role || 'player').toLowerCase();
+        const nextAdmin = Boolean(currentUser.is_admin || nextRole === 'admin');
+        if (prevRole !== nextRole || prevAdmin !== nextAdmin) {
+          syncRoleDependentViewsAfterAuthUpdate();
+        }
         return;
       }
       const isExplicitlyUnauthenticated = Boolean(
@@ -1224,6 +1231,72 @@ function handleMobileProfileClick() {
 }
 window.handleMobileProfileClick = handleMobileProfileClick;
 
+function renderSettingsRoleDisplay(userObj) {
+  const roleVal = document.getElementById('settings-role-display');
+  if (!roleVal || !userObj) return;
+  const userEmail = String(userObj.email || '').trim().toLowerCase();
+  const canSwitchOwnRole = Boolean(
+    userEmail === 'swimgeek751@gmail.com' &&
+    (userObj.can_switch_role === true || userObj.is_superadmin === true)
+  );
+  const normRole = (() => {
+    const r = String(userObj.role || 'player').trim().toLowerCase();
+    if (r === 'cc' || r === 'content_creator' || r === 'creator') return 'creator';
+    if (r === 'organizer' || r === 'to' || r === 'referee') return 'to';
+    if (r === 'admin') return 'admin';
+    return 'player';
+  })();
+  if (canSwitchOwnRole) {
+    roleVal.innerHTML = `
+      <div style="display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
+        <select id="settings-self-role-select" onchange="handleSelfRoleSwitch(this.value)" style="background:rgba(15,23,42,0.92); color:${normRole === 'to' ? '#f59e0b' : (normRole === 'admin' ? '#c084fc' : (normRole === 'creator' ? '#38bdf8' : '#e2e8f0'))}; border:1px solid rgba(56,189,248,0.35); border-radius:6px; padding:3px 8px; font-size:0.78rem; font-weight:700; cursor:pointer;">
+          <option value="player" ${normRole === 'player' ? 'selected' : ''}>👤 Player</option>
+          <option value="creator" ${normRole === 'creator' ? 'selected' : ''}>🎙️ Creator (CC)</option>
+          <option value="to" ${normRole === 'to' ? 'selected' : ''}>🛠️ TO (Organizer)</option>
+          <option value="admin" ${normRole === 'admin' ? 'selected' : ''}>🛡️ Admin</option>
+        </select>
+        <a href="/admin" style="background:rgba(168,85,247,0.14); border:1px solid rgba(168,85,247,0.35); color:#c084fc; font-size:11px; font-weight:700; padding:2px 7px; border-radius:4px; text-decoration:none;">🛡️ Admin Panel</a>
+      </div>
+    `;
+  } else if (normRole === 'admin' || userObj.is_admin === true) {
+    roleVal.innerHTML = `
+      <div style="display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
+        <span style="color:#c084fc; font-weight:700;">🛡️ ADMIN</span>
+        <a href="/admin" style="background:rgba(168,85,247,0.14); border:1px solid rgba(168,85,247,0.35); color:#c084fc; font-size:11px; font-weight:700; padding:2px 7px; border-radius:4px; text-decoration:none;">🛡️ Admin Panel</a>
+      </div>
+    `;
+  } else {
+    const isTO = isUserTO(userObj);
+    const roleStr = ((userObj && userObj.role) ? userObj.role : 'player').toUpperCase();
+    if (isTO) {
+      roleVal.innerHTML = `<span style="color:#10b981; font-weight:700;">🎖️ ${escapeHtml(roleStr)}</span>`;
+    } else if (normRole === 'creator') {
+      roleVal.innerHTML = `<span style="color:#38bdf8; font-weight:700;">🎙️ CREATOR</span>`;
+    } else {
+      roleVal.innerHTML = `<span style="color:#94a3b8;">${escapeHtml(roleStr)}</span> <button onclick="closeUserSettingsModal(); if(typeof openRequestToModal === 'function') openRequestToModal();" style="background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); color:#f59e0b; font-size:11px; font-weight:600; cursor:pointer; padding:1px 7px; border-radius:4px; margin-left:6px; transition:all 0.15s;">Request TO Access</button>`;
+    }
+  }
+}
+
+function syncRoleDependentViewsAfterAuthUpdate() {
+  try {
+    renderSettingsRoleDisplay(currentUser);
+    if (typeof syncCreatorHubVisibility === 'function') syncCreatorHubVisibility();
+    if (window.currentEventData) {
+      const ev = window.currentEventData;
+      const evMatches = window.currentEventMatchesData || [];
+      if (typeof renderPersonalEventScorecard === 'function') {
+        renderPersonalEventScorecard(ev, evMatches);
+      } else if (typeof renderPlayerStation === 'function') {
+        renderPlayerStation(ev, evMatches);
+      }
+      if (typeof renderEventMatches === 'function' && evMatches.length) {
+        renderEventMatches(evMatches);
+      }
+    }
+  } catch (e) {}
+}
+
 function openUserSettingsModal() {
   if (!currentUser) {
     window.location.href = '/login';
@@ -1237,7 +1310,6 @@ function openUserSettingsModal() {
   // Populate fields
   const nameInput = document.getElementById('settings-display-name');
   const emailVal = document.getElementById('settings-email-display');
-  const roleVal = document.getElementById('settings-role-display');
   const bcpVal = document.getElementById('settings-bcp-status');
   const errDiv = document.getElementById('settings-error');
   const successDiv = document.getElementById('settings-success');
@@ -1248,41 +1320,7 @@ function openUserSettingsModal() {
   if (currentUser) {
     if (nameInput) nameInput.value = currentUser.display_name || '';
     if (emailVal) emailVal.innerText = currentUser.email || '-';
-    if (roleVal) {
-      const userEmail = String(currentUser.email || '').trim().toLowerCase();
-      const canSwitchOwnRole = Boolean(
-        userEmail === 'swimgeek751@gmail.com' &&
-        (currentUser.can_switch_role === true || currentUser.is_superadmin === true)
-      );
-      const normRole = (() => {
-        const r = String(currentUser.role || 'player').trim().toLowerCase();
-        if (r === 'cc' || r === 'content_creator' || r === 'creator') return 'creator';
-        if (r === 'organizer' || r === 'to' || r === 'referee') return 'to';
-        if (r === 'admin') return 'admin';
-        return 'player';
-      })();
-      if (canSwitchOwnRole) {
-        roleVal.innerHTML = `
-          <div style="display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
-            <select id="settings-self-role-select" onchange="handleSelfRoleSwitch(this.value)" style="background:rgba(15,23,42,0.92); color:${normRole === 'to' ? '#f59e0b' : (normRole === 'admin' ? '#c084fc' : (normRole === 'creator' ? '#38bdf8' : '#e2e8f0'))}; border:1px solid rgba(56,189,248,0.35); border-radius:6px; padding:3px 8px; font-size:0.78rem; font-weight:700; cursor:pointer;">
-              <option value="player" ${normRole === 'player' ? 'selected' : ''}>👤 Player</option>
-              <option value="creator" ${normRole === 'creator' ? 'selected' : ''}>🎙️ Creator (CC)</option>
-              <option value="to" ${normRole === 'to' ? 'selected' : ''}>🛠️ TO (Organizer)</option>
-              <option value="admin" ${normRole === 'admin' ? 'selected' : ''}>🛡️ Admin</option>
-            </select>
-            <a href="/admin" style="background:rgba(168,85,247,0.14); border:1px solid rgba(168,85,247,0.35); color:#c084fc; font-size:11px; font-weight:700; padding:2px 7px; border-radius:4px; text-decoration:none;">🛡️ Admin Panel</a>
-          </div>
-        `;
-      } else {
-        const isTO = isUserTO(currentUser);
-        const roleStr = ((currentUser && currentUser.role) ? currentUser.role : 'player').toUpperCase();
-        if (isTO) {
-          roleVal.innerHTML = `<span style="color:#10b981; font-weight:700;">🎖️ ${escapeHtml(roleStr)}</span>`;
-        } else {
-          roleVal.innerHTML = `<span style="color:#94a3b8;">${escapeHtml(roleStr)}</span> <button onclick="closeUserSettingsModal(); if(typeof openRequestToModal === 'function') openRequestToModal();" style="background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); color:#f59e0b; font-size:11px; font-weight:600; cursor:pointer; padding:1px 7px; border-radius:4px; margin-left:6px; transition:all 0.15s;">Request TO Access</button>`;
-        }
-      }
-    }
+    renderSettingsRoleDisplay(currentUser);
     if (bcpVal) {
       if (currentUser.bcp_connected || currentUser.bcp_user_id) {
         const emailLabel = currentUser.bcp_email ? `<div style="color:#94a3b8; font-size:0.75rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:210px;" title="${escapeHtml(currentUser.bcp_email)}">(${escapeHtml(currentUser.bcp_email)})</div>` : '';
@@ -1302,6 +1340,29 @@ function openUserSettingsModal() {
         `;
       }
     }
+  }
+
+  // Refresh user role/profile from backend in case an admin updated their role in another tab/window
+  const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || getCookieToken();
+  if (token && window.api && typeof window.api.getAuthMe === 'function') {
+    window.api.getAuthMe(token).then(res => {
+      if (res && res.authenticated === true && res.user) {
+        const prevRole = currentUser ? String(currentUser.role || 'player').toLowerCase() : '';
+        const prevAdmin = Boolean(currentUser && currentUser.is_admin);
+        currentUser = res.user;
+        if (typeof window !== 'undefined') window.currentUser = currentUser;
+        localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
+        renderSettingsRoleDisplay(currentUser);
+        const nextRole = String(currentUser.role || 'player').toLowerCase();
+        const nextAdmin = Boolean(currentUser.is_admin || nextRole === 'admin');
+        if (prevRole !== nextRole || prevAdmin !== nextAdmin) {
+          if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
+          syncAppAuthView();
+          if (typeof syncPersonaButtons === 'function') syncPersonaButtons();
+          syncRoleDependentViewsAfterAuthUpdate();
+        }
+      }
+    }).catch(() => {});
   }
 
   loadActiveSessionsList();

@@ -290,6 +290,8 @@ def api_auth_me(request: Request, response: Response, token: Optional[str] = Que
         if not cand or cand == "dev-auth-token-123":
             continue
         try:
+            session = auth_mgr.get_session(cand, raise_on_db_error=True, bypass_cache=True)
+        except TypeError:
             session = auth_mgr.get_session(cand, raise_on_db_error=True)
         except Exception as e:
             logger.warning(f"api_auth_me transient DB error checking token: {e}")

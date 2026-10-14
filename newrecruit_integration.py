@@ -3495,8 +3495,62 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
     );
   }
 
+  function markArmyTreeAutochecked(armyObj) {
+    if (!armyObj || typeof armyObj !== 'object') return;
+    try {
+      var visited = new Set();
+      function markNode(n) {
+        if (!n || typeof n !== 'object' || visited.has(n)) return;
+        visited.add(n);
+        if (n.state && typeof n.state === 'object') {
+          n.state.autochecked = true;
+        }
+        if (typeof n.forEachIncludeInactive === 'function') {
+          try {
+            n.forEachIncludeInactive(function(sub) {
+              markNode(sub);
+            });
+          } catch (e) {}
+        }
+        if (typeof n.getForces === 'function') {
+          try {
+            var forces = n.getForces(!0) || [];
+            for (var i = 0; i < forces.length; i++) markNode(forces[i]);
+          } catch (e) {}
+        }
+        if (typeof n.getCategories === 'function') {
+          try {
+            var cats = n.getCategories() || [];
+            for (var j = 0; j < cats.length; j++) markNode(cats[j]);
+          } catch (e) {}
+        }
+        if (typeof n.getUnits === 'function') {
+          try {
+            var units = n.getUnits() || [];
+            for (var k = 0; k < units.length; k++) markNode(units[k]);
+          } catch (e) {}
+        }
+        if (n.selectors && typeof n.selectors === 'object') {
+          var selVals = Object.values(n.selectors);
+          for (var s = 0; s < selVals.length; s++) {
+            var sel = selVals[s];
+            if (!sel) continue;
+            var insts = (sel.instances && Array.isArray(sel.instances.array))
+              ? sel.instances.array
+              : (Array.isArray(sel.instances) ? sel.instances : []);
+            for (var m = 0; m < insts.length; m++) {
+              markNode(insts[m]);
+            }
+          }
+        }
+      }
+      markNode(armyObj);
+    } catch (e) {}
+  }
+
   function patchArmyAndBookForFastPlayMode(armyObj, bookObj, rowObj) {
     try {
+      markArmyTreeAutochecked(armyObj);
       if (armyObj && !armyObj.__omniPatchedFastPlay) {
         armyObj.__omniPatchedFastPlay = true;
         if (typeof armyObj.validateArmy === 'function') {
@@ -3624,15 +3678,26 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         if (!adapter || typeof sys.getBook !== 'function') return row;
 
         var candidateTexts = [];
-        if (row._omnitactica_gw_text && String(row._omnitactica_gw_text).trim()) {
-          candidateTexts.push(String(row._omnitactica_gw_text));
-        }
-        if (row._omnitactica_nr_text && String(row._omnitactica_nr_text).trim() && candidateTexts.indexOf(String(row._omnitactica_nr_text)) === -1) {
-          candidateTexts.push(String(row._omnitactica_nr_text));
-        }
+        var is40kSys = (Number(sys.id) === 827374861 || Number(sys.id) === 2821148162 || (Number(sys.id) !== 4255553472 && Number(sys.id) !== 4194757354));
+        var nrTextTrimmed = row._omnitactica_nr_text ? String(row._omnitactica_nr_text).trim() : '';
+        var gwTextTrimmed = row._omnitactica_gw_text ? String(row._omnitactica_gw_text).trim() : '';
         var rawTextTrimmed = row._raw_text ? String(row._raw_text).trim() : '';
         var synthTextTrimmed = row._synthetic_text ? String(row._synthetic_text).trim() : '';
-        var rawIsNativeNrExport = rawTextTrimmed.indexOf('+++') === 0;
+        var rawIsNativeNrExport = rawTextTrimmed.indexOf('++++') === 0 || rawTextTrimmed.toUpperCase().indexOf('+ FACTION KEYWORD:') !== -1;
+        var nrIsCompact = Boolean(nrTextTrimmed && nrTextTrimmed.indexOf('• ') === -1 && nrTextTrimmed.indexOf('◦ ') === -1);
+        var rawIsCompactNr = Boolean(rawIsNativeNrExport && rawTextTrimmed.indexOf('• ') === -1 && rawTextTrimmed.indexOf('◦ ') === -1 && rawTextTrimmed.indexOf('\n. ') === -1);
+        if (is40kSys && nrIsCompact) {
+          candidateTexts.push(String(row._omnitactica_nr_text));
+        }
+        if (is40kSys && rawIsCompactNr && candidateTexts.indexOf(String(row._raw_text)) === -1) {
+          candidateTexts.push(String(row._raw_text));
+        }
+        if (gwTextTrimmed && candidateTexts.indexOf(String(row._omnitactica_gw_text)) === -1) {
+          candidateTexts.push(String(row._omnitactica_gw_text));
+        }
+        if (nrTextTrimmed && candidateTexts.indexOf(String(row._omnitactica_nr_text)) === -1) {
+          candidateTexts.push(String(row._omnitactica_nr_text));
+        }
         if (rawIsNativeNrExport && rawTextTrimmed && candidateTexts.indexOf(String(row._raw_text)) === -1) {
           candidateTexts.push(String(row._raw_text));
         }
@@ -3718,11 +3783,41 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           }
           var uCount = (parsed && parsed.army) ? countCompiledUnitsInArmy(parsed.army) : 0;
           window.__omniPerf.push({ t: Math.round(performance.now()), lbl: 'parseText_end:' + cIdx + ':u=' + uCount + ':err=' + pErrors.length });
-          if (uCount > bestUnitCount || (uCount === bestUnitCount && uCount > 0 && pErrors.length < bestErrorCount)) {
+          var isBetterCand = false;
+          if (uCount > 0) {
+            if (bestUnitCount === 0) {
+              isBetterCand = true;
+            } else if (expectedUnits > 0) {
+              var candInExpected = (uCount >= Math.max(1, expectedUnits - 1) && uCount <= expectedUnits + 1);
+              var bestInExpected = (bestUnitCount >= Math.max(1, expectedUnits - 1) && bestUnitCount <= expectedUnits + 1);
+              if (candInExpected && !bestInExpected) {
+                isBetterCand = true;
+              } else if (candInExpected && bestInExpected) {
+                var candDiff = Math.abs(uCount - expectedUnits);
+                var bestDiff = Math.abs(bestUnitCount - expectedUnits);
+                if (candDiff < bestDiff || (candDiff === bestDiff && pErrors.length < bestErrorCount)) {
+                  isBetterCand = true;
+                }
+              } else if (!candInExpected && !bestInExpected) {
+                if (bestUnitCount < expectedUnits && uCount <= expectedUnits + 1 && uCount > bestUnitCount) {
+                  isBetterCand = true;
+                } else if (Math.abs(uCount - expectedUnits) < Math.abs(bestUnitCount - expectedUnits)) {
+                  isBetterCand = true;
+                }
+              }
+            } else if (uCount > bestUnitCount || (uCount === bestUnitCount && pErrors.length < bestErrorCount)) {
+              isBetterCand = true;
+            }
+          }
+          if (isBetterCand) {
             bestParsed = parsed;
             bestUnitCount = uCount;
             bestErrorCount = pErrors.length;
-            if (uCount > 0 && (pErrors.length === 0 || (expectedUnits > 0 && uCount >= Math.max(1, expectedUnits - 1)) || uCount >= 4)) {
+            var matchedExpectedCount = Boolean(
+              (expectedUnits > 0 && uCount >= Math.max(1, expectedUnits - 1) && uCount <= expectedUnits + 1) ||
+              (expectedUnits === 0 && uCount >= 4)
+            );
+            if (matchedExpectedCount && (pErrors.length === 0 || (cIdx === 0 && is40kSys && nrIsCompact))) {
               break;
             }
           }
@@ -3740,6 +3835,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
         }
 
         if (bestParsed && bestParsed.army && bestUnitCount > 0) {
+          markArmyTreeAutochecked(bestParsed.army);
           row.id_system = sys.id;
           row.bsid_system = sys.bsid || row.bsid_system;
           row.id_book = fallbackBook.id || row.id_book;
@@ -3790,6 +3886,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
           if (typeof bestParsed.army.calcTotalCosts === 'function') {
             row.totalCosts = bestParsed.army.calcTotalCosts();
           }
+          markArmyTreeAutochecked(bestParsed.army);
           if (keepSyntheticHeaderCost) {
             setRowPointsEverywhere(row, explicitTotalCost);
           } else if (compiledUnitPts > 0) {
@@ -4248,6 +4345,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             ? Boolean(wantPlayModeFromUrl)
             : Boolean((window.location.search || '').indexOf('view=play') !== -1);
           if (rowObj && rowObj.list_key && this.currentList && this.currentList.row && this.currentList.row.list_key === rowObj.list_key && this.currentList.army) {
+            markArmyTreeAutochecked(this.currentList.army);
             if (requestedListKeyFromUrl) {
               this.currentList.row.metadata = Object.assign({}, this.currentList.row.metadata || {}, { play_mode: wantPlayNow });
             }
@@ -4266,6 +4364,7 @@ OMNITACTICA_NR_BRIDGE_SCRIPT = r"""
             var cachedCompiled = rowObj._nr_compiled_list_obj ||
               (rowObj._compiled_by_nr && rowObj.list_key && window.__omniCompiledListByKey && window.__omniCompiledListByKey[String(rowObj.list_key)]);
             if (cachedCompiled && cachedCompiled.army && cachedCompiled.book) {
+              markArmyTreeAutochecked(cachedCompiled.army);
               cachedCompiled.row = rowObj;
               if (requestedListKeyFromUrl) {
                 rowObj.metadata = Object.assign({}, rowObj.metadata || {}, { play_mode: wantPlayNow });

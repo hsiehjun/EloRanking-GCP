@@ -5150,7 +5150,14 @@ function generateRawRosterText(list, format = null) {
           }
         }
         const parts = [...tokenWg];
-        if (modelWg.length) parts.push(`${oModels} with ${modelWg.join(', ')}`);
+        if (modelWg.length) {
+          modelWg.sort((a, b) => {
+            const aGeneric = ['close combat weapon', 'armoured bulk', 'close combat weapons'].includes(a.trim().toLowerCase()) ? 1 : 0;
+            const bGeneric = ['close combat weapon', 'armoured bulk', 'close combat weapons'].includes(b.trim().toLowerCase()) ? 1 : 0;
+            return aGeneric - bGeneric;
+          });
+          parts.push(`${oModels} with ${modelWg.join(', ')}`);
+        }
         if (parts.length) wgSuffix = `: ${parts.join(', ')}`;
       } else if (wgList.length) {
         wgSuffix = `: ${wgList.join(', ')}`;

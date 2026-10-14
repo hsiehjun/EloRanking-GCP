@@ -32,7 +32,7 @@
             (p.user && p.user.is_admin) ||
             email === 'swimgeek751@gmail.com'
           );
-          if (email === 'hsiehjun@google.com' || (role && role !== 'admin' && !isAdmin)) {
+          if (role && role !== 'admin' && !isAdmin) {
             document.documentElement.style.display = 'none';
             window.location.replace('/');
           }

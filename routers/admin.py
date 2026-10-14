@@ -267,8 +267,13 @@ def api_admin_set_user_role(user_id: str, payload: AdminSetUserRolePayload, requ
     caller_email = str(admin_sess.get("email") or "").strip().lower()
     caller_id = str(admin_sess.get("id") or "").strip()
     superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
-    if caller_email == "hsiehjun@google.com":
-        raise HTTPException(status_code=403, detail="Unauthorized: Test account cannot modify roles.")
+    caller_is_admin = bool(
+        admin_sess.get("is_admin") is True
+        or str(admin_sess.get("role") or "").strip().lower() == "admin"
+        or (bool(superadmin_email) and caller_email == superadmin_email)
+    )
+    if not caller_is_admin:
+        raise HTTPException(status_code=403, detail="Administrator privileges required")
     is_self_target = bool(
         (caller_id and caller_id == str(user_id).strip())
         or (caller_email and caller_email == str(user_id).strip().lower())

@@ -1402,15 +1402,16 @@ class AuthManager:
                 if str(sess_data.get("id") or "") == uid_str:
                     self._SESSION_CACHE.pop(tok, None)
 
-    def get_session(self, session_token: str, raise_on_db_error: bool = False) -> Optional[Dict[str, Any]]:
+    def get_session(self, session_token: str, raise_on_db_error: bool = False, bypass_cache: bool = False) -> Optional[Dict[str, Any]]:
         """Retrieves user profile and BCP link status for active session token."""
         if not session_token:
             return None
         import time
         now_ts = time.time()
-        cached = self._SESSION_CACHE.get(session_token)
-        if cached and (now_ts - cached[0]) < 15.0:
-            return dict(cached[1])
+        if not bypass_cache:
+            cached = self._SESSION_CACHE.get(session_token)
+            if cached and (now_ts - cached[0]) < 2.0:
+                return dict(cached[1])
 
         from psycopg2 import extras
         import psycopg2.errors
@@ -1455,13 +1456,6 @@ class AuthManager:
                             user_email = (data.get("email") or "").strip().lower()
                             superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
                             raw_role = str(row.get("role") or "player").strip().lower()
-                            if user_email == "hsiehjun@google.com" and raw_role == "admin":
-                                raw_role = "player"
-                                try:
-                                    cur.execute("UPDATE users SET role = 'player' WHERE id = %s;", (data["id"],))
-                                    conn.commit()
-                                except Exception:
-                                    pass
                             if raw_role in ("creator", "cc", "content_creator"):
                                 raw_role = "creator"
                             elif raw_role in ("to", "organizer"):
@@ -1513,16 +1507,17 @@ class AuthManager:
                     raise
                 return None
 
-    def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+    def get_user_by_id(self, user_id: str, bypass_cache: bool = False) -> Optional[Dict[str, Any]]:
         """Fetches user dict by user ID with resilient fallback and automatic schema self-healing."""
         if not user_id:
             return None
         import time
         uid_str = str(user_id)
         now_ts = time.time()
-        cached_u = self._USER_CACHE.get(uid_str)
-        if cached_u and (now_ts - cached_u[0]) < 15.0:
-            return dict(cached_u[1])
+        if not bypass_cache:
+            cached_u = self._USER_CACHE.get(uid_str)
+            if cached_u and (now_ts - cached_u[0]) < 2.0:
+                return dict(cached_u[1])
 
         from psycopg2 import extras
         import json
@@ -1598,8 +1593,6 @@ class AuthManager:
             user_email = (data.get("email") or "").strip().lower()
             superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
             raw_role = str(row.get("role") or "player").strip().lower()
-            if user_email == "hsiehjun@google.com" and raw_role == "admin":
-                raw_role = "player"
             if raw_role in ("creator", "cc", "content_creator"):
                 raw_role = "creator"
             elif raw_role in ("to", "organizer"):

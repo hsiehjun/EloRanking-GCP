@@ -1644,7 +1644,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             elif new_role in ("to", "organizer"):
                 new_role = "to"
             req_email = (self.headers.get("X-Test-User-Email") or "").strip().lower()
-            if u_id.lower() == "hsiehjun@google.com" or req_email == "hsiehjun@google.com":
+            if req_email == "hsiehjun@google.com":
                 self.send_response(403)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
