@@ -336,7 +336,7 @@ class LeaguesHubService:
             "short_label": f"Week 1 of {dur}"
         }
 
-    def get_leagues_list(self, region: Optional[str] = None, game_system: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_leagues_list(self, region: Optional[str] = None, game_system: Optional[str] = None, limit: Optional[int] = None, **kwargs: Any) -> List[Dict[str, Any]]:
         """Queries registered community leagues directly from PostgreSQL `native_leagues`."""
         db = self._get_db()
         cache_key = ("leagues_list", str(region or "").strip().lower(), str(game_system or "").strip().lower())

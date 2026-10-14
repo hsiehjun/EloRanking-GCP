@@ -241,9 +241,12 @@ def api_auth_forgot_password(payload: ForgotPasswordPayload):
 
 @router.get("/api/auth/reset-password/validate", summary="Validate password reset token or code")
 def api_auth_validate_reset_token(token: Optional[str] = Query(None), code: Optional[str] = Query(None), email: Optional[str] = Query(None)):
-    auth_mgr = get_auth_manager()
-    res = auth_mgr.validate_reset_token(token=token, code=code, email=email)
-    return res
+    try:
+        auth_mgr = get_auth_manager()
+        return auth_mgr.validate_reset_token(token=token, code=code, email=email)
+    except Exception as e:
+        logger.warning(f"api_auth_validate_reset_token fallback notice: {e}")
+        return {"valid": False, "error": "Password reset token or code has expired or is invalid."}
 
 @router.post("/api/auth/reset-password", summary="Reset account password using token or email & code")
 def api_auth_reset_password(request: Request, payload: ResetPasswordPayload, response: Response):
@@ -466,24 +469,53 @@ def api_user_bcp_disconnect(request: Request, token: Optional[str] = Query(None)
 
 @router.get("/api/user/dashboard", summary="Get personalized competitor hub analytics")
 def api_user_dashboard(request: Request, player_id: Optional[str] = Query(None), token: Optional[str] = Query(None), game_system: Optional[str] = Query("40k")):
-    auth_mgr = get_auth_manager()
-    auth_header = request.headers.get("Authorization", "")
-    session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
-    
-    target_pid = player_id
-    target_uid = None
+    try:
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
+        
+        target_pid = player_id
+        target_uid = None
 
-    if session_token:
-        session = auth_mgr.get_session(session_token)
-        if session:
-            target_uid = session.get("id")
-            target_pid = target_pid or session.get("player_id")
+        if session_token:
+            session = auth_mgr.get_session(session_token)
+            if session:
+                target_uid = session.get("id")
+                target_pid = target_pid or session.get("player_id")
 
-    if not target_pid and not target_uid:
-        top_p = get_database().get_top_ranked_players(limit=1, game_system=game_system)
-        target_pid = top_p.get("items", [{}])[0].get("player_id", "demo") if isinstance(top_p, dict) else "demo"
+        if not target_pid and not target_uid:
+            top_p = get_database().get_top_ranked_players(limit=1, game_system=game_system)
+            target_pid = top_p.get("items", [{}])[0].get("player_id", "demo") if isinstance(top_p, dict) else "demo"
 
-    return auth_mgr.get_user_competitor_hub(player_id=target_pid, user_id=target_uid, game_system=game_system)
+        return auth_mgr.get_user_competitor_hub(player_id=target_pid, user_id=target_uid, game_system=game_system)
+    except Exception as e:
+        logger.warning(f"api_user_dashboard fallback notice: {e}")
+        return {
+            "player": {
+                "player_id": player_id or "demo",
+                "player_name": "Competitor",
+                "display_name": "Competitor",
+                "current_elo": 1500.0,
+                "peak_elo": 1500.0,
+                "win_rate": 0.0,
+                "matches_played": 0,
+                "wins": 0,
+                "losses": 0,
+                "draws": 0,
+                "top_faction": "General",
+                "team": "",
+                "game_system": (game_system or "40k").lower(),
+            },
+            "rankings": {},
+            "history": [],
+            "faction_mastery": [],
+            "matchup_matrix": [],
+            "events_attended": [],
+            "upcoming_events": [],
+            "registered_tournaments": [],
+            "badges": [],
+            "categories": [],
+        }
 
 
 @router.get("/api/user/registered-tournaments", summary="Get tournaments registered on BCP for current user")

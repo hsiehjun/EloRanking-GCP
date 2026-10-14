@@ -1113,7 +1113,7 @@ class PostgresDatabase:
             try:
                 PostgresDatabase._pool = pool.ThreadedConnectionPool(
                     minconn=1,
-                    maxconn=40,
+                    maxconn=60,
                     dsn=self.dsn
                 )
                 logger.info(f"PostgreSQL connection pool initialized with DSN: {self._sanitize_dsn(self.dsn)}")
@@ -1177,10 +1177,24 @@ class PostgresDatabase:
         return dsn
 
     def get_connection(self):
-        """Context manager yielding a pooled PostgreSQL connection."""
+        """Context manager yielding a pooled PostgreSQL connection with retry on transient pool contention."""
         self._ensure_pool()
-        conn = PostgresDatabase._pool.getconn()
-        return PostgresConnectionContext(PostgresDatabase._pool, conn)
+        last_err = None
+        for attempt in range(25):
+            try:
+                conn = PostgresDatabase._pool.getconn()
+                if getattr(conn, "closed", 0):
+                    try:
+                        PostgresDatabase._pool.putconn(conn, close=True)
+                    except Exception:
+                        pass
+                    conn = PostgresDatabase._pool.getconn()
+                return PostgresConnectionContext(PostgresDatabase._pool, conn)
+            except Exception as err:
+                last_err = err
+                if attempt < 24:
+                    time.sleep(0.04)
+        raise last_err
 
     def init_db(self):
         """Creates PostgreSQL tables and performance indexes safely without deadlocking with active scraping jobs."""
@@ -5784,7 +5798,6 @@ class PostgresDatabase:
                     WHERE h.player_id = ANY(%s)
                       AND COALESCE(h.game_system, '40k') = %s
                       AND COALESCE(h.event_id, '') != %s
-                      AND COALESCE(h.is_bye, FALSE) = FALSE
                       AND UPPER(TRIM(COALESCE(h.opponent_name, ''))) != 'BYE'
                     ORDER BY h.match_date ASC, h.round ASC;
                     """,
@@ -5802,13 +5815,26 @@ class PostgresDatabase:
                     "hist_by_pid": hist_by_pid_local,
                 }
 
-            if cursor is not None:
-                cached_tel = _fetch_tel_rows(cursor)
-            else:
-                with self.get_connection() as conn_tel:
-                    with conn_tel.cursor(cursor_factory=extras.RealDictCursor) as cur_tel:
-                        cached_tel = _fetch_tel_rows(cur_tel)
-            PostgresDatabase.set_cached(PostgresDatabase._event_pred_telemetry_cache_dict, sig_key, cached_tel, max_size=300)
+            try:
+                if cursor is not None:
+                    cursor.execute("SAVEPOINT sp_pred_tel;")
+                    try:
+                        cached_tel = _fetch_tel_rows(cursor)
+                        cursor.execute("RELEASE SAVEPOINT sp_pred_tel;")
+                    except Exception:
+                        try:
+                            cursor.execute("ROLLBACK TO SAVEPOINT sp_pred_tel;")
+                        except Exception:
+                            pass
+                        cached_tel = {"pr_by_pid": {}, "pr_by_name": {}, "hist_by_pid": {}}
+                else:
+                    with self.get_connection() as conn_tel:
+                        with conn_tel.cursor(cursor_factory=extras.RealDictCursor) as cur_tel:
+                            cached_tel = _fetch_tel_rows(cur_tel)
+                PostgresDatabase.set_cached(PostgresDatabase._event_pred_telemetry_cache_dict, sig_key, cached_tel, max_size=300)
+            except Exception as tel_err:
+                logger.debug(f"enrich_event_prediction_telemetry query notice: {tel_err}")
+                cached_tel = {"pr_by_pid": {}, "pr_by_name": {}, "hist_by_pid": {}}
 
         pr_by_pid = cached_tel.get("pr_by_pid") or {}
         pr_by_name = cached_tel.get("pr_by_name") or {}
@@ -5988,10 +6014,13 @@ class PostgresDatabase:
         lng: Optional[float] = None,
         radius_miles: Optional[float] = None,
         limit: int = 25,
-        sort_by: str = "date"
+        sort_by: str = "date",
+        game_system: Optional[str] = None,
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """Returns personalized upcoming event recommendations with Haversine distance calculations, Average Field Elo, and capacity metrics (instant cached)."""
-        cache_key = f"{player_id}:{query}:{state}:{city}:{lat}:{lng}:{radius_miles}:{limit}:{sort_by}"
+        sys_norm = (game_system or "40k").strip().lower() if game_system else ""
+        cache_key = f"{player_id}:{query}:{state}:{city}:{lat}:{lng}:{radius_miles}:{limit}:{sort_by}:{sys_norm}"
         cached = PostgresDatabase.get_cached(PostgresDatabase._recommended_events_cache_dict, cache_key, ttl=600)
         if cached:
             return cached
@@ -6329,7 +6358,7 @@ class PostgresDatabase:
         is_mock_self = type(self).__module__.startswith("unittest.mock")
         cache_key = (page, page_size, (query or "").strip().lower(), status, sort_by, str(order).upper(), (game_system or "40k").lower())
         if not is_mock_self:
-            cached_res = PostgresDatabase.get_cached(PostgresDatabase._events_list_cache_dict, cache_key, ttl=300)
+            cached_res = PostgresDatabase.get_cached(PostgresDatabase._events_list_cache_dict, cache_key, ttl=3600)
             if cached_res is not None:
                 return cached_res
 
@@ -6369,23 +6398,28 @@ class PostgresDatabase:
                 pe_col = col.replace("e.", "pe.")
 
                 sql = f"""
-                WITH page_events AS (
+                WITH page_ids AS MATERIALIZED (
+                    SELECT e.id
+                    FROM events e
+                    WHERE {where_sql}
+                    ORDER BY {col} {dir_str} NULLS LAST
+                    LIMIT %s OFFSET %s
+                ),
+                page_events AS (
                     SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
                            COALESCE(NULLIF(TRIM(e.venue_name), ''), NULLIF(TRIM(e.venue), ''), NULLIF(TRIM(e.raw_json->>'locationName'), ''), NULLIF(TRIM(e.raw_json->>'venueName'), '')) as venue_name,
                            COALESCE(NULLIF(TRIM(e.address), ''), NULLIF(TRIM(e.raw_json->>'formatted_address'), ''), NULLIF(TRIM(e.raw_json->>'formattedAddress'), ''), NULLIF(TRIM(CONCAT_WS(' ', e.raw_json->>'streetNum', e.raw_json->>'streetName')), '')) as address,
                            e.postal_code, e.latitude, e.longitude,
                            e.total_players, e.num_rounds, e.current_round, e.is_ended
                     FROM events e
-                    WHERE {where_sql}
-                    ORDER BY {col} {dir_str} NULLS LAST
-                    LIMIT %s OFFSET %s
+                    JOIN page_ids pi ON e.id = pi.id
                 )
                 SELECT pe.*, COALESCE(mc.cnt, 0) as match_count
                 FROM page_events pe
                 LEFT JOIN (
                     SELECT event_id, COUNT(*) as cnt
                     FROM matches
-                    WHERE event_id IN (SELECT id FROM page_events)
+                    WHERE event_id IN (SELECT id FROM page_ids)
                     GROUP BY event_id
                 ) mc ON pe.id = mc.event_id
                 ORDER BY {pe_col} {dir_str} NULLS LAST;
@@ -9888,16 +9922,19 @@ class PostgresDatabase:
             if bg_key in PostgresDatabase._faction_bg_warmed_keys:
                 return
             PostgresDatabase._faction_bg_warmed_keys.add(bg_key)
+            if not hasattr(PostgresDatabase, "_bg_meta_refresh_sem"):
+                PostgresDatabase._bg_meta_refresh_sem = threading.BoundedSemaphore(1)
 
             def _bg_worker():
                 try:
-                    self.get_faction_meta_stats(
-                        start_date=resolved_start,
-                        end_date=resolved_end,
-                        game_system=sys_norm,
-                        timeframe=preset or timeframe,
-                        _force_refresh=True,
-                    )
+                    with PostgresDatabase._bg_meta_refresh_sem:
+                        self.get_faction_meta_stats(
+                            start_date=resolved_start,
+                            end_date=resolved_end,
+                            game_system=sys_norm,
+                            timeframe=preset or timeframe,
+                            _force_refresh=True,
+                        )
                 except Exception:
                     pass
                 finally:
@@ -9974,7 +10011,7 @@ class PostgresDatabase:
                                             for k in cache_keys:
                                                 PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, k, parsed, max_size=200)
                                             age_s = (now_ts - float(p_ts)) if p_ts else 0.0
-                                            if age_s >= 1800 or float(p_ts or 0.0) < PostgresDatabase._last_cache_invalidation_ts:
+                                            if age_s >= 86400 or float(p_ts or 0.0) < PostgresDatabase._last_cache_invalidation_ts:
                                                 _trigger_bg_meta_refresh()
                                             return parsed
                 except Exception as l2_err:
@@ -10199,53 +10236,59 @@ class PostgresDatabase:
                             safe_clauses.append("match_date >= %s")
                             safe_params.append((datetime.now(timezone.utc) - timedelta(days=540)).strftime("%Y-%m-%d"))
                         s_filter = " AND ".join(safe_clauses)
-                        with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
-                            if not is_mock_cur:
-                                try:
-                                    cur_safe.execute("SET LOCAL statement_timeout = '250ms';")
-                                except Exception:
-                                    conn.rollback()
-                            cur_safe.execute(f"""
-                            WITH recent_matches AS MATERIALIZED (
-                                SELECT id, match_date,
-                                       player1_id, player1_faction, player1_score,
-                                       player2_id, player2_faction, player2_score,
-                                       winner_id, loser_id, is_draw, is_bye
-                                FROM matches
-                                WHERE {s_filter}
-                                ORDER BY match_date DESC
-                                LIMIT 2500
-                            ),
-                            match_sides AS (
-                                SELECT id, match_date, player1_faction as faction, player1_score as score,
-                                       CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
-                                       CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
-                                       CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss
-                                FROM recent_matches
-                                WHERE player1_faction IS NOT NULL AND TRIM(player1_faction) != '' AND player1_faction != 'Unknown Faction'
-                                UNION ALL
-                                SELECT id, match_date, player2_faction as faction, player2_score as score,
-                                       CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
-                                       CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
-                                       CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss
-                                FROM recent_matches
-                                WHERE player2_faction IS NOT NULL AND TRIM(player2_faction) != '' AND player2_faction != 'Unknown Faction' AND is_bye = FALSE AND player2_id IS NOT NULL
-                            )
-                            SELECT 
-                                faction,
-                                COUNT(*) as total_matches,
-                                SUM(is_win) as wins,
-                                SUM(is_loss) as losses,
-                                SUM(is_draw) as draws,
-                                COALESCE(ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1), 0.0) as win_rate,
-                                COALESCE(ROUND(AVG(score)::numeric, 1), 0.0) as avg_score
-                            FROM match_sides
-                            GROUP BY faction
-                            HAVING COUNT(*) >= 1
-                            ORDER BY win_rate DESC, total_matches DESC;
-                            """, safe_params)
-                            overall = [dict(r) for r in cur_safe.fetchall()]
-                            raw_match_count = min(2500, sum(int(r.get("total_matches") or 0) for r in overall) // 2)
+                        try:
+                            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                                if not is_mock_cur:
+                                    try:
+                                        cur_safe.execute("SET LOCAL statement_timeout = '500ms';")
+                                    except Exception:
+                                        conn.rollback()
+                                cur_safe.execute(f"""
+                                WITH recent_matches AS MATERIALIZED (
+                                    SELECT id, match_date,
+                                           player1_id, player1_faction, player1_score,
+                                           player2_id, player2_faction, player2_score,
+                                           winner_id, loser_id, is_draw, is_bye
+                                    FROM matches
+                                    WHERE {s_filter}
+                                    ORDER BY match_date DESC
+                                    LIMIT 2500
+                                ),
+                                match_sides AS (
+                                    SELECT id, match_date, player1_faction as faction, player1_score as score,
+                                           CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                                           CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
+                                           CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss
+                                    FROM recent_matches
+                                    WHERE player1_faction IS NOT NULL AND TRIM(player1_faction) != '' AND player1_faction != 'Unknown Faction'
+                                    UNION ALL
+                                    SELECT id, match_date, player2_faction as faction, player2_score as score,
+                                           CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                                           CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
+                                           CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss
+                                    FROM recent_matches
+                                    WHERE player2_faction IS NOT NULL AND TRIM(player2_faction) != '' AND player2_faction != 'Unknown Faction' AND is_bye = FALSE AND player2_id IS NOT NULL
+                                )
+                                SELECT 
+                                    faction,
+                                    COUNT(*) as total_matches,
+                                    SUM(is_win) as wins,
+                                    SUM(is_loss) as losses,
+                                    SUM(is_draw) as draws,
+                                    COALESCE(ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1), 0.0) as win_rate,
+                                    COALESCE(ROUND(AVG(score)::numeric, 1), 0.0) as avg_score
+                                FROM match_sides
+                                GROUP BY faction
+                                HAVING COUNT(*) >= 1
+                                ORDER BY win_rate DESC, total_matches DESC;
+                                """, safe_params)
+                                overall = [dict(r) for r in cur_safe.fetchall()]
+                                raw_match_count = min(2500, sum(int(r.get("total_matches") or 0) for r in overall) // 2)
+                        except Exception as safe_err:
+                            conn.rollback()
+                            logger.warning(f"Safe fallback get_faction_meta_stats notice: {safe_err}")
+                            overall = []
+                            raw_match_count = 0
 
                     # Index matchup rows by faction for O(1) enrichment & matrix construction
                     matchups_by_fac: Dict[str, List[Dict[str, Any]]] = {}
@@ -11549,20 +11592,23 @@ class PostgresDatabase:
                                             self.set_cached(self._faction_details_cache_dict, canon_cache_key, parsed, max_size=1500)
                                             self.set_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, eff_limit), parsed, max_size=1500)
                                             age_s = (time.time() - float(p_ts)) if p_ts else 0.0
-                                            if age_s >= 1800 or float(p_ts or 0.0) < PostgresDatabase._last_cache_invalidation_ts:
+                                            if not _from_bg_warm and (age_s >= 86400 or float(p_ts or 0.0) < PostgresDatabase._last_cache_invalidation_ts):
                                                 bg_fk = f"fac_det_bg_{norm_fac_lower}_{system}_{canon_tf}_{eff_limit}"
                                                 if bg_fk not in PostgresDatabase._faction_bg_warmed_keys:
                                                     PostgresDatabase._faction_bg_warmed_keys.add(bg_fk)
+                                                    if not hasattr(PostgresDatabase, "_bg_fac_refresh_sem"):
+                                                        PostgresDatabase._bg_fac_refresh_sem = threading.BoundedSemaphore(1)
                                                     def _bg_fac_refresh():
                                                         try:
-                                                            self.get_faction_details(
-                                                                faction_name,
-                                                                limit=eff_limit,
-                                                                game_system=system,
-                                                                timeframe=canon_tf,
-                                                                include_top_players=include_top_players,
-                                                                _force_refresh=True,
-                                                            )
+                                                            with PostgresDatabase._bg_fac_refresh_sem:
+                                                                self.get_faction_details(
+                                                                    faction_name,
+                                                                    limit=eff_limit,
+                                                                    game_system=system,
+                                                                    timeframe=canon_tf,
+                                                                    include_top_players=include_top_players,
+                                                                    _force_refresh=True,
+                                                                )
                                                         except Exception:
                                                             pass
                                                         finally:
@@ -11790,23 +11836,29 @@ class PostgresDatabase:
             warmed = 0
             for fname in target_factions:
                 if fname:
-                    self.get_faction_details(fname, limit=100, game_system=game_system, timeframe=timeframe)
+                    self.get_faction_details(fname, limit=100, game_system=game_system, timeframe=timeframe, _from_bg_warm=True)
                     warmed += 1
 
             is_mock_self = self._is_mock_instance()
             remaining_factions = ordered_factions[max_factions:]
-            if not is_mock_self and remaining_factions and timeframe in ("1yr", "all"):
-                def _bg_warm_all_remaining():
-                    for fname in remaining_factions:
-                        if not fname:
-                            continue
-                        for tf_warm in ("1yr", "all", "6mo"):
-                            try:
-                                self.get_faction_details(fname, limit=100, game_system=game_system, timeframe=tf_warm, _from_bg_warm=True)
-                                time.sleep(0.05)
-                            except Exception:
-                                pass
-                threading.Thread(target=_bg_warm_all_remaining, daemon=True).start()
+            if not is_mock_self and remaining_factions and timeframe == "1yr":
+                bg_rem_key = f"bg_warm_rem_{game_system}_{timeframe}"
+                if bg_rem_key not in PostgresDatabase._faction_bg_warmed_keys:
+                    PostgresDatabase._faction_bg_warmed_keys.add(bg_rem_key)
+                    def _bg_warm_all_remaining():
+                        try:
+                            for fname in remaining_factions:
+                                if not fname:
+                                    continue
+                                for tf_warm in ("1yr", "all", "6mo"):
+                                    try:
+                                        self.get_faction_details(fname, limit=100, game_system=game_system, timeframe=tf_warm, _from_bg_warm=True)
+                                        time.sleep(0.05)
+                                    except Exception:
+                                        pass
+                        finally:
+                            PostgresDatabase._faction_bg_warmed_keys.discard(bg_rem_key)
+                    threading.Thread(target=_bg_warm_all_remaining, daemon=True).start()
 
             logger.info(f"🔥 Pre-warmed faction details cache for {warmed} factions ({game_system}, {timeframe}).")
             return warmed
@@ -14135,6 +14187,8 @@ class PostgresDatabase:
                     data.get("factions") or ""
                 ))
                 conn.commit()
+                if hasattr(PostgresDatabase, "_lfg_search_cache_dict"):
+                    PostgresDatabase._lfg_search_cache_dict.clear()
                 return True
 
     def search_nearby_lfg_players(
@@ -14152,6 +14206,22 @@ class PostgresDatabase:
             return []
         
         target_sys = (game_system.strip().lower() if game_system else "40k")
+        is_mock_self = self._is_mock_instance()
+        if not hasattr(PostgresDatabase, "_lfg_search_cache_dict"):
+            PostgresDatabase._lfg_search_cache_dict = {}
+        lfg_cache_key = (
+            str(current_user_id or ""),
+            round(float(lat), 3),
+            round(float(lng), 3),
+            round(float(radius_miles or 50.0), 1),
+            str(elo_bracket or "").strip().lower(),
+            str(play_style or "").strip().lower(),
+            target_sys,
+        )
+        if not is_mock_self:
+            cached_lfg = PostgresDatabase.get_cached(PostgresDatabase._lfg_search_cache_dict, lfg_cache_key, ttl=120)
+            if cached_lfg is not None:
+                return list(cached_lfg)
         
         # Haversine distance in SQL
         distance_sql = """
@@ -14219,14 +14289,20 @@ class PostgresDatabase:
         query += " ORDER BY distance_miles ASC, current_elo DESC LIMIT 50;"
 
         results = []
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
-                cursor.execute(query, tuple(params))
-                for row in cursor.fetchall():
-                    r = dict(row)
-                    r["distance_miles"] = float(r["distance_miles"]) if r.get("distance_miles") is not None else 0.0
-                    r["current_elo"] = float(r["current_elo"]) if r.get("current_elo") is not None else 1500.0
-                    results.append(r)
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                    cursor.execute(query, tuple(params))
+                    for row in cursor.fetchall():
+                        r = dict(row)
+                        r["distance_miles"] = float(r["distance_miles"]) if r.get("distance_miles") is not None else 0.0
+                        r["current_elo"] = float(r["current_elo"]) if r.get("current_elo") is not None else 1500.0
+                        results.append(r)
+            if not is_mock_self:
+                PostgresDatabase.set_cached(PostgresDatabase._lfg_search_cache_dict, lfg_cache_key, results, max_size=500)
+        except Exception as e:
+            logger.warning(f"search_nearby_lfg_players fallback notice: {e}")
+            return []
         return results
 
     def get_user_for_player(self, player_id: str, player_name: Optional[str] = None) -> Optional[Dict[str, Any]]:

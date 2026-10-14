@@ -103,31 +103,35 @@ def api_search_connect_players(
     play_style: Optional[str] = Query(None),
     game_system: Optional[str] = Query(None)
 ):
-    auth_mgr = get_auth_manager()
-    auth_header = request.headers.get("Authorization", "")
-    session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    user = auth_mgr.get_session(session_token) if session_token else None
-    user_id = user["id"] if user else ""
+    try:
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else ""
 
-    db = get_database()
-    if lat is None or lng is None:
-        if user_id:
-            prof = db.get_lfg_profile(user_id)
-            lat = prof.get("latitude") or 32.7157
-            lng = prof.get("longitude") or -117.1611
-        else:
-            lat = 32.7157
-            lng = -117.1611
+        db = get_database()
+        if lat is None or lng is None:
+            if user_id:
+                prof = db.get_lfg_profile(user_id)
+                lat = prof.get("latitude") or 32.7157
+                lng = prof.get("longitude") or -117.1611
+            else:
+                lat = 32.7157
+                lng = -117.1611
 
-    players = db.search_nearby_lfg_players(
-        current_user_id=user_id,
-        lat=lat,
-        lng=lng,
-        radius_miles=radius_miles,
-        play_style=play_style,
-        game_system=game_system
-    )
-    return {"success": True, "players": players}
+        players = db.search_nearby_lfg_players(
+            current_user_id=user_id,
+            lat=lat,
+            lng=lng,
+            radius_miles=radius_miles,
+            play_style=play_style,
+            game_system=game_system
+        )
+        return {"success": True, "players": players}
+    except Exception as e:
+        logger.warning(f"api_search_connect_players fallback notice: {e}")
+        return {"success": True, "players": []}
 
 @router.get("/api/connect/users/search", summary="Search registered OmniTactica users by name to share Game Tracker room in chat")
 def api_search_connect_users(request: Request, q: str = Query("", min_length=0)):

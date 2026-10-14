@@ -144,7 +144,25 @@ async def add_security_cache_and_rate_limit(request: Request, call_next):
                 for k in list(_rate_limits_state.keys())[:2000]:
                     _rate_limits_state.pop(k, None)
 
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            req_duration_ms = (time.perf_counter() - t0_req) * 1000.0
+            route_obj = request.scope.get("route") if hasattr(request, "scope") else None
+            route_path = getattr(route_obj, "path", None) or path
+            try:
+                PERF_REGISTRY.record_api_call(
+                    method=request.method,
+                    route_path=route_path,
+                    raw_path=path,
+                    query_str=request.url.query if hasattr(request, "url") else "",
+                    status_code=500,
+                    duration_ms=req_duration_ms,
+                    db_calls=db_calls_list,
+                )
+            except Exception:
+                pass
+            raise
     finally:
         end_request_db_trace(db_token)
 
@@ -397,6 +415,10 @@ async def on_server_startup():
             auth_mgr = get_auth_manager()
             fs_eng = get_firestore_engine()
             core_tasks = [
+                lambda: auth_mgr.validate_reset_token("TEST"),
+                lambda: auth_mgr.get_user_competitor_hub(player_id="MEV83VFANA", user_id=None, game_system="40k"),
+                lambda: auth_mgr.get_user_competitor_hub(player_id="xcaFfMZt5b", user_id=None, game_system="40k"),
+                lambda: db.search_nearby_lfg_players("", 32.7157, -117.1611, 50.0, game_system="40k"),
                 lambda: db.get_summary_stats(game_system="40k"),
                 lambda: db.get_summary_stats(game_system="aos"),
                 lambda: db.get_top_ranked_players(page=1, page_size=25, min_matches=3, faction="All", sort_by="current_elo", order="DESC", game_system="40k", active_only=True),
@@ -436,8 +458,6 @@ async def on_server_startup():
                 lambda: elo_eng.get_player_win_path("CF1MBH6T87", game_system="40k"),
                 lambda: db.get_head_to_head("xcaFfMZt5b", "MEV83VFANA", game_system="40k"),
                 lambda: elo_eng.predict_match_outcome("xcaFfMZt5b", "MEV83VFANA", game_system="40k"),
-                lambda: auth_mgr.get_user_competitor_hub(player_id="MEV83VFANA", user_id=None, game_system="40k"),
-                lambda: auth_mgr.get_user_competitor_hub(player_id="xcaFfMZt5b", user_id=None, game_system="40k"),
                 lambda: db.fetch_and_cache_bcp_event_placings("7ohG0RuDqC1k", timeout=3.0, persist_async=True),
                 lambda: db.fetch_and_cache_bcp_event_placings("DAVY7pZIVACh", timeout=3.0, persist_async=True),
                 lambda: db.get_player_tournaments("MEV83VFANA", game_system="40k"),

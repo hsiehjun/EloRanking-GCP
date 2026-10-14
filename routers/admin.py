@@ -409,17 +409,17 @@ def api_admin_mock_player(payload: AdminMockPlayerPayload, request: Request, tok
                 with conn.cursor() as cur:
                     if raw_uid:
                         cur.execute(
-                            "SELECT id, display_name, bcp_user_id, bcp_player_id, bcp_player_name FROM users WHERE id = %s LIMIT 1;",
+                            "SELECT id, display_name, bcp_user_id, player_id FROM users WHERE id = %s LIMIT 1;",
                             (raw_uid,)
                         )
                         u_row = cur.fetchone()
                         if u_row:
-                            raw_name = raw_name or str(u_row[1] or u_row[4] or "").strip()
+                            raw_name = raw_name or str(u_row[1] or "").strip()
                             bcp_pid = bcp_pid or str(u_row[2] or u_row[3] or "").strip()
                             raw_pid = raw_pid or bcp_pid or str(u_row[0]).strip()
                     if raw_pid:
                         cur.execute(
-                            "SELECT player_id, full_name, current_elo, top_faction FROM players WHERE player_id = %s LIMIT 1;",
+                            "SELECT player_id, player_name, current_elo, top_faction FROM player_ratings WHERE player_id = %s ORDER BY matches_played DESC NULLS LAST LIMIT 1;",
                             (raw_pid,)
                         )
                         p_row = cur.fetchone()
