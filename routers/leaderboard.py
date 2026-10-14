@@ -1720,22 +1720,36 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
             t_pair_id_wp = str(wp.get("team_pairing_id") or "").strip()
             stamp_wp = wp.get("submitted_at") or wp.get("updated_at") or True
             pod_pids = set()
+            pod_pnames = set()
             for bp in indiv_bps:
                 if bp.get("player1_id"):
-                    pod_pids.add(str(bp["player1_id"]))
+                    pod_pids.add(str(bp["player1_id"]).strip().lower())
                 if bp.get("player2_id"):
-                    pod_pids.add(str(bp["player2_id"]))
+                    pod_pids.add(str(bp["player2_id"]).strip().lower())
+                if bp.get("player1_name"):
+                    pod_pnames.add(str(bp["player1_name"]).strip().lower())
+                if bp.get("player2_name"):
+                    pod_pnames.add(str(bp["player2_name"]).strip().lower())
             pod_matches = [
                 m for m in matches_list
                 if isinstance(m, dict)
                 and int(m.get("round") or 1) == r_num_wp
                 and (
                     (t_pair_id_wp and str(m.get("team_pairing_id") or "") == t_pair_id_wp)
-                    or str(m.get("player1_id") or "") in pod_pids
-                    or str(m.get("player2_id") or "") in pod_pids
+                    or str(m.get("player1_id") or "").strip().lower() in pod_pids
+                    or str(m.get("player2_id") or "").strip().lower() in pod_pids
+                    or str(m.get("player1_name") or "").strip().lower() in pod_pnames
+                    or str(m.get("player2_name") or "").strip().lower() in pod_pnames
                 )
             ]
             pod_matches.sort(key=lambda m: int(m.get("table_number") or m.get("table") or 9999))
+            if len(pod_matches) > len(indiv_bps):
+                for extra_m in pod_matches[len(indiv_bps):]:
+                    try:
+                        matches_list.remove(extra_m)
+                    except ValueError:
+                        pass
+                pod_matches = pod_matches[:len(indiv_bps)]
             for idx, bp in enumerate(indiv_bps):
                 if idx < len(pod_matches):
                     m_target = pod_matches[idx]

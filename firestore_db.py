@@ -3990,7 +3990,7 @@ class FirestoreRoomEngine:
             self._hydrate_roster_live_elos([roster_a, roster_b], game_system=sys_key)
             ai_team_b_meta: Optional[Dict[str, Any]] = None
         else:
-            if isinstance(req.get("team_a_roster"), list) and len(req["team_a_roster"]) >= team_size:
+            if isinstance(req.get("team_a_roster"), list) and (len(req["team_a_roster"]) >= team_size or bool(req.get("event_context"))):
                 roster_a = copy.deepcopy(req["team_a_roster"][:team_size])
             elif room_mode == "casual_tcg" or bool(req.get("use_tcg_deck", False)):
                 roster_a = self.get_user_tcg_deck_roster(creator_uid or "dev_user", format_size=fmt)
@@ -4003,7 +4003,7 @@ class FirestoreRoomEngine:
             self._hydrate_roster_live_elos([roster_a], game_system=sys_key)
 
             ai_team_b_meta = None
-            if isinstance(req.get("team_b_roster"), list) and len(req["team_b_roster"]) >= team_size:
+            if isinstance(req.get("team_b_roster"), list) and (len(req["team_b_roster"]) >= team_size or bool(req.get("event_context"))):
                 roster_b = copy.deepcopy(req["team_b_roster"][:team_size])
                 for idx, p in enumerate(roster_b):
                     p["id"] = f"B{idx + 1}"
@@ -4340,11 +4340,25 @@ class FirestoreRoomEngine:
                         ),
                         None,
                     )
+                if matched_tp is not None and team_a_name and team_b_name:
+                    tp_names = {
+                        str(matched_tp.get("team1_name") or "").strip().lower(),
+                        str(matched_tp.get("team2_name") or "").strip().lower(),
+                    }
+                    if {team_a_name.strip().lower(), team_b_name.strip().lower()} != tp_names:
+                        matched_tp = None
+
                 if matched_tp is None:
                     for tp_item in all_tp_items:
-                        if (
+                        tp_n1 = str(tp_item.get("team1_name") or "").strip().lower()
+                        tp_n2 = str(tp_item.get("team2_name") or "").strip().lower()
+                        if team_a_name and team_b_name:
+                            if {team_a_name.strip().lower(), team_b_name.strip().lower()} == {tp_n1, tp_n2}:
+                                matched_tp = tp_item
+                                break
+                        elif (
                             (team_a_id and str(tp_item.get("team1_id") or "") in (team_a_id, team_b_id))
-                            or (team_a_name and str(tp_item.get("team1_name") or "").lower() in (team_a_name.lower(), team_b_name.lower()))
+                            or (team_a_name and tp_n1 in (team_a_name.lower(), team_b_name.lower()))
                             or int(tp_item.get("pod_number") or tp_item.get("table_num") or tp_item.get("table") or tp_item.get("team_table") or 0) == team_table
                         ):
                             matched_tp = tp_item
@@ -4391,6 +4405,28 @@ class FirestoreRoomEngine:
                                     team_b_in = tm_obj
                                     team_b_id = tid_c
                                     team_b_name = tm_obj.get("name") or team_b_name
+
+                if not team_a_in.get("members") or not team_b_in.get("members"):
+                    # Also search all team_pairings across all rounds for matching team1_name / team2_name rosters
+                    for tp_any in (ev_cached_data.get("team_pairings") or []):
+                        if not isinstance(tp_any, dict):
+                            continue
+                        tp1_nm = str(tp_any.get("team1_name") or "").strip().lower()
+                        tp2_nm = str(tp_any.get("team2_name") or "").strip().lower()
+                        if not team_a_in.get("members") and team_a_name:
+                            if tp1_nm == team_a_name.strip().lower() and tp_any.get("team1_roster"):
+                                team_a_in = {"id": str(tp_any.get("team1_id") or ""), "name": tp_any.get("team1_name"), "members": tp_any["team1_roster"]}
+                                team_a_id = team_a_id or str(tp_any.get("team1_id") or "")
+                            elif tp2_nm == team_a_name.strip().lower() and tp_any.get("team2_roster"):
+                                team_a_in = {"id": str(tp_any.get("team2_id") or ""), "name": tp_any.get("team2_name"), "members": tp_any["team2_roster"]}
+                                team_a_id = team_a_id or str(tp_any.get("team2_id") or "")
+                        if not team_b_in.get("members") and team_b_name:
+                            if tp1_nm == team_b_name.strip().lower() and tp_any.get("team1_roster"):
+                                team_b_in = {"id": str(tp_any.get("team1_id") or ""), "name": tp_any.get("team1_name"), "members": tp_any["team1_roster"]}
+                                team_b_id = team_b_id or str(tp_any.get("team1_id") or "")
+                            elif tp2_nm == team_b_name.strip().lower() and tp_any.get("team2_roster"):
+                                team_b_in = {"id": str(tp_any.get("team2_id") or ""), "name": tp_any.get("team2_name"), "members": tp_any["team2_roster"]}
+                                team_b_id = team_b_id or str(tp_any.get("team2_id") or "")
 
                 if (not team_a_in.get("members") or not team_b_in.get("members")) and len(ev_teams) >= 2:
                     for tm_obj in ev_teams:
@@ -4706,7 +4742,7 @@ class FirestoreRoomEngine:
         t_pair_id = str(target_entry.get("team_pairing_id") or team_pairing_id or "").strip()
         r_num = int(target_entry.get("round_num") or round_num or 1)
 
-        # Helper: Apply individual board pairings onto cached event_details["matches"] in memory (< 1ms)
+        # Helper: Apply individual board pairings onto cached event_details in memory (< 1ms)
         def _apply_boards_to_cached_event(status_tag: str) -> None:
             try:
                 from routers.leaderboard import _event_details_cache
@@ -4714,17 +4750,38 @@ class FirestoreRoomEngine:
                 ev_data = entry_cache.get("data") if isinstance(entry_cache, dict) else None
                 if not isinstance(ev_data, dict):
                     return
+
+                # 1. Sync wtc_pairing onto cached team_pairings & wtc_pairings
+                wtc_info = self.get_event_wtc_pairings(clean_eid)
+                ev_data["wtc_pairings"] = wtc_info.get("wtc_pairings") or []
+                ev_data["wtc_pairings_by_key"] = wtc_info.get("by_key") or {}
+                for pod_obj in (ev_data.get("team_pairings") or []):
+                    if not isinstance(pod_obj, dict):
+                        continue
+                    if int(pod_obj.get("round") or 1) == r_num and str(pod_obj.get("team_pairing_id") or "") == t_pair_id:
+                        pod_obj["wtc_pairing"] = copy.deepcopy(target_entry)
+                        pod_obj["wtc_status"] = target_entry.get("status") or status_tag
+
+                # Only mutate 1v1 round matches once actually submitted to BCP
+                if status_tag != "submitted_to_bcp":
+                    return
+
                 matches = ev_data.get("matches")
                 if not isinstance(matches, list):
                     matches = []
                     ev_data["matches"] = matches
 
                 pod_player_ids = set()
+                pod_player_names = set()
                 for bp in indiv_pairings:
                     if bp.get("player1_id"):
-                        pod_player_ids.add(str(bp["player1_id"]))
+                        pod_player_ids.add(str(bp["player1_id"]).strip().lower())
                     if bp.get("player2_id"):
-                        pod_player_ids.add(str(bp["player2_id"]))
+                        pod_player_ids.add(str(bp["player2_id"]).strip().lower())
+                    if bp.get("player1_name"):
+                        pod_player_names.add(str(bp["player1_name"]).strip().lower())
+                    if bp.get("player2_name"):
+                        pod_player_names.add(str(bp["player2_name"]).strip().lower())
 
                 # Find existing matches in Round r_num belonging to this pod
                 pod_matches = [
@@ -4733,11 +4790,22 @@ class FirestoreRoomEngine:
                     and int(m.get("round") or 1) == r_num
                     and (
                         (t_pair_id and str(m.get("team_pairing_id") or "") == t_pair_id)
-                        or str(m.get("player1_id") or "") in pod_player_ids
-                        or str(m.get("player2_id") or "") in pod_player_ids
+                        or str(m.get("player1_id") or "").strip().lower() in pod_player_ids
+                        or str(m.get("player2_id") or "").strip().lower() in pod_player_ids
+                        or str(m.get("player1_name") or "").strip().lower() in pod_player_names
+                        or str(m.get("player2_name") or "").strip().lower() in pod_player_names
                     )
                 ]
                 pod_matches.sort(key=lambda m: int(m.get("table_number") or m.get("table") or 9999))
+
+                # Remove any excess pod matches if board count is smaller than historical pod match count
+                if len(pod_matches) > len(indiv_pairings):
+                    for extra_m in pod_matches[len(indiv_pairings):]:
+                        try:
+                            matches.remove(extra_m)
+                        except ValueError:
+                            pass
+                    pod_matches = pod_matches[:len(indiv_pairings)]
 
                 for idx, bp in enumerate(indiv_pairings):
                     if idx < len(pod_matches):
@@ -4775,14 +4843,13 @@ class FirestoreRoomEngine:
                     m_target["player2_list_id"] = bp.get("player2_list_id") or m_target.get("player2_list_id")
                     m_target["_p1_win_prob"] = int(bp.get("win_prob_a") or 50)
                     m_target["_p2_win_prob"] = 100 - int(bp.get("win_prob_a") or 50)
-                    if status_tag == "submitted_to_bcp":
-                        m_target["player1_score"] = None
-                        m_target["player2_score"] = None
-                        m_target["winner_id"] = None
-                        m_target["loser_id"] = None
-                        m_target["is_done"] = False
-                        m_target["status"] = "in_progress"
-                        m_target["_wtc_applied_stamp"] = now_ms
+                    m_target["player1_score"] = None
+                    m_target["player2_score"] = None
+                    m_target["winner_id"] = None
+                    m_target["loser_id"] = None
+                    m_target["is_done"] = False
+                    m_target["status"] = "in_progress"
+                    m_target["_wtc_applied_stamp"] = now_ms
             except Exception as err_cache:
                 logger.debug(f"Notice updating cached event matches for WTC pairing {clean_eid}: {err_cache}")
 

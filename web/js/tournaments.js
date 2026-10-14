@@ -4670,34 +4670,41 @@ function computeEventPlayerEloStats(players, matches) {
         ? p2Rec.games.find(g => g && Number(g.gameNum || g.gameNumber || g.round || 0) === rNum)
         : null;
 
-      if (g1 && g1.gamePoints !== undefined && g1.gamePoints !== null) {
-        m.player1_score = Number(g1.gamePoints);
-      }
-      if (g2 && g2.gamePoints !== undefined && g2.gamePoints !== null) {
-        m.player2_score = Number(g2.gamePoints);
-      }
-      if (g1 && g2) {
-        if (Number(g1.gameResult) === 2 && Number(g2.gameResult) === 0) {
-          m.winner_id = m.player1_id;
-          m.loser_id = m.player2_id;
-          m.is_draw = false;
-        } else if (Number(g2.gameResult) === 2 && Number(g1.gameResult) === 0) {
-          m.winner_id = m.player2_id;
-          m.loser_id = m.player1_id;
-          m.is_draw = false;
-        } else if (m.player1_score !== null && m.player2_score !== null) {
-          if (Number(m.player1_score) > Number(m.player2_score)) {
+      const isFreshWtcMatch = Boolean(
+        (m.wtc_submission_status === 'submitted_to_bcp' || m._wtc_applied_stamp) &&
+        String(m.status || '').toLowerCase() === 'in_progress'
+      );
+
+      if (!isFreshWtcMatch) {
+        if (g1 && g1.gamePoints !== undefined && g1.gamePoints !== null) {
+          m.player1_score = Number(g1.gamePoints);
+        }
+        if (g2 && g2.gamePoints !== undefined && g2.gamePoints !== null) {
+          m.player2_score = Number(g2.gamePoints);
+        }
+        if (g1 && g2) {
+          if (Number(g1.gameResult) === 2 && Number(g2.gameResult) === 0) {
             m.winner_id = m.player1_id;
             m.loser_id = m.player2_id;
             m.is_draw = false;
-          } else if (Number(m.player2_score) > Number(m.player1_score)) {
+          } else if (Number(g2.gameResult) === 2 && Number(g1.gameResult) === 0) {
             m.winner_id = m.player2_id;
             m.loser_id = m.player1_id;
             m.is_draw = false;
-          } else if (Number(m.player1_score) === Number(m.player2_score) && Number(m.player1_score) > 0) {
-            m.winner_id = null;
-            m.loser_id = null;
-            m.is_draw = true;
+          } else if (m.player1_score !== null && m.player2_score !== null) {
+            if (Number(m.player1_score) > Number(m.player2_score)) {
+              m.winner_id = m.player1_id;
+              m.loser_id = m.player2_id;
+              m.is_draw = false;
+            } else if (Number(m.player2_score) > Number(m.player1_score)) {
+              m.winner_id = m.player2_id;
+              m.loser_id = m.player1_id;
+              m.is_draw = false;
+            } else if (Number(m.player1_score) === Number(m.player2_score) && Number(m.player1_score) > 0) {
+              m.winner_id = null;
+              m.loser_id = null;
+              m.is_draw = true;
+            }
           }
         }
       }
@@ -5238,6 +5245,9 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
         if (parsedWtc.round_num) window._stationWtcSelectedRoundByEvent[String(eventId)] = Number(parsedWtc.round_num);
         if (parsedWtc.team_pairing_id) window._stationWtcSelectedPodByEvent[String(eventId)] = String(parsedWtc.team_pairing_id);
         sessionStorage.removeItem('omnitactica_last_wtc_return');
+        try {
+          sessionStorage.removeItem(`omni_ev_modal_v3_${eventId}`);
+        } catch (err) {}
         if (window.api && window.api._cache) {
           window.api._cache.delete(`/api/event/${encodeURIComponent(eventId)}`);
         }
@@ -5278,7 +5288,7 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
     let userRegData = (currentEventRegistration && String(currentEventRegistration.event_id || eventId) === String(eventId)) ? currentEventRegistration : null;
 
     if (!hasCached || !ev) {
-      const detailsPromise = window.api.getTournamentDetails(eventId, Boolean(options.forceSync), isCandidateIncomplete);
+      const detailsPromise = window.api.getTournamentDetails(eventId, Boolean(options.forceSync), Boolean(isCandidateIncomplete || returningFromWtcRoom));
       const regPromise = (typeof window.api?.getCommunityEventRegistration === 'function')
         ? window.api.getCommunityEventRegistration(eventId, Boolean(options.forceSync)).catch(() => null)
         : Promise.resolve(null);
@@ -5374,7 +5384,8 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
       (userRegData && userRegData.is_registered && !userRegData.is_admin_preview) ||
       (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor')
     );
-    const shouldShowMyStation = Boolean(isRegisteredPlayer || isAdmin || canAccessToHub || isCC);
+    const availableStationTabs = getMyStationAvailableSubtabs(ev, userRegData);
+    const shouldShowMyStation = Boolean(availableStationTabs.length > 0);
     const subtabPlayer = document.getElementById('event-subtab-player');
     if (subtabPlayer) {
       subtabPlayer.style.setProperty('display', shouldShowMyStation ? 'inline-flex' : 'none', 'important');
@@ -5744,7 +5755,17 @@ function renderPersonalEventScorecard(ev, userRegData) {
       .map(v => String(v).trim().toLowerCase())
   );
 
+  const pendingWtcRound = (
+    isWtcTeamEvent(ev) &&
+    hasStartedWtcTeamPairingForPlayer(ev, userRegData) &&
+    !isWtcPodSubmittedToBcp(ev, userRegData)
+  ) ? Number((resolveActiveWtcTeamPairingPodForPlayer(ev, userRegData) || {}).selectedRound || 0) : 0;
+
   const myMatches = (eventMatchesCache || []).filter(m => {
+    const rNum = Number(m.round || m.round_number || 1);
+    if (pendingWtcRound > 0 && rNum === pendingWtcRound && m.wtc_submission_status !== 'submitted_to_bcp') {
+      return false;
+    }
     const p1Id = String(m.player1_id || '').trim().toLowerCase();
     const p2Id = String(m.player2_id || '').trim().toLowerCase();
     const p1Name = String(m.player1_name || '').trim().toLowerCase();
@@ -6126,39 +6147,18 @@ window.hasStartedWtcTeamPairingForPlayer = hasStartedWtcTeamPairingForPlayer;
 function isWtcPodSubmittedToBcp(ev, regData) {
   const podCtx = resolveActiveWtcTeamPairingPodForPlayer(ev, regData);
   if (!podCtx || !podCtx.activePod) return false;
-  const { selectedRound, activePod, myPid, myName } = podCtx;
+  const { selectedRound, activePod } = podCtx;
   const podId = String(activePod.team_pairing_id || `r${selectedRound}_pod1`);
-  const wtcKey = `${selectedRound}:${podId}`;
+  const wtcKey1 = `R${selectedRound}_${podId}`;
+  const wtcKey2 = `${selectedRound}:${podId}`;
   const wtcPairing = activePod.wtc_pairing
-    || (ev && ev.wtc_pairings_by_key && ev.wtc_pairings_by_key[wtcKey])
+    || (ev && ev.wtc_pairings_by_key && (ev.wtc_pairings_by_key[wtcKey1] || ev.wtc_pairings_by_key[wtcKey2]))
     || (ev && Array.isArray(ev.wtc_pairings) && ev.wtc_pairings.find(w => Number(w.round_num) === selectedRound && String(w.team_pairing_id) === podId))
     || null;
   if (wtcPairing) {
     const st = String(wtcPairing.status || '').trim().toLowerCase();
     const subSt = String(wtcPairing.submission_status || '').trim().toLowerCase();
     return st === 'submitted_bcp' || st === 'submitted_to_bcp' || subSt === 'submitted_bcp' || subSt === 'submitted_to_bcp';
-  }
-  // If no active WTC pairing session exists for this pod, treat individual pairings as already submitted
-  // when the tournament is completed or when this round's 1v1 matches are already scored on BCP:
-  if (typeof isEventEnded === 'function' && isEventEnded(ev, regData)) {
-    return true;
-  }
-  const matches = (ev && Array.isArray(ev.matches) && ev.matches.length > 0)
-    ? ev.matches
-    : (Array.isArray(eventMatchesCache) ? eventMatchesCache : []);
-  const roundMatches = matches.filter(m => Number(m.round || m.round_number || 1) === Number(selectedRound));
-  const podMatches = roundMatches.filter(m => {
-    if (podId && String(m.team_pairing_id || '') === podId) return true;
-    const p1Id = String(m.player1_id || '').trim().toLowerCase();
-    const p2Id = String(m.player2_id || '').trim().toLowerCase();
-    const p1Name = String(m.player1_name || '').trim().toLowerCase();
-    const p2Name = String(m.player2_name || '').trim().toLowerCase();
-    if (myPid && (p1Id === myPid || p2Id === myPid)) return true;
-    if (myName && (p1Name === myName || p2Name === myName)) return true;
-    return false;
-  });
-  if (podMatches.length > 0 && podMatches.every(m => m.player1_score !== null && m.player1_score !== undefined && m.player2_score !== null && m.player2_score !== undefined)) {
-    return true;
   }
   return false;
 }
@@ -6326,24 +6326,32 @@ function switchStationTeamMember(eventId, playerId) {
 }
 window.switchStationTeamMember = switchStationTeamMember;
 
-async function launchEventWtcPairingRoom(eventId, roundNum, teamPairingId, myTeamSide = 'team1') {
+async function launchEventWtcPairingRoom(eventId, roundNum, teamPairingId, myTeamSide = 'team1', customTeamsObj = null) {
   const evId = String(eventId || currentOpenEventId || (currentEventData && currentEventData.id) || '').trim();
   if (!evId) return;
-  const btn = document.getElementById('btn-launch-event-wtc-pairing-room');
+  const btn = document.getElementById('btn-launch-event-wtc-pairing-room') || document.getElementById('btn-to-hub-launch-wtc-room');
   const origHtml = btn ? btn.innerHTML : '';
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = '<span>⏳ Opening Pre-Loaded WTC Room...</span>';
   }
   try {
+    const reqBody = {
+      round_num: Number(roundNum || 1),
+      team_pairing_id: String(teamPairingId || ''),
+      my_team_side: String(myTeamSide || 'team1'),
+    };
+    if (customTeamsObj && typeof customTeamsObj === 'object') {
+      if (customTeamsObj.team_a_name) reqBody.team_a_name = String(customTeamsObj.team_a_name);
+      if (customTeamsObj.team_b_name) reqBody.team_b_name = String(customTeamsObj.team_b_name);
+      if (customTeamsObj.team_a) reqBody.team_a = customTeamsObj.team_a;
+      if (customTeamsObj.team_b) reqBody.team_b = customTeamsObj.team_b;
+      if (customTeamsObj.team_table) reqBody.team_table = Number(customTeamsObj.team_table);
+    }
     const resp = await fetch(`/api/events/${encodeURIComponent(evId)}/wtc-pairings/launch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        round_num: Number(roundNum || 1),
-        team_pairing_id: String(teamPairingId || ''),
-        my_team_side: String(myTeamSide || 'team1'),
-      }),
+      body: JSON.stringify(reqBody),
     });
     const data = await resp.json();
     if (!resp.ok || !data || !data.launch_url) {
@@ -6391,11 +6399,14 @@ async function submitEventWtcPairings(eventId, roundNum, teamPairingId, submitMo
       throw new Error((data && (data.detail || data.error)) || 'Failed to submit WTC pairings');
     }
 
-    // Update local event state immediately
+    // Update local event state immediately (bypass client cache so fresh matches/wtc_pairings are loaded)
+    try {
+      sessionStorage.removeItem(`omni_ev_modal_v3_${evId}`);
+    } catch (e) {}
     if (window.api && window.api._cache) {
       window.api._cache.delete(`/api/event/${encodeURIComponent(evId)}`);
     }
-    const freshEv = await window.api.getTournamentDetails(evId, false).catch(() => null);
+    const freshEv = await window.api.getTournamentDetails(evId, false, true).catch(() => null);
     if (freshEv && !freshEv.error) {
       currentEventData = freshEv;
       eventMatchesCache = freshEv.matches || [];
@@ -6406,6 +6417,12 @@ async function submitEventWtcPairings(eventId, roundNum, teamPairingId, submitMo
     }
 
     await renderPlayerStation(currentEventData, currentEventRegistration);
+    if (typeof renderPersonalEventScorecard === 'function') {
+      renderPersonalEventScorecard(currentEventData, currentEventRegistration);
+    }
+    if (typeof renderEventPairingsRows === 'function') {
+      renderEventPairingsRows();
+    }
     if (fromToHub && typeof renderEventToHub === 'function') {
       renderEventToHub(currentEventData, true);
     }
@@ -6480,9 +6497,10 @@ function renderPlayerStationWtcTeamMatchingPanel(ev, regData) {
   const oppTeamAvgElo = isOnTeam2 ? activePod.team1_avg_elo : activePod.team2_avg_elo;
 
   // Resolve WTC pairing state for this pod
-  const wtcKey = `${selectedRound}:${podId}`;
+  const wtcKey1 = `R${selectedRound}_${podId}`;
+  const wtcKey2 = `${selectedRound}:${podId}`;
   let wtcPairing = activePod.wtc_pairing
-    || (ev.wtc_pairings_by_key && ev.wtc_pairings_by_key[wtcKey])
+    || (ev.wtc_pairings_by_key && (ev.wtc_pairings_by_key[wtcKey1] || ev.wtc_pairings_by_key[wtcKey2]))
     || (Array.isArray(ev.wtc_pairings) && ev.wtc_pairings.find(w => Number(w.round_num) === selectedRound && String(w.team_pairing_id) === podId))
     || null;
 
@@ -6747,23 +6765,295 @@ function renderPlayerStationWtcTeamMatchingPanel(ev, regData) {
 }
 window.renderPlayerStationWtcTeamMatchingPanel = renderPlayerStationWtcTeamMatchingPanel;
 
+window._toHubWtcRoundByEvent = window._toHubWtcRoundByEvent || {};
+window._toHubWtcPodByEvent = window._toHubWtcPodByEvent || {};
+window._toHubWtcCustomTeamsByEvent = window._toHubWtcCustomTeamsByEvent || {};
+
+function switchToHubWtcRound(eventId, roundNum) {
+  const evId = String(eventId || currentOpenEventId || '');
+  window._toHubWtcRoundByEvent[evId] = Number(roundNum || 1);
+  delete window._toHubWtcPodByEvent[evId];
+  delete window._toHubWtcCustomTeamsByEvent[evId];
+  if (currentEventData && typeof renderEventToHub === 'function') {
+    renderEventToHub(currentEventData, true);
+  }
+}
+window.switchToHubWtcRound = switchToHubWtcRound;
+
+function switchToHubWtcPod(eventId, teamPairingId) {
+  const evId = String(eventId || currentOpenEventId || '');
+  window._toHubWtcPodByEvent[evId] = String(teamPairingId || '');
+  delete window._toHubWtcCustomTeamsByEvent[evId];
+  if (currentEventData && typeof renderEventToHub === 'function') {
+    renderEventToHub(currentEventData, true);
+  }
+}
+window.switchToHubWtcPod = switchToHubWtcPod;
+
+function switchToHubWtcTeams(eventId, side, teamName) {
+  const evId = String(eventId || currentOpenEventId || '');
+  const cur = window._toHubWtcCustomTeamsByEvent[evId] || {};
+  if (side === 'team1') {
+    cur.team1_name = String(teamName || '').trim();
+  } else {
+    cur.team2_name = String(teamName || '').trim();
+  }
+  window._toHubWtcCustomTeamsByEvent[evId] = cur;
+  if (currentEventData && typeof renderEventToHub === 'function') {
+    renderEventToHub(currentEventData, true);
+  }
+}
+window.switchToHubWtcTeams = switchToHubWtcTeams;
+
+function launchToHubSelectedWtcRoom(eventId, roundNum, teamPairingId, team1Name, team2Name, tableNum = 1) {
+  const evId = String(eventId || currentOpenEventId || '');
+  const eventObj = currentEventData || {};
+  const teams = (Array.isArray(eventObj.teams) && eventObj.teams.length > 0)
+    ? eventObj.teams
+    : (Array.isArray(eventObj.team_standings) ? eventObj.team_standings : []);
+  const teamPairings = Array.isArray(eventObj.team_pairings) ? eventObj.team_pairings : [];
+
+  const findRosterForTeam = (tName) => {
+    const clean = String(tName || '').trim().toLowerCase();
+    if (!clean) return [];
+    const tm = teams.find(t => String((t && (t.name || t.team_name)) || '').trim().toLowerCase() === clean);
+    if (tm && Array.isArray(tm.members) && tm.members.length > 0) return tm.members;
+    for (const tp of teamPairings) {
+      if (!tp) continue;
+      if (String(tp.team1_name || '').trim().toLowerCase() === clean && Array.isArray(tp.team1_roster) && tp.team1_roster.length > 0) {
+        return tp.team1_roster;
+      }
+      if (String(tp.team2_name || '').trim().toLowerCase() === clean && Array.isArray(tp.team2_roster) && tp.team2_roster.length > 0) {
+        return tp.team2_roster;
+      }
+    }
+    return [];
+  };
+
+  const t1Roster = findRosterForTeam(team1Name);
+  const t2Roster = findRosterForTeam(team2Name);
+  return launchEventWtcPairingRoom(evId, roundNum, teamPairingId, 'team1', {
+    team_a_name: team1Name,
+    team_b_name: team2Name,
+    team_table: Number(tableNum || 1),
+    team_a: t1Roster.length > 0 ? { name: team1Name, members: t1Roster } : undefined,
+    team_b: t2Roster.length > 0 ? { name: team2Name, members: t2Roster } : undefined,
+  });
+}
+window.launchToHubSelectedWtcRoom = launchToHubSelectedWtcRoom;
+
 function renderToHubWtcPairingsQueueCard(eventId, eventObj) {
   if (!isWtcTeamEvent(eventObj)) return '';
   const evId = String(eventId || eventObj.id || currentOpenEventId || '');
   const wtcList = Array.isArray(eventObj.wtc_pairings) ? eventObj.wtc_pairings : [];
   const teamPairings = Array.isArray(eventObj.team_pairings) ? eventObj.team_pairings : [];
+  const teams = (Array.isArray(eventObj.teams) && eventObj.teams.length > 0)
+    ? eventObj.teams
+    : (Array.isArray(eventObj.team_standings) ? eventObj.team_standings : []);
 
-  // Combine completed/queued WTC pairings + latest round pods so TO sees everything
-  const maxRound = teamPairings.length > 0 ? Math.max(...teamPairings.map(tp => Number(tp.round || 1))) : 1;
-  const latestPods = teamPairings.filter(tp => Number(tp.round || 1) === maxRound);
+  // Build available rounds from team_pairings & event metadata
+  const roundSet = new Set();
+  teamPairings.forEach(tp => roundSet.add(Number(tp.round || 1)));
+  wtcList.forEach(w => roundSet.add(Number(w.round_num || 1)));
+  const maxRound = roundSet.size > 0 ? Math.max(...Array.from(roundSet)) : Math.max(1, Number(eventObj.current_round || eventObj.num_rounds || 1));
+  if (roundSet.size === 0) {
+    for (let r = 1; r <= maxRound; r++) roundSet.add(r);
+  }
+  const availableRounds = Array.from(roundSet).sort((a, b) => a - b);
+  const selectedRound = roundSet.has(Number(window._toHubWtcRoundByEvent[evId]))
+    ? Number(window._toHubWtcRoundByEvent[evId])
+    : (availableRounds[availableRounds.length - 1] || 1);
+  window._toHubWtcRoundByEvent[evId] = selectedRound;
 
+  const roundPods = teamPairings
+    .filter(tp => Number(tp.round || 1) === selectedRound)
+    .sort((a, b) => Number(a.table_num || a.pod_number || 1) - Number(b.table_num || b.pod_number || 1));
+
+  // Collect all unique team names & roster lookup
+  const allTeamNamesSet = new Set();
+  const teamRosterMap = new Map();
+  const teamAvgEloMap = new Map();
+  teams.forEach(t => {
+    const nm = String((t && (t.name || t.team_name)) || '').trim();
+    if (!nm) return;
+    allTeamNamesSet.add(nm);
+    if (Array.isArray(t.members) && t.members.length > 0) {
+      teamRosterMap.set(nm.toLowerCase(), t.members);
+    }
+    if (t.avg_elo || t.average_elo) {
+      teamAvgEloMap.set(nm.toLowerCase(), Number(t.avg_elo || t.average_elo));
+    }
+  });
+  teamPairings.forEach(tp => {
+    if (!tp) return;
+    const t1n = String(tp.team1_name || '').trim();
+    const t2n = String(tp.team2_name || '').trim();
+    if (t1n) {
+      allTeamNamesSet.add(t1n);
+      if (Array.isArray(tp.team1_roster) && tp.team1_roster.length > 0 && !teamRosterMap.has(t1n.toLowerCase())) {
+        teamRosterMap.set(t1n.toLowerCase(), tp.team1_roster);
+      }
+      if (tp.team1_avg_elo && !teamAvgEloMap.has(t1n.toLowerCase())) {
+        teamAvgEloMap.set(t1n.toLowerCase(), Number(tp.team1_avg_elo));
+      }
+    }
+    if (t2n) {
+      allTeamNamesSet.add(t2n);
+      if (Array.isArray(tp.team2_roster) && tp.team2_roster.length > 0 && !teamRosterMap.has(t2n.toLowerCase())) {
+        teamRosterMap.set(t2n.toLowerCase(), tp.team2_roster);
+      }
+      if (tp.team2_avg_elo && !teamAvgEloMap.has(t2n.toLowerCase())) {
+        teamAvgEloMap.set(t2n.toLowerCase(), Number(tp.team2_avg_elo));
+      }
+    }
+  });
+  const allTeamNames = Array.from(allTeamNamesSet).sort((a, b) => a.localeCompare(b));
+
+  // Resolve selected pod or custom teams in selectedRound
+  const savedPodId = String(window._toHubWtcPodByEvent[evId] || '');
+  const selectedPodObj = roundPods.find(tp => String(tp.team_pairing_id || '') === savedPodId) || roundPods[0] || null;
+  const customTeams = window._toHubWtcCustomTeamsByEvent[evId] || {};
+
+  const selTeam1Name = String(
+    customTeams.team1_name
+    || (selectedPodObj && selectedPodObj.team1_name)
+    || allTeamNames[0]
+    || 'Team 1'
+  ).trim();
+  const selTeam2Name = String(
+    customTeams.team2_name
+    || (selectedPodObj && selectedPodObj.team2_name)
+    || allTeamNames[1]
+    || allTeamNames[0]
+    || 'Team 2'
+  ).trim();
+
+  // Check if selected Team 1 + Team 2 correspond to an existing pod in selectedRound
+  const matchedRoundPod = roundPods.find(tp => {
+    const n1 = String(tp.team1_name || '').trim().toLowerCase();
+    const n2 = String(tp.team2_name || '').trim().toLowerCase();
+    const s1 = selTeam1Name.toLowerCase();
+    const s2 = selTeam2Name.toLowerCase();
+    return (n1 === s1 && n2 === s2) || (n1 === s2 && n2 === s1);
+  }) || (!customTeams.team1_name && !customTeams.team2_name ? selectedPodObj : null);
+
+  const selPodId = matchedRoundPod
+    ? String(matchedRoundPod.team_pairing_id || `r${selectedRound}_pod1`)
+    : `tp_r${selectedRound}_custom_${selTeam1Name.replace(/[^a-zA-Z0-9]/g, '')}_${selTeam2Name.replace(/[^a-zA-Z0-9]/g, '')}`;
+  const selTableNum = matchedRoundPod ? Number(matchedRoundPod.table_num || matchedRoundPod.pod_number || 1) : 1;
+
+  const selTeam1Roster = (matchedRoundPod && String(matchedRoundPod.team1_name || '').trim().toLowerCase() === selTeam1Name.toLowerCase() && Array.isArray(matchedRoundPod.team1_roster))
+    ? matchedRoundPod.team1_roster
+    : (teamRosterMap.get(selTeam1Name.toLowerCase()) || []);
+  const selTeam2Roster = (matchedRoundPod && String(matchedRoundPod.team2_name || '').trim().toLowerCase() === selTeam2Name.toLowerCase() && Array.isArray(matchedRoundPod.team2_roster))
+    ? matchedRoundPod.team2_roster
+    : (teamRosterMap.get(selTeam2Name.toLowerCase()) || []);
+
+  const selWtcEntry = (matchedRoundPod && matchedRoundPod.wtc_pairing)
+    || (eventObj.wtc_pairings_by_key && (eventObj.wtc_pairings_by_key[`R${selectedRound}_${selPodId}`] || eventObj.wtc_pairings_by_key[`${selectedRound}:${selPodId}`]))
+    || wtcList.find(w => Number(w.round_num) === selectedRound && (
+      String(w.team_pairing_id) === selPodId ||
+      (String(w.team_a_name || w.team1_name || '').toLowerCase() === selTeam1Name.toLowerCase() && String(w.team_b_name || w.team2_name || '').toLowerCase() === selTeam2Name.toLowerCase())
+    ))
+    || null;
+  const selIndivPairings = (selWtcEntry && Array.isArray(selWtcEntry.individual_pairings)) ? selWtcEntry.individual_pairings : [];
+
+  // Build Round Selector Pills (R1 .. R6)
+  const roundPillsHtml = availableRounds.map(rNum => {
+    const isAct = rNum === selectedRound;
+    return `
+      <button type="button" id="to-hub-wtc-round-btn-${rNum}" onclick="switchToHubWtcRound('${escapeHtml(evId)}', ${rNum})" style="padding:4px 10px; border-radius:6px; border:1px solid ${isAct ? '#fbbf24' : 'rgba(255,255,255,0.12)'}; background:${isAct ? 'rgba(245,158,11,0.22)' : 'rgba(15,23,42,0.75)'}; color:${isAct ? '#fbbf24' : '#94a3b8'}; font-family:var(--font-mono); font-size:0.74rem; font-weight:800; cursor:pointer; transition:all 0.15s ease;">
+        R${rNum}
+      </button>
+    `;
+  }).join('');
+
+  // Pod Matchup selector options for selectedRound
+  const podOptionsHtml = roundPods.map(tp => {
+    const pid = String(tp.team_pairing_id || '');
+    const tNum = tp.table_num || tp.pod_number || 1;
+    const isSel = matchedRoundPod && String(matchedRoundPod.team_pairing_id || '') === pid;
+    const w = tp.wtc_pairing || wtcList.find(item => Number(item.round_num) === selectedRound && String(item.team_pairing_id) === pid);
+    const hasB = w && Array.isArray(w.individual_pairings) && w.individual_pairings.length > 0;
+    const tag = hasB ? ' ✅' : '';
+    return `<option value="${escapeHtml(pid)}" ${isSel ? 'selected' : ''}>Pod #${tNum}: ${escapeHtml(tp.team1_name || 'Team 1')} vs ${escapeHtml(tp.team2_name || 'Team 2')}${tag}</option>`;
+  }).join('');
+
+  // Team 1 & Team 2 selector options
+  const team1OptionsHtml = allTeamNames.map(tnm => {
+    const isSel = tnm.toLowerCase() === selTeam1Name.toLowerCase();
+    return `<option value="${escapeHtml(tnm)}" ${isSel ? 'selected' : ''}>${escapeHtml(tnm)}</option>`;
+  }).join('');
+  const team2OptionsHtml = allTeamNames.map(tnm => {
+    const isSel = tnm.toLowerCase() === selTeam2Name.toLowerCase();
+    return `<option value="${escapeHtml(tnm)}" ${isSel ? 'selected' : ''}>${escapeHtml(tnm)}</option>`;
+  }).join('');
+
+  // Compact roster preview helper for selected Team 1 & Team 2
+  const renderMiniTeamRoster = (teamName, roster, accentColor, borderRgba, sideLabel) => {
+    const memberChips = roster.map((m, idx) => {
+      const mName = String(m.full_name || m.name || `Player ${idx + 1}`);
+      const mFac = formatEventPlayerFaction(m.faction || 'Unassigned');
+      const mElo = Math.round(Number(m.elo || m.current_elo || 1500));
+      return `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.4rem; padding:4px 8px; border-radius:6px; background:rgba(9,14,26,0.7); border:1px solid rgba(255,255,255,0.06); font-size:0.74rem;">
+          <div style="min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+            <span style="font-weight:800; color:#f8fafc;">${escapeHtml(mName)}</span>
+            <span style="color:#94a3b8; font-size:0.68rem; margin-left:4px;">(${escapeHtml(mFac)})</span>
+          </div>
+          <span style="font-family:var(--font-mono); font-size:0.7rem; font-weight:800; color:${accentColor}; flex-shrink:0;">${mElo}</span>
+        </div>
+      `;
+    }).join('');
+    return `
+      <div style="background:rgba(15,23,42,0.8); border:1px solid ${borderRgba}; border-radius:9px; padding:0.7rem; display:flex; flex-direction:column; gap:0.4rem; min-width:0;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.4rem; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:0.35rem;">
+          <div style="min-width:0;">
+            <div style="font-size:0.63rem; font-weight:800; text-transform:uppercase; color:${accentColor};">${sideLabel} (${roster.length} Players)</div>
+            <div style="font-size:0.88rem; font-weight:900; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(teamName)}</div>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:0.28rem;">
+          ${memberChips || `<div style="font-size:0.72rem; color:#64748b;">Roster synced on launch</div>`}
+        </div>
+      </div>
+    `;
+  };
+
+  // Combine completed/queued WTC pairings + pods in selectedRound
   const items = [];
   const seenKeys = new Set();
 
-  wtcList.forEach(w => {
-    const key = `${w.round_num}:${w.team_pairing_id}`;
+  wtcList
+    .filter(w => Number(w.round_num || 1) === selectedRound || (Array.isArray(w.individual_pairings) && w.individual_pairings.length > 0))
+    .forEach(w => {
+      const key = `${w.round_num}:${w.team_pairing_id}`;
+      seenKeys.add(key);
+      const rawSt = String(w.status || w.submission_status || 'completed').toLowerCase();
+      const rawSubSt = String(w.submission_status || '').toLowerCase();
+      const normSt = (rawSt === 'submitted_bcp' || rawSt === 'submitted_to_bcp' || rawSubSt === 'submitted_to_bcp' || rawSubSt === 'submitted_bcp')
+        ? 'submitted_bcp'
+        : ((rawSt === 'queued_to_hub' || rawSt === 'queued_for_to' || rawSubSt === 'queued_for_to' || rawSubSt === 'queued_to_hub')
+          ? 'queued_to_hub'
+          : rawSt);
+      items.push({
+        round_num: Number(w.round_num || 1),
+        team_pairing_id: String(w.team_pairing_id || ''),
+        table_num: w.table_num || w.team_table || w.pod_number || 1,
+        team1_name: w.team1_name || w.team_a_name || 'Team 1',
+        team2_name: w.team2_name || w.team_b_name || 'Team 2',
+        status: normSt,
+        room_code: w.room_code || '',
+        individual_pairings: Array.isArray(w.individual_pairings) ? w.individual_pairings : [],
+      });
+    });
+
+  roundPods.slice(0, 8).forEach(tp => {
+    const key = `${tp.round}:${tp.team_pairing_id}`;
+    if (seenKeys.has(key)) return;
     seenKeys.add(key);
-    const rawSt = String(w.status || w.submission_status || 'completed').toLowerCase();
+    const w = tp.wtc_pairing || {};
+    const rawSt = String(w.status || w.submission_status || 'not_started').toLowerCase();
     const rawSubSt = String(w.submission_status || '').toLowerCase();
     const normSt = (rawSt === 'submitted_bcp' || rawSt === 'submitted_to_bcp' || rawSubSt === 'submitted_to_bcp' || rawSubSt === 'submitted_bcp')
       ? 'submitted_bcp'
@@ -6771,35 +7061,18 @@ function renderToHubWtcPairingsQueueCard(eventId, eventObj) {
         ? 'queued_to_hub'
         : rawSt);
     items.push({
-      round_num: Number(w.round_num || 1),
-      team_pairing_id: String(w.team_pairing_id || ''),
-      table_num: w.table_num || w.team_table || w.pod_number || 1,
-      team1_name: w.team1_name || w.team_a_name || 'Team 1',
-      team2_name: w.team2_name || w.team_b_name || 'Team 2',
+      round_num: Number(tp.round || 1),
+      team_pairing_id: String(tp.team_pairing_id || ''),
+      table_num: tp.table_num || 1,
+      team1_name: tp.team1_name || 'Team 1',
+      team2_name: tp.team2_name || 'Team 2',
       status: normSt,
       room_code: w.room_code || '',
       individual_pairings: Array.isArray(w.individual_pairings) ? w.individual_pairings : [],
     });
   });
 
-  latestPods.slice(0, 6).forEach(tp => {
-    const key = `${tp.round}:${tp.team_pairing_id}`;
-    if (seenKeys.has(key)) return;
-    seenKeys.add(key);
-    const w = tp.wtc_pairing || {};
-    items.push({
-      round_num: Number(tp.round || 1),
-      team_pairing_id: String(tp.team_pairing_id || ''),
-      table_num: tp.table_num || 1,
-      team1_name: tp.team1_name || 'Team 1',
-      team2_name: tp.team2_name || 'Team 2',
-      status: w.status || 'not_started',
-      room_code: w.room_code || '',
-      individual_pairings: Array.isArray(w.individual_pairings) ? w.individual_pairings : [],
-    });
-  });
-
-  if (items.length === 0) return '';
+  if (items.length === 0 && allTeamNames.length === 0) return '';
 
   const rowsHtml = items.map(item => {
     const indiv = item.individual_pairings || [];
@@ -6843,11 +7116,10 @@ function renderToHubWtcPairingsQueueCard(eventId, eventObj) {
               <button type="button" onclick="submitEventWtcPairings('${escapeHtml(evId)}', ${item.round_num}, '${escapeHtml(item.team_pairing_id)}', 'bcp', true)" class="btn btn-primary" style="background:linear-gradient(135deg, #10b981, #059669); border:1px solid #34d399; color:#052e16; font-weight:900; font-size:0.74rem; padding:0.4rem 0.85rem; border-radius:7px; cursor:pointer;">
                 🚀 Push Individual Pairings to BCP
               </button>
-            ` : `
-              <button type="button" onclick="launchEventWtcPairingRoom('${escapeHtml(evId)}', ${item.round_num}, '${escapeHtml(item.team_pairing_id)}', 'team1')" class="btn btn-outline" style="font-size:0.72rem; padding:0.35rem 0.75rem; border-radius:7px; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:700;">
-                ⚔️ Open WTC Room
-              </button>
-            `}
+            ` : ''}
+            <button type="button" onclick="launchEventWtcPairingRoom('${escapeHtml(evId)}', ${item.round_num}, '${escapeHtml(item.team_pairing_id)}', 'team1')" class="btn btn-outline" style="font-size:0.72rem; padding:0.35rem 0.75rem; border-radius:7px; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.1); cursor:pointer; font-weight:700;">
+              ⚔️ ${hasBoards ? 'Re-Open WTC Room' : 'Open WTC Room'}
+            </button>
           </div>
         </div>
         ${miniBoardsHtml}
@@ -6856,17 +7128,76 @@ function renderToHubWtcPairingsQueueCard(eventId, eventObj) {
     `;
   }).join('');
 
+  const safeSelT1 = selTeam1Name.replace(/'/g, "\\'");
+  const safeSelT2 = selTeam2Name.replace(/'/g, "\\'");
+
   return `
-    <div id="to-hub-wtc-pairings-queue-panel" class="card" style="background:linear-gradient(135deg, rgba(15,23,42,0.96), rgba(30,41,59,0.9)); border:1px solid rgba(245,158,11,0.45); border-radius:12px; padding:1rem;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+    <div id="to-hub-wtc-pairings-queue-panel" class="card" style="background:linear-gradient(135deg, rgba(15,23,42,0.96), rgba(30,41,59,0.9)); border:1px solid rgba(245,158,11,0.45); border-radius:12px; padding:1.05rem;">
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.85rem; padding-bottom:0.75rem; border-bottom:1px solid rgba(255,255,255,0.08);">
         <div>
           <div style="font-size:0.95rem; font-weight:900; color:#fbbf24; display:flex; align-items:center; gap:0.45rem;">
             <span>🏛️ WTC Team Pairings — TO Queue & 1-Click BCP Push</span>
           </div>
           <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">
-            Review finalized captain WTC 1v1 board pairings and push individual table assignments directly to Best Coast Pairings.
+            Select any round & team matchup to launch the WTC Pairing Room, or push finalized captain 1v1 board pairings directly to Best Coast Pairings.
           </div>
         </div>
+        <!-- TO Round Selector Pills -->
+        <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+          <span style="font-size:0.7rem; font-weight:800; color:#cbd5e1; text-transform:uppercase; margin-right:2px;">Round:</span>
+          ${roundPillsHtml}
+        </div>
+      </div>
+
+      <!-- TO Interactive Round & Team Selection Launcher -->
+      <div id="to-hub-wtc-selector-launcher" style="margin-bottom:0.9rem; padding:0.85rem; border-radius:10px; background:rgba(9,14,26,0.82); border:1px solid rgba(56,189,248,0.38);">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-bottom:0.65rem;">
+          <div style="font-size:0.8rem; font-weight:900; color:#38bdf8; display:flex; align-items:center; gap:0.4rem;">
+            <span>🎯 Select Round ${selectedRound} Matchup or Custom Teams for WTC Pairing</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
+            <button type="button" id="btn-to-hub-launch-wtc-room" onclick="launchToHubSelectedWtcRoom('${escapeHtml(evId)}', ${selectedRound}, '${escapeHtml(selPodId)}', '${escapeHtml(safeSelT1)}', '${escapeHtml(safeSelT2)}', ${selTableNum})" class="btn btn-primary" style="background:linear-gradient(135deg, #f59e0b, #d97706); border:1px solid #fbbf24; color:#090d16; font-weight:900; font-size:0.76rem; padding:0.42rem 0.9rem; border-radius:7px; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;">
+              <span>⚔️ ${selIndivPairings.length > 0 ? 'Re-Open WTC Pairing Room' : 'Enter WTC Pairing Room (Roll Coin)'}</span>
+            </button>
+            ${selIndivPairings.length > 0 ? `
+              <button type="button" id="btn-to-hub-push-selected-bcp" onclick="submitEventWtcPairings('${escapeHtml(evId)}', ${selectedRound}, '${escapeHtml(selPodId)}', 'bcp', true)" class="btn btn-primary" style="background:linear-gradient(135deg, #10b981, #059669); border:1px solid #34d399; color:#052e16; font-weight:900; font-size:0.76rem; padding:0.42rem 0.9rem; border-radius:7px; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;">
+                <span>🚀 Push Selected (${selIndivPairings.length} Boards) to BCP</span>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:0.6rem; margin-bottom:0.7rem;">
+          ${roundPods.length > 0 ? `
+            <div>
+              <label style="display:block; font-size:0.68rem; font-weight:800; color:#94a3b8; text-transform:uppercase; margin-bottom:3px;">Round ${selectedRound} Pod Matchup (${roundPods.length} Pods)</label>
+              <select id="to-hub-wtc-pod-select" onchange="switchToHubWtcPod('${escapeHtml(evId)}', this.value)" style="width:100%; padding:0.42rem 0.55rem; border-radius:7px; background:#0f172a; color:#f8fafc; border:1px solid rgba(56,189,248,0.4); font-size:0.76rem; font-weight:700;">
+                ${podOptionsHtml}
+              </select>
+            </div>
+          ` : ''}
+          <div>
+            <label style="display:block; font-size:0.68rem; font-weight:800; color:#38bdf8; text-transform:uppercase; margin-bottom:3px;">🛡️ Team 1 (Defender / Side A)</label>
+            <select id="to-hub-wtc-team1-select" onchange="switchToHubWtcTeams('${escapeHtml(evId)}', 'team1', this.value)" style="width:100%; padding:0.42rem 0.55rem; border-radius:7px; background:#0f172a; color:#f8fafc; border:1px solid rgba(56,189,248,0.4); font-size:0.76rem; font-weight:700;">
+              ${team1OptionsHtml}
+            </select>
+          </div>
+          <div>
+            <label style="display:block; font-size:0.68rem; font-weight:800; color:#f43f5e; text-transform:uppercase; margin-bottom:3px;">⚔️ Team 2 (Attacker / Side B)</label>
+            <select id="to-hub-wtc-team2-select" onchange="switchToHubWtcTeams('${escapeHtml(evId)}', 'team2', this.value)" style="width:100%; padding:0.42rem 0.55rem; border-radius:7px; background:#0f172a; color:#f8fafc; border:1px solid rgba(244,63,94,0.4); font-size:0.76rem; font-weight:700;">
+              ${team2OptionsHtml}
+            </select>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:0.65rem;">
+          ${renderMiniTeamRoster(selTeam1Name, selTeam1Roster, '#38bdf8', 'rgba(56,189,248,0.32)', '🛡️ Team 1')}
+          ${renderMiniTeamRoster(selTeam2Name, selTeam2Roster, '#f43f5e', 'rgba(244,63,94,0.32)', '⚔️ Team 2')}
+        </div>
+      </div>
+
+      <div style="font-size:0.74rem; font-weight:800; color:#cbd5e1; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:0.45rem;">
+        📋 Round ${selectedRound} Pods & Queued WTC Pairings
       </div>
       <div style="display:flex; flex-direction:column; gap:0.6rem;">
         ${rowsHtml}
@@ -7059,7 +7390,17 @@ async function renderPlayerStation(ev, userRegData) {
   );
 
   // Find all matches involving this competitor
+  const pendingWtcRound = (
+    isWtcTeamEvent(eventObj) &&
+    hasStartedWtcTeamPairingForPlayer(eventObj, regData) &&
+    !isWtcPodSubmittedToBcp(eventObj, regData)
+  ) ? Number((resolveActiveWtcTeamPairingPodForPlayer(eventObj, regData) || {}).selectedRound || 0) : 0;
+
   const myMatches = (eventMatchesCache || []).filter(m => {
+    const rNum = Number(m.round || m.round_number || 1);
+    if (pendingWtcRound > 0 && rNum === pendingWtcRound && m.wtc_submission_status !== 'submitted_to_bcp') {
+      return false;
+    }
     const p1Id = String(m.player1_id || '').trim().toLowerCase();
     const p2Id = String(m.player2_id || '').trim().toLowerCase();
     const p1Name = String(m.player1_name || '').trim().toLowerCase();
@@ -14751,7 +15092,9 @@ async function renderEventToHub(ev, skipFetch = false) {
     subtabBodyHtml = renderToHubRosterAuditSubtab(eventId, eventObj, players);
   }
 
-  const wtcQueueHtml = isWtcTeamEvent(eventObj) ? renderToHubWtcPairingsQueueCard(eventId, eventObj) : '';
+  const wtcQueueHtml = (_currentToHubSubtab === 'roster' && isWtcTeamEvent(eventObj))
+    ? renderToHubWtcPairingsQueueCard(eventId, eventObj)
+    : '';
 
   container.innerHTML = `
     <div class="to-hub-shell" style="display:flex; flex-direction:column; gap:0.9rem;">

@@ -4285,6 +4285,7 @@ class YuGiOhPairingsArena {
     const finalBanner = document.getElementById("finalMatchVerdictBanner");
     const btnDockSave = document.getElementById("btnDockSaveCompletedMatch");
     const isSavedToBackend = Boolean(this.room?.is_finished || this.room?.status === "completed");
+    const evCtx = this.getEventContext();
     if (finalBanner) {
       if (pairings.length >= total && total > 0) {
         finalBanner.classList.remove("hidden");
@@ -4299,11 +4300,22 @@ class YuGiOhPairingsArena {
           const edgeTeam = myActiveScore > oppActiveScore ? myTeamName : oppTeamName;
           winHeadline = `⚔️ RAZOR-THIN EDGE: ${this.escapeHtml(edgeTeam.toUpperCase())} (${myActiveScore} – ${oppActiveScore} WTC)`;
         }
+        const eventSubmitButtonsHtml = (evCtx && evCtx.event_id && this.activeRole !== "spectator") ? `
+          <div style="display:flex; align-items:center; justify-content:center; gap:0.45rem; flex-wrap:wrap; margin-top:0.55rem; padding-top:0.5rem; border-top:1px solid rgba(255,255,255,0.12);">
+            <button type="button" id="btn-tracker-submit-wtc-bcp" onclick="window.ygoPairingsArena && window.ygoPairingsArena.submitCompletedEventWtcPairings('bcp')" style="background:linear-gradient(135deg, #10b981, #059669); border:1px solid #34d399; color:#052e16; font-weight:900; font-size:0.72rem; padding:0.42rem 0.8rem; border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+              🚀 Submit Individual Pairings to BCP
+            </button>
+            <button type="button" id="btn-tracker-submit-wtc-to-hub" onclick="window.ygoPairingsArena && window.ygoPairingsArena.submitCompletedEventWtcPairings('to_hub')" style="background:rgba(168,85,247,0.2); border:1px solid rgba(168,85,247,0.5); color:#e9d5ff; font-weight:800; font-size:0.72rem; padding:0.42rem 0.8rem; border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+              🏛️ Send to TO Hub (Allow TO to Submit)
+            </button>
+          </div>
+        ` : "";
         finalBanner.innerHTML = `
           <div>${winHeadline}</div>
           <div style="font-size:0.62rem;color:var(--text-secondary);margin-top:2px;">
             6-Factor Expected: ${myExpScore}–${oppExpScore} ${isSimOn ? `• Combat Total: ${mySimScore}–${oppSimScore}` : ""}
           </div>
+          ${eventSubmitButtonsHtml}
         `;
       } else {
         finalBanner.classList.add("hidden");
@@ -4314,9 +4326,15 @@ class YuGiOhPairingsArena {
       if (pairings.length >= total && total > 0 && this.activeRole !== "spectator") {
         btnDockSave.classList.remove("hidden");
         btnDockSave.classList.toggle("saved-state", isSavedToBackend);
-        btnDockSave.textContent = isSavedToBackend
-          ? "✅ Saved to Match History — Return to Lobby"
-          : "🏁 Finish & Save Match to History";
+        if (evCtx && evCtx.event_id) {
+          btnDockSave.textContent = isSavedToBackend
+            ? "⬅️ Return to Event Player Station"
+            : "🏁 Finish & Return to Event Station";
+        } else {
+          btnDockSave.textContent = isSavedToBackend
+            ? "✅ Saved to Match History — Return to Lobby"
+            : "🏁 Finish & Save Match to History";
+        }
       } else {
         btnDockSave.classList.add("hidden");
       }
@@ -5197,6 +5215,70 @@ class YuGiOhPairingsArena {
       }
     } catch (err) {
       console.error("Failed to finish pairing room:", err);
+    }
+  }
+
+  async submitCompletedEventWtcPairings(submitMode = "bcp") {
+    const evCtx = this.getEventContext();
+    if (!evCtx || !evCtx.event_id) {
+      return this.finishPairingRoom();
+    }
+    const targetReturnUrl = this.getEventReturnUrl();
+    const tok = this.captainTokens[this.activeRole] || this.loadRoomTokenFromStorage(this.roomCode, this.activeRole);
+    try {
+      // 1. Ensure room is finalized in backend first
+      if (this.roomCode && (!this.room || !this.room.is_finished)) {
+        await fetch(`/api/team-pairings/room/${encodeURIComponent(this.roomCode)}/action`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            role: this.activeRole,
+            user_id: this.userId,
+            captain_token: tok,
+            action: "finish_room",
+            payload: {}
+          })
+        }).catch(() => {});
+      }
+
+      // 2. Submit or queue individual pairings for the BCP Team Event
+      const resp = await fetch(`/api/events/${encodeURIComponent(evCtx.event_id)}/wtc-pairings/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          room_code: this.roomCode || "",
+          round_num: Number(evCtx.round_num || 1),
+          team_pairing_id: String(evCtx.team_pairing_id || ""),
+          submit_mode: submitMode,
+          publish_immediately: true
+        })
+      });
+      const data = await resp.json().catch(() => ({}));
+      try {
+        sessionStorage.setItem(
+          "omnitactica_last_wtc_return",
+          JSON.stringify({
+            event_id: evCtx.event_id,
+            round_num: evCtx.round_num || 1,
+            team_pairing_id: evCtx.team_pairing_id || "",
+            room_code: this.roomCode || "",
+            submit_mode: submitMode,
+            timestamp: Date.now()
+          })
+        );
+      } catch (_) {}
+      this.showToast(
+        (data && data.message) ||
+        (submitMode === "bcp"
+          ? "🚀 Individual WTC pairings submitted to BCP! Returning to Event Station..."
+          : "🏛️ Queued in TO Hub for Tournament Organizer! Returning to Event Station...")
+      );
+      setTimeout(() => {
+        window.location.href = targetReturnUrl;
+      }, 250);
+    } catch (err) {
+      console.error("Failed to submit event WTC pairings:", err);
+      this.showToast("⚠️ Could not submit pairings: " + (err.message || err));
     }
   }
 
