@@ -2309,6 +2309,110 @@ class TestTeamPairingsPoC(unittest.TestCase):
             self.assertIsNone(matching_live_1v1[0].get("player2_score"))
             self.assertEqual(matching_live_1v1[0].get("status"), "in_progress")
 
+    def test_finish_pairing_room_persists_to_postgres_tracker_games(self):
+        """
+        Regression test: Verify finish_pairing_room calls the real Database.save_tracker_game
+        signature (including is_locked=True, is_finished=True) without raising TypeError and
+        inserts the completed WTC-... game into PostgreSQL public.tracker_games with
+        game_system='pairings', team names, scores, primary_mission, and full pairing_room state.
+        """
+        from contextlib import contextmanager
+        from unittest.mock import patch, MagicMock
+        import core
+        from database import PostgresDatabase
+
+        executed_queries = []
+
+        class _FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+            def execute(self, sql, params=None):
+                executed_queries.append((sql, params))
+
+            def fetchone(self):
+                return None
+
+            def fetchall(self):
+                return []
+
+        class _FakeConn:
+            def cursor(self, *args, **kwargs):
+                return _FakeCursor()
+
+            def commit(self):
+                pass
+
+        real_db = PostgresDatabase.__new__(PostgresDatabase)
+
+        @contextmanager
+        def _fake_get_conn():
+            yield _FakeConn()
+
+        real_db.get_connection = _fake_get_conn
+        real_db.ensure_tracker_table = MagicMock()
+
+        room = self.engine.create_pairing_room(
+            format_size="8v8",
+            team_a_preset="art_of_war",
+            team_b_preset="team_zero_comp",
+            vs_ai=True,
+            created_by="hsiehjun",
+        )
+        code = room["room_code"]
+        raw = self.engine.get_pairing_room_raw(code)
+        raw["team_a"]["name"] = "Art of War"
+        raw["team_b"]["name"] = "XPZ Purple Cobras"
+        raw["phase"] = "COMPLETED"
+        raw["pairings"] = [
+            {
+                "table": i,
+                "player_a": raw["team_a"]["roster"][i - 1],
+                "player_b": raw["team_b"]["roster"][i - 1],
+                "est_score_a": 14,
+                "est_score_b": 6,
+                "sim_score_a": 15 if i <= 5 else 14,
+                "sim_score_b": 5 if i <= 5 else 6,
+            }
+            for i in range(1, 9)
+        ]
+
+        with patch.object(core, "get_database", return_value=real_db):
+            fin_room = self.engine.finish_pairing_room(code)
+
+        self.assertIsNotNone(fin_room)
+        self.assertTrue(fin_room.get("is_finished"))
+        self.assertTrue(fin_room.get("_pg_persisted_verified"))
+
+        insert_calls = [
+            (sql, params)
+            for (sql, params) in executed_queries
+            if "INSERT INTO tracker_games" in sql
+        ]
+        self.assertEqual(len(insert_calls), 1, "Expected exactly 1 INSERT INTO tracker_games execution")
+        sql_text, params = insert_calls[0]
+        self.assertIn("game_system", sql_text)
+        self.assertEqual(params[0], code)
+        self.assertEqual(params[1], "Art of War")
+        self.assertIn("Team Roster", params[2])
+        self.assertEqual(params[4], 117)
+        self.assertEqual(params[5], "XPZ Purple Cobras")
+        self.assertIn("Team Roster", params[6])
+        self.assertEqual(params[8], 43)
+        self.assertIn("WTC Pairing Duel", params[12])
+        self.assertTrue(params[17])  # is_finished = True
+        self.assertEqual(params[18], "Art of War")  # winner_name
+        self.assertEqual(params[28], "pairings")  # game_system = 'pairings'
+        persisted_state = json.loads(params[20])
+        self.assertEqual(persisted_state["game_system"], "pairings")
+        self.assertEqual(persisted_state["edition"], "wtc_pairings")
+        self.assertEqual(persisted_state["p1_score"], 117)
+        self.assertEqual(persisted_state["p2_score"], 43)
+        self.assertEqual(len(persisted_state["pairing_room"]["pairings"]), 8)
+
 
 if __name__ == "__main__":
     unittest.main()

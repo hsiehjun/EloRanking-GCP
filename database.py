@@ -1873,6 +1873,7 @@ class PostgresDatabase:
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list_id VARCHAR(64);",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_army_list_id VARCHAR(64);",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS chess_clock JSONB;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_updated ON tracker_games(updated_at DESC);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_p1 ON tracker_games(p1_name);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_p2 ON tracker_games(p2_name);",
@@ -11820,7 +11821,10 @@ class PostgresDatabase:
         version: int = 1,
         user_id_p1: Optional[str] = None,
         user_id_p2: Optional[str] = None,
-        referee_ids: Optional[List[str]] = None
+        referee_ids: Optional[List[str]] = None,
+        is_locked: Optional[bool] = None,
+        is_finished: Optional[bool] = None,
+        **kwargs: Any
     ) -> bool:
         """Persists or updates a live multiplayer tracker game in PostgreSQL with user ownership and roles."""
         if not match_id or not state:
@@ -11829,24 +11833,24 @@ class PostgresDatabase:
         match_id = match_id.strip().upper()
         game_data = state.get("game", {}) if isinstance(state.get("game"), dict) else state
         
-        p1_name = game_data.get("p1Name") or state.get("p1Name") or "Player 1"
-        p1_faction = game_data.get("p1Faction") or state.get("p1Faction") or ""
+        p1_name = game_data.get("p1Name") or state.get("p1Name") or state.get("p1_name") or "Player 1"
+        p1_faction = game_data.get("p1Faction") or state.get("p1Faction") or state.get("p1_faction") or ""
         p1_dets = game_data.get("p1Detachments") or []
-        p1_detachment = (p1_dets[0] if isinstance(p1_dets, list) and p1_dets else str(p1_dets)) or state.get("p1Detachment") or ""
+        p1_detachment = (p1_dets[0] if isinstance(p1_dets, list) and p1_dets else str(p1_dets)) or state.get("p1Detachment") or state.get("p1_detachment") or ""
         
-        p2_name = game_data.get("p2Name") or state.get("p2Name") or "Player 2"
-        p2_faction = game_data.get("p2Faction") or state.get("p2Faction") or ""
+        p2_name = game_data.get("p2Name") or state.get("p2Name") or state.get("p2_name") or "Player 2"
+        p2_faction = game_data.get("p2Faction") or state.get("p2Faction") or state.get("p2_faction") or ""
         p2_dets = game_data.get("p2Detachments") or []
-        p2_detachment = (p2_dets[0] if isinstance(p2_dets, list) and p2_dets else str(p2_dets)) or state.get("p2Detachment") or ""
+        p2_detachment = (p2_dets[0] if isinstance(p2_dets, list) and p2_dets else str(p2_dets)) or state.get("p2Detachment") or state.get("p2_detachment") or ""
         
         uid_p1 = user_id_p1 or state.get("user_id_p1") or game_data.get("user_id_p1")
         uid_p2 = user_id_p2 or state.get("user_id_p2") or game_data.get("user_id_p2")
         refs = referee_ids if referee_ids is not None else state.get("referee_ids", [])
         
-        primary_mission = game_data.get("primary") or game_data.get("p1Primary") or state.get("primaryMission") or "Take & Hold"
+        primary_mission = game_data.get("primary") or game_data.get("p1Primary") or state.get("primaryMission") or state.get("primary_mission") or "Take & Hold"
         deployment = game_data.get("deployment") or game_data.get("terrainLayout") or state.get("deployment") or "Search & Destroy"
-        mission_rule = game_data.get("missionRule") or state.get("missionRule") or "Swift Action"
-        current_round = int(state.get("round") or state.get("currentRound") or 1)
+        mission_rule = game_data.get("missionRule") or state.get("missionRule") or state.get("mission_rule") or "Swift Action"
+        current_round = int(state.get("round") or state.get("currentRound") or state.get("current_round") or 1)
         started = bool(state.get("started"))
         
         is_aos = (
@@ -11858,6 +11862,15 @@ class PostgresDatabase:
             or match_id.startswith("WTC-")
             or str(state.get("edition") or "").lower() in ("wtc_pairings", "pairings", "wtc")
         )
+        game_system_col = "pairings" if is_pairings else ("aos" if is_aos else "40k")
+        if is_pairings:
+            started = True
+        if is_finished is True:
+            state["is_finished"] = True
+            state["isFinished"] = True
+            state["status"] = "completed"
+        if is_locked is not None:
+            state["is_locked"] = bool(is_locked)
         edition = str(
             "wtc_pairings"
             if is_pairings
@@ -12026,9 +12039,25 @@ class PostgresDatabase:
             else:
                 winner_name = "Tied"
 
-        event_id = state.get("event_id") or game_data.get("eventId") or state.get("eventId")
-        round_num = int(state.get("round_num") or game_data.get("roundNum") or current_round or 1)
-        table_num = int(state.get("table_num") or game_data.get("tableNum") or 0) if (state.get("table_num") or game_data.get("tableNum")) else None
+        event_id = (
+            state.get("event_id")
+            or game_data.get("eventId")
+            or state.get("eventId")
+            or ((state.get("pairing_room") or {}).get("event_context", {}).get("event_id") if isinstance(state.get("pairing_room"), dict) else None)
+        )
+        round_num = int(
+            state.get("round_num")
+            or game_data.get("roundNum")
+            or ((state.get("pairing_room") or {}).get("event_context", {}).get("round_num") if isinstance(state.get("pairing_room"), dict) else 0)
+            or current_round
+            or 1
+        )
+        raw_table_num = (
+            state.get("table_num")
+            or game_data.get("tableNum")
+            or ((state.get("pairing_room") or {}).get("event_context", {}).get("team_table") if isinstance(state.get("pairing_room"), dict) else None)
+        )
+        table_num = int(raw_table_num or 0) if raw_table_num else None
         first_turn = game_data.get("firstTurn") or state.get("firstTurn") or state.get("who_went_first")
         who_went_first = p1_name if (first_turn in (1, "1", "player1", "p1", p1_name)) else (p2_name if (first_turn in (2, "2", "player2", "p2", p2_name)) else None)
         bcp_submitted = bool(state.get("bcp_submitted") or state.get("bcpSubmitted"))
@@ -12076,7 +12105,7 @@ class PostgresDatabase:
                         current_round, started, is_finished, winner_name,
                         version, state_json, event_id, round_num, table_num,
                         who_went_first, bcp_submitted, p1_army_list, p2_army_list,
-                        created_at, updated_at
+                        game_system, created_at, updated_at
                     ) VALUES (
                         %s, %s, %s, %s, %s,
                         %s, %s, %s, %s,
@@ -12085,7 +12114,7 @@ class PostgresDatabase:
                         %s, %s, %s, %s,
                         %s, %s::jsonb, %s, %s, %s,
                         %s, %s, %s::jsonb, %s::jsonb,
-                        COALESCE(%s::timestamptz, NOW()), COALESCE(%s::timestamptz, NOW())
+                        %s, COALESCE(%s::timestamptz, NOW()), COALESCE(%s::timestamptz, NOW())
                     )
                     ON CONFLICT (match_id) DO UPDATE SET
                         p1_name = EXCLUDED.p1_name,
@@ -12115,6 +12144,7 @@ class PostgresDatabase:
                         bcp_submitted = COALESCE(EXCLUDED.bcp_submitted, tracker_games.bcp_submitted),
                         p1_army_list = COALESCE(EXCLUDED.p1_army_list, tracker_games.p1_army_list),
                         p2_army_list = COALESCE(EXCLUDED.p2_army_list, tracker_games.p2_army_list),
+                        game_system = COALESCE(EXCLUDED.game_system, tracker_games.game_system, '40k'),
                         updated_at = COALESCE(%s::timestamptz, NOW());
                     """, (
                         match_id, p1_name, p1_faction, p1_detachment, p1_score,
@@ -12128,6 +12158,7 @@ class PostgresDatabase:
                         str(event_id) if event_id else None,
                         round_num, table_num, who_went_first, bcp_submitted,
                         p1_army_json, p2_army_json,
+                        game_system_col,
                         parsed_game_date, parsed_game_date, parsed_game_date
                     ))
                 conn.commit()
@@ -12489,6 +12520,8 @@ class PostgresDatabase:
                            state_json->>'game_system' AS game_system,
                            state_json->>'edition' AS edition,
                            state_json->>'edition_label' AS edition_label,
+                           state_json->>'format_label' AS format_label,
+                           state_json->>'format_size' AS format_size,
                            state_json->>'imported_source' AS imported_source,
                            state_json->>'imported_app' AS imported_app,
                            state_json->>'game_date' AS game_date,

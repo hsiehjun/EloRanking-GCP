@@ -2859,6 +2859,17 @@ class FirestoreRoomEngine:
         self._sync_roster_statuses(room)
         self._append_log(room, "🏁 Pairing Minigame concluded and saved to Backend Match History.")
 
+        if not hasattr(self, "_completed_pairing_rooms_db_fallback"):
+            self._completed_pairing_rooms_db_fallback = {}
+        self._completed_pairing_rooms_db_fallback[code] = copy.deepcopy(room)
+        if isinstance(room.get("event_context"), dict):
+            self._sync_event_wtc_pairing_from_room(room, is_finished=True)
+        return self._persist_completed_pairing_room_to_postgres(code, room)
+
+    def _persist_completed_pairing_room_to_postgres(self, code: str, room: Dict[str, Any]) -> Dict[str, Any]:
+        """Persists a completed WTC Pairing room to PostgreSQL `tracker_games` and cleans up Firestore `pairing_rooms`."""
+        import copy
+        now_ms = int(room.get("completedAt") or room.get("updatedAt") or int(datetime.now(timezone.utc).timestamp() * 1000))
         item = self.format_pairing_room_session_item(room)
         state_payload = {
             "match_id": code,
@@ -2883,6 +2894,7 @@ class FirestoreRoomEngine:
             "round": item.get("round", 1),
             "current_round": item.get("current_round", 1),
             "phase": "COMPLETED",
+            "started": True,
             "is_finished": True,
             "isFinished": True,
             "status": "completed",
@@ -2897,35 +2909,38 @@ class FirestoreRoomEngine:
             "pairing_room": copy.deepcopy(room),
         }
 
+        saved_ok = False
         try:
             from core import get_database
             db = get_database()
             if db is not None and hasattr(db, "save_tracker_game"):
-                db.save_tracker_game(
+                saved_ok = bool(db.save_tracker_game(
                     match_id=code,
                     state=state_payload,
                     user_id_p1=room.get("user_id_cap_a") or room.get("owner_id"),
                     user_id_p2=room.get("user_id_cap_b"),
                     is_locked=True,
                     is_finished=True,
-                )
+                ))
         except Exception as db_err:
             logger.warning(f"Notice saving completed WTC Pairing room {code} to PostgreSQL: {db_err}")
 
-        if not hasattr(self, "_completed_pairing_rooms_db_fallback"):
-            self._completed_pairing_rooms_db_fallback = {}
-        if isinstance(room.get("event_context"), dict):
-            self._sync_event_wtc_pairing_from_room(room, is_finished=True)
-        self._completed_pairing_rooms_db_fallback[code] = copy.deepcopy(room)
+        if saved_ok:
+            room["_pg_persisted_verified"] = True
+            if code in getattr(self, "_completed_pairing_rooms_db_fallback", {}):
+                self._completed_pairing_rooms_db_fallback[code]["_pg_persisted_verified"] = True
 
-        # Remove from active Firestore pairing_rooms collection & active fallback dict
+        # Remove from active fallback dict; delete from Firestore pairing_rooms once persisted to PostgreSQL
         self._fallback_pairing_rooms.pop(code, None)
         self._pairing_rooms_sync_ts = 0.0
         if self._client:
             try:
-                self._client.collection("pairing_rooms").document(code).delete()
+                if saved_ok:
+                    self._client.collection("pairing_rooms").document(code).delete()
+                else:
+                    self._client.collection("pairing_rooms").document(code).set(room)
             except Exception as err:
-                logger.debug(f"Notice deleting finalized pairing_room {code} from Firestore: {err}")
+                logger.debug(f"Notice updating/deleting finalized pairing_room {code} in Firestore: {err}")
 
         return room
 
@@ -3064,14 +3079,14 @@ class FirestoreRoomEngine:
                     code = str(d.get("room_code") or doc.id or "").strip().upper()
                     if not code:
                         continue
-                    # Purge legacy/test rooms or rooms that were auto-marked completed in Firestore
+                    # Purge legacy/test rooms or abandoned rooms in Firestore.
+                    # If a room in Firestore was marked is_finished / completed before being saved to PostgreSQL,
+                    # migrate it to PostgreSQL tracker_games now before deleting from Firestore!
                     if (
                         code in self._PURGED_LEGACY_PAIRING_ROOMS
                         or code in discarded
                         or d.get("is_abandoned")
                         or d.get("status") == "abandoned"
-                        or d.get("is_finished")
-                        or d.get("status") == "completed"
                     ):
                         discarded.add(code)
                         self._fallback_pairing_rooms.pop(code, None)
@@ -3080,6 +3095,16 @@ class FirestoreRoomEngine:
                         except Exception:
                             pass
                         continue
+                    if d.get("is_finished") or d.get("status") == "completed":
+                        try:
+                            from core import get_database
+                            db_chk = get_database()
+                            if db_chk is not None and hasattr(db_chk, "save_tracker_game"):
+                                self._fallback_pairing_rooms[code] = d
+                                self.finish_pairing_room(code)
+                                continue
+                        except Exception:
+                            pass
                     all_fs_codes.add(code)
                     cached = self._fallback_pairing_rooms.get(code)
                     if cached:
@@ -3158,7 +3183,7 @@ class FirestoreRoomEngine:
             if len(active_items) < limit:
                 active_items.append(item)
 
-        # Include explicitly finished rooms from in-memory DB fallback (for offline/test environments)
+        # Include explicitly finished rooms from in-memory DB fallback (and self-heal to PostgreSQL if not yet persisted)
         comp_snapshot = list(self._completed_pairing_rooms_db_fallback.values())
         comp_snapshot.sort(key=lambda r: int(r.get("completedAt") or r.get("updatedAt") or r.get("createdAt") or 0), reverse=True)
         for crm in comp_snapshot:
@@ -3167,6 +3192,12 @@ class FirestoreRoomEngine:
             code = str(crm.get("room_code") or "").strip().upper()
             if not code or code in self._PURGED_LEGACY_PAIRING_ROOMS or code in discarded:
                 continue
+            if not crm.get("_pg_persisted_verified"):
+                try:
+                    self._persist_completed_pairing_room_to_postgres(code, crm)
+                    crm["_pg_persisted_verified"] = True
+                except Exception:
+                    pass
             if not _room_matches_user(crm):
                 continue
             c_item = self.format_pairing_room_session_item(crm)
