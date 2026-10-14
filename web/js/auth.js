@@ -1366,6 +1366,12 @@ async function handleSelfRoleSwitch(newRole) {
     openUserSettingsModal();
 
     if (typeof currentEventData !== 'undefined' && currentEventData) {
+      if (appliedRole !== 'admin' && typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_admin_preview) {
+        currentEventRegistration = null;
+      }
+      if (typeof renderPersonalEventScorecard === 'function') {
+        renderPersonalEventScorecard(currentEventData, typeof currentEventRegistration !== 'undefined' ? currentEventRegistration : null);
+      }
       if (typeof renderPlayerStation === 'function') {
         renderPlayerStation(currentEventData, typeof currentEventRegistration !== 'undefined' ? currentEventRegistration : null);
       }
