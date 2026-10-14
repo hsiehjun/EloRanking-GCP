@@ -5730,13 +5730,27 @@ function renderPersonalEventScorecard(ev, userRegData) {
     preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`.trim(),
     preg.list_id || preg.listId || ''
   );
+  const myAllIds = new Set(
+    [
+      preg.player_id,
+      preg.bcp_player_id,
+      preg.bcp_event_player_id,
+      preg.id,
+      myInfo && myInfo.pid,
+      myInfo && myInfo.record && myInfo.record.player_id,
+      myInfo && myInfo.record && myInfo.record.bcp_event_player_id,
+    ]
+      .filter(Boolean)
+      .map(v => String(v).trim().toLowerCase())
+  );
 
   const myMatches = (eventMatchesCache || []).filter(m => {
     const p1Id = String(m.player1_id || '').trim().toLowerCase();
     const p2Id = String(m.player2_id || '').trim().toLowerCase();
     const p1Name = String(m.player1_name || '').trim().toLowerCase();
     const p2Name = String(m.player2_name || '').trim().toLowerCase();
-    if (myPid && (p1Id === myPid || p2Id === myPid)) return true;
+    if (p1Id && myAllIds.has(p1Id)) return true;
+    if (p2Id && myAllIds.has(p2Id)) return true;
     if (myName && (p1Name === myName || p2Name === myName)) return true;
     return false;
   }).sort((a, b) => (a.round || 1) - (b.round || 1));
@@ -5756,7 +5770,7 @@ function renderPersonalEventScorecard(ev, userRegData) {
   const rowsHtml = myMatches.map(m => {
     const p1Id = String(m.player1_id || '').trim().toLowerCase();
     const p1Name = String(m.player1_name || '').trim().toLowerCase();
-    const isP1 = (myPid && p1Id === myPid) || (myName && p1Name === myName);
+    const isP1 = (p1Id && myAllIds.has(p1Id)) || (myName && p1Name === myName);
     const oppName = isP1 ? (m.player2_name || 'BYE') : (m.player1_name || 'Opponent');
     const oppIdRaw = isP1 ? (m.player2_id || '') : (m.player1_id || '');
     const oppListIdRaw = isP1 ? (m.player2_list_id || '') : (m.player1_list_id || '');
@@ -6006,8 +6020,9 @@ function resolveTeamEventStationRegistration(ev, regData) {
     is_team_station_bound: true,
     event_id: evId,
     player_registration: {
-      player_id: pid,
-      bcp_player_id: String(fullRec.bcp_event_player_id || pid),
+      player_id: String(fullRec.player_id || pid),
+      bcp_player_id: String(fullRec.bcp_event_player_id || fullRec.bcp_player_id || pid),
+      bcp_event_player_id: String(fullRec.bcp_event_player_id || ''),
       first_name: firstName,
       last_name: lastName,
       full_name: fullName,
@@ -6111,17 +6126,41 @@ window.hasStartedWtcTeamPairingForPlayer = hasStartedWtcTeamPairingForPlayer;
 function isWtcPodSubmittedToBcp(ev, regData) {
   const podCtx = resolveActiveWtcTeamPairingPodForPlayer(ev, regData);
   if (!podCtx || !podCtx.activePod) return false;
-  const { selectedRound, activePod } = podCtx;
+  const { selectedRound, activePod, myPid, myName } = podCtx;
   const podId = String(activePod.team_pairing_id || `r${selectedRound}_pod1`);
   const wtcKey = `${selectedRound}:${podId}`;
   const wtcPairing = activePod.wtc_pairing
     || (ev && ev.wtc_pairings_by_key && ev.wtc_pairings_by_key[wtcKey])
     || (ev && Array.isArray(ev.wtc_pairings) && ev.wtc_pairings.find(w => Number(w.round_num) === selectedRound && String(w.team_pairing_id) === podId))
     || null;
-  if (!wtcPairing) return false;
-  const st = String(wtcPairing.status || '').trim().toLowerCase();
-  const subSt = String(wtcPairing.submission_status || '').trim().toLowerCase();
-  return st === 'submitted_bcp' || st === 'submitted_to_bcp' || subSt === 'submitted_bcp' || subSt === 'submitted_to_bcp';
+  if (wtcPairing) {
+    const st = String(wtcPairing.status || '').trim().toLowerCase();
+    const subSt = String(wtcPairing.submission_status || '').trim().toLowerCase();
+    return st === 'submitted_bcp' || st === 'submitted_to_bcp' || subSt === 'submitted_bcp' || subSt === 'submitted_to_bcp';
+  }
+  // If no active WTC pairing session exists for this pod, treat individual pairings as already submitted
+  // when the tournament is completed or when this round's 1v1 matches are already scored on BCP:
+  if (typeof isEventEnded === 'function' && isEventEnded(ev, regData)) {
+    return true;
+  }
+  const matches = (ev && Array.isArray(ev.matches) && ev.matches.length > 0)
+    ? ev.matches
+    : (Array.isArray(eventMatchesCache) ? eventMatchesCache : []);
+  const roundMatches = matches.filter(m => Number(m.round || m.round_number || 1) === Number(selectedRound));
+  const podMatches = roundMatches.filter(m => {
+    if (podId && String(m.team_pairing_id || '') === podId) return true;
+    const p1Id = String(m.player1_id || '').trim().toLowerCase();
+    const p2Id = String(m.player2_id || '').trim().toLowerCase();
+    const p1Name = String(m.player1_name || '').trim().toLowerCase();
+    const p2Name = String(m.player2_name || '').trim().toLowerCase();
+    if (myPid && (p1Id === myPid || p2Id === myPid)) return true;
+    if (myName && (p1Name === myName || p2Name === myName)) return true;
+    return false;
+  });
+  if (podMatches.length > 0 && podMatches.every(m => m.player1_score !== null && m.player1_score !== undefined && m.player2_score !== null && m.player2_score !== undefined)) {
+    return true;
+  }
+  return false;
 }
 window.isWtcPodSubmittedToBcp = isWtcPodSubmittedToBcp;
 
@@ -6361,6 +6400,9 @@ async function submitEventWtcPairings(eventId, roundNum, teamPairingId, submitMo
       currentEventData = freshEv;
       eventMatchesCache = freshEv.matches || [];
       eventPlayersCache = freshEv.players || [];
+      if (typeof computeEventPlayerEloStats === 'function') {
+        computeEventPlayerEloStats(eventPlayersCache, eventMatchesCache);
+      }
     }
 
     await renderPlayerStation(currentEventData, currentEventRegistration);
@@ -7002,6 +7044,19 @@ async function renderPlayerStation(ev, userRegData) {
     preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`.trim(),
     preg.list_id || preg.listId || ''
   );
+  const myAllIds = new Set(
+    [
+      preg.player_id,
+      preg.bcp_player_id,
+      preg.bcp_event_player_id,
+      preg.id,
+      myInfo && myInfo.pid,
+      myInfo && myInfo.record && myInfo.record.player_id,
+      myInfo && myInfo.record && myInfo.record.bcp_event_player_id,
+    ]
+      .filter(Boolean)
+      .map(v => String(v).trim().toLowerCase())
+  );
 
   // Find all matches involving this competitor
   const myMatches = (eventMatchesCache || []).filter(m => {
@@ -7009,7 +7064,8 @@ async function renderPlayerStation(ev, userRegData) {
     const p2Id = String(m.player2_id || '').trim().toLowerCase();
     const p1Name = String(m.player1_name || '').trim().toLowerCase();
     const p2Name = String(m.player2_name || '').trim().toLowerCase();
-    if (myPid && (p1Id === myPid || p2Id === myPid)) return true;
+    if (p1Id && myAllIds.has(p1Id)) return true;
+    if (p2Id && myAllIds.has(p2Id)) return true;
     if (myName && (p1Name === myName || p2Name === myName)) return true;
     return false;
   }).sort((a, b) => (a.round || 1) - (b.round || 1));
@@ -7023,8 +7079,14 @@ async function renderPlayerStation(ev, userRegData) {
     return m.player1_score !== null && m.player2_score !== null;
   });
 
+  const isWtcPairingPending = Boolean(
+    isWtcTeamEvent(eventObj) &&
+    hasStartedWtcTeamPairingForPlayer(eventObj, regData) &&
+    !isWtcPodSubmittedToBcp(eventObj, regData)
+  );
+
   // 1. Update Subtab Badge based on Lifecycle (keep label as ⚡ My Station)
-  if (activeMatch) {
+  if (activeMatch || isWtcPairingPending) {
     if (subtabBadge) {
       subtabBadge.style.display = 'inline-block';
       subtabBadge.innerText = 'ACTIVE';
@@ -7052,7 +7114,7 @@ async function renderPlayerStation(ev, userRegData) {
   // 1.5. Render WTC Team Matching & Pairing Room Station (for WTC Team Events when individual pairings are not yet submitted to BCP)
   renderPlayerStationWtcTeamMatchingPanel(eventObj, regData);
 
-  if (isWtcTeamEvent(eventObj) && hasStartedWtcTeamPairingForPlayer(eventObj, regData) && !isWtcPodSubmittedToBcp(eventObj, regData)) {
+  if (isWtcPairingPending) {
     if (activeHero) activeHero.style.display = 'none';
     if (waitingHero) waitingHero.style.display = 'none';
     if (concludedHero) concludedHero.style.display = 'none';
@@ -7075,21 +7137,35 @@ async function renderPlayerStation(ev, userRegData) {
     if (concludedHero) {
       concludedHero.style.display = 'block';
       const myPlayerRecord = (eventPlayersCache || []).find(p => {
-        const pPid = String(p.player_id || p.bcp_player_id || '').toLowerCase();
-        const pName = String(p.full_name || `${p.first_name || ''} ${p.last_name || ''}`).toLowerCase();
-        return (myPid && pPid === myPid) || (myName && pName === myName);
+        const pIds = [p.player_id, p.bcp_player_id, p.bcp_event_player_id, p.id]
+          .filter(Boolean)
+          .map(v => String(v).trim().toLowerCase());
+        const pName = String(p.full_name || `${p.first_name || ''} ${p.last_name || ''}`).trim().toLowerCase();
+        return pIds.some(id => myAllIds.has(id)) || (myName && pName === myName);
       });
       const placement = myPlayerRecord?.placement || 1;
       const wins = myPlayerRecord?.event_wins !== undefined ? myPlayerRecord.event_wins : completedMatches.filter(m => {
-        const isP1 = (myPid && String(m.player1_id).toLowerCase() === myPid) || (myName && String(m.player1_name).toLowerCase() === myName);
+        const p1Id = String(m.player1_id || '').trim().toLowerCase();
+        const isP1 = (p1Id && myAllIds.has(p1Id)) || (myName && String(m.player1_name).trim().toLowerCase() === myName);
         return isP1 ? m._is_p1_win : m._is_p2_win;
       }).length;
-      const losses = myPlayerRecord?.event_losses !== undefined ? myPlayerRecord.event_losses : (completedMatches.length - wins);
+      const draws = myPlayerRecord?.event_draws !== undefined ? myPlayerRecord.event_draws : completedMatches.filter(m => {
+        return Boolean(m._is_draw || (m.player1_score !== null && m.player1_score === m.player2_score));
+      }).length;
+      const losses = myPlayerRecord?.event_losses !== undefined ? myPlayerRecord.event_losses : Math.max(0, completedMatches.length - wins - draws);
       const totalBattlePts = myPlayerRecord?.event_battle_points !== undefined ? myPlayerRecord.event_battle_points : completedMatches.reduce((acc, m) => {
-        const isP1 = (myPid && String(m.player1_id).toLowerCase() === myPid) || (myName && String(m.player1_name).toLowerCase() === myName);
+        const p1Id = String(m.player1_id || '').trim().toLowerCase();
+        const isP1 = (p1Id && myAllIds.has(p1Id)) || (myName && String(m.player1_name).trim().toLowerCase() === myName);
         return acc + Number(isP1 ? m.player1_score : m.player2_score);
       }, 0);
-      const netElo = myPlayerRecord?.event_net_elo || 0;
+      const computedMatchDeltaSum = completedMatches.reduce((acc, m) => {
+        const p1Id = String(m.player1_id || '').trim().toLowerCase();
+        const isP1 = (p1Id && myAllIds.has(p1Id)) || (myName && String(m.player1_name).trim().toLowerCase() === myName);
+        return acc + Number(isP1 ? (m._p1_delta || 0) : (m._p2_delta || 0));
+      }, 0);
+      const netElo = (myPlayerRecord && myPlayerRecord.event_net_elo !== undefined && Number(myPlayerRecord.event_net_elo) !== 0)
+        ? Number(myPlayerRecord.event_net_elo)
+        : computedMatchDeltaSum;
       const netEloStr = Number(netElo) >= 0 ? `+${Number(netElo).toFixed(1)}` : Number(netElo).toFixed(1);
 
       concludedHero.innerHTML = `
@@ -7121,7 +7197,7 @@ async function renderPlayerStation(ev, userRegData) {
             </div>
             <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem; text-align: center;">
               <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600;">MATCH RECORD</div>
-              <div style="font-size: 1.25rem; font-weight: 800; color: #4ade80;">${wins}-${losses}-0</div>
+              <div style="font-size: 1.25rem; font-weight: 800; color: #4ade80;">${wins}-${losses}-${draws}</div>
             </div>
             <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem; text-align: center;">
               <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600;">BATTLE POINTS</div>
