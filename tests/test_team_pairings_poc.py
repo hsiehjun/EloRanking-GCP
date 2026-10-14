@@ -1410,8 +1410,9 @@ class TestTeamPairingsPoC(unittest.TestCase):
         code = room["room_code"]
         tok_a = room["captain_a_token"]
 
-        # Complete Cycle 1 so Table #1 is locked with John Lennon
-        res1 = self.engine.apply_pairing_action(code, role="captain_a", captain_token=tok_a, action="lock_defender", payload={"player_id": "A1", "vs_ai": True})
+        # Complete Cycle 1 so Table #1 is locked with John Lennon as Team A Defender
+        jl_id = next(p["id"] for p in room["team_a"]["roster"] if p["name"].lower() == "john lennon")
+        res1 = self.engine.apply_pairing_action(code, role="captain_a", captain_token=tok_a, action="lock_defender", payload={"player_id": jl_id, "vs_ai": True})
         r_step2 = res1["room"]
         bench_a = [p["id"] for p in r_step2["team_a"]["roster"] if p["status"] == "bench"]
         res2 = self.engine.apply_pairing_action(code, role="captain_a", captain_token=tok_a, action="lock_attackers", payload={"player_ids": bench_a[:2], "vs_ai": True})
@@ -1444,7 +1445,8 @@ class TestTeamPairingsPoC(unittest.TestCase):
             self.assertTrue(len(jl_paired) >= 1)
             self.assertEqual(jl_paired[0]["elo"], 2210)
         finally:
-            self.engine.update_live_player_elo_override("John Lennon", 2145)
+            if hasattr(self.engine, "_live_player_elo_overrides") and "40k" in self.engine._live_player_elo_overrides:
+                self.engine._live_player_elo_overrides["40k"].pop("john lennon", None)
 
     def test_unified_gt_hud_header_and_5v5_8v8_lobby_history_persistence(self):
         """Verify /team-pairings #gt-sync-hud matches /11th/tracker/play header and 5v5/8v8 pairing rooms appear in Game & Pairings History."""
@@ -2104,21 +2106,23 @@ class TestTeamPairingsPoC(unittest.TestCase):
         elapsed_warm = time.perf_counter() - t_warm0
         self.assertLess(elapsed_warm, 0.05, f"Warm GET /api/event/uC7tqqdPYLtT exceeded 50ms: {elapsed_warm:.4f}s")
 
-        # Pick Round 5 Pod 1
-        r5_pods = (ev_warm.get("team_pairings_by_round") or {}).get("5") or [team_pairings[-1]]
-        pod = r5_pods[0]
+        # Verify Round 6 Pod 1 uses real BCP Round 6 matches (Art of War vs XPZ Purple Cobras) and real PostgreSQL Elos
+        r6_pods = (ev_warm.get("team_pairings_by_round") or {}).get("6") or []
+        self.assertGreater(len(r6_pods), 0, "Expected real Round 6 pods from BCP matches")
+        pod = r6_pods[0]
+        self.assertEqual({pod["team1_name"], pod["team2_name"]}, {"Art of War", "XPZ Purple Cobras"})
         pod_id = pod["team_pairing_id"]
-        round_num = int(pod.get("round") or 5)
+        round_num = int(pod.get("round") or 6)
         self.assertEqual(len(pod.get("team1_roster") or []), 8)
         self.assertEqual(len(pod.get("team2_roster") or []), 8)
 
-        # Verify live Elos hydrated on roster members
-        non_default_elos = [
-            m.get("elo")
+        # Verify real PostgreSQL Elos hydrated on roster members (e.g. Folger Pyles 2502, John Lennon 2479)
+        combined_by_name = {
+            m.get("full_name") or m.get("name"): float(m.get("elo") or 1500.0)
             for m in (pod["team1_roster"] + pod["team2_roster"])
-            if float(m.get("elo") or 1500.0) != 1500.0
-        ]
-        self.assertGreater(len(non_default_elos), 0, "Expected live non-1500 Elos on team rosters")
+        }
+        self.assertGreater(combined_by_name.get("Folger Pyles", 0), 2450.0)
+        self.assertGreater(combined_by_name.get("John Lennon", 0), 2400.0)
 
         # 3. Launch Pre-Loaded WTC Pairing Room via API (< 1.0s)
         mock_req = MagicMock()

@@ -6121,126 +6121,6 @@ async function launchEventWtcPairingRoom(eventId, roundNum, teamPairingId, myTea
 }
 window.launchEventWtcPairingRoom = launchEventWtcPairingRoom;
 
-async function autoCompleteEventWtcPairingDemo(eventId, roundNum, teamPairingId, myTeamSide = 'team1') {
-  const evId = String(eventId || currentOpenEventId || (currentEventData && currentEventData.id) || '').trim();
-  if (!evId) return;
-  const btn = document.getElementById('btn-demo-complete-event-wtc-pairing');
-  const origHtml = btn ? btn.innerHTML : '';
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<span>⚡ Completing WTC Pairing...</span>';
-  }
-  try {
-    const launchResp = await fetch(`/api/events/${encodeURIComponent(evId)}/wtc-pairings/launch`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        round_num: Number(roundNum || 1),
-        team_pairing_id: String(teamPairingId || ''),
-        my_team_side: String(myTeamSide || 'team1'),
-        force_reset: true,
-      }),
-    });
-    const launchData = await launchResp.json();
-    if (!launchResp.ok || !launchData || !launchData.room_code) {
-      throw new Error('Failed to initialize WTC room');
-    }
-    const code = launchData.room_code;
-    const tokA = launchData.captain_a_token || '';
-    let room = launchData.room || {};
-
-    if (!room.coin_flip_done) {
-      await fetch(`/api/team-pairings/room/${encodeURIComponent(code)}/action`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          role: 'captain_a',
-          captain_token: tokA,
-          action: 'flip_coin',
-          payload: { force_winner: 'captain_a' },
-        }),
-      });
-      const cfResp = await fetch(`/api/team-pairings/room/${encodeURIComponent(code)}/action`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          role: 'captain_a',
-          captain_token: tokA,
-          action: 'choose_coin_flip_role',
-          payload: { choice: 'defender', chooser_role: 'captain_a' },
-        }),
-      });
-      const cfData = await cfResp.json();
-      if (cfData && cfData.room) room = cfData.room;
-    }
-
-    let guard = 0;
-    while (room && room.phase !== 'COMPLETED' && guard < 24) {
-      guard++;
-      const ph = room.phase;
-      const benchA = ((room.team_a && room.team_a.roster) || []).filter(p => p.status === 'bench').map(p => p.id);
-      let actionName = '';
-      let actionPayload = {};
-      if (ph === 'STEP_1_DEFENDER') {
-        actionName = 'lock_defender';
-        actionPayload = { player_id: benchA[0], vs_ai: true };
-      } else if (ph === 'STEP_2_ATTACKERS') {
-        actionName = 'lock_attackers';
-        actionPayload = { player_ids: benchA.slice(0, 2), vs_ai: true };
-      } else if (ph === 'STEP_3_CHOOSE') {
-        const oppAtk = (room.active_attackers_b || [])[0];
-        actionName = 'lock_choice';
-        actionPayload = { player_id: oppAtk ? oppAtk.id : '', vs_ai: true };
-      } else {
-        break;
-      }
-      const stepResp = await fetch(`/api/team-pairings/room/${encodeURIComponent(code)}/action`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          role: 'captain_a',
-          captain_token: tokA,
-          action: actionName,
-          payload: actionPayload,
-        }),
-      });
-      const stepData = await stepResp.json();
-      if (stepData && stepData.room) room = stepData.room;
-    }
-
-    const finResp = await fetch(`/api/team-pairings/room/${encodeURIComponent(code)}/finish`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    const finData = await finResp.json();
-    if (finData && finData.event_wtc_pairing) {
-      window._lastWtcReturnPayload = finData.event_wtc_pairing;
-    }
-
-    // Refresh event details from backend (<2ms warm enriched)
-    if (window.api && window.api._cache) {
-      window.api._cache.delete(`/api/event/${encodeURIComponent(evId)}`);
-    }
-    const freshEv = await window.api.getTournamentDetails(evId, false);
-    if (freshEv && !freshEv.error) {
-      currentEventData = freshEv;
-      eventMatchesCache = freshEv.matches || [];
-      eventPlayersCache = freshEv.players || [];
-    }
-    await renderPlayerStation(currentEventData, currentEventRegistration);
-  } catch (err) {
-    console.error('Error auto-completing WTC pairing:', err);
-    alert('Failed to auto-complete WTC pairing: ' + (err.message || err));
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = origHtml;
-    }
-  }
-}
-window.autoCompleteEventWtcPairingDemo = autoCompleteEventWtcPairingDemo;
-
 async function submitEventWtcPairings(eventId, roundNum, teamPairingId, submitMode = 'bcp', fromToHub = false) {
   const evId = String(eventId || currentOpenEventId || (currentEventData && currentEventData.id) || '').trim();
   if (!evId) return;
@@ -6676,9 +6556,6 @@ function renderPlayerStationWtcTeamMatchingPanel(ev, regData) {
           <button type="button" id="btn-launch-event-wtc-pairing-room" onclick="launchEventWtcPairingRoom('${escapeHtml(evId)}', ${selectedRound}, '${escapeHtml(podId)}', '${escapeHtml(mySide)}')" class="btn btn-primary" style="background:linear-gradient(135deg, #f59e0b, #d97706); border:1px solid #fbbf24; color:#090d16; font-weight:900; font-size:0.82rem; padding:0.55rem 1.1rem; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:0.45rem; box-shadow:0 4px 14px rgba(245,158,11,0.3);">
             <span>⚔️ ${indivPairings.length > 0 ? 'Re-Open WTC Pairing Room' : 'Enter WTC Pairing Room (Roll Coin)'}</span>
           </button>
-          <button type="button" id="btn-demo-complete-event-wtc-pairing" onclick="autoCompleteEventWtcPairingDemo('${escapeHtml(evId)}', ${selectedRound}, '${escapeHtml(podId)}', '${escapeHtml(mySide)}')" class="btn btn-outline" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; font-weight:800; font-size:0.75rem; padding:0.52rem 0.85rem; border-radius:8px; cursor:pointer;" title="Simulate coin flip and all pairing steps to preview the completed 1v1 board payload">
-            <span>⚡ Simulate Completed Pairing</span>
-          </button>
         </div>
       </div>
 
@@ -6833,8 +6710,14 @@ async function renderPlayerStation(ev, userRegData) {
   const eventObj = ev || currentEventData || {};
   let regData = userRegData || currentEventRegistration;
 
-  // Fallback check for competitor persona
-  if (!regData || !regData.is_registered) {
+  // For WTC Team Events, bind station registration directly to the real event team/player
+  if (isWtcTeamEvent(eventObj) && (typeof currentDevPersona === 'undefined' || currentDevPersona !== 'spectator')) {
+    regData = resolveTeamEventStationRegistration(eventObj, regData);
+    if (regData && regData.is_registered) {
+      currentEventRegistration = regData;
+    }
+  } else if (!regData || !regData.is_registered) {
+    // Fallback check for competitor persona on non-WTC single-player events
     if (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor') {
       regData = {
         is_registered: true,
@@ -6858,14 +6741,6 @@ async function renderPlayerStation(ev, userRegData) {
           display_name: "Innes Wilson"
         }
       };
-      currentEventRegistration = regData;
-    }
-  }
-
-  // For WTC Team Events, bind station registration to the active or selected team member
-  if (isWtcTeamEvent(eventObj) && (typeof currentDevPersona === 'undefined' || currentDevPersona !== 'spectator')) {
-    regData = resolveTeamEventStationRegistration(eventObj, regData);
-    if (regData && regData.is_registered) {
       currentEventRegistration = regData;
     }
   }

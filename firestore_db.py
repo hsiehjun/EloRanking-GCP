@@ -3338,6 +3338,44 @@ class FirestoreRoomEngine:
                             }
             except Exception:
                 pass
+            try:
+                import json as _json
+                import os as _os
+                base_dir = _os.path.dirname(_os.path.abspath(__file__))
+                for rel_file in ("data/sd40k_player_careers.json", "data/bcp_event_uC7tqqdPYLtT.json"):
+                    fpath = _os.path.join(base_dir, rel_file)
+                    if not _os.path.exists(fpath):
+                        continue
+                    with open(fpath, "r", encoding="utf-8") as fh:
+                        jdata = _json.load(fh)
+                    if isinstance(jdata, dict) and isinstance(jdata.get("players"), list):
+                        for ep in jdata["players"]:
+                            if not isinstance(ep, dict):
+                                continue
+                            fn = str(ep.get("first_name") or "").strip()
+                            ln = str(ep.get("last_name") or "").strip()
+                            pn = str(ep.get("full_name") or ep.get("player_name") or ep.get("name") or f"{fn} {ln}").strip()
+                            elo_v = float(ep.get("current_elo") or ep.get("elo") or 0)
+                            if pn and elo_v > 0:
+                                canon_map[pn.lower()] = {
+                                    "current_elo": elo_v,
+                                    "matches_played": int(ep.get("matches_played") or canon_map.get(pn.lower(), {}).get("matches_played") or 0),
+                                    "win_rate": float(ep.get("win_rate") or canon_map.get(pn.lower(), {}).get("win_rate") or 0.0),
+                                }
+                    elif isinstance(jdata, dict):
+                        for k, cinfo in jdata.items():
+                            if not isinstance(cinfo, dict):
+                                continue
+                            pn = str(cinfo.get("player_name") or cinfo.get("name") or k or "").strip()
+                            elo_v = float(cinfo.get("current_elo") or cinfo.get("elo") or 0)
+                            if pn and elo_v > 0:
+                                canon_map[pn.lower()] = {
+                                    "current_elo": elo_v,
+                                    "matches_played": int(cinfo.get("matches_played") or 0),
+                                    "win_rate": float(cinfo.get("win_rate") or 0.0),
+                                }
+            except Exception:
+                pass
             self._canonical_player_elo_map[sys_key] = canon_map
 
         def _sync_card_rarity_if_needed(p_dict: Dict[str, Any], new_elo_int: int) -> None:
@@ -4389,15 +4427,15 @@ class FirestoreRoomEngine:
             team_size = 8 if max_members >= 7 else 5
             fmt = "8v8" if team_size == 8 else "5v5"
 
-        def _normalize_bcp_member_list(members: List[Any], fallback_preset_key: str, t_name: str) -> List[Dict[str, Any]]:
+        def _normalize_bcp_member_list(members: List[Any], t_name: str) -> List[Dict[str, Any]]:
             out: List[Dict[str, Any]] = []
             for idx, m in enumerate(members or []):
                 if not isinstance(m, dict):
                     continue
                 pname = str(m.get("full_name") or m.get("player_name") or m.get("name") or f"Player {idx + 1}").strip()
-                raw_fac = m.get("faction") or m.get("top_faction") or "Space Marines"
+                raw_fac = m.get("faction") or m.get("top_faction") or "Unassigned"
                 fac = self._clean_primary_faction(raw_fac)
-                elo_val = int(round(float(m.get("current_elo") or m.get("elo") or 1800)))
+                elo_val = int(round(float(m.get("current_elo") or m.get("elo") or 1500)))
                 pid_val = str(m.get("bcp_player_id") or m.get("player_id") or m.get("user_id") or m.get("id") or f"p_{idx + 1}").strip()
                 out.append({
                     "bcp_player_id": pid_val,
@@ -4416,16 +4454,10 @@ class FirestoreRoomEngine:
                     "is_captain": bool(m.get("is_captain")),
                     "role_tag": "Team Captain" if m.get("is_captain") else ("Top Ace / Spear" if idx == 0 else "Core / All-Rounder"),
                 })
-            if len(out) < team_size:
-                preset = self.TEAM_PAIRING_PRESETS.get(fallback_preset_key, self.TEAM_PAIRING_PRESETS["art_of_war"])
-                for p_def in preset["roster"]:
-                    if len(out) >= team_size:
-                        break
-                    out.append(copy.deepcopy(p_def))
-            return out[:team_size]
+            return out[:team_size] if team_size > 0 else out
 
-        roster_a = _normalize_bcp_member_list(raw_members_a, "art_of_war", team_a_name)
-        roster_b = _normalize_bcp_member_list(raw_members_b, "team_zero_comp", team_b_name)
+        roster_a = _normalize_bcp_member_list(raw_members_a, team_a_name)
+        roster_b = _normalize_bcp_member_list(raw_members_b, team_b_name)
 
         cap_a_name = str(
             req.get("captain_a_name")

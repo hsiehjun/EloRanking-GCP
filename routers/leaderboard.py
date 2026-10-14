@@ -1574,7 +1574,7 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
     ev_players = event_details.get("players") or []
     ev_teams = event_details.get("teams") or []
 
-    # 1. If running without Postgres DB (or players defaulted to 1500.0), hydrate live Elos from canonical/cache (<0.5ms)
+    # 1. Hydrate live Elos strictly from database / canonical career ratings (<0.5ms)
     if fs_engine is not None and ev_players and not event_details.get("_live_elos_hydrated"):
         has_non_default_elo = any(
             isinstance(p, dict) and abs(float(p.get("current_elo") or 1500.0) - 1500.0) > 0.1
@@ -1582,7 +1582,6 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
         )
         if not has_non_default_elo:
             try:
-                import hashlib as _hl
                 fs_engine._hydrate_roster_live_elos([ev_players], game_system=ev_gs)
                 player_elo_by_id: Dict[str, float] = {}
                 player_elo_by_name: Dict[str, float] = {}
@@ -1590,21 +1589,8 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
                     if not isinstance(p, dict):
                         continue
                     cur_e = float(p.get("current_elo") or 1500.0)
-                    if abs(cur_e - 1500.0) < 0.1:
-                        w = int(p.get("event_wins") or 0)
-                        l = int(p.get("event_losses") or 0)
-                        d_cnt = int(p.get("event_draws") or 0)
-                        g_cnt = int(p.get("event_matches_count") or (w + l + d_cnt))
-                        bp = float(p.get("event_battle_points") or 0.0)
-                        seed_str = str(p.get("player_id") or p.get("full_name") or "")
-                        jitter = ((int(_hl.md5(seed_str.encode("utf-8")).hexdigest()[:4], 16) % 360) - 180) * 0.1
-                        if g_cnt > 0:
-                            cur_e = round(max(1220.0, min(2280.0, 1560.0 + (w - l) * 44.0 + (bp - g_cnt * 10.0) * 1.6 + jitter)), 1)
-                        else:
-                            cur_e = round(1520.0 + jitter, 1)
-                        p["current_elo"] = cur_e
-                        p["elo"] = int(round(cur_e))
-                        p["peak_elo"] = max(float(p.get("peak_elo") or 1500.0), cur_e)
+                    p["current_elo"] = cur_e
+                    p["elo"] = int(round(cur_e))
                     pid_k = str(p.get("player_id") or p.get("id") or "").strip()
                     pnm_k = str(p.get("full_name") or p.get("name") or "").strip().lower()
                     if pid_k:
@@ -1639,6 +1625,16 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
                         members.sort(key=lambda m: (not m.get("is_captain"), -float(m.get("current_elo") or m.get("elo") or 1500.0)))
             except Exception:
                 pass
+        else:
+            for tm in ev_teams:
+                if not isinstance(tm, dict):
+                    continue
+                members = tm.get("members") or []
+                if members:
+                    m_elos = [float(m.get("current_elo") or m.get("elo") or 1500.0) for m in members if isinstance(m, dict)]
+                    if m_elos:
+                        tm["avg_elo"] = round(sum(m_elos) / len(m_elos), 1)
+                    members.sort(key=lambda m: (not m.get("is_captain"), -float(m.get("current_elo") or m.get("elo") or 1500.0)))
         event_details["_live_elos_hydrated"] = True
 
     # 2. Attach live WTC pairing payloads for this event
@@ -1770,6 +1766,12 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
                 continue
             pair_key = tuple(sorted([t1_id, t2_id]))
             if pair_key not in pod_groups:
+                pl1 = int(tm1.get("placing") or 9999)
+                pl2 = int(tm2.get("placing") or 9999)
+                elo1 = float(tm1.get("avg_elo") or 1500.0)
+                elo2 = float(tm2.get("avg_elo") or 1500.0)
+                if (pl2, -elo2) < (pl1, -elo1):
+                    tm1, tm2 = tm2, tm1
                 pod_groups[pair_key] = {
                     "team1": tm1,
                     "team2": tm2,
@@ -1784,29 +1786,17 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
             if not pod_groups[pair_key]["explicit_team_pairing_id"] and m.get("team_pairing_id"):
                 pod_groups[pair_key]["explicit_team_pairing_id"] = str(m.get("team_pairing_id")).strip()
 
-        # If a round has remaining unpaired teams (e.g. before individual board pairings are created), pair adjacent teams
-        unpaired_teams = [
-            tm for tm in ev_teams
-            if isinstance(tm, dict)
-            and str(tm.get("id") or tm.get("team_id") or "") not in paired_team_ids
-            and not tm.get("dropped")
-        ]
-        if len(unpaired_teams) >= 2 and (r_num == cur_round or not pod_order):
-            for idx_u in range(0, len(unpaired_teams) - 1, 2):
-                tm1 = unpaired_teams[idx_u]
-                tm2 = unpaired_teams[idx_u + 1]
-                t1_id = str(tm1.get("id") or tm1.get("team_id") or "")
-                t2_id = str(tm2.get("id") or tm2.get("team_id") or "")
-                pair_key = tuple(sorted([t1_id, t2_id]))
-                if pair_key not in pod_groups:
-                    pod_groups[pair_key] = {
-                        "team1": tm1,
-                        "team2": tm2,
-                        "matches": [],
-                        "first_table": len(pod_order) * 8 + 1,
-                        "explicit_team_pairing_id": "",
-                    }
-                    pod_order.append(pair_key)
+        def _pod_sort_key(pk: Tuple[str, str]):
+            g = pod_groups[pk]
+            ta = g["team1"]
+            tb = g["team2"]
+            pla = int(ta.get("placing") or 9999)
+            plb = int(tb.get("placing") or 9999)
+            ea = float(ta.get("avg_elo") or 1500.0)
+            eb = float(tb.get("avg_elo") or 1500.0)
+            return (int(g.get("first_table") or 1), min(pla, plb), -max(ea, eb))
+
+        pod_order.sort(key=_pod_sort_key)
 
         round_pods: List[Dict[str, Any]] = []
         for pod_idx, pair_key in enumerate(pod_order, 1):
