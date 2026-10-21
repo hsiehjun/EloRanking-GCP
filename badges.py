@@ -685,31 +685,33 @@ def _evaluate_40k_player_badges(
                 factions_defeated.add(o_fac.lower())
 
             diff = p_score - o_score
-            if diff == 1:
-                clutch_1vp_wins += 1
-            if 1 <= diff <= 2:
-                clutch_2vp_wins += 1
-            if diff >= 40:
-                blowout_40vp_wins += 1
+            is_100vp_scale = (p_score >= 30 or o_score >= 30)
+            if is_100vp_scale:
+                if diff == 1:
+                    clutch_1vp_wins += 1
+                if 1 <= diff <= 2:
+                    clutch_2vp_wins += 1
+                if diff >= 40:
+                    blowout_40vp_wins += 1
 
-            if p_score >= 80 and o_score >= 80:
-                shootout_80_wins += 1
+                if p_score >= 80 and o_score >= 80:
+                    shootout_80_wins += 1
 
-            if p_score <= 65 and diff > 0:
-                attrition_low_wins += 1
+                if p_score <= 65 and diff > 0:
+                    attrition_low_wins += 1
 
-            if p_score >= 95 and o_score <= 45:
-                flawless_95_45_wins += 1
+                if p_score >= 95 and o_score <= 45:
+                    flawless_95_45_wins += 1
+
+                if o_score < min_opp_score:
+                    min_opp_score = o_score
 
             if rnd == 1 and p_score >= 85:
                 r1_85_wins += 1
             if rnd >= 5:
                 r5_wins += 1
-                if o_score <= 35:
+                if is_100vp_scale and o_score <= 35:
                     r5_lockout_wins += 1
-
-            if o_score < min_opp_score:
-                min_opp_score = o_score
 
             # Elo upsets
             my_elo_at_match = _safe_float(m.get("new_elo"), current_elo) - _safe_float(m.get("delta_elo"), 0.0)

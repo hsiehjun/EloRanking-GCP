@@ -93,6 +93,74 @@ steps:
       - '--region'
       - 'us-central1'
 
+  # 8. Create or Update Cloud Run Job: elo-melee-sync-job (Melee.gg TCG Sync)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'update-melee-sync-job'
+    entrypoint: python3
+    args:
+      - 'scripts/deploy_platform_job.py'
+      - '--job-name'
+      - 'elo-melee-sync-job'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--command'
+      - 'python3'
+      - '--args'
+      - 'scripts/sync_melee.py'
+
+  # 9. Create or Update Cloud Run Job: elo-limitless-sync-job (Limitless TCG Sync)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'update-limitless-sync-job'
+    entrypoint: python3
+    args:
+      - 'scripts/deploy_platform_job.py'
+      - '--job-name'
+      - 'elo-limitless-sync-job'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--command'
+      - 'python3'
+      - '--args'
+      - 'scripts/sync_limitless.py'
+
+  # 10. Create or Update Cloud Run Job: elo-longshanks-sync-job (Longshanks Tabletop Sync)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'update-longshanks-sync-job'
+    entrypoint: python3
+    args:
+      - 'scripts/deploy_platform_job.py'
+      - '--job-name'
+      - 'elo-longshanks-sync-job'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--command'
+      - 'python3'
+      - '--args'
+      - 'scripts/sync_longshanks.py'
+
+  # 11. Create or Update Cloud Run Job: elo-topdeck-sync-job (TopDeck.gg 4P FFA Pod & MTG Sync)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'update-topdeck-sync-job'
+    entrypoint: python3
+    args:
+      - 'scripts/deploy_platform_job.py'
+      - '--job-name'
+      - 'elo-topdeck-sync-job'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--command'
+      - 'python3'
+      - '--args'
+      - 'scripts/sync_topdeck.py'
+
 images:
   - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
   - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:latest'

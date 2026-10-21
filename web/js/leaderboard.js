@@ -280,7 +280,9 @@ function renderLeaderboardRows() {
       </td>
       <td class="col-faction">
         ${(() => {
-          const rawFacs = (p.top_faction || 'Various').split(',').map(f => f.trim()).filter(Boolean);
+          const rawFacs = (typeof window.splitFactionPills === 'function')
+            ? window.splitFactionPills(p.top_faction || 'Various')
+            : (p.top_faction || 'Various').split(',').map(f => f.trim()).filter(Boolean);
           const showCount = 2;
           const visible = rawFacs.slice(0, showCount);
           const remaining = rawFacs.length - visible.length;
@@ -1079,7 +1081,9 @@ function renderLeaderboardItcRows() {
 
       const wr = Number(item.win_rate || 0).toFixed(1);
       const wrColor = wr >= 60 ? 'var(--win)' : (wr >= 45 ? 'var(--accent)' : 'var(--text-secondary)');
-      const rawFacs = (item.top_faction || '').split(',').map(f => f.trim()).filter(Boolean);
+      const rawFacs = (typeof window.splitFactionPills === 'function')
+        ? window.splitFactionPills(item.top_faction || '')
+        : (item.top_faction || '').split(',').map(f => f.trim()).filter(Boolean);
       const factionCellHtml = (() => {
         if (!rawFacs.length) return `<span style="color:var(--text-muted); font-size:0.8rem;">—</span>`;
         const showCount = 2;

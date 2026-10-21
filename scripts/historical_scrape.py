@@ -75,8 +75,12 @@ def run_historical_scrape(
     elif "," in sys_target:
         for part in [p.strip() for p in sys_target.split(",") if p.strip()]:
             if part not in ("other", "others", "non_40k_aos", "all_other"):
-                norm_part = normalize_game_system(part, default="40k")
-                systems_to_scrape.append((norm_part, get_bcp_game_system_id(norm_part)))
+                norm_part = normalize_game_system(part, default=part)
+                bcp_id = get_bcp_game_system_id(norm_part, default=None)
+                if bcp_id:
+                    systems_to_scrape.append((norm_part, bcp_id))
+                else:
+                    logger.info(f"ℹ️ [{norm_part.upper()}] No BCP gameSystemId mapped; skipping BCP scrape.")
     elif sys_target in ("40k", "wh40k"):
         systems_to_scrape.append(("40k", DEFAULT_GAME_SYSTEM_ID))
     elif sys_target in ("aos", "warhammer_aos", "sigmar"):
@@ -87,8 +91,12 @@ def run_historical_scrape(
         systems_to_scrape.append(("40k", DEFAULT_GAME_SYSTEM_ID))
         systems_to_scrape.append(("aos", AOS_GAME_SYSTEM_ID))
     else:
-        norm_sys = normalize_game_system(sys_target, default="40k")
-        systems_to_scrape.append((norm_sys, get_bcp_game_system_id(norm_sys)))
+        norm_sys = normalize_game_system(sys_target, default=sys_target)
+        bcp_id = get_bcp_game_system_id(norm_sys, default=None)
+        if bcp_id:
+            systems_to_scrape.append((norm_sys, bcp_id))
+        else:
+            logger.info(f"ℹ️ [{norm_sys.upper()}] No BCP gameSystemId mapped; skipping BCP scrape.")
 
     for sys_name, sys_id in systems_to_scrape:
         logger.info(f"📅 Scraping {sys_name.upper()} tournaments (GameSystemID: {sys_id}) from {start_str} to {end_str} (Max: {max_events or 'Unlimited'})...")

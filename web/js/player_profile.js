@@ -124,11 +124,12 @@ function ensureEventPlacement(ev) {
     ev.rounds.forEach(r => { bpSum += Math.max(0, Number(r && r.player_score || 0)); });
   }
   const avgBp = bpSum > 0 ? bpSum / n : 65;
-  let bpRankFrac = Math.max(0.08, Math.min(0.92, 1 - ((avgBp - 35) / 60)));
+  const is100VpScale = avgBp > 20;
+  let bpRankFrac = is100VpScale ? Math.max(0.08, Math.min(0.92, 1 - ((avgBp - 35) / 60))) : 0.25;
   if (halfD) bpRankFrac *= 0.35;
   let estRank;
   if (w === n && l === 0 && d === 0) {
-    estRank = avgBp >= 88 ? 1 : (tot > 24 && avgBp < 75 ? 3 : 2);
+    estRank = (!is100VpScale || avgBp >= 88) ? 1 : (tot > 24 && avgBp < 75 ? 3 : 2);
   } else {
     estRank = Math.round(1 + tot * (higherProb + sameProb * bpRankFrac));
   }
@@ -552,11 +553,9 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
           </button>
         ` : scoreStr;
 
-        return `
-          <tr>
-            <td class="col-rnd" style="font-family: var(--font-mono); font-weight: 700; color: var(--text-secondary);">R${roundNum}</td>
-            <td class="col-opp">
-              ${isBye ? '<span class="bye-pill">🛡️ TOURNAMENT BYE</span>' : `
+        const oppCellHtml = (typeof buildMatchOpponentCellHtml === 'function')
+          ? buildMatchOpponentCellHtml(r, evId, evName, oppBadge)
+          : (isBye ? '<span class="bye-pill">🛡️ TOURNAMENT BYE</span>' : `
                 <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
                   <span class="player-link" style="font-weight: 600; color: #38bdf8; cursor: pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeJsArg(oppId)}', '${escapeJsArg(oppName)}')" title="Quick scout ${escapeHtml(oppName)}">${escapeHtml(oppName)}</span>
                   ${oppBadge}
@@ -569,7 +568,13 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
                     </button>
                   ` : ''}
                 </div>
-              `}
+              `);
+
+        return `
+          <tr>
+            <td class="col-rnd" style="font-family: var(--font-mono); font-weight: 700; color: var(--text-secondary);">R${roundNum}</td>
+            <td class="col-opp">
+              ${oppCellHtml}
             </td>
             <td class="col-res" style="font-family: var(--font-mono); font-weight: 700; color: ${resColor};">${r.result || '-'}</td>
             <td class="col-score" style="font-family: var(--font-mono); white-space: nowrap;">${scoreCellHtml}</td>
@@ -589,6 +594,9 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
                     <span style="font-size: 0.72rem; opacity: 0.85;">↗</span>
                   </span>
                 ` : `<span>${escapeHtml(ev.event_name)}</span>`}
+                ${ev.event_id && typeof getPlatformBadgeHtml === 'function' ? getPlatformBadgeHtml(ev.event_id, ev) : ''}
+                ${(ev.rounds && ev.rounds.some(r => r.is_2v2 || r.match_format === '2v2')) ? '<span class="badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.38); font-size:0.64rem; font-weight:800; padding:1px 6px; white-space:nowrap;">👥 2v2 Doubles</span>' : ''}
+                ${(ev.rounds && ev.rounds.some(r => r.is_ffa || r.match_format === 'ffa')) ? '<span class="badge" style="background:rgba(16,185,129,0.16); color:#34d399; border:1px solid rgba(16,185,129,0.38); font-size:0.64rem; font-weight:800; padding:1px 6px; white-space:nowrap;">🎲 4P FFA Pod</span>' : ''}
                 ${isFlawless ? '<span class="badge" style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); font-size:0.68rem; margin-left:0.35rem; white-space:nowrap;">🥇 Flawless</span>' : ''}
               </div>
               <div class="profile-event-sub">
@@ -1134,7 +1142,9 @@ function _extractNormalizedShareData(rawData, fallbackPlayerId, sys) {
   const topArmies = factionMastery.length > 0
     ? factionMastery.slice(0, 3).map(f => ({ name: f.faction, games: f.games, wr: Number(f.win_rate || 0) }))
     : (p.top_faction || d.top_faction
-        ? String(p.top_faction || d.top_faction).split(',').slice(0, 2).map(s => ({ name: s.trim(), games: totalMatches, wr: winRate }))
+        ? ((typeof window.splitFactionPills === 'function')
+            ? window.splitFactionPills(p.top_faction || d.top_faction)
+            : String(p.top_faction || d.top_faction).split(',')).slice(0, 2).map(s => ({ name: s.trim(), games: totalMatches, wr: winRate }))
         : []);
 
   const tier = typeof getEloTier === 'function'

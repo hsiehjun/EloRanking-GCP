@@ -17,9 +17,9 @@ router = APIRouter(tags=["Community Leagues"])
 
 @router.get("/api/leagues", summary="Get list of active community leagues")
 @router.get("/api/leagues/list", summary="Get list of active community leagues")
-def get_leagues_list():
+def get_leagues_list(game_system: Optional[str] = None, region: Optional[str] = None):
     svc = leagues_hub_service.get_leagues_hub_service()
-    leagues = svc.get_leagues_list()
+    leagues = svc.get_leagues_list(region=region, game_system=game_system)
     templates = svc.get_available_templates()
     return {
         "success": True,

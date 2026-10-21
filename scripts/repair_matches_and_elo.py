@@ -43,6 +43,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 # Ensure project root is importable when executed as `python3 scripts/repair_matches_and_elo.py`
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from config import is_bcp_event_id
 from database import Database, get_db
 from elo import get_elo_engine
 from scraper import BestCoastPairingsScraper
@@ -269,10 +270,15 @@ def find_candidate_event_ids(
                     WHERE m.event_id IS NOT NULL
                       AND m.event_id != ''
                       AND m.event_id NOT LIKE 'ES-%%'
-                      AND m.event_id NOT LIKE 'native_%%';
+                      AND m.event_id NOT LIKE 'native_%%'
+                      AND m.event_id NOT LIKE 'melee:%%'
+                      AND m.event_id NOT LIKE 'ltcg:%%'
+                      AND m.event_id NOT LIKE 'ls:%%'
+                      AND m.event_id NOT LIKE 'td:%%'
+                      AND m.event_id NOT LIKE 'league_%%';
                 """)
                 for (eid,) in cur.fetchall():
-                    if eid:
+                    if eid and is_bcp_event_id(str(eid)):
                         event_ids.add(str(eid))
                 return sorted(event_ids)
 
@@ -295,6 +301,11 @@ def find_candidate_event_ids(
                       AND e.event_date <= NOW() + INTERVAL '1 day'
                       AND e.id NOT LIKE 'ES-%%'
                       AND e.id NOT LIKE 'native_%%'
+                      AND e.id NOT LIKE 'melee:%%'
+                      AND e.id NOT LIKE 'ltcg:%%'
+                      AND e.id NOT LIKE 'ls:%%'
+                      AND e.id NOT LIKE 'td:%%'
+                      AND e.id NOT LIKE 'league_%%'
                 ),
                 player_match_totals AS (
                     SELECT
@@ -329,7 +340,7 @@ def find_candidate_event_ids(
                 window_params,
             )
             for (eid,) in cur.fetchall():
-                if eid:
+                if eid and is_bcp_event_id(str(eid)):
                     event_ids.add(str(eid))
 
             # 2. Score vs. Winner Contradictions, raw_json playerGame discrepancies, or unscored completed events:
@@ -342,6 +353,11 @@ def find_candidate_event_ids(
                   AND e.event_date <= NOW() + INTERVAL '1 day'
                   AND e.id NOT LIKE 'ES-%%'
                   AND e.id NOT LIKE 'native_%%'
+                  AND e.id NOT LIKE 'melee:%%'
+                  AND e.id NOT LIKE 'ltcg:%%'
+                  AND e.id NOT LIKE 'ls:%%'
+                  AND e.id NOT LIKE 'td:%%'
+                  AND e.id NOT LIKE 'league_%%'
                   AND m.is_bye = FALSE
                   AND (
                       (
@@ -363,7 +379,7 @@ def find_candidate_event_ids(
                 window_params,
             )
             for (eid,) in cur.fetchall():
-                if eid:
+                if eid and is_bcp_event_id(str(eid)):
                     event_ids.add(str(eid))
 
             # 3. Partially scraped or multi-week/ongoing events missing rounds in `matches`:
@@ -376,6 +392,11 @@ def find_candidate_event_ids(
                       AND e.event_date <= NOW() + INTERVAL '1 day'
                       AND e.id NOT LIKE 'ES-%%'
                       AND e.id NOT LIKE 'native_%%'
+                      AND e.id NOT LIKE 'melee:%%'
+                      AND e.id NOT LIKE 'ltcg:%%'
+                      AND e.id NOT LIKE 'ls:%%'
+                      AND e.id NOT LIKE 'td:%%'
+                      AND e.id NOT LIKE 'league_%%'
                 ),
                 match_round_stats AS (
                     SELECT
@@ -403,7 +424,7 @@ def find_candidate_event_ids(
                 window_params,
             )
             for (eid,) in cur.fetchall():
-                if eid:
+                if eid and is_bcp_event_id(str(eid)):
                     event_ids.add(str(eid))
 
     return sorted(event_ids)

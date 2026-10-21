@@ -270,27 +270,6 @@ def check_user_matches_player(user: Optional[Dict[str, Any]], target_name: Optio
 
     return False
 
-def normalize_tracker_match_id(raw: str) -> str:
-    if not raw:
-        return ""
-    clean = str(raw).strip().replace(" ", "")
-    m = re.match(r"^(?:(WH40K-|AOS-))?(BCP|ES)-(.+)-R(\d+)-T(\d+)$", clean, re.IGNORECASE)
-    if m:
-        prefix = (m.group(1) or "").upper()
-        system = m.group(2).upper()
-        event_id = m.group(3).strip()
-        r_num = m.group(4)
-        t_num = m.group(5)
-        return f"{prefix}{system}-{event_id}-R{r_num}-T{t_num}"
-
-    s = clean.upper()
-    if s.startswith("WH40K-") or s.startswith("BCP-") or s.startswith("ES-") or s.startswith("AOS-") or s.startswith("WTC-"):
-        return s
-    s_clean = s.replace("-", "")
-    if len(s_clean) == 8:
-        return f"WH40K-{s_clean[:4]}-{s_clean[4:]}"
-    return s
-
 def init_tracker_room_from_chat(match_id: str, chat_info: Dict[str, Any], fs_engine) -> Dict[str, Any]:
     """Auto-recovers an uninitialized tracker room that was generated in chat."""
     sender_id = chat_info.get("sender_id") or chat_info.get("req_sender_id")
@@ -2981,6 +2960,12 @@ def _event_id_case_variants(ev_id: str) -> List[str]:
 
 
 def _api_get_scorecard_sync(match_id: str):
+    for _ in range(2):
+        if "%" in str(match_id or ""):
+            unq = urllib.parse.unquote(str(match_id)).strip()
+            if unq == match_id:
+                break
+            match_id = unq
     db = None
     try:
         db = get_database()
@@ -3080,10 +3065,11 @@ def _api_get_scorecard_sync(match_id: str):
                         if m_tok_disambig:
                             cur.execute("""
                                 SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
-                                       m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                                       m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                                       m.player1_id, m.player1_name, m.player1_faction, m.player1_detachment, m.player1_score,
+                                       m.player2_id, m.player2_name, m.player2_faction, m.player2_detachment, m.player2_score,
                                        m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
-                                       e.name AS event_name, e.is_ended AS event_is_ended,
+                                       m.game_system, m.raw_json,
+                                       e.name AS event_name, e.is_ended AS event_is_ended, e.source_platform,
                                        e.event_date, e.end_date, e.raw_json AS event_raw_json
                                 FROM matches m
                                 LEFT JOIN events e ON e.id = m.event_id
@@ -3102,10 +3088,11 @@ def _api_get_scorecard_sync(match_id: str):
                         if not row:
                             cur.execute("""
                                 SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
-                                       m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                                       m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                                       m.player1_id, m.player1_name, m.player1_faction, m.player1_detachment, m.player1_score,
+                                       m.player2_id, m.player2_name, m.player2_faction, m.player2_detachment, m.player2_score,
                                        m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
-                                       e.name AS event_name, e.is_ended AS event_is_ended,
+                                       m.game_system, m.raw_json,
+                                       e.name AS event_name, e.is_ended AS event_is_ended, e.source_platform,
                                        e.event_date, e.end_date, e.raw_json AS event_raw_json
                                 FROM matches m
                                 LEFT JOIN events e ON e.id = m.event_id
@@ -3120,10 +3107,11 @@ def _api_get_scorecard_sync(match_id: str):
                         p_tok = urllib.parse.unquote(m_player_pat.group(3)).strip()
                         cur.execute("""
                             SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
-                                   m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                                   m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                                   m.player1_id, m.player1_name, m.player1_faction, m.player1_detachment, m.player1_score,
+                                   m.player2_id, m.player2_name, m.player2_faction, m.player2_detachment, m.player2_score,
                                    m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
-                                   e.name AS event_name, e.is_ended AS event_is_ended,
+                                   m.game_system, m.raw_json,
+                                   e.name AS event_name, e.is_ended AS event_is_ended, e.source_platform,
                                    e.event_date, e.end_date, e.raw_json AS event_raw_json
                             FROM matches m
                             LEFT JOIN events e ON e.id = m.event_id
@@ -3143,10 +3131,11 @@ def _api_get_scorecard_sync(match_id: str):
                         raw_mid_lookup = match_id.strip()
                         cur.execute("""
                             SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
-                                   m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                                   m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                                   m.player1_id, m.player1_name, m.player1_faction, m.player1_detachment, m.player1_score,
+                                   m.player2_id, m.player2_name, m.player2_faction, m.player2_detachment, m.player2_score,
                                    m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
-                                   e.name AS event_name, e.is_ended AS event_is_ended,
+                                   m.game_system, m.raw_json,
+                                   e.name AS event_name, e.is_ended AS event_is_ended, e.source_platform,
                                    e.event_date, e.end_date, e.raw_json AS event_raw_json
                             FROM matches m
                             LEFT JOIN events e ON e.id = m.event_id
@@ -3158,6 +3147,40 @@ def _api_get_scorecard_sync(match_id: str):
                     if row and getattr(cur, "description", None):
                         cols = [desc[0] for desc in cur.description]
                         row_dict = dict(zip(cols, row)) if not isinstance(row, dict) else dict(row)
+                        m_raw = row_dict.pop("raw_json", None)
+                        if isinstance(m_raw, str):
+                            try:
+                                m_raw = json.loads(m_raw)
+                            except Exception:
+                                m_raw = {}
+                        elif not isinstance(m_raw, dict):
+                            m_raw = {}
+                        m_fmt = m_raw.get("match_format") or ("2v2" if m_raw.get("is_2v2") else ("ffa" if m_raw.get("is_ffa") else "1v1"))
+                        row_dict["match_format"] = m_fmt
+                        row_dict["event_format"] = m_fmt
+                        row_dict["is_2v2"] = bool(m_raw.get("is_2v2") or m_fmt == "2v2")
+                        row_dict["is_ffa"] = bool(m_raw.get("is_ffa") or m_fmt in ("ffa", "ffa_pod"))
+                        row_dict["team1_players"] = m_raw.get("team1_players") or []
+                        row_dict["team2_players"] = m_raw.get("team2_players") or []
+                        row_dict["pod_participants"] = m_raw.get("pod_participants") or []
+                        if row_dict.get("id") and (row_dict["is_2v2"] or row_dict["is_ffa"] or not row_dict["pod_participants"]):
+                            try:
+                                cur.execute(
+                                    "SELECT player_id, player_name, team_id, seat_order, faction, detachment, score, result, placement FROM match_participants WHERE match_id = %s ORDER BY seat_order ASC;",
+                                    (str(row_dict["id"]),),
+                                )
+                                mp_cols = [d[0] for d in cur.description] if getattr(cur, "description", None) else []
+                                mp_list = [dict(zip(mp_cols, r)) if not isinstance(r, dict) else dict(r) for r in cur.fetchall()]
+                                if mp_list:
+                                    row_dict["participants"] = mp_list
+                                    if row_dict["is_ffa"] and not row_dict["pod_participants"]:
+                                        row_dict["pod_participants"] = mp_list
+                                    elif row_dict["is_2v2"] and not row_dict["team1_players"] and len(mp_list) >= 2:
+                                        half = len(mp_list) // 2
+                                        row_dict["team1_players"] = mp_list[:half]
+                                        row_dict["team2_players"] = mp_list[half:]
+                            except Exception:
+                                pass
                         ev_is_ended = row_dict.pop("event_is_ended", False)
                         ev_date = row_dict.pop("event_date", None)
                         ev_end_date = row_dict.pop("end_date", None)

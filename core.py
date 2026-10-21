@@ -191,7 +191,8 @@ except ImportError:
             GOOGLE_MAPS_API_KEY, GAME_SYSTEMS, AOS_GAME_SYSTEM_ID,
             DEFAULT_GAME_SYSTEM, ENABLE_AOS, BCP_GAME_SYSTEMS_CATALOG,
             normalize_game_system, resolve_event_game_system,
-            get_bcp_game_system_id, get_game_system_meta, has_game_tracker
+            get_bcp_game_system_id, get_game_system_meta, has_game_tracker,
+            is_bcp_event_id, is_bcp_player_id, get_event_platform, get_platform_event_url
         )
         from database import Database, get_db, normalize_ticket_price
         from scraper import BestCoastPairingsScraper
@@ -255,7 +256,11 @@ def normalize_tracker_match_id(raw: str) -> str:
     if not raw:
         return ""
     clean = str(raw).strip().replace(" ", "")
-    m = re.match(r"^(?:(WH40K-|AOS-))?(BCP|ES)-(.+?)-R(\d+)-T(\d+)(?:-(?:M|P)-(.+))?$", clean, re.IGNORECASE)
+    m = re.match(
+        r"^(?:(WH40K-|AOS-))?(BCP|ES|MELEE|LTCG|LS|TD)-(.+?)-R(\d+)-T(\d+)(?:-(?:M|P)-(.+))?$",
+        clean,
+        re.IGNORECASE,
+    )
     if m:
         prefix = (m.group(1) or "").upper()
         system = m.group(2).upper()
@@ -265,7 +270,7 @@ def normalize_tracker_match_id(raw: str) -> str:
         return f"{prefix}{system}-{event_id}-R{r_num}-T{t_num}"
 
     s = clean.upper()
-    if s.startswith("WH40K-") or s.startswith("BCP-") or s.startswith("ES-") or s.startswith("AOS-") or s.startswith("WTC-"):
+    if s.startswith(("WH40K-", "BCP-", "ES-", "AOS-", "WTC-", "MELEE-", "LTCG-", "LS-", "TD-")):
         return s
     s_clean = s.replace("-", "")
     if len(s_clean) == 8:

@@ -1818,6 +1818,9 @@ function renderMyHub(data) {
         faction: pickFn(tMeta && tMeta.registered_faction, tMeta && tMeta.faction, m.player_faction, p.top_faction),
         placement: Number((tMeta && tMeta.placement) || m.placement || 0),
         total_players: Number((tMeta && tMeta.total_players) || m.total_players || 0),
+        source_platform: m.source_platform || (tMeta && tMeta.source_platform) || '',
+        event_format: m.match_format || (tMeta && tMeta.event_format) || '1v1',
+        _pin_top: Boolean((tMeta && tMeta._pin_top) || m._pin_top),
         wins: 0,
         losses: 0,
         draws: 0,
@@ -1826,6 +1829,13 @@ function renderMyHub(data) {
       });
     }
     const ev = hubEventsMap.get(evKey);
+    if (m._pin_top || (tMeta && tMeta._pin_top)) ev._pin_top = true;
+    if (!ev.source_platform && (m.source_platform || (tMeta && tMeta.source_platform))) {
+      ev.source_platform = m.source_platform || (tMeta && tMeta.source_platform);
+    }
+    if ((!ev.event_format || ev.event_format === '1v1') && (m.match_format || (tMeta && tMeta.event_format))) {
+      ev.event_format = m.match_format || (tMeta && tMeta.event_format);
+    }
     if (m.result === 'W') ev.wins++;
     else if (m.result === 'L') ev.losses++;
     else ev.draws++;
@@ -1842,6 +1852,7 @@ function renderMyHub(data) {
   const hubEventsList = Array.from(hubEventsMap.values())
     .map(ev => (typeof window.ensureEventPlacement === 'function' ? window.ensureEventPlacement(ev) : ev))
     .sort((a, b) => {
+      if (Boolean(a._pin_top) !== Boolean(b._pin_top)) return a._pin_top ? -1 : 1;
       const dA = a.date || '';
       const dB = b.date || '';
       if (dA !== dB) return dB.localeCompare(dA);
@@ -1901,11 +1912,9 @@ function renderMyHub(data) {
           </button>
         ` : scoreStr;
 
-        return `
-          <tr>
-            <td class="col-rnd" style="font-family: var(--font-mono); font-weight: 700; color: var(--text-secondary);">R${roundNum}</td>
-            <td class="col-opp">
-              ${isBye ? '<span class="bye-pill">🛡️ TOURNAMENT BYE</span>' : `
+        const oppCellHtml = (typeof buildMatchOpponentCellHtml === 'function')
+          ? buildMatchOpponentCellHtml(r, evId, evName, oppBadge)
+          : (isBye ? '<span class="bye-pill">🛡️ TOURNAMENT BYE</span>' : `
                 <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
                   <span class="player-link" style="font-weight: 600; color: #38bdf8; cursor: pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeJsArg(oppId)}', '${escapeJsArg(oppName)}')" title="Quick scout ${escapeHtml(oppName)}">${escapeHtml(oppName)}</span>
                   ${oppBadge}
@@ -1918,7 +1927,13 @@ function renderMyHub(data) {
                     </button>
                   ` : ''}
                 </div>
-              `}
+              `);
+
+        return `
+          <tr>
+            <td class="col-rnd" style="font-family: var(--font-mono); font-weight: 700; color: var(--text-secondary);">R${roundNum}</td>
+            <td class="col-opp">
+              ${oppCellHtml}
             </td>
             <td class="col-res" style="font-family: var(--font-mono); font-weight: 700; color: ${resColor};">${r.result || '-'}</td>
             <td class="col-score" style="font-family: var(--font-mono); white-space: nowrap;">${scoreCellHtml}</td>
@@ -1938,6 +1953,9 @@ function renderMyHub(data) {
                     <span style="font-size: 0.72rem; opacity: 0.85;">↗</span>
                   </span>
                 ` : `<span>${escapeHtml(ev.event_name)}</span>`}
+                ${ev.event_id && typeof getPlatformBadgeHtml === 'function' ? getPlatformBadgeHtml(ev.event_id, ev) : ''}
+                ${(ev.rounds && ev.rounds.some(r => r.is_2v2 || r.match_format === '2v2')) ? '<span class="badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.38); font-size:0.64rem; font-weight:800; padding:1px 6px; white-space:nowrap;">👥 2v2 Doubles</span>' : ''}
+                ${(ev.rounds && ev.rounds.some(r => r.is_ffa || r.match_format === 'ffa')) ? '<span class="badge" style="background:rgba(16,185,129,0.16); color:#34d399; border:1px solid rgba(16,185,129,0.38); font-size:0.64rem; font-weight:800; padding:1px 6px; white-space:nowrap;">🎲 4P FFA Pod</span>' : ''}
                 ${isFlawless ? '<span class="badge" style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); font-size:0.68rem; margin-left:0.35rem; white-space:nowrap;">🥇 Flawless</span>' : ''}
               </div>
               <div class="profile-event-sub">

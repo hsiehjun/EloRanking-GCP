@@ -1848,16 +1848,17 @@ def api_eventstudio_register_player(event_id: str, payload: RegisterPlayerPayloa
         player_id = user.get("player_id") or user.get("bcp_user_id")
 
     # Look up Elo rating in DB
+    ev_gs = normalize_game_system((ev or {}).get("game_system"), default="40k")
     player_elo = 1500.0
     with db.get_connection() as conn:
         with conn.cursor() as cur:
             if player_id:
-                cur.execute("SELECT current_elo, player_name FROM player_ratings WHERE player_id = %s LIMIT 1;", (player_id,))
+                cur.execute("SELECT current_elo, player_name FROM player_ratings WHERE player_id = %s AND COALESCE(game_system, '40k') = %s LIMIT 1;", (player_id, ev_gs))
                 p_row = cur.fetchone()
                 if p_row:
                     player_elo = float(p_row[0] or 1500.0)
             if player_elo == 1500.0 and full_name:
-                cur.execute("SELECT player_id, current_elo FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) LIMIT 1;", (full_name,))
+                cur.execute("SELECT player_id, current_elo FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) AND COALESCE(game_system, '40k') = %s LIMIT 1;", (full_name, ev_gs))
                 p_row = cur.fetchone()
                 if p_row:
                     if not player_id and p_row[0]:
@@ -3954,10 +3955,12 @@ def api_eventstudio_match_predictor(
     p1_name: Optional[str] = "Player 1",
     p2_name: Optional[str] = "Player 2",
     p1_faction: Optional[str] = "Unknown",
-    p2_faction: Optional[str] = "Unknown"
+    p2_faction: Optional[str] = "Unknown",
+    game_system: Optional[str] = "40k",
 ):
     now_ts = time.time()
-    cache_key = f"{p1_id or ''}:{p2_id or ''}:{(p1_name or '').strip().lower()}:{(p2_name or '').strip().lower()}:{(p1_faction or '').strip().lower()}:{(p2_faction or '').strip().lower()}"
+    target_sys = normalize_game_system(game_system, default="40k")
+    cache_key = f"{target_sys}:{p1_id or ''}:{p2_id or ''}:{(p1_name or '').strip().lower()}:{(p2_name or '').strip().lower()}:{(p1_faction or '').strip().lower()}:{(p2_faction or '').strip().lower()}"
     cached = _MATCH_PREDICTOR_CACHE.get(cache_key)
     if cached and (now_ts - cached[1]) < 120:
         return cached[0]
@@ -3993,16 +3996,16 @@ def api_eventstudio_match_predictor(
             from psycopg2 import extras
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 if resolved_p1_id:
-                    cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s;", (resolved_p1_id,))
+                    cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s AND COALESCE(game_system, '40k') = %s;", (resolved_p1_id, target_sys))
                     r1 = cursor.fetchone()
                     if r1:
                         p1_elo = float(r1["current_elo"] or 1500.0)
                         p1_matches = int(r1["total_matches"] or 0)
                 elif p1_name_clean.lower() not in placeholder_names:
-                    cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) ORDER BY current_elo DESC LIMIT 1;", (p1_name_clean,))
+                    cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) AND COALESCE(game_system, '40k') = %s ORDER BY current_elo DESC LIMIT 1;", (p1_name_clean, target_sys))
                     r1 = cursor.fetchone()
                     if not r1:
-                        cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE player_name ILIKE %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p1_name_clean}%",))
+                        cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE player_name ILIKE %s AND COALESCE(game_system, '40k') = %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p1_name_clean}%", target_sys))
                         r1 = cursor.fetchone()
                     if r1:
                         resolved_p1_id = r1.get("player_id")
@@ -4010,16 +4013,16 @@ def api_eventstudio_match_predictor(
                         p1_matches = int(r1["total_matches"] or 0)
 
                 if resolved_p2_id:
-                    cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s;", (resolved_p2_id,))
+                    cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s AND COALESCE(game_system, '40k') = %s;", (resolved_p2_id, target_sys))
                     r2 = cursor.fetchone()
                     if r2:
                         p2_elo = float(r2["current_elo"] or 1500.0)
                         p2_matches = int(r2["total_matches"] or 0)
                 elif p2_name_clean.lower() not in placeholder_names:
-                    cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) ORDER BY current_elo DESC LIMIT 1;", (p2_name_clean,))
+                    cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) AND COALESCE(game_system, '40k') = %s ORDER BY current_elo DESC LIMIT 1;", (p2_name_clean, target_sys))
                     r2 = cursor.fetchone()
                     if not r2:
-                        cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE player_name ILIKE %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p2_name_clean}%",))
+                        cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE player_name ILIKE %s AND COALESCE(game_system, '40k') = %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p2_name_clean}%", target_sys))
                         r2 = cursor.fetchone()
                     if r2:
                         resolved_p2_id = r2.get("player_id")

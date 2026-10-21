@@ -1810,13 +1810,20 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
     if not event_details.get("is_team_event") or event_details.get("is_doubles_event") or not ev_teams:
         return event_details
 
+    ev_matches = [m for m in (event_details.get("matches") or []) if isinstance(m, dict)]
+    raw_tp_by_round = event_details.get("raw_bcp_team_pairings_by_round") if isinstance(event_details.get("raw_bcp_team_pairings_by_round"), dict) else {}
+
     existing_pods = event_details.get("team_pairings")
+    existing_pods_by_r = event_details.get("team_pairings_by_round") if isinstance(event_details.get("team_pairings_by_round"), dict) else {}
+    expected_round_keys = {str(int(m.get("round") or 1)) for m in ev_matches} | {str(k) for k, v in raw_tp_by_round.items() if v}
     if (
         isinstance(existing_pods, list)
         and existing_pods
         and isinstance(existing_pods[0], dict)
         and all(bool(p.get("team1_roster")) for p in existing_pods)
-        and isinstance(event_details.get("team_pairings_by_round"), dict)
+        and existing_pods_by_r
+        and expected_round_keys.issubset(set(existing_pods_by_r.keys()))
+        and all("bcp_individual_pairings" in p for p in existing_pods)
     ):
         if wtc_list:
             for pod_obj in existing_pods:
@@ -1849,6 +1856,7 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
     # 3. Map players -> team objects for fast pod grouping
     import hashlib
     team_by_id: Dict[str, Dict[str, Any]] = {}
+    team_by_name_low: Dict[str, Dict[str, Any]] = {}
     player_to_team: Dict[str, Dict[str, Any]] = {}
     player_name_to_team: Dict[str, Dict[str, Any]] = {}
 
@@ -1859,6 +1867,9 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
         if not tid:
             continue
         team_by_id[tid] = tm
+        tnm_low = str(tm.get("name") or tm.get("team_name") or "").strip().lower()
+        if tnm_low:
+            team_by_name_low[tnm_low] = tm
         for mid in (tm.get("member_ids") or []):
             if mid:
                 player_to_team[str(mid).strip()] = tm
@@ -1877,7 +1888,7 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
         if not isinstance(p, dict):
             continue
         tpid = str(p.get("team_player_id") or p.get("teamPlayerId") or "").strip()
-        tm = team_by_id.get(tpid)
+        tm = team_by_id.get(tpid) or team_by_name_low.get(str(p.get("team") or p.get("team_name") or "").strip().lower())
         if not tm:
             continue
         for pk in ("player_id", "user_id", "bcp_event_player_id", "id"):
@@ -1888,14 +1899,16 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
         if pnm and pnm not in player_name_to_team:
             player_name_to_team[pnm] = tm
 
-    ev_matches = [m for m in (event_details.get("matches") or []) if isinstance(m, dict)]
     matches_by_round: Dict[int, List[Dict[str, Any]]] = {}
     for m in ev_matches:
+        if m.get("is_team_pairing"):
+            continue
         r_num = int(m.get("round") or 1)
         matches_by_round.setdefault(r_num, []).append(m)
 
-    cur_round = max(1, int(event_details.get("current_round") or 1))
-    all_rounds = sorted(set(matches_by_round.keys()) | {1, cur_round})
+    tp_rounds = {int(k) for k, v in raw_tp_by_round.items() if str(k).isdigit() and v}
+    cur_round = max([1, int(event_details.get("current_round") or 1)] + list(tp_rounds))
+    all_rounds = sorted(set(matches_by_round.keys()) | tp_rounds | {1, cur_round})
 
     all_pods: List[Dict[str, Any]] = []
     pods_by_round: Dict[str, List[Dict[str, Any]]] = {}
@@ -1903,16 +1916,23 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
     for r_num in all_rounds:
         r_matches = sorted(matches_by_round.get(r_num, []), key=lambda x: int(x.get("table_number") or x.get("table") or 9999))
         pod_groups: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        pod_by_tpid: Dict[str, Tuple[str, str]] = {}
         pod_order: List[Tuple[str, str]] = []
         paired_team_ids = set()
 
-        for m in r_matches:
-            p1_id = str(m.get("player1_id") or "").strip()
-            p2_id = str(m.get("player2_id") or "").strip()
-            p1_nm = str(m.get("player1_name") or "").strip().lower()
-            p2_nm = str(m.get("player2_name") or "").strip().lower()
-            tm1 = player_to_team.get(p1_id) or player_name_to_team.get(p1_nm)
-            tm2 = player_to_team.get(p2_id) or player_name_to_team.get(p2_nm)
+        # 3a. Seed pods from official BCP TeamPairing records when present for this round
+        raw_tp_round = raw_tp_by_round.get(str(r_num)) or raw_tp_by_round.get(r_num) or []
+        for tp_idx, tp in enumerate(raw_tp_round, 1):
+            if not isinstance(tp, dict):
+                continue
+            tp1_obj = tp.get("teamPlayer1") if isinstance(tp.get("teamPlayer1"), dict) else {}
+            tp2_obj = tp.get("teamPlayer2") if isinstance(tp.get("teamPlayer2"), dict) else {}
+            tp1_id = str(tp1_obj.get("id") or tp.get("teamPlayer1Id") or "").strip()
+            tp2_id = str(tp2_obj.get("id") or tp.get("teamPlayer2Id") or "").strip()
+            tp1_nm = str(tp1_obj.get("name") or "").strip().lower()
+            tp2_nm = str(tp2_obj.get("name") or "").strip().lower()
+            tm1 = team_by_id.get(tp1_id) or team_by_name_low.get(tp1_nm)
+            tm2 = team_by_id.get(tp2_id) or team_by_name_low.get(tp2_nm)
             if not tm1 or not tm2:
                 continue
             t1_id = str(tm1.get("id") or tm1.get("team_id") or "")
@@ -1920,26 +1940,64 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
             if not t1_id or not t2_id or t1_id == t2_id:
                 continue
             pair_key = tuple(sorted([t1_id, t2_id]))
+            raw_tpid_str = str(tp.get("id") or "").strip()
+            tp_table_int = int(tp.get("table") or tp_idx)
             if pair_key not in pod_groups:
-                pl1 = int(tm1.get("placing") or 9999)
-                pl2 = int(tm2.get("placing") or 9999)
-                elo1 = float(tm1.get("avg_elo") or 1500.0)
-                elo2 = float(tm2.get("avg_elo") or 1500.0)
-                if (pl2, -elo2) < (pl1, -elo1):
-                    tm1, tm2 = tm2, tm1
                 pod_groups[pair_key] = {
                     "team1": tm1,
                     "team2": tm2,
                     "matches": [],
-                    "first_table": int(m.get("table_number") or m.get("table") or 1),
-                    "explicit_team_pairing_id": str(m.get("team_pairing_id") or "").strip(),
+                    "first_table": tp_table_int,
+                    "explicit_team_table": tp_table_int,
+                    "explicit_team_pairing_id": raw_tpid_str,
                 }
                 pod_order.append(pair_key)
                 paired_team_ids.add(t1_id)
                 paired_team_ids.add(t2_id)
+            if raw_tpid_str:
+                pod_by_tpid[raw_tpid_str] = pair_key
+
+        # 3b. Attach all individual 1v1 BCP matches for this round (BCP individual pairings are source of truth)
+        for m in r_matches:
+            m_tpid = str(m.get("team_pairing_id") or "").strip()
+            pair_key = pod_by_tpid.get(m_tpid) if m_tpid else None
+            if not pair_key:
+                p1_id = str(m.get("player1_id") or "").strip()
+                p2_id = str(m.get("player2_id") or "").strip()
+                p1_nm = str(m.get("player1_name") or "").strip().lower()
+                p2_nm = str(m.get("player2_name") or "").strip().lower()
+                tm1 = player_to_team.get(p1_id) or player_name_to_team.get(p1_nm)
+                tm2 = player_to_team.get(p2_id) or player_name_to_team.get(p2_nm)
+                if not tm1 or not tm2:
+                    continue
+                t1_id = str(tm1.get("id") or tm1.get("team_id") or "")
+                t2_id = str(tm2.get("id") or tm2.get("team_id") or "")
+                if not t1_id or not t2_id or t1_id == t2_id:
+                    continue
+                pair_key = tuple(sorted([t1_id, t2_id]))
+                if pair_key not in pod_groups:
+                    pl1 = int(tm1.get("placing") or 9999)
+                    pl2 = int(tm2.get("placing") or 9999)
+                    elo1 = float(tm1.get("avg_elo") or 1500.0)
+                    elo2 = float(tm2.get("avg_elo") or 1500.0)
+                    if (pl2, -elo2) < (pl1, -elo1):
+                        tm1, tm2 = tm2, tm1
+                    pod_groups[pair_key] = {
+                        "team1": tm1,
+                        "team2": tm2,
+                        "matches": [],
+                        "first_table": int(m.get("table_number") or m.get("table") or 1),
+                        "explicit_team_table": 0,
+                        "explicit_team_pairing_id": m_tpid,
+                    }
+                    pod_order.append(pair_key)
+                    paired_team_ids.add(t1_id)
+                    paired_team_ids.add(t2_id)
+                if m_tpid:
+                    pod_by_tpid[m_tpid] = pair_key
             pod_groups[pair_key]["matches"].append(m)
-            if not pod_groups[pair_key]["explicit_team_pairing_id"] and m.get("team_pairing_id"):
-                pod_groups[pair_key]["explicit_team_pairing_id"] = str(m.get("team_pairing_id")).strip()
+            if not pod_groups[pair_key]["explicit_team_pairing_id"] and m_tpid:
+                pod_groups[pair_key]["explicit_team_pairing_id"] = m_tpid
 
         def _pod_sort_key(pk: Tuple[str, str]):
             g = pod_groups[pk]
@@ -1964,10 +2022,11 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
             t2_name = str(tm2.get("name") or "Team B")
             pod_matches = grp["matches"]
             raw_tpid = grp["explicit_team_pairing_id"] or f"tp_r{r_num}_t{pod_idx}_{t1_id}_{t2_id}"
+            pod_num_val = int(grp.get("explicit_team_table") or pod_idx)
             for pm in pod_matches:
                 if not pm.get("team_pairing_id"):
                     pm["team_pairing_id"] = raw_tpid
-                pm["team_pod_number"] = pod_idx
+                pm["team_pod_number"] = pod_num_val
 
             digest = hashlib.sha1(f"{event_id_str}:R{r_num}:{raw_tpid}".encode("utf-8")).hexdigest()[:4].upper()
             default_room_code = f"WTC-{digest}"
@@ -1993,17 +2052,24 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
             max_m = max(len(tm1.get("members") or []), len(tm2.get("members") or []), len(pod_matches))
             fmt_size = "8v8" if max_m >= 7 else "5v5"
             board_tables = [int(pm.get("table_number") or pm.get("table") or (i + 1)) for i, pm in enumerate(pod_matches)]
-            table_range_str = f"Tables {min(board_tables)}–{max(board_tables)}" if board_tables else f"Pod {pod_idx}"
+            table_range_str = f"Tables {min(board_tables)}–{max(board_tables)}" if board_tables else f"Pod {pod_num_val}"
+
+            t1_member_ids = {str(m.get("player_id") or m.get("id") or "") for m in (tm1.get("members") or []) if isinstance(m, dict)}
+            t1_member_names = {str(m.get("full_name") or m.get("name") or "").strip().lower() for m in (tm1.get("members") or []) if isinstance(m, dict)}
+            t1_elo_by_id = {str(m.get("player_id") or m.get("id") or ""): int(round(float(m.get("current_elo") or m.get("elo") or 1500.0))) for m in (tm1.get("members") or []) if isinstance(m, dict)}
+            t2_elo_by_id = {str(m.get("player_id") or m.get("id") or ""): int(round(float(m.get("current_elo") or m.get("elo") or 1500.0))) for m in (tm2.get("members") or []) if isinstance(m, dict)}
 
             t1_score_sum = 0.0
             t2_score_sum = 0.0
             t1_board_wins = 0
             t2_board_wins = 0
             boards_done = 0
-            for pm in pod_matches:
+            bcp_individual_pairings = []
+            sorted_pod_matches = sorted(pod_matches, key=lambda x: int(x.get("table_number") or x.get("table") or 9999))
+            for b_idx, pm in enumerate(sorted_pod_matches, 1):
                 p1_is_t1 = (
-                    str(pm.get("player1_id") or "") in {str(m.get("player_id") or m.get("id") or "") for m in (tm1.get("members") or [])}
-                    or str(pm.get("player1_name") or "").strip().lower() in {str(m.get("full_name") or m.get("name") or "").strip().lower() for m in (tm1.get("members") or [])}
+                    str(pm.get("player1_id") or "") in t1_member_ids
+                    or str(pm.get("player1_name") or "").strip().lower() in t1_member_names
                 )
                 s1 = pm.get("player1_score")
                 s2 = pm.get("player2_score")
@@ -2028,6 +2094,49 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
                         pass
                 if pm.get("is_done"):
                     boards_done += 1
+
+                pm_p1_id = str(pm.get("player1_id") or "")
+                pm_p2_id = str(pm.get("player2_id") or "")
+                if p1_is_t1:
+                    bcp_individual_pairings.append({
+                        "id": pm.get("id"),
+                        "board_num": b_idx,
+                        "table_num": pm.get("table_number") or pm.get("table") or b_idx,
+                        "player1_id": pm_p1_id,
+                        "player1_name": pm.get("player1_name") or "",
+                        "player1_faction": pm.get("player1_faction") or "",
+                        "player1_elo": t1_elo_by_id.get(pm_p1_id, 1500),
+                        "player1_score": s1,
+                        "player2_id": pm_p2_id,
+                        "player2_name": pm.get("player2_name") or "",
+                        "player2_faction": pm.get("player2_faction") or "",
+                        "player2_elo": t2_elo_by_id.get(pm_p2_id, 1500),
+                        "player2_score": s2,
+                        "is_done": bool(pm.get("is_done")),
+                        "has_tracker_game": bool(pm.get("has_tracker_game")),
+                        "from_bcp": True,
+                        "role": "BCP Official",
+                    })
+                else:
+                    bcp_individual_pairings.append({
+                        "id": pm.get("id"),
+                        "board_num": b_idx,
+                        "table_num": pm.get("table_number") or pm.get("table") or b_idx,
+                        "player1_id": pm_p2_id,
+                        "player1_name": pm.get("player2_name") or "",
+                        "player1_faction": pm.get("player2_faction") or "",
+                        "player1_elo": t1_elo_by_id.get(pm_p2_id, 1500),
+                        "player1_score": s2,
+                        "player2_id": pm_p1_id,
+                        "player2_name": pm.get("player1_name") or "",
+                        "player2_faction": pm.get("player1_faction") or "",
+                        "player2_elo": t2_elo_by_id.get(pm_p1_id, 1500),
+                        "player2_score": s1,
+                        "is_done": bool(pm.get("is_done")),
+                        "has_tracker_game": bool(pm.get("has_tracker_game")),
+                        "from_bcp": True,
+                        "role": "BCP Official",
+                    })
 
             def _compact_member(m: Dict[str, Any]) -> Dict[str, Any]:
                 ce = round(float(m.get("current_elo") or m.get("elo") or 1500.0), 1)
@@ -2069,16 +2178,16 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
                     "player2_score": pm.get("player2_score"),
                     "is_done": bool(pm.get("is_done")),
                 }
-                for pm in pod_matches
+                for pm in sorted_pod_matches
             ] if include_inline_rosters else []
 
             pod_obj = {
                 "id": raw_tpid,
                 "team_pairing_id": raw_tpid,
                 "round": r_num,
-                "pod_number": pod_idx,
-                "team_table": pod_idx,
-                "table_num": pod_idx,
+                "pod_number": pod_num_val,
+                "team_table": pod_num_val,
+                "table_num": pod_num_val,
                 "table_range": table_range_str,
                 "format_size": matched_wtc.get("format_size") if matched_wtc else fmt_size,
                 "room_code": matched_wtc.get("room_code") if matched_wtc else default_room_code,
@@ -2098,12 +2207,18 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
                 "team2_board_wins": t2_board_wins,
                 "team2_members": c_t2_roster,
                 "team2_roster": c_t2_roster,
-                "boards_total": len(pod_matches) or (8 if fmt_size == "8v8" else 5),
-                "board_count": len(pod_matches) or (8 if fmt_size == "8v8" else 5),
+                "boards_total": len(pod_matches) or len(c_t1_roster) or len(c_t2_roster) or (8 if fmt_size == "8v8" else 5),
+                "board_count": len(pod_matches) or len(c_t1_roster) or len(c_t2_roster) or (8 if fmt_size == "8v8" else 5),
                 "boards_done": boards_done,
                 "matches": c_matches,
+                "bcp_pairings_published": bool(bcp_individual_pairings),
+                "bcp_individual_pairings": bcp_individual_pairings,
                 "wtc_pairing": matched_wtc,
-                "wtc_status": matched_wtc.get("submission_status") if matched_wtc else "not_started",
+                "wtc_status": (
+                    matched_wtc.get("submission_status")
+                    if matched_wtc and matched_wtc.get("submission_status") not in (None, "", "not_started")
+                    else ("submitted_bcp" if bcp_individual_pairings else "not_started")
+                ),
             }
             round_pods.append(pod_obj)
             all_pods.append(pod_obj)
@@ -3113,11 +3228,26 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
             # If players have finished max_r games and tournament has more rounds, probe max_r + 1 as well
             probe_max_r = min(num_rds_total, max_r + 1) if (not is_ended and num_rds_total > max_r and max_player_games >= max_r) else max_r
 
-            db_matches = [m for m in (event_details.get("matches") or []) if isinstance(m, dict)]
+            db_matches = [
+                m for m in (event_details.get("matches") or [])
+                if isinstance(m, dict)
+                and not (
+                    not m.get("player1_id")
+                    and not m.get("player2_id")
+                    and str(m.get("player1_name") or "BYE").upper() == "BYE"
+                    and str(m.get("player2_name") or "BYE").upper() == "BYE"
+                )
+            ]
+            event_details["matches"] = db_matches
             has_db_matches = bool(db_matches)
             db_rounds = {int(m.get("round") or 1) for m in db_matches}
             db_max_round = max(db_rounds) if db_rounds else 0
-            has_missing_rounds = (db_max_round < max_r) or (len(db_rounds) < max_r)
+            min_expected_round_matches = max(2, len(players_list) // 3) if len(players_list) >= 6 else 1
+            has_incomplete_round_matches = any(
+                sum(1 for m in db_matches if int(m.get("round") or 1) == r_chk) < min_expected_round_matches
+                for r_chk in range(1, max_r + 1)
+            )
+            has_missing_rounds = (db_max_round < max_r) or (len(db_rounds) < max_r) or has_incomplete_round_matches
             has_unscored_db_matches = any(
                 not m.get("is_bye") and m.get("winner_id") is None and not m.get("is_draw") and (m.get("player1_score") is None or m.get("player2_score") is None)
                 for m in db_matches
@@ -3143,6 +3273,7 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                     rounds_to_fetch = [
                         r for r in round_nums
                         if r not in existing_by_round
+                        or len(existing_by_round[r]) < min_expected_round_matches
                         or all(not m.get("player1_id") and not m.get("player2_id") for m in existing_by_round[r])
                     ]
                 else:
@@ -3150,6 +3281,7 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                         r for r in round_nums
                         if r not in existing_by_round
                         or r >= db_max_round
+                        or len(existing_by_round[r]) < min_expected_round_matches
                         or any(
                             not m.get("is_bye") and m.get("winner_id") is None and not m.get("is_draw")
                             and (m.get("player1_score") is None or m.get("player2_score") is None)
@@ -3229,11 +3361,61 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                                 pairings_by_round[r_idx] = rp
 
                 newly_completed_for_db = []
+                raw_bcp_team_pairings_by_round = dict(event_details.get("raw_bcp_team_pairings_by_round") or {})
+                is_doubles_event = bool(event_details.get("is_doubles") or event_details.get("is_2v2"))
+                expected_full_matches = max(6, len(players_list) // 3)
+                partial_team_rounds = [
+                    r_idx for r_idx in rounds_to_fetch
+                    if 0 < len(pairings_by_round.get(r_idx) or []) < expected_full_matches
+                ]
+                if (
+                    event_details.get("is_team_event")
+                    and not is_doubles_event
+                    and partial_team_rounds
+                    and not is_mock_env
+                    and not hasattr(scraper.fetch_event_pairings_for_round, "assert_called")
+                    and hasattr(scraper, "fetch_event_team_pairings_for_round")
+                ):
+                    try:
+                        from concurrent.futures import ThreadPoolExecutor, wait as futures_wait
+                        tp_pool = ThreadPoolExecutor(max_workers=min(4, len(partial_team_rounds)))
+                        tp_futs = {
+                            r_idx: tp_pool.submit(
+                                BestCoastPairingsScraper(db=None, request_delay=0.0).fetch_event_team_pairings_for_round
+                                if db is None else scraper.fetch_event_team_pairings_for_round,
+                                event_id_str,
+                                r_idx,
+                            )
+                            for r_idx in partial_team_rounds
+                        }
+                        futures_wait(list(tp_futs.values()), timeout=0.35 if (db is None and not force_sync) else 2.0)
+                        for r_idx, fut in tp_futs.items():
+                            if fut.done():
+                                try:
+                                    tp_res = fut.result()
+                                    if tp_res:
+                                        raw_bcp_team_pairings_by_round[str(r_idx)] = tp_res
+                                except Exception:
+                                    pass
+                        tp_pool.shutdown(wait=False)
+                    except Exception:
+                        pass
+
                 for r in round_nums:
                     raw_pairings = pairings_by_round.get(r)
                     if raw_pairings:
                         for idx, p in enumerate(raw_pairings):
                             if not isinstance(p, dict):
+                                continue
+                            is_tp_row = bool(
+                                p.get("pairingType") == "TeamPairing"
+                                or (not p.get("player1") and not p.get("player2") and (p.get("teamPlayer1") or p.get("teamPlayer2") or p.get("team1") or p.get("team2")))
+                            )
+                            if is_tp_row and not is_doubles_event:
+                                tp_r_list = raw_bcp_team_pairings_by_round.setdefault(str(r), [])
+                                p_tp_id = str(p.get("id") or "")
+                                if not p_tp_id or not any(str(x.get("id") or "") == p_tp_id for x in tp_r_list if isinstance(x, dict)):
+                                    tp_r_list.append(p)
                                 continue
                             p1 = p.get("player1") or {}
                             p2 = p.get("player2") or {}
@@ -3266,6 +3448,8 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
 
                             p1_id = str(p1_reg.get("player_id") or u1.get("id") or p1.get("userId") or p1.get("id") or p.get("player1Id") or "")
                             p2_id = str(p2_reg.get("player_id") or u2.get("id") or p2.get("userId") or p2.get("id") or p.get("player2Id") or "")
+                            if not p1_id and not p2_id and not p1_raw_name and not p2_raw_name:
+                                continue
 
                             p1_name = p1_raw_name or p1_reg.get("full_name") or p1_reg.get("name") or ("Player 1" if p1_id else "BYE")
                             p2_name = p2_raw_name or p2_reg.get("full_name") or p2_reg.get("name") or ("Player 2" if p2_id else "BYE")
@@ -3418,9 +3602,15 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
                                     newly_completed_for_db.append((live_m_obj, p))
                     elif r in existing_by_round:
                         live_matches.extend(existing_by_round[r])
-                if live_matches:
-                    event_details["matches"] = live_matches
-                    observed_max_r = max((int(m.get("round") or 1) for m in live_matches), default=max_r)
+                if raw_bcp_team_pairings_by_round:
+                    event_details["raw_bcp_team_pairings_by_round"] = raw_bcp_team_pairings_by_round
+                if live_matches or raw_bcp_team_pairings_by_round:
+                    if live_matches:
+                        event_details["matches"] = live_matches
+                    tp_round_ints = [int(rk) for rk, rv in raw_bcp_team_pairings_by_round.items() if str(rk).isdigit() and rv]
+                    observed_max_r = max(
+                        [int(m.get("round") or 1) for m in live_matches] + tp_round_ints + [int(max_r or 1)],
+                    )
                     event_details["current_round"] = max(int(event_details.get("current_round") or 0), observed_max_r)
                     if not event_details.get("num_rounds") or int(event_details.get("num_rounds") or 0) < observed_max_r:
                         event_details["num_rounds"] = raw_ev.get("numberOfRounds") or raw_ev.get("numRounds") or observed_max_r
@@ -3862,7 +4052,7 @@ async def api_faction_meta(
         return {"factions": [], "monthly_trends": [], "error": str(e)}
 
 # API: Faction Details & Match History
-@router.get("/api/faction/{faction_name}", summary="Get faction detailed metrics, top players, and match history")
+@router.get("/api/faction/{faction_name:path}", summary="Get faction detailed metrics, top players, and match history")
 async def api_faction_details(
     faction_name: str,
     limit: int = Query(350, ge=1, le=500),

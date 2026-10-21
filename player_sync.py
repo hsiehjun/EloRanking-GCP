@@ -27,7 +27,7 @@ import urllib.error
 import concurrent.futures
 from typing import Dict, List, Set, Optional, Tuple, Any
 
-from config import DEFAULT_HEADERS, BCP_API_BASE
+from config import DEFAULT_HEADERS, BCP_API_BASE, is_bcp_player_id
 from database import get_db, PostgresDatabase
 
 logger = logging.getLogger("elo.player_sync")
@@ -434,7 +434,7 @@ class PlayerNameSync:
 
     def fetch_bcp_player_name(self, player_id: str) -> Optional[Dict[str, str]]:
         """Queries BCP public API (/v1/players/{id} first to check for registration ID -> userId mapping, then /v1/users/{id})."""
-        if not player_id or player_id.lower() in PLACEHOLDER_NAMES:
+        if not player_id or player_id.lower() in PLACEHOLDER_NAMES or not is_bcp_player_id(player_id):
             return None
 
         if hasattr(self, "_bcp_cache") and player_id in self._bcp_cache:

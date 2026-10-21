@@ -474,6 +474,42 @@ window.api = {
     });
   },
 
+  // Link Multi-Platform Account & Reconstruct User Elo
+  async linkPlatformAccount(platform, externalPlayerId, displayName = '', gameSystem = '') {
+    const token = this.getAuthToken();
+    const sys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    return this._fetchJson(`/api/user/platform/link?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        platform,
+        external_player_id: externalPlayerId,
+        display_name: displayName,
+        game_system: sys
+      })
+    });
+  },
+
+  // Reconstruct Elo for a specific user/player on demand
+  async reconstructUserElo(playerId, gameSystem = '', aliasIds = []) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/user/reconstruct-elo?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        player_id: playerId,
+        game_system: gameSystem || undefined,
+        alias_ids: aliasIds
+      })
+    });
+  },
+
   // Get or Generate User's 24-hour Invite Code
   async getMyInviteCode() {
     const token = this.getAuthToken();

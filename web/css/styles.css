@@ -19111,6 +19111,17 @@ table.desktop-only,
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.7rem;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+#event-pairings-cards-container .to-hub-radar-card {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
 }
 
 @media (max-width: 1180px) {
@@ -19120,8 +19131,13 @@ table.desktop-only,
 }
 
 @media (max-width: 640px) {
+  #event-rounds-filter {
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+    gap: 0.4rem !important;
+  }
   #event-pairings-cards-container .to-hub-radar-grid {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: minmax(0, 1fr) !important;
   }
   .my-station-subtabs-bar {
     display: grid !important;

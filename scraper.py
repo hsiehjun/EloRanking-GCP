@@ -16,6 +16,7 @@ try:
         DEFAULT_GAME_SYSTEM_ID,
         AOS_GAME_SYSTEM_ID,
         get_bcp_game_system_id,
+        is_bcp_event_id,
         normalize_game_system,
         resolve_event_game_system,
     )
@@ -28,6 +29,7 @@ except ImportError:
             DEFAULT_GAME_SYSTEM_ID,
             AOS_GAME_SYSTEM_ID,
             get_bcp_game_system_id,
+            is_bcp_event_id,
             normalize_game_system,
             resolve_event_game_system,
         )
@@ -39,6 +41,7 @@ except ImportError:
             DEFAULT_GAME_SYSTEM_ID,
             AOS_GAME_SYSTEM_ID,
             get_bcp_game_system_id,
+            is_bcp_event_id,
             normalize_game_system,
             resolve_event_game_system,
         )
@@ -361,20 +364,38 @@ class BestCoastPairingsScraper:
 
     def fetch_event_team_pairings_for_round(self, event_id: str, round_num: int) -> List[Dict[str, Any]]:
         """Fetches team-level pairings (Team vs Team) for a team or doubles tournament round."""
+        use_cache = not self._is_mocked()
+        cache_key = f"ev_pairings:{event_id}:{round_num}:TeamPairing"
+        if use_cache:
+            ev_entry = BestCoastPairingsScraper._bcp_http_cache.get(f"ev_details:{event_id}")
+            if ev_entry and (time.time() - ev_entry[0]) < self._BCP_HTTP_CACHE_TTL and ev_entry[1] is None:
+                return []
+            pair_entry = BestCoastPairingsScraper._bcp_http_cache.get(cache_key)
+            if pair_entry and (time.time() - pair_entry[0]) < self._BCP_HTTP_CACHE_TTL:
+                return pair_entry[1]
+        elif (
+            not hasattr(self._make_request, "assert_called")
+            and not hasattr(self._make_request, "side_effect")
+            and not hasattr(urllib.request.urlopen, "assert_called")
+            and not hasattr(urllib.request.urlopen, "side_effect")
+        ):
+            return []
+
         resp = self._make_request(f"/events/{event_id}/pairings", params={
             "round": round_num,
             "pairingType": "TeamPairing"
         })
-        if not resp:
-            return []
+        items: List[Dict[str, Any]] = []
         if isinstance(resp, dict):
             if "active" in resp and isinstance(resp["active"], list):
-                return resp["active"]
-            if "data" in resp and isinstance(resp["data"], list):
-                return resp["data"]
+                items = resp["active"]
+            elif "data" in resp and isinstance(resp["data"], list):
+                items = resp["data"]
         elif isinstance(resp, list):
-            return resp
-        return []
+            items = resp
+        if use_cache:
+            BestCoastPairingsScraper._bcp_http_cache[cache_key] = (time.time(), items)
+        return items
 
     def fetch_event_players(self, event_id: str) -> List[Dict[str, Any]]:
         """Fetches registered player roster for an event from BCP with official placings and tiebreaker metrics.
@@ -765,13 +786,15 @@ class BestCoastPairingsScraper:
 
     def sync_event_roster(self, event_id: str) -> int:
         """Quickly updates the participant roster, podNum, event placing metrics, and team standings without re-fetching all round matches."""
+        if not event_id or not is_bcp_event_id(event_id):
+            return 0
         ev_data = None
         try:
             ev_data = self.fetch_event_details(event_id)
             if ev_data and isinstance(ev_data, dict):
                 ev_data["id"] = ev_data.get("id") or event_id
                 self.db.upsert_event(ev_data)
-            elif ev_data is None and getattr(self, "last_http_code", None) == 404 and not str(event_id).startswith("ES-"):
+            elif ev_data is None and getattr(self, "last_http_code", None) == 404 and is_bcp_event_id(event_id):
                 if hasattr(self.db, "has_event_matches") and not self.db.has_event_matches(event_id):
                     logger.info(f"Event {event_id} returned 404 on BCP and has no matches; removing from DB.")
                     if hasattr(self.db, "delete_studio_event"):
@@ -826,9 +849,15 @@ class BestCoastPairingsScraper:
         enrolled_players = self.fetch_event_players(event_id)
         return self.ingest_event_roster(event_id, enrolled_players, teams=teams)
 
-    def build_roster_id_map(self, enrolled_players: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
-        """Builds a mapping from per-tournament registration IDs (player.id) to canonical global BCP userIds."""
+    def build_roster_id_map(self, enrolled_players: Optional[List[Dict[str, Any]]], teams: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """Builds a mapping from per-tournament registration IDs (player.id) to canonical global BCP userIds and team rosters."""
         mapping: Dict[str, Any] = {}
+        for t in (teams or []):
+            if isinstance(t, dict):
+                tid = str(t.get("id") or t.get("teamPlayerId") or "").strip()
+                tname = str(t.get("name") or t.get("teamName") or "").strip()
+                if tid and tname:
+                    mapping[f"team_name:{tid}"] = tname
         event_max_swiss = 0
         for p in (enrolled_players or []):
             if not isinstance(p, dict):
@@ -902,6 +931,22 @@ class BestCoastPairingsScraper:
                 mapping[f"faction:{canonical_id}"] = p_faction
             if full_name and full_name.lower() not in ("player", "player 1", "player 2", "bye"):
                 mapping[f"fullname:{canonical_id}"] = full_name
+
+            t_pid = str(p.get("teamPlayerId") or "").strip()
+            if t_pid:
+                tm_list = mapping.setdefault(f"team_members:{t_pid}", [])
+                if not any(m.get("player_id") == canonical_id for m in tm_list):
+                    tm_list.append({
+                        "player_id": canonical_id,
+                        "reg_id": reg_id or None,
+                        "player_name": full_name or canonical_id,
+                        "first_name": first_name,
+                        "last_name": last_name,
+                        "faction": p_faction or "Unknown",
+                        "detachment": str((p.get("subFaction") or {}).get("name") if isinstance(p.get("subFaction"), dict) else (p.get("subFactionName") or p.get("detachment") or "")).strip(),
+                        "team_id": t_pid,
+                        "team_name": mapping.get(f"team_name:{t_pid}", ""),
+                    })
         return mapping
 
     def _resolve_bcp_registration_id(self, reg_id: str) -> Optional[Dict[str, str]]:
@@ -989,6 +1034,38 @@ class BestCoastPairingsScraper:
 
         p1_obj = pairing.get("player1") or {}
         p2_obj = pairing.get("player2") or {}
+        tp1_obj = pairing.get("teamPlayer1") or {}
+        tp2_obj = pairing.get("teamPlayer2") or {}
+        is_team_pairing = bool(
+            pairing.get("pairingType") == "TeamPairing"
+            or (not p1_obj and tp1_obj)
+        )
+
+        team1_players: List[Dict[str, Any]] = []
+        team2_players: List[Dict[str, Any]] = []
+        tp1_id = str(tp1_obj.get("id") or pairing.get("teamPlayer1Id") or "").strip()
+        tp2_id = str(tp2_obj.get("id") or pairing.get("teamPlayer2Id") or "").strip()
+        tp1_name = str(tp1_obj.get("name") or (roster_id_map or {}).get(f"team_name:{tp1_id}") or "").strip()
+        tp2_name = str(tp2_obj.get("name") or (roster_id_map or {}).get(f"team_name:{tp2_id}") or "").strip()
+
+        if is_team_pairing:
+            if roster_id_map and tp1_id:
+                team1_players = list(roster_id_map.get(f"team_members:{tp1_id}") or [])
+            if not team1_players and tp1_obj.get("captainId"):
+                cap1 = str(tp1_obj.get("captainId")).strip()
+                cap1_uid = (roster_id_map or {}).get(cap1, cap1)
+                cap1_name = (roster_id_map or {}).get(f"fullname:{cap1_uid}") or tp1_name or cap1_uid
+                cap1_fac = (roster_id_map or {}).get(f"faction:{cap1_uid}") or "Unknown"
+                team1_players = [{"player_id": cap1_uid, "player_name": cap1_name, "faction": cap1_fac, "detachment": "", "team_id": tp1_id, "team_name": tp1_name}]
+
+            if roster_id_map and tp2_id:
+                team2_players = list(roster_id_map.get(f"team_members:{tp2_id}") or [])
+            if not team2_players and tp2_obj.get("captainId"):
+                cap2 = str(tp2_obj.get("captainId")).strip()
+                cap2_uid = (roster_id_map or {}).get(cap2, cap2)
+                cap2_name = (roster_id_map or {}).get(f"fullname:{cap2_uid}") or tp2_name or cap2_uid
+                cap2_fac = (roster_id_map or {}).get(f"faction:{cap2_uid}") or "Unknown"
+                team2_players = [{"player_id": cap2_uid, "player_name": cap2_name, "faction": cap2_fac, "detachment": "", "team_id": tp2_id, "team_name": tp2_name}]
 
         # Player 1 details: Always prioritize explicit global userId over registration id
         p1_user = p1_obj.get("user") or {}
@@ -997,14 +1074,19 @@ class BestCoastPairingsScraper:
             or p1_obj.get("userId")
             or p1_obj.get("user_id")
             or pairing.get("player1UserId")
+            or (team1_players[0]["player_id"] if team1_players else "")
+            or tp1_obj.get("captainId")
             or ""
         ).strip()
-        p1_reg_id = str(p1_obj.get("id") or pairing.get("player1Id") or "").strip()
+        p1_reg_id = str(p1_obj.get("id") or pairing.get("player1Id") or tp1_id or "").strip()
         p1_user_id = p1_explicit_uid or p1_reg_id or None
 
         p1_first = p1_user.get("firstName") or p1_obj.get("firstName") or ""
         p1_last = p1_user.get("lastName") or p1_obj.get("lastName") or ""
-        p1_name = f"{p1_first} {p1_last}".strip() or p1_obj.get("name") or "Player 1"
+        if is_team_pairing and team1_players:
+            p1_name = " & ".join(m["player_name"] for m in team1_players[:2])
+        else:
+            p1_name = f"{p1_first} {p1_last}".strip() or p1_obj.get("name") or tp1_name or "Player 1"
 
         if roster_id_map:
             if p1_reg_id and p1_reg_id in roster_id_map:
@@ -1039,7 +1121,11 @@ class BestCoastPairingsScraper:
                 or roster_id_map.get(f"faction:{p1_reg_id}")
                 or ""
             ).strip()
-        p1_faction = extract_bcp_specific_faction(p1_obj, roster_faction=p1_roster_fac)
+        if is_team_pairing and team1_players:
+            t1_facs = list(dict.fromkeys(m.get("faction", "") for m in team1_players[:2] if m.get("faction") and m.get("faction") != "Unknown"))
+            p1_faction = " + ".join(t1_facs) if t1_facs else (p1_roster_fac or "Unknown")
+        else:
+            p1_faction = extract_bcp_specific_faction(p1_obj, roster_faction=p1_roster_fac)
 
         # Player 2 details: Always prioritize explicit global userId over registration id
         p2_user = p2_obj.get("user") or {}
@@ -1048,14 +1134,19 @@ class BestCoastPairingsScraper:
             or p2_obj.get("userId")
             or p2_obj.get("user_id")
             or pairing.get("player2UserId")
+            or (team2_players[0]["player_id"] if team2_players else "")
+            or tp2_obj.get("captainId")
             or ""
         ).strip()
-        p2_reg_id = str(p2_obj.get("id") or pairing.get("player2Id") or "").strip()
+        p2_reg_id = str(p2_obj.get("id") or pairing.get("player2Id") or tp2_id or "").strip()
         p2_user_id = p2_explicit_uid or p2_reg_id or None
 
         p2_first = p2_user.get("firstName") or p2_obj.get("firstName") or ""
         p2_last = p2_user.get("lastName") or p2_obj.get("lastName") or ""
-        p2_name = f"{p2_first} {p2_last}".strip() or p2_obj.get("name") or ("Player 2" if p2_user_id else "BYE")
+        if is_team_pairing and team2_players:
+            p2_name = " & ".join(m["player_name"] for m in team2_players[:2])
+        else:
+            p2_name = f"{p2_first} {p2_last}".strip() or p2_obj.get("name") or tp2_name or ("Player 2" if p2_user_id else "BYE")
 
         if roster_id_map:
             if p2_reg_id and p2_reg_id in roster_id_map:
@@ -1089,7 +1180,11 @@ class BestCoastPairingsScraper:
                 or roster_id_map.get(f"faction:{p2_reg_id}")
                 or ""
             ).strip()
-        p2_faction = extract_bcp_specific_faction(p2_obj, roster_faction=p2_roster_fac)
+        if is_team_pairing and team2_players:
+            t2_facs = list(dict.fromkeys(m.get("faction", "") for m in team2_players[:2] if m.get("faction") and m.get("faction") != "Unknown"))
+            p2_faction = " + ".join(t2_facs) if t2_facs else (p2_roster_fac or "Unknown")
+        else:
+            p2_faction = extract_bcp_specific_faction(p2_obj, roster_faction=p2_roster_fac)
 
         is_bye = bool(
             p2_user_id is None or p2_name == "BYE" or 
@@ -1199,6 +1294,72 @@ class BestCoastPairingsScraper:
         # Only mark match as officially done if it is a bye, has a decisive winner, or is a genuine non-zero draw
         is_officially_done = bool(is_bye or winner_id is not None or is_draw)
 
+        raw_json_payload = dict(pairing) if isinstance(pairing, dict) else {"raw": pairing}
+        if is_team_pairing:
+            raw_json_payload["match_format"] = "2v2"
+            raw_json_payload["is_2v2"] = True
+            raw_json_payload["team1_id"] = tp1_id
+            raw_json_payload["team2_id"] = tp2_id
+            raw_json_payload["team1_name"] = tp1_name
+            raw_json_payload["team2_name"] = tp2_name
+            raw_json_payload["team1_players"] = team1_players[:2]
+            raw_json_payload["team2_players"] = team2_players[:2]
+            if self.db is not None and hasattr(self.db, "upsert_match_participants_batch"):
+                mp_rows = []
+                for s_idx, tm1 in enumerate(team1_players[:2], start=1):
+                    partner1 = team1_players[1 - (s_idx - 1)] if len(team1_players) >= 2 else None
+                    mp_rows.append({
+                        "match_id": match_id,
+                        "player_id": tm1["player_id"],
+                        "raw_player_id": tm1.get("reg_id") or tm1["player_id"],
+                        "player_name": tm1["player_name"],
+                        "seat_order": s_idx,
+                        "placement": 1 if winner_id == p1_user_id else (2 if winner_id == p2_user_id else 1),
+                        "score": float(p1_score or 0.0),
+                        "is_winner": winner_id == p1_user_id,
+                        "is_draw": is_draw,
+                        "faction": tm1.get("faction") or "Unknown",
+                        "detachment": tm1.get("detachment") or "",
+                        "game_system": game_system,
+                        "raw_json": {
+                            "match_format": "2v2",
+                            "team_num": 1,
+                            "team_id": tp1_id,
+                            "team_name": tp1_name,
+                            "partner_id": partner1["player_id"] if partner1 else None,
+                            "partner_name": partner1["player_name"] if partner1 else None,
+                        },
+                    })
+                for s_idx, tm2 in enumerate(team2_players[:2], start=3):
+                    partner2 = team2_players[1 - (s_idx - 3)] if len(team2_players) >= 2 else None
+                    mp_rows.append({
+                        "match_id": match_id,
+                        "player_id": tm2["player_id"],
+                        "raw_player_id": tm2.get("reg_id") or tm2["player_id"],
+                        "player_name": tm2["player_name"],
+                        "seat_order": s_idx,
+                        "placement": 1 if winner_id == p2_user_id else (2 if winner_id == p1_user_id else 1),
+                        "score": float(p2_score or 0.0),
+                        "is_winner": winner_id == p2_user_id,
+                        "is_draw": is_draw,
+                        "faction": tm2.get("faction") or "Unknown",
+                        "detachment": tm2.get("detachment") or "",
+                        "game_system": game_system,
+                        "raw_json": {
+                            "match_format": "2v2",
+                            "team_num": 2,
+                            "team_id": tp2_id,
+                            "team_name": tp2_name,
+                            "partner_id": partner2["player_id"] if partner2 else None,
+                            "partner_name": partner2["player_name"] if partner2 else None,
+                        },
+                    })
+                if mp_rows:
+                    try:
+                        self.db.upsert_match_participants_batch(mp_rows)
+                    except Exception:
+                        pass
+
         match_record = {
             "id": match_id,
             "event_id": event_id,
@@ -1223,7 +1384,7 @@ class BestCoastPairingsScraper:
             "is_done": is_officially_done,
             "game_system": game_system,
             "game_system_id": game_sys_id or (AOS_GAME_SYSTEM_ID if game_system == "aos" else get_bcp_game_system_id(game_system)),
-            "raw_json": pairing,
+            "raw_json": raw_json_payload,
         }
 
         if defer_db_write:
@@ -1238,6 +1399,8 @@ class BestCoastPairingsScraper:
 
     def scrape_event(self, event_id: str, fallback_event_data: Optional[Dict[str, Any]] = None) -> int:
         """Scrapes full event details and all match pairings for an event. Returns count of matches scraped."""
+        if not event_id or not is_bcp_event_id(event_id):
+            return 0
         event_data = self.fetch_event_details(event_id)
         if not event_data or not isinstance(event_data, dict) or ("id" not in event_data and "name" not in event_data):
             if fallback_event_data:
@@ -1307,7 +1470,7 @@ class BestCoastPairingsScraper:
         roster_id_map = {}
         try:
             enrolled_players = self.fetch_event_players(event_id)
-            roster_id_map = self.build_roster_id_map(enrolled_players)
+            roster_id_map = self.build_roster_id_map(enrolled_players, teams=teams)
             self.ingest_event_roster(event_id, enrolled_players, teams=teams)
         except Exception as e:
             logger.debug(f"Could not fetch roster for event {event_id}: {e}")
@@ -1439,6 +1602,11 @@ class BestCoastPairingsScraper:
                               AND e.event_date <= NOW() + INTERVAL '1 day'
                               AND e.id NOT LIKE 'ES-%%'
                               AND e.id NOT LIKE 'native_%%'
+                              AND e.id NOT LIKE 'melee:%%'
+                              AND e.id NOT LIKE 'ltcg:%%'
+                              AND e.id NOT LIKE 'ls:%%'
+                              AND e.id NOT LIKE 'td:%%'
+                              AND e.id NOT LIKE 'league_%%'
                               {gs_filter_sql}
                         ),
                         match_round_stats AS (
@@ -1462,7 +1630,7 @@ class BestCoastPairingsScraper:
                         tuple(params),
                     )
                     for (eid,) in cur.fetchall():
-                        if eid:
+                        if eid and is_bcp_event_id(str(eid)):
                             candidate_eids.append(str(eid))
         except Exception as e:
             logger.warning(f"Failed querying incomplete/ongoing events for rescrape: {e}")

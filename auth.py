@@ -3218,11 +3218,18 @@ class AuthManager:
         # Compute other game system authentic glory from that system's actual matches
         current_sys_glory = int(b_eval.get("glory_balance", b_eval.get("glory_score", 0)))
         self._SYSTEM_GLORY_CACHE[(str(target_pid), target_sys)] = (now_ts, current_sys_glory)
-        other_sys = "aos" if target_sys == "40k" else "40k"
-        other_glory = self.get_authentic_system_glory(target_pid, other_sys)
-        unified_glory = current_sys_glory + other_glory
-        g_40k = current_sys_glory if target_sys == "40k" else other_glory
-        g_aos = other_glory if target_sys == "40k" else current_sys_glory
+        if target_sys == "40k":
+            g_40k = current_sys_glory
+            g_aos = self.get_authentic_system_glory(target_pid, "aos")
+            unified_glory = g_40k + g_aos
+        elif target_sys == "aos":
+            g_aos = current_sys_glory
+            g_40k = self.get_authentic_system_glory(target_pid, "40k")
+            unified_glory = g_40k + g_aos
+        else:
+            g_40k = self.get_authentic_system_glory(target_pid, "40k")
+            g_aos = self.get_authentic_system_glory(target_pid, "aos")
+            unified_glory = g_40k + g_aos + current_sys_glory
 
         raw_spent = int(user_info.get("glory_spent") or 0) if user_info else 0
         stored_balance = int(user_info.get("glory_balance") or 0) if user_info else 0

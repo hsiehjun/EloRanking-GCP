@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Match Scorecard • OmniTactica 40k</title>
-  <link rel="manifest" href="/manifest.json?v=0347b64a3d">
+  <link rel="manifest" href="/manifest.json?v=1ae8800241">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <script>window.APP_VERSION = "0347b64a3d";</script>
+  <script>window.APP_VERSION = "1ae8800241";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -80,8 +80,8 @@
       setInterval(function() { if (document.visibilityState === 'visible') verifyLiveServerVersion(false); }, 60000);
     })();
   </script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
   <style>
     body {
       background: #070b14;
@@ -1039,9 +1039,25 @@
     function getMatchIdFromPath() {
       const parts = window.location.pathname.split('/');
       const lastPart = parts[parts.length - 1];
-      if (lastPart && lastPart !== 'scorecard') return lastPart;
-      const params = new URLSearchParams(window.location.search);
-      return params.get('match_id') || params.get('scorecard') || '';
+      let rawId = '';
+      if (lastPart && lastPart !== 'scorecard') {
+        rawId = lastPart;
+      } else {
+        const params = new URLSearchParams(window.location.search);
+        rawId = params.get('match_id') || params.get('scorecard') || '';
+      }
+      for (let i = 0; i < 2; i++) {
+        if (rawId && rawId.includes('%')) {
+          try {
+            const dec = decodeURIComponent(rawId);
+            if (dec === rawId) break;
+            rawId = dec;
+          } catch (e) {
+            break;
+          }
+        }
+      }
+      return rawId;
     }
 
     function copyScorecardUrl() {
@@ -1223,45 +1239,40 @@
       const bcpMatch = data.bcp_match || null;
 
       if (!hasTrackerScorecard && bcpMatch) {
-        const p1Name = bcpMatch.player1_name || 'Player 1';
-        const p2Name = bcpMatch.player2_name || 'Player 2';
-        const p1Fac = bcpMatch.player1_faction || 'Warhammer 40k';
-        const p2Fac = bcpMatch.player2_faction || 'Warhammer 40k';
-        const hasBcpScore = bcpMatch.player1_score !== null && bcpMatch.player1_score !== undefined && bcpMatch.player2_score !== null && bcpMatch.player2_score !== undefined;
-        const p1Score = hasBcpScore ? Number(bcpMatch.player1_score) : 0;
-        const p2Score = hasBcpScore ? Number(bcpMatch.player2_score) : 0;
+        const srcPlat = String(bcpMatch.source_platform || data.source || 'bcp').toLowerCase();
+        const platLabelMap = {
+          bcp: 'Best Coast Pairings',
+          topdeck: 'TopDeck.gg',
+          limitless: 'Limitless TCG',
+          melee: 'Melee.gg',
+          longshanks: 'Longshanks'
+        };
+        const platShortMap = {
+          bcp: 'BCP',
+          topdeck: 'TopDeck',
+          limitless: 'Limitless',
+          melee: 'Melee.gg',
+          longshanks: 'Longshanks'
+        };
+        const platFullName = platLabelMap[srcPlat] || 'Tournament Circuit';
+        const platShort = platShortMap[srcPlat] || 'Official';
+        const gSys = String(bcpMatch.game_system || data.game_system || '40k').toLowerCase();
+        const scoreSuffix = gSys === '40k' ? ' / 100' : (gSys === 'aos' ? ' / 50' : '');
 
-        document.getElementById('sc-p1-name').innerText = p1Name;
-        document.getElementById('sc-p2-name').innerText = p2Name;
-        document.getElementById('sc-p1-faction').innerText = p1Fac;
-        document.getElementById('sc-p2-faction').innerText = p2Fac;
-        document.getElementById('sc-p1-det').innerText = '';
-        document.getElementById('sc-p2-det').innerText = '';
-        document.getElementById('sc-p1-sub-breakdown').innerHTML = '<span>Official BCP Battle Points</span>';
-        document.getElementById('sc-p2-sub-breakdown').innerHTML = '<span>Official BCP Battle Points</span>';
-        document.getElementById('sc-p1-final-score').innerText = hasBcpScore ? p1Score : '-';
-        document.getElementById('sc-p2-final-score').innerText = hasBcpScore ? p2Score : '-';
-
-        const statusBadgeContainer = document.getElementById('sc-status-badges');
-        if (statusBadgeContainer) {
-          statusBadgeContainer.innerHTML = `<span class="sc-badge">📋 Official BCP Scorecard</span>`;
-        }
-
-        const winnerBanner = document.getElementById('sc-winner-banner');
-        const winnerText = document.getElementById('sc-winner-text');
-        if (hasBcpScore) {
-          winnerBanner.className = 'sc-winner-banner';
-          winnerBanner.style.display = 'flex';
-          if (p1Score > p2Score) {
-            winnerText.innerText = `🏆 ${p1Name.toUpperCase()} WINS • ${p1Score} to ${p2Score} (BCP)`;
-          } else if (p2Score > p1Score) {
-            winnerText.innerText = `🏆 ${p2Name.toUpperCase()} WINS • ${p2Score} to ${p1Score} (BCP)`;
-          } else {
-            winnerText.innerText = `🤝 TIED MATCH • ${p1Score} - ${p2Score} (BCP)`;
-          }
-        } else {
-          winnerBanner.style.display = 'none';
-        }
+        const is2v2 = Boolean(
+          bcpMatch.is_2v2 ||
+          bcpMatch.match_format === '2v2' ||
+          (Array.isArray(bcpMatch.team1_players) && bcpMatch.team1_players.length > 1)
+        );
+        const podParts = Array.isArray(bcpMatch.pod_participants) && bcpMatch.pod_participants.length > 0
+          ? bcpMatch.pod_participants
+          : (!is2v2 && Array.isArray(bcpMatch.participants) ? bcpMatch.participants : []);
+        const isFfaPod = !is2v2 && Boolean(
+          bcpMatch.is_ffa ||
+          bcpMatch.match_format === 'ffa' ||
+          bcpMatch.match_format === 'ffa_pod' ||
+          podParts.length > 2
+        );
 
         if (bcpMatch.event_id) {
           document.getElementById('sc-event-title').innerText = `🏆 ${bcpMatch.event_name || 'Tournament Match'} (${bcpMatch.event_id})`;
@@ -1271,27 +1282,128 @@
             backBtn.style.display = 'inline-flex';
           }
         }
-        document.getElementById('sc-round-table').innerText = `Round ${bcpMatch.round || 1} ${bcpMatch.table_number ? '• Table ' + bcpMatch.table_number : ''}`;
-        document.getElementById('sc-mission-name').innerText = `📋 Source: Best Coast Pairings`;
+        document.getElementById('sc-round-table').innerText = `Round ${bcpMatch.round || 1} ${bcpMatch.table_number ? (isFfaPod ? '• Pod ' : '• Table ') + bcpMatch.table_number : ''}`;
+        document.getElementById('sc-mission-name').innerText = `📋 Source: ${platFullName}`;
         document.getElementById('sc-date-time').innerText = `⏱️ ${new Date(bcpMatch.match_date || Date.now()).toLocaleDateString()}`;
 
+        const statusBadgeContainer = document.getElementById('sc-status-badges');
+        if (statusBadgeContainer) {
+          const fmtBadge = isFfaPod
+            ? `<span class="sc-badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.4);">👥 ${podParts.length || 4}-Player Pod</span>`
+            : (is2v2
+                ? `<span class="sc-badge" style="background:rgba(56,189,248,0.16); color:#38bdf8; border:1px solid rgba(56,189,248,0.4);">🤝 2v2 Doubles</span>`
+                : '');
+          statusBadgeContainer.innerHTML = `${fmtBadge}<span class="sc-badge">📋 Official ${escapeHtml(platShort)} Scorecard</span>`;
+        }
+
+        if (isFfaPod && podParts.length > 0) {
+          const podWinSeat = podParts.find(s => String(s.outcome || s.result || '').toUpperCase().startsWith('W') || (bcpMatch.winner_id && s.player_id === bcpMatch.winner_id));
+          const leftSeats = podParts.slice(0, Math.ceil(podParts.length / 2));
+          const rightSeats = podParts.slice(Math.ceil(podParts.length / 2));
+          document.getElementById('sc-p1-name').innerText = leftSeats.map(s => s.player_name || s.player_id).join(' • ');
+          document.getElementById('sc-p2-name').innerText = rightSeats.map(s => s.player_name || s.player_id).join(' • ');
+          document.getElementById('sc-p1-faction').innerText = leftSeats.map(s => s.faction || 'Unknown').join(' | ');
+          document.getElementById('sc-p2-faction').innerText = rightSeats.map(s => s.faction || 'Unknown').join(' | ');
+          document.getElementById('sc-p1-det').innerText = '';
+          document.getElementById('sc-p2-det').innerText = '';
+          document.getElementById('sc-p1-sub-breakdown').innerHTML = `<span>Seats 1–${leftSeats.length}</span>`;
+          document.getElementById('sc-p2-sub-breakdown').innerHTML = `<span>Seats ${leftSeats.length + 1}–${podParts.length}</span>`;
+          document.getElementById('sc-p1-final-score').innerText = podWinSeat ? '👑' : '🤝';
+          document.getElementById('sc-p2-final-score').innerText = `${podParts.length}P`;
+
+          const winnerBanner = document.getElementById('sc-winner-banner');
+          const winnerText = document.getElementById('sc-winner-text');
+          winnerBanner.className = 'sc-winner-banner';
+          winnerBanner.style.display = 'flex';
+          if (podWinSeat) {
+            winnerText.innerText = `🏆 POD WINNER: ${(podWinSeat.player_name || podWinSeat.player_id || '').toUpperCase()} (${podWinSeat.faction || 'Commander'}) • ${platShort}`;
+          } else {
+            winnerText.innerText = `🤝 ${podParts.length}-PLAYER POD DRAW • ${platShort}`;
+          }
+
+          const tbody = document.getElementById('sc-matrix-body');
+          tbody.innerHTML = podParts.map((seat, idx) => {
+            const outRaw = String(seat.outcome || seat.result || '').toUpperCase();
+            const isWin = outRaw.startsWith('W') || (bcpMatch.winner_id && seat.player_id === bcpMatch.winner_id);
+            const isDraw = outRaw.startsWith('D') || bcpMatch.is_draw;
+            const outBadge = isWin
+              ? '<span style="color:#4ade80; font-weight:900;">🏆 WIN</span>'
+              : (isDraw ? '<span style="color:#fbbf24; font-weight:800;">🤝 DRAW</span>' : '<span style="color:#f87171; font-weight:700;">LOSS</span>');
+            return `
+              <tr>
+                <td style="color:${isWin ? '#4ade80' : '#38bdf8'}; font-weight:800; text-align:left;">Seat ${seat.seat_order || (idx + 1)}: ${escapeHtml(seat.player_name || seat.player_id || 'Player')}</td>
+                <td colspan="5" style="text-align:left; color:#cbd5e1;">🛡️ ${escapeHtml(seat.faction || 'Unknown Commander')}</td>
+                <td style="font-family:monospace; text-align:center;">${outBadge}</td>
+              </tr>
+            `;
+          }).join('') + `
+            <tr style="background:rgba(255,255,255,0.02);">
+              <td colspan="7" style="text-align:center; padding:0.75rem; font-size:0.78rem; color:#94a3b8;">
+                ℹ️ Official ${podParts.length}-Player Pod results synced from ${escapeHtml(platFullName)}.
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        const p1Name = bcpMatch.player1_name || 'Player 1';
+        const p2Name = bcpMatch.player2_name || 'Player 2';
+        const p1Fac = bcpMatch.player1_faction || 'Unknown';
+        const p2Fac = bcpMatch.player2_faction || 'Unknown';
+        const hasBcpScore = bcpMatch.player1_score !== null && bcpMatch.player1_score !== undefined && bcpMatch.player2_score !== null && bcpMatch.player2_score !== undefined;
+        const p1Score = hasBcpScore ? Number(bcpMatch.player1_score) : 0;
+        const p2Score = hasBcpScore ? Number(bcpMatch.player2_score) : 0;
+
+        document.getElementById('sc-p1-name').innerText = p1Name;
+        document.getElementById('sc-p2-name').innerText = p2Name;
+        document.getElementById('sc-p1-faction').innerText = p1Fac;
+        document.getElementById('sc-p2-faction').innerText = p2Fac;
+        document.getElementById('sc-p1-det').innerText = bcpMatch.player1_detachment || '';
+        document.getElementById('sc-p2-det').innerText = bcpMatch.player2_detachment || '';
+        document.getElementById('sc-p1-sub-breakdown').innerHTML = `<span>Official ${escapeHtml(platShort)} ${is2v2 ? '2v2 Doubles ' : ''}Score</span>`;
+        document.getElementById('sc-p2-sub-breakdown').innerHTML = `<span>Official ${escapeHtml(platShort)} ${is2v2 ? '2v2 Doubles ' : ''}Score</span>`;
+        document.getElementById('sc-p1-final-score').innerText = hasBcpScore ? p1Score : '-';
+        document.getElementById('sc-p2-final-score').innerText = hasBcpScore ? p2Score : '-';
+
+        const winnerBanner = document.getElementById('sc-winner-banner');
+        const winnerText = document.getElementById('sc-winner-text');
+        if (hasBcpScore) {
+          winnerBanner.className = 'sc-winner-banner';
+          winnerBanner.style.display = 'flex';
+          if (p1Score > p2Score || (bcpMatch.winner_id && bcpMatch.winner_id === bcpMatch.player1_id)) {
+            winnerText.innerText = `🏆 ${p1Name.toUpperCase()} WINS • ${p1Score} to ${p2Score} (${platShort})`;
+          } else if (p2Score > p1Score || (bcpMatch.winner_id && bcpMatch.winner_id === bcpMatch.player2_id)) {
+            winnerText.innerText = `🏆 ${p2Name.toUpperCase()} WINS • ${p2Score} to ${p1Score} (${platShort})`;
+          } else {
+            winnerText.innerText = `🤝 TIED MATCH • ${p1Score} - ${p2Score} (${platShort})`;
+          }
+        } else {
+          winnerBanner.style.display = 'none';
+        }
+
         const tbody = document.getElementById('sc-matrix-body');
-        const p1Won = hasBcpScore && p1Score > p2Score;
-        const p2Won = hasBcpScore && p2Score > p1Score;
+        const p1Won = hasBcpScore && (p1Score > p2Score || (bcpMatch.winner_id && bcpMatch.winner_id === bcpMatch.player1_id));
+        const p2Won = hasBcpScore && (p2Score > p1Score || (bcpMatch.winner_id && bcpMatch.winner_id === bcpMatch.player2_id));
+        const t1RosterHtml = (is2v2 && Array.isArray(bcpMatch.team1_players) && bcpMatch.team1_players.length > 0)
+          ? `<div style="font-size:0.74rem; color:#94a3b8; margin-top:2px;">🤝 ${bcpMatch.team1_players.map(tp => `${escapeHtml(tp.player_name || tp.player_id)} (${escapeHtml(tp.faction || 'Unknown')})`).join(' + ')}</div>`
+          : '';
+        const t2RosterHtml = (is2v2 && Array.isArray(bcpMatch.team2_players) && bcpMatch.team2_players.length > 0)
+          ? `<div style="font-size:0.74rem; color:#94a3b8; margin-top:2px;">🤝 ${bcpMatch.team2_players.map(tp => `${escapeHtml(tp.player_name || tp.player_id)} (${escapeHtml(tp.faction || 'Unknown')})`).join(' + ')}</div>`
+          : '';
         tbody.innerHTML = `
           <tr>
-            <td style="color:#38bdf8; font-weight:800; text-align:left;">🟦 ${p1Name}</td>
-            <td colspan="5" style="text-align:center; color:#94a3b8;">${hasBcpScore ? 'Official BCP Final Battle Points' : 'Official BCP Pairing (Awaiting Final Score)'}</td>
-            <td style="font-family:monospace; font-weight:900; color:${p1Won ? '#4ade80' : '#f8fafc'}; text-align:center;">${hasBcpScore ? p1Score + ' / 100' : '- / 100'}</td>
+            <td style="color:#38bdf8; font-weight:800; text-align:left;">🟦 ${escapeHtml(p1Name)}${t1RosterHtml}</td>
+            <td colspan="5" style="text-align:center; color:#94a3b8;">${hasBcpScore ? `Official ${escapeHtml(platShort)} Final Score (${escapeHtml(p1Fac)})` : `Official ${escapeHtml(platShort)} Pairing (Awaiting Final Score)`}</td>
+            <td style="font-family:monospace; font-weight:900; color:${p1Won ? '#4ade80' : '#f8fafc'}; text-align:center;">${hasBcpScore ? p1Score + scoreSuffix : '-' + scoreSuffix}</td>
           </tr>
           <tr>
-            <td style="color:#f43f5e; font-weight:800; text-align:left;">🟥 ${p2Name}</td>
-            <td colspan="5" style="text-align:center; color:#94a3b8;">${hasBcpScore ? 'Official BCP Final Battle Points' : 'Official BCP Pairing (Awaiting Final Score)'}</td>
-            <td style="font-family:monospace; font-weight:900; color:${p2Won ? '#4ade80' : '#f8fafc'}; text-align:center;">${hasBcpScore ? p2Score + ' / 100' : '- / 100'}</td>
+            <td style="color:#f43f5e; font-weight:800; text-align:left;">🟥 ${escapeHtml(p2Name)}${t2RosterHtml}</td>
+            <td colspan="5" style="text-align:center; color:#94a3b8;">${hasBcpScore ? `Official ${escapeHtml(platShort)} Final Score (${escapeHtml(p2Fac)})` : `Official ${escapeHtml(platShort)} Pairing (Awaiting Final Score)`}</td>
+            <td style="font-family:monospace; font-weight:900; color:${p2Won ? '#4ade80' : '#f8fafc'}; text-align:center;">${hasBcpScore ? p2Score + scoreSuffix : '-' + scoreSuffix}</td>
           </tr>
           <tr style="background:rgba(255,255,255,0.02);">
             <td colspan="7" style="text-align:center; padding:0.75rem; font-size:0.78rem; color:#94a3b8;">
-              ℹ️ Final Battle Points synced from Best Coast Pairings. Turn-by-turn breakdown is shown only when a game is submitted and saved to our database.
+              ℹ️ Final match result synced from ${escapeHtml(platFullName)}. Turn-by-turn breakdown is shown when a live digital scorecard is recorded.
             </td>
           </tr>
         `;

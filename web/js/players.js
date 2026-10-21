@@ -99,7 +99,9 @@ function renderPlayersDirectoryRows() {
       </td>
       <td class="col-faction">
         ${(() => {
-          const rawFacs = (p.top_faction || 'Various').split(',').map(f => f.trim()).filter(Boolean);
+          const rawFacs = (typeof window.splitFactionPills === 'function')
+            ? window.splitFactionPills(p.top_faction || 'Various')
+            : (p.top_faction || 'Various').split(',').map(f => f.trim()).filter(Boolean);
           const showCount = 2;
           const visible = rawFacs.slice(0, showCount);
           const remaining = rawFacs.length - visible.length;

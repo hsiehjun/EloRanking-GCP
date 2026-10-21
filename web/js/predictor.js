@@ -77,7 +77,10 @@ function _extractPlayerFactionsList(pObj) {
 
   const rawTop = String(pObj.top_faction || pObj.primary_faction || pObj.faction || '').trim();
   if (rawTop) {
-    rawTop.split(',').map(s => s.trim()).filter(Boolean).forEach(f => {
+    const topParts = (typeof window.splitFactionPills === 'function')
+      ? window.splitFactionPills(rawTop)
+      : rawTop.split(',').map(s => s.trim()).filter(Boolean);
+    topParts.forEach(f => {
       if (f.toLowerCase() === 'various' || f.toLowerCase() === 'unknown') return;
       const nk = _normPredFacKey(f);
       if (!nk || seen.has(nk)) return;

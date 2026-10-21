@@ -315,7 +315,8 @@ function renderTeamProfilePage(data, sys) {
   const sysIcon = (typeof getGameSystemIcon === 'function') ? getGameSystemIcon(sys) : (isAos ? '⚡' : '⚔️');
   const sysName = (typeof getGameSystemLabel === 'function') ? getGameSystemLabel(sys) : (isAos ? 'Age of Sigmar' : 'Warhammer 40,000');
   const systemLabel = `${sysIcon} ${sysName}`;
-  const tierName = isAos ? '💠 LORD-CELESTANT' : '🔥 HIGH WARLORD';
+  const prTierObj = (typeof getEloTierInfo === 'function') ? getEloTierInfo(powerRating || top5Avg || 1500, sys) : null;
+  const tierName = prTierObj ? `${prTierObj.icon} ${prTierObj.name}` : (isAos ? '💠 Lord-Celestant' : '🔥 High Warlord');
   const championships = data.championships || { total: 0, items: [], top_champions: [], factions_distribution: [] };
   const champCount = championships.total || (Array.isArray(championships.items) ? championships.items.length : 0);
 
@@ -358,7 +359,7 @@ function renderTeamProfilePage(data, sys) {
           <div class="profile-kpi-value" style="margin-top: 0.2rem;">
             <span style="font-family: var(--font-mono); font-size: 1.35rem; font-weight: 800; color: var(--accent);">${Number(powerRating).toFixed(1)}</span>
           </div>
-          <div class="profile-kpi-sub">${isAos ? '💠 Lord-Celestant' : '🔥 High Warlord'} · Verified</div>
+          <div class="profile-kpi-sub">${escapeHtml(tierName)} · Verified</div>
         </div>
 
         <div class="profile-kpi-card team-kpi-card-top5">
@@ -564,7 +565,7 @@ function renderStarting5Cards(players, sys) {
       ? renderEloBadgePill(elo, Number(p.matches_played || 10), { showTierName: false, size: 'sm', gameSystem: sys })
       : `<span style="font-family: var(--font-mono); font-weight: 700; color: var(--accent);">${elo.toFixed(1)}</span>`;
     const faction = p.top_faction || p.faction || 'Unassigned';
-    const cleanFaction = faction.split(',')[0].trim();
+    const cleanFaction = ((typeof window.splitFactionPills === 'function') ? window.splitFactionPills(faction)[0] : faction.split(',')[0])?.trim() || 'Unassigned';
     const rankLabel = idx === 0 ? '👑 Top Ace' : `#${idx + 1} Anchor`;
 
     return `
@@ -602,7 +603,7 @@ function renderTeamProfileRosterRows(roster, sys, statusFilter = null) {
       : `<span style="font-family: var(--font-mono); font-weight: 700; color: var(--accent);">${elo.toFixed(1)}</span>`;
 
     const faction = p.top_faction || p.faction || 'Unassigned';
-    const cleanFaction = faction.split(',')[0].trim();
+    const cleanFaction = ((typeof window.splitFactionPills === 'function') ? window.splitFactionPills(faction)[0] : faction.split(',')[0])?.trim() || 'Unassigned';
     const winRate = Number(p.win_rate != null ? p.win_rate : (matches > 0 ? ((Number(p.wins || 0) / matches) * 100) : 0));
 
     const isAce = !isInactive && displayRank === 1;
@@ -713,7 +714,7 @@ function renderMobileRosterCards(roster, sys, statusFilter = null) {
     const elo = Number(p.current_elo || 1500);
     const matches = Number(p.matches_played || (Number(p.wins || 0) + Number(p.losses || 0) + Number(p.draws || 0)) || 0);
     const faction = p.top_faction || p.faction || 'Unassigned';
-    const cleanFaction = faction.split(',')[0].trim();
+    const cleanFaction = ((typeof window.splitFactionPills === 'function') ? window.splitFactionPills(faction)[0] : faction.split(',')[0])?.trim() || 'Unassigned';
     const winRate = Number(p.win_rate != null ? p.win_rate : (matches > 0 ? ((Number(p.wins || 0) / matches) * 100) : 0));
     const isTop5 = !isInactive && displayRank <= 5;
 
@@ -1079,32 +1080,39 @@ function detectTeamFromMatchHistory(gs = '40k') {
 }
 
 function resolveUserTeamName(gs = '40k') {
-  // Priority 1: Direct currentUser team
+  const normGs = (typeof normalizeGameSystem === 'function') ? normalizeGameSystem(gs) : String(gs || '40k').toLowerCase();
+  // Priority 1: Match history / My Hub detection for the active game system
+  const detected = detectTeamFromMatchHistory(normGs);
+  if (detected) return detected;
+
+  // Priority 2: Direct currentUser team (if primary game system or 40k)
   if (window.currentUser) {
-    if (window.currentUser.team && window.currentUser.team.trim()) {
-      return window.currentUser.team.trim();
-    }
-    if (Array.isArray(window.currentUser.teams_history) && window.currentUser.teams_history.length > 0 && window.currentUser.teams_history[0]) {
-      return String(window.currentUser.teams_history[0]).trim();
+    const userSys = (typeof normalizeGameSystem === 'function') ? normalizeGameSystem(window.currentUser.game_system || '40k') : '40k';
+    if (normGs === userSys || normGs === '40k') {
+      if (window.currentUser.team && window.currentUser.team.trim()) {
+        return window.currentUser.team.trim();
+      }
+      if (Array.isArray(window.currentUser.teams_history) && window.currentUser.teams_history.length > 0 && window.currentUser.teams_history[0]) {
+        return String(window.currentUser.teams_history[0]).trim();
+      }
     }
   }
 
-  // Priority 2: Stored in localStorage
+  // Priority 3: Stored in localStorage
   try {
     const userStr = localStorage.getItem('currentUser') || localStorage.getItem('native_user_profile');
     if (userStr) {
       const u = JSON.parse(userStr);
-      if (u.team && u.team.trim()) return u.team.trim();
-      if (u.claimed_team && u.claimed_team.trim()) return u.claimed_team.trim();
-      if (Array.isArray(u.teams_history) && u.teams_history.length > 0 && u.teams_history[0]) {
-        return String(u.teams_history[0]).trim();
+      const userSys = (typeof normalizeGameSystem === 'function') ? normalizeGameSystem(u.game_system || '40k') : '40k';
+      if (normGs === userSys || normGs === '40k') {
+        if (u.team && u.team.trim()) return u.team.trim();
+        if (u.claimed_team && u.claimed_team.trim()) return u.claimed_team.trim();
+        if (Array.isArray(u.teams_history) && u.teams_history.length > 0 && u.teams_history[0]) {
+          return String(u.teams_history[0]).trim();
+        }
       }
     }
   } catch (e) {}
-
-  // Priority 3: Match history / My Hub detection
-  const detected = detectTeamFromMatchHistory(gs);
-  if (detected) return detected;
 
   return null;
 }

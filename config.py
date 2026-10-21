@@ -1409,14 +1409,43 @@ GAME_SYSTEM_ALIASES: Dict[str, str] = {
     "middle earth": "middle_earth",
     "bloodbowl": "blood_bowl",
     "marvel crisis protocol": "mcp",
+    "marvel_crisis": "mcp",
     "star wars: legion": "sw_legion",
+    "star_wars_legion": "sw_legion",
+    "starwars_legion": "sw_legion",
+    "swl": "sw_legion",
     "star wars: shatterpoint": "shatterpoint",
+    "star_wars_shatterpoint": "shatterpoint",
+    "starwars_shatterpoint": "shatterpoint",
     "star wars: armada": "sw_armada",
+    "star_wars_armada": "sw_armada",
     "star wars: x-wing": "x_wing",
+    "star_wars_x_wing": "x_wing",
     "star wars: unlimited": "sw_unlimited",
+    "star_wars_unlimited": "sw_unlimited",
+    "starwars_unlimited": "sw_unlimited",
+    "swu": "sw_unlimited",
     "magic: the gathering": "mtg",
+    "magic_the_gathering": "mtg",
     "pokemon": "pokemon",
     "pokémon": "pokemon",
+    "pokemon_tcg": "pokemon",
+    "pokémon tcg": "pokemon",
+    "ptcg": "pokemon",
+    "one_piece_tcg": "one_piece",
+    "one piece tcg": "one_piece",
+    "onepiece": "one_piece",
+    "optcg": "one_piece",
+    "fab": "flesh_blood",
+    "flesh_and_blood": "flesh_blood",
+    "flesh and blood": "flesh_blood",
+    "disney_lorcana": "lorcana",
+    "disney lorcana": "lorcana",
+    "yu_gi_oh": "yugioh",
+    "yu-gi-oh": "yugioh",
+    "ygo": "yugioh",
+    "digimon_tcg": "digimon",
+    "digimon card game": "digimon",
 }
 for _s in BCP_GAME_SYSTEMS_CATALOG:
     _slug = _s["slug"]
@@ -1498,7 +1527,7 @@ def resolve_event_game_system(
     return default
 
 
-def get_bcp_game_system_id(slug_or_id: Optional[str], default: str = DEFAULT_GAME_SYSTEM_ID) -> str:
+def get_bcp_game_system_id(slug_or_id: Optional[str], default: Optional[str] = DEFAULT_GAME_SYSTEM_ID) -> Optional[str]:
     """Returns the official BCP gameSystemId for a canonical game_system slug or existing BCP ID."""
     if not slug_or_id:
         return default
@@ -1510,7 +1539,91 @@ def get_bcp_game_system_id(slug_or_id: Optional[str], default: str = DEFAULT_GAM
     norm = normalize_game_system(raw, default="")
     if norm in GAME_SYSTEM_BY_SLUG:
         return GAME_SYSTEM_BY_SLUG[norm]["bcp_id"]
-    return raw if len(raw) >= 8 else default
+    return raw if (len(raw) >= 8 and raw.isalnum() and (any(c.isupper() for c in raw) or len(raw) == 24)) else default
+
+
+NON_BCP_EVENT_PREFIXES = (
+    "es-",
+    "melee:",
+    "ltcg:",
+    "ls:",
+    "td:",
+    "nr:",
+    "league_",
+)
+
+
+def is_bcp_event_id(event_id: Optional[str]) -> bool:
+    """Returns True only if event_id is a Best Coast Pairings event ID (not ES-*, melee:*, ltcg:*, ls:*, td:*, league_*)."""
+    if not event_id:
+        return False
+    eid = str(event_id).strip()
+    if not eid:
+        return False
+    low = eid.lower()
+    if low.startswith(NON_BCP_EVENT_PREFIXES) or ":" in eid:
+        return False
+    return True
+
+
+def is_bcp_player_id(player_id: Optional[str]) -> bool:
+    """Returns True only if player_id is a Best Coast Pairings user/player ID."""
+    if not player_id:
+        return False
+    pid = str(player_id).strip()
+    if not pid:
+        return False
+    low = pid.lower()
+    if low.startswith(("user_", "es_", "p_", "bcp_", "melee:", "ltcg:", "ls:", "td:", "nr:")) or ":" in pid:
+        return False
+    return True
+
+
+def get_event_platform(event_id: Optional[str], event_data: Optional[Dict[str, Any]] = None) -> str:
+    """Resolves the source platform slug ('bcp', 'melee', 'limitless', 'longshanks', 'topdeck', 'eventstudio', 'league')."""
+    if isinstance(event_data, dict):
+        sp = str(event_data.get("source_platform") or "").strip().lower()
+        if sp:
+            return sp
+    eid = str(event_id or "").strip().lower()
+    if eid.startswith("melee:"):
+        return "melee"
+    if eid.startswith("ltcg:"):
+        return "limitless"
+    if eid.startswith("ls:"):
+        return "longshanks"
+    if eid.startswith("td:"):
+        return "topdeck"
+    if eid.startswith("es-"):
+        return "eventstudio"
+    if eid.startswith("league_"):
+        return "league"
+    return "bcp"
+
+
+def get_platform_event_url(event_id: Optional[str], event_data: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Returns the canonical external URL for an event on its originating platform (or None for native events)."""
+    if isinstance(event_data, dict):
+        ext_url = event_data.get("external_url") or event_data.get("platform_url")
+        if ext_url and str(ext_url).strip().startswith("http"):
+            return str(ext_url).strip()
+    if not event_id:
+        return None
+    eid = str(event_id).strip()
+    if not eid:
+        return None
+    low = eid.lower()
+    if low.startswith(("es-", "league_")):
+        return None
+    if low.startswith("melee:"):
+        return f"https://melee.gg/Tournament/View/{eid.split(':', 1)[1]}"
+    if low.startswith("ltcg:"):
+        return f"https://play.limitlesstcg.com/tournament/{eid.split(':', 1)[1]}/standings"
+    if low.startswith("ls:"):
+        return f"https://www.longshanks.org/event/{eid.split(':', 1)[1]}/"
+    if low.startswith("td:"):
+        return f"https://topdeck.gg/event/{eid.split(':', 1)[1]}"
+    return f"https://www.bestcoastpairings.com/event/{eid}"
 
 
 def get_game_system_meta(slug_or_id: Optional[str]) -> Dict[str, Any]:

@@ -1118,10 +1118,12 @@ class LeaguesHubService:
                         SELECT player_id, LOWER(TRIM(player_name)), ROUND(current_elo)::int, ROUND(peak_elo)::int, matches_played
                         FROM player_ratings
                         WHERE player_id = ANY(%s)
+                          AND COALESCE(game_system, '40k') = '40k'
                         UNION ALL
                         SELECT player_id, LOWER(TRIM(player_name)), ROUND(current_elo)::int, ROUND(peak_elo)::int, matches_played
                         FROM player_ratings
-                        WHERE player_name = ANY(%s);
+                        WHERE player_name = ANY(%s)
+                          AND COALESCE(game_system, '40k') = '40k';
                     """, (all_pids or [""], all_names or [""]))
                     for r_pid, r_nm, r_curr, r_peak, r_mp in cur.fetchall():
                         info = {

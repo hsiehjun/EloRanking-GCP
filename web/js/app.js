@@ -37,7 +37,7 @@ function initGameSystem() {
 
   let initialSys = '40k';
   const hash = (window.location.hash || '').toLowerCase();
-  const hashSysMatch = hash.match(/^#\/([a-z0-9_]+)\/(?:player|event|team|league)\b/i);
+  const hashSysMatch = hash.match(/^#\/?([a-z0-9_]+)\/(?:player|players|event|events|tournaments|team|teams|league|leagues|leaderboard|rankings|my-hub|myhub|community|community-hub|meta|meta-intel|factions|predictor|connect|search|event-studio)\b/i);
   if (path.startsWith('/aos') || hash.startsWith('#/aos') || hash.includes('/aos/')) {
     initialSys = 'aos';
   } else if (path.startsWith('/40k') || hash.startsWith('#/40k') || hash.includes('/40k/')) {
@@ -618,13 +618,29 @@ window.closeAosTrackerModal = closeAosTrackerModal;
 window.handleTrackerNavClick = handleTrackerNavClick;
 
 function switchTab(tabName) {
-  // Normalize game system prefixes in tab names (e.g. '40k/my-hub' -> 'my-hub')
-  if (typeof tabName === 'string') {
-    if (tabName.startsWith('40k/') || tabName.startsWith('aos/')) {
-      const parts = tabName.split('/');
-      const sys = parts[0].toLowerCase();
-      if (typeof switchGameSystem === 'function') switchGameSystem(sys);
-      tabName = parts.slice(1).join('/');
+  // Normalize game system prefixes in tab names (e.g. '40k/my-hub', 'mtg/leaderboard', 'pokemon/teams' -> 'my-hub', 'leaderboard', 'teams')
+  if (typeof tabName === 'string' && tabName.includes('/')) {
+    const cleanTabStr = tabName.replace(/^[#/]+/, '');
+    const parts = cleanTabStr.split('/');
+    const candidateSys = parts[0].toLowerCase();
+    const restTab = parts.slice(1).join('/');
+    const knownTabs = new Set([
+      'my-hub', 'myhub', 'leaderboard', 'rankings', 'players', 'teams', 'team',
+      'factions', 'meta', 'meta-intel', 'predictor', 'match-predictor',
+      'community', 'community-hub', 'tournaments', 'events', 'connect',
+      'leagues', 'search', 'event-studio', 'eventstudio', 'tracker'
+    ]);
+    if (knownTabs.has(restTab.toLowerCase())) {
+      const normSys = (typeof normalizeGameSystem === 'function') ? normalizeGameSystem(candidateSys, '') : candidateSys;
+      if (normSys) {
+        if (typeof currentGameSystem === 'undefined' || currentGameSystem !== normSys) {
+          applyGameSystem(normSys, false);
+          if (typeof leaderboardPagination !== 'undefined') leaderboardPagination.page = 1;
+          if (typeof leaderboardTeamsPagination !== 'undefined') leaderboardTeamsPagination.page = 1;
+          if (typeof loadGlobalStats === 'function') loadGlobalStats();
+        }
+        tabName = restTab;
+      }
     }
   }
 
@@ -999,11 +1015,22 @@ window.addEventListener('hashchange', () => {
 // Support browser back / forward navigation across game systems and tabs
 window.addEventListener('popstate', (e) => {
   const path = (window.location.pathname || '').toLowerCase();
-  const targetSys = path.startsWith('/aos') ? 'aos' : '40k';
+  const hash = window.location.hash.trim();
+  const hashSysMatch = hash.replace(/^[#/]+/, '').match(/^([a-z0-9_]+)\/(?:player|event|team|league)\b/i);
+  let targetSys = (e.state && e.state.sys) ? e.state.sys : null;
+  if (!targetSys && hashSysMatch && typeof GAME_SYSTEM_BY_SLUG !== 'undefined' && GAME_SYSTEM_BY_SLUG[hashSysMatch[1].toLowerCase()]) {
+    targetSys = hashSysMatch[1].toLowerCase();
+  }
+  if (!targetSys) {
+    if (path.startsWith('/aos')) {
+      targetSys = 'aos';
+    } else {
+      targetSys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+    }
+  }
   if (typeof currentGameSystem !== 'undefined' && targetSys !== currentGameSystem) {
     if (typeof switchGameSystem === 'function') switchGameSystem(targetSys);
   }
-  const hash = window.location.hash.trim();
   if (hash) {
     if (handleAppRoute(hash)) return;
     const cleanHash = hash.replace(/^[#/]+/, '');
@@ -1056,10 +1083,12 @@ async function loadGlobalStats() {
     const dirFactionSelect = document.getElementById('dir-faction-filter');
 
     if (stats.factions && stats.factions.length > 0) {
-      // Ensure completely flat, distinct, single factions without any compound comma strings
+      // Ensure completely flat, distinct, single factions without breaking Commander names with commas
       const flatFactions = Array.from(new Set(
-        stats.factions.flatMap(f => (typeof f === 'string' ? f.split(',') : [f]))
-          .map(f => f.trim())
+        stats.factions.flatMap(f => (typeof f === 'string'
+          ? (typeof window.splitFactionPills === 'function' ? window.splitFactionPills(f) : f.split(','))
+          : [f]))
+          .map(f => String(f || '').trim())
           .filter(f => f && f !== 'Unknown' && f !== 'Unknown Faction')
       )).sort();
 

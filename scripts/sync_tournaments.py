@@ -19,8 +19,28 @@ from elo import get_elo_engine
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("elo.job.tournament_sync")
 
-def run_tournament_sync(game_system: str = "all", days: int = 3, max_events: Optional[int] = None):
+def run_tournament_sync(
+    game_system: str = "all",
+    days: int = 3,
+    max_events: Optional[int] = None,
+    event_ids: Optional[list] = None,
+    sqlite_path: Optional[str] = None,
+):
     logger.info("🚀 Starting Cloud Run Job: BCP Tournament Scraper & Elo Recalculation")
+    if sqlite_path:
+        from scripts.sync_multiplatform import finalize_platform_sync, get_sync_db, import_live_bcp_tournaments
+        db = get_sync_db(sqlite_path=sqlite_path)
+        targets = event_ids or []
+        import_res = import_live_bcp_tournaments(db, targets)
+        touched_sys = sorted({t[0] for t in targets}) if targets else ([game_system] if game_system != "all" else ["40k", "aos"])
+        fin_res = finalize_platform_sync(db, touched_sys, platform_name="BCP")
+        return {
+            "platform": "bcp",
+            "game_system": game_system,
+            "events_scraped": import_res.get("events_imported", 0),
+            "matches_scraped": import_res.get("matches_imported", 0),
+            **fin_res,
+        }
     db = get_database()
     logger.info(f"💾 Database target: {db.db_path}")
     scraper = BestCoastPairingsScraper(db=db)
@@ -63,14 +83,17 @@ def run_tournament_sync(game_system: str = "all", days: int = 3, max_events: Opt
             logger.info(f"✅ [ALL OTHER BCP SYSTEMS] Scraped {e_oth} events, {m_oth} matches.")
     elif target_sys not in ("40k", "aos", "warhammer_aos", "all", "other", "others", "non_40k_aos", "all_other"):
         norm_sys = normalize_game_system(target_sys, default=target_sys)
-        bcp_sys_id = get_bcp_game_system_id(norm_sys)
-        logger.info(f"📅 [{norm_sys.upper()}] Scraping tournaments (gameSystemId={bcp_sys_id}) from {start_str} to {end_str}...")
-        res_custom = scraper.scrape_date_range(start_date=start_str, end_date=end_str, game_system_id=bcp_sys_id, max_events=max_events)
-        e_cust = int(res_custom.get("events_scraped", 0) or 0)
-        m_cust = int(res_custom.get("matches_scraped", 0) or 0)
-        total_events += e_cust
-        total_matches += m_cust
-        logger.info(f"✅ [{norm_sys.upper()}] Scraped {e_cust} events, {m_cust} matches.")
+        bcp_sys_id = get_bcp_game_system_id(norm_sys, default=None)
+        if bcp_sys_id:
+            logger.info(f"📅 [{norm_sys.upper()}] Scraping tournaments (gameSystemId={bcp_sys_id}) from {start_str} to {end_str}...")
+            res_custom = scraper.scrape_date_range(start_date=start_str, end_date=end_str, game_system_id=bcp_sys_id, max_events=max_events)
+            e_cust = int(res_custom.get("events_scraped", 0) or 0)
+            m_cust = int(res_custom.get("matches_scraped", 0) or 0)
+            total_events += e_cust
+            total_matches += m_cust
+            logger.info(f"✅ [{norm_sys.upper()}] Scraped {e_cust} events, {m_cust} matches.")
+        else:
+            logger.info(f"ℹ️ [{norm_sys.upper()}] No BCP gameSystemId mapped; skipping BCP scrape.")
 
     try:
         res_ongoing = scraper.rescrape_incomplete_and_ongoing_events(
@@ -111,6 +134,14 @@ def run_tournament_sync(game_system: str = "all", days: int = 3, max_events: Opt
             for sys_w in systems_to_warm:
                 warmed_cnt = db.prewarm_meta_intel_presets(sys_w, force_refresh=True)
                 logger.info(f"🔥 Refreshed {warmed_cnt} Meta Intel rolling-window preset(s) in L2 system_settings for {sys_w.upper()}.")
+                try:
+                    from teams_hub_service import get_teams_hub_service
+                    th_svc = get_teams_hub_service(db)
+                    if hasattr(th_svc, "get_teams_list"):
+                        th_svc.get_teams_list(game_system=sys_w, force_refresh=True)
+                        logger.info(f"🔥 Refreshed Teams Directory L2 system_settings cache for {sys_w.upper()}.")
+                except Exception as th_err:
+                    logger.debug(f"Notice refreshing Teams Directory L2 cache for {sys_w}: {th_err}")
     except Exception as meta_err:
         logger.warning(f"Notice during Meta Intel L2 preset refresh: {meta_err}")
 
@@ -136,10 +167,29 @@ if __name__ == "__main__":
     parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="Game system to sync (e.g. 40k, aos, other, all, kill_team)")
     parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "3")), help="Days of past tournaments to scrape (default: 3)")
     parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS")) if os.getenv("MAX_EVENTS") else None, help="Max tournaments to scrape per game system (default: None for unlimited)")
+    parser.add_argument("--event-ids", default="", help="Optional comma-separated sys:event_id pairs (e.g. 40k:GzyzVHN6gVPw,aos:LPJLszJOuLZ4)")
+    parser.add_argument("--sqlite-path", default=os.getenv("LOCAL_SQLITE_PATH"), help="Optional local SQLite DB path for local verification")
     args, _ = parser.parse_known_args()
 
+    explicit_pairs = None
+    if args.event_ids.strip():
+        explicit_pairs = []
+        for tok in args.event_ids.split(","):
+            tok = tok.strip()
+            if ":" in tok:
+                s_slug, e_id = tok.split(":", 1)
+                explicit_pairs.append((s_slug.strip().lower(), e_id.strip()))
+            elif tok:
+                explicit_pairs.append(((args.game_system if args.game_system != "all" else "40k"), tok))
+
     try:
-        run_tournament_sync(game_system=args.game_system, days=args.days, max_events=args.max_events)
+        run_tournament_sync(
+            game_system=args.game_system,
+            days=args.days,
+            max_events=args.max_events,
+            event_ids=explicit_pairs,
+            sqlite_path=args.sqlite_path,
+        )
     except Exception as e:
         logger.error(f"❌ Tournament sync job failed: {e}", exc_info=True)
         sys.exit(1)

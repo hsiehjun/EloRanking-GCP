@@ -27,6 +27,33 @@ function formatNumber(num) {
   return Number(num).toLocaleString();
 }
 
+/**
+ * Splits a raw faction string into individual faction pills without breaking
+ * MTG Commander / TCG Leader names that contain commas (e.g. "Kinnan, Bonder Prodigy"
+ * or "Kraum, Ludevic's Opus / Tymna the Weaver").
+ */
+function splitFactionPills(rawFaction) {
+  if (rawFaction === null || rawFaction === undefined) return [];
+  if (Array.isArray(rawFaction)) {
+    return rawFaction.map(s => String(s || '').trim()).filter(Boolean);
+  }
+  const str = String(rawFaction).trim();
+  if (!str) return [];
+  if (!str.includes(',')) return [str];
+  const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem)
+    ? String(currentGameSystem).toLowerCase()
+    : '40k';
+  const tcgSystems = new Set([
+    'mtg', 'pokemon', 'one_piece', 'onepiece', 'yugioh', 'lorcana',
+    'flesh_blood', 'flesh_and_blood', 'sw_unlimited', 'starwars_unlimited', 'digimon', 'riftbound'
+  ]);
+  if (str.includes(' / ') || tcgSystems.has(sys)) {
+    return [str];
+  }
+  return str.split(',').map(s => s.trim()).filter(Boolean);
+}
+window.splitFactionPills = splitFactionPills;
+
 function getEloTier(elo, matchesCount = null, gameSystem = '') {
   const val = Number(elo) || 1500;
   const sys = (gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
@@ -1073,10 +1100,227 @@ const GAME_SYSTEM_ALIASES_MAP = {
   "killteam": "kill_team",
   "mesbg": "middle_earth",
   "lotr": "middle_earth",
-  "mcp": "marvel_crisis",
+  "mcp": "mcp",
+  "marvel_crisis": "mcp",
+  "crisis_protocol": "mcp",
   "sw_legion": "sw_legion",
-  "legion": "sw_legion"
+  "star_wars_legion": "sw_legion",
+  "starwars_legion": "sw_legion",
+  "swl": "sw_legion",
+  "legion": "sw_legion",
+  "pokemon_tcg": "pokemon",
+  "ptcg": "pokemon",
+  "one_piece_tcg": "one_piece",
+  "onepiece": "one_piece",
+  "optcg": "one_piece",
+  "fab": "flesh_blood",
+  "flesh_and_blood": "flesh_blood",
+  "star_wars_unlimited": "sw_unlimited",
+  "starwars_unlimited": "sw_unlimited",
+  "swu": "sw_unlimited",
+  "magic": "mtg",
+  "magic_the_gathering": "mtg",
+  "yu_gi_oh": "yugioh",
+  "ygo": "yugioh",
+  "digimon_tcg": "digimon",
+  "disney_lorcana": "lorcana",
+  "cedh": "commander",
+  "edh": "commander"
 };
+
+const NON_BCP_PREFIXES = ["melee:", "ltcg:", "ls:", "td:", "nr:", "es_", "es-", "manual_", "test_"];
+
+function isBcpEventId(eventId) {
+  if (!eventId) return false;
+  const s = String(eventId).trim().toLowerCase();
+  if (!s) return false;
+  return !NON_BCP_PREFIXES.some(p => s.startsWith(p));
+}
+
+function getEventPlatform(eventId, ev = null) {
+  if (ev && ev.source_platform) return String(ev.source_platform).trim().toLowerCase();
+  const s = String(eventId || (ev && ev.id) || "").trim().toLowerCase();
+  if (s.startsWith("melee:")) return "melee";
+  if (s.startsWith("ltcg:")) return "limitless";
+  if (s.startsWith("ls:")) return "longshanks";
+  if (s.startsWith("td:")) return "topdeck";
+  if (s.startsWith("es_") || s.startsWith("es-")) return "eventstudio";
+  return "bcp";
+}
+
+function getPlatformDisplayName(platformOrEventId, ev = null) {
+  const plat = ["bcp", "melee", "limitless", "longshanks", "topdeck", "eventstudio"].includes(String(platformOrEventId || "").toLowerCase())
+    ? String(platformOrEventId).toLowerCase()
+    : getEventPlatform(platformOrEventId, ev);
+  if (plat === "melee") return "Melee.gg";
+  if (plat === "limitless") return "Limitless TCG";
+  if (plat === "longshanks") return "Longshanks";
+  if (plat === "topdeck") return "TopDeck.gg";
+  if (plat === "eventstudio") return "OmniTactica Studio";
+  return "BCP";
+}
+
+function getPlatformExternalEventUrl(eventId, ev = null) {
+  if (ev && ev.event_url && String(ev.event_url).startsWith("http")) {
+    return String(ev.event_url);
+  }
+  const s = String(eventId || (ev && ev.id) || "").trim();
+  if (!s) return "https://www.bestcoastpairings.com";
+  const low = s.toLowerCase();
+  const extId = (ev && ev.external_event_id) ? String(ev.external_event_id).trim() : (s.includes(":") ? s.split(":", 2)[1] : s);
+  if (low.startsWith("melee:")) return `https://melee.gg/Tournament/View/${encodeURIComponent(extId)}`;
+  if (low.startsWith("ltcg:")) return `https://play.limitlesstcg.com/tournament/${encodeURIComponent(extId)}/standings`;
+  if (low.startsWith("ls:")) return `https://www.longshanks.org/event/${encodeURIComponent(extId)}/`;
+  if (low.startsWith("td:")) return `https://topdeck.gg/event/${encodeURIComponent(extId)}`;
+  return `https://www.bestcoastpairings.com/event/${encodeURIComponent(s)}`;
+}
+
+function getPlatformBadgeHtml(platformOrEventId, ev = null) {
+  const plat = getEventPlatform(platformOrEventId, ev);
+  const label = getPlatformDisplayName(plat, ev);
+  const styles = {
+    bcp: "background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.32);",
+    limitless: "background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35);",
+    longshanks: "background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.35);",
+    topdeck: "background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.38);",
+    melee: "background:rgba(244,63,94,0.15); color:#fb7185; border:1px solid rgba(244,63,94,0.35);",
+    eventstudio: "background:rgba(99,102,241,0.16); color:#818cf8; border:1px solid rgba(99,102,241,0.35);"
+  };
+  const st = styles[plat] || styles.bcp;
+  return `<span class="badge" style="${st} font-size:0.64rem; font-weight:700; padding:1px 6px; border-radius:4px; white-space:nowrap;">${escapeHtml(label)}</span>`;
+}
+
+function getEventFormatBadgeHtml(ev) {
+  if (!ev) return "";
+  const isFfa = Boolean(ev.is_ffa_event || ev.match_format === "ffa");
+  const isDoubles = Boolean(ev.is_doubles_event || ev.match_format === "2v2" || /\bdoubles\b|\b2\s*v\s*2\b/i.test(String(ev.name || ev.event_name || "")));
+  const isTeam = Boolean(!isDoubles && (ev.is_team_event || (Number(ev.total_teams || 0) > 0)));
+  if (isFfa) {
+    return `<span class="badge" style="background:rgba(16,185,129,0.16); color:#34d399; border:1px solid rgba(16,185,129,0.36); font-size:0.64rem; font-weight:800; padding:1px 6px; border-radius:4px; white-space:nowrap;">🎲 4P FFA Pod</span>`;
+  }
+  if (isDoubles) {
+    return `<span class="badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.38); font-size:0.64rem; font-weight:800; padding:1px 6px; border-radius:4px; white-space:nowrap;">👥 2v2 Doubles</span>`;
+  }
+  if (isTeam) {
+    return `<span class="badge" style="background:rgba(99,102,241,0.16); color:#818cf8; border:1px solid rgba(99,102,241,0.35); font-size:0.64rem; font-weight:800; padding:1px 6px; border-radius:4px; white-space:nowrap;">🛡️ Team</span>`;
+  }
+  return "";
+}
+
+function buildMatchOpponentCellHtml(r, evId = "", evName = "", oppBadgeHtml = "") {
+  if (!r) return "-";
+  const isBye = Boolean(r.is_bye || r.result === "BYE" || (r.opponent_name && String(r.opponent_name).toUpperCase() === "BYE"));
+  if (isBye) {
+    return '<span class="bye-pill">🛡️ TOURNAMENT BYE</span>';
+  }
+  const is2v2 = Boolean(r.is_2v2 || r.match_format === "2v2" || r.partner_id || r.partner_name || (r.partner && (r.partner.player_id || r.partner.player_name)));
+  const rawOppsList = (Array.isArray(r.opponents) && r.opponents.length > 0)
+    ? r.opponents
+    : (Array.isArray(r.pod_opponents) && r.pod_opponents.length > 0 ? r.pod_opponents : []);
+  const isFfa = Boolean(r.is_ffa || r.match_format === "ffa" || (rawOppsList.length >= 2 && !is2v2));
+  const oppId = r.opponent_id || "";
+  const oppName = r.opponent_name || "Opponent";
+  const oppFac = r.opponent_faction || "";
+
+  if (is2v2) {
+    const partnerObj = r.partner || ((r.partner_id || r.partner_name) ? { player_id: r.partner_id, player_name: r.partner_name, faction: r.partner_faction } : null);
+    const pName = partnerObj ? (partnerObj.player_name || partnerObj.name || "") : "";
+    const pId = partnerObj ? (partnerObj.player_id || partnerObj.id || "") : "";
+    const pFac = partnerObj ? (partnerObj.faction || "") : "";
+    const partnerHtml = pName ? `
+      <div style="font-size:0.71rem; color:#c084fc; display:flex; align-items:center; gap:0.3rem; flex-wrap:wrap; margin-bottom:2px;">
+        <span class="badge" style="background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.38); font-size:0.62rem; font-weight:800; padding:0px 5px;">👥 2v2</span>
+        <span>🤝 w/</span>
+        <span class="player-link" style="font-weight:700; color:#e9d5ff; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeJsArg(pId)}', '${escapeJsArg(pName)}')">${escapeHtml(pName)}</span>
+        ${pFac && pFac !== "Unknown" ? `<span style="color:var(--text-muted);">(${escapeHtml(pFac)})</span>` : ""}
+      </div>
+    ` : `
+      <div style="margin-bottom:2px;">
+        <span class="badge" style="background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.38); font-size:0.62rem; font-weight:800; padding:0px 5px;">👥 2v2 Doubles</span>
+      </div>
+    `;
+
+    const opps = rawOppsList.length > 0
+      ? rawOppsList
+      : [{ player_id: oppId, player_name: oppName, faction: oppFac }];
+    const oppLinksHtml = opps.map(op => {
+      const oid = op.player_id || op.id || "";
+      const oname = op.player_name || op.name || "Opponent";
+      return `<span class="player-link" style="font-weight:600; color:#38bdf8; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeJsArg(oid)}', '${escapeJsArg(oname)}')" title="Quick scout ${escapeHtml(oname)}">${escapeHtml(oname)}</span>`;
+    }).join('<span style="color:var(--text-muted); margin:0 4px;">&amp;</span>');
+
+    const oppFacs = opps.map(op => op.faction).filter(f => f && f !== "Unknown");
+    const facLine = oppFacs.length > 0 ? oppFacs.join(" / ") : oppFac;
+
+    return `
+      ${partnerHtml}
+      <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+        <span style="font-size:0.7rem; color:var(--text-muted); font-weight:700;">vs</span>
+        ${oppLinksHtml}
+        ${oppBadgeHtml}
+      </div>
+      <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; margin-top:2px;">
+        ${facLine ? `<span style="font-size:0.72rem; color:var(--text-muted);">${escapeHtml(facLine)}</span>` : ""}
+        ${evId ? `
+          <button type="button" class="journey-action-pill journey-roster-pill-sm" onclick="event.stopPropagation(); openJourneyPlayerRosterModal('${escapeJsArg(evId)}', '${escapeJsArg(oppId)}', '${escapeJsArg(oppName)}', '${escapeJsArg(facLine)}', '${escapeJsArg(evName)}')" title="View opposing duo roster">
+            📋 Roster
+          </button>
+        ` : ""}
+      </div>
+    `;
+  }
+
+  if (isFfa) {
+    const podSize = Number(r.pod_size || (rawOppsList.length ? rawOppsList.length + 1 : 4)) || 4;
+    const placeNum = Number(r.pod_placement || (r.result === "W" ? 1 : 0));
+    const placeBadge = r.result === "W"
+      ? `<span class="badge" style="background:rgba(34,197,94,0.18); color:#4ade80; border:1px solid rgba(34,197,94,0.38); font-size:0.62rem; font-weight:800; padding:0px 5px;">🏆 1st / ${podSize}</span>`
+      : (r.result === "D"
+        ? `<span class="badge" style="background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.38); font-size:0.62rem; font-weight:800; padding:0px 5px;">🤝 Pod Draw (${podSize}P)</span>`
+        : `<span class="badge" style="background:rgba(148,163,184,0.14); color:#cbd5e1; border:1px solid rgba(148,163,184,0.28); font-size:0.62rem; font-weight:700; padding:0px 5px;">Seat #${placeNum || "-"} / ${podSize}</span>`);
+
+    const opps = rawOppsList;
+    const oppItemsHtml = opps.map(op => {
+      const oid = op.player_id || op.id || "";
+      const oname = op.player_name || op.name || "Pod Opponent";
+      const ofac = (op.faction && op.faction !== "Unknown" && !String(op.faction).startsWith("Pod (")) ? op.faction : "";
+      const isPodWinner = Boolean(op.is_winner || op.result === "W" || Number(op.placement) === 1);
+      return `
+        <span style="display:inline-flex; align-items:center; gap:3px; background:rgba(255,255,255,0.04); border:1px solid ${isPodWinner ? "rgba(245,158,11,0.4)" : "rgba(255,255,255,0.08)"}; border-radius:4px; padding:1px 6px; font-size:0.72rem;">
+          ${isPodWinner ? '<span title="Pod Winner">👑</span>' : ""}
+          <span class="player-link" style="font-weight:600; color:${isPodWinner ? "#fbbf24" : "#38bdf8"}; cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeJsArg(oid)}', '${escapeJsArg(oname)}')">${escapeHtml(oname)}</span>
+          ${ofac ? `<span style="font-size:0.65rem; color:var(--text-muted);">(${escapeHtml(ofac)})</span>` : ""}
+        </span>
+      `;
+    }).join("");
+
+    return `
+      <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap; margin-bottom:3px;">
+        <span class="badge" style="background:rgba(16,185,129,0.16); color:#34d399; border:1px solid rgba(16,185,129,0.35); font-size:0.62rem; font-weight:800; padding:0px 5px;">🎲 ${podSize}P Pod</span>
+        ${placeBadge}
+        ${oppBadgeHtml}
+      </div>
+      <div style="display:flex; align-items:center; gap:0.3rem; flex-wrap:wrap;">
+        ${oppItemsHtml || `<span style="font-size:0.78rem; color:#38bdf8;">${escapeHtml(oppName)}</span>`}
+      </div>
+    `;
+  }
+
+  return `
+    <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+      <span class="player-link" style="font-weight: 600; color: #38bdf8; cursor: pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeJsArg(oppId)}', '${escapeJsArg(oppName)}')" title="Quick scout ${escapeHtml(oppName)}">${escapeHtml(oppName)}</span>
+      ${oppBadgeHtml}
+    </div>
+    <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 2px;">
+      ${oppFac ? `<span style="font-size: 0.72rem; color: var(--text-muted);">${escapeHtml(oppFac)}</span>` : ""}
+      ${evId ? `
+        <button type="button" class="journey-action-pill journey-roster-pill-sm" onclick="event.stopPropagation(); openJourneyPlayerRosterModal('${escapeJsArg(evId)}', '${escapeJsArg(oppId)}', '${escapeJsArg(oppName)}', '${escapeJsArg(oppFac)}', '${escapeJsArg(evName)}')" title="View ${escapeHtml(oppName)}'s army roster">
+          📋 Roster
+        </button>
+      ` : ""}
+    </div>
+  `;
+}
 
 function normalizeGameSystem(val, defaultSys = "40k") {
   if (!val) return defaultSys;
@@ -1126,4 +1370,11 @@ if (typeof window !== "undefined") {
   window.getGameSystemShortLabel = getGameSystemShortLabel;
   window.getGameSystemIcon = getGameSystemIcon;
   window.hasGameTracker = hasGameTracker;
+  window.isBcpEventId = isBcpEventId;
+  window.getEventPlatform = getEventPlatform;
+  window.getPlatformDisplayName = getPlatformDisplayName;
+  window.getPlatformExternalEventUrl = getPlatformExternalEventUrl;
+  window.getPlatformBadgeHtml = getPlatformBadgeHtml;
+  window.getEventFormatBadgeHtml = getEventFormatBadgeHtml;
+  window.buildMatchOpponentCellHtml = buildMatchOpponentCellHtml;
 }

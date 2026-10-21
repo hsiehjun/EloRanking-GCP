@@ -727,9 +727,9 @@ function renderPlayerMatches(history, isFiltered = false) {
       </button>
     ` : scoreStr;
 
-    tr.innerHTML = `
-      <td style="text-align: center;"><span class="badge ${resClass}" style="font-size: 0.72rem; padding: 0.15rem 0.4rem; min-width: 22px;">${h.result || '-'}</span></td>
-      <td>
+    const oppCellHtml = (typeof buildMatchOpponentCellHtml === 'function')
+      ? buildMatchOpponentCellHtml(h, evId, evName, '')
+      : `
         <div class="scout-cell-stack">
           ${oppLink}
           <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
@@ -737,6 +737,12 @@ function renderPlayerMatches(history, isFiltered = false) {
             ${oppRosterBtn}
           </div>
         </div>
+      `;
+
+    tr.innerHTML = `
+      <td style="text-align: center;"><span class="badge ${resClass}" style="font-size: 0.72rem; padding: 0.15rem 0.4rem; min-width: 22px;">${h.result || '-'}</span></td>
+      <td>
+        ${oppCellHtml}
       </td>
       <td class="scout-col-event">
         <div class="scout-cell-stack">
@@ -2370,7 +2376,7 @@ async function openScorecardModal(matchId) {
   const p1ScoreEl = document.getElementById('msc-p1-score');
   const p2ScoreEl = document.getElementById('msc-p2-score');
 
-  const bcpMatch = String(matchId).match(/^(?:(WH40K-|AOS-))?(BCP|ES)-(.+?)-R(\d+)-T(\d+)(?:-(?:M|P)-(.+))?$/i);
+  const bcpMatch = String(matchId).match(/^(?:(WH40K-|AOS-))?(BCP|ES|MELEE|LTCG|LS|TD)-(.+?)-R(\d+)-T(\d+)(?:-(?:M|P)-(.+))?$/i);
   const parsedEventId = bcpMatch ? bcpMatch[3] : (fallbackMatchMeta && fallbackMatchMeta.event_id ? String(fallbackMatchMeta.event_id) : null);
   const parsedRound = bcpMatch ? parseInt(bcpMatch[4], 10) : (fallbackMatchMeta && fallbackMatchMeta.round ? Number(fallbackMatchMeta.round) : null);
   const parsedTable = bcpMatch ? parseInt(bcpMatch[5], 10) : (fallbackMatchMeta && fallbackMatchMeta.table_number ? Number(fallbackMatchMeta.table_number) : null);

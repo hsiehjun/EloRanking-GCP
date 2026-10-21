@@ -167,20 +167,113 @@ def test_main_cli_multigame_support():
 
 
 def test_cloudbuild_deployment_pipeline():
-    """Verify cloudbuild.yaml has update steps for active Cloud Run jobs: elo-tournament-sync-job, elo-historical-scrape, and player-sync-job."""
+    """Verify cloudbuild.yaml has update steps for all active Cloud Run jobs including separate platform sync jobs."""
     with open(ROOT_DIR / "cloudbuild.yaml", "r", encoding="utf-8") as f:
         cb_src = f.read()
 
     assert "elo-tournament-sync-job" in cb_src
     assert "elo-historical-scrape" in cb_src
     assert "player-sync-job" in cb_src
+    assert "elo-melee-sync-job" in cb_src
+    assert "elo-limitless-sync-job" in cb_src
+    assert "elo-longshanks-sync-job" in cb_src
+    assert "elo-topdeck-sync-job" in cb_src
+    assert "scripts/sync_melee.py" in cb_src
+    assert "scripts/sync_limitless.py" in cb_src
+    assert "scripts/sync_longshanks.py" in cb_src
+    assert "scripts/sync_topdeck.py" in cb_src
     assert "wahapedia-sync-job" not in cb_src
     assert "cleanup-nr-relay" not in cb_src
     assert "id: 'update-tournament-job'" in cb_src
     assert "id: 'update-historical-scrape-job'" in cb_src
     assert "id: 'update-player-sync-job'" in cb_src
+    assert "id: 'update-melee-sync-job'" in cb_src
+    assert "id: 'update-limitless-sync-job'" in cb_src
+    assert "id: 'update-longshanks-sync-job'" in cb_src
+    assert "id: 'update-topdeck-sync-job'" in cb_src
 
     print("✅ test_cloudbuild_deployment_pipeline passed")
+
+
+def test_separate_platform_cloud_run_jobs():
+    """Verify standalone Cloud Run Job scripts (sync_melee, sync_limitless, sync_longshanks, sync_topdeck) and deploy_platform_job."""
+    from scripts.sync_melee import run_melee_sync
+    from scripts.sync_limitless import run_limitless_sync
+    from scripts.sync_longshanks import run_longshanks_sync
+    from scripts.sync_topdeck import run_topdeck_sync
+    from scripts.deploy_platform_job import _extract_template_config
+
+    mock_db = MagicMock()
+    with patch("scripts.sync_melee.get_sync_db", return_value=mock_db), \
+         patch("scripts.sync_melee.import_live_melee_tournaments", return_value={"events_imported": 2, "participants_imported": 100, "matches_imported": 300}) as m_melee, \
+         patch("scripts.sync_melee.finalize_platform_sync", return_value={"systems_updated": ["mtg"], "reconstruction": {}}) as f_melee:
+        res_m = run_melee_sync(game_system="mtg", max_events=2)
+        assert res_m["platform"] == "melee"
+        assert res_m["events_imported"] == 2
+        m_melee.assert_called_once()
+        f_melee.assert_called_once_with(mock_db, ["mtg"], platform_name="Melee.gg")
+
+    with patch("scripts.sync_limitless.get_sync_db", return_value=mock_db), \
+         patch("scripts.sync_limitless.import_live_limitless_tournaments", return_value={"events_imported": 3, "participants_imported": 150, "matches_imported": 450}) as m_ltcg, \
+         patch("scripts.sync_limitless.finalize_platform_sync", return_value={"systems_updated": ["pokemon"], "reconstruction": {}}) as f_ltcg:
+        res_l = run_limitless_sync(game_system="pokemon", max_events=3)
+        assert res_l["platform"] == "limitless"
+        assert res_l["events_imported"] == 3
+        m_ltcg.assert_called_once()
+        f_ltcg.assert_called_once_with(mock_db, ["pokemon"], platform_name="LimitlessTCG")
+
+    with patch("scripts.sync_longshanks.get_sync_db", return_value=mock_db), \
+         patch("scripts.sync_longshanks.import_live_longshanks_tournaments", return_value={"events_imported": 2, "participants_imported": 56, "matches_imported": 168}) as m_ls, \
+         patch("scripts.sync_longshanks.finalize_platform_sync", return_value={"systems_updated": ["mcp"], "reconstruction": {}}) as f_ls:
+        res_ls = run_longshanks_sync(game_system="mcp", max_events=2)
+        assert res_ls["platform"] == "longshanks"
+        assert res_ls["events_imported"] == 2
+        m_ls.assert_called_once()
+        f_ls.assert_called_once_with(mock_db, ["mcp"], platform_name="Longshanks")
+
+    with patch("scripts.sync_topdeck.get_sync_db", return_value=mock_db), \
+         patch("scripts.sync_topdeck.import_live_topdeck_tournaments", return_value={"events_imported": 3, "participants_imported": 284, "pods_imported": 404, "matches_imported": 404}) as m_td, \
+         patch("scripts.sync_topdeck.finalize_platform_sync", return_value={"systems_updated": ["mtg"], "reconstruction": {}}) as f_td:
+        res_td = run_topdeck_sync(game_system="mtg", max_events=3)
+        assert res_td["platform"] == "topdeck"
+        assert res_td["events_imported"] == 3
+        m_td.assert_called_once()
+        f_td.assert_called_once_with(mock_db, ["mtg"], platform_name="TopDeck.gg")
+
+    # Verify deploy_platform_job template extraction
+    sample_job_json = {
+        "spec": {
+            "template": {
+                "metadata": {
+                    "annotations": {
+                        "run.googleapis.com/cloudsql-instances": "eloranking-506820:us-central1:elo-postgres"
+                    }
+                },
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "serviceAccountName": "elo-sa@eloranking-506820.iam.gserviceaccount.com",
+                            "containers": [
+                                {
+                                    "env": [
+                                        {"name": "DATABASE_URL", "value": "postgresql://user:pass@/db?host=/cloudsql/inst"},
+                                        {"name": "BCP_SECRET", "valueFrom": {"secretKeyRef": {"name": "bcp-sec", "key": "1"}}},
+                                    ]
+                                }
+                            ],
+                        }
+                    }
+                },
+            }
+        }
+    }
+    csql, sa, envs, secrets = _extract_template_config(sample_job_json)
+    assert csql == "eloranking-506820:us-central1:elo-postgres"
+    assert sa == "elo-sa@eloranking-506820.iam.gserviceaccount.com"
+    assert envs == ["DATABASE_URL=postgresql://user:pass@/db?host=/cloudsql/inst"]
+    assert secrets == ["BCP_SECRET=bcp-sec:1"]
+
+    print("✅ test_separate_platform_cloud_run_jobs passed")
 
 
 def test_elo_engine_partitioning_and_isolation():
@@ -327,7 +420,9 @@ def test_active_public_tables_and_obsolete_pruning():
     assert created == PostgresDatabase.ACTIVE_PUBLIC_TABLES, (
         f"Mismatch between runtime CREATE TABLE ({created ^ PostgresDatabase.ACTIVE_PUBLIC_TABLES}) and ACTIVE_PUBLIC_TABLES"
     )
-    assert len(PostgresDatabase.ACTIVE_PUBLIC_TABLES) == 40
+    assert len(PostgresDatabase.ACTIVE_PUBLIC_TABLES) == 42
+    assert "match_participants" in PostgresDatabase.ACTIVE_PUBLIC_TABLES
+    assert "user_platform_links" in PostgresDatabase.ACTIVE_PUBLIC_TABLES
     assert "user_army_lists" not in PostgresDatabase.ACTIVE_PUBLIC_TABLES
     assert "native_league_matches" not in PostgresDatabase.ACTIVE_PUBLIC_TABLES
     assert "native_studio_events" not in PostgresDatabase.ACTIVE_PUBLIC_TABLES
@@ -343,6 +438,7 @@ if __name__ == "__main__":
     test_elo_historical_scrape_job()
     test_main_cli_multigame_support()
     test_cloudbuild_deployment_pipeline()
+    test_separate_platform_cloud_run_jobs()
     test_elo_engine_partitioning_and_isolation()
     test_pwa_and_browser_auto_update_and_sw_killer()
     test_armory_40k_and_aos_equipped_isolation()

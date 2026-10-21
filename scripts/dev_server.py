@@ -1875,6 +1875,71 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"success": True, "acknowledged_badge_ids": DEV_USER["acknowledged_badge_ids"]}).encode("utf-8"))
             return
 
+        if clean_path in (
+            "api/user/platform/link",
+            "api/user/platform/link/",
+            "api/auth/link-platform",
+            "api/auth/link-platform/",
+            "api/user/platform/unlink",
+            "api/user/platform/unlink/",
+            "api/auth/unlink-platform",
+            "api/auth/unlink-platform/",
+            "api/user/reconstruct-elo",
+            "api/user/reconstruct-elo/",
+            "api/auth/reconstruct-elo",
+            "api/auth/reconstruct-elo/",
+            "api/user/bcp/verify-link",
+            "api/user/bcp/verify-link/",
+        ):
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            local_db = get_local_sqlite_db()
+            uid = str(p_load.get("user_id") or self.headers.get("X-Test-User") or "user_omni_multiplatform_1").strip()
+            game_sys = p_load.get("game_system")
+            if local_db:
+                if "unlink" in clean_path:
+                    plat = str(p_load.get("platform") or "bcp").strip().lower()
+                    p_pid = str(p_load.get("platform_player_id") or p_load.get("player_id") or "").strip()
+                    res = local_db.unlink_user_platform_and_reconstruct(
+                        user_id=uid,
+                        platform=plat,
+                        platform_player_id=p_pid,
+                        game_system=game_sys,
+                    )
+                elif "platform/link" in clean_path or "link-platform" in clean_path or "bcp/verify-link" in clean_path:
+                    plat = str(p_load.get("platform") or ("bcp" if "bcp" in clean_path else "limitlesstcg")).strip().lower()
+                    p_pid = str(p_load.get("platform_player_id") or p_load.get("player_id") or p_load.get("bcp_player_id") or "ltcg:corndog_xx").strip()
+                    p_handle = p_load.get("platform_handle") or p_load.get("player_name")
+                    d_name = p_load.get("display_name") or p_handle
+                    res = local_db.link_user_platform_and_reconstruct(
+                        user_id=uid,
+                        platform=plat,
+                        platform_player_id=p_pid,
+                        platform_handle=p_handle,
+                        display_name=d_name,
+                        game_system=game_sys,
+                    )
+                else:
+                    res = local_db.reconstruct_user_elo(uid, game_system=game_sys)
+                res["elo_reconstruction"] = dict(res)
+            else:
+                res = {
+                    "success": True,
+                    "user_id": uid,
+                    "elapsed_ms": 4.2,
+                    "status_message": "✅ Reconstructed Elo in 4.2ms!",
+                }
+                res["elo_reconstruction"] = dict(res)
+            http_status = int(res.get("status_code") or (200 if res.get("success") else 400))
+            self.send_response(http_status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(res, default=str).encode("utf-8"))
+            return
+
         if clean_path.startswith("api/armory/"):
             try:
                 payload = json.loads(body.decode("utf-8")) if body else {}
@@ -3386,8 +3451,13 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         if clean_path in ("api/stats", "api/stats/", "api/events/stats", "api/events/stats/"):
             from config import normalize_game_system, get_game_system_meta
             from database import PostgresDatabase
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            local_db = get_local_sqlite_db()
             sys_val = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
-            if sys_val == "40k":
+            sql_stats = local_db.get_summary_stats(sys_val) if local_db else None
+            if sql_stats and sys_val not in ("40k", "aos"):
+                stats_res = sql_stats
+            elif sys_val == "40k":
                 stats_res = dict(PostgresDatabase.DEFAULT_40K_STATS)
             elif sys_val == "aos":
                 stats_res = dict(PostgresDatabase.DEFAULT_AOS_STATS)
@@ -3937,9 +4007,62 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": True, "event": DEV_STUDIO_EVENT}).encode("utf-8"))
             return
 
-        if clean_path.startswith("api/player/"):
+        if clean_path in ("api/players", "api/players/", "api/players/search", "api/players/search/"):
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            local_db = get_local_sqlite_db()
+            sys_val = (query_params.get("game_system") or ["40k"])[0]
+            q_val = (query_params.get("query") or query_params.get("q") or query_params.get("search") or [""])[0]
+            fac_val = (query_params.get("faction") or ["All"])[0]
+            try:
+                min_m = int((query_params.get("min_matches") or ["0"])[0])
+            except Exception:
+                min_m = 0
+            try:
+                lim = int((query_params.get("limit") or query_params.get("page_size") or ["50"])[0])
+            except Exception:
+                lim = 50
+            res_dir = local_db.search_players_directory(
+                game_system=sys_val, query=q_val, faction=fac_val, min_matches=min_m, limit=lim
+            ) if local_db else {"players": [], "total": 0, "game_system": sys_val}
+            payload_out = res_dir["players"] if "search" in clean_path else res_dir
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(payload_out, default=str).encode("utf-8"))
+            return
+
+        if clean_path in ("api/predict", "api/predict/", "api/predict/match", "api/predict/match/", "api/eventstudio/match_predictor", "api/eventstudio/match_predictor/"):
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            local_db = get_local_sqlite_db()
+            sys_val = (query_params.get("game_system") or ["40k"])[0]
+            p1_v = (query_params.get("p1") or query_params.get("p1_id") or query_params.get("p1_name") or query_params.get("player1") or [""])[0]
+            p2_v = (query_params.get("p2") or query_params.get("p2_id") or query_params.get("p2_name") or query_params.get("player2") or [""])[0]
+            f1_v = (query_params.get("p1_faction") or [None])[0]
+            f2_v = (query_params.get("p2_faction") or [None])[0]
+            if not p1_v or not p2_v:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps({"detail": "Missing p1 or p2 parameters"}).encode("utf-8"))
+                return
+            pred_res = local_db.predict_match_outcome(p1_v, p2_v, game_system=sys_val, p1_faction=f1_v, p2_faction=f2_v) if local_db else {}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(pred_res, default=str).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/player/") or (clean_path.startswith("api/players/") and len(clean_path) > len("api/players/")):
             import leagues_hub_service
-            raw_subpath = clean_path.replace("api/player/", "").strip("/")
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            raw_subpath = (
+                clean_path.replace("api/players/", "", 1)
+                if clean_path.startswith("api/players/")
+                else clean_path.replace("api/player/", "", 1)
+            ).strip("/")
             if raw_subpath.endswith("/quick"):
                 raw_subpath = raw_subpath[:-6].strip("/")
             pid = urllib.parse.unquote(raw_subpath)
@@ -4266,6 +4389,18 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "longest_win_streak": max(5, int(career.get("pod_titles", 0)) * 3 + 4),
                     "history": history_rows
                 }
+            elif (
+                get_local_sqlite_db() is not None
+                and "folger" not in pid.lower()
+                and "folger" not in req_name
+                and (
+                    get_local_sqlite_db().get_player_profile(pid, game_system=((query_params.get("game_system") or query_params.get("system") or ["40k"])[0] or "40k").strip().lower())
+                    or (req_name and get_local_sqlite_db().get_player_profile(req_name, game_system=((query_params.get("game_system") or query_params.get("system") or ["40k"])[0] or "40k").strip().lower()))
+                )
+            ):
+                req_game_sys_q = ((query_params.get("game_system") or query_params.get("system") or ["40k"])[0] or "40k").strip().lower()
+                local_db = get_local_sqlite_db()
+                res = local_db.get_player_profile(pid, game_system=req_game_sys_q) or local_db.get_player_profile(req_name, game_system=req_game_sys_q)
             elif any(
                 (
                     str(pl.get("player_id") or pl.get("id") or "").strip().lower() == pid.lower()
@@ -4391,165 +4526,270 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "history": hist_items
                 }
             else:
-                req_name_raw = (query_params.get("name", [None])[0] or "").strip()
-                fallback_name = req_name_raw if (req_name_raw and "folger" not in req_name_raw.lower() and "folger" not in pid.lower()) else "Folger Pyles"
-                fallback_pid = pid if (fallback_name != "Folger Pyles" and pid) else "p_folger_pyles"
-                res = {
-                    "player": {
-                        "player_id": fallback_pid,
-                        "player_name": fallback_name,
-                        "team": "Art of War",
-                        "teams_history": [
-                            "Art of War",
-                            "Team USA",
-                            "Gem Wargaming",
-                            "Battle Brothers Wargaming",
-                            "Bookery Battle Brothers",
-                            "Gemhammer",
-                            "Watchers in the dark"
-                        ],
-                        "top_faction": "Adeptus Custodes, Aeldari, Necrons, Drukhari, Imperial Agents, Chaos Space Marines, Ynnari, Death Guard, World Eaters",
-                        "current_elo": 2495.2,
-                        "peak_elo": 2495.2,
-                        "wins": 290,
-                        "losses": 30,
-                        "draws": 2,
-                        "win_rate": 90.1,
-                        "total_matches": 322
-                    },
-                    "has_account": False,
-                    "longest_win_streak": 36,
-                    "tournaments": [
-                        {
-                            "event_id": "ev_tacoma_gt_2026",
-                            "event_name": "Battle For The Crown GT 2026",
-                            "event_date": "2026-06-21",
-                            "total_players": 64,
-                            "num_rounds": 5,
-                            "placement": 1,
-                            "wins": 5,
-                            "losses": 0,
-                            "draws": 0,
-                            "faction": "Aeldari"
-                        },
-                        {
-                            "event_id": "ev_gemhammer_2022",
-                            "event_name": "GemHammer RTT April 2022",
-                            "event_date": "2022-04-16",
-                            "total_players": 28,
-                            "num_rounds": 4,
-                            "placement": 3,
-                            "wins": 3,
-                            "losses": 1,
-                            "draws": 0,
-                            "faction": "Adeptus Custodes"
+                from scripts.local_sqlite_db import get_local_sqlite_db
+                local_db = get_local_sqlite_db()
+                req_game_sys_q = (query_params.get("game_system", ["40k"])[0] or "40k").strip().lower()
+                sql_profile = None
+                if local_db and "folger" not in pid.lower() and "folger" not in req_name:
+                    sql_profile = local_db.get_player_profile(pid, game_system=req_game_sys_q)
+                    if not sql_profile and req_name:
+                        sql_profile = local_db.get_player_profile(req_name, game_system=req_game_sys_q)
+                if sql_profile:
+                    res = sql_profile
+                else:
+                    req_name_raw = (query_params.get("name", [None])[0] or "").strip()
+                    synth_catalog = {
+                        "p_innes_wilson": {"player_name": "Innes Wilson", "team": "Art of War", "top_faction": "Space Marines, Dark Angels", "current_elo": 2375.2, "peak_elo": 2390.0, "wins": 120, "losses": 15, "draws": 2, "win_rate": 87.6, "total_matches": 137, "has_account": True, "game_system": "40k"},
+                        "p_david_gaylard": {"player_name": "David Gaylard", "team": "Team Zero Comp", "top_faction": "Necrons, Custodes", "current_elo": 2280.4, "peak_elo": 2310.0, "wins": 98, "losses": 18, "draws": 0, "win_rate": 84.5, "total_matches": 116, "has_account": False, "game_system": "40k"},
+                        "p_jack_harpster": {"player_name": "Jack Harpster", "team": "Art of War", "top_faction": "Blood Angels", "current_elo": 2240.1, "peak_elo": 2260.0, "wins": 85, "losses": 22, "draws": 1, "win_rate": 78.7, "total_matches": 108, "has_account": True, "game_system": "40k"},
+                        "p_richard_siegler": {"player_name": "Richard Siegler", "team": "Art of War", "top_faction": "Adeptus Mechanicus", "current_elo": 2195.0, "peak_elo": 2240.0, "wins": 130, "losses": 35, "draws": 3, "win_rate": 77.4, "total_matches": 168, "has_account": True, "game_system": "40k"},
+                        "p_manning_feinleib": {"player_name": "Manning Feinleib", "team": "Team Zero Comp", "top_faction": "Tyranids", "current_elo": 2170.2, "peak_elo": 2190.0, "wins": 75, "losses": 21, "draws": 1, "win_rate": 77.3, "total_matches": 97, "has_account": False, "game_system": "40k"},
+                        "p_aos_nicolas_tassone": {"player_name": "Nicolas Tassone", "team": "Hammerhal Vanguard", "top_faction": "Stormcast Eternals, Lumineth Realm-lords", "current_elo": 2364.8, "peak_elo": 2382.0, "wins": 114, "losses": 14, "draws": 1, "win_rate": 88.4, "total_matches": 129, "has_account": True, "game_system": "aos"},
+                        "p_aos_will_brittain": {"player_name": "Will Brittain", "team": "Aqshy Reavers", "top_faction": "Blades of Khorne, Slaves to Darkness", "current_elo": 2318.5, "peak_elo": 2340.0, "wins": 102, "losses": 16, "draws": 2, "win_rate": 85.0, "total_matches": 120, "has_account": True, "game_system": "aos"},
+                        "p_aos_gavin_grigar": {"player_name": "Gavin Grigar", "team": "Shyish Deathlords", "top_faction": "Soulblight Gravelords, Nighthaunt", "current_elo": 2269.0, "peak_elo": 2295.0, "wins": 92, "losses": 17, "draws": 1, "win_rate": 83.6, "total_matches": 110, "has_account": True, "game_system": "aos"},
+                        "p_aos_mat_mabbott": {"player_name": "Mat Mabbott", "team": "Ghyran Guardians", "top_faction": "Sylvaneth, Daughters of Khaine", "current_elo": 2234.2, "peak_elo": 2255.0, "wins": 84, "losses": 19, "draws": 1, "win_rate": 80.8, "total_matches": 104, "has_account": False, "game_system": "aos"},
+                        "p_aos_terry_pike": {"player_name": "Terry Pike", "team": "Hammerhal Vanguard", "top_faction": "Ogor Mawtribes, Sons of Behemat", "current_elo": 2198.6, "peak_elo": 2220.0, "wins": 78, "losses": 20, "draws": 2, "win_rate": 78.0, "total_matches": 100, "has_account": True, "game_system": "aos"},
+                        "p_aos_chris_donnan": {"player_name": "Chris Donnan", "team": "Aqshy Reavers", "top_faction": "Idoneth Deepkin, Kharadron Overlords", "current_elo": 2175.4, "peak_elo": 2204.0, "wins": 74, "losses": 21, "draws": 1, "win_rate": 77.1, "total_matches": 96, "has_account": False, "game_system": "aos"},
+                        "p_aos_anthony_trier": {"player_name": "Anthony Trier", "team": "Shyish Deathlords", "top_faction": "Lumineth Realm-lords, Cities of Sigmar", "current_elo": 2148.0, "peak_elo": 2180.0, "wins": 69, "losses": 21, "draws": 1, "win_rate": 75.8, "total_matches": 91, "has_account": True, "game_system": "aos"},
+                    }
+                    synth_entry = synth_catalog.get(pid.lower())
+                    if not synth_entry and req_name_raw:
+                        for sc_id, sc_val in synth_catalog.items():
+                            if sc_val["player_name"].lower() == req_name_raw.lower():
+                                synth_entry = sc_val
+                                pid = sc_id
+                                break
+                    if synth_entry:
+                        s_fac = synth_entry["top_faction"].split(",")[0].strip()
+                        s_sys = synth_entry["game_system"]
+                        opp_fac_1 = "Slaves to Darkness" if s_sys == "aos" else "Aeldari"
+                        opp_fac_2 = "Soulblight Gravelords" if s_sys == "aos" else "Necrons"
+                        res = {
+                            "player": {
+                                "player_id": pid,
+                                "player_name": synth_entry["player_name"],
+                                "team": synth_entry["team"],
+                                "teams_history": [synth_entry["team"]],
+                                "top_faction": synth_entry["top_faction"],
+                                "current_elo": synth_entry["current_elo"],
+                                "peak_elo": synth_entry["peak_elo"],
+                                "wins": synth_entry["wins"],
+                                "losses": synth_entry["losses"],
+                                "draws": synth_entry["draws"],
+                                "win_rate": synth_entry["win_rate"],
+                                "total_matches": synth_entry["total_matches"],
+                                "game_system": s_sys,
+                            },
+                            "has_account": synth_entry["has_account"],
+                            "longest_win_streak": 14,
+                            "tournaments": [
+                                {
+                                    "event_id": f"ev_{s_sys}_championship_2026",
+                                    "event_name": "Mortal Realms Grand Championship 2026" if s_sys == "aos" else "Battle For The Crown GT 2026",
+                                    "event_date": "2026-06-21",
+                                    "total_players": 64,
+                                    "num_rounds": 5,
+                                    "placement": 1,
+                                    "wins": 5,
+                                    "losses": 0,
+                                    "draws": 0,
+                                    "faction": s_fac,
+                                }
+                            ],
+                            "history": [
+                                {
+                                    "match_date": "2026-06-21",
+                                    "event_id": f"ev_{s_sys}_championship_2026",
+                                    "event_name": "Mortal Realms Grand Championship 2026" if s_sys == "aos" else "Battle For The Crown GT 2026",
+                                    "round": 1,
+                                    "result": "W",
+                                    "player_score": 50 if s_sys == "aos" else 96,
+                                    "opponent_score": 32 if s_sys == "aos" else 68,
+                                    "player_faction": s_fac,
+                                    "opponent_name": "Will Brittain" if s_sys == "aos" else "Jack Harpster",
+                                    "opponent_id": "p_aos_will_brittain" if s_sys == "aos" else "p_jack_harpster",
+                                    "opponent_faction": opp_fac_1,
+                                    "opponent_elo": 2240.0,
+                                    "delta_elo": 12.4,
+                                    "new_elo": synth_entry["current_elo"],
+                                },
+                                {
+                                    "match_date": "2026-06-21",
+                                    "event_id": f"ev_{s_sys}_championship_2026",
+                                    "event_name": "Mortal Realms Grand Championship 2026" if s_sys == "aos" else "Battle For The Crown GT 2026",
+                                    "round": 2,
+                                    "result": "W",
+                                    "player_score": 48 if s_sys == "aos" else 92,
+                                    "opponent_score": 36 if s_sys == "aos" else 74,
+                                    "player_faction": s_fac,
+                                    "opponent_name": "Gavin Grigar" if s_sys == "aos" else "David Gaylard",
+                                    "opponent_id": "p_aos_gavin_grigar" if s_sys == "aos" else "p_david_gaylard",
+                                    "opponent_faction": opp_fac_2,
+                                    "opponent_elo": 2210.0,
+                                    "delta_elo": 11.8,
+                                    "new_elo": synth_entry["current_elo"],
+                                },
+                            ],
                         }
-                    ],
-                    "history": [
-                        {
-                            "match_date": "2022-04-16",
-                            "event_name": "GemHammer RTT April 2022",
-                            "round": "R1",
-                            "result": "W",
-                            "player_score": 69,
-                            "opponent_score": 63,
-                            "player_faction": "Adeptus Custodes",
-                            "opponent_name": "John Lennon",
-                            "opponent_faction": "Ultramarines",
-                            "opponent_elo": 1820.0,
-                            "delta_elo": 12.4,
-                            "new_elo": 2495.2
-                        },
-                        {
-                            "match_date": "2022-04-16",
-                            "event_name": "GemHammer RTT April 2022",
-                            "round": "R2",
-                            "result": "L",
-                            "player_score": 61,
-                            "opponent_score": 72,
-                            "player_faction": "Adeptus Custodes",
-                            "opponent_name": "David Gaylard",
-                            "opponent_faction": "Necrons",
-                            "opponent_elo": 1900.0,
-                            "delta_elo": -8.1,
-                            "new_elo": 2487.1
-                        },
-                        {
-                            "match_date": "2022-04-16",
-                            "event_name": "GemHammer RTT April 2022",
-                            "round": "R3",
-                            "result": "W",
-                            "player_score": 88,
-                            "opponent_score": 45,
-                            "player_faction": "Adeptus Custodes",
-                            "opponent_name": "Manny Cheema",
-                            "opponent_faction": "Tyranids",
-                            "opponent_elo": 2100.0,
-                            "delta_elo": 15.2,
-                            "new_elo": 2502.3
-                        },
-                        {
-                            "match_date": "2022-04-16",
-                            "event_id": "ev_gemhammer_2022",
-                            "event_name": "GemHammer RTT April 2022",
-                            "round": 4,
-                            "result": "W",
-                            "player_score": 95,
-                            "opponent_score": 50,
-                            "player_faction": "Adeptus Custodes",
-                            "opponent_name": "Brad Chester",
-                            "opponent_faction": "Aeldari",
-                            "opponent_elo": 2150.0,
-                            "delta_elo": 14.1,
-                            "new_elo": 2450.0
-                        },
-                        {
-                            "match_date": "2026-06-21",
-                            "event_id": "ev_tacoma_gt_2026",
-                            "event_name": "Battle For The Crown GT 2026",
-                            "round": 1,
-                            "result": "W",
-                            "player_score": 100,
-                            "opponent_score": 45,
-                            "player_faction": "Aeldari",
-                            "opponent_name": "Richard Siegler",
-                            "opponent_faction": "Tau Empire",
-                            "opponent_elo": 2380.0,
-                            "delta_elo": 18.2,
-                            "new_elo": 2468.2
-                        },
-                        {
-                            "match_date": "2026-06-21",
-                            "event_id": "ev_tacoma_gt_2026",
-                            "event_name": "Battle For The Crown GT 2026",
-                            "round": 2,
-                            "result": "W",
-                            "player_score": 92,
-                            "opponent_score": 71,
-                            "player_faction": "Aeldari",
-                            "opponent_name": "Jack Harpster",
-                            "opponent_faction": "Blood Angels",
-                            "opponent_elo": 2250.0,
-                            "delta_elo": 13.5,
-                            "new_elo": 2481.7
-                        },
-                        {
-                            "match_date": "2026-06-21",
-                            "event_id": "ev_tacoma_gt_2026",
-                            "event_name": "Battle For The Crown GT 2026",
-                            "round": 3,
-                            "result": "W",
-                            "player_score": 98,
-                            "opponent_score": 60,
-                            "player_faction": "Aeldari",
-                            "opponent_name": "John Lennon",
-                            "opponent_faction": "Ultramarines",
-                            "opponent_elo": 2340.5,
-                            "delta_elo": 13.5,
-                            "new_elo": 2495.2
+                    else:
+                        fallback_name = req_name_raw if (req_name_raw and "folger" not in req_name_raw.lower() and "folger" not in pid.lower()) else "Folger Pyles"
+                        fallback_pid = pid if (fallback_name != "Folger Pyles" and pid) else "p_folger_pyles"
+                        res = {
+                            "player": {
+                                "player_id": fallback_pid,
+                                "player_name": fallback_name,
+                                "team": "Art of War",
+                                "teams_history": [
+                                    "Art of War",
+                                    "Team USA",
+                                    "Gem Wargaming",
+                                    "Battle Brothers Wargaming",
+                                    "Bookery Battle Brothers",
+                                    "Gemhammer",
+                                    "Watchers in the dark"
+                                ],
+                                "top_faction": "Adeptus Custodes, Aeldari, Necrons, Drukhari, Imperial Agents, Chaos Space Marines, Ynnari, Death Guard, World Eaters",
+                                "current_elo": 2495.2,
+                                "peak_elo": 2495.2,
+                                "wins": 290,
+                                "losses": 30,
+                                "draws": 2,
+                                "win_rate": 90.1,
+                                "total_matches": 322
+                            },
+                            "has_account": False,
+                            "longest_win_streak": 36,
+                            "tournaments": [
+                                {
+                                    "event_id": "ev_tacoma_gt_2026",
+                                    "event_name": "Battle For The Crown GT 2026",
+                                    "event_date": "2026-06-21",
+                                    "total_players": 64,
+                                    "num_rounds": 5,
+                                    "placement": 1,
+                                    "wins": 5,
+                                    "losses": 0,
+                                    "draws": 0,
+                                    "faction": "Aeldari"
+                                },
+                                {
+                                    "event_id": "ev_gemhammer_2022",
+                                    "event_name": "GemHammer RTT April 2022",
+                                    "event_date": "2022-04-16",
+                                    "total_players": 28,
+                                    "num_rounds": 4,
+                                    "placement": 3,
+                                    "wins": 3,
+                                    "losses": 1,
+                                    "draws": 0,
+                                    "faction": "Adeptus Custodes"
+                                }
+                            ],
+                            "history": [
+                                {
+                                    "match_date": "2022-04-16",
+                                    "event_name": "GemHammer RTT April 2022",
+                                    "round": "R1",
+                                    "result": "W",
+                                    "player_score": 69,
+                                    "opponent_score": 63,
+                                    "player_faction": "Adeptus Custodes",
+                                    "opponent_name": "John Lennon",
+                                    "opponent_faction": "Ultramarines",
+                                    "opponent_elo": 1820.0,
+                                    "delta_elo": 12.4,
+                                    "new_elo": 2495.2
+                                },
+                                {
+                                    "match_date": "2022-04-16",
+                                    "event_name": "GemHammer RTT April 2022",
+                                    "round": "R2",
+                                    "result": "L",
+                                    "player_score": 61,
+                                    "opponent_score": 72,
+                                    "player_faction": "Adeptus Custodes",
+                                    "opponent_name": "David Gaylard",
+                                    "opponent_faction": "Necrons",
+                                    "opponent_elo": 1900.0,
+                                    "delta_elo": -8.1,
+                                    "new_elo": 2487.1
+                                },
+                                {
+                                    "match_date": "2022-04-16",
+                                    "event_name": "GemHammer RTT April 2022",
+                                    "round": "R3",
+                                    "result": "W",
+                                    "player_score": 88,
+                                    "opponent_score": 45,
+                                    "player_faction": "Adeptus Custodes",
+                                    "opponent_name": "Manny Cheema",
+                                    "opponent_faction": "Tyranids",
+                                    "opponent_elo": 2100.0,
+                                    "delta_elo": 15.2,
+                                    "new_elo": 2502.3
+                                },
+                                {
+                                    "match_date": "2022-04-16",
+                                    "event_id": "ev_gemhammer_2022",
+                                    "event_name": "GemHammer RTT April 2022",
+                                    "round": 4,
+                                    "result": "W",
+                                    "player_score": 95,
+                                    "opponent_score": 50,
+                                    "player_faction": "Adeptus Custodes",
+                                    "opponent_name": "Brad Chester",
+                                    "opponent_faction": "Aeldari",
+                                    "opponent_elo": 2150.0,
+                                    "delta_elo": 14.1,
+                                    "new_elo": 2450.0
+                                },
+                                {
+                                    "match_date": "2026-06-21",
+                                    "event_id": "ev_tacoma_gt_2026",
+                                    "event_name": "Battle For The Crown GT 2026",
+                                    "round": 1,
+                                    "result": "W",
+                                    "player_score": 100,
+                                    "opponent_score": 45,
+                                    "player_faction": "Aeldari",
+                                    "opponent_name": "Richard Siegler",
+                                    "opponent_faction": "Tau Empire",
+                                    "opponent_elo": 2380.0,
+                                    "delta_elo": 18.2,
+                                    "new_elo": 2468.2
+                                },
+                                {
+                                    "match_date": "2026-06-21",
+                                    "event_id": "ev_tacoma_gt_2026",
+                                    "event_name": "Battle For The Crown GT 2026",
+                                    "round": 2,
+                                    "result": "W",
+                                    "player_score": 92,
+                                    "opponent_score": 71,
+                                    "player_faction": "Aeldari",
+                                    "opponent_name": "Jack Harpster",
+                                    "opponent_faction": "Blood Angels",
+                                    "opponent_elo": 2250.0,
+                                    "delta_elo": 13.5,
+                                    "new_elo": 2481.7
+                                },
+                                {
+                                    "match_date": "2026-06-21",
+                                    "event_id": "ev_tacoma_gt_2026",
+                                    "event_name": "Battle For The Crown GT 2026",
+                                    "round": 3,
+                                    "result": "W",
+                                    "player_score": 98,
+                                    "opponent_score": 60,
+                                    "player_faction": "Aeldari",
+                                    "opponent_name": "John Lennon",
+                                    "opponent_faction": "Ultramarines",
+                                    "opponent_elo": 2340.5,
+                                    "delta_elo": 13.5,
+                                    "new_elo": 2495.2
+                                }
+                            ]
                         }
-                    ]
-                }
             is_self = bool(pid == DEV_USER.get("player_id") or pid == "p_folger_pyles" or pid == DEV_USER.get("id"))
             tournaments_list = (res.get("tournaments") or []) or (DEV_USER.get("events_attended", []) if is_self else [])
             res["tournaments"] = tournaments_list
@@ -4676,16 +4916,23 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path in ("api/community/bcp_majors", "api/community/bcp-majors"):
             from config import normalize_game_system
+            from scripts.local_sqlite_db import get_local_sqlite_db
             req_sys = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
+            majors_list = []
             try:
-                from routers.community import fetch_live_bcp_majors
-                majors_list = fetch_live_bcp_majors(game_system=req_sys)
-            except Exception as e:
-                try:
-                    from routers.community import get_fallback_majors
-                    majors_list = get_fallback_majors(req_sys)
-                except Exception:
-                    majors_list = []
+                from routers.community import get_fallback_majors
+                majors_list = list(get_fallback_majors(req_sys) or [])
+            except Exception:
+                majors_list = []
+            local_db = get_local_sqlite_db()
+            if local_db:
+                sql_evs = local_db.get_events_list(req_sys if req_sys not in ("all", "*") else None)
+                seen_m_ids = {str(m.get("id") or m.get("event_id")) for m in majors_list}
+                for se in sql_evs:
+                    sid = str(se.get("id"))
+                    if sid not in seen_m_ids:
+                        majors_list.insert(0, {**se, "event_id": sid})
+                        seen_m_ids.add(sid)
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -4700,6 +4947,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path in ("api/events/recommended", "api/community/overview", "api/community/bcp-upcoming", "api/community/bcp_upcoming"):
             from config import normalize_game_system, get_game_system_meta
+            from scripts.local_sqlite_db import get_local_sqlite_db
             req_sys = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
             sys_meta = get_game_system_meta(req_sys)
             sys_label = sys_meta.get("label", "Warhammer 40k")
@@ -4714,6 +4962,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "event_id": "ev_ongoing_gt_live" if req_sys == "40k" else f"ev_ongoing_{req_sys}_live",
                 "name": ongoing_name,
                 "game_system": req_sys,
+                "source_platform": "bcp",
+                "event_format": "1v1",
+                "format_label": "1v1 Singles",
                 "event_date": yesterday_iso,
                 "end_date": tomorrow_iso,
                 "city": "Atlanta",
@@ -4736,6 +4987,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "event_id": "ev_upcoming_rtt_sep" if req_sys == "40k" else f"ev_upcoming_{req_sys}_rtt",
                     "name": "Critical Hit Games September RTT 2026" if req_sys == "40k" else f"Critical Hit {sys_label} RTT 2026",
                     "game_system": req_sys,
+                    "source_platform": "bcp",
+                    "event_format": "1v1",
+                    "format_label": "1v1 Singles",
                     "event_date": "2026-09-26",
                     "end_date": "2026-09-26",
                     "city": "Seattle",
@@ -4756,6 +5010,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "event_id": "ev_upcoming_gt_oct" if req_sys == "40k" else f"ev_upcoming_{req_sys}_gt",
                     "name": "Pacific Northwest Autumn GT 2026" if req_sys == "40k" else f"Pacific Northwest {sys_label} GT 2026",
                     "game_system": req_sys,
+                    "source_platform": "bcp",
+                    "event_format": "1v1",
+                    "format_label": "1v1 Singles",
                     "event_date": "2026-10-24",
                     "end_date": "2026-10-25",
                     "city": "Portland",
@@ -4779,11 +5036,47 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 {"rank": 4, "player_id": "Te1Q9lp3By", "player_name": "Junior Aflleje", "current_elo": 2068.2, "peak_elo": 2090.0, "wins": 21, "losses": 6, "draws": 1, "matches_played": 28, "win_rate": 75.0, "team": "Dicehammer", "top_faction": "Leagues of Votann" if req_sys == "40k" else sys_facs[3 % len(sys_facs)], "city": "San Diego", "state": "CA", "game_system": req_sys},
                 {"rank": 5, "player_id": "p_vik", "player_name": "Vik Vijay", "current_elo": 2042.1, "peak_elo": 2060.0, "wins": 16, "losses": 5, "draws": 0, "matches_played": 21, "win_rate": 76.2, "team": "Team Ignite", "top_faction": "Aeldari" if req_sys == "40k" else sys_facs[4 % len(sys_facs)], "city": "Portland", "state": "OR", "game_system": req_sys}
             ]
+            recent_sql_events = []
+            local_db = get_local_sqlite_db()
             local_teams = [
                 {"rank": 1, "id": "team-art-of-war", "name": "Art of War", "team": "Art of War", "short_tag": "AOW", "power_rating": 2195.4, "active_avg_elo": 2145.2, "active_roster_count": 8, "total_wins": 142, "total_losses": 28, "team_win_rate": 83.5, "home_city": "San Diego", "home_state": "CA", "game_system": req_sys},
                 {"rank": 2, "id": "team-dicehammer", "name": "Dicehammer", "team": "Dicehammer", "short_tag": "DHM", "power_rating": 2088.6, "active_avg_elo": 2032.0, "active_roster_count": 12, "total_wins": 118, "total_losses": 42, "team_win_rate": 73.8, "home_city": "San Diego", "home_state": "CA", "game_system": req_sys},
                 {"rank": 3, "id": "team-stat-check", "name": "Stat Check", "team": "Stat Check", "short_tag": "STC", "power_rating": 2054.1, "active_avg_elo": 2005.8, "active_roster_count": 7, "total_wins": 96, "total_losses": 34, "team_win_rate": 73.8, "home_city": "Seattle", "state": "WA", "game_system": req_sys}
             ]
+            if local_db:
+                sql_evs = local_db.get_events_list(req_sys)
+                for se in sql_evs:
+                    ev_item = {
+                        **se,
+                        "event_id": se.get("id"),
+                        "num_tickets": max(int(se.get("total_players") or 16), 16),
+                        "ticket_price": 35.0,
+                        "current_round": int(se.get("num_rounds") or 3),
+                        "matches_count": int(se.get("match_count") or 0),
+                        "is_started": True,
+                        "active": True,
+                    }
+                    recent_sql_events.append(ev_item)
+                if recent_sql_events and req_sys not in ("40k", "aos"):
+                    upcoming_list = list(recent_sql_events)
+                    ongoing_ev = recent_sql_events[0]
+                else:
+                    upcoming_list.extend(recent_sql_events)
+                sql_lb_rows = local_db.get_leaderboard_rows(req_sys, limit=10)
+                if sql_lb_rows:
+                    if req_sys not in ("40k", "aos"):
+                        local_lb = [
+                            {**r, "city": "United States", "state": "US"}
+                            for r in sql_lb_rows
+                        ]
+                    else:
+                        seen_lp = {str(p.get("player_id")) for p in local_lb}
+                        for r in sql_lb_rows[:5]:
+                            if str(r.get("player_id")) not in seen_lp:
+                                local_lb.append({**r, "rank": len(local_lb) + 1, "city": "United States", "state": "US"})
+                sql_teams_res = local_db.get_teams_directory(game_system=req_sys, page=1, page_size=5)
+                if sql_teams_res and sql_teams_res.get("items") and req_sys not in ("40k", "aos"):
+                    local_teams = sql_teams_res["items"]
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -4794,9 +5087,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "events": upcoming_list,
                     "events_upcoming": upcoming_list,
                     "upcoming_events": upcoming_list,
-                    "events_recent": [],
+                    "events_recent": recent_sql_events,
                     "ongoing_events": [ongoing_ev],
-                    "past_events": [],
+                    "past_events": recent_sql_events,
                     "local_leaderboard": local_lb,
                     "team_standings": local_teams
                 }).encode("utf-8"))
@@ -4831,6 +5124,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path in ("api/connect/players", "api/connect/players/"):
+            from config import normalize_game_system
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            req_sys = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
+            local_db = get_local_sqlite_db()
             sparring_players = [
                 {
                     "user_id": "u_junior",
@@ -4848,7 +5145,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "preferred_modes": ["Competitive", "GT Prep"],
                     "availability": ["Weeknights", "Weekends"],
                     "home_store": "At Ease Games",
-                    "bio": "SD40K Commissioner & LVTT Champ. Always down for practice rounds at At Ease Games."
+                    "bio": "SD40K Commissioner & LVTT Champ. Always down for practice rounds at At Ease Games.",
+                    "game_system": "40k"
                 },
                 {
                     "user_id": "u_david",
@@ -4866,7 +5164,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "preferred_modes": ["Competitive"],
                     "availability": ["Weekends"],
                     "home_store": "Game Empire",
-                    "bio": "Testing Canoptek Court & Hypercrypt lists into current meta."
+                    "bio": "Testing Canoptek Court & Hypercrypt lists into current meta.",
+                    "game_system": "40k"
                 },
                 {
                     "user_id": "u_jack",
@@ -4884,9 +5183,38 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "preferred_modes": ["Competitive", "Crusade / Casual"],
                     "availability": ["Weeknights", "Weekends"],
                     "home_store": "Pair A Dice Games",
-                    "bio": "Sons of Sanguinius melee pressure testing."
+                    "bio": "Sons of Sanguinius melee pressure testing.",
+                    "game_system": "40k"
                 }
             ]
+            if local_db and req_sys != "40k":
+                sql_rows = local_db.get_leaderboard_rows(req_sys, limit=20)
+                if sql_rows:
+                    sparring_players = []
+                    for idx, r in enumerate(sql_rows):
+                        pid = str(r.get("player_id") or "")
+                        pname = str(r.get("player_name") or pid)
+                        pfac = str(r.get("top_faction") or "Unassigned")
+                        sparring_players.append({
+                            "user_id": str(r.get("user_id") or f"u_{pid}"),
+                            "player_id": pid,
+                            "display_name": pname,
+                            "player_name": pname,
+                            "current_elo": float(r.get("current_elo") or 1500.0),
+                            "team": str(r.get("team") or ""),
+                            "primary_faction": pfac,
+                            "secondary_factions": [],
+                            "home_city": "San Diego" if idx % 2 == 0 else "Seattle",
+                            "home_state": "CA" if idx % 2 == 0 else "WA",
+                            "distance_miles": round(3.5 + idx * 2.1, 1),
+                            "looking_for_game": True,
+                            "preferred_modes": ["Competitive", "Tournament Prep"],
+                            "availability": ["Weeknights", "Weekends"],
+                            "home_store": "Local Tabletop Hub",
+                            "bio": f"Active {req_sys.upper()} competitor piloting {pfac}.",
+                            "game_system": req_sys,
+                            "source_platform": r.get("source_platform") or "bcp",
+                        })
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -5130,11 +5458,17 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path == "api/user/registered-tournaments" or clean_path.startswith("api/user/registered-tournaments"):
             from config import normalize_game_system, get_game_system_meta
+            from scripts.local_sqlite_db import get_local_sqlite_db
             req_reg_sys = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
+            req_uid = (query_params.get("user_id") or [DEV_USER.get("id", "u_john_hsieh")])[0]
             reg_meta = get_game_system_meta(req_reg_sys)
             reg_label = reg_meta.get("label", "Warhammer 40K")
             reg_facs = _get_dev_system_factions(req_reg_sys, reg_label)
-            if req_reg_sys == "40k":
+            local_db = get_local_sqlite_db()
+            sql_reg = local_db.get_user_registered_tournaments(user_id=req_uid, game_system=req_reg_sys) if local_db else []
+            if sql_reg and req_reg_sys != "40k":
+                base_tournaments = sql_reg
+            elif req_reg_sys == "40k":
                 from leagues_hub_service import get_leagues_hub_service
                 lh_svc = get_leagues_hub_service()
                 native_leagues = lh_svc.get_user_registered_leagues(
@@ -5142,7 +5476,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     player_id=DEV_USER.get("bcp_player_id", "MEV83VFANA"),
                     player_name=DEV_USER.get("display_name") or DEV_USER.get("bcp_player_name") or "John Hsieh"
                 )
-                base_tournaments = list(native_leagues) + [
+                base_tournaments = list(sql_reg) + list(native_leagues) + [
                     {
                         "id": "ev_active_lvo_2026",
                         "bcp_event_id": "ev_active_lvo_2026",
@@ -5277,9 +5611,34 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path in ("api/leagues", "api/leagues/"):
             import leagues_hub_service
+            from config import normalize_game_system, get_game_system_meta
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            req_sys = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
             l_svc = leagues_hub_service.get_leagues_hub_service()
-            leagues_list = l_svc.get_leagues_list()
             templates_list = l_svc.get_available_templates()
+            if req_sys == "40k":
+                leagues_list = l_svc.get_leagues_list()
+            else:
+                local_db = get_local_sqlite_db()
+                sys_meta = get_game_system_meta(req_sys)
+                sys_label = sys_meta.get("label", req_sys.upper())
+                evs = local_db.get_events_list(req_sys) if local_db else []
+                total_p = sum(int(e.get("total_players") or 0) for e in evs) or 32
+                leagues_list = [
+                    {
+                        "id": f"league-{req_sys}-premier",
+                        "name": f"{sys_label} Premier Circuit",
+                        "short_tag": f"{req_sys[:4].upper()}",
+                        "format": evs[0].get("format_label", "Premier Circuit") if evs else "Premier Circuit",
+                        "season": "Season 1 (2026)",
+                        "status": "Active",
+                        "total_players": total_p,
+                        "active_pods": max(1, total_p // 4),
+                        "city": evs[0].get("city") or "Global Circuit" if evs else "Global Circuit",
+                        "state": evs[0].get("state") or "" if evs else "",
+                        "game_system": req_sys,
+                    }
+                ]
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -5288,7 +5647,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "success": True,
                     "leagues": leagues_list,
                     "count": len(leagues_list),
-                    "available_templates": templates_list
+                    "available_templates": templates_list,
+                    "game_system": req_sys
                 }).encode("utf-8"))
             return
 
@@ -5467,9 +5827,34 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
-        if clean_path.startswith("api/event/"):
-            ev_param = clean_path.replace("api/event/", "").split("/")[0].strip()
+        if clean_path.startswith("api/event/") or (
+            clean_path.startswith("api/events/")
+            and clean_path not in ("api/events/stats", "api/events/stats/", "api/events/recommended", "api/events/active-announcements")
+            and not clean_path.endswith("/to-hub")
+            and not clean_path.endswith("/wtc-pairings")
+            and not clean_path.endswith("/livestreams")
+            and "/to-hub/" not in clean_path
+            and "/livestreams/" not in clean_path
+        ):
+            ev_param = urllib.parse.unquote(
+                (clean_path.replace("api/events/", "", 1) if clean_path.startswith("api/events/") else clean_path.replace("api/event/", "", 1))
+                .split("/")[0]
+                .strip()
+            )
             force_sync_q = ("force_sync=true" in str(self.path).lower())
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            local_db = get_local_sqlite_db()
+            if local_db:
+                sql_ev = local_db.get_event_detail(ev_param)
+                if sql_ev:
+                    DEV_EVENT_CACHE[ev_param] = sql_ev
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    if not is_head:
+                        self.wfile.write(json.dumps(sql_ev).encode("utf-8"))
+                    return
+
             from routers.leaderboard import _enrich_event_team_pairings, _load_event_l2_cache, _event_details_cache
             if not force_sync_q and ev_param in DEV_EVENT_CACHE:
                 enriched_cached = _enrich_event_team_pairings(DEV_EVENT_CACHE[ev_param], ev_param)
@@ -6544,45 +6929,52 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path.startswith("api/team/"):
             import teams_hub_service
+            from config import normalize_game_system
+            from scripts.local_sqlite_db import get_local_sqlite_db
             svc = teams_hub_service.get_teams_hub_service()
             team_target = urllib.parse.unquote(clean_path.split("/")[2])
-            gs = (query_params.get("game_system", [None])[0] or "40k").strip().lower()
-            hub = svc.get_team_hub(team_target, gs)
-            if not hub:
-                res = {"team": team_target, "roster": [], "stats": {}, "game_system": gs}
+            gs = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
+            local_db = get_local_sqlite_db()
+            sql_team = local_db.get_team_profile(team_target, game_system=gs) if local_db else None
+            if sql_team and (gs not in ("40k", "aos") or not svc.get_team_hub(team_target, gs)):
+                res = sql_team
             else:
-                res = {
-                    "team": hub["name"],
-                    "id": hub.get("id"),
-                    "short_tag": hub.get("short_tag"),
-                    "captain_name": hub.get("captain_name"),
-                    "home_city": hub.get("home_city"),
-                    "home_state": hub.get("home_state"),
-                    "home_country": hub.get("home_country"),
-                    "logo_url": hub.get("logo_url"),
-                    "heraldry_tier": hub.get("heraldry_tier"),
-                    "starting_5": hub.get("starting_5", []),
-                    "battlefield_feed": hub.get("battlefield_feed", []),
-                    "championships": hub.get("championships", {}),
-                    "roster": hub.get("roster", []),
-                    "stats": {
-                        "roster_count": hub.get("roster_count", len(hub.get("roster", []))),
-                        "active_roster_count": hub.get("active_roster_count", len(hub.get("roster", []))),
-                        "power_rating": hub.get("power_rating", 0.0),
-                        "combat_factor": hub.get("combat_factor", 1.0),
-                        "avg_elo": hub.get("active_avg_elo", 1500.0),
-                        "active_avg_elo": hub.get("active_avg_elo", 1500.0),
-                        "top5_avg_elo": hub.get("top5_avg", 1500.0),
-                        "top_player_elo": hub.get("top_player_elo", 1500.0),
-                        "total_matches": hub.get("total_matches", 0),
-                        "total_wins": hub.get("total_wins", 0),
-                        "total_losses": hub.get("total_losses", 0),
-                        "total_draws": hub.get("total_draws", 0),
-                        "win_rate": hub.get("team_win_rate", 0.0),
-                        "is_qualified": hub.get("is_qualified", True)
-                    },
-                    "game_system": gs
-                }
+                hub = svc.get_team_hub(team_target, gs)
+                if not hub:
+                    res = sql_team or {"team": team_target, "roster": [], "stats": {}, "game_system": gs}
+                else:
+                    res = {
+                        "team": hub["name"],
+                        "id": hub.get("id"),
+                        "short_tag": hub.get("short_tag"),
+                        "captain_name": hub.get("captain_name"),
+                        "home_city": hub.get("home_city"),
+                        "home_state": hub.get("home_state"),
+                        "home_country": hub.get("home_country"),
+                        "logo_url": hub.get("logo_url"),
+                        "heraldry_tier": hub.get("heraldry_tier"),
+                        "starting_5": hub.get("starting_5", []),
+                        "battlefield_feed": hub.get("battlefield_feed", []),
+                        "championships": hub.get("championships", {}),
+                        "roster": hub.get("roster", []),
+                        "stats": {
+                            "roster_count": hub.get("roster_count", len(hub.get("roster", []))),
+                            "active_roster_count": hub.get("active_roster_count", len(hub.get("roster", []))),
+                            "power_rating": hub.get("power_rating", 0.0),
+                            "combat_factor": hub.get("combat_factor", 1.0),
+                            "avg_elo": hub.get("active_avg_elo", 1500.0),
+                            "active_avg_elo": hub.get("active_avg_elo", 1500.0),
+                            "top5_avg_elo": hub.get("top5_avg", 1500.0),
+                            "top_player_elo": hub.get("top_player_elo", 1500.0),
+                            "total_matches": hub.get("total_matches", 0),
+                            "total_wins": hub.get("total_wins", 0),
+                            "total_losses": hub.get("total_losses", 0),
+                            "total_draws": hub.get("total_draws", 0),
+                            "win_rate": hub.get("team_win_rate", 0.0),
+                            "is_qualified": hub.get("is_qualified", True)
+                        },
+                        "game_system": gs
+                    }
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -6593,6 +6985,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         if clean_path in ("api/teams", "api/teams/", "api/leaderboard/teams"):
             import teams_hub_service
             from config import normalize_game_system, get_game_system_meta
+            from scripts.local_sqlite_db import get_local_sqlite_db
             svc = teams_hub_service.get_teams_hub_service()
             p = int(query_params.get("page", [1])[0])
             ps = int(query_params.get("page_size", [25])[0])
@@ -6601,15 +6994,35 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             od = query_params.get("order", ["DESC"])[0]
             mr = int(query_params.get("min_roster", [1])[0])
             gs = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
-            res = svc.get_teams_leaderboard(
-                game_system=gs,
-                page=p,
-                page_size=ps,
-                query=q,
-                sort_by=sb,
-                order=od,
-                min_roster=mr
-            )
+            local_db = get_local_sqlite_db()
+            res = None
+            if local_db and gs not in ("40k", "aos"):
+                sql_teams = local_db.get_teams_directory(
+                    game_system=gs, page=p, page_size=ps, query=q, sort_by=sb, order=od, min_roster=mr
+                )
+                if sql_teams and sql_teams.get("items"):
+                    res = sql_teams
+            if not res:
+                res = svc.get_teams_leaderboard(
+                    game_system=gs,
+                    page=p,
+                    page_size=ps,
+                    query=q,
+                    sort_by=sb,
+                    order=od,
+                    min_roster=mr
+                )
+                if local_db and not (res.get("items") or res.get("teams")):
+                    sql_teams = local_db.get_teams_directory(
+                        game_system=gs, page=p, page_size=ps, query=q, sort_by=sb, order=od, min_roster=mr
+                    )
+                    if sql_teams and sql_teams.get("items"):
+                        res = sql_teams
+            if isinstance(res, dict):
+                if "items" not in res and "teams" in res:
+                    res["items"] = res["teams"]
+                elif "teams" not in res and "items" in res:
+                    res["teams"] = res["items"]
             if not (res.get("items") or res.get("teams")) and gs not in ("40k", "aos"):
                 import hashlib
                 sys_meta = get_game_system_meta(gs)
@@ -7068,6 +7481,19 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         "game_system": req_sys
                     })
 
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            local_db = get_local_sqlite_db()
+            if local_db:
+                sql_lb = local_db.get_leaderboard_rows(req_sys, limit=100)
+                if sql_lb:
+                    if req_sys in ("40k", "aos"):
+                        seen_pids = {str(p.get("player_id")) for p in players_data}
+                        for sp in sql_lb:
+                            if str(sp.get("player_id")) not in seen_pids:
+                                players_data.append(sp)
+                    else:
+                        players_data = sql_lb
+
             q_filter = (query_params.get("query", [None])[0] or query_params.get("search", [None])[0] or "").strip().lower()
             fac_filter = (query_params.get("faction", ["All"])[0] or "All").strip()
             if fac_filter and fac_filter.lower() not in ("all", "all factions"):
@@ -7170,6 +7596,16 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "status": "upcoming"
                 }
             ]
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            local_db = get_local_sqlite_db()
+            if local_db:
+                sql_events = local_db.get_events_list(req_sys)
+                if sql_events:
+                    seen_ev_ids = {str(e.get("id")) for e in sql_events}
+                    if req_sys in ("40k", "aos"):
+                        events_list = events_list[:2] + sql_events + [e for e in events_list[2:] if str(e.get("id")) not in seen_ev_ids]
+                    else:
+                        events_list = sql_events + [e for e in events_list if str(e.get("id")) not in seen_ev_ids]
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -7373,6 +7809,92 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         }
                     ]
                 }
+
+            # Merge real multi-platform, 2v2 Doubles, and FFA Pod matches/tournaments from `local_sqlite_db`!
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            local_db = get_local_sqlite_db()
+            if local_db:
+                explicit_q_id = (
+                    (query_params.get("user_id") or query_params.get("player_id") or [None])[0]
+                    or ""
+                ).strip()
+                default_dev_ids = {"", "p_innes", "p_dev_commander", "user_innes", "u_innes", "1"}
+                sql_prof_explicit = (
+                    local_db.get_player_profile(explicit_q_id, game_system=req_dash_sys)
+                    if explicit_q_id and explicit_q_id not in default_dev_ids
+                    else None
+                )
+                if sql_prof_explicit:
+                    sql_prof = sql_prof_explicit
+                    res["player"] = {**res.get("player", {}), **sql_prof.get("player", {}), "is_bcp_connected": True}
+                    res["history"] = sql_prof.get("history", [])
+                    res["events_attended"] = sql_prof.get("events_attended", [])
+                    res["tournaments"] = sql_prof.get("events_attended", [])
+                    if sql_prof.get("faction_mastery"):
+                        res["faction_mastery"] = sql_prof["faction_mastery"]
+                    if sql_prof.get("matchup_matrix"):
+                        res["matchup_matrix"] = [
+                            {
+                                "enemy_faction": m.get("opponent_faction") or m.get("faction"),
+                                "total_encounters": m.get("games") or m.get("matches_played") or 1,
+                                "wins": m.get("wins", 0),
+                                "losses": m.get("losses", 0),
+                                "draws": m.get("draws", 0),
+                                "win_rate": m.get("win_rate", 0.0),
+                            }
+                            for m in sql_prof["matchup_matrix"]
+                        ]
+                    res["linked_platforms"] = sql_prof.get("linked_platforms", [])
+                    res["cross_system_ratings"] = sql_prof.get("cross_system_ratings", [])
+                else:
+                    # Default My Hub view: enrich with real 2v2 Doubles (for 40k/aos) or real multi-platform/FFA pods
+                    default_sql_target_by_sys = {
+                        "40k": "gcJvLSgvyLB0",          # Ackley Hoffman (40K 2v2 Doubles Champion w/ Robert Gormly-Breinin)
+                        "aos": "NBRKCBN7PX",            # Andrew Milner (AoS 2v2 Doubles w/ Stephen Dorfner)
+                        "mtg": "user_alexander_kans",   # Alexander Kans (Melee.gg 1v1 + TopDeck.gg 4-Player cEDH FFA Pods)
+                        "mcp": "user_steven_yingling",  # Steven Yingling (BCP + Longshanks MCP)
+                        "pokemon": "user_corndog_xx",   # CornDog_XX (Limitless TCG)
+                        "sw_unlimited": "user_xzevo",   # xzevo (Melee.gg SWU)
+                    }
+                    target_pid = default_sql_target_by_sys.get(req_dash_sys)
+                    if not target_pid:
+                        lb_top = local_db.get_leaderboard_rows(req_dash_sys, limit=1)
+                        if lb_top:
+                            target_pid = lb_top[0].get("player_id")
+                    if target_pid:
+                        sql_prof = local_db.get_player_profile(target_pid, game_system=req_dash_sys)
+                        if sql_prof:
+                            sql_hist = [{**h, "_pin_top": True} for h in (sql_prof.get("history") or [])]
+                            sql_evs = [{**e, "_pin_top": True} for e in (sql_prof.get("events_attended") or [])]
+                            if req_dash_sys not in ("40k", "aos") and sql_hist:
+                                res["player"] = {**res.get("player", {}), **sql_prof.get("player", {}), "is_bcp_connected": True}
+                                res["events_attended"] = sql_evs
+                                res["tournaments"] = sql_evs
+                                res["history"] = sql_hist
+                                if sql_prof.get("faction_mastery"):
+                                    res["faction_mastery"] = sql_prof["faction_mastery"]
+                                if sql_prof.get("matchup_matrix"):
+                                    res["matchup_matrix"] = [
+                                        {
+                                            "enemy_faction": m.get("opponent_faction") or m.get("faction"),
+                                            "total_encounters": m.get("games") or m.get("matches_played") or 1,
+                                            "wins": m.get("wins", 0),
+                                            "losses": m.get("losses", 0),
+                                            "draws": m.get("draws", 0),
+                                            "win_rate": m.get("win_rate", 0.0),
+                                        }
+                                        for m in sql_prof["matchup_matrix"]
+                                    ]
+                            else:
+                                seen_eids = {str(e.get("event_id")) for e in (res.get("events_attended") or [])}
+                                new_evs = [e for e in sql_evs if str(e.get("event_id")) not in seen_eids]
+                                res["events_attended"] = new_evs + (res.get("events_attended") or [])
+                                res["tournaments"] = res["events_attended"]
+                                res["history"] = sql_hist + (res.get("history") or [])
+                            if sql_prof.get("linked_platforms"):
+                                res["linked_platforms"] = sql_prof["linked_platforms"]
+                            if sql_prof.get("cross_system_ratings"):
+                                res["cross_system_ratings"] = sql_prof["cross_system_ratings"]
             import badges
             req_game_sys = query_params.get("game_system", ["40k"])[0].lower() if "query_params" in locals() else "40k"
             user_pinned = DEV_USER.get("pinned_badges") if isinstance(DEV_USER, dict) else None
@@ -7475,11 +7997,24 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path == "api/head_to_head" or clean_path.startswith("api/head_to_head"):
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            local_db = get_local_sqlite_db()
             qp = urllib.parse.parse_qs(query_str)
             p1_q = (qp.get("p1", [""])[0] or "").strip()
             p2_q = (qp.get("p2", [""])[0] or "").strip()
             p1_name_q = (qp.get("p1_name", [""])[0] or "").strip().lower()
             p2_name_q = (qp.get("p2_name", [""])[0] or "").strip().lower()
+            sys_val = (qp.get("game_system", ["40k"])[0] or "40k").strip()
+
+            if local_db:
+                sql_h2h = local_db.get_head_to_head(p1_q, p2_q, game_system=sys_val, p1_name=p1_name_q, p2_name=p2_name_q)
+                if sql_h2h:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    if not is_head:
+                        self.wfile.write(json.dumps(sql_h2h, default=str).encode("utf-8"))
+                    return
 
             def _matches_player(m_pid, m_name, target_pid, target_name):
                 if target_pid and m_pid and str(m_pid).strip() == str(target_pid).strip():
@@ -7730,6 +8265,12 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path.startswith("api/scorecard/"):
             match_id = urllib.parse.unquote(clean_path.replace("api/scorecard/", "").strip("/"))
+            for _ in range(2):
+                if "%" in match_id:
+                    unq = urllib.parse.unquote(match_id)
+                    if unq == match_id:
+                        break
+                    match_id = unq
             room_data = None
             ev_m = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", str(match_id), re.I)
             if ev_m:
@@ -7766,6 +8307,17 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 or (isinstance(st, dict) and (st.get("is_finished") or st.get("status") == "completed"))
             )
             if not st:
+                # Check SQLite tournament matches first across all 5 platforms & formats
+                from scripts.local_sqlite_db import get_local_sqlite_db
+                local_db = get_local_sqlite_db()
+                sql_sc = local_db.get_match_scorecard(str(match_id)) if local_db else None
+                if sql_sc:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    if not is_head:
+                        self.wfile.write(json.dumps(sql_sc, default=str).encode("utf-8"))
+                    return
                 # Check if this is a BCP/Tournament match ID and return official bcp_match scorecard
                 bcp_match_fallback = None
                 ev_t_m = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-T(\d+)$", str(match_id), re.I)
@@ -7895,7 +8447,18 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path.startswith("api/bcp/armylist/"):
-            lid = clean_path.replace("api/bcp/armylist/", "").strip("/")
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            local_db = get_local_sqlite_db()
+            lid = urllib.parse.unquote(clean_path.replace("api/bcp/armylist/", "").strip("/"))
+            if local_db and "sim_no_sub=1" not in query_str and "no_sub=1" not in query_str and self.headers.get("X-Sim-No-Sub") != "1" and "no_sub" not in lid and "sub_req" not in lid:
+                sql_list = local_db.get_armylist_by_id(lid)
+                if sql_list:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    if not is_head:
+                        self.wfile.write(json.dumps(sql_list, default=str).encode("utf-8"))
+                    return
             mock_armylists = {
                 "fnC5PtZin8ev": {
                     "success": True,
@@ -8085,9 +8648,19 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             from config import normalize_game_system, get_game_system_meta
             from database import PostgresDatabase
+            from scripts.local_sqlite_db import get_local_sqlite_db
             sys_val = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
             is_grouped = "grouped=true" in query_str or "grouped=1" in query_str
-            data = PostgresDatabase.get_factions(game_system=sys_val, grouped=is_grouped)
+            local_db = get_local_sqlite_db()
+            data = None
+            if local_db and sys_val not in ("40k", "aos"):
+                sql_facs = local_db.get_factions_list(game_system=sys_val, grouped=is_grouped)
+                if sql_facs:
+                    data = sql_facs
+            if not data:
+                data = PostgresDatabase.get_factions(game_system=sys_val, grouped=is_grouped)
+            if not data and local_db:
+                data = local_db.get_factions_list(game_system=sys_val, grouped=is_grouped)
             if not data and sys_val not in ("40k", "aos"):
                 meta = get_game_system_meta(sys_val)
                 dev_facs = _get_dev_system_factions(sys_val, meta.get("label", ""))
@@ -8115,40 +8688,87 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 dev_facs = _get_dev_system_factions(sys_val, meta.get("label", ""))
                 sample_wrs = [55.8, 53.6, 51.9, 50.4, 48.9, 47.2]
                 f_list = []
-                for idx, fac_nm in enumerate(dev_facs[:6]):
-                    wr = sample_wrs[idx % len(sample_wrs)]
-                    tot_m = max(40, 220 - idx * 28)
-                    wins_c = int(round(tot_m * wr / 100.0))
-                    losses_c = tot_m - wins_c
-                    best_opp = dev_facs[(idx + 1) % len(dev_facs)]
-                    worst_opp = dev_facs[(idx + 2) % len(dev_facs)]
-                    f_list.append({
-                        "faction": fac_nm,
-                        "win_rate": wr,
-                        "non_mirror_win_rate": round(wr + 0.3, 1),
-                        "total_matches": tot_m,
-                        "wins": wins_c,
-                        "losses": losses_c,
-                        "draws": 0,
-                        "meta_share": round(100.0 / max(1, len(dev_facs[:6])), 1),
-                        "ci_margin": 3.5,
-                        "unique_pilots": max(15, tot_m // 3),
-                        "x0_runs": max(2, 10 - idx * 2),
-                        "x1_runs": max(5, 22 - idx * 3),
-                        "tiwp_rate": round(max(4.5, 12.8 - idx * 1.4), 1),
-                        "over_rep_ratio": round(max(0.82, 1.36 - idx * 0.11), 2),
-                        "avg_score": round(18.5 - idx * 0.6, 1),
-                        "avg_opp_score": round(14.2 + idx * 0.4, 1),
-                        "avg_margin": round(4.3 - idx * 1.0, 1),
-                        "tier": "S" if wr >= 55.0 else ("A" if wr >= 50.0 else "B"),
-                        "tier_label": "Overperforming (55%+)" if wr >= 55.0 else ("Balanced High (50-55%)" if wr >= 50.0 else "Balanced Low (45-50%)"),
-                        "best_matchup": {"faction": best_opp, "win_rate": 61.5, "matches": 18},
-                        "worst_matchup": {"faction": worst_opp, "win_rate": 43.8, "matches": 16},
-                    })
+                from scripts.local_sqlite_db import get_local_sqlite_db
+                local_db = get_local_sqlite_db()
+                sql_meta = local_db.get_system_setting(f"meta_intel_v5_{sys_val}_90") if local_db else None
+                sql_factions = (sql_meta.get("factions") if isinstance(sql_meta, dict) else []) or []
+                sql_factions = [
+                    sf for sf in sql_factions
+                    if sf.get("faction")
+                    and "+" not in str(sf.get("faction"))
+                    and str(sf.get("faction")).lower() not in ("unknown", "none", "commander pod", "commander deck", "standard deck", "premier deck", "unassigned")
+                ]
+                if len(sql_factions) >= 2:
+                    all_names = [sf["faction"] for sf in sql_factions[:12]]
+                    for idx, sf in enumerate(sql_factions[:12]):
+                        fac_nm = sf["faction"]
+                        wr = float(sf.get("win_rate") or sample_wrs[idx % len(sample_wrs)])
+                        tot_m = max(1, int(sf.get("matches_played") or 10))
+                        wins_c = int(sf.get("wins") or 0)
+                        losses_c = int(sf.get("losses") or 0)
+                        draws_c = int(sf.get("draws") or 0)
+                        best_opp = all_names[(idx + 1) % len(all_names)]
+                        worst_opp = all_names[(idx + 2) % len(all_names)]
+                        f_list.append({
+                            "faction": fac_nm,
+                            "win_rate": wr,
+                            "non_mirror_win_rate": wr,
+                            "total_matches": tot_m,
+                            "wins": wins_c,
+                            "losses": losses_c,
+                            "draws": draws_c,
+                            "meta_share": float(sf.get("meta_share") or round(100.0 / len(all_names), 1)),
+                            "ci_margin": 3.5,
+                            "unique_pilots": max(2, tot_m // 3),
+                            "x0_runs": max(1, wins_c // 3),
+                            "x1_runs": max(2, wins_c // 2),
+                            "tiwp_rate": round(min(25.0, max(4.5, wr / 4.5)), 1),
+                            "over_rep_ratio": round(max(0.82, wr / 48.0), 2),
+                            "avg_score": round(18.5 - (idx % 5) * 0.6, 1),
+                            "avg_opp_score": round(14.2 + (idx % 5) * 0.4, 1),
+                            "avg_margin": round(4.3 - (idx % 5) * 1.0, 1),
+                            "tier": "S" if wr >= 55.0 else ("A" if wr >= 50.0 else "B"),
+                            "tier_label": "Overperforming (55%+)" if wr >= 55.0 else ("Balanced High (50-55%)" if wr >= 50.0 else "Balanced Low (45-50%)"),
+                            "best_matchup": {"faction": best_opp, "win_rate": 61.5, "matches": max(2, tot_m // 2)},
+                            "worst_matchup": {"faction": worst_opp, "win_rate": 43.8, "matches": max(2, tot_m // 2)},
+                            "detachments": sf.get("detachments") or [],
+                        })
+                if not f_list:
+                    for idx, fac_nm in enumerate(dev_facs[:6]):
+                        wr = sample_wrs[idx % len(sample_wrs)]
+                        tot_m = max(40, 220 - idx * 28)
+                        wins_c = int(round(tot_m * wr / 100.0))
+                        losses_c = tot_m - wins_c
+                        best_opp = dev_facs[(idx + 1) % len(dev_facs)]
+                        worst_opp = dev_facs[(idx + 2) % len(dev_facs)]
+                        f_list.append({
+                            "faction": fac_nm,
+                            "win_rate": wr,
+                            "non_mirror_win_rate": round(wr + 0.3, 1),
+                            "total_matches": tot_m,
+                            "wins": wins_c,
+                            "losses": losses_c,
+                            "draws": 0,
+                            "meta_share": round(100.0 / max(1, len(dev_facs[:6])), 1),
+                            "ci_margin": 3.5,
+                            "unique_pilots": max(15, tot_m // 3),
+                            "x0_runs": max(2, 10 - idx * 2),
+                            "x1_runs": max(5, 22 - idx * 3),
+                            "tiwp_rate": round(max(4.5, 12.8 - idx * 1.4), 1),
+                            "over_rep_ratio": round(max(0.82, 1.36 - idx * 0.11), 2),
+                            "avg_score": round(18.5 - idx * 0.6, 1),
+                            "avg_opp_score": round(14.2 + idx * 0.4, 1),
+                            "avg_margin": round(4.3 - idx * 1.0, 1),
+                            "tier": "S" if wr >= 55.0 else ("A" if wr >= 50.0 else "B"),
+                            "tier_label": "Overperforming (55%+)" if wr >= 55.0 else ("Balanced High (50-55%)" if wr >= 50.0 else "Balanced Low (45-50%)"),
+                            "best_matchup": {"faction": best_opp, "win_rate": 61.5, "matches": 18},
+                            "worst_matchup": {"faction": worst_opp, "win_rate": 43.8, "matches": 16},
+                        })
+                top_f_name = f_list[0]["faction"] if f_list else dev_facs[0]
                 trends = [
-                    {"month": "2026-06", "faction": dev_facs[0], "win_rate": 54.5, "matches_in_month": 28, "meta_share": 18.0},
-                    {"month": "2026-07", "faction": dev_facs[0], "win_rate": 55.2, "matches_in_month": 32, "meta_share": 18.5},
-                    {"month": "2026-08", "faction": dev_facs[0], "win_rate": 55.8, "matches_in_month": 36, "meta_share": 19.0},
+                    {"month": "2026-06", "faction": top_f_name, "win_rate": 54.5, "matches_in_month": 28, "meta_share": 18.0},
+                    {"month": "2026-07", "faction": top_f_name, "win_rate": 55.2, "matches_in_month": 32, "meta_share": 18.5},
+                    {"month": "2026-08", "faction": top_f_name, "win_rate": 55.8, "matches_in_month": 36, "meta_share": 19.0},
                 ]
             else:
                 f_list = [
@@ -8201,6 +8821,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path.startswith("api/faction/"):
             from config import normalize_game_system
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            local_db = get_local_sqlite_db()
             fname = urllib.parse.unquote(clean_path.replace("api/faction/", "").strip("/"))
             sys_val = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
             tf_val = "1yr"
@@ -8208,6 +8830,17 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 if f"timeframe={cand_tf}" in query_str:
                     tf_val = cand_tf
                     break
+            qp_fac_early = urllib.parse.parse_qs(query_str)
+            search_q_early = (qp_fac_early.get("search", [""])[0] or "").strip()
+            if local_db and sys_val != "40k":
+                sql_fac_detail = local_db.get_faction_details(fname, game_system=sys_val, timeframe=tf_val, search=search_q_early)
+                if sql_fac_detail:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    if not is_head:
+                        self.wfile.write(json.dumps(sql_fac_detail, default=str).encode("utf-8"))
+                    return
 
             matchups_list = [
                 {"opponent_faction": "Imperial Knights", "total_matches": 31, "wins": 20, "losses": 11, "draws": 0, "win_rate": 64.5, "avg_margin": 11.4},
@@ -8391,6 +9024,13 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     ),
                     None,
                 )
+            if not found:
+                from scripts.local_sqlite_db import get_local_sqlite_db
+                local_db = get_local_sqlite_db()
+                if local_db:
+                    sql_l = local_db.get_armylist_by_id(lid) or local_db.get_armylist_by_id(raw_key)
+                    if sql_l:
+                        found = sql_l.get("army_list") or sql_l
             if not found:
                 self.send_response(404)
                 self.send_header("Content-Type", "application/json; charset=utf-8")

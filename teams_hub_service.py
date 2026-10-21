@@ -1827,20 +1827,28 @@ class TeamsHubService:
             team_name = team_id_or_name.strip()
             short_tag = "".join([w[0].upper() for w in team_name.split()[:4]]) or "CLUB"
             is_iron = "iron" in target
+            sys_norm = (game_system or "40k").strip().lower()
+            default_fac = "Space Marines" if sys_norm == "40k" else ("Stormcast Eternals" if sys_norm == "aos" else "Vanguard")
             hub = {
                 "id": f"team_{team_name.lower().replace(' ', '_')}",
                 "name": team_name,
                 "short_tag": short_tag,
-                "captain_name": "Innes Wilson" if is_iron else "Club Captain",
-                "game_system": game_system,
+                "captain_name": "Innes Wilson" if (is_iron and sys_norm == "40k") else "Club Captain",
+                "game_system": sys_norm,
                 "created_at": "2024-01-01T00:00:00Z",
-                "roster": [
-                    {"player_id": "p_innes", "player_name": "Innes Wilson", "current_elo": 2375.2, "peak_elo": 2390.0, "faction": "Iron Hands", "role": "Captain", "status": "confirmed", "is_active": True, "win_rate": 87.6, "matches_played": 137},
-                    {"player_id": "p_veteran_1", "player_name": "Garrus Vance", "current_elo": 2040.0, "peak_elo": 2060.0, "faction": "Iron Hands", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 74.5, "matches_played": 82},
-                    {"player_id": "p_veteran_2", "player_name": "Kardan Stronos", "current_elo": 1980.0, "peak_elo": 2010.0, "faction": "Iron Hands", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 71.0, "matches_played": 74},
-                    {"player_id": "p_veteran_3", "player_name": "Malkor Ferrus", "current_elo": 1920.0, "peak_elo": 1940.0, "faction": "Space Marines", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 68.0, "matches_played": 60},
-                    {"player_id": "p_veteran_4", "player_name": "Castellan Crowe", "current_elo": 1860.0, "peak_elo": 1880.0, "faction": "Grey Knights", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 65.0, "matches_played": 52}
-                ],
+                "roster": (
+                    [
+                        {"player_id": "p_innes", "player_name": "Innes Wilson", "current_elo": 2375.2, "peak_elo": 2390.0, "faction": "Iron Hands", "role": "Captain", "status": "confirmed", "is_active": True, "win_rate": 87.6, "matches_played": 137},
+                        {"player_id": "p_veteran_1", "player_name": "Garrus Vance", "current_elo": 2040.0, "peak_elo": 2060.0, "faction": "Iron Hands", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 74.5, "matches_played": 82},
+                        {"player_id": "p_veteran_2", "player_name": "Kardan Stronos", "current_elo": 1980.0, "peak_elo": 2010.0, "faction": "Iron Hands", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 71.0, "matches_played": 74},
+                        {"player_id": "p_veteran_3", "player_name": "Malkor Ferrus", "current_elo": 1920.0, "peak_elo": 1940.0, "faction": "Space Marines", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 68.0, "matches_played": 60},
+                        {"player_id": "p_veteran_4", "player_name": "Castellan Crowe", "current_elo": 1860.0, "peak_elo": 1880.0, "faction": "Grey Knights", "role": "Core", "status": "confirmed", "is_active": True, "win_rate": 65.0, "matches_played": 52}
+                    ]
+                    if sys_norm == "40k"
+                    else [
+                        {"player_id": f"p_{short_tag.lower()}_capt", "player_name": "Club Captain", "current_elo": 1950.0, "peak_elo": 1980.0, "faction": default_fac, "role": "Captain", "status": "confirmed", "is_active": True, "win_rate": 72.0, "matches_played": 40}
+                    ]
+                ),
                 "battlefield_feed": []
             }
             self._recalculate_team(hub)

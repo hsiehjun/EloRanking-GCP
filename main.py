@@ -278,6 +278,50 @@ def cmd_sync(args):
     )
 
 
+def cmd_sync_melee(args):
+    """Executes the Melee.gg tournament sync job."""
+    from scripts.sync_melee import run_melee_sync
+    res = run_melee_sync(
+        game_system=args.game_system,
+        days=args.days,
+        max_events=args.max_events,
+    )
+    print(json.dumps(res, indent=2, default=str))
+
+
+def cmd_sync_limitless(args):
+    """Executes the Limitless TCG tournament sync job."""
+    from scripts.sync_limitless import run_limitless_sync
+    res = run_limitless_sync(
+        game_system=args.game_system,
+        days=args.days,
+        max_events=args.max_events,
+    )
+    print(json.dumps(res, indent=2, default=str))
+
+
+def cmd_sync_longshanks(args):
+    """Executes the Longshanks tournament sync job."""
+    from scripts.sync_longshanks import run_longshanks_sync
+    res = run_longshanks_sync(
+        game_system=args.game_system,
+        days=args.days,
+        max_events=args.max_events,
+    )
+    print(json.dumps(res, indent=2, default=str))
+
+
+def cmd_sync_topdeck(args):
+    """Executes the TopDeck.gg tournament sync job."""
+    from scripts.sync_topdeck import run_topdeck_sync
+    res = run_topdeck_sync(
+        game_system=args.game_system,
+        days=args.days,
+        max_events=args.max_events,
+    )
+    print(json.dumps(res, indent=2, default=str))
+
+
 def cmd_player_sync(args):
     """Executes the BCP player name sync and data repair job."""
     from player_sync import sync_player_names_job
@@ -430,6 +474,30 @@ def main():
     p_sync.add_argument("--days", type=int, default=int(os.getenv("DAYS", "3")), help="Days of past tournaments to scrape (default: 3)")
     p_sync.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS")) if os.getenv("MAX_EVENTS") else None, help="Max tournaments to scrape per game system (default: None for unlimited)")
 
+    # Melee.gg sync command (Cloud Run Job: elo-melee-sync-job)
+    p_sync_melee = subparsers.add_parser("sync-melee", help="Run Melee.gg tournament sync and Elo recalculation")
+    p_sync_melee.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="Game system to sync (default: all)")
+    p_sync_melee.add_argument("--days", type=int, default=int(os.getenv("DAYS", "14")), help="Days of past tournaments to scrape (default: 14)")
+    p_sync_melee.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS", "10")), help="Max tournaments to scrape (default: 10)")
+
+    # Limitless TCG sync command (Cloud Run Job: elo-limitless-sync-job)
+    p_sync_limitless = subparsers.add_parser("sync-limitless", help="Run Limitless TCG tournament sync and Elo recalculation")
+    p_sync_limitless.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="Game system to sync (default: all)")
+    p_sync_limitless.add_argument("--days", type=int, default=int(os.getenv("DAYS", "14")), help="Days of past tournaments to scrape (default: 14)")
+    p_sync_limitless.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS", "15")), help="Max tournaments to scrape (default: 15)")
+
+    # Longshanks sync command (Cloud Run Job: elo-longshanks-sync-job)
+    p_sync_longshanks = subparsers.add_parser("sync-longshanks", help="Run Longshanks tournament sync and Elo recalculation")
+    p_sync_longshanks.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="Game system to sync (default: all)")
+    p_sync_longshanks.add_argument("--days", type=int, default=int(os.getenv("DAYS", "14")), help="Days of past tournaments to scrape (default: 14)")
+    p_sync_longshanks.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS", "10")), help="Max tournaments to scrape (default: 10)")
+
+    # TopDeck.gg sync command (Cloud Run Job: elo-topdeck-sync-job)
+    p_sync_topdeck = subparsers.add_parser("sync-topdeck", help="Run TopDeck.gg tournament sync and Elo recalculation")
+    p_sync_topdeck.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "mtg"), help="Game system to sync (default: mtg)")
+    p_sync_topdeck.add_argument("--days", type=int, default=int(os.getenv("DAYS", "14")), help="Days of past tournaments to scrape (default: 14)")
+    p_sync_topdeck.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS", "10")), help="Max tournaments to scrape (default: 10)")
+
     # Player name sync command
     p_psync = subparsers.add_parser("sync-players", aliases=["player-sync"], help="Sync and repair placeholder player names ('Player 1', 'Player 2') from BCP")
     p_psync.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="Game system to check (default: all)")
@@ -472,6 +540,14 @@ def main():
         cmd_player(args)
     elif args.command == "sync":
         cmd_sync(args)
+    elif args.command == "sync-melee":
+        cmd_sync_melee(args)
+    elif args.command == "sync-limitless":
+        cmd_sync_limitless(args)
+    elif args.command == "sync-longshanks":
+        cmd_sync_longshanks(args)
+    elif args.command == "sync-topdeck":
+        cmd_sync_topdeck(args)
     elif args.command in ("sync-players", "player-sync"):
         cmd_player_sync(args)
     elif args.command == "stats":

@@ -155,7 +155,14 @@ def api_search_connect_users(request: Request, q: str = Query("", min_length=0))
                                COALESCE(pr.current_elo, 1500.0) AS current_elo,
                                pr.top_faction
                         FROM users u
-                        LEFT JOIN player_ratings pr ON (u.player_id = pr.player_id OR u.id = pr.player_id)
+                        LEFT JOIN LATERAL (
+                            SELECT pr_i.current_elo, pr_i.top_faction
+                            FROM player_ratings pr_i
+                            WHERE pr_i.player_id = u.player_id OR pr_i.player_id = u.id
+                            ORDER BY CASE WHEN COALESCE(pr_i.game_system, '40k') = '40k' THEN 0 ELSE 1 END,
+                                     pr_i.matches_played DESC NULLS LAST
+                            LIMIT 1
+                        ) pr ON TRUE
                         WHERE u.id != %s
                           AND (u.display_name ILIKE %s OR u.email ILIKE %s)
                         ORDER BY u.display_name ASC
@@ -167,7 +174,14 @@ def api_search_connect_users(request: Request, q: str = Query("", min_length=0))
                                COALESCE(pr.current_elo, 1500.0) AS current_elo,
                                pr.top_faction
                         FROM users u
-                        LEFT JOIN player_ratings pr ON (u.player_id = pr.player_id OR u.id = pr.player_id)
+                        LEFT JOIN LATERAL (
+                            SELECT pr_i.current_elo, pr_i.top_faction
+                            FROM player_ratings pr_i
+                            WHERE pr_i.player_id = u.player_id OR pr_i.player_id = u.id
+                            ORDER BY CASE WHEN COALESCE(pr_i.game_system, '40k') = '40k' THEN 0 ELSE 1 END,
+                                     pr_i.matches_played DESC NULLS LAST
+                            LIMIT 1
+                        ) pr ON TRUE
                         WHERE u.id != %s
                         ORDER BY u.created_at DESC NULLS LAST
                         LIMIT 15;

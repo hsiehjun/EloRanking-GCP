@@ -1046,10 +1046,19 @@ function renderMajorsCarousel() {
       }
     }
 
+    const platBadgeHtml = (typeof getPlatformBadgeHtml === 'function') ? getPlatformBadgeHtml(eid, ev) : '';
+    const fmtBadgeHtml = (typeof getEventFormatBadgeHtml === 'function') ? getEventFormatBadgeHtml(ev) : '';
+    const extEventUrl = (typeof getPlatformExternalEventUrl === 'function') ? getPlatformExternalEventUrl(eid, ev) : `https://www.bestcoastpairings.com/event/${eid}`;
+    const extPlatName = (typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(eid, ev) : 'BCP';
+
     html += `
       <div class="comm-majors-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; gap: 0.4rem;">
-          ${tierBadgeHtml}
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; gap: 0.4rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;">
+            ${tierBadgeHtml}
+            ${platBadgeHtml}
+            ${fmtBadgeHtml}
+          </div>
           ${timingBadge}
         </div>
         <h4 style="margin: 0 0 0.35rem; color: #fff; font-size: 0.95rem; font-weight: 800; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; min-height: 2.6em;" title="${name}">
@@ -1077,8 +1086,8 @@ function renderMajorsCarousel() {
               🗺️
             </button>
           ` : ''}
-          <a href="https://www.bestcoastpairings.com/event/${eid}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.38rem 0.55rem; color: #94a3b8;" title="View on Best Coast Pairings">
-            🔗 BCP
+          <a href="${escapeHtml(extEventUrl)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.38rem 0.55rem; color: #94a3b8;" title="View on ${escapeHtml(extPlatName)}">
+            🔗 ${escapeHtml(extPlatName)}
           </a>
         </div>
       </div>
@@ -1168,6 +1177,7 @@ function isLeagueOrMultiWeekEvent(ev) {
   if (!ev) return false;
   const durationDays = getEventDurationDays(ev);
   if (durationDays > 4) return true;
+  const isNonBcp = (typeof isBcpEventId === 'function') && !isBcpEventId(ev.id);
   const nLower = ` ${String(ev.name || ev.event_name || '').toLowerCase()} `;
   const leagueTerms = [
     'escalation',
@@ -1190,9 +1200,11 @@ function isLeagueOrMultiWeekEvent(ev) {
     'combat patrol league',
     'spearhead league',
     'tabletop simulator',
-    ' tts ',
-    ' online '
+    ' tts '
   ];
+  if (!isNonBcp) {
+    leagueTerms.push(' online ');
+  }
   if (leagueTerms.some(kw => nLower.includes(kw))) return true;
   if (/\bleagues?\b/.test(nLower)) {
     const weekendTerms = ['gt', 'grand tournament', 'major', 'super major', 'open', 'championship', 'invitational', 'cup'];
@@ -1406,12 +1418,19 @@ function renderCalendarDrawerCardsHtml(events) {
       statusPill = `<span class="comm-legend-pill" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border-color: rgba(245, 158, 11, 0.4);">🔥 LIVE NOW</span>`;
     }
 
+    const platBadgeHtml = (typeof getPlatformBadgeHtml === 'function') ? getPlatformBadgeHtml(eid, ev) : '';
+    const fmtBadgeHtml = (typeof getEventFormatBadgeHtml === 'function') ? getEventFormatBadgeHtml(ev) : '';
+    const extEventUrl = (typeof getPlatformExternalEventUrl === 'function') ? getPlatformExternalEventUrl(eid, ev) : `https://www.bestcoastpairings.com/event/${eid}`;
+    const extPlatName = (typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(eid, ev) : 'BCP';
+
     html += `
       <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 1rem; display: flex; flex-direction: column;">
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
           <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
             ${scopeBadge}
             ${tierBadge}
+            ${platBadgeHtml}
+            ${fmtBadgeHtml}
           </div>
           ${statusPill}
         </div>
@@ -1431,8 +1450,8 @@ function renderCalendarDrawerCardsHtml(events) {
               🗺️
             </button>
           ` : ''}
-          <a href="https://www.bestcoastpairings.com/event/${eid}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.4rem 0.6rem; color: #94a3b8;">
-            🔗 BCP
+          <a href="${escapeHtml(extEventUrl)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.4rem 0.6rem; color: #94a3b8;" title="View on ${escapeHtml(extPlatName)}">
+            🔗 ${escapeHtml(extPlatName)}
           </a>
         </div>
       </div>
@@ -2251,12 +2270,21 @@ function renderTournamentCard(ev, isUpcomingSection, userElo) {
     }
   }
 
+  const cardPlatBadge = (typeof getPlatformBadgeHtml === 'function') ? getPlatformBadgeHtml(ev.id, ev) : '';
+  const cardFmtBadge = (typeof getEventFormatBadgeHtml === 'function') ? getEventFormatBadgeHtml(ev) : '';
+  const cardExtUrl = (typeof getPlatformExternalEventUrl === 'function') ? getPlatformExternalEventUrl(ev.id, ev) : `https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}`;
+  const cardPlatName = (typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(ev.id, ev) : 'BCP';
+
   return `
     <div class="comm-event-card">
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.6rem;">
-        <span class="badge" style="background: ${!isEnded ? 'rgba(56,189,248,0.12)' : 'rgba(255,255,255,0.06)'}; color: ${!isEnded ? '#38bdf8' : '#94a3b8'}; border: 1px solid ${!isEnded ? 'rgba(56,189,248,0.3)' : 'rgba(255,255,255,0.1)'}; font-size: 0.72rem; font-family: monospace;">
-          📅 ${escapeHtml(dateStr)}
-        </span>
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.6rem; flex-wrap: wrap;">
+        <div style="display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
+          <span class="badge" style="background: ${!isEnded ? 'rgba(56,189,248,0.12)' : 'rgba(255,255,255,0.06)'}; color: ${!isEnded ? '#38bdf8' : '#94a3b8'}; border: 1px solid ${!isEnded ? 'rgba(56,189,248,0.3)' : 'rgba(255,255,255,0.1)'}; font-size: 0.72rem; font-family: monospace;">
+            📅 ${escapeHtml(dateStr)}
+          </span>
+          ${cardPlatBadge}
+          ${cardFmtBadge}
+        </div>
         <div style="display: flex; gap: 4px; align-items: center;">
           ${distance ? `
             <span class="badge" style="background: rgba(56,189,248,0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.25); font-size: 0.7rem; font-weight: 700;">
@@ -2357,8 +2385,8 @@ function renderTournamentCard(ev, isUpcomingSection, userElo) {
               🗺️ Map
             </button>
           ` : ''}
-          <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.65rem; color: #94a3b8;" title="View on Best Coast Pairings">
-            🔗 BCP
+          <a href="${escapeHtml(cardExtUrl)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.65rem; color: #94a3b8;" title="View on ${escapeHtml(cardPlatName)}">
+            🔗 ${escapeHtml(cardPlatName)}
           </a>
           ${(externalUrl && !hasPrimaryGetTickets) ? `
             <a href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.65rem; color: #94a3b8;" title="Organizer Website / Tickets">

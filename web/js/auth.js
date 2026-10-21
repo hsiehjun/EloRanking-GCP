@@ -943,9 +943,12 @@ async function handleConnectBcp(e) {
 
   if (submitBtn) {
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span style="display:inline-block; width:12px; height:12px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; vertical-align:middle; margin-right:6px;"></span> Logging in to BCP...';
+    submitBtn.innerHTML = '<span style="display:inline-block; width:12px; height:12px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; vertical-align:middle; margin-right:6px;"></span> Linking & Computing Elo...';
   }
   if (errorDiv) errorDiv.style.display = 'none';
+  if (typeof showToast === 'function') {
+    showToast('⚡ Linking account & computing your Elo rating across tournament history...', 'info');
+  }
 
   try {
     const res = await window.api.connectBcpAccount(bcpEmail, bcpPassword);
@@ -982,7 +985,14 @@ async function handleConnectBcp(e) {
       }
       if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
       if (typeof loadCommunityHub === 'function') loadCommunityHub();
-      alert("🎉 Best Coast Pairings account connected successfully!");
+      const statusMsg = (res.elo_reconstruction && res.elo_reconstruction.status_message)
+        ? res.elo_reconstruction.status_message
+        : '🎉 Best Coast Pairings account connected & Elo rating computed!';
+      if (typeof showToast === 'function') {
+        showToast(statusMsg, 'success');
+      } else {
+        alert(statusMsg);
+      }
     } else {
       if (errorDiv) {
         errorDiv.innerText = res?.error || 'Failed to connect BCP account. Please verify credentials.';
@@ -1024,6 +1034,77 @@ async function handleDisconnectBcp() {
   if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
   if (typeof loadCommunityHub === 'function') loadCommunityHub();
   alert("Best Coast Pairings account disconnected.");
+}
+
+function showEloComputationNotice(message, type = 'info') {
+  if (typeof document === 'undefined' || !document.body) return;
+  let toast = document.getElementById('omni-elo-computation-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'omni-elo-computation-toast';
+    toast.style.cssText = 'position:fixed; bottom:24px; right:24px; z-index:20050; max-width:440px; padding:12px 16px; border-radius:10px; font-family:Inter,sans-serif; font-size:0.82rem; font-weight:700; display:flex; align-items:center; gap:10px; box-shadow:0 12px 32px rgba(0,0,0,0.65); transition:all 0.25s ease;';
+    document.body.appendChild(toast);
+  }
+  const isSuccess = type === 'success';
+  const isError = type === 'error';
+  toast.style.background = isSuccess ? 'rgba(6, 78, 59, 0.96)' : (isError ? 'rgba(127, 29, 29, 0.96)' : 'rgba(15, 23, 42, 0.96)');
+  toast.style.border = isSuccess ? '1.5px solid #10b981' : (isError ? '1.5px solid #ef4444' : '1.5px solid #38bdf8');
+  toast.style.color = '#f8fafc';
+  const icon = isSuccess
+    ? '<span style="font-size:1.1rem;">✅</span>'
+    : (isError ? '<span style="font-size:1.1rem;">⚠️</span>' : '<span style="display:inline-block; width:14px; height:14px; border:2px solid #38bdf8; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; flex-shrink:0;"></span>');
+  toast.innerHTML = `${icon}<div style="line-height:1.35;">${escapeHtml(String(message || ''))}</div>`;
+  toast.style.display = 'flex';
+  toast.style.opacity = '1';
+  if (toast._hideTimer) clearTimeout(toast._hideTimer);
+  if (isSuccess || isError) {
+    toast._hideTimer = setTimeout(() => {
+      if (toast) toast.style.display = 'none';
+    }, 6500);
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.showEloComputationNotice = showEloComputationNotice;
+  if (typeof window.showToast !== 'function') {
+    window.showToast = showEloComputationNotice;
+  }
+}
+
+async function linkPlatformAccount(platform, platformPlayerId, playerName = '', userId = '') {
+  const platLabel = (typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(platform) : String(platform || '').toUpperCase();
+  showEloComputationNotice(`⚡ Linking ${platLabel} account & computing unified Elo across tournament history...`, 'info');
+  try {
+    const token = (window.api && typeof window.api.getAuthToken === 'function') ? window.api.getAuthToken() : '';
+    const res = await fetch('/api/auth/link-platform', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        platform,
+        platform_player_id: platformPlayerId,
+        player_name: playerName,
+        user_id: userId || (currentUser && currentUser.user_id) || undefined
+      })
+    });
+    const data = await res.json();
+    if (res.ok && data && data.success) {
+      const recon = data.elo_reconstruction || {};
+      const msg = recon.status_message || `Unified ${recon.unified_matches || 0} matches across ${(recon.game_systems_updated || []).length || 1} game systems in ${recon.elapsed_ms || 0}ms!`;
+      showEloComputationNotice(msg, 'success');
+      return data;
+    }
+    showEloComputationNotice((data && (data.detail || data.error)) || `Failed to link ${platLabel} account.`, 'error');
+    return data;
+  } catch (err) {
+    showEloComputationNotice(`Error linking ${platLabel}: ${err.message}`, 'error');
+    return { success: false, error: err.message };
+  }
+}
+if (typeof window !== 'undefined') {
+  window.linkPlatformAccount = linkPlatformAccount;
 }
 
 async function handleLogout() {
