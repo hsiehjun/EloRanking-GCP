@@ -6,7 +6,7 @@
   <title>OmniTactica • Tactical Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=7653f0049b">
+  <link rel="manifest" href="/manifest.json?v=03f49bc66a">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=7653f0049b">
-  <link rel="stylesheet" href="/css/styles.min.css?v=7653f0049b">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=7653f0049b">
-  <link rel="preload" href="/js/app.bundle.min.js?v=7653f0049b" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=03f49bc66a">
+  <link rel="stylesheet" href="/css/styles.min.css?v=03f49bc66a">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=03f49bc66a">
+  <link rel="preload" href="/js/app.bundle.min.js?v=03f49bc66a" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "7653f0049b";</script>
+  <script>window.APP_VERSION = "03f49bc66a";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -2548,6 +2548,24 @@
           </div>
         </form>
 
+        <!-- Section 1B: Connected Tournament Platforms (All 5 Platforms) -->
+        <div id="settings-platforms-section" style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); width: 100%; box-sizing: border-box;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; gap: 0.5rem; flex-wrap: wrap;">
+            <label style="font-size: 0.82rem; font-weight: 700; color: #a855f7; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.04em; margin: 0;">
+              <span>🔗 Connected Tournament Platforms</span>
+            </label>
+            <span id="settings-platforms-count-badge" class="oc-badge" style="font-size: 0.68rem; padding: 2px 7px; background: rgba(168,85,247,0.12); color: #c084fc; border: 1px solid rgba(168,85,247,0.28); border-radius: 4px;">
+              Multi-Platform Sync
+            </span>
+          </div>
+          <p style="font-size: 0.76rem; color: var(--text-muted); margin: 0 0 0.7rem; line-height: 1.4;">
+            Link your accounts across Best Coast Pairings, Limitless TCG, TopDeck.gg, Longshanks, and Melee.gg to unify your match history, tournament registrations, and Elo rating.
+          </p>
+          <div id="settings-platforms-list" style="display: flex; flex-direction: column; gap: 0.45rem; width: 100%; box-sizing: border-box;">
+            <!-- Populated dynamically by renderSettingsPlatformsList() -->
+          </div>
+        </div>
+
         <!-- Section 2: Home Location & Matchmaking Base -->
         <div style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); width: 100%; box-sizing: border-box;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
@@ -3858,7 +3876,7 @@
   </div> <!-- #app-shell -->
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=7653f0049b"></script>
+  <script src="/js/app.bundle.min.js?v=03f49bc66a"></script>
 
   <!-- Cloud Firestore Compat SDK for Real-time Matchmaking & Push Chat -->
   <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
@@ -4028,17 +4046,37 @@
     </div>
   </div>
 
-      <!-- BCP ACCOUNT LINKING MODAL -->
+      <!-- MULTI-PLATFORM & BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">
-    <div class="modal-card" style="max-width: 470px; padding: 0; border-radius: 18px; overflow: hidden; border: 1px solid rgba(59, 130, 246, 0.38); background: #0b1120; box-shadow: 0 28px 80px rgba(0,0,0,0.92), 0 0 40px rgba(37,99,235,0.14);">
-      <!-- Authentic Best Coast Pairings Branded Top Banner -->
-      <div style="padding: 1.35rem 1.5rem 1.1rem; background: linear-gradient(145deg, #111c33 0%, #0f172a 65%, #1e1b2e 100%); border-bottom: 1px solid rgba(255,255,255,0.09); position: relative;">
-        <button class="modal-close-btn" onclick="closeBcpLinkModal()" style="position: absolute; top: 14px; right: 14px;">✕</button>
+    <div class="modal-card" style="max-width: 520px; padding: 0; border-radius: 18px; overflow: hidden; border: 1px solid rgba(59, 130, 246, 0.38); background: #0b1120; box-shadow: 0 28px 80px rgba(0,0,0,0.92), 0 0 40px rgba(37,99,235,0.14); max-height: 92vh; display: flex; flex-direction: column;">
+      <!-- Top Branded Banner + 5-Platform Selector -->
+      <div style="padding: 1.15rem 1.35rem 0.95rem; background: linear-gradient(145deg, #111c33 0%, #0f172a 65%, #1e1b2e 100%); border-bottom: 1px solid rgba(255,255,255,0.09); position: relative; flex-shrink: 0;">
+        <button class="modal-close-btn" onclick="closeBcpLinkModal()" style="position: absolute; top: 12px; right: 12px;">✕</button>
+
+        <!-- 5-Platform Selector Tabs -->
+        <div id="link-modal-platform-tabs" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; background: rgba(2, 6, 23, 0.65); padding: 4px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.18); margin: 0 1.6rem 0.9rem 0;">
+          <button type="button" class="link-platform-tab-btn active" data-platform="bcp" onclick="selectLinkModalPlatform('bcp')" style="border: 1px solid rgba(56, 189, 248, 0.45); background: rgba(56, 189, 248, 0.18); color: #38bdf8; border-radius: 7px; padding: 5px 4px; font-size: 0.68rem; font-weight: 800; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 1.15;">
+            <span>⚔️</span><span>BCP</span>
+          </button>
+          <button type="button" class="link-platform-tab-btn" data-platform="limitless" onclick="selectLinkModalPlatform('limitless')" style="border: 1px solid transparent; background: transparent; color: #94a3b8; border-radius: 7px; padding: 5px 4px; font-size: 0.68rem; font-weight: 800; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 1.15;">
+            <span>🃏</span><span>Limitless</span>
+          </button>
+          <button type="button" class="link-platform-tab-btn" data-platform="topdeck" onclick="selectLinkModalPlatform('topdeck')" style="border: 1px solid transparent; background: transparent; color: #94a3b8; border-radius: 7px; padding: 5px 4px; font-size: 0.68rem; font-weight: 800; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 1.15;">
+            <span>👑</span><span>TopDeck</span>
+          </button>
+          <button type="button" class="link-platform-tab-btn" data-platform="longshanks" onclick="selectLinkModalPlatform('longshanks')" style="border: 1px solid transparent; background: transparent; color: #94a3b8; border-radius: 7px; padding: 5px 4px; font-size: 0.68rem; font-weight: 800; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 1.15;">
+            <span>🛡️</span><span>Longshanks</span>
+          </button>
+          <button type="button" class="link-platform-tab-btn" data-platform="melee" onclick="selectLinkModalPlatform('melee')" style="border: 1px solid transparent; background: transparent; color: #94a3b8; border-radius: 7px; padding: 5px 4px; font-size: 0.68rem; font-weight: 800; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 1.15;">
+            <span>⚡</span><span>Melee.gg</span>
+          </button>
+        </div>
 
         <!-- OAuth App Handshake Row -->
-        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 12px;">
-          <div style="width: 52px; height: 52px; border-radius: 14px; background: #ffffff; border: 2px solid rgba(59, 130, 246, 0.55); box-shadow: 0 8px 20px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; overflow: hidden;">
-            <img src="/assets/integrations/bcp_icon.png" alt="Best Coast Pairings" style="width: 42px; height: 42px; object-fit: contain;" />
+        <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 10px;">
+          <div id="link-modal-platform-badge-box" style="width: 48px; height: 48px; border-radius: 14px; background: #ffffff; border: 2px solid rgba(59, 130, 246, 0.55); box-shadow: 0 8px 20px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; overflow: hidden;">
+            <img id="link-modal-platform-img" src="/assets/integrations/bcp_icon.png" alt="Best Coast Pairings" style="width: 38px; height: 38px; object-fit: contain;" />
+            <span id="link-modal-platform-emoji" style="display: none; font-size: 1.55rem;">⚔️</span>
           </div>
           <div style="display: flex; flex-direction: column; align-items: center;">
             <span style="color: #60a5fa; font-size: 15px; font-weight: 800; line-height: 1;">⇄</span>
@@ -4050,16 +4088,16 @@
         </div>
 
         <div style="text-align: center;">
-          <h3 style="font-size: 1.14rem; font-weight: 800; color: #fff; margin: 0; letter-spacing: -0.01em;">Sign in with Best Coast Pairings</h3>
-          <div style="font-size: 0.76rem; color: #cbd5e1; margin-top: 3px;">Link your BCP account to auto-sync tournaments, rosters &amp; match records</div>
-          <div style="display: inline-flex; align-items: center; gap: 5px; margin-top: 9px; padding: 3px 10px; border-radius: 999px; background: rgba(2, 6, 23, 0.68); border: 1px solid rgba(16, 185, 129, 0.35); font-family: monospace; font-size: 0.69rem; color: #34d399;">
-            <span>🔒</span> <span>https://www.bestcoastpairings.com</span>
+          <h3 id="link-modal-title" style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0; letter-spacing: -0.01em;">Sign in with Best Coast Pairings</h3>
+          <div id="link-modal-subtitle" style="font-size: 0.75rem; color: #cbd5e1; margin-top: 3px;">Link your BCP account to auto-sync tournaments, rosters &amp; match records</div>
+          <div style="display: inline-flex; align-items: center; gap: 5px; margin-top: 7px; padding: 3px 10px; border-radius: 999px; background: rgba(2, 6, 23, 0.68); border: 1px solid rgba(16, 185, 129, 0.35); font-family: monospace; font-size: 0.68rem; color: #34d399;">
+            <span>🔒</span> <span id="link-modal-domain-pill">https://www.bestcoastpairings.com</span>
           </div>
         </div>
       </div>
 
-      <div style="padding: 1.35rem 1.5rem 1.5rem;">
-        <!-- VIEW 1: Already Connected State -->
+      <div style="padding: 1.2rem 1.4rem 1.4rem; overflow-y: auto; flex: 1;">
+        <!-- VIEW 1: Already Connected State (BCP) -->
         <div id="bcp-connected-view" style="display: none;">
           <div style="background: rgba(16, 185, 129, 0.09); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 0.95rem 1rem; margin-bottom: 1.15rem; display: flex; align-items: center; gap: 0.75rem;">
             <div style="width: 38px; height: 38px; border-radius: 10px; background: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
@@ -4092,7 +4130,7 @@
 
         <!-- VIEW 2: Authentic BCP Credentials Card -->
         <form id="bcp-form-credentials" method="post" action="javascript:void(0);" onsubmit="handleConnectBcp(event)">
-          <div style="background: #111827; border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 14px; padding: 1rem 1.1rem; margin-bottom: 1rem;">
+          <div style="background: #111827; border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 14px; padding: 1rem 1.1rem; margin-bottom: 0.9rem;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem;">
               <div style="display: flex; align-items: center; gap: 7px;">
                 <span style="width: 20px; height: 20px; border-radius: 5px; background: #fff; display: inline-flex; align-items: center; justify-content: center;">
@@ -4100,7 +4138,9 @@
                 </span>
                 <span style="font-size: 0.75rem; font-weight: 800; color: #e2e8f0; text-transform: uppercase; letter-spacing: 0.04em;">Best Coast Pairings Login</span>
               </div>
-              <span style="font-size: 0.66rem; color: #94a3b8; background: rgba(255,255,255,0.06); padding: 2px 7px; border-radius: 4px;">BCP SSO</span>
+              <button type="button" onclick="toggleBcpIdSearchMode(true)" style="font-size: 0.68rem; color: #38bdf8; background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.3); padding: 2px 8px; border-radius: 5px; cursor: pointer; font-weight: 700;">
+                🔍 Or Search by Player Name / ID
+              </button>
             </div>
 
             <div style="margin-bottom: 0.85rem;">
@@ -4138,6 +4178,78 @@
             🛡️ Direct encrypted authentication with Best Coast Pairings. Registered tournaments and verified records sync automatically.
           </div>
         </form>
+
+        <!-- VIEW 3: Multi-Platform Account Linking & Search (Limitless TCG, TopDeck.gg, Longshanks, Melee.gg, or BCP Player ID Search) -->
+        <div id="multiplatform-link-view" style="display: none;">
+          <!-- Currently Linked Banner for Selected Platform -->
+          <div id="multiplatform-connected-banner" style="display: none; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 12px; padding: 0.85rem 1rem; margin-bottom: 1rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+              <div style="min-width: 0; flex: 1;">
+                <div style="font-size: 0.72rem; color: #10b981; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;">🟢 Linked Account Active</div>
+                <div id="multiplatform-connected-handle" style="font-size: 0.92rem; font-weight: 800; color: #fff; word-break: break-all; margin-top: 2px;">-</div>
+                <div id="multiplatform-connected-id" style="font-size: 0.72rem; color: #94a3b8; font-family: monospace; margin-top: 1px;">-</div>
+              </div>
+              <button type="button" id="multiplatform-unlink-btn" onclick="handleUnlinkSelectedPlatform()" class="btn btn-outline" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.4); font-size: 0.76rem; padding: 0.4rem 0.75rem; white-space: nowrap;">
+                Unlink Account
+              </button>
+            </div>
+          </div>
+
+          <!-- Back to BCP Login toggle when in BCP ID search mode -->
+          <div id="bcp-back-to-sso-bar" style="display: none; margin-bottom: 0.75rem;">
+            <button type="button" onclick="toggleBcpIdSearchMode(false)" style="background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.3); color: #38bdf8; border-radius: 7px; padding: 5px 10px; font-size: 0.74rem; font-weight: 700; cursor: pointer; width: 100%;">
+              ← Back to Best Coast Pairings Email / Password Sign-In
+            </button>
+          </div>
+
+          <!-- Step 1: Search Tournament History for Your Player Profile -->
+          <div style="background: #111827; border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 12px; padding: 0.9rem 1rem; margin-bottom: 0.9rem;">
+            <label for="multiplatform-search-input" style="font-size: 0.75rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.04em; display: block; margin-bottom: 0.35rem;">
+              🔍 Find Your Tournament Profile
+            </label>
+            <p id="multiplatform-search-help" style="font-size: 0.74rem; color: #94a3b8; margin: 0 0 0.55rem; line-height: 1.35;">
+              Search your name or handle from past tournaments to claim your verified match history &amp; compute your unified Elo rating.
+            </p>
+            <div style="display: flex; gap: 6px;">
+              <input type="search" id="multiplatform-search-input" class="search-input" oninput="debouncedSearchPlatformPlayers(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault(); runSearchPlatformPlayers(this.value);}" style="flex: 1; font-size: 0.84rem; padding: 0.55rem 0.75rem; background: #070b14; border-radius: 8px;" placeholder="Search your player name or handle...">
+              <button type="button" onclick="runSearchPlatformPlayers(document.getElementById('multiplatform-search-input')?.value || '')" class="btn btn-outline" style="padding: 0.55rem 0.8rem; font-size: 0.78rem; font-weight: 700; white-space: nowrap;">
+                Search
+              </button>
+            </div>
+            <div id="multiplatform-search-results" style="margin-top: 0.6rem; max-height: 185px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;"></div>
+          </div>
+
+          <!-- Step 2: Or Link Directly by Handle, Profile URL, or Player ID -->
+          <form id="multiplatform-direct-form" onsubmit="handleSubmitMultiplatformLink(event)" style="background: #111827; border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 12px; padding: 0.9rem 1rem;">
+            <div style="font-size: 0.74rem; font-weight: 800; color: #e2e8f0; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.55rem;">
+              🔗 Or Enter Handle / Profile URL / Player ID
+            </div>
+            <div style="margin-bottom: 0.65rem;">
+              <label for="multiplatform-direct-id-input" id="multiplatform-direct-id-label" style="font-size: 0.73rem; font-weight: 700; color: #cbd5e1; display: block; margin-bottom: 0.25rem;">
+                Platform Username, Profile URL, or Player ID
+              </label>
+              <input type="text" id="multiplatform-direct-id-input" class="search-input" style="width: 100%; font-size: 0.84rem; box-sizing: border-box; padding: 0.55rem 0.75rem; background: #070b14; border-radius: 8px;" placeholder="e.g. username or profile URL" required>
+            </div>
+            <div style="margin-bottom: 0.75rem;">
+              <label for="multiplatform-direct-handle-input" style="font-size: 0.73rem; font-weight: 700; color: #cbd5e1; display: block; margin-bottom: 0.25rem;">
+                Display Name / Handle (Optional)
+              </label>
+              <input type="text" id="multiplatform-direct-handle-input" class="search-input" style="width: 100%; font-size: 0.84rem; box-sizing: border-box; padding: 0.55rem 0.75rem; background: #070b14; border-radius: 8px;" placeholder="How your name appears on this platform">
+            </div>
+
+            <div id="multiplatform-link-error" style="display: none; color: #ef4444; font-size: 0.78rem; margin-bottom: 0.75rem; padding: 0.5rem 0.7rem; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 8px;"></div>
+            <div id="multiplatform-link-success" style="display: none; color: #10b981; font-size: 0.78rem; margin-bottom: 0.75rem; padding: 0.5rem 0.7rem; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25); border-radius: 8px;"></div>
+
+            <div style="display: flex; gap: 0.55rem; align-items: center;">
+              <button type="button" onclick="closeBcpLinkModal()" class="btn btn-outline" style="padding: 0.6rem 0.9rem; font-size: 0.82rem; border-radius: 9px;">
+                Close
+              </button>
+              <button type="submit" id="multiplatform-link-submit-btn" class="btn btn-primary" style="flex: 1; justify-content: center; padding: 0.6rem 0.95rem; font-size: 0.84rem; font-weight: 800; border-radius: 9px;">
+                🔗 Link Account &amp; Compute Elo
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   </div>

@@ -844,24 +844,43 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected, hostedTour
   const hostedCount = hosted.length;
   const totalEventsCount = events.length + hostedCount;
   
-  if (!isBcpConnected && totalEventsCount === 0) {
+  const linkedPlatformsMap = (typeof getUserLinkedPlatformsMap === 'function')
+    ? getUserLinkedPlatformsMap(currentUser)
+    : {};
+  const hasAnyLinkedPlatform = isBcpConnected || Object.keys(linkedPlatformsMap).length > 0;
+
+  if (!hasAnyLinkedPlatform && totalEventsCount === 0) {
     return `
       <div class="hub-card" id="hub-registered-tournaments-card" style="display: flex; flex-direction: column; justify-content: space-between;">
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
             <div style="display: flex; align-items: center; gap: 0.5rem;">
-              <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📅 Events</h3>
+              <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📅 Events &amp; Tournament Platforms</h3>
             </div>
           </div>
-          <div style="background: rgba(56, 189, 248, 0.05); border: 1px dashed rgba(56, 189, 248, 0.3); border-radius: 12px; padding: 1.75rem 1.25rem; text-align: center;">
-            <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔗</div>
-            <h4 style="color: #fff; font-size: 1rem; font-weight: 700; margin: 0 0 0.4rem 0;">Connect Best Coast Pairings</h4>
-            <p style="color: var(--text-secondary); font-size: 0.82rem; margin: 0 0 1rem 0; line-height: 1.4;">
-              Link your BCP account to automatically sync tournaments and leagues you are playing in or hosting, manage live TO operations, and track army list deadlines.
+          <div style="background: rgba(56, 189, 248, 0.05); border: 1px dashed rgba(56, 189, 248, 0.3); border-radius: 12px; padding: 1.5rem 1.25rem; text-align: center;">
+            <div style="font-size: 2rem; margin-bottom: 0.45rem;">🔗</div>
+            <h4 style="color: #fff; font-size: 1rem; font-weight: 700; margin: 0 0 0.35rem 0;">Connect Your Tournament Accounts</h4>
+            <p style="color: var(--text-secondary); font-size: 0.81rem; margin: 0 0 0.95rem 0; line-height: 1.4;">
+              Link your accounts across Best Coast Pairings, Limitless TCG, TopDeck.gg, Longshanks, and Melee.gg to sync tournaments, claim match history, and unify your Elo rating.
             </p>
-            <button class="bcp-login-btn" onclick="openBcpLinkModal()" style="padding: 0.5rem 1.2rem; font-size: 0.82rem; font-weight: 700;">
-              <span>🔗</span> Connect BCP Account
-            </button>
+            <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 0.45rem;">
+              <button class="bcp-login-btn" onclick="openPlatformLinkModal('bcp')" style="padding: 0.45rem 0.95rem; font-size: 0.78rem; font-weight: 700;">
+                <span>⚔️</span> Connect BCP
+              </button>
+              <button type="button" class="btn btn-outline" onclick="openPlatformLinkModal('limitless')" style="padding: 0.42rem 0.75rem; font-size: 0.75rem; font-weight: 700; border-color: rgba(168,85,247,0.4); color: #c084fc;">
+                🃏 Limitless TCG
+              </button>
+              <button type="button" class="btn btn-outline" onclick="openPlatformLinkModal('topdeck')" style="padding: 0.42rem 0.75rem; font-size: 0.75rem; font-weight: 700; border-color: rgba(245,158,11,0.4); color: #fbbf24;">
+                👑 TopDeck.gg
+              </button>
+              <button type="button" class="btn btn-outline" onclick="openPlatformLinkModal('longshanks')" style="padding: 0.42rem 0.75rem; font-size: 0.75rem; font-weight: 700; border-color: rgba(16,185,129,0.4); color: #34d399;">
+                🛡️ Longshanks
+              </button>
+              <button type="button" class="btn btn-outline" onclick="openPlatformLinkModal('melee')" style="padding: 0.42rem 0.75rem; font-size: 0.75rem; font-weight: 700; border-color: rgba(236,72,153,0.4); color: #f472b6;">
+                ⚡ Melee.gg
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -2063,21 +2082,53 @@ function renderMyHub(data) {
                 ${champPillHtml}
                 ${p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="if(typeof openTeamModal==='function') openTeamModal('${escapeHtml(p.team)}');" title="Click to view ${escapeHtml(p.team)} roster">🛡️ ${escapeHtml(p.team)} ➔</span>` : `<span class="badge" style="background:rgba(255,255,255,0.06); color:#94a3b8; border:1px solid rgba(255,255,255,0.12); cursor:pointer;" onclick="if(typeof switchTab==='function') switchTab('leaderboard');" title="Find or join a team">⚔️ Independent &bull; Join Club ➔</span>`}
               </div>
-              <div style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 0.45rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+              <div style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 0.45rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
                 <span style="display: inline-flex; align-items: center; gap: 4px;">
                   Primary Army: <b style="color: var(--accent);">${escapeHtml(typeof formatPlayerFaction === 'function' ? formatPlayerFaction(p.top_faction || (window.connectState?.userProfile?.factions) || 'General (Any Army)', 2) : (p.top_faction || 'General (Any Army)'))}</b>
                   <button onclick="openUserSettingsModal()" style="background: transparent; border: none; color: #38bdf8; font-size: 0.74rem; cursor: pointer; text-decoration: underline; font-weight: 600; padding: 0 2px;" title="Set your primary army and sparring preferences">✏️ Edit</button>
                 </span>
-                ${isBcpConnected ? `
-                  <span class="badge badge-win" style="font-size: 0.72rem; padding: 0.18rem 0.55rem; display: inline-flex; align-items: center; gap: 0.3rem;">
-                    <span>✅ BCP Linked:</span> <b>${escapeHtml(bcpEmail || 'Active')}</b>
-                  </span>
-                  <button onclick="handleDisconnectBcp()" style="background:transparent; border:none; color:var(--text-muted); font-size:0.72rem; text-decoration:underline; cursor:pointer;">Unlink</button>
-                ` : `
-                  <button class="bcp-login-btn" style="padding: 0.2rem 0.65rem; font-size: 0.72rem;" onclick="openBcpLinkModal()">
-                    <span>🔗</span> Connect Best Coast Pairings
-                  </button>
-                `}
+                ${(() => {
+                  if (Array.isArray(data.linked_platforms) && typeof currentUser !== 'undefined' && currentUser) {
+                    currentUser.linked_platforms = data.linked_platforms;
+                  }
+                  const linkedMap = (typeof getUserLinkedPlatformsMap === 'function')
+                    ? getUserLinkedPlatformsMap(currentUser)
+                    : {};
+                  const catalog = (typeof window !== 'undefined' && Array.isArray(window.PLATFORM_LINK_CATALOG))
+                    ? window.PLATFORM_LINK_CATALOG
+                    : [
+                        { id: 'bcp', shortName: 'BCP', icon: '⚔️' },
+                        { id: 'limitless', shortName: 'Limitless', icon: '🃏' },
+                        { id: 'topdeck', shortName: 'TopDeck.gg', icon: '👑' },
+                        { id: 'longshanks', shortName: 'Longshanks', icon: '🛡️' },
+                        { id: 'melee', shortName: 'Melee.gg', icon: '⚡' }
+                      ];
+                  const linkedPills = catalog
+                    .filter(plat => Boolean(linkedMap[plat.id]) || (plat.id === 'bcp' && isBcpConnected))
+                    .map(plat => {
+                      const info = linkedMap[plat.id] || {};
+                      const label = info.platform_handle || (plat.id === 'bcp' ? (bcpEmail || 'Active') : 'Linked');
+                      return `
+                        <span class="badge badge-win" onclick="openPlatformLinkModal('${plat.id}')" style="font-size: 0.71rem; padding: 0.16rem 0.52rem; display: inline-flex; align-items: center; gap: 0.28rem; cursor: pointer;" title="Click to manage or unlink your ${escapeHtml(plat.shortName)} account">
+                          <span>${plat.icon} ${escapeHtml(plat.shortName)}:</span> <b>${escapeHtml(label)}</b>
+                        </span>
+                      `;
+                    }).join('');
+
+                  if (linkedPills) {
+                    return `
+                      ${linkedPills}
+                      <button type="button" onclick="openPlatformLinkModal('limitless')" style="background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.32); color: #38bdf8; font-size: 0.71rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; cursor: pointer;" title="Link additional tournament platforms (BCP, Limitless TCG, TopDeck.gg, Longshanks, Melee.gg)">
+                        + Link Platforms
+                      </button>
+                    `;
+                  }
+                  return `
+                    <button class="bcp-login-btn" style="padding: 0.2rem 0.65rem; font-size: 0.72rem;" onclick="openPlatformLinkModal('bcp')">
+                      <span>🔗</span> Link Tournament Accounts (BCP, Limitless, TopDeck, Longshanks, Melee)
+                    </button>
+                  `;
+                })()}
               </div>
               ${window.BadgesUI ? window.BadgesUI.renderPinnedMedals(data.pinned_badges, data.badge_count, true, 'switchHubSubtab') : ''}
             </div>

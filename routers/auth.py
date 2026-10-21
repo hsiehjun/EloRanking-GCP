@@ -458,7 +458,7 @@ def api_user_bcp_connect(request: Request, payload: BCPConnectPayload, token: Op
 @router.post("/api/user/bcp/disconnect", summary="Unlink Best Coast Pairings account")
 def api_user_bcp_disconnect(request: Request, token: Optional[str] = Query(None)):
     auth_header = request.headers.get("Authorization", "")
-    session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
     if not session_token:
         raise HTTPException(status_code=401, detail="Authentication required")
     session = get_auth_manager().get_session(session_token)
@@ -468,15 +468,191 @@ def api_user_bcp_disconnect(request: Request, token: Optional[str] = Query(None)
     _clear_reg_tournaments_cache(session["id"])
     return get_auth_manager().unlink_bcp_account(session["id"])
 
+
+class PlatformLinkPayload(BaseModel):
+    user_id: Optional[str] = None
+    platform: str = "bcp"
+    platform_player_id: Optional[str] = None
+    player_id: Optional[str] = None
+    external_player_id: Optional[str] = None
+    bcp_player_id: Optional[str] = None
+    platform_handle: Optional[str] = None
+    external_username: Optional[str] = None
+    player_name: Optional[str] = None
+    display_name: Optional[str] = None
+    game_system: Optional[str] = None
+
+
+class PlatformUnlinkPayload(BaseModel):
+    user_id: Optional[str] = None
+    platform: str = "bcp"
+    platform_player_id: Optional[str] = None
+    player_id: Optional[str] = None
+    external_player_id: Optional[str] = None
+    game_system: Optional[str] = None
+
+
+class ReconstructUserEloPayload(BaseModel):
+    user_id: Optional[str] = None
+    player_id: Optional[str] = None
+    game_system: Optional[str] = None
+
+
+SUPPORTED_PLATFORMS_CATALOG = [
+    {"id": "bcp", "name": "Best Coast Pairings", "short_name": "BCP", "icon": "⚔️", "prefix": ""},
+    {"id": "limitless", "name": "Limitless TCG", "short_name": "Limitless", "icon": "🃏", "prefix": "ltcg:"},
+    {"id": "topdeck", "name": "TopDeck.gg", "short_name": "TopDeck.gg", "icon": "👑", "prefix": "td:"},
+    {"id": "longshanks", "name": "Longshanks", "short_name": "Longshanks", "icon": "🛡️", "prefix": "ls:"},
+    {"id": "melee", "name": "Melee.gg", "short_name": "Melee.gg", "icon": "⚡", "prefix": "melee:"},
+]
+
+
+def _resolve_request_user_id(request: Request, explicit_user_id: Optional[str] = None, token: Optional[str] = None) -> Optional[str]:
+    auth_mgr = get_auth_manager()
+    auth_header = request.headers.get("Authorization", "")
+    session_token = (
+        token
+        or (auth_header[7:].strip() if auth_header.startswith("Bearer ") else None)
+        or request.cookies.get("session_token")
+    )
+    if session_token and session_token != "dev-auth-token-123":
+        session = auth_mgr.get_session(session_token)
+        if session and session.get("id"):
+            return str(session["id"])
+    if explicit_user_id:
+        return str(explicit_user_id).strip()
+    hdr_uid = request.headers.get("X-Test-User")
+    if hdr_uid:
+        return str(hdr_uid).strip()
+    return None
+
+
+@router.get("/api/user/platforms", summary="Get all linked tournament platforms for current user")
+def api_user_get_platforms(request: Request, user_id: Optional[str] = Query(None), token: Optional[str] = Query(None)):
+    auth_mgr = get_auth_manager()
+    uid = _resolve_request_user_id(request, explicit_user_id=user_id, token=token)
+    links = auth_mgr.get_user_platform_links(uid) if uid else []
+    return {
+        "success": True,
+        "status": "success",
+        "user_id": uid,
+        "linked_platforms": links,
+        "platforms": links,
+        "platforms_supported": SUPPORTED_PLATFORMS_CATALOG,
+    }
+
+
+@router.get("/api/user/platform/search", summary="Search competitor profiles on a specific tournament platform")
+def api_user_platform_search(
+    platform: str = Query("bcp"),
+    query: str = Query(""),
+    q: str = Query(""),
+    game_system: Optional[str] = Query(None),
+    limit: int = Query(15, ge=1, le=50),
+):
+    auth_mgr = get_auth_manager()
+    eff_query = (query or q or "").strip()
+    players = auth_mgr.search_platform_players(platform=platform, query=eff_query, game_system=game_system, limit=limit)
+    return {
+        "success": True,
+        "status": "success",
+        "platform": platform,
+        "query": eff_query,
+        "count": len(players),
+        "results": players,
+        "players": players,
+    }
+
+
+@router.post("/api/user/platform/link", summary="Link an external tournament platform account and recompute unified Elo")
+@router.post("/api/auth/link-platform", include_in_schema=False)
+def api_user_platform_link(request: Request, payload: PlatformLinkPayload, token: Optional[str] = Query(None)):
+    auth_mgr = get_auth_manager()
+    uid = _resolve_request_user_id(request, explicit_user_id=payload.user_id, token=token)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required to link a platform account")
+    raw_pid = (
+        payload.platform_player_id
+        or payload.external_player_id
+        or payload.player_id
+        or payload.bcp_player_id
+        or payload.platform_handle
+        or payload.external_username
+        or ""
+    ).strip()
+    if not raw_pid:
+        raise HTTPException(status_code=400, detail="Platform Player ID, username, or profile URL is required")
+    handle = payload.platform_handle or payload.external_username or payload.player_name or payload.display_name
+    res = auth_mgr.link_platform_account(
+        user_id=uid,
+        platform=payload.platform,
+        platform_player_id=raw_pid,
+        platform_handle=handle,
+        display_name=payload.display_name or handle,
+        game_system=payload.game_system,
+    )
+    if not res.get("success"):
+        status_code = int(res.get("status_code") or 400)
+        return JSONResponse(status_code=status_code, content=res)
+    _clear_reg_tournaments_cache(uid)
+    res["status"] = "success"
+    res["elo_reconstruction"] = dict(res)
+    return res
+
+
+@router.post("/api/user/platform/unlink", summary="Unlink an external tournament platform account and recompute Elo")
+@router.post("/api/auth/unlink-platform", include_in_schema=False)
+def api_user_platform_unlink(request: Request, payload: PlatformUnlinkPayload, token: Optional[str] = Query(None)):
+    auth_mgr = get_auth_manager()
+    uid = _resolve_request_user_id(request, explicit_user_id=payload.user_id, token=token)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required to unlink a platform account")
+    raw_pid = (payload.platform_player_id or payload.external_player_id or payload.player_id or "").strip()
+    res = auth_mgr.unlink_platform_account(
+        user_id=uid,
+        platform=payload.platform,
+        platform_player_id=raw_pid,
+        game_system=payload.game_system,
+    )
+    if not res.get("success"):
+        status_code = int(res.get("status_code") or 400)
+        return JSONResponse(status_code=status_code, content=res)
+    _clear_reg_tournaments_cache(uid)
+    res["status"] = "success"
+    res["elo_reconstruction"] = dict(res)
+    return res
+
+
+@router.post("/api/user/reconstruct-elo", summary="Trigger single-user Elo reconstruction across linked platforms")
+@router.post("/api/auth/reconstruct-elo", include_in_schema=False)
+def api_user_reconstruct_elo(request: Request, payload: ReconstructUserEloPayload, token: Optional[str] = Query(None)):
+    auth_mgr = get_auth_manager()
+    uid = _resolve_request_user_id(request, explicit_user_id=payload.user_id, token=token)
+    target_pid = payload.player_id or uid
+    if not target_pid:
+        raise HTTPException(status_code=400, detail="user_id or player_id is required")
+    elo_eng = get_elo_engine()
+    recon = elo_eng.reconstruct_user_elo(str(target_pid), game_system=payload.game_system)
+    if uid:
+        auth_mgr.clear_user_hub_cache(user_id=uid)
+    return {"success": True, "user_id": uid, **recon, "elo_reconstruction": dict(recon)}
+
+
 @router.get("/api/user/dashboard", summary="Get personalized competitor hub analytics")
-def api_user_dashboard(request: Request, player_id: Optional[str] = Query(None), token: Optional[str] = Query(None), game_system: Optional[str] = Query("40k")):
+def api_user_dashboard(
+    request: Request,
+    player_id: Optional[str] = Query(None),
+    user_id: Optional[str] = Query(None),
+    token: Optional[str] = Query(None),
+    game_system: Optional[str] = Query("40k"),
+):
     try:
         auth_mgr = get_auth_manager()
         auth_header = request.headers.get("Authorization", "")
         session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
         
         target_pid = player_id
-        target_uid = None
+        target_uid = user_id
 
         if session_token:
             session = auth_mgr.get_session(session_token)

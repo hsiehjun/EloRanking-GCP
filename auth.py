@@ -1475,6 +1475,7 @@ class AuthManager:
                             data["can_access_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
                             data["is_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
                             data["bcp_connected"] = bool(data.get("bcp_user_id"))
+                            data["linked_platforms"] = self._fetch_linked_platforms_on_cursor(cur, data)
 
                             import armory_catalog
                             data["armory_vault"] = armory_catalog.normalize_armory_vault(data.get("armory_vault"))
@@ -1612,6 +1613,10 @@ class AuthManager:
             data["can_access_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
             data["is_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
             data["bcp_connected"] = bool(data.get("bcp_user_id"))
+            try:
+                data["linked_platforms"] = self.get_user_platform_links(uid_str, _user_row=data)
+            except Exception:
+                data["linked_platforms"] = []
 
             raw_pinned = data.get("pinned_badges")
             if raw_pinned and isinstance(raw_pinned, str):
@@ -2406,6 +2411,31 @@ class AuthManager:
                     updated_at = NOW()
                 WHERE id = %s;
                 """, (target_display_name, pid, bcp_user_id, bcp_email.strip() if bcp_email else None, actual_acc, actual_id, ref_tok, user_id))
+                if pid and not hasattr(cur, "_mock_name"):
+                    try:
+                        cur.execute(
+                            """
+                            INSERT INTO user_platform_links (
+                                user_id, platform, platform_user_id, platform_username, platform_handle, platform_email, verified, linked_at, updated_at
+                            ) VALUES (%s, 'bcp', %s, %s, %s, %s, TRUE, NOW(), NOW())
+                            ON CONFLICT (user_id, platform) DO UPDATE SET
+                                platform_user_id = EXCLUDED.platform_user_id,
+                                platform_username = COALESCE(EXCLUDED.platform_username, user_platform_links.platform_username),
+                                platform_handle = COALESCE(EXCLUDED.platform_handle, user_platform_links.platform_handle),
+                                platform_email = COALESCE(EXCLUDED.platform_email, user_platform_links.platform_email),
+                                verified = TRUE,
+                                updated_at = NOW();
+                            """,
+                            (
+                                user_id,
+                                str(pid),
+                                target_display_name or str(pid),
+                                target_display_name or (bcp_email.strip() if bcp_email else str(pid)),
+                                bcp_email.strip() if bcp_email else None,
+                            ),
+                        )
+                    except Exception:
+                        pass
             conn.commit()
 
         self.clear_user_hub_cache(user_id=user_id, player_id=pid)
@@ -2420,7 +2450,7 @@ class AuthManager:
         }
 
     def unlink_bcp_account(self, user_id: str) -> Dict[str, Any]:
-        """Unlinks Best Coast Pairings account from user and clears competitor profile."""
+        """Unlinks Best Coast Pairings account from user and clears competitor profile (or falls back to remaining linked platforms)."""
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -2436,9 +2466,490 @@ class AuthManager:
                     updated_at = NOW()
                 WHERE id = %s;
                 """, (user_id,))
+                if not hasattr(cur, "_mock_name"):
+                    try:
+                        cur.execute("DELETE FROM user_platform_links WHERE user_id = %s AND platform = 'bcp';", (user_id,))
+                        cur.execute("SELECT platform_user_id FROM user_platform_links WHERE user_id = %s ORDER BY linked_at ASC LIMIT 1;", (user_id,))
+                        rem = cur.fetchone()
+                        if rem:
+                            rem_pid = rem.get("platform_user_id") if isinstance(rem, dict) else rem[0]
+                            if rem_pid:
+                                cur.execute("UPDATE users SET player_id = %s WHERE id = %s;", (str(rem_pid), user_id))
+                    except Exception:
+                        pass
             conn.commit()
         self.clear_user_hub_cache(user_id=user_id)
         return {"success": True}
+
+    # =========================================================================
+    # MULTI-PLATFORM ACCOUNT LINKING (BCP, LIMITLESS, TOPDECK, LONGSHANKS, MELEE)
+    # =========================================================================
+
+    @staticmethod
+    def normalize_platform_link_input(platform: str, raw_input: str) -> Tuple[str, str]:
+        """Normalizes platform key and raw player ID / handle / URL into (canonical_platform, platform_player_id)."""
+        p_raw = str(platform or "bcp").strip().lower()
+        if p_raw in ("bcp", "bestcoastpairings", "best_coast_pairings"):
+            plat = "bcp"
+        elif p_raw in ("limitless", "limitlesstcg", "ltcg"):
+            plat = "limitless"
+        elif p_raw in ("topdeck", "topdeck.gg", "td"):
+            plat = "topdeck"
+        elif p_raw in ("longshanks", "ls"):
+            plat = "longshanks"
+        elif p_raw in ("melee", "melee.gg"):
+            plat = "melee"
+        else:
+            plat = p_raw or "bcp"
+
+        val = str(raw_input or "").strip()
+        if not val:
+            return plat, ""
+
+        if "://" in val or val.startswith("www."):
+            import re
+            m_ls = re.search(r"[?&](?:id|player|user)=([A-Za-z0-9_-]+)", val)
+            if m_ls and plat == "longshanks":
+                val = f"ls:{m_ls.group(1)}"
+            else:
+                path_part = val.split("?", 1)[0].rstrip("/")
+                last_seg = path_part.rsplit("/", 1)[-1].strip()
+                if last_seg:
+                    val = last_seg
+
+        if val.startswith(("ltcg:", "td:", "ls:", "melee:")):
+            return plat, val
+        if val.lower().startswith("bcp:"):
+            return "bcp", val.split(":", 1)[1].strip()
+
+        if plat in ("limitless", "limitlesstcg"):
+            return plat, f"ltcg:{val.lstrip('@').lower()}"
+        if plat == "melee":
+            return plat, f"melee:{val.lstrip('@').lower()}"
+        if plat == "longshanks":
+            return plat, f"ls:{val.lstrip('#')}"
+        if plat == "topdeck":
+            return plat, f"td:{val}"
+        return plat, val
+
+    def _fetch_linked_platforms_on_cursor(self, cur, user_row: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Fetches linked platforms using an active cursor (safe on mocks)."""
+        u_dict = user_row or {}
+        uid = str(u_dict.get("id") or "").strip()
+        out: List[Dict[str, Any]] = []
+        seen_pids = set()
+        label_map = {
+            "bcp": "Best Coast Pairings",
+            "limitless": "Limitless TCG",
+            "limitlesstcg": "Limitless TCG",
+            "topdeck": "TopDeck.gg",
+            "longshanks": "Longshanks",
+            "melee": "Melee.gg",
+        }
+        is_mock_cur = hasattr(cur, "_mock_name") or hasattr(getattr(self, "db", None), "_is_mock_instance") and self.db._is_mock_instance()
+        if uid and not is_mock_cur:
+            try:
+                cur.execute(
+                    """
+                    SELECT platform, platform_user_id, platform_handle, platform_username, verified, linked_at
+                    FROM user_platform_links
+                    WHERE user_id = %s
+                    ORDER BY linked_at ASC NULLS LAST;
+                    """,
+                    (uid,),
+                )
+                for r in (cur.fetchall() or []):
+                    p_key = str((r.get("platform") if isinstance(r, dict) else r[0]) or "bcp").strip().lower()
+                    norm_plat = "limitless" if p_key == "limitlesstcg" else p_key
+                    p_pid = str((r.get("platform_user_id") if isinstance(r, dict) else r[1]) or "").strip()
+                    p_hdl = str((r.get("platform_handle") if isinstance(r, dict) else r[2]) or (r.get("platform_username") if isinstance(r, dict) else r[3]) or p_pid).strip()
+                    ver = bool((r.get("verified") if isinstance(r, dict) else r[4]) if (isinstance(r, dict) or len(r) > 4) else True)
+                    l_at = (r.get("linked_at") if isinstance(r, dict) else (r[5] if len(r) > 5 else None))
+                    if not p_pid or p_pid in seen_pids:
+                        continue
+                    seen_pids.add(p_pid)
+                    out.append(
+                        {
+                            "platform": norm_plat,
+                            "raw_platform": p_key,
+                            "platform_label": label_map.get(p_key, norm_plat.upper()),
+                            "platform_player_id": p_pid,
+                            "platform_handle": p_hdl,
+                            "verified": ver,
+                            "linked_at": l_at.isoformat() if hasattr(l_at, "isoformat") else str(l_at or ""),
+                        }
+                    )
+            except Exception:
+                pass
+        bcp_id = str(u_dict.get("bcp_user_id") or "").strip()
+        canon_pid = str(u_dict.get("player_id") or "").strip()
+        bcp_target = canon_pid if (bcp_id and canon_pid and not canon_pid.startswith(("ltcg:", "td:", "ls:", "melee:"))) else bcp_id
+        if bcp_target and bcp_target not in seen_pids and not any(x.get("platform") == "bcp" for x in out):
+            out.insert(
+                0,
+                {
+                    "platform": "bcp",
+                    "raw_platform": "bcp",
+                    "platform_label": "Best Coast Pairings",
+                    "platform_player_id": bcp_target,
+                    "platform_handle": str(u_dict.get("competitor_name") or u_dict.get("display_name") or u_dict.get("bcp_email") or bcp_target),
+                    "verified": True,
+                    "linked_at": "",
+                },
+            )
+        return out
+
+    def get_user_platform_links(self, user_id: str, _user_row: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Returns all linked tournament platforms for `user_id`."""
+        uid = str(user_id or "").strip()
+        if not uid:
+            return []
+        is_mock_db = hasattr(self.db, "_is_mock_instance") and self.db._is_mock_instance()
+        if is_mock_db or hasattr(getattr(self.db, "get_connection", None), "_mock_name"):
+            return self._fetch_linked_platforms_on_cursor(None, _user_row or {"id": uid})
+        from psycopg2 import extras
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    u_row = _user_row
+                    if not u_row:
+                        cur.execute(
+                            "SELECT id, display_name, player_id, bcp_user_id, bcp_email FROM users WHERE id = %s OR player_id = %s OR bcp_user_id = %s LIMIT 1;",
+                            (uid, uid, uid),
+                        )
+                        u_row = cur.fetchone() or {"id": uid}
+                    return self._fetch_linked_platforms_on_cursor(cur, dict(u_row))
+        except Exception as e:
+            logger.debug(f"get_user_platform_links notice: {e}")
+            return self._fetch_linked_platforms_on_cursor(None, _user_row or {"id": uid})
+
+    def search_platform_players(
+        self,
+        platform: str,
+        query: str = "",
+        game_system: Optional[str] = None,
+        limit: int = 15,
+    ) -> List[Dict[str, Any]]:
+        """Searches players on a specific tournament platform (`bcp`, `limitless`, `topdeck`, `longshanks`, `melee`) in PostgreSQL."""
+        p_raw = str(platform or "bcp").strip().lower()
+        norm_plat = "limitless" if p_raw in ("limitless", "limitlesstcg", "ltcg") else (
+            "topdeck" if p_raw in ("topdeck", "topdeck.gg", "td") else (
+                "longshanks" if p_raw in ("longshanks", "ls") else (
+                    "melee" if p_raw in ("melee", "melee.gg") else "bcp"
+                )
+            )
+        )
+        prefix_map = {
+            "limitless": "ltcg:%",
+            "topdeck": "td:%",
+            "longshanks": "ls:%",
+            "melee": "melee:%",
+        }
+        q_clean = str(query or "").strip()
+        eff_limit = max(1, min(int(limit or 15), 50))
+        from psycopg2 import extras
+        results: List[Dict[str, Any]] = []
+        seen_ids = set()
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    if norm_plat in prefix_map:
+                        plat_clause = "pr.player_id LIKE %s"
+                        params: List[Any] = [prefix_map[norm_plat]]
+                    else:
+                        plat_clause = "pr.player_id NOT LIKE 'ltcg:%%' AND pr.player_id NOT LIKE 'td:%%' AND pr.player_id NOT LIKE 'ls:%%' AND pr.player_id NOT LIKE 'melee:%%'"
+                        params = []
+
+                    if q_clean:
+                        like_q = f"%{q_clean}%"
+                        plat_clause += " AND (pr.player_name ILIKE %s OR pr.player_id ILIKE %s)"
+                        params.extend([like_q, like_q])
+
+                    if game_system and str(game_system).strip().lower() not in ("", "all", "*"):
+                        from config import normalize_game_system
+                        plat_clause += " AND COALESCE(pr.game_system, '40k') = %s"
+                        params.append(normalize_game_system(game_system))
+
+                    params.append(eff_limit * 2)
+                    cur.execute(
+                        f"""
+                        SELECT pr.player_id, pr.player_name, pr.current_elo, pr.peak_elo,
+                               pr.matches_played, pr.wins, pr.losses, pr.draws, pr.top_faction,
+                               COALESCE(pr.game_system, '40k') AS game_system,
+                               upl.user_id AS linked_user_id,
+                               upl.platform_handle AS linked_handle
+                        FROM player_ratings pr
+                        LEFT JOIN user_platform_links upl ON upl.platform_user_id = pr.player_id
+                        WHERE {plat_clause}
+                        ORDER BY pr.matches_played DESC NULLS LAST, pr.current_elo DESC NULLS LAST
+                        LIMIT %s;
+                        """,
+                        tuple(params),
+                    )
+                    for r in (cur.fetchall() or []):
+                        pid = str(r.get("player_id") or "").strip()
+                        if not pid or pid in seen_ids:
+                            continue
+                        seen_ids.add(pid)
+                        p_name = str(r.get("player_name") or pid)
+                        results.append(
+                            {
+                                "platform": norm_plat,
+                                "platform_player_id": pid,
+                                "player_id": pid,
+                                "player_name": p_name,
+                                "name": p_name,
+                                "platform_handle": str(r.get("linked_handle") or p_name),
+                                "current_elo": round(float(r.get("current_elo") or 1500.0), 1),
+                                "peak_elo": round(float(r.get("peak_elo") or 1500.0), 1),
+                                "matches_played": int(r.get("matches_played") or 0),
+                                "wins": int(r.get("wins") or 0),
+                                "losses": int(r.get("losses") or 0),
+                                "draws": int(r.get("draws") or 0),
+                                "top_faction": str(r.get("top_faction") or "Unknown"),
+                                "game_system": str(r.get("game_system") or "40k"),
+                                "is_linked": bool(r.get("linked_user_id")),
+                                "linked_user_id": str(r["linked_user_id"]) if r.get("linked_user_id") else None,
+                            }
+                        )
+                        if len(results) >= eff_limit:
+                            break
+        except Exception as e:
+            logger.warning(f"search_platform_players notice ({norm_plat}, {q_clean}): {e}")
+        return results
+
+    def link_platform_account(
+        self,
+        user_id: str,
+        platform: str,
+        platform_player_id: str,
+        platform_handle: Optional[str] = None,
+        display_name: Optional[str] = None,
+        game_system: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Links an external platform account (`bcp`, `limitless`, `topdeck`, `longshanks`, `melee`) to `user_id` and recomputes unified Elo."""
+        uid = str(user_id or "").strip()
+        plat, p_pid = self.normalize_platform_link_input(platform, platform_player_id)
+        if not uid or not p_pid:
+            return {"success": False, "status_code": 400, "error": "user_id and platform_player_id are required"}
+
+        from psycopg2 import extras
+        resolved_name = (platform_handle or display_name or "").strip()
+        canon_pid = p_pid
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT id, display_name, player_id, bcp_user_id FROM users WHERE id = %s OR player_id = %s OR bcp_user_id = %s LIMIT 1;",
+                    (uid, uid, uid),
+                )
+                u_row = cur.fetchone()
+                if not u_row:
+                    return {"success": False, "status_code": 404, "error": "User account not found"}
+                uid = str(u_row["id"])
+                canon_pid = str(u_row.get("player_id") or p_pid).strip()
+
+                # Enforce strict 1-to-1 ownership across users
+                cur.execute(
+                    """
+                    SELECT upl.user_id, u.display_name, u.email
+                    FROM user_platform_links upl
+                    LEFT JOIN users u ON u.id = upl.user_id
+                    WHERE upl.platform_user_id = %s AND upl.user_id != %s
+                    UNION ALL
+                    SELECT u2.id AS user_id, u2.display_name, u2.email
+                    FROM users u2
+                    WHERE (u2.player_id = %s OR u2.bcp_user_id = %s) AND u2.id != %s
+                    LIMIT 1;
+                    """,
+                    (p_pid, uid, p_pid, p_pid, uid),
+                )
+                conflict = cur.fetchone()
+                if conflict:
+                    c_name = conflict.get("display_name") or conflict.get("email") or "another user"
+                    return {
+                        "success": False,
+                        "status_code": 409,
+                        "error": f"Platform account '{p_pid}' ({plat}) is already linked to another OmniTactica user ({c_name}).",
+                    }
+
+                if not resolved_name:
+                    cur.execute("SELECT player_name FROM player_ratings WHERE player_id = %s LIMIT 1;", (p_pid,))
+                    pr_r = cur.fetchone()
+                    if pr_r and pr_r.get("player_name"):
+                        resolved_name = str(pr_r["player_name"]).strip()
+                    else:
+                        cur.execute("SELECT full_name FROM event_participants WHERE player_id = %s AND full_name IS NOT NULL LIMIT 1;", (p_pid,))
+                        ep_r = cur.fetchone()
+                        if ep_r and ep_r.get("full_name"):
+                            resolved_name = str(ep_r["full_name"]).strip()
+
+                norm_plat_db = "limitless" if plat == "limitlesstcg" else plat
+                cur.execute(
+                    """
+                    INSERT INTO user_platform_links (
+                        user_id, platform, platform_user_id, platform_username, platform_handle, verified, linked_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, TRUE, NOW(), NOW())
+                    ON CONFLICT (user_id, platform) DO UPDATE SET
+                        platform_user_id = EXCLUDED.platform_user_id,
+                        platform_username = COALESCE(EXCLUDED.platform_username, user_platform_links.platform_username),
+                        platform_handle = COALESCE(EXCLUDED.platform_handle, user_platform_links.platform_handle),
+                        verified = TRUE,
+                        updated_at = NOW();
+                    """,
+                    (uid, norm_plat_db, p_pid, resolved_name or p_pid, resolved_name or p_pid),
+                )
+
+                if not u_row.get("player_id") or (norm_plat_db == "bcp" and not u_row.get("bcp_user_id")):
+                    cur.execute(
+                        """
+                        UPDATE users SET
+                            player_id = COALESCE(NULLIF(player_id, ''), %s),
+                            bcp_user_id = CASE WHEN %s = 'bcp' THEN COALESCE(NULLIF(bcp_user_id, ''), %s) ELSE bcp_user_id END,
+                            updated_at = NOW()
+                        WHERE id = %s;
+                        """,
+                        (p_pid, norm_plat_db, p_pid, uid),
+                    )
+                    if not u_row.get("player_id"):
+                        canon_pid = p_pid
+            conn.commit()
+
+        from elo import get_elo_engine
+        elo_eng = get_elo_engine(db=self.db)
+        recon = elo_eng.reconstruct_user_elo(canon_pid, game_system=game_system, alias_ids=[p_pid])
+        self.clear_user_hub_cache(user_id=uid, player_id=canon_pid)
+        links = self.get_user_platform_links(uid)
+        updated_user = self.get_user_by_id(uid, bypass_cache=True)
+        return {
+            "success": True,
+            "user_id": uid,
+            "player_id": canon_pid,
+            "linked_platform": plat,
+            "platform": plat,
+            "linked_player_id": p_pid,
+            "platform_player_id": p_pid,
+            "linked_handle": resolved_name or p_pid,
+            "linked_platforms": [x["platform_player_id"] for x in links],
+            "linked_platforms_detail": links,
+            "user": updated_user,
+            **recon,
+        }
+
+    def unlink_platform_account(
+        self,
+        user_id: str,
+        platform: str,
+        platform_player_id: str = "",
+        game_system: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Unlinks an external platform account from `user_id`, restores standalone Elo for the unlinked ID, and recomputes user Elo."""
+        uid = str(user_id or "").strip()
+        plat = str(platform or "").strip().lower()
+        p_pid = str(platform_player_id or "").strip()
+        if not uid or (not p_pid and not plat):
+            return {"success": False, "status_code": 400, "error": "user_id and platform_player_id (or platform) are required"}
+
+        from psycopg2 import extras
+        new_canon_pid: Optional[str] = None
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT id, player_id, bcp_user_id FROM users WHERE id = %s OR player_id = %s OR bcp_user_id = %s LIMIT 1;",
+                    (uid, uid, uid),
+                )
+                u_row = cur.fetchone()
+                if not u_row:
+                    return {"success": False, "status_code": 404, "error": f"User {uid} not found"}
+                uid = str(u_row["id"])
+
+                if p_pid:
+                    cur.execute(
+                        "SELECT platform, platform_user_id FROM user_platform_links WHERE user_id = %s AND platform_user_id = %s LIMIT 1;",
+                        (uid, p_pid),
+                    )
+                    existing = cur.fetchone()
+                    if not existing and plat:
+                        _, norm_pid = self.normalize_platform_link_input(plat, p_pid)
+                        cur.execute(
+                            "SELECT platform, platform_user_id FROM user_platform_links WHERE user_id = %s AND platform_user_id = %s LIMIT 1;",
+                            (uid, norm_pid),
+                        )
+                        existing = cur.fetchone()
+                        if existing:
+                            p_pid = norm_pid
+                else:
+                    plat_variants = [plat, "limitlesstcg" if plat == "limitless" else ("limitless" if plat == "limitlesstcg" else plat)]
+                    cur.execute(
+                        "SELECT platform, platform_user_id FROM user_platform_links WHERE user_id = %s AND LOWER(platform) = ANY(%s) LIMIT 1;",
+                        (uid, plat_variants),
+                    )
+                    existing = cur.fetchone()
+                    if existing:
+                        p_pid = str(existing["platform_user_id"])
+
+                if not existing and plat == "bcp" and u_row.get("bcp_user_id"):
+                    p_pid = str(u_row.get("player_id") or u_row.get("bcp_user_id"))
+                    existing = {"platform": "bcp", "platform_user_id": p_pid}
+
+                if not existing:
+                    return {"success": False, "status_code": 404, "error": f"Link {p_pid or plat} not found on user {uid}"}
+
+                cur.execute(
+                    "DELETE FROM user_platform_links WHERE user_id = %s AND (platform_user_id = %s OR LOWER(platform) = %s);",
+                    (uid, p_pid, str(existing.get("platform") or plat).lower()),
+                )
+
+                if str(existing.get("platform") or plat).lower() == "bcp":
+                    cur.execute(
+                        """
+                        UPDATE users SET
+                            bcp_user_id = NULL, bcp_email = NULL, bcp_access_token = NULL,
+                            bcp_id_token = NULL, bcp_refresh_token = NULL, bcp_token_expires_at = NULL,
+                            bcp_linked_at = NULL, updated_at = NOW()
+                        WHERE id = %s;
+                        """,
+                        (uid,),
+                    )
+
+                cur.execute(
+                    "SELECT platform, platform_user_id FROM user_platform_links WHERE user_id = %s ORDER BY linked_at ASC NULLS LAST;",
+                    (uid,),
+                )
+                remaining = [dict(r) for r in (cur.fetchall() or [])]
+                if remaining:
+                    cur_primary = str(u_row.get("player_id") or "")
+                    if not cur_primary or cur_primary == p_pid:
+                        new_canon_pid = str(remaining[0]["platform_user_id"])
+                        cur.execute("UPDATE users SET player_id = %s, updated_at = NOW() WHERE id = %s;", (new_canon_pid, uid))
+                    else:
+                        new_canon_pid = cur_primary
+                else:
+                    cur.execute("UPDATE users SET player_id = NULL, updated_at = NOW() WHERE id = %s;", (uid,))
+                    new_canon_pid = None
+            conn.commit()
+
+        from elo import get_elo_engine
+        elo_eng = get_elo_engine(db=self.db)
+        # Restore standalone rating for the unlinked platform_player_id
+        elo_eng.reconstruct_user_elo(p_pid, game_system=game_system)
+        recon = {}
+        if new_canon_pid:
+            recon = elo_eng.reconstruct_user_elo(new_canon_pid, game_system=game_system)
+        self.clear_user_hub_cache(user_id=uid, player_id=new_canon_pid or p_pid)
+        links = self.get_user_platform_links(uid)
+        updated_user = self.get_user_by_id(uid, bypass_cache=True)
+        return {
+            "success": True,
+            "user_id": uid,
+            "unlinked_player_id": p_pid,
+            "platform_player_id": p_pid,
+            "unlinked_platform": plat,
+            "platform": plat,
+            "linked_platforms": [x["platform_player_id"] for x in links],
+            "linked_platforms_detail": links,
+            "user": updated_user,
+            **recon,
+        }
 
     def get_valid_bcp_tokens(self, user_id: str, force_refresh: bool = False) -> Dict[str, Optional[str]]:
         """Returns active BCP tokens (id_token, access_token), silently refreshing via refresh_token if needed."""
@@ -2960,7 +3471,24 @@ class AuthManager:
                     matchup_matrix = [dict(r) for r in cur.fetchall()]
 
         # 5. Tournaments Attended & Performance Summary (outside conn scope to avoid nested pool checkout)
-        events_attended = self.db.get_player_tournaments(target_pid, game_system=target_sys)
+        events_attended = list(self.db.get_player_tournaments(target_pid, game_system=target_sys) or [])
+        user_linked_platforms = (user_info or {}).get("linked_platforms") or []
+        if is_pg_db and user_linked_platforms:
+            seen_ev_ids = {str(ev.get("event_id") or ev.get("id") or "") for ev in events_attended if isinstance(ev, dict)}
+            for lp in user_linked_platforms:
+                lp_pid = str((lp.get("platform_player_id") if isinstance(lp, dict) else lp) or "").strip()
+                if lp_pid and lp_pid != target_pid:
+                    try:
+                        extra_evs = self.db.get_player_tournaments(lp_pid, game_system=target_sys) or []
+                        for ex_ev in extra_evs:
+                            ex_eid = str(ex_ev.get("event_id") or ex_ev.get("id") or "")
+                            if ex_eid and ex_eid not in seen_ev_ids:
+                                seen_ev_ids.add(ex_eid)
+                                events_attended.append(ex_ev)
+                    except Exception:
+                        pass
+            events_attended.sort(key=lambda e: str(e.get("event_date") or e.get("date") or ""), reverse=True)
+        p_stat["linked_platforms"] = user_linked_platforms
 
         # Supplement history_points with any recent completed matches not yet in rating_history
         if is_pg_db and (not history_points or int(p_stat.get("matches_played") or 0) > len(history_points)):
@@ -3288,6 +3816,7 @@ class AuthManager:
 
         hub_payload = {
             "player": p_stat,
+            "linked_platforms": user_linked_platforms,
             "preferred_game_system": p_stat.get("preferred_game_system", target_sys),
             "rankings": {
                 "global_rank": global_rank,

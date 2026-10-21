@@ -1890,12 +1890,17 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 p_load = {}
             from scripts.local_sqlite_db import get_local_sqlite_db
             local_db = get_local_sqlite_db()
-            uid = str(p_load.get("user_id") or self.headers.get("X-Test-User") or "user_omni_multiplatform_1").strip()
+            uid = str(p_load.get("user_id") or self.headers.get("X-Test-User") or "p_innes").strip()
             game_sys = p_load.get("game_system")
             if local_db:
                 if "unlink" in clean_path:
                     plat = str(p_load.get("platform") or "bcp").strip().lower()
-                    p_pid = str(p_load.get("platform_player_id") or p_load.get("player_id") or "").strip()
+                    p_pid = str(
+                        p_load.get("platform_player_id")
+                        or p_load.get("external_player_id")
+                        or p_load.get("player_id")
+                        or ""
+                    ).strip()
                     res = local_db.unlink_user_platform_and_reconstruct(
                         user_id=uid,
                         platform=plat,
@@ -1904,8 +1909,20 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     )
                 elif "platform/link" in clean_path or "link-platform" in clean_path or "bcp/verify-link" in clean_path:
                     plat = str(p_load.get("platform") or ("bcp" if "bcp" in clean_path else "limitlesstcg")).strip().lower()
-                    p_pid = str(p_load.get("platform_player_id") or p_load.get("player_id") or p_load.get("bcp_player_id") or "ltcg:corndog_xx").strip()
-                    p_handle = p_load.get("platform_handle") or p_load.get("player_name")
+                    p_pid = str(
+                        p_load.get("platform_player_id")
+                        or p_load.get("external_player_id")
+                        or p_load.get("player_id")
+                        or p_load.get("bcp_player_id")
+                        or p_load.get("platform_handle")
+                        or p_load.get("external_username")
+                        or "ltcg:corndog_xx"
+                    ).strip()
+                    p_handle = (
+                        p_load.get("platform_handle")
+                        or p_load.get("external_username")
+                        or p_load.get("player_name")
+                    )
                     d_name = p_load.get("display_name") or p_handle
                     res = local_db.link_user_platform_and_reconstruct(
                         user_id=uid,
@@ -1917,7 +1934,12 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     )
                 else:
                     res = local_db.reconstruct_user_elo(uid, game_system=game_sys)
+                if res.get("success"):
+                    res["status"] = "success"
                 res["elo_reconstruction"] = dict(res)
+                if uid in ("p_innes", "user_innes") and isinstance(DEV_USER.get("user"), dict):
+                    DEV_USER["user"]["linked_platforms"] = local_db.get_user_platform_links(uid)
+                    res["user"] = dict(DEV_USER["user"])
             else:
                 res = {
                     "success": True,
@@ -3536,11 +3558,96 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     resp_user["user"]["can_access_cc"] = (r_ov in ("admin", "creator", "cc", "content_creator"))
                     resp_user["user"]["is_cc"] = (r_ov in ("admin", "creator", "cc", "content_creator"))
                     resp_user["user"]["can_switch_role"] = True
+            if isinstance(resp_user.get("user"), dict):
+                try:
+                    from scripts.local_sqlite_db import get_local_sqlite_db
+                    local_db_me = get_local_sqlite_db()
+                    if local_db_me:
+                        uid_me = str(resp_user["user"].get("id") or "p_innes")
+                        links_me = local_db_me.get_user_platform_links(uid_me)
+                        if not links_me and resp_user["user"].get("bcp_connected"):
+                            links_me = [
+                                {
+                                    "platform": "bcp",
+                                    "raw_platform": "bcp",
+                                    "platform_label": "Best Coast Pairings",
+                                    "platform_player_id": str(resp_user["user"].get("player_id") or "p_innes"),
+                                    "platform_handle": str(resp_user["user"].get("display_name") or "Innes Wilson"),
+                                    "verified": True,
+                                    "linked_at": "",
+                                }
+                            ]
+                        resp_user["user"]["linked_platforms"] = links_me
+                except Exception:
+                    pass
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps(resp_user).encode("utf-8"))
+            return
+
+        if clean_path in ("api/user/platforms", "api/user/platforms/"):
+            qp_plat = urllib.parse.parse_qs(query_str)
+            req_uid = (qp_plat.get("user_id") or [self.headers.get("X-Test-User") or "p_innes"])[0]
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            local_db_p = get_local_sqlite_db()
+            links_p = local_db_p.get_user_platform_links(req_uid) if local_db_p else []
+            if not links_p and req_uid in ("p_innes", "user_innes"):
+                links_p = [
+                    {
+                        "platform": "bcp",
+                        "raw_platform": "bcp",
+                        "platform_label": "Best Coast Pairings",
+                        "platform_player_id": "p_innes",
+                        "platform_handle": "Innes Wilson",
+                        "verified": True,
+                        "linked_at": "",
+                    }
+                ]
+            payload_p = {
+                "success": True,
+                "status": "success",
+                "user_id": req_uid,
+                "linked_platforms": links_p,
+                "platforms": links_p,
+                "platforms_supported": [
+                    {"id": "bcp", "name": "Best Coast Pairings", "short_name": "BCP", "icon": "⚔️", "prefix": ""},
+                    {"id": "limitless", "name": "Limitless TCG", "short_name": "Limitless", "icon": "🃏", "prefix": "ltcg:"},
+                    {"id": "topdeck", "name": "TopDeck.gg", "short_name": "TopDeck.gg", "icon": "👑", "prefix": "td:"},
+                    {"id": "longshanks", "name": "Longshanks", "short_name": "Longshanks", "icon": "🛡️", "prefix": "ls:"},
+                    {"id": "melee", "name": "Melee.gg", "short_name": "Melee.gg", "icon": "⚡", "prefix": "melee:"},
+                ],
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(payload_p).encode("utf-8"))
+            return
+
+        if clean_path in ("api/user/platform/search", "api/user/platform/search/"):
+            qp_ps = urllib.parse.parse_qs(query_str)
+            plat_q = (qp_ps.get("platform") or ["bcp"])[0]
+            q_val = (qp_ps.get("query") or qp_ps.get("q") or [""])[0]
+            gs_val = (qp_ps.get("game_system") or [None])[0]
+            lim_val = int((qp_ps.get("limit") or ["15"])[0] or 15)
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            local_db_ps = get_local_sqlite_db()
+            players_ps = local_db_ps.search_platform_players(platform=plat_q, query=q_val, game_system=gs_val, limit=lim_val) if local_db_ps else []
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "status": "success",
+                    "platform": plat_q,
+                    "query": q_val,
+                    "count": len(players_ps),
+                    "results": players_ps,
+                    "players": players_ps,
+                }).encode("utf-8"))
             return
 
         if clean_path in ("api/tracker/sessions", "api/tracker/history"):
@@ -7888,6 +7995,16 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                                 res["linked_platforms"] = sql_prof["linked_platforms"]
                             if sql_prof.get("cross_system_ratings"):
                                 res["cross_system_ratings"] = sql_prof["cross_system_ratings"]
+                        dev_links = local_db.get_user_platform_links("p_innes")
+                        if dev_links:
+                            cur_links = list(res.get("linked_platforms") or [])
+                            seen_l_pids = {str(x.get("platform_player_id")) for x in cur_links if isinstance(x, dict)}
+                            for dl in dev_links:
+                                if str(dl.get("platform_player_id")) not in seen_l_pids:
+                                    cur_links.append(dl)
+                            res["linked_platforms"] = cur_links
+                            if isinstance(res.get("player"), dict):
+                                res["player"]["linked_platforms"] = cur_links
             import badges
             req_game_sys = query_params.get("game_system", ["40k"])[0].lower() if "query_params" in locals() else "40k"
             user_pinned = DEV_USER.get("pinned_badges") if isinstance(DEV_USER, dict) else None

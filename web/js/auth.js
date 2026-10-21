@@ -855,30 +855,367 @@ async function handleResendVerificationCode() {
   }
 }
 
-function openBcpLinkModal() {
-  const modal = document.getElementById('bcp-link-modal');
-  if (!modal) return;
+const PLATFORM_LINK_CATALOG = [
+  {
+    id: 'bcp',
+    name: 'Best Coast Pairings',
+    shortName: 'BCP',
+    icon: '⚔️',
+    domain: 'https://www.bestcoastpairings.com',
+    color: '#38bdf8',
+    subtitle: 'Link your BCP account to auto-sync tournaments, rosters & match records',
+    inputLabel: 'BCP Player ID or Profile URL',
+    placeholder: 'e.g. BCP Player ID or Full Name'
+  },
+  {
+    id: 'limitless',
+    name: 'Limitless TCG',
+    shortName: 'Limitless',
+    icon: '🃏',
+    domain: 'https://play.limitlesstcg.com',
+    color: '#a855f7',
+    subtitle: 'Link your Limitless TCG handle to unify Pokémon, One Piece & TCG tournament ratings',
+    inputLabel: 'Limitless Username or Profile URL',
+    placeholder: 'e.g. username or play.limitlesstcg.com/player/...'
+  },
+  {
+    id: 'topdeck',
+    name: 'TopDeck.gg',
+    shortName: 'TopDeck.gg',
+    icon: '👑',
+    domain: 'https://topdeck.gg',
+    color: '#f59e0b',
+    subtitle: 'Link your TopDeck.gg profile to unify cEDH, MTG, Riftbound & tabletop tournament records',
+    inputLabel: 'TopDeck.gg Handle, UID, or Profile URL',
+    placeholder: 'e.g. handle, UID, or topdeck.gg/profile/...'
+  },
+  {
+    id: 'longshanks',
+    name: 'Longshanks',
+    shortName: 'Longshanks',
+    icon: '🛡️',
+    domain: 'https://www.longshanks.org',
+    color: '#10b981',
+    subtitle: 'Link your Longshanks ID to unify Star Wars, Marvel Crisis Protocol, ASOIAF & wargame events',
+    inputLabel: 'Longshanks Player Number, Handle, or URL',
+    placeholder: 'e.g. Longshanks ID or longshanks.org/players/...'
+  },
+  {
+    id: 'melee',
+    name: 'Melee.gg',
+    shortName: 'Melee.gg',
+    icon: '⚡',
+    domain: 'https://melee.gg',
+    color: '#ec4899',
+    subtitle: 'Link your Melee.gg profile to unify Magic: The Gathering, Star Wars Unlimited & Lorcana events',
+    inputLabel: 'Melee.gg Username or Profile URL',
+    placeholder: 'e.g. Melee username or melee.gg/Profile/Index/...'
+  }
+];
+if (typeof window !== 'undefined') {
+  window.PLATFORM_LINK_CATALOG = PLATFORM_LINK_CATALOG;
+}
 
-  const errorDiv = document.getElementById('bcp-link-error');
-  if (errorDiv) {
-    errorDiv.innerText = '';
-    errorDiv.style.display = 'none';
+let _activeLinkModalPlatform = 'bcp';
+let _bcpIdSearchMode = false;
+let _platformSearchDebounceTimer = null;
+let _lastPlatformSearchCandidates = [];
+
+function normalizePlatformClientKey(rawPlatform) {
+  const p = String(rawPlatform || '').trim().toLowerCase();
+  if (p === 'bcp' || p === 'bestcoastpairings' || p === 'best_coast_pairings') return 'bcp';
+  if (p === 'limitless' || p === 'limitlesstcg' || p === 'limitless_tcg') return 'limitless';
+  if (p === 'topdeck' || p === 'topdeck.gg' || p === 'topdeckgg') return 'topdeck';
+  if (p === 'longshanks' || p === 'longshanks.org') return 'longshanks';
+  if (p === 'melee' || p === 'melee.gg' || p === 'meleegg') return 'melee';
+  return p || 'bcp';
+}
+
+function getPlatformMetaByKey(rawPlatform) {
+  const key = normalizePlatformClientKey(rawPlatform);
+  return PLATFORM_LINK_CATALOG.find(item => item.id === key) || PLATFORM_LINK_CATALOG[0];
+}
+
+function getUserLinkedPlatformsMap(userObj = currentUser) {
+  const map = {};
+  if (!userObj) return map;
+
+  const rawLinks = Array.isArray(userObj.linked_platforms)
+    ? userObj.linked_platforms
+    : (Array.isArray(userObj.linked_platforms_detail) ? userObj.linked_platforms_detail : []);
+
+  rawLinks.forEach(item => {
+    if (!item) return;
+    if (typeof item === 'string') {
+      const k = normalizePlatformClientKey(item);
+      map[k] = {
+        platform: k,
+        platform_player_id: k === 'bcp' ? (userObj.bcp_user_id || userObj.player_id || '') : '',
+        platform_handle: k === 'bcp' ? (userObj.bcp_email || userObj.display_name || 'Connected') : (userObj.display_name || 'Connected')
+      };
+    } else if (typeof item === 'object') {
+      const k = normalizePlatformClientKey(item.platform || item.platform_id);
+      const pid = String(item.platform_player_id || item.platform_user_id || item.external_player_id || '').trim();
+      const handle = String(item.platform_handle || item.platform_username || item.external_username || item.display_name || pid || 'Connected').trim();
+      map[k] = {
+        platform: k,
+        platform_player_id: pid,
+        platform_handle: handle,
+        verified: item.verified !== false
+      };
+    }
+  });
+
+  if ((userObj.bcp_connected || userObj.bcp_user_id || userObj.bcp_email) && !map.bcp) {
+    map.bcp = {
+      platform: 'bcp',
+      platform_player_id: String(userObj.bcp_user_id || userObj.player_id || '').trim(),
+      platform_handle: String(userObj.bcp_email || userObj.display_name || 'Connected').trim(),
+      verified: true
+    };
+  }
+  return map;
+}
+if (typeof window !== 'undefined') {
+  window.getUserLinkedPlatformsMap = getUserLinkedPlatformsMap;
+}
+
+function renderSettingsPlatformsList(userObj = currentUser) {
+  const listEl = document.getElementById('settings-platforms-list');
+  const countBadge = document.getElementById('settings-platforms-count-badge');
+  const bcpVal = document.getElementById('settings-bcp-status');
+  const linkedMap = getUserLinkedPlatformsMap(userObj);
+  const linkedCount = Object.keys(linkedMap).length;
+
+  if (countBadge) {
+    countBadge.textContent = `${linkedCount} / ${PLATFORM_LINK_CATALOG.length} Linked`;
+    countBadge.style.background = linkedCount > 0 ? 'rgba(16,185,129,0.14)' : 'rgba(168,85,247,0.12)';
+    countBadge.style.color = linkedCount > 0 ? '#34d399' : '#c084fc';
+    countBadge.style.borderColor = linkedCount > 0 ? 'rgba(16,185,129,0.35)' : 'rgba(168,85,247,0.28)';
   }
 
-  const isConnected = !!(currentUser && (currentUser.bcp_connected || currentUser.bcp_email || currentUser.bcp_user_id));
-  const connectedView = document.getElementById('bcp-connected-view');
-  const formView = document.getElementById('bcp-form-credentials');
-  const connectedEmail = document.getElementById('bcp-connected-email');
-
-  if (isConnected && connectedView && formView) {
-    if (connectedEmail) {
-      connectedEmail.innerText = currentUser.bcp_email || currentUser.display_name || 'Linked BCP Account';
+  if (bcpVal && userObj) {
+    if (linkedMap.bcp || userObj.bcp_connected || userObj.bcp_user_id) {
+      const bcpHandle = (linkedMap.bcp && linkedMap.bcp.platform_handle) || userObj.bcp_email || '';
+      const emailLabel = bcpHandle ? `<div style="color:#94a3b8; font-size:0.75rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:210px;" title="${escapeHtml(bcpHandle)}">(${escapeHtml(bcpHandle)})</div>` : '';
+      bcpVal.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 6px; justify-content: flex-end;">
+          <span style="color:#10b981; font-weight:700;">🟢 Connected</span>
+          <button type="button" onclick="closeUserSettingsModal(); openPlatformLinkModal('bcp');" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; font-size:11px; font-weight:600; cursor:pointer; padding:1px 7px; border-radius:4px; transition:all 0.15s;">Manage</button>
+        </div>
+        ${emailLabel}
+      `;
+    } else {
+      bcpVal.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 6px; justify-content: flex-end;">
+          <span style="color:#94a3b8; font-size: 0.8rem;">Your BCP: ⚪ Not Linked</span>
+          <button type="button" onclick="closeUserSettingsModal(); openPlatformLinkModal('bcp');" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; font-size:11px; font-weight:600; cursor:pointer; padding:1px 7px; border-radius:4px; transition:all 0.15s;">Link now</button>
+        </div>
+      `;
     }
-    connectedView.style.display = 'block';
-    formView.style.display = 'none';
+  }
+
+  if (!listEl) return;
+
+  listEl.innerHTML = PLATFORM_LINK_CATALOG.map(plat => {
+    const info = linkedMap[plat.id];
+    const isLinked = Boolean(info);
+    const handleStr = isLinked ? (info.platform_handle || info.platform_player_id || 'Linked') : '';
+    const pidStr = isLinked && info.platform_player_id && info.platform_player_id !== handleStr ? info.platform_player_id : '';
+    return `
+      <div data-settings-platform-row="${plat.id}" style="display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; padding: 0.6rem 0.8rem; border-radius: 9px; background: ${isLinked ? 'rgba(16, 185, 129, 0.08)' : 'rgba(15, 23, 42, 0.65)'}; border: 1px solid ${isLinked ? 'rgba(16, 185, 129, 0.32)' : 'rgba(148, 163, 184, 0.16)'}; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0; flex: 1;">
+          <span style="width: 30px; height: 30px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); display: inline-flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0;">${plat.icon}</span>
+          <div style="min-width: 0; flex: 1;">
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span style="font-size: 0.82rem; font-weight: 800; color: #f8fafc;">${escapeHtml(plat.name)}</span>
+              ${isLinked
+                ? `<span style="font-size: 0.66rem; font-weight: 800; color: #10b981; background: rgba(16,185,129,0.16); border: 1px solid rgba(16,185,129,0.35); padding: 1px 6px; border-radius: 999px;">🟢 Linked</span>`
+                : `<span style="font-size: 0.66rem; font-weight: 700; color: #64748b;">⚪ Not Linked</span>`
+              }
+            </div>
+            ${isLinked ? `
+              <div style="font-size: 0.74rem; color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;">
+                <b>${escapeHtml(handleStr)}</b>${pidStr ? ` <span style="color:#64748b; font-family:monospace; font-size:0.68rem;">(${escapeHtml(pidStr)})</span>` : ''}
+              </div>
+            ` : `
+              <div style="font-size: 0.71rem; color: #64748b; margin-top: 1px;">Unify your ${escapeHtml(plat.shortName)} match history &amp; Elo</div>
+            `}
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+          ${isLinked ? `
+            <button type="button" onclick="closeUserSettingsModal(); openPlatformLinkModal('${plat.id}');" style="background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.32); color: #38bdf8; font-size: 0.72rem; font-weight: 700; padding: 4px 9px; border-radius: 6px; cursor: pointer;">
+              Manage
+            </button>
+            <button type="button" onclick="handleUnlinkPlatformAccount('${plat.id}', '${escapeHtml(info.platform_player_id || '')}')" style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.32); color: #f87171; font-size: 0.72rem; font-weight: 700; padding: 4px 9px; border-radius: 6px; cursor: pointer;">
+              Unlink
+            </button>
+          ` : `
+            <button type="button" onclick="closeUserSettingsModal(); openPlatformLinkModal('${plat.id}');" style="background: rgba(56,189,248,0.15); border: 1px solid rgba(56,189,248,0.4); color: #38bdf8; font-size: 0.74rem; font-weight: 800; padding: 5px 11px; border-radius: 6px; cursor: pointer;">
+              🔗 Link ${escapeHtml(plat.shortName)}
+            </button>
+          `}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+if (typeof window !== 'undefined') {
+  window.renderSettingsPlatformsList = renderSettingsPlatformsList;
+}
+
+function toggleBcpIdSearchMode(enableSearch = true) {
+  _bcpIdSearchMode = Boolean(enableSearch);
+  selectLinkModalPlatform('bcp');
+}
+if (typeof window !== 'undefined') {
+  window.toggleBcpIdSearchMode = toggleBcpIdSearchMode;
+}
+
+function selectLinkModalPlatform(platformId = 'bcp') {
+  const cleanPlat = normalizePlatformClientKey(platformId);
+  _activeLinkModalPlatform = cleanPlat;
+  if (cleanPlat !== 'bcp') {
+    _bcpIdSearchMode = false;
+  }
+
+  const meta = getPlatformMetaByKey(cleanPlat);
+  const linkedMap = getUserLinkedPlatformsMap(currentUser);
+  const linkedInfo = linkedMap[cleanPlat] || null;
+
+  // Update tab buttons
+  const tabBtns = document.querySelectorAll('#link-modal-platform-tabs .link-platform-tab-btn');
+  tabBtns.forEach(btn => {
+    const p = btn.getAttribute('data-platform');
+    const isActive = (p === cleanPlat);
+    btn.classList.toggle('active', isActive);
+    btn.style.borderColor = isActive ? 'rgba(56, 189, 248, 0.5)' : 'transparent';
+    btn.style.background = isActive ? 'rgba(56, 189, 248, 0.18)' : 'transparent';
+    btn.style.color = isActive ? '#38bdf8' : (linkedMap[p] ? '#34d399' : '#94a3b8');
+  });
+
+  // Update modal header
+  const titleEl = document.getElementById('link-modal-title');
+  const subEl = document.getElementById('link-modal-subtitle');
+  const domainEl = document.getElementById('link-modal-domain-pill');
+  const imgEl = document.getElementById('link-modal-platform-img');
+  const emojiEl = document.getElementById('link-modal-platform-emoji');
+  const badgeBox = document.getElementById('link-modal-platform-badge-box');
+
+  if (titleEl) {
+    titleEl.textContent = cleanPlat === 'bcp' && !_bcpIdSearchMode
+      ? 'Sign in with Best Coast Pairings'
+      : `Link ${meta.name} Account`;
+  }
+  if (subEl) subEl.textContent = meta.subtitle;
+  if (domainEl) domainEl.textContent = meta.domain;
+
+  if (cleanPlat === 'bcp') {
+    if (imgEl) imgEl.style.display = 'block';
+    if (emojiEl) emojiEl.style.display = 'none';
+    if (badgeBox) badgeBox.style.background = '#ffffff';
   } else {
-    if (connectedView) connectedView.style.display = 'none';
-    if (formView) formView.style.display = 'block';
+    if (imgEl) imgEl.style.display = 'none';
+    if (emojiEl) {
+      emojiEl.textContent = meta.icon;
+      emojiEl.style.display = 'inline-block';
+    }
+    if (badgeBox) badgeBox.style.background = '#0f172a';
+  }
+
+  const bcpConnectedView = document.getElementById('bcp-connected-view');
+  const bcpFormView = document.getElementById('bcp-form-credentials');
+  const multiView = document.getElementById('multiplatform-link-view');
+  const backBar = document.getElementById('bcp-back-to-sso-bar');
+  const bcpErr = document.getElementById('bcp-link-error');
+  const multiErr = document.getElementById('multiplatform-link-error');
+  const multiSucc = document.getElementById('multiplatform-link-success');
+
+  if (bcpErr) { bcpErr.innerText = ''; bcpErr.style.display = 'none'; }
+  if (multiErr) { multiErr.innerText = ''; multiErr.style.display = 'none'; }
+  if (multiSucc) { multiSucc.innerText = ''; multiSucc.style.display = 'none'; }
+
+  if (cleanPlat === 'bcp' && !_bcpIdSearchMode) {
+    if (multiView) multiView.style.display = 'none';
+    const isBcpConnected = Boolean(linkedInfo || (currentUser && (currentUser.bcp_connected || currentUser.bcp_email || currentUser.bcp_user_id)));
+    const connectedEmail = document.getElementById('bcp-connected-email');
+    if (isBcpConnected && bcpConnectedView && bcpFormView) {
+      if (connectedEmail) {
+        connectedEmail.innerText = (linkedInfo && linkedInfo.platform_handle) || currentUser?.bcp_email || currentUser?.display_name || 'Linked BCP Account';
+      }
+      bcpConnectedView.style.display = 'block';
+      bcpFormView.style.display = 'none';
+    } else {
+      if (bcpConnectedView) bcpConnectedView.style.display = 'none';
+      if (bcpFormView) bcpFormView.style.display = 'block';
+    }
+    return;
+  }
+
+  // Multi-platform view (Limitless, TopDeck.gg, Longshanks, Melee.gg, or BCP ID search)
+  if (bcpConnectedView) bcpConnectedView.style.display = 'none';
+  if (bcpFormView) bcpFormView.style.display = 'none';
+  if (multiView) multiView.style.display = 'block';
+  if (backBar) backBar.style.display = (cleanPlat === 'bcp' && _bcpIdSearchMode) ? 'block' : 'none';
+
+  const connBanner = document.getElementById('multiplatform-connected-banner');
+  const connHandle = document.getElementById('multiplatform-connected-handle');
+  const connId = document.getElementById('multiplatform-connected-id');
+  if (connBanner) {
+    if (linkedInfo) {
+      if (connHandle) connHandle.textContent = `${meta.icon} ${linkedInfo.platform_handle || linkedInfo.platform_player_id}`;
+      if (connId) connId.textContent = `Platform ID: ${linkedInfo.platform_player_id || '-'}`;
+      connBanner.style.display = 'block';
+    } else {
+      connBanner.style.display = 'none';
+    }
+  }
+
+  const directLabel = document.getElementById('multiplatform-direct-id-label');
+  const directInput = document.getElementById('multiplatform-direct-id-input');
+  const handleInput = document.getElementById('multiplatform-direct-handle-input');
+  const searchInput = document.getElementById('multiplatform-search-input');
+  const submitBtn = document.getElementById('multiplatform-link-submit-btn');
+
+  if (directLabel) directLabel.textContent = meta.inputLabel;
+  if (directInput) {
+    directInput.placeholder = meta.placeholder;
+    directInput.value = linkedInfo ? (linkedInfo.platform_player_id || '') : '';
+  }
+  if (handleInput) {
+    handleInput.value = linkedInfo ? (linkedInfo.platform_handle || '') : (currentUser?.display_name || '');
+  }
+  if (submitBtn) {
+    submitBtn.innerHTML = `🔗 Link ${escapeHtml(meta.shortName)} &amp; Compute Elo`;
+  }
+
+  // Trigger initial search using user's display name if available
+  const defaultQuery = (searchInput && searchInput.value.trim()) || (currentUser?.display_name || '');
+  if (searchInput && !searchInput.value && defaultQuery) {
+    searchInput.value = defaultQuery;
+  }
+  runSearchPlatformPlayers(searchInput ? searchInput.value : defaultQuery);
+}
+if (typeof window !== 'undefined') {
+  window.selectLinkModalPlatform = selectLinkModalPlatform;
+}
+
+function openPlatformLinkModal(platformId = 'bcp') {
+  const modal = document.getElementById('bcp-link-modal');
+  if (!modal) return;
+  _bcpIdSearchMode = false;
+  selectLinkModalPlatform(platformId || 'bcp');
+
+  // Also refresh linked platforms from API in the background
+  if (window.api && typeof window.api.getUserPlatforms === 'function') {
+    window.api.getUserPlatforms().then(res => {
+      if (res && res.success && Array.isArray(res.linked_platforms) && currentUser) {
+        currentUser.linked_platforms = res.linked_platforms;
+        localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
+        selectLinkModalPlatform(_activeLinkModalPlatform);
+      }
+    }).catch(() => {});
   }
 
   if (typeof bringModalToFront === 'function') {
@@ -887,18 +1224,245 @@ function openBcpLinkModal() {
     modal.classList.add('active');
   }
 
-  // Auto-focus email input so Chrome and password managers immediately detect active credentials
-  if (!isConnected || (formView && formView.style.display !== 'none')) {
-    setTimeout(() => {
-      const emailInput = document.getElementById('bcp-link-email');
-      if (emailInput) {
-        emailInput.focus();
-        if (typeof emailInput.select === 'function' && emailInput.value) {
-          emailInput.select();
+  if (_activeLinkModalPlatform === 'bcp' && !_bcpIdSearchMode) {
+    const formView = document.getElementById('bcp-form-credentials');
+    if (formView && formView.style.display !== 'none') {
+      setTimeout(() => {
+        const emailInput = document.getElementById('bcp-link-email');
+        if (emailInput) {
+          emailInput.focus();
+          if (typeof emailInput.select === 'function' && emailInput.value) {
+            emailInput.select();
+          }
         }
-      }
-    }, 100);
+      }, 100);
+    }
   }
+}
+if (typeof window !== 'undefined') {
+  window.openPlatformLinkModal = openPlatformLinkModal;
+}
+
+function openBcpLinkModal(platformId = 'bcp') {
+  openPlatformLinkModal(platformId || 'bcp');
+}
+
+function debouncedSearchPlatformPlayers(query = '') {
+  if (_platformSearchDebounceTimer) clearTimeout(_platformSearchDebounceTimer);
+  _platformSearchDebounceTimer = setTimeout(() => {
+    runSearchPlatformPlayers(query);
+  }, 220);
+}
+if (typeof window !== 'undefined') {
+  window.debouncedSearchPlatformPlayers = debouncedSearchPlatformPlayers;
+}
+
+async function runSearchPlatformPlayers(query = '') {
+  const resultsEl = document.getElementById('multiplatform-search-results');
+  if (!resultsEl) return;
+  const q = String(query || '').trim();
+  const meta = getPlatformMetaByKey(_activeLinkModalPlatform);
+
+  if (q.length < 2) {
+    resultsEl.innerHTML = `<div style="font-size: 0.74rem; color: #64748b; padding: 0.4rem 0.2rem;">Type at least 2 characters to search ${escapeHtml(meta.name)} tournament players, or enter your handle/ID below.</div>`;
+    return;
+  }
+
+  resultsEl.innerHTML = `<div style="font-size: 0.75rem; color: #94a3b8; padding: 0.4rem 0.2rem;">⏳ Searching ${escapeHtml(meta.name)} players for "${escapeHtml(q)}"...</div>`;
+  try {
+    const res = (window.api && typeof window.api.searchPlatformPlayers === 'function')
+      ? await window.api.searchPlatformPlayers(_activeLinkModalPlatform, q, '', 12)
+      : { results: [] };
+    const items = Array.isArray(res?.results) ? res.results : (Array.isArray(res?.players) ? res.players : []);
+    _lastPlatformSearchCandidates = items;
+
+    if (items.length === 0) {
+      resultsEl.innerHTML = `
+        <div style="font-size: 0.74rem; color: #94a3b8; padding: 0.5rem 0.65rem; background: rgba(15,23,42,0.65); border: 1px dashed rgba(148,163,184,0.22); border-radius: 8px;">
+          No indexed players matched "<b>${escapeHtml(q)}</b>" on ${escapeHtml(meta.name)} yet. Enter your ${escapeHtml(meta.shortName)} handle, profile URL, or player ID below to link directly!
+        </div>
+      `;
+      return;
+    }
+
+    const linkedMap = getUserLinkedPlatformsMap(currentUser);
+    const currentLinkedPid = String(linkedMap[_activeLinkModalPlatform]?.platform_player_id || '').toLowerCase();
+
+    resultsEl.innerHTML = items.map((cand, idx) => {
+      const pid = String(cand.platform_player_id || '').trim();
+      const name = String(cand.player_name || pid).trim();
+      const fac = String(cand.top_faction || 'Various').trim();
+      const elo = Math.round(Number(cand.current_elo || 1500));
+      const matches = Number(cand.total_matches || 0);
+      const events = Number(cand.events_played || 0);
+      const isAlreadyLinked = Boolean(currentLinkedPid && pid.toLowerCase() === currentLinkedPid);
+
+      return `
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0.5rem 0.65rem; background: ${isAlreadyLinked ? 'rgba(16,185,129,0.12)' : 'rgba(15,23,42,0.85)'}; border: 1px solid ${isAlreadyLinked ? 'rgba(16,185,129,0.4)' : 'rgba(148,163,184,0.18)'}; border-radius: 8px;">
+          <div style="min-width: 0; flex: 1;">
+            <div style="font-size: 0.8rem; font-weight: 800; color: #f8fafc; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span>${escapeHtml(name)}</span>
+              <span style="font-size: 0.68rem; font-family: monospace; color: #38bdf8;">${elo} Elo</span>
+            </div>
+            <div style="font-size: 0.7rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${escapeHtml(fac)} • ${matches} matches${events ? ` (${events} events)` : ''} • <span style="font-family:monospace; color:#64748b;">${escapeHtml(pid)}</span>
+            </div>
+          </div>
+          <button type="button" onclick="handleQuickLinkSearchCandidate(${idx})" style="background: ${isAlreadyLinked ? 'rgba(16,185,129,0.2)' : 'rgba(56,189,248,0.16)'}; border: 1px solid ${isAlreadyLinked ? 'rgba(16,185,129,0.45)' : 'rgba(56,189,248,0.42)'}; color: ${isAlreadyLinked ? '#34d399' : '#38bdf8'}; font-size: 0.72rem; font-weight: 800; padding: 4px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">
+            ${isAlreadyLinked ? '✓ Linked' : '🔗 Link Profile'}
+          </button>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    resultsEl.innerHTML = `<div style="font-size: 0.74rem; color: #f87171; padding: 0.4rem;">Search error: ${escapeHtml(err.message || 'Failed')}</div>`;
+  }
+}
+if (typeof window !== 'undefined') {
+  window.runSearchPlatformPlayers = runSearchPlatformPlayers;
+}
+
+async function handleQuickLinkSearchCandidate(idx) {
+  const cand = _lastPlatformSearchCandidates[Number(idx)];
+  if (!cand) return;
+  const directInput = document.getElementById('multiplatform-direct-id-input');
+  const handleInput = document.getElementById('multiplatform-direct-handle-input');
+  if (directInput) directInput.value = cand.platform_player_id || '';
+  if (handleInput) handleInput.value = cand.player_name || '';
+  await executeMultiplatformLink(_activeLinkModalPlatform, cand.platform_player_id, cand.player_name || '');
+}
+if (typeof window !== 'undefined') {
+  window.handleQuickLinkSearchCandidate = handleQuickLinkSearchCandidate;
+}
+
+async function handleSubmitMultiplatformLink(e) {
+  if (e) e.preventDefault();
+  const directInput = document.getElementById('multiplatform-direct-id-input');
+  const handleInput = document.getElementById('multiplatform-direct-handle-input');
+  const rawId = directInput ? directInput.value.trim() : '';
+  const rawHandle = handleInput ? handleInput.value.trim() : '';
+  await executeMultiplatformLink(_activeLinkModalPlatform, rawId, rawHandle);
+}
+if (typeof window !== 'undefined') {
+  window.handleSubmitMultiplatformLink = handleSubmitMultiplatformLink;
+}
+
+async function executeMultiplatformLink(platform, rawPlayerId, rawHandle = '') {
+  const errEl = document.getElementById('multiplatform-link-error');
+  const succEl = document.getElementById('multiplatform-link-success');
+  const submitBtn = document.getElementById('multiplatform-link-submit-btn');
+  const meta = getPlatformMetaByKey(platform);
+
+  if (errEl) { errEl.innerText = ''; errEl.style.display = 'none'; }
+  if (succEl) { succEl.innerText = ''; succEl.style.display = 'none'; }
+
+  if (!rawPlayerId && !rawHandle) {
+    if (errEl) {
+      errEl.innerText = `Please enter your ${meta.name} username, profile URL, or player ID.`;
+      errEl.style.display = 'block';
+    }
+    return;
+  }
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerText = `⏳ Linking ${meta.shortName} & Computing Elo...`;
+  }
+
+  const res = await linkPlatformAccount(meta.id, rawPlayerId || rawHandle, rawHandle || rawPlayerId);
+
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = `🔗 Link ${escapeHtml(meta.shortName)} &amp; Compute Elo`;
+  }
+
+  if (res && res.success) {
+    if (currentUser) {
+      if (Array.isArray(res.linked_platforms)) {
+        currentUser.linked_platforms = res.linked_platforms;
+      }
+      if (res.canonical_player_id) {
+        currentUser.player_id = res.canonical_player_id;
+      }
+      if (meta.id === 'bcp') {
+        currentUser.bcp_connected = true;
+        currentUser.bcp_user_id = res.platform_player_id || currentUser.bcp_user_id;
+      }
+      localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
+    }
+    const recon = res.elo_reconstruction || {};
+    const msg = recon.status_message || `✓ Linked ${meta.name} (${res.platform_handle || res.platform_player_id}) & recomputed unified Elo!`;
+    if (succEl) {
+      succEl.innerText = msg;
+      succEl.style.display = 'block';
+    }
+    selectLinkModalPlatform(meta.id);
+    renderSettingsPlatformsList(currentUser);
+    if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
+  } else {
+    if (errEl) {
+      errEl.innerText = (res && (res.detail || res.error)) || `Failed to link ${meta.name} account.`;
+      errEl.style.display = 'block';
+    }
+  }
+}
+
+async function handleUnlinkSelectedPlatform() {
+  const linkedMap = getUserLinkedPlatformsMap(currentUser);
+  const info = linkedMap[_activeLinkModalPlatform];
+  await handleUnlinkPlatformAccount(_activeLinkModalPlatform, info ? info.platform_player_id : '');
+}
+if (typeof window !== 'undefined') {
+  window.handleUnlinkSelectedPlatform = handleUnlinkSelectedPlatform;
+}
+
+async function handleUnlinkPlatformAccount(platform, platformPlayerId = '') {
+  const meta = getPlatformMetaByKey(platform);
+  if (!confirm(`Unlink your ${meta.name} account? Your unified Elo rating will be recalculated from your remaining linked accounts.`)) {
+    return;
+  }
+
+  showEloComputationNotice(`Unlinking ${meta.name} & recalculating Elo...`, 'info');
+  try {
+    if (meta.id === 'bcp' && currentUser && currentUser.bcp_connected) {
+      try { await window.api.disconnectBcpAccount(); } catch (e) {}
+    }
+    const res = (window.api && typeof window.api.unlinkPlatformAccount === 'function')
+      ? await window.api.unlinkPlatformAccount(meta.id, platformPlayerId)
+      : { success: false, error: 'Unlink API unavailable' };
+
+    if (res && res.success) {
+      if (currentUser) {
+        if (Array.isArray(res.linked_platforms)) {
+          currentUser.linked_platforms = res.linked_platforms;
+        } else if (Array.isArray(currentUser.linked_platforms)) {
+          currentUser.linked_platforms = currentUser.linked_platforms.filter(
+            item => normalizePlatformClientKey(item.platform || item) !== meta.id
+          );
+        }
+        if (meta.id === 'bcp') {
+          currentUser.bcp_connected = false;
+          currentUser.bcp_email = null;
+          currentUser.bcp_user_id = null;
+        }
+        localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
+      }
+      renderSettingsPlatformsList(currentUser);
+      const modal = document.getElementById('bcp-link-modal');
+      if (modal && modal.classList.contains('active')) {
+        selectLinkModalPlatform(_activeLinkModalPlatform);
+      }
+      if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
+      showEloComputationNotice(`✓ ${meta.name} account unlinked & Elo updated.`, 'success');
+    } else {
+      showEloComputationNotice((res && (res.detail || res.error)) || `Failed to unlink ${meta.name}.`, 'error');
+    }
+  } catch (err) {
+    showEloComputationNotice(`Error unlinking ${meta.name}: ${err.message}`, 'error');
+  }
+}
+if (typeof window !== 'undefined') {
+  window.handleUnlinkPlatformAccount = handleUnlinkPlatformAccount;
 }
 
 function closeBcpLinkModal() {
@@ -1072,21 +1636,27 @@ if (typeof window !== 'undefined') {
 }
 
 async function linkPlatformAccount(platform, platformPlayerId, playerName = '', userId = '') {
-  const platLabel = (typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(platform) : String(platform || '').toUpperCase();
+  const meta = getPlatformMetaByKey(platform);
+  const platLabel = meta.name || String(platform || '').toUpperCase();
   showEloComputationNotice(`⚡ Linking ${platLabel} account & computing unified Elo across tournament history...`, 'info');
   try {
     const token = (window.api && typeof window.api.getAuthToken === 'function') ? window.api.getAuthToken() : '';
-    const res = await fetch('/api/auth/link-platform', {
+    const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+    const res = await fetch(`/api/user/platform/link${token ? `?token=${encodeURIComponent(token)}` : ''}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       },
       body: JSON.stringify({
-        platform,
+        platform: meta.id,
         platform_player_id: platformPlayerId,
+        external_player_id: platformPlayerId,
+        platform_handle: playerName,
+        display_name: playerName,
         player_name: playerName,
-        user_id: userId || (currentUser && currentUser.user_id) || undefined
+        game_system: sys,
+        user_id: userId || (currentUser && (currentUser.id || currentUser.user_id)) || undefined
       })
     });
     const data = await res.json();
@@ -1484,25 +2054,18 @@ function openUserSettingsModal() {
     if (nameInput) nameInput.value = currentUser.display_name || '';
     if (emailVal) emailVal.innerText = currentUser.is_mock_player ? 'swimgeek751@gmail.com (Mock Player View)' : (currentUser.email || '-');
     renderSettingsRoleDisplay(currentUser);
-    if (bcpVal) {
-      if (currentUser.bcp_connected || currentUser.bcp_user_id) {
-        const emailLabel = currentUser.bcp_email ? `<div style="color:#94a3b8; font-size:0.75rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:210px;" title="${escapeHtml(currentUser.bcp_email)}">(${escapeHtml(currentUser.bcp_email)})</div>` : '';
-        bcpVal.innerHTML = `
-          <div style="display: flex; align-items: center; gap: 6px; justify-content: flex-end;">
-            <span style="color:#10b981; font-weight:700;">🟢 Connected</span>
-            <button onclick="closeUserSettingsModal(); openBcpLinkModal();" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; font-size:11px; font-weight:600; cursor:pointer; padding:1px 7px; border-radius:4px; transition:all 0.15s;">Manage</button>
-          </div>
-          ${emailLabel}
-        `;
-      } else {
-        bcpVal.innerHTML = `
-          <div style="display: flex; align-items: center; gap: 6px; justify-content: flex-end;">
-            <span style="color:#94a3b8; font-size: 0.8rem;">Your BCP: ⚪ Not Linked</span>
-            <button onclick="closeUserSettingsModal(); openBcpLinkModal();" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; font-size:11px; font-weight:600; cursor:pointer; padding:1px 7px; border-radius:4px; transition:all 0.15s;">Link now</button>
-          </div>
-        `;
+    renderSettingsPlatformsList(currentUser);
+  }
+
+  // Refresh linked platforms list asynchronously
+  if (window.api && typeof window.api.getUserPlatforms === 'function') {
+    window.api.getUserPlatforms().then(res => {
+      if (res && res.success && Array.isArray(res.linked_platforms) && currentUser) {
+        currentUser.linked_platforms = res.linked_platforms;
+        localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
+        renderSettingsPlatformsList(currentUser);
       }
-    }
+    }).catch(() => {});
   }
 
   // Refresh user role/profile from backend in case an admin updated their role in another tab/window
@@ -1528,6 +2091,7 @@ function openUserSettingsModal() {
           currentUser = activeMock;
           if (typeof window !== 'undefined') window.currentUser = currentUser;
           renderSettingsRoleDisplay(currentUser);
+          renderSettingsPlatformsList(currentUser);
           return;
         }
         const prevRole = currentUser ? String(currentUser.role || 'player').toLowerCase() : '';
@@ -1535,6 +2099,7 @@ function openUserSettingsModal() {
         currentUser = res.user;
         if (typeof window !== 'undefined') window.currentUser = currentUser;
         renderSettingsRoleDisplay(currentUser);
+        renderSettingsPlatformsList(currentUser);
         const nextRole = String(currentUser.role || 'player').toLowerCase();
         const nextAdmin = Boolean(currentUser.is_admin || nextRole === 'admin');
         if (prevRole !== nextRole || prevAdmin !== nextAdmin) {

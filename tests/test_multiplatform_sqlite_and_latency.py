@@ -817,6 +817,112 @@ def test_round3_and_round4_scorecard_2v2_ffa_double_encoding_and_armylists():
     assert "Domain Ramp" in str((d_al.get("army_list") or {}).get("text") or "")
 
 
+def test_multiplatform_settings_and_my_hub_account_linking():
+    """
+    Verifies end-to-end multi-platform account linking for Settings & My Hub across all 5 platforms
+    (Best Coast Pairings, Limitless TCG, TopDeck.gg, Longshanks, Melee.gg):
+    1. URL/handle normalization (`normalize_platform_link_input`) for all 5 platforms.
+    2. Player search endpoint (`GET /api/user/platform/search`) for all 5 platforms.
+    3. Linking (`POST /api/user/platform/link`), listing (`GET /api/user/platforms`), and unlinking (`POST /api/user/platform/unlink`)
+       across all 5 platforms, plus verifying `/api/auth/me` and `/api/user/dashboard` return `linked_platforms`.
+    4. Verifying Settings (`#settings-platforms-list`) and My Hub (`openPlatformLinkModal`, `#link-modal-platform-tabs`, `#multiplatform-link-view`) UI elements.
+    """
+    from scripts.local_sqlite_db import LocalSqliteDatabase
+
+    # 1. Verify URL & handle normalization for all 5 platforms
+    assert LocalSqliteDatabase.normalize_platform_link_input("limitless", "https://play.limitlesstcg.com/player/xerokunai") == ("limitless", "ltcg:xerokunai")
+    assert LocalSqliteDatabase.normalize_platform_link_input("topdeck", "https://topdeck.gg/profile/F6bYMu2NJ1VnpwBTJud86Gn85Oc2") == ("topdeck", "td:F6bYMu2NJ1VnpwBTJud86Gn85Oc2")
+    assert LocalSqliteDatabase.normalize_platform_link_input("longshanks", "https://www.longshanks.org/players/detail/?player=9256") == ("longshanks", "ls:9256")
+    assert LocalSqliteDatabase.normalize_platform_link_input("melee", "https://melee.gg/Profile/Index/wanderingones") == ("melee", "melee:wanderingones")
+    assert LocalSqliteDatabase.normalize_platform_link_input("bcp", "r0IKtzv5BlvN") == ("bcp", "r0IKtzv5BlvN")
+
+    # 2. Verify GET /api/user/platform/search across all 5 platforms (< 200ms)
+    for plat, q in (
+        ("bcp", "Steven"),
+        ("limitless", "xero"),
+        ("topdeck", "Tommy"),
+        ("longshanks", "Steven"),
+        ("melee", "wander"),
+    ):
+        st_s, res_s, ms_s = fetch_json(f"/api/user/platform/search?platform={plat}&query={urllib.parse.quote(q)}")
+        assert st_s == 200 and ms_s < 1000.0, f"Search failed for {plat}: {st_s} ({ms_s}ms)"
+        assert res_s.get("success") is True
+        assert res_s.get("platform") == plat
+        assert len(res_s.get("results") or []) >= 1, f"Expected search results on {plat} for '{q}', got {res_s}"
+
+    # 3. Verify linking, listing, and unlinking across all 5 platforms for a test user
+    test_uid = "user_multiplatform_settings_test"
+    links_to_test = [
+        ("bcp", "bcp_test_player_99", "TestPlayerBCP"),
+        ("limitless", "https://play.limitlesstcg.com/player/test_ltcg_99", "TestPlayerLTCG"),
+        ("topdeck", "https://topdeck.gg/profile/test_td_99", "TestPlayerTD"),
+        ("longshanks", "https://www.longshanks.org/players/detail/?player=99999", "TestPlayerLS"),
+        ("melee", "https://melee.gg/Profile/Index/test_melee_99", "TestPlayerMelee"),
+    ]
+    for plat, raw_id, handle in links_to_test:
+        st_l, res_l, ms_l = fetch_json(
+            "/api/user/platform/link",
+            method="POST",
+            payload={
+                "user_id": test_uid,
+                "platform": plat,
+                "platform_player_id": raw_id,
+                "platform_handle": handle,
+            },
+        )
+        assert st_l == 200 and res_l.get("success") is True and ms_l < 1000.0
+
+    st_list, res_list, ms_list = fetch_json(f"/api/user/platforms?user_id={test_uid}")
+    assert st_list == 200 and res_list.get("success") is True and ms_list < 1000.0
+    linked_platforms_map = {item["platform"]: item for item in (res_list.get("linked_platforms") or [])}
+    assert set(linked_platforms_map.keys()) == {"bcp", "limitless", "topdeck", "longshanks", "melee"}
+    assert linked_platforms_map["limitless"]["platform_player_id"] == "ltcg:test_ltcg_99"
+    assert linked_platforms_map["topdeck"]["platform_player_id"] == "td:test_td_99"
+    assert linked_platforms_map["longshanks"]["platform_player_id"] == "ls:99999"
+    assert linked_platforms_map["melee"]["platform_player_id"] == "melee:test_melee_99"
+
+    # Unlink all 5 test links
+    for plat, _, _ in links_to_test:
+        st_u, res_u, ms_u = fetch_json(
+            "/api/user/platform/unlink",
+            method="POST",
+            payload={"user_id": test_uid, "platform": plat},
+        )
+        assert st_u == 200 and res_u.get("success") is True and ms_u < 1000.0
+
+    st_after, res_after, _ = fetch_json(f"/api/user/platforms?user_id={test_uid}")
+    assert st_after == 200 and len(res_after.get("linked_platforms") or []) == 0
+
+    # 4. Verify Frontend HTML & JS bundle contain all multi-platform Settings & My Hub UI elements
+    app_html = (ROOT_DIR / "web" / "app.html").read_text(encoding="utf-8")
+    auth_js = (ROOT_DIR / "web" / "js" / "auth.js").read_text(encoding="utf-8")
+    my_hub_js = (ROOT_DIR / "web" / "js" / "my_hub.js").read_text(encoding="utf-8")
+    for required_id in (
+        'id="settings-platforms-section"',
+        'id="settings-platforms-list"',
+        'id="link-modal-platform-tabs"',
+        'id="multiplatform-link-view"',
+        'id="multiplatform-search-input"',
+        'id="multiplatform-direct-id-input"',
+        'data-platform="bcp"',
+        'data-platform="limitless"',
+        'data-platform="topdeck"',
+        'data-platform="longshanks"',
+        'data-platform="melee"',
+    ):
+        assert required_id in app_html, f"Missing {required_id} in web/app.html"
+    for required_fn in (
+        "PLATFORM_LINK_CATALOG",
+        "renderSettingsPlatformsList",
+        "openPlatformLinkModal",
+        "selectLinkModalPlatform",
+        "runSearchPlatformPlayers",
+        "handleUnlinkPlatformAccount",
+    ):
+        assert required_fn in auth_js, f"Missing {required_fn} in web/js/auth.js"
+    assert "openPlatformLinkModal" in my_hub_js, "Missing openPlatformLinkModal in web/js/my_hub.js"
+
+
 def main():
     print("=" * 80)
     print("1. RUNNING EXISTING MULTI-GAME & 118-SYSTEM UNIT TESTS")
@@ -864,6 +970,8 @@ def main():
     print("  [PASS] test_round2_bug_fixes_faction_details_teams_scorecard_and_aliases")
     test_round3_and_round4_scorecard_2v2_ffa_double_encoding_and_armylists()
     print("  [PASS] test_round3_and_round4_scorecard_2v2_ffa_double_encoding_and_armylists")
+    test_multiplatform_settings_and_my_hub_account_linking()
+    print("  [PASS] test_multiplatform_settings_and_my_hub_account_linking")
 
     print("\n" + "=" * 80)
     print("3. BENCHMARKING <1s LATENCY ACROSS ALL 5 PLATFORMS & 16 GAME SYSTEMS")

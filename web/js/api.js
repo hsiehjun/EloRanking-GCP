@@ -475,11 +475,35 @@ window.api = {
     });
   },
 
+  // Get all linked tournament platforms for the current user
+  async getUserPlatforms() {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/user/platforms${token ? `?token=${encodeURIComponent(token)}` : ''}`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+  },
+
+  // Search players on a specific tournament platform (BCP, Limitless TCG, TopDeck.gg, Longshanks, Melee.gg)
+  async searchPlatformPlayers(platform, query, gameSystem = '', limit = 15) {
+    const token = this.getAuthToken();
+    const sys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '');
+    const params = new URLSearchParams({
+      platform: String(platform || ''),
+      query: String(query || ''),
+      limit: String(limit || 15)
+    });
+    if (sys) params.set('game_system', sys);
+    if (token) params.set('token', token);
+    return this._fetchJson(`/api/user/platform/search?${params.toString()}`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+  },
+
   // Link Multi-Platform Account & Reconstruct User Elo
   async linkPlatformAccount(platform, externalPlayerId, displayName = '', gameSystem = '') {
     const token = this.getAuthToken();
     const sys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
-    return this._fetchJson(`/api/user/platform/link?token=${encodeURIComponent(token)}`, {
+    return this._fetchJson(`/api/user/platform/link${token ? `?token=${encodeURIComponent(token)}` : ''}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -487,8 +511,30 @@ window.api = {
       },
       body: JSON.stringify({
         platform,
+        platform_player_id: externalPlayerId,
         external_player_id: externalPlayerId,
+        platform_handle: displayName,
         display_name: displayName,
+        player_name: displayName,
+        game_system: sys
+      })
+    });
+  },
+
+  // Unlink Multi-Platform Account & Reconstruct User Elo
+  async unlinkPlatformAccount(platform, platformPlayerId = '', gameSystem = '') {
+    const token = this.getAuthToken();
+    const sys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    return this._fetchJson(`/api/user/platform/unlink${token ? `?token=${encodeURIComponent(token)}` : ''}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        platform,
+        platform_player_id: platformPlayerId,
+        external_player_id: platformPlayerId,
         game_system: sys
       })
     });

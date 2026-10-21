@@ -1430,23 +1430,44 @@ class LocalSqliteDatabase:
                 """,
                 (user_id, user_id, user_id, user_id),
             ).fetchone()
-            if not u_row:
-                return {"success": False, "error": f"User {user_id} not found"}
-
-            uid = str(u_row["id"])
-            canon_pid = str(u_row["player_id"] or u_row["bcp_player_id"] or uid)
-            display_name = str(u_row["display_name"] or canon_pid)
-
-            links = conn.execute(
-                "SELECT platform, platform_player_id, platform_handle FROM user_platform_links WHERE user_id = ?;",
-                (uid,),
-            ).fetchall()
-            all_pids = {canon_pid}
-            for lr in links:
-                if lr["platform_player_id"]:
-                    all_pids.add(str(lr["platform_player_id"]))
-            if u_row["bcp_player_id"]:
-                all_pids.add(str(u_row["bcp_player_id"]))
+            if u_row:
+                uid = str(u_row["id"])
+                canon_pid = str(u_row["player_id"] or u_row["bcp_player_id"] or uid)
+                display_name = str(u_row["display_name"] or canon_pid)
+                u_team = str(u_row["team"] or "")
+                links = conn.execute(
+                    "SELECT platform, platform_player_id, platform_handle FROM user_platform_links WHERE user_id = ?;",
+                    (uid,),
+                ).fetchall()
+                all_pids = {canon_pid}
+                for lr in links:
+                    if lr["platform_player_id"]:
+                        all_pids.add(str(lr["platform_player_id"]))
+                if u_row["bcp_player_id"]:
+                    all_pids.add(str(u_row["bcp_player_id"]))
+            else:
+                # Standalone player_id reconstruction (e.g. after unlinking a platform account)
+                uid = str(user_id).strip()
+                canon_pid = uid
+                ep_name_row = conn.execute(
+                    "SELECT player_name, team FROM event_participants WHERE player_id = ? LIMIT 1;",
+                    (canon_pid,),
+                ).fetchone()
+                if ep_name_row and ep_name_row["player_name"]:
+                    display_name = str(ep_name_row["player_name"])
+                    u_team = str(ep_name_row["team"] or "")
+                else:
+                    m_name_row = conn.execute(
+                        """
+                        SELECT CASE WHEN player1_id = ? THEN player1_name ELSE player2_name END AS pname
+                        FROM matches WHERE player1_id = ? OR player2_id = ? LIMIT 1;
+                        """,
+                        (canon_pid, canon_pid, canon_pid),
+                    ).fetchone()
+                    display_name = str(m_name_row["pname"]) if (m_name_row and m_name_row["pname"]) else canon_pid
+                    u_team = ""
+                links = []
+                all_pids = {canon_pid}
 
             placeholders = ",".join("?" for _ in all_pids)
             pid_list = list(all_pids)
@@ -1501,16 +1522,20 @@ class LocalSqliteDatabase:
                 ).fetchall():
                     alias_map_local[str(lr["platform_player_id"])] = str(lr["player_id"])
 
+                match_ids_list = [str(m["id"]) for m in matches if m["id"]]
+                m_placeholders = ",".join("?" for _ in match_ids_list)
+
                 match_old_elos: Dict[Tuple[str, str], float] = {}
                 match_player_factions: Dict[Tuple[str, str], str] = {}
-                for rhr in conn.execute(
-                    "SELECT match_id, player_id, old_elo, player_faction FROM rating_history WHERE COALESCE(game_system, '40k') = ?;",
-                    (sys_slug,),
-                ).fetchall():
-                    m_key = (str(rhr["match_id"]), str(rhr["player_id"]))
-                    match_old_elos[m_key] = float(rhr["old_elo"] or 1500.0)
-                    if rhr["player_faction"] and not is_placeholder_faction(rhr["player_faction"], sys_slug):
-                        match_player_factions[m_key] = str(rhr["player_faction"])
+                if match_ids_list:
+                    for rhr in conn.execute(
+                        f"SELECT match_id, player_id, old_elo, player_faction FROM rating_history WHERE COALESCE(game_system, '40k') = ? AND match_id IN ({m_placeholders});",
+                        [sys_slug] + match_ids_list,
+                    ).fetchall():
+                        m_key = (str(rhr["match_id"]), str(rhr["player_id"]))
+                        match_old_elos[m_key] = float(rhr["old_elo"] or 1500.0)
+                        if rhr["player_faction"] and not is_placeholder_faction(rhr["player_faction"], sys_slug):
+                            match_player_factions[m_key] = str(rhr["player_faction"])
 
                 def get_opp_pre_elo(m_id: str, p_id: str) -> float:
                     p_str = str(p_id or "")
@@ -1530,13 +1555,14 @@ class LocalSqliteDatabase:
                         return match_player_factions[(m_id, p_str)]
                     return resolve_canonical_faction(raw_f, sys_slug, player_id=(c_str or p_str), resolve_placeholders=True)
 
-                mp_rows = conn.execute(
-                    "SELECT * FROM match_participants WHERE COALESCE(game_system, '40k') = ? ORDER BY seat_order ASC;",
-                    (sys_slug,),
-                ).fetchall()
                 mp_by_mid: Dict[str, List[Dict[str, Any]]] = {}
-                for mpr in mp_rows:
-                    mp_by_mid.setdefault(str(mpr["match_id"]), []).append(dict(mpr))
+                if match_ids_list:
+                    mp_rows = conn.execute(
+                        f"SELECT * FROM match_participants WHERE COALESCE(game_system, '40k') = ? AND match_id IN ({m_placeholders}) ORDER BY seat_order ASC;",
+                        [sys_slug] + match_ids_list,
+                    ).fetchall()
+                    for mpr in mp_rows:
+                        mp_by_mid.setdefault(str(mpr["match_id"]), []).append(dict(mpr))
 
                 elo = 1500.0
                 peak_elo = 1500.0
@@ -1825,7 +1851,7 @@ class LocalSqliteDatabase:
                             canon_pid, sys_slug, display_name, fname, lname,
                             elo, peak_elo, tot_m, wins, losses, draws, wr,
                             len(events_seen), top_fac, json.dumps(factions_count),
-                            u_row["team"] or "", last_date, cur_streak, max_streak,
+                            u_team, last_date, cur_streak, max_streak,
                         ),
                     )
                     conn.executemany(
@@ -2850,6 +2876,279 @@ class LocalSqliteDatabase:
         finally:
             conn.close()
 
+    @staticmethod
+    def normalize_platform_link_input(platform: str, raw_input: str) -> Tuple[str, str]:
+        """Normalizes platform key and raw player ID / handle / URL into (canonical_platform, platform_player_id)."""
+        p_raw = str(platform or "bcp").strip().lower()
+        if p_raw in ("bcp", "bestcoastpairings", "best_coast_pairings"):
+            plat = "bcp"
+        elif p_raw in ("limitless", "limitlesstcg", "ltcg"):
+            plat = p_raw if p_raw == "limitlesstcg" else "limitless"
+        elif p_raw in ("topdeck", "topdeck.gg", "td"):
+            plat = "topdeck"
+        elif p_raw in ("longshanks", "ls"):
+            plat = "longshanks"
+        elif p_raw in ("melee", "melee.gg"):
+            plat = "melee"
+        else:
+            plat = p_raw or "bcp"
+
+        val = str(raw_input or "").strip()
+        if not val:
+            return plat, ""
+
+        # Parse full profile URLs if pasted by user
+        if "://" in val or val.startswith("www."):
+            import re
+            m_ls = re.search(r"[?&](?:id|player|user)=([A-Za-z0-9_-]+)", val)
+            if m_ls and plat == "longshanks":
+                val = f"ls:{m_ls.group(1)}"
+            else:
+                path_part = val.split("?", 1)[0].rstrip("/")
+                last_seg = path_part.rsplit("/", 1)[-1].strip()
+                if last_seg:
+                    val = last_seg
+
+        if val.startswith(("ltcg:", "td:", "ls:", "melee:")):
+            return plat, val
+        if val.lower().startswith("bcp:"):
+            return "bcp", val.split(":", 1)[1].strip()
+
+        if plat in ("limitless", "limitlesstcg"):
+            return plat, f"ltcg:{val.lstrip('@').lower()}"
+        if plat == "melee":
+            return plat, f"melee:{val.lstrip('@').lower()}"
+        if plat == "longshanks":
+            return plat, f"ls:{val.lstrip('#')}"
+        if plat == "topdeck":
+            return plat, f"td:{val}"
+        return plat, val
+
+    def get_user_platform_links(self, user_id: str) -> List[Dict[str, Any]]:
+        """Returns all linked tournament platforms for a user."""
+        uid = str(user_id or "").strip()
+        if not uid:
+            return []
+        conn = self._connect()
+        try:
+            u_row = conn.execute(
+                "SELECT * FROM users WHERE id = ? OR player_id = ? OR bcp_player_id = ? LIMIT 1;",
+                (uid, uid, uid),
+            ).fetchone()
+            eff_uid = str(u_row["id"]) if u_row else uid
+            rows = conn.execute(
+                """
+                SELECT platform, platform_player_id, platform_handle, verified, linked_at, updated_at
+                FROM user_platform_links
+                WHERE user_id = ?
+                ORDER BY id ASC;
+                """,
+                (eff_uid,),
+            ).fetchall()
+            out: List[Dict[str, Any]] = []
+            seen_pids = set()
+            label_map = {
+                "bcp": "Best Coast Pairings",
+                "limitless": "Limitless TCG",
+                "limitlesstcg": "Limitless TCG",
+                "topdeck": "TopDeck.gg",
+                "longshanks": "Longshanks",
+                "melee": "Melee.gg",
+            }
+            for r in rows:
+                p_key = str(r["platform"] or "bcp").strip().lower()
+                norm_plat = "limitless" if p_key == "limitlesstcg" else p_key
+                p_pid = str(r["platform_player_id"] or "").strip()
+                if not p_pid or p_pid in seen_pids:
+                    continue
+                seen_pids.add(p_pid)
+                out.append(
+                    {
+                        "platform": norm_plat,
+                        "raw_platform": p_key,
+                        "platform_label": label_map.get(p_key, norm_plat.upper()),
+                        "platform_player_id": p_pid,
+                        "platform_handle": str(r["platform_handle"] or p_pid),
+                        "verified": bool(r["verified"]),
+                        "linked_at": str(r["linked_at"] or ""),
+                    }
+                )
+            if u_row and u_row["bcp_player_id"]:
+                bcp_pid = str(u_row["bcp_player_id"]).strip()
+                if bcp_pid and bcp_pid not in seen_pids:
+                    out.insert(
+                        0,
+                        {
+                            "platform": "bcp",
+                            "raw_platform": "bcp",
+                            "platform_label": "Best Coast Pairings",
+                            "platform_player_id": bcp_pid,
+                            "platform_handle": str(u_row["display_name"] or bcp_pid),
+                            "verified": True,
+                            "linked_at": "",
+                        },
+                    )
+            return out
+        finally:
+            conn.close()
+
+    def search_platform_players(
+        self,
+        platform: str,
+        query: str = "",
+        game_system: Optional[str] = None,
+        limit: int = 15,
+    ) -> List[Dict[str, Any]]:
+        """Searches players on a specific tournament platform (`bcp`, `limitless`, `topdeck`, `longshanks`, `melee`)."""
+        p_raw = str(platform or "bcp").strip().lower()
+        norm_plat = "limitless" if p_raw in ("limitless", "limitlesstcg", "ltcg") else (
+            "topdeck" if p_raw in ("topdeck", "topdeck.gg", "td") else (
+                "longshanks" if p_raw in ("longshanks", "ls") else (
+                    "melee" if p_raw in ("melee", "melee.gg") else "bcp"
+                )
+            )
+        )
+        prefix_map = {
+            "limitless": "ltcg:%",
+            "topdeck": "td:%",
+            "longshanks": "ls:%",
+            "melee": "melee:%",
+        }
+        q_clean = str(query or "").strip().lower()
+        eff_limit = max(1, min(int(limit or 15), 50))
+        conn = self._connect()
+        try:
+            params: List[Any] = []
+            if norm_plat in prefix_map:
+                plat_filter_pr = "pr.player_id LIKE ?"
+                plat_filter_ep = "ep.player_id LIKE ?"
+                params_prefix = [prefix_map[norm_plat]]
+            else:
+                plat_filter_pr = "pr.player_id NOT LIKE 'ltcg:%' AND pr.player_id NOT LIKE 'td:%' AND pr.player_id NOT LIKE 'ls:%' AND pr.player_id NOT LIKE 'melee:%'"
+                plat_filter_ep = "ep.player_id NOT LIKE 'ltcg:%' AND ep.player_id NOT LIKE 'td:%' AND ep.player_id NOT LIKE 'ls:%' AND ep.player_id NOT LIKE 'melee:%'"
+                params_prefix = []
+
+            q_clause_pr = ""
+            q_params_pr: List[Any] = []
+            if q_clean:
+                like_q = f"%{q_clean}%"
+                q_clause_pr = " AND (LOWER(pr.player_name) LIKE ? OR LOWER(pr.player_id) LIKE ? OR LOWER(COALESCE(pr.top_faction, '')) LIKE ?)"
+                q_params_pr = [like_q, like_q, like_q]
+
+            gs_clause_pr = ""
+            gs_params_pr: List[Any] = []
+            if game_system and str(game_system).strip().lower() not in ("", "all", "*"):
+                gs_clause_pr = " AND COALESCE(pr.game_system, '40k') = ?"
+                gs_params_pr = [normalize_game_system(game_system)]
+
+            pr_rows = conn.execute(
+                f"""
+                SELECT pr.player_id, pr.player_name, pr.current_elo, pr.peak_elo,
+                       pr.matches_played, pr.wins, pr.losses, pr.draws, pr.top_faction,
+                       COALESCE(pr.game_system, '40k') AS game_system,
+                       upl.user_id AS linked_user_id,
+                       upl.platform_handle AS linked_handle
+                FROM player_ratings pr
+                LEFT JOIN user_platform_links upl ON upl.platform_player_id = pr.player_id
+                WHERE {plat_filter_pr}{q_clause_pr}{gs_clause_pr}
+                ORDER BY pr.matches_played DESC, pr.current_elo DESC
+                LIMIT ?;
+                """,
+                params_prefix + q_params_pr + gs_params_pr + [eff_limit * 2],
+            ).fetchall()
+
+            results: List[Dict[str, Any]] = []
+            seen_ids = set()
+            for r in pr_rows:
+                pid = str(r["player_id"] or "").strip()
+                if not pid or pid in seen_ids:
+                    continue
+                seen_ids.add(pid)
+                p_name = str(r["player_name"] or pid)
+                results.append(
+                    {
+                        "platform": norm_plat,
+                        "platform_player_id": pid,
+                        "player_id": pid,
+                        "player_name": p_name,
+                        "name": p_name,
+                        "platform_handle": str(r["linked_handle"] or p_name),
+                        "current_elo": round(float(r["current_elo"] or 1500.0), 1),
+                        "peak_elo": round(float(r["peak_elo"] or 1500.0), 1),
+                        "matches_played": int(r["matches_played"] or 0),
+                        "wins": int(r["wins"] or 0),
+                        "losses": int(r["losses"] or 0),
+                        "draws": int(r["draws"] or 0),
+                        "top_faction": str(r["top_faction"] or "Unknown"),
+                        "game_system": str(r["game_system"] or "40k"),
+                        "is_linked": bool(r["linked_user_id"]),
+                        "linked_user_id": str(r["linked_user_id"]) if r["linked_user_id"] else None,
+                    }
+                )
+                if len(results) >= eff_limit:
+                    break
+
+            # Also check event_participants in case a player's standalone rating row was already merged into a user
+            if len(results) < eff_limit:
+                q_clause_ep = ""
+                q_params_ep: List[Any] = []
+                if q_clean:
+                    like_q = f"%{q_clean}%"
+                    q_clause_ep = " AND (LOWER(ep.player_name) LIKE ? OR LOWER(ep.player_id) LIKE ? OR LOWER(COALESCE(ep.faction, '')) LIKE ?)"
+                    q_params_ep = [like_q, like_q, like_q]
+                ep_rows = conn.execute(
+                    f"""
+                    SELECT ep.player_id,
+                           MAX(ep.player_name) AS player_name,
+                           SUM(COALESCE(ep.wins, 0) + COALESCE(ep.losses, 0) + COALESCE(ep.draws, 0)) AS mp,
+                           SUM(COALESCE(ep.wins, 0)) AS wins,
+                           SUM(COALESCE(ep.losses, 0)) AS losses,
+                           SUM(COALESCE(ep.draws, 0)) AS draws,
+                           MAX(ep.faction) AS top_faction,
+                           MAX(COALESCE(ep.game_system, '40k')) AS game_system,
+                           MAX(upl.user_id) AS linked_user_id,
+                           MAX(upl.platform_handle) AS linked_handle
+                    FROM event_participants ep
+                    LEFT JOIN user_platform_links upl ON upl.platform_player_id = ep.player_id
+                    WHERE {plat_filter_ep}{q_clause_ep}
+                    GROUP BY ep.player_id
+                    ORDER BY mp DESC
+                    LIMIT ?;
+                    """,
+                    params_prefix + q_params_ep + [eff_limit],
+                ).fetchall()
+                for r in ep_rows:
+                    pid = str(r["player_id"] or "").strip()
+                    if not pid or pid in seen_ids:
+                        continue
+                    seen_ids.add(pid)
+                    p_name = str(r["player_name"] or pid)
+                    results.append(
+                        {
+                            "platform": norm_plat,
+                            "platform_player_id": pid,
+                            "player_id": pid,
+                            "player_name": p_name,
+                            "name": p_name,
+                            "platform_handle": str(r["linked_handle"] or p_name),
+                            "current_elo": 1500.0,
+                            "peak_elo": 1500.0,
+                            "matches_played": int(r["mp"] or 0),
+                            "wins": int(r["wins"] or 0),
+                            "losses": int(r["losses"] or 0),
+                            "draws": int(r["draws"] or 0),
+                            "top_faction": str(r["top_faction"] or "Unknown"),
+                            "game_system": str(r["game_system"] or "40k"),
+                            "is_linked": bool(r["linked_user_id"]),
+                            "linked_user_id": str(r["linked_user_id"]) if r["linked_user_id"] else None,
+                        }
+                    )
+                    if len(results) >= eff_limit:
+                        break
+            return results
+        finally:
+            conn.close()
+
     def link_user_platform_and_reconstruct(
         self,
         user_id: str,
@@ -2865,8 +3164,7 @@ class LocalSqliteDatabase:
         and runs `< 50ms` single-user Elo reconstruction.
         """
         uid = str(user_id or "u_dev_commander").strip()
-        plat = str(platform or "bcp").strip().lower()
-        p_pid = str(platform_player_id or "").strip()
+        plat, p_pid = self.normalize_platform_link_input(platform, platform_player_id)
         if not p_pid:
             return {"success": False, "error": "platform_player_id is required"}
 
@@ -2901,8 +3199,24 @@ class LocalSqliteDatabase:
                         "error": f"Platform account '{p_pid}' ({plat}) is already linked to another user.",
                     }
 
+                resolved_name = platform_handle or display_name
+                if not resolved_name:
+                    pr_name_row = conn.execute(
+                        "SELECT player_name FROM player_ratings WHERE player_id = ? LIMIT 1;",
+                        (p_pid,),
+                    ).fetchone()
+                    if pr_name_row and pr_name_row["player_name"]:
+                        resolved_name = str(pr_name_row["player_name"])
+                    else:
+                        ep_name_row = conn.execute(
+                            "SELECT player_name FROM event_participants WHERE player_id = ? LIMIT 1;",
+                            (p_pid,),
+                        ).fetchone()
+                        if ep_name_row and ep_name_row["player_name"]:
+                            resolved_name = str(ep_name_row["player_name"])
+
                 if not u_row:
-                    d_name = display_name or platform_handle or p_pid
+                    d_name = display_name or resolved_name or p_pid
                     parts = d_name.split(" ", 1)
                     conn.execute(
                         """
@@ -2921,6 +3235,11 @@ class LocalSqliteDatabase:
                     )
                 else:
                     uid = str(u_row["id"])
+                    if not u_row["player_id"]:
+                        conn.execute(
+                            "UPDATE users SET player_id = ?, bcp_player_id = COALESCE(bcp_player_id, ?) WHERE id = ?;",
+                            (p_pid, p_pid if plat == "bcp" else None, uid),
+                        )
 
                 conn.execute(
                     """
@@ -2931,19 +3250,26 @@ class LocalSqliteDatabase:
                         platform_handle = COALESCE(excluded.platform_handle, user_platform_links.platform_handle),
                         updated_at = CURRENT_TIMESTAMP;
                     """,
-                    (uid, plat, p_pid, p_pid, platform_handle or display_name or p_pid),
+                    (uid, plat, p_pid, p_pid, resolved_name or p_pid),
                 )
                 conn.commit()
             finally:
                 conn.close()
 
-        return self.reconstruct_user_elo(uid, game_system=game_system)
+        res = self.reconstruct_user_elo(uid, game_system=game_system)
+        res["linked_platform"] = plat
+        res["platform"] = plat
+        res["linked_player_id"] = p_pid
+        res["platform_player_id"] = p_pid
+        res["linked_handle"] = resolved_name or p_pid
+        res["linked_platforms_detail"] = self.get_user_platform_links(uid)
+        return res
 
     def unlink_user_platform_and_reconstruct(
         self,
         user_id: str,
         platform: str,
-        platform_player_id: str,
+        platform_player_id: str = "",
         game_system: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -2951,11 +3277,12 @@ class LocalSqliteDatabase:
         and immediately recomputes the user's Elo from only their remaining linked accounts,
         while also restoring standalone ratings for the unlinked `platform_player_id`.
         """
+        t0 = time.perf_counter()
         uid = str(user_id or "").strip()
         plat = str(platform or "").strip().lower()
         p_pid = str(platform_player_id or "").strip()
-        if not uid or not p_pid:
-            return {"success": False, "status_code": 400, "error": "user_id and platform_player_id are required"}
+        if not uid or (not p_pid and not plat):
+            return {"success": False, "status_code": 400, "error": "user_id and platform_player_id (or platform) are required"}
 
         touched_systems: List[str] = []
         with self._lock:
@@ -2969,12 +3296,30 @@ class LocalSqliteDatabase:
                     return {"success": False, "status_code": 404, "error": f"User {uid} not found"}
                 uid = str(u_row["id"])
 
-                existing = conn.execute(
-                    "SELECT user_id FROM user_platform_links WHERE user_id = ? AND platform_player_id = ? LIMIT 1;",
-                    (uid, p_pid),
-                ).fetchone()
+                if p_pid:
+                    existing = conn.execute(
+                        "SELECT user_id, platform, platform_player_id FROM user_platform_links WHERE user_id = ? AND platform_player_id = ? LIMIT 1;",
+                        (uid, p_pid),
+                    ).fetchone()
+                    if not existing and plat:
+                        _, norm_pid = self.normalize_platform_link_input(plat, p_pid)
+                        existing = conn.execute(
+                            "SELECT user_id, platform, platform_player_id FROM user_platform_links WHERE user_id = ? AND platform_player_id = ? LIMIT 1;",
+                            (uid, norm_pid),
+                        ).fetchone()
+                        if existing:
+                            p_pid = norm_pid
+                else:
+                    plat_variants = [plat, "limitlesstcg" if plat == "limitless" else ("limitless" if plat == "limitlesstcg" else plat)]
+                    existing = conn.execute(
+                        "SELECT user_id, platform, platform_player_id FROM user_platform_links WHERE user_id = ? AND LOWER(platform) IN (?, ?) LIMIT 1;",
+                        (uid, plat_variants[0], plat_variants[1]),
+                    ).fetchone()
+                    if existing:
+                        p_pid = str(existing["platform_player_id"])
+
                 if not existing:
-                    return {"success": False, "status_code": 404, "error": f"Link {p_pid} not found on user {uid}"}
+                    return {"success": False, "status_code": 404, "error": f"Link {p_pid or plat} not found on user {uid}"}
 
                 sys_rows = conn.execute(
                     """
@@ -3005,18 +3350,27 @@ class LocalSqliteDatabase:
                 conn.close()
 
         for gs in touched_systems:
-            self.reconstruct_elo_for_system(gs)
+            self.reconstruct_user_elo(p_pid, game_system=gs)
+        elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
         if not remaining:
             return {
                 "success": True,
                 "user_id": uid,
                 "unlinked_player_id": p_pid,
+                "platform_player_id": p_pid,
                 "unlinked_platform": plat,
+                "platform": plat,
                 "linked_platforms": [],
+                "linked_platforms_detail": [],
                 "systems": {},
+                "elapsed_ms": elapsed_ms,
             }
         recon = self.reconstruct_user_elo(uid, game_system=game_system)
         recon["unlinked_player_id"] = p_pid
+        recon["platform_player_id"] = p_pid
+        recon["unlinked_platform"] = plat
+        recon["platform"] = plat
+        recon["linked_platforms_detail"] = self.get_user_platform_links(uid)
         return recon
 
     def search_players_directory(

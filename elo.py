@@ -3307,16 +3307,23 @@ class EloEngine:
                 try:
                     cur.execute(
                         """
-                        SELECT upl.platform_user_id
-                        FROM user_platform_links upl
-                        JOIN users u ON u.id = upl.user_id
-                        WHERE (u.id = %s OR u.player_id = %s OR u.bcp_user_id = %s OR upl.platform_user_id = %s)
-                          AND upl.platform_user_id IS NOT NULL AND upl.platform_user_id != '';
+                        SELECT u.id AS user_id, u.player_id AS canon_pid, u.bcp_user_id, upl.platform_user_id
+                        FROM users u
+                        LEFT JOIN user_platform_links upl ON u.id = upl.user_id
+                        WHERE (u.id = %s OR u.player_id = %s OR u.bcp_user_id = %s OR upl.platform_user_id = %s);
                         """,
                         (clean_pid, clean_pid, clean_pid, clean_pid),
                     )
                     for lr in (cur.fetchall() or []):
-                        puid = str(lr[0] if isinstance(lr, (list, tuple)) else lr.get("platform_user_id") or "").strip()[:64]
+                        c_pid = str((lr.get("canon_pid") if isinstance(lr, dict) else lr[1]) or "").strip()[:64]
+                        b_pid = str((lr.get("bcp_user_id") if isinstance(lr, dict) else lr[2]) or "").strip()[:64]
+                        puid = str((lr.get("platform_user_id") if isinstance(lr, dict) else lr[3]) or "").strip()[:64]
+                        if c_pid:
+                            clean_pid = c_pid
+                            if c_pid not in candidate_ids:
+                                candidate_ids.insert(0, c_pid)
+                        if b_pid and len(b_pid) <= 24 and b_pid not in candidate_ids:
+                            candidate_ids.append(b_pid)
                         if puid and puid not in candidate_ids:
                             candidate_ids.append(puid)
                 except Exception:

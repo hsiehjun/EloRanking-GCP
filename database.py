@@ -15416,7 +15416,7 @@ class PostgresDatabase:
                     WHERE u.id = %s
                        OR ((u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '') AND (u.player_id = %s OR u.bcp_user_id = %s))
                        OR (u.player_id = %s AND (u.player_id LIKE 'melee:%%' OR u.player_id LIKE 'ltcg:%%' OR u.player_id LIKE 'ls:%%' OR u.player_id LIKE 'td:%%' OR u.player_id LIKE 'nr:%%'))
-                       OR upl.external_player_id = %s
+                       OR upl.platform_user_id = %s
                     LIMIT 1;
                 """, (receiver_id, receiver_id, receiver_id, receiver_id, receiver_id))
                 user_match = cursor.fetchone()
