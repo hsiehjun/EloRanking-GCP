@@ -502,6 +502,8 @@ class PostgresDatabase:
         cls._all_teams_cache_time = 0
         cls._all_teams_cache_map.clear()
         cls._faction_meta_cache_dict.clear()
+        if hasattr(cls, "_meta_chunk_cache") and isinstance(cls._meta_chunk_cache, dict):
+            cls._meta_chunk_cache.clear()
         cls._faction_details_cache_dict.clear()
         cls._faction_bg_warmed_keys.clear()
         cls._players_cache_dict.clear()
@@ -10424,30 +10426,137 @@ class PostgresDatabase:
 
                     try:
                         q1_t0 = time.time()
-                        cursor.execute(f"""
-                        /* matchup_stats AS single-pass streaming HashAggregate ({order_by_cov}) */
-                        /* games_in_event >= {min_x0_games} */
-                        SELECT
-                            player1_faction AS p1_fac,
-                            CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN player2_faction ELSE NULL END AS p2_fac,
-                            DATE_TRUNC('{period_trunc}', match_date)::date AS period_date,
-                            COUNT(*) AS match_cnt,
-                            SUM(CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END) AS p1_wins,
-                            SUM(CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END) AS p1_losses,
-                            SUM(CASE WHEN is_draw IS TRUE THEN 1 ELSE 0 END) AS draws,
-                            SUM(CASE WHEN winner_id = player2_id AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_wins,
-                            SUM(CASE WHEN loser_id = player2_id AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_losses,
-                            SUM(CASE WHEN player1_score IS NOT NULL AND player1_score > 0 THEN player1_score ELSE 0 END) AS p1_score_sum,
-                            COUNT(*) FILTER (WHERE player1_score IS NOT NULL AND player1_score > 0) AS p1_score_cnt,
-                            SUM(CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player2_score IS NOT NULL AND player2_score > 0 THEN player2_score ELSE 0 END) AS p2_score_sum,
-                            COUNT(*) FILTER (WHERE is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player2_score IS NOT NULL AND player2_score > 0) AS p2_score_cnt,
-                            SUM(CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player1_score IS NOT NULL AND player2_score IS NOT NULL AND (player1_score > 0 OR player2_score > 0) THEN (player1_score - player2_score) ELSE 0 END) AS p1_margin_sum,
-                            COUNT(*) FILTER (WHERE is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player1_score IS NOT NULL AND player2_score IS NOT NULL AND (player1_score > 0 OR player2_score > 0)) AS margin_cnt
-                        FROM matches
-                        WHERE {date_filter_sql}
-                        GROUP BY 1, 2, 3;
-                        """, params)
-                        fetched_rows = cursor.fetchall() or []
+                        eff_start_str = resolved_start or "2025-04-01"
+                        eff_end_str = resolved_end or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                        use_monthly_chunks = False
+                        if not is_mock_cur:
+                            try:
+                                d_s = datetime.strptime(eff_start_str[:10], "%Y-%m-%d").date()
+                                d_e = datetime.strptime(eff_end_str[:10], "%Y-%m-%d").date()
+                                if (d_e - d_s).days > 95:
+                                    use_monthly_chunks = True
+                            except Exception:
+                                use_monthly_chunks = False
+
+                        if not use_monthly_chunks:
+                            cursor.execute(f"""
+                            /* matchup_stats AS single-pass streaming HashAggregate ({order_by_cov}) */
+                            /* games_in_event >= {min_x0_games} */
+                            SELECT
+                                player1_faction AS p1_fac,
+                                CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN player2_faction ELSE NULL END AS p2_fac,
+                                DATE_TRUNC('{period_trunc}', match_date)::date AS period_date,
+                                COUNT(*) AS match_cnt,
+                                SUM(CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END) AS p1_wins,
+                                SUM(CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END) AS p1_losses,
+                                SUM(CASE WHEN is_draw IS TRUE THEN 1 ELSE 0 END) AS draws,
+                                SUM(CASE WHEN winner_id = player2_id AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_wins,
+                                SUM(CASE WHEN loser_id = player2_id AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_losses,
+                                SUM(CASE WHEN player1_score IS NOT NULL AND player1_score > 0 THEN player1_score ELSE 0 END) AS p1_score_sum,
+                                COUNT(*) FILTER (WHERE player1_score IS NOT NULL AND player1_score > 0) AS p1_score_cnt,
+                                SUM(CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player2_score IS NOT NULL AND player2_score > 0 THEN player2_score ELSE 0 END) AS p2_score_sum,
+                                COUNT(*) FILTER (WHERE is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player2_score IS NOT NULL AND player2_score > 0) AS p2_score_cnt,
+                                SUM(CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player1_score IS NOT NULL AND player2_score IS NOT NULL AND (player1_score > 0 OR player2_score > 0) THEN (player1_score - player2_score) ELSE 0 END) AS p1_margin_sum,
+                                COUNT(*) FILTER (WHERE is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player1_score IS NOT NULL AND player2_score IS NOT NULL AND (player1_score > 0 OR player2_score > 0)) AS margin_cnt
+                            FROM matches
+                            WHERE {date_filter_sql}
+                            GROUP BY 1, 2, 3;
+                            """, params)
+                            fetched_rows = cursor.fetchall() or []
+                        else:
+                            if not hasattr(PostgresDatabase, "_meta_chunk_cache"):
+                                PostgresDatabase._meta_chunk_cache = {}
+                            from datetime import date as _date_cls
+                            d_s = datetime.strptime(eff_start_str[:10], "%Y-%m-%d").date()
+                            d_e = datetime.strptime(eff_end_str[:10], "%Y-%m-%d").date()
+                            m_bounds: List[str] = []
+                            for yr in range(d_s.year, d_e.year + 1):
+                                for mo in range(1, 13):
+                                    md = _date_cls(yr, mo, 1)
+                                    if d_s < md < d_e:
+                                        m_bounds.append(md.strftime("%Y-%m-%d"))
+                            m_bounds.sort()
+                            chunks_spec: List[Tuple[str, str, bool, str]] = []
+                            cur_s = eff_start_str[:10]
+                            for mb in m_bounds:
+                                ck = f"meta_chunk_v1_{sys_norm}_{period_trunc}_{cur_s}_{mb}_0"
+                                chunks_spec.append((cur_s, mb, False, ck))
+                                cur_s = mb
+                            ck_last = f"meta_chunk_v1_{sys_norm}_{period_trunc}_{cur_s}_{eff_end_str[:10]}_1"
+                            chunks_spec.append((cur_s, eff_end_str[:10], True, ck_last))
+
+                            missing_cks = [ck for (_, _, _, ck) in chunks_spec if ck not in PostgresDatabase._meta_chunk_cache]
+                            if missing_cks:
+                                try:
+                                    cursor.execute("SELECT key, value FROM system_settings WHERE key = ANY(%s);", (missing_cks,))
+                                    for s_row in (cursor.fetchall() or []):
+                                        sk = s_row.get("key") if isinstance(s_row, dict) else s_row[0]
+                                        sv = s_row.get("value") if isinstance(s_row, dict) else s_row[1]
+                                        if sk and sv:
+                                            PostgresDatabase._meta_chunk_cache[sk] = json.loads(sv)
+                                except Exception:
+                                    conn.rollback()
+
+                            base_clauses = [
+                                "is_done = TRUE",
+                                "match_date IS NOT NULL",
+                                "POSITION('+' IN COALESCE(player1_faction, '')) = 0",
+                                "POSITION('+' IN COALESCE(player2_faction, '')) = 0",
+                            ]
+                            base_params: List[Any] = []
+                            if game_system and sys_norm != "all":
+                                if sys_norm == "40k":
+                                    base_clauses.append("COALESCE(game_system, '40k') = %s")
+                                else:
+                                    base_clauses.append("game_system = %s")
+                                base_params.append(sys_norm)
+
+                            fetched_rows = []
+                            for c_s, c_e, is_last, ck in chunks_spec:
+                                cached_chunk = PostgresDatabase._meta_chunk_cache.get(ck)
+                                if cached_chunk is not None:
+                                    fetched_rows.extend(cached_chunk)
+                                    continue
+                                c_clauses = list(base_clauses) + ["match_date >= %s", "match_date <= %s" if is_last else "match_date < %s"]
+                                c_params = list(base_params) + [c_s, c_e]
+                                c_filter = " AND ".join(c_clauses)
+                                cursor.execute("SET LOCAL statement_timeout = '8000ms'; SET LOCAL work_mem = '64MB';")
+                                cursor.execute(f"""
+                                SELECT
+                                    player1_faction AS p1_fac,
+                                    CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN player2_faction ELSE NULL END AS p2_fac,
+                                    TO_CHAR(DATE_TRUNC('{period_trunc}', match_date), 'YYYY-MM-DD') AS period_date,
+                                    COUNT(*) AS match_cnt,
+                                    SUM(CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END) AS p1_wins,
+                                    SUM(CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END) AS p1_losses,
+                                    SUM(CASE WHEN is_draw IS TRUE THEN 1 ELSE 0 END) AS draws,
+                                    SUM(CASE WHEN winner_id = player2_id AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_wins,
+                                    SUM(CASE WHEN loser_id = player2_id AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_losses,
+                                    SUM(CASE WHEN player1_score IS NOT NULL AND player1_score > 0 THEN player1_score ELSE 0 END) AS p1_score_sum,
+                                    COUNT(*) FILTER (WHERE player1_score IS NOT NULL AND player1_score > 0) AS p1_score_cnt,
+                                    SUM(CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player2_score IS NOT NULL AND player2_score > 0 THEN player2_score ELSE 0 END) AS p2_score_sum,
+                                    COUNT(*) FILTER (WHERE is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player2_score IS NOT NULL AND player2_score > 0) AS p2_score_cnt,
+                                    SUM(CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player1_score IS NOT NULL AND player2_score IS NOT NULL AND (player1_score > 0 OR player2_score > 0) THEN (player1_score - player2_score) ELSE 0 END) AS p1_margin_sum,
+                                    COUNT(*) FILTER (WHERE is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player1_score IS NOT NULL AND player2_score IS NOT NULL AND (player1_score > 0 OR player2_score > 0)) AS margin_cnt
+                                FROM matches
+                                WHERE {c_filter}
+                                GROUP BY 1, 2, 3;
+                                """, c_params)
+                                c_rows = [dict(r) for r in (cursor.fetchall() or [])]
+                                PostgresDatabase._meta_chunk_cache[ck] = c_rows
+                                fetched_rows.extend(c_rows)
+                                try:
+                                    cursor.execute(
+                                        """
+                                        INSERT INTO system_settings (key, value, updated_at)
+                                        VALUES (%s, %s, NOW())
+                                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
+                                        """,
+                                        (ck, json.dumps(c_rows, default=str))
+                                    )
+                                    conn.commit()
+                                except Exception:
+                                    conn.rollback()
                         q1_elapsed_ms = (time.time() - q1_t0) * 1000.0
                         if fetched_rows and isinstance(fetched_rows[0], dict) and "factions_json" in fetched_rows[0]:
                             row0 = fetched_rows[0]
@@ -11009,12 +11118,11 @@ class PostgresDatabase:
         force_refresh: bool = False,
     ) -> int:
         """Pre-warms L1 and L2 (system_settings) Meta Intel caches for all standard timeframe presets."""
-        target_presets = presets or ["90d", "30d", "60d", "180d", "1yr", "ytd", "all"]
+        target_presets = presets or ["90d", "30d", "60d", "180d", "ytd", "1yr", "all"]
         sys_norm = (game_system or "40k").strip().lower()
         warmed = 0
-        import concurrent.futures
 
-        def _warm_one(p: str) -> bool:
+        for p in target_presets:
             try:
                 existing = PostgresDatabase._faction_meta_cache_dict.get(f"preset_{p}_{sys_norm}")
                 is_seeded = bool(
@@ -11026,15 +11134,9 @@ class PostgresDatabase:
                 if is_seeded:
                     PostgresDatabase._faction_meta_cache_dict.pop(f"preset_{p}_{sys_norm}", None)
                 self.get_faction_meta_stats(timeframe=p, game_system=sys_norm, _force_refresh=force_refresh)
-                return True
+                warmed += 1
             except Exception as e:
                 logger.warning(f"Notice warming Meta Intel preset {p} ({game_system}): {e}")
-                return False
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            for ok in pool.map(_warm_one, target_presets):
-                if ok:
-                    warmed += 1
         return warmed
 
 
