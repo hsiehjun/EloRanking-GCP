@@ -1109,7 +1109,7 @@ async function changeFactionModalTimeframe(tf) {
 }
 window.changeFactionModalTimeframe = changeFactionModalTimeframe;
 
-const FACTION_MODAL_STORAGE_KEY = 'omni_faction_modal_cache_v5';
+const FACTION_MODAL_STORAGE_KEY = 'omni_faction_modal_cache_v6';
 const factionModalDataCache = new Map();
 const factionModalInflightPromises = new Map();
 let factionModalAbortController = null;
@@ -1130,7 +1130,7 @@ function isValidFactionModalPayload(data) {
 
 function clearFactionModalClientCache() {
   factionModalDataCache.clear();
-  ['omni_faction_modal_cache_v3', 'omni_faction_modal_cache_v4', FACTION_MODAL_STORAGE_KEY].forEach(k => {
+  ['omni_faction_modal_cache_v3', 'omni_faction_modal_cache_v4', 'omni_faction_modal_cache_v5', FACTION_MODAL_STORAGE_KEY].forEach(k => {
     try { sessionStorage.removeItem(k); } catch (e) {}
     try { localStorage.removeItem(k); } catch (e) {}
   });
@@ -1140,7 +1140,7 @@ window.clearFactionModalClientCache = clearFactionModalClientCache;
 // Hydrate factionModalDataCache from sessionStorage / localStorage on startup
 (function hydrateFactionModalCacheFromStorage() {
   try {
-    ['omni_faction_modal_cache_v3', 'omni_faction_modal_cache_v4'].forEach(oldKey => {
+    ['omni_faction_modal_cache_v3', 'omni_faction_modal_cache_v4', 'omni_faction_modal_cache_v5'].forEach(oldKey => {
       try { sessionStorage.removeItem(oldKey); } catch (e) {}
       try { localStorage.removeItem(oldKey); } catch (e) {}
     });

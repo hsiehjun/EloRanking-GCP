@@ -10281,8 +10281,8 @@ class PostgresDatabase:
             raw_legacy_key = f"{start_date}_{end_date}_{game_system}"
             if raw_legacy_key not in cache_keys:
                 cache_keys.append(raw_legacy_key)
-        l2_setting_key = f"meta_intel_v8_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
-        l2_legacy_key = f"meta_intel_v8_legacy_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
+        l2_setting_key = f"meta_intel_v9_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
+        l2_legacy_key = f"meta_intel_v9_legacy_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
 
         def _trigger_bg_meta_refresh() -> None:
             bg_key = f"meta_bg_{cache_key}"
@@ -10381,7 +10381,7 @@ class PostgresDatabase:
                     is_mock_cur = is_mock_self or type(cursor).__module__.startswith("unittest.mock")
                     if not is_mock_cur:
                         try:
-                            cursor.execute("SET LOCAL statement_timeout = '5000ms'; SET LOCAL work_mem = '32MB';")
+                            cursor.execute("SET LOCAL statement_timeout = '5000ms'; SET LOCAL work_mem = '32MB'; SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off;")
                         except Exception:
                             conn.rollback()
 
@@ -10406,6 +10406,7 @@ class PostgresDatabase:
                         params.append((datetime.now(timezone.utc) - timedelta(days=540)).strftime("%Y-%m-%d"))
 
                     date_filter_sql = " AND ".join(where_clauses)
+                    order_by_cov = "ORDER BY COALESCE(game_system, '40k'), match_date DESC" if (game_system and sys_norm != "all") else "ORDER BY match_date DESC"
                     overall: List[Dict[str, Any]] = []
                     matchup_rows: List[Dict[str, Any]] = []
                     monthly: List[Dict[str, Any]] = []
@@ -10419,7 +10420,7 @@ class PostgresDatabase:
                                    CASE
                                        WHEN player1_faction IS NULL OR TRIM(player1_faction) = '' THEN NULL
                                        WHEN POSITION('+' IN player1_faction) > 0 THEN NULL
-                                       WHEN LOWER(TRIM(player1_faction)) LIKE 'pod (%' THEN NULL
+                                       WHEN POSITION('pod (' IN LOWER(player1_faction)) > 0 THEN NULL
                                        WHEN LOWER(TRIM(player1_faction)) IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar', 'the old world', 'warhammer: the old world', 'horus heresy', 'the horus heresy', 'loyalist', 'traitor', 'loyalists', 'traitors') THEN NULL
                                        WHEN LOWER(TRIM(player1_faction)) IN ('space marines (astartes)', 'adeptus astartes', 'space marines') THEN 'Space Marines'
                                        WHEN LOWER(TRIM(player1_faction)) IN ('genestealer cult', 'genestealer cults') THEN 'Genestealer Cults'
@@ -10437,7 +10438,7 @@ class PostgresDatabase:
                                    CASE
                                        WHEN player2_faction IS NULL OR TRIM(player2_faction) = '' THEN NULL
                                        WHEN POSITION('+' IN player2_faction) > 0 THEN NULL
-                                       WHEN LOWER(TRIM(player2_faction)) LIKE 'pod (%' THEN NULL
+                                       WHEN POSITION('pod (' IN LOWER(player2_faction)) > 0 THEN NULL
                                        WHEN LOWER(TRIM(player2_faction)) IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar', 'the old world', 'warhammer: the old world', 'horus heresy', 'the horus heresy', 'loyalist', 'traitor', 'loyalists', 'traitors') THEN NULL
                                        WHEN LOWER(TRIM(player2_faction)) IN ('space marines (astartes)', 'adeptus astartes', 'space marines') THEN 'Space Marines'
                                        WHEN LOWER(TRIM(player2_faction)) IN ('genestealer cult', 'genestealer cults') THEN 'Genestealer Cults'
@@ -10456,6 +10457,7 @@ class PostgresDatabase:
                                    COALESCE(is_bye, FALSE) AS is_bye
                             FROM matches
                             WHERE {date_filter_sql}
+                            {order_by_cov}
                             LIMIT {sample_limit}
                         ),
                         match_sides AS (
@@ -10611,21 +10613,22 @@ class PostgresDatabase:
                             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
                                 if not is_mock_cur:
                                     try:
-                                        cur_safe.execute("SET LOCAL statement_timeout = '3000ms';")
+                                        cur_safe.execute("SET LOCAL statement_timeout = '3000ms'; SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off;")
                                     except Exception:
                                         conn.rollback()
                                 cur_safe.execute(f"""
                                 WITH recent_matches AS MATERIALIZED (
-                                    SELECT id, match_date,
+                                    SELECT match_date,
                                            player1_id, player1_faction, player1_score,
                                            player2_id, player2_faction, player2_score,
                                            winner_id, loser_id, is_draw, is_bye
                                     FROM matches
                                     WHERE {s_filter}
-                                    LIMIT 25000
+                                    {order_by_cov}
+                                    LIMIT 100000
                                 ),
                                 match_sides AS (
-                                    SELECT id, match_date, player1_faction as faction, player1_score as score,
+                                    SELECT match_date, player1_faction as faction, player1_score as score,
                                            CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
                                            CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
                                            CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss
@@ -10633,7 +10636,7 @@ class PostgresDatabase:
                                     WHERE player1_faction IS NOT NULL AND TRIM(player1_faction) != '' AND player1_faction != 'Unknown Faction'
                                       AND POSITION('+' IN player1_faction) = 0
                                     UNION ALL
-                                    SELECT id, match_date, player2_faction as faction, player2_score as score,
+                                    SELECT match_date, player2_faction as faction, player2_score as score,
                                            CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
                                            CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
                                            CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss
@@ -11977,8 +11980,8 @@ class PostgresDatabase:
                     return cached
 
             eff_limit = min(max(int(limit or 350), 350), 500) if not is_mock_self else int(limit)
-            l2_fac_key = f"faction_details_v5_{system}_{canon_tf}_{norm_fac_lower}_{eff_limit}"
-            l2_fac_key_350 = f"faction_details_v5_{system}_{canon_tf}_{norm_fac_lower}_350"
+            l2_fac_key = f"faction_details_v6_{system}_{canon_tf}_{norm_fac_lower}_{eff_limit}"
+            l2_fac_key_350 = f"faction_details_v6_{system}_{canon_tf}_{norm_fac_lower}_350"
 
             sys_clause = ""
             sys_params = []
@@ -12106,14 +12109,14 @@ class PostgresDatabase:
                                 except Exception:
                                     pass
 
-                            # 2. If matchups/meta_fac_info not in L1 memory yet, check L2 meta_intel_v8 cache on the same cursor (0ms vs full table scan)
+                            # 2. If matchups/meta_fac_info not in L1 memory yet, check L2 meta_intel_v9 cache on the same cursor (0ms vs full table scan)
                             if (not matchups or meta_fac_info is None) and meta_p:
                                 try:
-                                    l2_meta_key_v8 = f"meta_intel_v8_{system}_{meta_p}"
-                                    l2_meta_key_v8_leg = f"meta_intel_v8_legacy_{system}_{meta_p}"
+                                    l2_meta_key_v9 = f"meta_intel_v9_{system}_{meta_p}"
+                                    l2_meta_key_v9_leg = f"meta_intel_v9_legacy_{system}_{meta_p}"
                                     cursor.execute(
                                         "SELECT value, EXTRACT(EPOCH FROM updated_at) AS ts FROM system_settings WHERE key IN (%s, %s) ORDER BY updated_at DESC LIMIT 1;",
-                                        (l2_meta_key_v8, l2_meta_key_v8_leg)
+                                        (l2_meta_key_v9, l2_meta_key_v9_leg)
                                     )
                                     m_row = cursor.fetchone()
                                     m_val = m_row.get("value") if isinstance(m_row, dict) else (m_row[0] if m_row else None)

@@ -385,12 +385,60 @@ class TestFactionMetaIntel(unittest.TestCase):
         self.assertIn("adeptus astartes", p_sm)
 
     def test_no_4500_cap_and_covering_index_predicates(self):
-        """Verifies get_faction_meta_stats does not cap 90d at 4500 games and uses covering index predicate."""
+        """Verifies get_faction_meta_stats does not cap 90d at 4500 games, has valid psycopg2 %s interpolation, and uses covering index."""
         import inspect
+        from contextlib import contextmanager
         meta_src = inspect.getsource(PostgresDatabase.get_faction_meta_stats)
         self.assertNotIn('"90d": 4500', meta_src)
         self.assertIn("COALESCE(game_system, '40k') = %s", meta_src)
         self.assertIn("POSITION('+' IN COALESCE(player1_faction, '')) = 0", meta_src)
+        self.assertIn("ORDER BY COALESCE(game_system, '40k'), match_date DESC", meta_src)
+
+        PostgresDatabase.invalidate_all_caches()
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        executed_sql = []
+
+        class PsycopgStrictCursor:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def execute(self, query, params=None):
+                if params is not None:
+                    # Simulate psycopg2 C-level %s parameter interpolation (catches any unescaped literal '%')
+                    _ = query % tuple(repr(p) for p in params)
+                executed_sql.append((query, params))
+            def fetchall(self):
+                return [{
+                    "factions_json": [
+                        {"faction": "Space Marines", "total_matches": 6000, "wins": 3000, "losses": 2900, "draws": 100, "win_rate": 50.0, "non_mirror_win_rate": 50.2}
+                    ],
+                    "matchups_json": [
+                        {"faction": "Space Marines", "opp_faction": "Orks", "matches": 500, "wins": 260, "losses": 230, "draws": 10, "win_rate": 52.0, "avg_margin": 3.5}
+                    ],
+                    "trends_json": [],
+                    "raw_match_count": 12450,
+                }]
+            def fetchone(self):
+                return None
+
+        class MockConn:
+            def cursor(self, *args, **kwargs):
+                return PsycopgStrictCursor()
+            def rollback(self):
+                pass
+            def commit(self):
+                pass
+
+        @contextmanager
+        def _mock_conn():
+            yield MockConn()
+
+        db.get_connection = _mock_conn
+        res = db.get_faction_meta_stats(timeframe="90d", game_system="40k", _force_refresh=True)
+        self.assertEqual(res["summary_kpis"]["total_matches"], 12450)
+        self.assertEqual(len(executed_sql), 1)
+        self.assertIn("matchup_stats AS", executed_sql[0][0])
 
 
 if __name__ == "__main__":
