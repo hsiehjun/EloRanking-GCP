@@ -541,6 +541,85 @@ class TestFactionMetaIntel(unittest.TestCase):
         self.assertEqual(sm_mu[0]["matches"], 100)
         self.assertEqual(sm_mu[0]["win_rate"], 60.0)
 
+    def test_aos_colon_subfactions_and_modal_l1_reconciliation(self):
+        self.assertEqual(
+            PostgresDatabase.canonicalize_faction_name("Blades of Khorne: Reapers of Vengeance"),
+            "Blades of Khorne",
+        )
+        self.assertEqual(
+            PostgresDatabase.canonicalize_faction_name("Hosts of Slaanesh: Pretenders Host"),
+            "Hedonites of Slaanesh",
+        )
+        self.assertEqual(
+            PostgresDatabase.canonicalize_faction_name("Skaventide: Clan Skryre"),
+            "Skaven",
+        )
+        self.assertEqual(
+            PostgresDatabase.canonicalize_faction_name("Chaos: Legion of the First Prince"),
+            "Slaves to Darkness",
+        )
+        self.assertEqual(
+            PostgresDatabase.canonicalize_faction_name("Lumineth Realm-Lords: Alumnia"),
+            "Lumineth Realm-lords",
+        )
+
+        # Verify modal L1 cache reconciliation when Meta Intel L1 cache has updated canonical totals
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        db.connection_pool = True
+        PostgresDatabase._faction_details_cache_dict = {}
+        PostgresDatabase._faction_meta_cache_dict = {}
+        stale_modal = {
+            "faction": "Space Marines",
+            "game_system": "40k",
+            "timeframe": "1yr",
+            "stats": {
+                "total_matches": 4440,
+                "total_wins": 2140,
+                "total_losses": 2200,
+                "total_draws": 100,
+                "win_rate": 48.2,
+                "non_mirror_win_rate": 48.2,
+            },
+            "total_matches": 4440,
+            "matches": [{"match_id": "m1", "outcome": "W"}],
+            "matchups": [{"opponent_faction": "Orks", "total_matches": 200, "wins": 96, "losses": 104, "draws": 0, "win_rate": 48.0}],
+            "top_players": [],
+        }
+        PostgresDatabase.set_cached(
+            PostgresDatabase._faction_details_cache_dict,
+            ("space marines", "40k", "1yr", 350),
+            stale_modal,
+        )
+        PostgresDatabase.set_cached(
+            PostgresDatabase._faction_meta_cache_dict,
+            "preset_1yr_40k",
+            {
+                "factions": [
+                    {
+                        "faction": "Space Marines",
+                        "total_matches": 82197,
+                        "wins": 38879,
+                        "losses": 41500,
+                        "draws": 1818,
+                        "win_rate": 47.3,
+                        "non_mirror_win_rate": 47.1,
+                        "meta_share": 8.98,
+                    }
+                ],
+                "matchups_by_faction": {
+                    "Space Marines": [
+                        {"opponent_faction": "Orks", "matches": 4120, "wins": 2100, "losses": 1950, "draws": 70, "win_rate": 51.0, "avg_margin": 1.8},
+                        {"opponent_faction": "Aeldari", "matches": 3890, "wins": 1750, "losses": 2080, "draws": 60, "win_rate": 45.0, "avg_margin": -2.4},
+                    ]
+                },
+            },
+        )
+        reconciled = db.get_faction_details("Space Marines", limit=350, game_system="40k", timeframe="1yr")
+        self.assertEqual(reconciled["stats"]["total_matches"], 82197)
+        self.assertEqual(reconciled["stats"]["win_rate"], 47.3)
+        self.assertEqual(reconciled["total_matches"], 82197)
+        self.assertEqual(len(reconciled["matchups"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
