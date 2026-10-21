@@ -4765,8 +4765,9 @@ class LocalSqliteDatabase:
         if not matched_detail:
             if is_placeholder_faction(f_clean, norm_sys):
                 return None
-            # Valid faction queried directly (e.g. 'Orks' in 40k) that wasn't in the current local event slice:
+            # Valid faction queried directly (e.g. 'Orks' or 'Aeldari' in 40k) that wasn't in the current local event slice:
             # generate deterministic symmetric virtual rows against the active factions of `norm_sys`.
+            rh_rows, pr_map = self._load_effective_rh_rows(norm_sys, None, None)
             active_facs = [f["faction"] for f in computed.get("factions", [])]
             extra_rows = self._build_virtual_rh_rows_for_faction(norm_sys, canon_target, active_facs)
             combined_rows = list(rh_rows) + extra_rows
@@ -4776,6 +4777,8 @@ class LocalSqliteDatabase:
             matched_detail = computed_ext.get("_details_by_faction", {}).get(canon_target)
             if not matched_detail:
                 return None
+            details_map[canon_target] = matched_detail
+            details_map[f_clean] = matched_detail
 
         out = dict(matched_detail)
         out["timeframe"] = timeframe
