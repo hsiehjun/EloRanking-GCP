@@ -555,7 +555,11 @@ class PostgresDatabase:
             else:
                 val = str(raw).strip()
             if val and val.lower() not in cls.EMPTY_FACTION_SET and "+" not in val and not val.lower().startswith("pod ("):
-                cleaned.append(cls.canonicalize_faction_name(val))
+                v_low = val.lower()
+                if v_low in cls.SUPER_FACTION_SET or v_low in cls.GENERIC_SM_SET:
+                    cleaned.append(val)
+                else:
+                    cleaned.append(cls.canonicalize_faction_name(val) or val)
         for c in cleaned:
             low = c.lower()
             if low not in cls.SUPER_FACTION_SET and low not in cls.GENERIC_SM_SET:
@@ -11693,13 +11697,24 @@ class PostgresDatabase:
                             cursor.execute(
                                 """
                                 SELECT id, player_id, bcp_user_id FROM users
-                                WHERE id::text = %s OR player_id = %s OR bcp_user_id = %s
-                                   OR id IN (SELECT user_id FROM user_platform_links WHERE platform_user_id = %s)
+                                WHERE id = %s OR player_id = %s OR bcp_user_id = %s
                                 LIMIT 1;
                                 """,
-                                (rid, rid, rid, rid),
+                                (rid, rid, rid),
                             )
                             u_rows = list(cursor.fetchall() or [])
+                            if not u_rows:
+                                cursor.execute(
+                                    """
+                                    SELECT u.id, u.player_id, u.bcp_user_id
+                                    FROM user_platform_links upl
+                                    JOIN users u ON u.id = upl.user_id
+                                    WHERE upl.platform_user_id = %s
+                                    LIMIT 1;
+                                    """,
+                                    (rid,),
+                                )
+                                u_rows = list(cursor.fetchall() or [])
                             if u_rows:
                                 u_first = u_rows[0]
                                 u_id = u_first.get("id") if isinstance(u_first, dict) else u_first[0]
@@ -11767,7 +11782,7 @@ class PostgresDatabase:
                     return []
 
                 sys_clause = ""
-                sys_params: List[Any] = [p1_ids, p2_ids, p2_ids, p1_ids, p1_ids, p2_ids]
+                sys_params: List[Any] = [p1_ids, p2_ids, p2_ids, p1_ids]
                 if game_system and target_sys != "all":
                     sys_clause = " AND COALESCE(m.game_system, '40k') = %s"
                     sys_params.append(target_sys)
@@ -11788,17 +11803,54 @@ class PostgresDatabase:
                     FROM matches m
                     LEFT JOIN events e ON m.event_id = e.id
                     WHERE ((m.player1_id = ANY(%s) AND m.player2_id = ANY(%s))
-                        OR (m.player1_id = ANY(%s) AND m.player2_id = ANY(%s))
-                        OR (
-                            m.id IN (SELECT match_id FROM match_participants WHERE player_id = ANY(%s))
-                            AND m.id IN (SELECT match_id FROM match_participants WHERE player_id = ANY(%s))
-                        ))
+                        OR (m.player1_id = ANY(%s) AND m.player2_id = ANY(%s)))
                       AND m.is_done = TRUE
                       {sys_clause}
                     ORDER BY COALESCE(m.match_date, e.event_date) DESC, m.round DESC
                     LIMIT 100;
                     """, tuple(sys_params))
                     res_rows = _normalize_rows(cursor.fetchall())
+                    try:
+                        cursor.execute(
+                            """
+                            SELECT DISTINCT mp1.match_id
+                            FROM match_participants mp1
+                            JOIN match_participants mp2 ON mp1.match_id = mp2.match_id
+                            WHERE mp1.player_id = ANY(%s) AND mp2.player_id = ANY(%s)
+                            LIMIT 50;
+                            """,
+                            (p1_ids, p2_ids),
+                        )
+                        mp_mids = [
+                            str(r.get("match_id") if isinstance(r, dict) else r[0]).strip()
+                            for r in (cursor.fetchall() or [])
+                            if (r.get("match_id") if isinstance(r, dict) else r[0])
+                        ]
+                        seen_mids = {str(r.get("id") or "") for r in res_rows}
+                        missing_mids = [mid for mid in mp_mids if mid and mid not in seen_mids]
+                        if missing_mids:
+                            mp_params: List[Any] = [missing_mids]
+                            if game_system and target_sys != "all":
+                                mp_params.append(target_sys)
+                            cursor.execute(
+                                f"""
+                                SELECT m.*, COALESCE(e.name, 'Tournament') as event_name, COALESCE(m.match_date, e.event_date) as match_date
+                                FROM matches m
+                                LEFT JOIN events e ON m.event_id = e.id
+                                WHERE m.id = ANY(%s)
+                                  AND m.is_done = TRUE
+                                  {sys_clause}
+                                ORDER BY COALESCE(m.match_date, e.event_date) DESC, m.round DESC
+                                LIMIT 50;
+                                """,
+                                tuple(mp_params),
+                            )
+                            res_rows.extend(_normalize_rows(cursor.fetchall() or []))
+                    except Exception:
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
                     if not is_mock_self:
                         PostgresDatabase.set_cached(PostgresDatabase._faction_details_cache_dict, h2h_cache_key, res_rows)
                     return res_rows

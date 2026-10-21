@@ -664,9 +664,9 @@ def test_scraper_negative_cache_and_batch_upsert():
         # /players/walkin_reg_1 must only be requested ONCE (during roster map build), never again in rounds 1, 2, or 3!
         walkin_lookups = [ep for ep in http_calls if ep == "/players/walkin_reg_1"]
         assert len(walkin_lookups) == 1, f"Expected exactly 1 lookup for walk-in ID, got {len(walkin_lookups)}"
-        # Must have executed 3 batch DB commits (1 per round) instead of per-match commits
-        assert len(dummy_db.batch_calls) == 3
-        assert len(dummy_db.batch_calls[0]) == 1
+        # Must have executed 1 single batch DB commit for the entire event (containing all 3 round matches)
+        assert len(dummy_db.batch_calls) == 1
+        assert len(dummy_db.batch_calls[0]) == 3
     print("✅ test_scraper_negative_cache_and_batch_upsert passed")
 
 

@@ -175,6 +175,7 @@ class BestCoastPairingsScraper:
         self.request_delay = request_delay
         self._reg_id_cache: Dict[str, Optional[Dict[str, str]]] = {}
         self._user_id_cache: Dict[str, Optional[Dict[str, str]]] = {}
+        self._scraped_event_ids_in_session: set = set()
 
     def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None, max_retries: int = 2) -> Optional[Dict[str, Any]]:
         """Makes an HTTP GET request to BCP API with headers, error handling, and retries."""
@@ -328,34 +329,45 @@ class BestCoastPairingsScraper:
             if resp is not None:
                 any_resp_not_none = True
             if isinstance(resp, dict):
-                if "active" in resp and isinstance(resp["active"], list) and resp["active"]:
+                if "active" in resp and isinstance(resp["active"], list):
                     items = resp["active"]
                     break
-                elif "data" in resp and isinstance(resp["data"], list) and resp["data"]:
+                elif "data" in resp and isinstance(resp["data"], list):
                     items = resp["data"]
                     break
-            elif isinstance(resp, list) and resp:
+            elif isinstance(resp, list):
                 items = resp
                 break
 
         # Fallback to TeamPairing if standard Pairing is empty (e.g. Doubles or Team events)
         if not items and pairing_type == "Pairing" and (any_resp_not_none or not use_cache):
-            team_endpoints = [
-                (f"/events/{event_id}/pairings", {"round": round_num, "pairingType": "TeamPairing"}),
-                ("/pairings", {"eventId": event_id, "round": round_num, "pairingType": "TeamPairing", "limit": 500}),
-            ]
-            for ep, params in team_endpoints:
-                resp_team = self._make_request(ep, params=params)
+            should_try_team = True
+            if use_cache:
+                ev_cached = BestCoastPairingsScraper._bcp_http_cache.get(f"ev_details:{event_id}")
+                ev_d = ev_cached[1] if (ev_cached and isinstance(ev_cached[1], dict)) else None
+                if ev_d and ("teamEvent" in ev_d or "doublesEvent" in ev_d):
+                    ev_name_low = str(ev_d.get("name") or "").lower()
+                    if (
+                        not ev_d.get("teamEvent")
+                        and not ev_d.get("doublesEvent")
+                        and ev_d.get("eventType") != "team"
+                        and "2v2" not in ev_name_low
+                        and "doubles" not in ev_name_low
+                        and "team" not in ev_name_low
+                    ):
+                        should_try_team = False
+            if should_try_team:
+                resp_team = self._make_request(
+                    f"/events/{event_id}/pairings",
+                    params={"round": round_num, "pairingType": "TeamPairing"},
+                )
                 if isinstance(resp_team, dict):
                     if "active" in resp_team and isinstance(resp_team["active"], list) and resp_team["active"]:
                         items = resp_team["active"]
-                        break
                     elif "data" in resp_team and isinstance(resp_team["data"], list) and resp_team["data"]:
                         items = resp_team["data"]
-                        break
                 elif isinstance(resp_team, list) and resp_team:
                     items = resp_team
-                    break
 
         res_items = items or []
         if use_cache:
@@ -1468,19 +1480,23 @@ class BestCoastPairingsScraper:
 
         # Ingest registered participants roster (works even if 0 rounds played yet)
         roster_id_map = {}
+        enrolled_players = []
         try:
-            enrolled_players = self.fetch_event_players(event_id)
+            enrolled_players = self.fetch_event_players(event_id) or []
             roster_id_map = self.build_roster_id_map(enrolled_players, teams=teams)
             self.ingest_event_roster(event_id, enrolled_players, teams=teams)
         except Exception as e:
             logger.debug(f"Could not fetch roster for event {event_id}: {e}")
 
+        if hasattr(self, "_scraped_event_ids_in_session") and isinstance(self._scraped_event_ids_in_session, set):
+            self._scraped_event_ids_in_session.add(str(event_id))
+
+        dict_rounds = 0
+        roster_max_round = 0
         try:
             rounds_dict = event_data.get("rounds") or {}
-            dict_rounds = 0
             if isinstance(rounds_dict, dict):
                 dict_rounds = max([int(k) for k in rounds_dict.keys() if str(k).isdigit()] or [0])
-            roster_max_round = 0
             if isinstance(roster_id_map, dict):
                 for k_map, v_games in roster_id_map.items():
                     if isinstance(k_map, str) and k_map.startswith("games:") and isinstance(v_games, list):
@@ -1495,10 +1511,26 @@ class BestCoastPairingsScraper:
             num_rounds = 3
 
         event_name = event_data.get("name", "Unknown Event")
-        total_players = event_data.get("totalPlayers") or event_data.get("checkedInPlayers") or 0
+        total_players = int(event_data.get("totalPlayers") or event_data.get("checkedInPlayers") or len(enrolled_players) or 0)
         event_date = (event_data.get("eventDate") or event_data.get("eventEndDate") or "")[:10] or "No Date"
 
-        if total_players > 30 or num_rounds > 4:
+        has_explicit_lifecycle = ("started" in event_data or "ended" in event_data or "currentRound" in event_data)
+        is_started = bool(event_data.get("started"))
+        is_ended = bool(event_data.get("ended"))
+        try:
+            curr_round_val = int(event_data.get("currentRound") or 0)
+        except Exception:
+            curr_round_val = 0
+
+        if has_explicit_lifecycle and (
+            (total_players == 0 and not enrolled_players)
+            or (not is_started and not is_ended and curr_round_val == 0 and dict_rounds == 0 and roster_max_round == 0)
+        ):
+            max_rounds_to_poll = 0
+        else:
+            max_rounds_to_poll = num_rounds
+
+        if max_rounds_to_poll > 0 and (total_players > 30 or num_rounds > 4):
             logger.info(f"Scraping '{event_name}' ({event_id}) [{event_date}]: {total_players} players, {num_rounds} rounds...")
 
         total_matches = 0
@@ -1509,34 +1541,35 @@ class BestCoastPairingsScraper:
             and hasattr(self.db, "upsert_matches_batch")
             and type(getattr(self.db, "upsert_matches_batch", None)).__name__ != "MagicMock"
         )
+        event_matches_to_upsert = []
+        max_active_hint = max(curr_round_val, dict_rounds, roster_max_round)
 
-        for r in range(1, num_rounds + 1):
+        for r in range(1, max_rounds_to_poll + 1):
             pairings = self.fetch_event_pairings_for_round(event_id, r)
             if not pairings:
                 consecutive_empty += 1
-                if consecutive_empty >= 2:
+                if consecutive_empty >= 2 or (has_explicit_lifecycle and not is_ended and max_active_hint > 0 and r >= max_active_hint):
                     break
                 continue
 
             consecutive_empty = 0
             actual_rounds = r
             round_matches = 0
-            round_matches_to_upsert = []
             for p in pairings:
                 match_rec = self.parse_and_store_match(event_data, p, roster_id_map=roster_id_map, defer_db_write=use_batch)
                 if match_rec:
-                    round_matches_to_upsert.append(match_rec)
+                    event_matches_to_upsert.append(match_rec)
                     total_matches += 1
                     round_matches += 1
 
-            if use_batch and round_matches_to_upsert:
-                try:
-                    self.db.upsert_matches_batch(round_matches_to_upsert)
-                except Exception as e:
-                    logger.warning(f"Failed to batch upsert matches for event {event_id} round {r}: {e}")
-
             if total_players > 30 or num_rounds > 4:
                 logger.info(f"  -> Round {r}/{num_rounds}: {round_matches} matches processed.")
+
+        if use_batch and event_matches_to_upsert:
+            try:
+                self.db.upsert_matches_batch(event_matches_to_upsert)
+            except Exception as e:
+                logger.warning(f"Failed to batch upsert matches for event {event_id}: {e}")
 
         if (
             actual_rounds > 0
@@ -1560,7 +1593,8 @@ class BestCoastPairingsScraper:
             except Exception as upd_err:
                 logger.debug(f"Could not update current_round for event {event_id}: {upd_err}")
 
-        logger.info(f"Scraped '{event_name}' ({event_id}) [{event_date}]: {actual_rounds or num_rounds} rounds, {total_matches} matches total.")
+        logged_rounds = actual_rounds if total_matches > 0 else 0
+        logger.info(f"Scraped '{event_name}' ({event_id}) [{event_date}]: {logged_rounds} rounds, {total_matches} matches total.")
         return total_matches
 
     def rescrape_incomplete_and_ongoing_events(
@@ -1568,6 +1602,7 @@ class BestCoastPairingsScraper:
         days: int = 90,
         game_system: str = "all",
         max_events: int = 60,
+        exclude_event_ids: Optional[Any] = None,
     ) -> Dict[str, int]:
         """Re-scrape multi-week leagues, ongoing events, and partially scraped events in PostgreSQL.
 
@@ -1580,6 +1615,11 @@ class BestCoastPairingsScraper:
         if not self.db or not hasattr(self.db, "get_connection"):
             return {"events_rescraped": 0, "matches_rescraped": 0}
 
+        excluded_ids = set(getattr(self, "_scraped_event_ids_in_session", set()) or set())
+        if exclude_event_ids:
+            excluded_ids.update(str(x) for x in exclude_event_ids if x)
+
+        target_limit = max(1, int(max_events or 60))
         candidate_eids: List[str] = []
         try:
             gs_filter_sql = ""
@@ -1589,17 +1629,18 @@ class BestCoastPairingsScraper:
             elif game_system and game_system not in ("all", "*"):
                 gs_filter_sql = "AND COALESCE(e.game_system, '40k') = %s"
                 params.append(str(game_system))
-            params.append(max(1, int(max_events or 60)))
+            params.append(target_limit + len(excluded_ids))
 
             with self.db.get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
                         f"""
                         WITH candidate_window AS (
-                            SELECT e.id, e.event_date, e.end_date, e.num_rounds, e.current_round, e.is_ended
+                            SELECT e.id, e.event_date, e.end_date, e.num_rounds, e.current_round, e.is_ended, e.total_players
                             FROM events e
                             WHERE e.event_date >= NOW() - (%s * INTERVAL '1 day')
                               AND e.event_date <= NOW() + INTERVAL '1 day'
+                              AND COALESCE(e.total_players, 0) >= 2
                               AND e.id NOT LIKE 'ES-%%'
                               AND e.id NOT LIKE 'native_%%'
                               AND e.id NOT LIKE 'melee:%%'
@@ -1620,18 +1661,20 @@ class BestCoastPairingsScraper:
                         SELECT cw.id
                         FROM candidate_window cw
                         LEFT JOIN match_round_stats mrs ON mrs.event_id = cw.id
-                        WHERE (cw.end_date IS NOT NULL AND cw.end_date >= NOW() - INTERVAL '10 days')
-                           OR COALESCE(cw.is_ended, FALSE) = FALSE
+                        WHERE COALESCE(cw.is_ended, FALSE) = FALSE
                            OR (COALESCE(cw.num_rounds, 0) > 0 AND COALESCE(mrs.db_rounds, 0) < COALESCE(cw.num_rounds, 0))
                            OR (COALESCE(cw.num_rounds, 0) > 0 AND COALESCE(cw.current_round, 0) < COALESCE(cw.num_rounds, 0))
+                           OR (cw.end_date IS NOT NULL AND cw.end_date >= NOW() - INTERVAL '10 days' AND COALESCE(mrs.db_rounds, 0) < GREATEST(COALESCE(cw.num_rounds, 0), 1))
                         ORDER BY cw.event_date DESC
                         LIMIT %s;
                         """,
                         tuple(params),
                     )
                     for (eid,) in cur.fetchall():
-                        if eid and is_bcp_event_id(str(eid)):
+                        if eid and is_bcp_event_id(str(eid)) and str(eid) not in excluded_ids:
                             candidate_eids.append(str(eid))
+                            if len(candidate_eids) >= target_limit:
+                                break
         except Exception as e:
             logger.warning(f"Failed querying incomplete/ongoing events for rescrape: {e}")
             return {"events_rescraped": 0, "matches_rescraped": 0}
