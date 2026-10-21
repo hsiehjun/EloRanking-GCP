@@ -93,7 +93,7 @@ steps:
       - '--region'
       - 'us-central1'
 
-  # 8. Create or Update Cloud Run Job: elo-melee-sync-job (Melee.gg TCG Sync)
+  # 8. Create or Update Cloud Run Job + Cloud Scheduler: elo-melee-sync-job (Melee.gg TCG Sync)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'update-melee-sync-job'
     entrypoint: python3
@@ -109,8 +109,14 @@ steps:
       - 'python3'
       - '--args'
       - 'scripts/sync_melee.py'
+      - '--scheduler-name'
+      - 'elo-melee-scheduler-job'
+      - '--schedule'
+      - '15 0 * * *'
+      - '--description'
+      - 'Scrapes Melee.gg tournaments (MTG, Star Wars Unlimited, Flesh and Blood, Lorcana) and recalculates Elo once a day via Cloud Run Job'
 
-  # 9. Create or Update Cloud Run Job: elo-limitless-sync-job (Limitless TCG Sync)
+  # 9. Create or Update Cloud Run Job + Cloud Scheduler: elo-limitless-sync-job (Limitless TCG Sync)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'update-limitless-sync-job'
     entrypoint: python3
@@ -126,8 +132,14 @@ steps:
       - 'python3'
       - '--args'
       - 'scripts/sync_limitless.py'
+      - '--scheduler-name'
+      - 'elo-limitless-scheduler-job'
+      - '--schedule'
+      - '30 0 * * *'
+      - '--description'
+      - 'Scrapes LimitlessTCG tournaments (Pokemon, One Piece, Digimon, Lorcana, Star Wars Unlimited) and recalculates Elo once a day via Cloud Run Job'
 
-  # 10. Create or Update Cloud Run Job: elo-longshanks-sync-job (Longshanks Tabletop Sync)
+  # 10. Create or Update Cloud Run Job + Cloud Scheduler: elo-longshanks-sync-job (Longshanks Tabletop Sync)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'update-longshanks-sync-job'
     entrypoint: python3
@@ -143,8 +155,14 @@ steps:
       - 'python3'
       - '--args'
       - 'scripts/sync_longshanks.py'
+      - '--scheduler-name'
+      - 'elo-longshanks-scheduler-job'
+      - '--schedule'
+      - '45 0 * * *'
+      - '--description'
+      - 'Scrapes Longshanks tabletop tournaments (MCP, Star Wars Legion, Shatterpoint, X-Wing, Armada, Guild Ball, Warmachine, Malifaux, Infinity, Conquest, Bolt Action, Kings of War) and recalculates Elo once a day via Cloud Run Job'
 
-  # 11. Create or Update Cloud Run Job: elo-topdeck-sync-job (TopDeck.gg 4P FFA Pod & MTG Sync)
+  # 11. Create or Update Cloud Run Job + Cloud Scheduler: elo-topdeck-sync-job (TopDeck.gg 4P FFA Pod & MTG Sync)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'update-topdeck-sync-job'
     entrypoint: python3
@@ -160,6 +178,12 @@ steps:
       - 'python3'
       - '--args'
       - 'scripts/sync_topdeck.py'
+      - '--scheduler-name'
+      - 'elo-topdeck-scheduler-job'
+      - '--schedule'
+      - '55 0 * * *'
+      - '--description'
+      - 'Scrapes TopDeck.gg tournaments (4-player FFA Commander pods & MTG) and recalculates Elo once a day via Cloud Run Job'
 
 images:
   - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'

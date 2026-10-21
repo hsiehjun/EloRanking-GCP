@@ -134,17 +134,131 @@ def deploy_or_update_job(
     cr = _run_cmd(create_cmd, check=False)
     sys.stdout.write(cr.stdout or "")
     sys.stderr.write(cr.stderr or "")
+    if cr.returncode == 0:
+        print(f"🚀 Triggering initial async execution for newly created job '{job_name}'...", flush=True)
+        _run_cmd(["gcloud", "run", "jobs", "execute", job_name, f"--region={region}", "--async"], check=False)
     return cr.returncode
 
 
+def ensure_scheduler_job(
+    job_name: str,
+    region: str = "us-central1",
+    project_id: str = "eloranking-506820",
+    schedule: str = "15 0 * * *",
+    scheduler_name: str = "",
+    description: str = "",
+    template_scheduler: str = "elo-scraper-job",
+    fallback_sa: str = "",
+) -> None:
+    """
+    Idempotently creates or updates a Cloud Scheduler HTTP job that triggers
+    `https://{region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/{project_id}/jobs/{job_name}:run`
+    using the same OAuth Service Account and timeZone as `elo-scraper-job`.
+    Non-fatal if Cloud Build service account lacks `cloudscheduler.jobs.create`.
+    """
+    sched_name = scheduler_name or job_name.replace("-sync-job", "-scheduler-job")
+    target_uri = f"https://{region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/{project_id}/jobs/{job_name}:run"
+    time_zone = "America/Los_Angeles"
+    oauth_sa = fallback_sa
+
+    # Inspect template scheduler job (`elo-scraper-job`) to inherit exact OAuth Service Account & timezone
+    tmpl_desc = _run_cmd(
+        ["gcloud", "scheduler", "jobs", "describe", template_scheduler, f"--location={region}", "--format=json"],
+        check=False,
+    )
+    if tmpl_desc.returncode == 0 and tmpl_desc.stdout:
+        try:
+            tjson = json.loads(tmpl_desc.stdout)
+            tz = str(tjson.get("timeZone") or "").strip()
+            if tz:
+                time_zone = tz
+            sa_email = str(
+                ((tjson.get("httpTarget") or {}).get("oauthToken") or {}).get("serviceAccountEmail") or ""
+            ).strip()
+            if sa_email:
+                oauth_sa = sa_email
+        except Exception as err:
+            print(f"⚠️ Notice parsing template scheduler '{template_scheduler}': {err}", flush=True)
+
+    if not oauth_sa:
+        # Fallback: inspect the Cloud Run Job itself for its service account
+        jdesc = _run_cmd(
+            ["gcloud", "run", "jobs", "describe", job_name, f"--region={region}", "--format=json"],
+            check=False,
+        )
+        if jdesc.returncode == 0 and jdesc.stdout:
+            try:
+                _, sa_from_job, _, _ = _extract_template_config(json.loads(jdesc.stdout))
+                if sa_from_job:
+                    oauth_sa = sa_from_job
+            except Exception:
+                pass
+
+    # Check if the scheduler job already exists
+    existing = _run_cmd(
+        ["gcloud", "scheduler", "jobs", "describe", sched_name, f"--location={region}", "--format=json"],
+        check=False,
+    )
+    desc_text = description or f"Daily automated sync & Elo recalculation via Cloud Run Job ({job_name})"
+
+    if existing.returncode == 0:
+        print(f"🔄 Cloud Scheduler job '{sched_name}' exists; updating schedule & target URI...", flush=True)
+        upd_cmd = [
+            "gcloud",
+            "scheduler",
+            "jobs",
+            "update",
+            "http",
+            sched_name,
+            f"--location={region}",
+            f"--schedule={schedule}",
+            f"--time-zone={time_zone}",
+            f"--uri={target_uri}",
+            "--http-method=POST",
+            f"--description={desc_text}",
+        ]
+        if oauth_sa:
+            upd_cmd.append(f"--oauth-service-account-email={oauth_sa}")
+        res = _run_cmd(upd_cmd, check=False)
+        if res.returncode != 0:
+            print(f"⚠️ Notice updating Cloud Scheduler job '{sched_name}' (non-fatal): {res.stderr}", flush=True)
+        return
+
+    print(f"🆕 Creating Cloud Scheduler job '{sched_name}' ({schedule} {time_zone}) -> {job_name}...", flush=True)
+    create_sched_cmd = [
+        "gcloud",
+        "scheduler",
+        "jobs",
+        "create",
+        "http",
+        sched_name,
+        f"--location={region}",
+        f"--schedule={schedule}",
+        f"--time-zone={time_zone}",
+        f"--uri={target_uri}",
+        "--http-method=POST",
+        f"--description={desc_text}",
+    ]
+    if oauth_sa:
+        create_sched_cmd.append(f"--oauth-service-account-email={oauth_sa}")
+    res = _run_cmd(create_sched_cmd, check=False)
+    if res.returncode == 0:
+        print(f"✅ Successfully created Cloud Scheduler job '{sched_name}'.", flush=True)
+    else:
+        print(f"⚠️ Notice creating Cloud Scheduler job '{sched_name}' (non-fatal): {res.stderr}", flush=True)
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create or update a standalone platform sync Cloud Run Job.")
+    parser = argparse.ArgumentParser(description="Create or update a standalone platform sync Cloud Run Job and its Cloud Scheduler trigger.")
     parser.add_argument("--job-name", required=True, help="Cloud Run Job name (e.g. elo-melee-sync-job)")
     parser.add_argument("--image", required=True, help="Container image URI")
     parser.add_argument("--region", default="us-central1", help="GCP region (default: us-central1)")
     parser.add_argument("--command", default="python3", help="Container command entrypoint (default: python3)")
     parser.add_argument("--args", dest="script_arg", required=True, help="Script path / args (e.g. scripts/sync_melee.py)")
     parser.add_argument("--template-job", default="elo-tournament-sync-job", help="Reference job to inherit Cloud SQL & env vars from on initial create")
+    parser.add_argument("--schedule", default="", help="Cron schedule in America/Los_Angeles (e.g. '15 0 * * *')")
+    parser.add_argument("--scheduler-name", default="", help="Cloud Scheduler job name (e.g. elo-melee-scheduler-job)")
+    parser.add_argument("--description", default="", help="Cloud Scheduler job description")
     args = parser.parse_args()
 
     rc = deploy_or_update_job(
@@ -155,6 +269,14 @@ def main() -> None:
         script_arg=args.script_arg,
         template_job=args.template_job,
     )
+    if rc == 0 and args.schedule:
+        ensure_scheduler_job(
+            job_name=args.job_name,
+            region=args.region,
+            schedule=args.schedule,
+            scheduler_name=args.scheduler_name,
+            description=args.description,
+        )
     sys.exit(rc)
 
 
