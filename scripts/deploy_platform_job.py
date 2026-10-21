@@ -90,6 +90,9 @@ def deploy_or_update_job(
         )
         sys.stdout.write(upd.stdout or "")
         sys.stderr.write(upd.stderr or "")
+        if upd.returncode == 0:
+            print(f"🚀 Triggering async execution for updated job '{job_name}'...", flush=True)
+            _run_cmd(["gcloud", "run", "jobs", "execute", job_name, f"--region={region}", "--async"], check=False)
         return upd.returncode
 
     print(

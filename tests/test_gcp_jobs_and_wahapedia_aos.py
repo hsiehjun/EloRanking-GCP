@@ -431,6 +431,101 @@ def test_active_public_tables_and_obsolete_pruning():
     print("✅ test_active_public_tables_and_obsolete_pruning passed")
 
 
+def test_sync_jobs_varchar64_bounding_and_transaction_resilience():
+    """Verify >64-char IDs are deterministically bounded to 64 chars and reconstruct_incremental survives match_participants errors."""
+    from database import _bound_id as db_bound_id, PostgresDatabase
+    from elo import _bound_id as elo_bound_id, EloEngine
+    from scripts.sync_multiplatform import _bound_id as sync_bound_id
+
+    long_mid = "td:commander-invitational-qualifier-final-fortune-gaming-5-s1-r1-t1"
+    assert len(long_mid) == 67
+    b1 = db_bound_id(long_mid)
+    b2 = elo_bound_id(long_mid)
+    b3 = sync_bound_id(long_mid)
+    assert len(b1) == 64
+    assert b1 == b2 == b3
+    assert b1.startswith("td:commander-invitational-qualifier-final-fortune-g_")
+
+    # Short IDs <= 64 chars remain untouched
+    short_id = "td:commander-invitational-qualifier-final-fortune-gaming-5"
+    assert len(short_id) == 58
+    assert db_bound_id(short_id) == short_id
+
+    # Verify EloEngine.reconstruct_incremental rolls back cleanly if match_participants query raises
+    # and still rates FFA pods via raw_json.pod_participants with integer rating_history scores
+    mock_db = MagicMock()
+    mock_conn = MagicMock()
+    mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+
+    mock_db.get_unranked_matches.return_value = [
+        {
+            "id": long_mid,
+            "event_id": short_id,
+            "round": 1,
+            "table_number": 1,
+            "match_date": "2026-10-15T12:00:00",
+            "player1_id": "td:p1",
+            "player1_name": "Alice",
+            "player1_faction": "Tymna / Kraum",
+            "player1_score": 5.0,
+            "player2_id": "td:p2",
+            "player2_name": "Pod (Bob, Charlie, Dave)",
+            "player2_faction": "Commander Pod",
+            "player2_score": 0.0,
+            "winner_id": "td:p1",
+            "is_draw": False,
+            "is_bye": False,
+            "game_system": "mtg",
+            "raw_json": {
+                "match_format": "ffa",
+                "is_ffa": True,
+                "pod_participants": [
+                    {"player_id": "td:p1", "player_name": "Alice", "faction": "Tymna / Kraum", "score": 5.0, "is_winner": True},
+                    {"player_id": "td:p2", "player_name": "Bob", "faction": "Kinnan", "score": 0.0, "is_winner": False},
+                    {"player_id": "td:p3", "player_name": "Charlie", "faction": "Sisay", "score": 0.0, "is_winner": False},
+                    {"player_id": "td:p4", "player_name": "Dave", "faction": "Rograkh / Silas", "score": 0.0, "is_winner": False},
+                ],
+            },
+        }
+    ]
+
+    captured_batches = []
+
+    def _cursor_side_effect(*args, **kwargs):
+        cur = MagicMock()
+        def _exec(sql, params=None):
+            if "FROM match_participants" in str(sql) and "SELECT match_id" in str(sql):
+                raise RuntimeError('relation "match_participants" does not exist')
+            if "INSERT INTO rating_history" in str(sql) and isinstance(params, list):
+                captured_batches.append(params)
+        cur.execute.side_effect = _exec
+        cur.fetchall.return_value = []
+        cm = MagicMock()
+        cm.__enter__.return_value = cur
+        return cm
+
+    mock_conn.cursor.side_effect = _cursor_side_effect
+
+    engine = EloEngine(db=mock_db)
+    res = engine.reconstruct_incremental(game_system="mtg", skip_stale_check=True)
+    assert res["total_new_matches"] == 1
+    assert res["players_updated"] == 4
+    assert res["history_points_saved"] == 4
+    assert mock_conn.rollback.called, "Expected conn.rollback() when match_participants query fails"
+    assert mock_conn.commit.called, "Expected conn.commit() after rating_history & player_ratings upsert"
+
+    # Inspect inserted rating_history rows: match_id must be <= 64 chars and scores must be ints
+    assert len(captured_batches) == 1
+    hist_rows = captured_batches[0]
+    assert len(hist_rows) == 4
+    for hr in hist_rows:
+        assert len(hr[1]) == 64, f"Expected 64-char bounded match_id, got {len(hr[1])}: {hr[1]}"
+        assert isinstance(hr[14], int), f"Expected int player_score, got {type(hr[14])}: {hr[14]}"
+        assert isinstance(hr[15], int), f"Expected int opponent_score, got {type(hr[15])}: {hr[15]}"
+
+    print("✅ test_sync_jobs_varchar64_bounding_and_transaction_resilience passed")
+
+
 if __name__ == "__main__":
     print("=== RUNNING GCP JOBS & MULTI-GAME TEST SUITE ===")
     test_faction_groups_and_legacy_wahapedia_removed()
@@ -443,5 +538,6 @@ if __name__ == "__main__":
     test_pwa_and_browser_auto_update_and_sw_killer()
     test_armory_40k_and_aos_equipped_isolation()
     test_active_public_tables_and_obsolete_pruning()
+    test_sync_jobs_varchar64_bounding_and_transaction_resilience()
     print("\n🎉 ALL GCP JOBS & MULTI-GAME TESTS PASSED 100%!")
 

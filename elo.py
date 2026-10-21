@@ -1,6 +1,7 @@
 """Elo rating engine: reconstructs chronological player win paths and ratings."""
 
 import collections
+import hashlib
 import io
 import json
 import logging
@@ -9,6 +10,36 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
+
+
+def _bound_id(val: Any, max_len: int = 64) -> str:
+    """Deterministically bounds an identifier to `max_len` chars for PostgreSQL VARCHAR(64) PKs."""
+    if val is None:
+        return ""
+    s = str(val).strip()
+    if len(s) <= max_len:
+        return s
+    digest = hashlib.sha1(s.encode("utf-8")).hexdigest()[:12]
+    prefix_len = max(1, max_len - 13)
+    return f"{s[:prefix_len]}_{digest}"
+
+
+def _bound_opt_id(val: Any, max_len: int = 64) -> Optional[str]:
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    return _bound_id(s, max_len=max_len)
+
+
+def _safe_int_score(val: Any) -> Optional[int]:
+    if val is None:
+        return None
+    try:
+        return int(round(float(val)))
+    except Exception:
+        return None
 
 PLACEHOLDER_REGEX_STR = r'^(player($|[^a-zA-Z])|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned)'
 _PLACEHOLDER_RE = re.compile(PLACEHOLDER_REGEX_STR, re.IGNORECASE)
@@ -320,7 +351,12 @@ class EloEngine:
         try:
             from psycopg2 import extras
         except ImportError:
-            extras = None
+            class _FallbackExtras:
+                RealDictCursor = None
+                @staticmethod
+                def execute_values(cur, sql, argslist, template=None, page_size=100):
+                    cur.execute(sql, argslist)
+            extras = _FallbackExtras()
         from database import Database as PostgresDatabase
 
         target_sys = (game_system or "40k").strip().lower()
@@ -915,7 +951,12 @@ class EloEngine:
         try:
             from psycopg2 import extras
         except ImportError:
-            extras = None
+            class _FallbackExtras:
+                RealDictCursor = None
+                @staticmethod
+                def execute_values(cur, sql, argslist, template=None, page_size=100):
+                    cur.execute(sql, argslist)
+            extras = _FallbackExtras()
         import time
 
         sys_target = (game_system or "40k").lower()
@@ -1327,7 +1368,12 @@ class EloEngine:
         try:
             from psycopg2 import extras
         except ImportError:
-            extras = None
+            class _FallbackExtras:
+                RealDictCursor = None
+                @staticmethod
+                def execute_values(cur, sql, argslist, template=None, page_size=100):
+                    cur.execute(sql, argslist)
+            extras = _FallbackExtras()
         import time
 
         sys_target = (game_system or "40k").lower()
@@ -1650,6 +1696,30 @@ class EloEngine:
 
             # 3. Process new matches and append trajectory points
             print(f"[3/3] ⚡ Computing Elo updates and persisting {total_new:,} {sys_target.upper()} matches...")
+
+            # Preload match_participants for 2v2 Doubles and 4-Player FFA Pods before starting write transaction
+            mp_by_match: Dict[str, List[Dict[str, Any]]] = collections.defaultdict(list)
+            try:
+                new_mids = [_bound_id(m.get("id")) for m in new_matches if m.get("id")]
+                if new_mids:
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as mp_cur:
+                        mp_cur.execute("""
+                            SELECT match_id, player_id, player_name, team_id, faction, score, result, placement, is_winner
+                            FROM match_participants
+                            WHERE match_id = ANY(%s)
+                            ORDER BY match_id, placement ASC NULLS LAST, team_id ASC NULLS LAST, player_id ASC;
+                        """, (new_mids,))
+                        for mp_r in (mp_cur.fetchall() or []):
+                            if isinstance(mp_r, dict) or hasattr(mp_r, "keys"):
+                                d_mp = dict(mp_r)
+                                mp_by_match[_bound_id(d_mp.get("match_id"))].append(d_mp)
+            except Exception as mp_err:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                logger.debug(f"Notice loading match_participants in reconstruct_incremental: {mp_err}")
+
             with conn.cursor() as cursor:
                 cursor.execute("SET LOCAL synchronous_commit = OFF;")
                 insert_history_pg = """
@@ -1664,25 +1734,8 @@ class EloEngine:
                 history_batch = []
                 touched_players = set()
 
-                # Preload match_participants for 2v2 Doubles and 4-Player FFA Pods
-                mp_by_match: Dict[str, List[Dict[str, Any]]] = collections.defaultdict(list)
-                try:
-                    new_mids = [str(m.get("id") or "") for m in new_matches if m.get("id")]
-                    if new_mids:
-                        with conn.cursor(cursor_factory=extras.RealDictCursor) as mp_cur:
-                            mp_cur.execute("""
-                                SELECT match_id, player_id, player_name, team_id, faction, score, result, placement, is_winner
-                                FROM match_participants
-                                WHERE match_id = ANY(%s)
-                                ORDER BY match_id, placement ASC NULLS LAST, team_id ASC NULLS LAST, player_id ASC;
-                            """, (new_mids,))
-                            for mp_r in mp_cur.fetchall():
-                                mp_by_match[str(mp_r["match_id"])].append(dict(mp_r))
-                except Exception as mp_err:
-                    logger.debug(f"Notice loading match_participants in reconstruct_incremental: {mp_err}")
-
                 def _ensure_player_state(pid_val: str, mname_val: Optional[str]) -> Dict[str, Any]:
-                    pid_c = str(pid_val)[:64]
+                    pid_c = _bound_id(pid_val)
                     s_mname = _sanitize_name(mname_val, max_len=100)
                     p_best = authoritative_names.get(pid_c) or (s_mname if not _is_placeholder_name(s_mname, pid_c) else None)
                     st = player_states.get(pid_c)
@@ -1700,7 +1753,8 @@ class EloEngine:
                     return st
 
                 for m in new_matches:
-                    mid_str = str(m.get("id") or "")
+                    mid_str = _bound_id(m.get("id") or "")
+                    ev_id_bound = _bound_opt_id(m.get("event_id"))
                     m_date = m.get("match_date")
                     match_sys = m.get("game_system") or sys_target
                     raw_obj: Dict[str, Any] = {}
@@ -1727,21 +1781,21 @@ class EloEngine:
                         if t1_valid and t2_valid:
                             for p in t1_valid + t2_valid:
                                 _ensure_player_state(str(p["player_id"]), p.get("player_name"))
-                            t1_old_avg = sum(player_states[str(p["player_id"])[:64]]["elo"] for p in t1_valid) / len(t1_valid)
-                            t2_old_avg = sum(player_states[str(p["player_id"])[:64]]["elo"] for p in t2_valid) / len(t2_valid)
+                            t1_old_avg = sum(player_states[_bound_id(p["player_id"])]["elo"] for p in t1_valid) / len(t1_valid)
+                            t2_old_avg = sum(player_states[_bound_id(p["player_id"])]["elo"] for p in t2_valid) / len(t2_valid)
                             exp_t1 = self.expected_score(t1_old_avg, t2_old_avg)
                             exp_t2 = 1.0 - exp_t1
                             is_draw_2v2 = bool(m.get("is_draw"))
-                            t1_ids = {str(p["player_id"])[:64] for p in t1_valid}
-                            t1_won = bool(not is_draw_2v2 and str(m.get("winner_id") or "")[:64] in t1_ids)
+                            t1_ids = {_bound_id(p["player_id"]) for p in t1_valid}
+                            t1_won = bool(not is_draw_2v2 and _bound_id(m.get("winner_id") or "") in t1_ids)
                             act_t1 = 0.5 if is_draw_2v2 else (1.0 if t1_won else 0.0)
                             act_t2 = 1.0 - act_t1
                             k_2v2 = sum(
-                                (self.provisional_k if player_states[str(p["player_id"])[:64]]["matches_played"] < self.provisional_matches else self.default_k)
+                                (self.provisional_k if player_states[_bound_id(p["player_id"])]["matches_played"] < self.provisional_matches else self.default_k)
                                 for p in (t1_valid + t2_valid)
                             ) / float(len(t1_valid) + len(t2_valid))
-                            t1_names_str = " & ".join(_sanitize_name(p.get("player_name"), max_len=45) or str(p["player_id"])[:8] for p in t1_valid)[:100]
-                            t2_names_str = " & ".join(_sanitize_name(p.get("player_name"), max_len=45) or str(p["player_id"])[:8] for p in t2_valid)[:100]
+                            t1_names_str = " & ".join(_sanitize_name(p.get("player_name"), max_len=45) or _bound_id(p["player_id"])[:8] for p in t1_valid)[:100]
+                            t2_names_str = " & ".join(_sanitize_name(p.get("player_name"), max_len=45) or _bound_id(p["player_id"])[:8] for p in t2_valid)[:100]
                             t1_fac_str = " + ".join(filter(None, [_sanitize_name(p.get("faction"), max_len=28) for p in t1_valid]))[:60]
                             t2_fac_str = " + ".join(filter(None, [_sanitize_name(p.get("faction"), max_len=28) for p in t2_valid]))[:60]
 
@@ -1749,14 +1803,14 @@ class EloEngine:
                                 exp_s = exp_t1 if side_idx == 1 else exp_t2
                                 act_s = act_t1 if side_idx == 1 else act_t2
                                 opp_avg = round(t2_old_avg if side_idx == 1 else t1_old_avg, 2)
-                                opp_id_rep = str((t2_valid[0] if side_idx == 1 else t1_valid[0])["player_id"])[:64]
+                                opp_id_rep = _bound_id((t2_valid[0] if side_idx == 1 else t1_valid[0])["player_id"])
                                 opp_names = t2_names_str if side_idx == 1 else t1_names_str
                                 opp_facs = t2_fac_str if side_idx == 1 else t1_fac_str
-                                my_sc = m.get("player1_score") if side_idx == 1 else m.get("player2_score")
-                                op_sc = m.get("player2_score") if side_idx == 1 else m.get("player1_score")
+                                my_sc = _safe_int_score(m.get("player1_score") if side_idx == 1 else m.get("player2_score"))
+                                op_sc = _safe_int_score(m.get("player2_score") if side_idx == 1 else m.get("player1_score"))
                                 res_code = "D" if is_draw_2v2 else ("W" if act_s == 1.0 else "L")
                                 for p in side_players:
-                                    pid_p = str(p["player_id"])[:64]
+                                    pid_p = _bound_id(p["player_id"])
                                     st_p = player_states[pid_p]
                                     old_e = st_p["elo"]
                                     delta_e = 0.0 if is_draw_2v2 else round(k_2v2 * (act_s - exp_s), 2)
@@ -1773,7 +1827,7 @@ class EloEngine:
                                         player_factions[pid_p][p_fac] += 1
                                     touched_players.add(pid_p)
                                     history_batch.append((
-                                        pid_p, mid_str[:64], str(m.get("event_id") or "")[:64] if m.get("event_id") else None, m.get("round"), m_date,
+                                        pid_p, mid_str, ev_id_bound, m.get("round"), m_date,
                                         old_e, new_e, delta_e,
                                         opp_id_rep, opp_names, opp_avg, res_code,
                                         p_fac, opp_facs, my_sc, op_sc, match_sys
@@ -1781,29 +1835,30 @@ class EloEngine:
                             continue
 
                     # --- BRANCH B: 4-Player FFA Pod (Multiparty Pairwise Expected Score, Zero-Sum) ---
-                    if is_ffa_match and len(mp_rows) >= 3:
-                        pod_seats = [r for r in mp_rows if r.get("player_id") and str(r.get("player_id")).upper() != "BYE"]
+                    pod_candidates = mp_rows if len(mp_rows) >= 3 else (raw_obj.get("pod_participants") or [])
+                    if is_ffa_match and len(pod_candidates) >= 3:
+                        pod_seats = [r for r in pod_candidates if isinstance(r, dict) and r.get("player_id") and str(r.get("player_id")).upper() != "BYE"]
                         n_pod = len(pod_seats)
                         if n_pod >= 3:
                             for s_row in pod_seats:
                                 _ensure_player_state(str(s_row["player_id"]), s_row.get("player_name"))
-                            old_pod_elos = {str(s_row["player_id"])[:64]: player_states[str(s_row["player_id"])[:64]]["elo"] for s_row in pod_seats}
-                            win_id_ffa = str(m.get("winner_id") or "")[:64]
+                            old_pod_elos = {_bound_id(s_row["player_id"]): player_states[_bound_id(s_row["player_id"])]["elo"] for s_row in pod_seats}
+                            win_id_ffa = _bound_id(m.get("winner_id") or "")
                             is_pod_draw = bool(m.get("is_draw") or not win_id_ffa)
                             k_pod = sum(
-                                (self.provisional_k if player_states[str(s_row["player_id"])[:64]]["matches_played"] < self.provisional_matches else self.default_k)
+                                (self.provisional_k if player_states[_bound_id(s_row["player_id"])]["matches_played"] < self.provisional_matches else self.default_k)
                                 for s_row in pod_seats
                             ) / float(n_pod)
 
                             for s_row in pod_seats:
-                                pid_i = str(s_row["player_id"])[:64]
+                                pid_i = _bound_id(s_row["player_id"])
                                 st_i = player_states[pid_i]
                                 old_i = old_pod_elos[pid_i]
-                                others = [o for o in pod_seats if str(o["player_id"])[:64] != pid_i]
+                                others = [o for o in pod_seats if _bound_id(o["player_id"]) != pid_i]
                                 exp_pair_sum = 0.0
                                 act_pair_sum = 0.0
                                 for o_row in others:
-                                    pid_j = str(o_row["player_id"])[:64]
+                                    pid_j = _bound_id(o_row["player_id"])
                                     old_j = old_pod_elos[pid_j]
                                     exp_pair_sum += self.expected_score(old_i, old_j)
                                     if is_pod_draw:
@@ -1830,13 +1885,15 @@ class EloEngine:
                                 if fac_i and "Pod" not in fac_i and "Commander Pod" not in fac_i:
                                     player_factions[pid_i][fac_i] += 1
                                 touched_players.add(pid_i)
-                                opp_avg_elo = round(sum(old_pod_elos[str(o["player_id"])[:64]] for o in others) / float(len(others)), 2)
-                                opp_rep_id = win_id_ffa if (win_id_ffa and win_id_ffa != pid_i) else str(others[0]["player_id"])[:64]
-                                opp_pod_names = ("Pod: " + ", ".join(_sanitize_name(o.get("player_name"), max_len=26) or str(o["player_id"])[:6] for o in others))[:100]
-                                my_sc = s_row.get("score") if s_row.get("score") is not None else (1.0 if res_i == "W" else (0.25 if res_i == "D" else 0.0))
-                                op_sc = 0.25 if is_pod_draw else (0.0 if res_i == "W" else 1.0)
+                                opp_avg_elo = round(sum(old_pod_elos[_bound_id(o["player_id"])] for o in others) / float(len(others)), 2)
+                                opp_rep_id = win_id_ffa if (win_id_ffa and win_id_ffa != pid_i) else _bound_id(others[0]["player_id"])
+                                opp_pod_names = ("Pod: " + ", ".join(_sanitize_name(o.get("player_name"), max_len=26) or _bound_id(o["player_id"])[:6] for o in others))[:100]
+                                raw_my_sc = s_row.get("score") if s_row.get("score") is not None else (5 if res_i == "W" else (1 if res_i == "D" else 0))
+                                raw_op_sc = 1 if is_pod_draw else (0 if res_i == "W" else 5)
+                                my_sc = _safe_int_score(raw_my_sc)
+                                op_sc = _safe_int_score(raw_op_sc)
                                 history_batch.append((
-                                    pid_i, mid_str[:64], str(m.get("event_id") or "")[:64] if m.get("event_id") else None, m.get("round"), m_date,
+                                    pid_i, mid_str, ev_id_bound, m.get("round"), m_date,
                                     old_i, new_i, delta_i,
                                     opp_rep_id, opp_pod_names, opp_avg_elo, res_i,
                                     fac_i, f"{n_pod}-Player FFA Pod", my_sc, op_sc, match_sys
@@ -1847,8 +1904,8 @@ class EloEngine:
                     p1_id, p2_id = m["player1_id"], m["player2_id"]
                     if not p1_id or not p2_id:
                         continue
-                    p1_id = str(p1_id)[:64]
-                    p2_id = str(p2_id)[:64]
+                    p1_id = _bound_id(p1_id)
+                    p2_id = _bound_id(p2_id)
 
                     p1_mname = _sanitize_name(m.get("player1_name"), max_len=100)
                     p1_best = authoritative_names.get(p1_id) or (p1_mname if not _is_placeholder_name(p1_mname, p1_id) else None)
@@ -1880,11 +1937,11 @@ class EloEngine:
                     elif _is_placeholder_name(s2["name"], p2_id) and p2_best:
                         s2["name"] = _sanitize_name(p2_best, max_len=100)
 
-                    mid_str = str(m.get("id") or "")
                     is_non_bcp_match = mid_str.startswith(("melee:", "ltcg:", "ls:", "td:"))
                     is_bye_match = bool(m.get("is_bye") or p2_id.upper() == "BYE" or p1_id.upper() == "BYE")
                     is_real_draw = bool(m.get("is_draw") and ((m.get("player1_score") or 0) > 0 or (m.get("player2_score") or 0) > 0 or is_non_bcp_match))
-                    has_valid_winner = bool(m.get("winner_id") and m.get("winner_id") in (p1_id, p2_id))
+                    win_id_1v1 = _bound_opt_id(m.get("winner_id"))
+                    has_valid_winner = bool(win_id_1v1 and win_id_1v1 in (p1_id, p2_id))
                     if not is_bye_match and not has_valid_winner and not is_real_draw:
                         continue
 
@@ -1902,7 +1959,7 @@ class EloEngine:
                         res1, res2 = ("D", "D") if is_real_draw else ("W", "L")
                         new_elo1, new_elo2 = old_elo1, old_elo2
                     else:
-                        is_p1_win = (m.get("winner_id") == p1_id)
+                        is_p1_win = (win_id_1v1 == p1_id)
                         res1, res2 = ("W", "L") if is_p1_win else ("L", "W")
                         k1 = self.provisional_k if s1["matches_played"] < self.provisional_matches else self.default_k
                         k2 = self.provisional_k if s2["matches_played"] < self.provisional_matches else self.default_k
@@ -1937,20 +1994,22 @@ class EloEngine:
                     else: s2["draws"] += 1
                     if m_date: s2["last_active_date"] = _max_date(s2["last_active_date"], m_date)
 
+                    p1_sc_int = _safe_int_score(m.get("player1_score"))
+                    p2_sc_int = _safe_int_score(m.get("player2_score"))
                     history_batch.append((
-                        p1_id, str(m["id"])[:64], str(m.get("event_id") or "")[:64] if m.get("event_id") else None, m.get("round"), m_date,
+                        p1_id, mid_str, ev_id_bound, m.get("round"), m_date,
                         old_elo1, new_elo1, round(new_elo1 - old_elo1, 2),
                         p2_id, _sanitize_name(s2["name"], max_len=100), old_elo2, res1,
                         fac1, fac2,
-                        m.get("player1_score"), m.get("player2_score"),
+                        p1_sc_int, p2_sc_int,
                         match_sys
                     ))
                     history_batch.append((
-                        p2_id, str(m["id"])[:64], str(m.get("event_id") or "")[:64] if m.get("event_id") else None, m.get("round"), m_date,
+                        p2_id, mid_str, ev_id_bound, m.get("round"), m_date,
                         old_elo2, new_elo2, round(new_elo2 - old_elo2, 2),
                         p1_id, _sanitize_name(s1["name"], max_len=100), old_elo1, res2,
                         fac2, fac1,
-                        m.get("player2_score"), m.get("player1_score"),
+                        p2_sc_int, p1_sc_int,
                         match_sys
                     ))
 
@@ -1994,7 +2053,7 @@ class EloEngine:
                     clean_player_name = _sanitize_name(s.get("name"), max_len=100) or f"Player {str(pid)[:8]}"
 
                     ratings_data.append((
-                        str(pid)[:64], clean_player_name, s["elo"], s["peak_elo"],
+                        _bound_id(pid), clean_player_name, s["elo"], s["peak_elo"],
                         total, s["wins"], s["losses"], s["draws"], win_rate,
                         top_fac, team_name, s["last_active_date"], now_iso, sys_target
                     ))
@@ -2006,6 +2065,13 @@ class EloEngine:
                         err_str = str(up_err).lower()
                         if "on conflict" in err_str or "constraint" in err_str or "unique" in err_str:
                             logger.warning(f"Notice: composite constraint missing; falling back to ON CONFLICT (player_id): {up_err}")
+                            try:
+                                conn.rollback()
+                                cursor.execute("SET LOCAL synchronous_commit = OFF;")
+                                if history_batch:
+                                    extras.execute_values(cursor, insert_history_pg, history_batch, page_size=2500)
+                            except Exception:
+                                pass
                             upsert_fallback = upsert_ratings_pg.replace("ON CONFLICT (player_id, game_system)", "ON CONFLICT (player_id)")
                             extras.execute_values(cursor, upsert_fallback, ratings_data, page_size=2000)
                         else:
@@ -2041,7 +2107,12 @@ class EloEngine:
         try:
             from psycopg2 import extras
         except ImportError:
-            extras = None
+            class _FallbackExtras:
+                RealDictCursor = None
+                @staticmethod
+                def execute_values(cur, sql, argslist, template=None, page_size=100):
+                    cur.execute(sql, argslist)
+            extras = _FallbackExtras()
         import io
         import time
 
@@ -2267,6 +2338,10 @@ class EloEngine:
                         conn.commit()
                         print(f"      🛡️ Discovered and mapped {len(existing_teams):,} player team memberships.")
                     except Exception as e:
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
                         logger.debug(f"JSON team scan error: {e}")
 
             # 2. Load authoritative real names before streaming
@@ -3128,7 +3203,12 @@ class EloEngine:
         try:
             from psycopg2 import extras
         except ImportError:
-            extras = None
+            class _FallbackExtras:
+                RealDictCursor = None
+                @staticmethod
+                def execute_values(cur, sql, argslist, template=None, page_size=100):
+                    cur.execute(sql, argslist)
+            extras = _FallbackExtras()
         import time
 
         t0 = time.time()

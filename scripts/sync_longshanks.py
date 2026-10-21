@@ -38,6 +38,12 @@ LONGSHANKS_HOST_BY_SYSTEM = {
 }
 
 
+DEFAULT_LONGSHANKS_TARGETS: List[Tuple[str, str]] = [
+    ("mcp", "36154"),  # HoC MCP Tournament & Infinity Circuit Qualifier
+    ("mcp", "38479"),  # LVO 2026 MCP GT & LCQ
+]
+
+
 def discover_longshanks_targets(
     game_system: str = "mcp",
     max_events: int = 10,
@@ -48,6 +54,10 @@ def discover_longshanks_targets(
     discovered: List[Tuple[str, str]] = []
 
     for sys_slug in systems:
+        for def_sys, def_eid in DEFAULT_LONGSHANKS_TARGETS:
+            if def_sys == sys_slug and (def_sys, def_eid) not in discovered:
+                discovered.append((def_sys, def_eid))
+
         host = LONGSHANKS_HOST_BY_SYSTEM.get(sys_slug, "https://www.longshanks.org")
         try:
             html_txt = _http_get_text(f"{host}/events/")
@@ -57,11 +67,12 @@ def discover_longshanks_targets(
                 if eid not in eids:
                     eids.append(eid)
             for eid in eids[: max(1, max_events)]:
-                discovered.append((sys_slug, eid))
+                if (sys_slug, eid) not in discovered:
+                    discovered.append((sys_slug, eid))
         except Exception as e:
             logger.warning(f"⚠️ [LongshanksSync:{sys_slug.upper()}] Discovery notice: {e}")
 
-    return discovered
+    return discovered[: max(2, max_events)]
 
 
 def run_longshanks_sync(

@@ -37,6 +37,7 @@ Kept completely separate from `scripts/sync_tournaments.py` so existing 40K/AoS 
 """
 
 import argparse
+import hashlib
 import html
 import json
 import logging
@@ -49,6 +50,18 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+
+
+def _bound_id(val: Any, max_len: int = 64) -> str:
+    """Deterministically bounds an identifier to `max_len` chars for PostgreSQL VARCHAR(64) PKs."""
+    if val is None:
+        return ""
+    s = str(val).strip()
+    if len(s) <= max_len:
+        return s
+    digest = hashlib.sha1(s.encode("utf-8")).hexdigest()[:12]
+    prefix_len = max(1, max_len - 13)
+    return f"{s[:prefix_len]}_{digest}"
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -153,7 +166,7 @@ def import_live_limitless_tournaments(
     participants_imported = 0
 
     for sys_slug, raw_tid, t_meta in targets:
-        eid = f"ltcg:{raw_tid}"
+        eid = _bound_id(f"ltcg:{raw_tid}")
         try:
             details = _http_get_json(f"https://play.limitlesstcg.com/api/tournaments/{raw_tid}/details") or {}
             standings = _http_get_json(f"https://play.limitlesstcg.com/api/tournaments/{raw_tid}/standings") or []
@@ -196,7 +209,7 @@ def import_live_limitless_tournaments(
 
         for idx, st in enumerate(standings):
             raw_pid = str(st.get("player") or st.get("name") or f"player_{idx+1}").strip().lower()
-            pid = f"ltcg:{raw_pid}"
+            pid = _bound_id(f"ltcg:{raw_pid}")
             pname = str(st.get("name") or raw_pid).strip()
             deck_obj = st.get("deck") if isinstance(st.get("deck"), dict) else {}
             deck_name = str(deck_obj.get("name") or details.get("format") or "Standard Deck").strip()
@@ -257,13 +270,13 @@ def import_live_limitless_tournaments(
             if not raw_p1:
                 continue
 
-            p1_info = player_lookup.get(raw_p1, {"pid": f"ltcg:{raw_p1}", "name": raw_p1, "faction": "Standard Deck", "detachment": "Standard"})
+            p1_info = player_lookup.get(raw_p1, {"pid": _bound_id(f"ltcg:{raw_p1}"), "name": raw_p1, "faction": "Standard Deck", "detachment": "Standard"})
             raw_winner = pr.get("winner")
 
             if not raw_p2 or raw_winner == -1:
                 m_batch.append(
                     {
-                        "id": f"{eid}-r{r_num}-t{t_num}-{raw_p1}",
+                        "id": _bound_id(f"{eid}-r{r_num}-t{t_num}-{raw_p1}"),
                         "event_id": eid,
                         "round": r_num,
                         "table_number": t_num,
@@ -289,7 +302,7 @@ def import_live_limitless_tournaments(
                 )
                 continue
 
-            p2_info = player_lookup.get(raw_p2, {"pid": f"ltcg:{raw_p2}", "name": raw_p2, "faction": "Standard Deck", "detachment": "Standard"})
+            p2_info = player_lookup.get(raw_p2, {"pid": _bound_id(f"ltcg:{raw_p2}"), "name": raw_p2, "faction": "Standard Deck", "detachment": "Standard"})
             w_str = str(raw_winner or "").strip().lower()
             is_draw = raw_winner in (0, "0", "tie", "draw", None, "")
             if w_str == raw_p1:
@@ -307,7 +320,7 @@ def import_live_limitless_tournaments(
 
             m_batch.append(
                 {
-                    "id": f"{eid}-r{r_num}-t{t_num}",
+                    "id": _bound_id(f"{eid}-r{r_num}-t{t_num}"),
                     "event_id": eid,
                     "round": r_num,
                     "table_number": t_num,
@@ -389,7 +402,7 @@ def import_live_longshanks_tournaments(
     participants_imported = 0
 
     for sys_slug, raw_eid in event_targets:
-        eid = f"ls:{raw_eid}"
+        eid = _bound_id(f"ls:{raw_eid}")
         base_host = "https://mcp.longshanks.org" if sys_slug == "mcp" else "https://www.longshanks.org"
         try:
             ev_html = _http_get_text(f"{base_host}/event/{raw_eid}/")
@@ -414,7 +427,7 @@ def import_live_longshanks_tournaments(
         for i in range(1, len(p_blocks), 2):
             raw_pid = p_blocks[i]
             blk = p_blocks[i + 1]
-            pid = f"ls:{raw_pid}"
+            pid = _bound_id(f"ls:{raw_pid}")
             rank_m = re.search(r'<div class="rank"[^>]*>\s*<div>\s*(\d+)\s*</div>', blk)
             placing = int(rank_m.group(1)) if rank_m else ((i // 2) + 1)
 
@@ -492,7 +505,7 @@ def import_live_longshanks_tournaments(
                         parsed_p.append(("bye", "BYE", "BYE", "None", 0.0))
                         continue
                     raw_pid = pm.group(1)
-                    pid = f"ls:{raw_pid}"
+                    pid = _bound_id(f"ls:{raw_pid}")
                     raw_n = re.sub(r"<span class=['\"]nickname['\"]>.*?</span>", "", pm.group(2))
                     clean_n = " ".join(html.unescape(re.sub(r"<[^>]+>", "", raw_n)).split()).strip()
                     fac_m = re.search(r'/systems/[a-z0-9_]+/factions/[^"]+" title="([^"]+)"', phtml)
@@ -509,7 +522,7 @@ def import_live_longshanks_tournaments(
                         continue
                     m_batch.append(
                         {
-                            "id": f"{eid}-r{rnd}-t{t_num}-{gid}",
+                            "id": _bound_id(f"{eid}-r{rnd}-t{t_num}-{gid}"),
                             "event_id": eid,
                             "round": rnd,
                             "table_number": t_num,
@@ -546,7 +559,7 @@ def import_live_longshanks_tournaments(
 
                 m_batch.append(
                     {
-                        "id": f"{eid}-r{rnd}-t{t_num}-{gid}",
+                        "id": _bound_id(f"{eid}-r{rnd}-t{t_num}-{gid}"),
                         "event_id": eid,
                         "round": rnd,
                         "table_number": t_num,
@@ -570,6 +583,10 @@ def import_live_longshanks_tournaments(
                         "raw_json": {"game_id": gid, "round": rnd, "table": t_num, "outcomes": [o1, o2]},
                     }
                 )
+
+        if not ep_batch and not m_batch:
+            logger.info(f"ℹ️ [Longshanks:{sys_slug.upper()}] Skipping upcoming/empty event '{raw_title}' ({eid}) with 0 players/games.")
+            continue
 
         db.upsert_event(
             {
@@ -651,7 +668,7 @@ def import_live_topdeck_tournaments(
     matches_imported = 0
 
     for sys_slug, tid in tournament_slugs:
-        eid = f"td:{tid}"
+        eid = _bound_id(f"td:{tid}")
         try:
             fs_doc = _http_get_json(
                 f"https://firestore.googleapis.com/v1/projects/eminence-1b40b/databases/(default)/documents/tournaments/{tid}"
@@ -745,7 +762,7 @@ def import_live_topdeck_tournaments(
             cmd_name = ((e16.get("commander") or {}).get("name") or "").strip() or _extract_topdeck_commander(dl_raw)
             w, l, d = wld_by_uid.get(uid, [int(e16.get("wins") or 0), int(e16.get("losses") or 0), int(e16.get("draws") or 0)])
             placing = int(e16.get("standing") or (idx + 1))
-            pid = f"td:{uid}"
+            pid = _bound_id(f"td:{uid}")
 
             uid_info[uid] = {
                 "pid": pid,
@@ -803,7 +820,7 @@ def import_live_topdeck_tournaments(
             if len(pod_uids) < 2:
                 continue
 
-            pod_mid = f"{eid}-s{sec_num}-r{rnd_num}-t{tbl_num}"
+            pod_mid = _bound_id(f"td:{tid}-s{sec_num}-r{rnd_num}-t{tbl_num}")
             is_pod_draw = w_val == "_DRAW_"
             winner_uid = entry_to_uid.get(w_val) if isinstance(w_val, int) else None
 
@@ -1125,7 +1142,7 @@ main().catch(err => {
             continue
 
         sys_slug = sys_by_tid.get(raw_tid, "mtg")
-        eid = f"melee:{raw_tid}"
+        eid = _bound_id(f"melee:{raw_tid}")
         title = str(t_data.get("title") or f"Melee Event {raw_tid}").strip()
         standings = t_data.get("standings") or []
         round_matches = t_data.get("roundMatches") or []
@@ -1144,7 +1161,7 @@ main().catch(err => {
             p_list = t_obj.get("Players") or []
             p0 = p_list[0] if p_list else {}
             raw_uname = str(p0.get("Username") or p0.get("ID") or f"p_{idx}").strip().lower()
-            pid = f"melee:{raw_uname}"
+            pid = _bound_id(f"melee:{raw_uname}")
             pname = str(p0.get("DisplayName") or raw_uname).strip()
             placing = int(st.get("Rank") or (idx + 1))
             w = int(st.get("MatchWins") or 0)
@@ -1214,7 +1231,7 @@ main().catch(err => {
                     meta = player_lookup.get(
                         un,
                         {
-                            "pid": f"melee:{un}",
+                            "pid": _bound_id(f"melee:{un}"),
                             "name": str(pl.get("DisplayName") or un).strip(),
                             "faction": "Standard Deck" if sys_slug == "mtg" else "Premier Deck",
                             "detachment": fmt_name,
@@ -1232,7 +1249,7 @@ main().catch(err => {
                     u1, p1_id, p1_name, p1_fac, p1_gw = _parse_comp(comps[0])
                     m_batch.append(
                         {
-                            "id": f"{eid}-r{r_num}-{m_guid}",
+                            "id": _bound_id(f"{eid}-r{r_num}-{m_guid}"),
                             "event_id": eid,
                             "round": r_num,
                             "table_number": t_num,
@@ -1272,7 +1289,7 @@ main().catch(err => {
 
                 m_batch.append(
                     {
-                        "id": f"{eid}-r{r_num}-{m_guid}",
+                        "id": _bound_id(f"{eid}-r{r_num}-{m_guid}"),
                         "event_id": eid,
                         "round": r_num,
                         "table_number": t_num,
