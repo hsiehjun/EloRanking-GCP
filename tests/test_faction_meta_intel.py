@@ -440,6 +440,107 @@ class TestFactionMetaIntel(unittest.TestCase):
         self.assertEqual(len(executed_sql), 1)
         self.assertIn("matchup_stats AS", executed_sql[0][0])
 
+    def test_single_pass_pair_period_aggregation_and_canonical_merging(self):
+        """Verifies single-pass (p1_fac, p2_fac, period_date) HashAggregate rows merge aliases, drop '+' and 'Pod (', and compute symmetric matchups."""
+        from contextlib import contextmanager
+        PostgresDatabase.invalidate_all_caches()
+        db = PostgresDatabase.__new__(PostgresDatabase)
+
+        class PairAggCursor:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def execute(self, query, params=None):
+                pass
+            def fetchall(self):
+                return [
+                    {
+                        "p1_fac": "Space Marines (Astartes)",
+                        "p2_fac": "Orks",
+                        "period_date": "2026-09-01",
+                        "match_cnt": 100,
+                        "p1_wins": 60,
+                        "p1_losses": 38,
+                        "draws": 2,
+                        "p2_wins": 38,
+                        "p2_losses": 60,
+                        "p1_score_sum": 7500,
+                        "p1_score_cnt": 100,
+                        "p2_score_sum": 6500,
+                        "p2_score_cnt": 100,
+                        "p1_margin_sum": 1000,
+                        "margin_cnt": 100,
+                    },
+                    {
+                        "p1_fac": "Space Marines",
+                        "p2_fac": "Space Marines (Astartes)",
+                        "period_date": "2026-09-01",
+                        "match_cnt": 20,
+                        "p1_wins": 10,
+                        "p1_losses": 10,
+                        "draws": 0,
+                        "p2_wins": 10,
+                        "p2_losses": 10,
+                        "p1_score_sum": 1400,
+                        "p1_score_cnt": 20,
+                        "p2_score_sum": 1400,
+                        "p2_score_cnt": 20,
+                        "p1_margin_sum": 0,
+                        "margin_cnt": 20,
+                    },
+                    {
+                        "p1_fac": "Orks + T'au Empire",
+                        "p2_fac": "Space Marines",
+                        "period_date": "2026-09-01",
+                        "match_cnt": 50,
+                        "p1_wins": 25,
+                        "p1_losses": 25,
+                        "draws": 0,
+                        "p2_wins": 25,
+                        "p2_losses": 25,
+                        "p1_score_sum": 3500,
+                        "p1_score_cnt": 50,
+                        "p2_score_sum": 3500,
+                        "p2_score_cnt": 50,
+                        "p1_margin_sum": 0,
+                        "margin_cnt": 50,
+                    },
+                ]
+            def fetchone(self):
+                return None
+
+        class MockConn:
+            def cursor(self, *args, **kwargs):
+                return PairAggCursor()
+            def rollback(self):
+                pass
+            def commit(self):
+                pass
+
+        @contextmanager
+        def _mock_conn():
+            yield MockConn()
+
+        db.get_connection = _mock_conn
+        res = db.get_faction_meta_stats(timeframe="90d", game_system="40k", _force_refresh=True)
+        # 100 (SM vs Orks) + 20 (SM mirror) = 120 valid 1v1 matches (50 composite '+' excluded)
+        self.assertEqual(res["summary_kpis"]["total_matches"], 120)
+        factions_by_name = {f["faction"]: f for f in res["factions"]}
+        self.assertEqual(set(factions_by_name.keys()), {"Space Marines", "Orks"})
+        # Space Marines: 100 vs Orks + 20*2 mirror sides = 140 total appearances (60+10+10=80 wins)
+        sm = factions_by_name["Space Marines"]
+        self.assertEqual(sm["total_matches"], 140)
+        self.assertEqual(sm["mirror_matches"], 40)
+        self.assertEqual(sm["non_mirror_matches"], 100)
+        self.assertEqual(sm["non_mirror_win_rate"], 60.0)
+        # Matchups should have Space Marines vs Orks (60.0%) and Orks vs Space Marines (38.0%), no self-matchups
+        sm_mu = res["matchups_by_faction"]["Space Marines"]
+        self.assertEqual(len(sm_mu), 1)
+        self.assertEqual(sm_mu[0]["opponent_faction"], "Orks")
+        self.assertEqual(sm_mu[0]["matches"], 100)
+        self.assertEqual(sm_mu[0]["win_rate"], 60.0)
+
 
 if __name__ == "__main__":
     unittest.main()

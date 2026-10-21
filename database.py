@@ -407,26 +407,34 @@ class PostgresDatabase:
         "imperial guard": "Astra Militarum",
         "astra militarum": "Astra Militarum",
         "agents of the imperium": "Imperial Agents",
+        "inquisition": "Imperial Agents",
         "imperial agents": "Imperial Agents",
         "craftworlds": "Aeldari",
         "asuryani": "Aeldari",
+        "aeldari (craftworlds)": "Aeldari",
         "aeldari": "Aeldari",
         "adepta sororitas (sisters of battle)": "Adepta Sororitas",
         "sisters of battle": "Adepta Sororitas",
         "adepta sororitas": "Adepta Sororitas",
+        "chaos daemons": "Chaos Daemons",
+        "daemons of chaos": "Chaos Daemons",
+        "legiones daemonica": "Chaos Daemons",
         "lumineth realm-lords": "Lumineth Realm-lords",
+        "lumineth realm lords": "Lumineth Realm-lords",
         "flesh-eater courts": "Flesh-eater Courts",
+        "flesh eater courts": "Flesh-eater Courts",
     }
 
     FACTION_ALIASES_MAP: Dict[str, List[str]] = {
         "space marines": ["space marines", "space marines (astartes)", "adeptus astartes"],
         "genestealer cults": ["genestealer cults", "genestealer cult"],
         "astra militarum": ["astra militarum", "astra militarum (imperial guard)", "imperial guard"],
-        "imperial agents": ["imperial agents", "agents of the imperium"],
-        "aeldari": ["aeldari", "craftworlds", "asuryani"],
+        "imperial agents": ["imperial agents", "agents of the imperium", "inquisition"],
+        "aeldari": ["aeldari", "craftworlds", "asuryani", "aeldari (craftworlds)"],
         "adepta sororitas": ["adepta sororitas", "adepta sororitas (sisters of battle)", "sisters of battle"],
-        "lumineth realm-lords": ["lumineth realm-lords"],
-        "flesh-eater courts": ["flesh-eater courts"],
+        "chaos daemons": ["chaos daemons", "daemons of chaos", "legiones daemonica"],
+        "lumineth realm-lords": ["lumineth realm-lords", "lumineth realm lords"],
+        "flesh-eater courts": ["flesh-eater courts", "flesh eater courts"],
     }
 
     @classmethod
@@ -435,7 +443,7 @@ class PostgresDatabase:
         if not raw:
             return ""
         low = raw.lower()
-        if "+" in low or low.startswith("pod ("):
+        if "+" in low or "pod (" in low:
             return ""
         return cls.FACTION_CANONICAL_MAP.get(low, raw)
 
@@ -449,7 +457,7 @@ class PostgresDatabase:
     @classmethod
     def is_super_or_empty_faction(cls, name: Optional[str], include_generic_sm: bool = False) -> bool:
         norm = str(name or "").strip().lower()
-        if norm in cls.EMPTY_FACTION_SET or norm in cls.SUPER_FACTION_SET or "+" in norm or norm.startswith("pod ("):
+        if norm in cls.EMPTY_FACTION_SET or norm in cls.SUPER_FACTION_SET or "+" in norm or "pod (" in norm:
             return True
         if include_generic_sm and norm in cls.GENERIC_SM_SET:
             return True
@@ -1073,7 +1081,7 @@ class PostgresDatabase:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT value FROM system_settings WHERE key = 'perf_indexes_v30';")
+                    cur.execute("SELECT value FROM system_settings WHERE key = 'perf_indexes_v31';")
                     row = cur.fetchone()
                     if row and row[0] == 'ready':
                         return
@@ -1147,8 +1155,9 @@ class PostgresDatabase:
                     conn.autocommit = True
                     with conn.cursor() as cur:
                         cur.execute("VACUUM ANALYZE player_ratings;")
+                        cur.execute("VACUUM ANALYZE matches;")
                 except Exception as vac_err:
-                    logger.warning(f"VACUUM ANALYZE player_ratings notice: {vac_err}")
+                    logger.warning(f"VACUUM ANALYZE notice: {vac_err}")
                 finally:
                     try:
                         conn.autocommit = False
@@ -10281,8 +10290,8 @@ class PostgresDatabase:
             raw_legacy_key = f"{start_date}_{end_date}_{game_system}"
             if raw_legacy_key not in cache_keys:
                 cache_keys.append(raw_legacy_key)
-        l2_setting_key = f"meta_intel_v9_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
-        l2_legacy_key = f"meta_intel_v9_legacy_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
+        l2_setting_key = f"meta_intel_v10_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
+        l2_legacy_key = f"meta_intel_v10_legacy_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
 
         def _trigger_bg_meta_refresh() -> None:
             bg_key = f"meta_bg_{cache_key}"
@@ -10372,7 +10381,6 @@ class PostgresDatabase:
                 except Exception as l2_err:
                     logger.debug(f"Notice reading L2 meta_intel cache ({l2_setting_key}): {l2_err}")
 
-            sample_limit = 100000
             period_format = "YYYY-MM-DD" if is_short_window else "YYYY-MM"
             period_trunc = "week" if is_short_window else "month"
 
@@ -10381,7 +10389,7 @@ class PostgresDatabase:
                     is_mock_cur = is_mock_self or type(cursor).__module__.startswith("unittest.mock")
                     if not is_mock_cur:
                         try:
-                            cursor.execute("SET LOCAL statement_timeout = '5000ms'; SET LOCAL work_mem = '32MB'; SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off;")
+                            cursor.execute("SET LOCAL statement_timeout = '6500ms'; SET LOCAL work_mem = '32MB';")
                         except Exception:
                             conn.rollback()
 
@@ -10401,12 +10409,11 @@ class PostgresDatabase:
                     if resolved_end:
                         where_clauses.append("match_date <= %s")
                         params.append(resolved_end)
-                    if not resolved_start and not resolved_end:
-                        where_clauses.append("match_date >= %s")
-                        params.append((datetime.now(timezone.utc) - timedelta(days=540)).strftime("%Y-%m-%d"))
 
                     date_filter_sql = " AND ".join(where_clauses)
                     order_by_cov = "ORDER BY COALESCE(game_system, '40k'), match_date DESC" if (game_system and sys_norm != "all") else "ORDER BY match_date DESC"
+                    min_x0_games = 4 if sys_norm in ("40k", "aos") else 3
+                    min_x1_wins = 3 if sys_norm in ("40k", "aos") else 2
                     overall: List[Dict[str, Any]] = []
                     matchup_rows: List[Dict[str, Any]] = []
                     monthly: List[Dict[str, Any]] = []
@@ -10414,165 +10421,27 @@ class PostgresDatabase:
 
                     try:
                         cursor.execute(f"""
-                        WITH recent_matches AS MATERIALIZED (
-                            SELECT event_id, match_date,
-                                   player1_id,
-                                   CASE
-                                       WHEN player1_faction IS NULL OR TRIM(player1_faction) = '' THEN NULL
-                                       WHEN POSITION('+' IN player1_faction) > 0 THEN NULL
-                                       WHEN POSITION('pod (' IN LOWER(player1_faction)) > 0 THEN NULL
-                                       WHEN LOWER(TRIM(player1_faction)) IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar', 'the old world', 'warhammer: the old world', 'horus heresy', 'the horus heresy', 'loyalist', 'traitor', 'loyalists', 'traitors') THEN NULL
-                                       WHEN LOWER(TRIM(player1_faction)) IN ('space marines (astartes)', 'adeptus astartes', 'space marines') THEN 'Space Marines'
-                                       WHEN LOWER(TRIM(player1_faction)) IN ('genestealer cult', 'genestealer cults') THEN 'Genestealer Cults'
-                                       WHEN LOWER(TRIM(player1_faction)) IN ('astra militarum', 'imperial guard', 'astra militarum (imperial guard)') THEN 'Astra Militarum'
-                                       WHEN LOWER(TRIM(player1_faction)) IN ('imperial agents', 'agents of the imperium', 'inquisition') THEN 'Imperial Agents'
-                                       WHEN LOWER(TRIM(player1_faction)) IN ('aeldari', 'craftworlds', 'asuryani', 'aeldari (craftworlds)') THEN 'Aeldari'
-                                       WHEN LOWER(TRIM(player1_faction)) IN ('adepta sororitas', 'sisters of battle') THEN 'Adepta Sororitas'
-                                       WHEN LOWER(TRIM(player1_faction)) IN ('chaos daemons', 'daemons of chaos', 'legiones daemonica') THEN 'Chaos Daemons'
-                                       WHEN LOWER(TRIM(player1_faction)) IN ('lumineth realm-lords', 'lumineth realm lords') THEN 'Lumineth Realm-lords'
-                                       WHEN LOWER(TRIM(player1_faction)) IN ('flesh-eater courts', 'flesh eater courts') THEN 'Flesh-eater Courts'
-                                       ELSE TRIM(player1_faction)
-                                   END AS p1_fac,
-                                   player1_score,
-                                   player2_id,
-                                   CASE
-                                       WHEN player2_faction IS NULL OR TRIM(player2_faction) = '' THEN NULL
-                                       WHEN POSITION('+' IN player2_faction) > 0 THEN NULL
-                                       WHEN POSITION('pod (' IN LOWER(player2_faction)) > 0 THEN NULL
-                                       WHEN LOWER(TRIM(player2_faction)) IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar', 'the old world', 'warhammer: the old world', 'horus heresy', 'the horus heresy', 'loyalist', 'traitor', 'loyalists', 'traitors') THEN NULL
-                                       WHEN LOWER(TRIM(player2_faction)) IN ('space marines (astartes)', 'adeptus astartes', 'space marines') THEN 'Space Marines'
-                                       WHEN LOWER(TRIM(player2_faction)) IN ('genestealer cult', 'genestealer cults') THEN 'Genestealer Cults'
-                                       WHEN LOWER(TRIM(player2_faction)) IN ('astra militarum', 'imperial guard', 'astra militarum (imperial guard)') THEN 'Astra Militarum'
-                                       WHEN LOWER(TRIM(player2_faction)) IN ('imperial agents', 'agents of the imperium', 'inquisition') THEN 'Imperial Agents'
-                                       WHEN LOWER(TRIM(player2_faction)) IN ('aeldari', 'craftworlds', 'asuryani', 'aeldari (craftworlds)') THEN 'Aeldari'
-                                       WHEN LOWER(TRIM(player2_faction)) IN ('adepta sororitas', 'sisters of battle') THEN 'Adepta Sororitas'
-                                       WHEN LOWER(TRIM(player2_faction)) IN ('chaos daemons', 'daemons of chaos', 'legiones daemonica') THEN 'Chaos Daemons'
-                                       WHEN LOWER(TRIM(player2_faction)) IN ('lumineth realm-lords', 'lumineth realm lords') THEN 'Lumineth Realm-lords'
-                                       WHEN LOWER(TRIM(player2_faction)) IN ('flesh-eater courts', 'flesh eater courts') THEN 'Flesh-eater Courts'
-                                       ELSE TRIM(player2_faction)
-                                   END AS p2_fac,
-                                   player2_score,
-                                   winner_id, loser_id,
-                                   COALESCE(is_draw, FALSE) AS is_draw,
-                                   COALESCE(is_bye, FALSE) AS is_bye
-                            FROM matches
-                            WHERE {date_filter_sql}
-                            {order_by_cov}
-                            LIMIT {sample_limit}
-                        ),
-                        match_sides AS (
-                            SELECT event_id, match_date,
-                                   player1_id AS player_id,
-                                   p1_fac AS faction,
-                                   CASE
-                                       WHEN is_bye = FALSE AND player2_id IS NOT NULL AND p2_fac IS NOT NULL
-                                       THEN p2_fac
-                                       ELSE NULL
-                                   END AS opp_faction,
-                                   player1_score AS score,
-                                   CASE WHEN is_bye = FALSE AND player2_id IS NOT NULL THEN player2_score ELSE NULL END AS opp_score,
-                                   CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END AS is_win,
-                                   CASE WHEN is_draw THEN 1 ELSE 0 END AS is_draw,
-                                   CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END AS is_loss
-                            FROM recent_matches
-                            WHERE p1_fac IS NOT NULL
-                            UNION ALL
-                            SELECT event_id, match_date,
-                                   player2_id AS player_id,
-                                   p2_fac AS faction,
-                                   p1_fac AS opp_faction,
-                                   player2_score AS score,
-                                   player1_score AS opp_score,
-                                   CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END AS is_win,
-                                   CASE WHEN is_draw THEN 1 ELSE 0 END AS is_draw,
-                                   CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END AS is_loss
-                            FROM recent_matches
-                            WHERE p2_fac IS NOT NULL
-                              AND is_bye = FALSE AND player2_id IS NOT NULL
-                        ),
-                        sides_enriched AS (
-                            SELECT *,
-                                   CASE WHEN opp_faction IS NOT NULL AND LOWER(faction) = LOWER(opp_faction) THEN 1 ELSE 0 END AS is_mirror
-                            FROM match_sides
-                        ),
-                        event_runs AS (
-                            SELECT COALESCE(event_id, 'no_ev') AS event_id,
-                                   player_id,
-                                   faction,
-                                   COUNT(*) AS games_in_event,
-                                   SUM(is_win) AS wins_in_event,
-                                   SUM(is_loss) AS losses_in_event,
-                                   SUM(is_draw) AS draws_in_event
-                            FROM sides_enriched
-                            WHERE player_id IS NOT NULL
-                            GROUP BY COALESCE(event_id, 'no_ev'), player_id, faction
-                        ),
-                        faction_event_stats AS (
-                            SELECT faction,
-                                   COUNT(DISTINCT player_id) AS unique_pilots,
-                                   COUNT(DISTINCT CASE WHEN event_id != 'no_ev' THEN event_id END) AS events_played,
-                                   COUNT(*) FILTER (WHERE event_id != 'no_ev' AND games_in_event >= 3) AS event_runs_count,
-                                   COUNT(*) FILTER (WHERE event_id != 'no_ev' AND games_in_event >= {4 if sys_norm in ('40k', 'aos') else 3} AND losses_in_event = 0 AND draws_in_event = 0) AS x0_runs,
-                                   COUNT(*) FILTER (WHERE event_id != 'no_ev' AND games_in_event >= {4 if sys_norm in ('40k', 'aos') else 3} AND losses_in_event <= 1 AND wins_in_event >= {3 if sys_norm in ('40k', 'aos') else 2}) AS x1_runs
-                            FROM event_runs
-                            GROUP BY faction
-                        ),
-                        faction_stats AS (
-                            SELECT s.faction,
-                                   COUNT(*) AS total_matches,
-                                   SUM(s.is_win) AS wins,
-                                   SUM(s.is_loss) AS losses,
-                                   SUM(s.is_draw) AS draws,
-                                   COALESCE(ROUND((SUM(s.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1), 0.0) AS win_rate,
-                                   SUM(s.is_mirror) AS mirror_matches,
-                                   SUM(1 - s.is_mirror) AS non_mirror_matches,
-                                   SUM(CASE WHEN s.is_mirror = 0 THEN s.is_win ELSE 0 END) AS non_mirror_wins,
-                                   COALESCE(ROUND((SUM(CASE WHEN s.is_mirror = 0 THEN s.is_win ELSE 0 END) * 100.0 / NULLIF(SUM(1 - s.is_mirror), 0))::numeric, 1), 0.0) AS non_mirror_win_rate,
-                                   COALESCE(ROUND(AVG(NULLIF(s.score, 0))::numeric, 1), COALESCE(ROUND(AVG(s.score)::numeric, 1), 0.0)) AS avg_score,
-                                   COALESCE(ROUND(AVG(NULLIF(s.opp_score, 0))::numeric, 1), COALESCE(ROUND(AVG(s.opp_score)::numeric, 1), 0.0)) AS avg_opp_score,
-                                   COALESCE(ROUND(AVG(CASE WHEN s.score IS NOT NULL AND s.opp_score IS NOT NULL AND (s.score > 0 OR s.opp_score > 0) THEN (s.score - s.opp_score) ELSE NULL END)::numeric, 1), 0.0) AS avg_margin,
-                                   COALESCE(fe.unique_pilots, 0) AS unique_pilots,
-                                   COALESCE(fe.events_played, 0) AS events_played,
-                                   COALESCE(fe.event_runs_count, 0) AS event_runs_count,
-                                   COALESCE(fe.x0_runs, 0) AS x0_runs,
-                                   COALESCE(fe.x1_runs, 0) AS x1_runs
-                            FROM sides_enriched s
-                            LEFT JOIN faction_event_stats fe ON s.faction = fe.faction
-                            GROUP BY s.faction, fe.unique_pilots, fe.events_played, fe.event_runs_count, fe.x0_runs, fe.x1_runs
-                            HAVING COUNT(*) >= 1
-                            ORDER BY win_rate DESC, total_matches DESC
-                        ),
-                        matchup_stats AS (
-                            SELECT faction,
-                                   opp_faction,
-                                   COUNT(*) AS matches,
-                                   SUM(is_win) AS wins,
-                                   SUM(is_loss) AS losses,
-                                   SUM(is_draw) AS draws,
-                                   COALESCE(ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1), 0.0) AS win_rate,
-                                   COALESCE(ROUND(AVG(CASE WHEN score IS NOT NULL AND opp_score IS NOT NULL AND (score > 0 OR opp_score > 0) THEN (score - opp_score) ELSE NULL END)::numeric, 1), 0.0) AS avg_margin
-                            FROM sides_enriched
-                            WHERE opp_faction IS NOT NULL AND is_mirror = 0
-                            GROUP BY faction, opp_faction
-                            HAVING COUNT(*) >= 1
-                        ),
-                        trend_stats AS (
-                            SELECT TO_CHAR(DATE_TRUNC('{period_trunc}', match_date), '{period_format}') AS month,
-                                   faction,
-                                   COUNT(*) AS matches_in_month,
-                                   SUM(is_win) AS wins,
-                                   COALESCE(ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1), 0.0) AS win_rate
-                            FROM sides_enriched
-                            WHERE match_date IS NOT NULL
-                            GROUP BY 1, 2
-                            HAVING COUNT(*) >= 2
-                            ORDER BY month ASC, win_rate DESC
-                        )
+                        /* matchup_stats AS single-pass streaming HashAggregate ({order_by_cov}) */
+                        /* games_in_event >= {min_x0_games} */
                         SELECT
-                            COALESCE((SELECT json_agg(row_to_json(f)) FROM faction_stats f), '[]'::json) AS factions_json,
-                            COALESCE((SELECT json_agg(row_to_json(m)) FROM matchup_stats m), '[]'::json) AS matchups_json,
-                            COALESCE((SELECT json_agg(row_to_json(t)) FROM trend_stats t), '[]'::json) AS trends_json,
-                            (SELECT COUNT(*) FROM recent_matches WHERE p1_fac IS NOT NULL OR p2_fac IS NOT NULL) AS raw_match_count;
+                            player1_faction AS p1_fac,
+                            CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN player2_faction ELSE NULL END AS p2_fac,
+                            DATE_TRUNC('{period_trunc}', match_date)::date AS period_date,
+                            COUNT(*) AS match_cnt,
+                            SUM(CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END) AS p1_wins,
+                            SUM(CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END) AS p1_losses,
+                            SUM(CASE WHEN is_draw IS TRUE THEN 1 ELSE 0 END) AS draws,
+                            SUM(CASE WHEN winner_id = player2_id AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_wins,
+                            SUM(CASE WHEN loser_id = player2_id AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_losses,
+                            SUM(CASE WHEN player1_score IS NOT NULL AND player1_score > 0 THEN player1_score ELSE 0 END) AS p1_score_sum,
+                            COUNT(*) FILTER (WHERE player1_score IS NOT NULL AND player1_score > 0) AS p1_score_cnt,
+                            SUM(CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player2_score IS NOT NULL AND player2_score > 0 THEN player2_score ELSE 0 END) AS p2_score_sum,
+                            COUNT(*) FILTER (WHERE is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player2_score IS NOT NULL AND player2_score > 0) AS p2_score_cnt,
+                            SUM(CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player1_score IS NOT NULL AND player2_score IS NOT NULL AND (player1_score > 0 OR player2_score > 0) THEN (player1_score - player2_score) ELSE 0 END) AS p1_margin_sum,
+                            COUNT(*) FILTER (WHERE is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player1_score IS NOT NULL AND player2_score IS NOT NULL AND (player1_score > 0 OR player2_score > 0)) AS margin_cnt
+                        FROM matches
+                        WHERE {date_filter_sql}
+                        GROUP BY 1, 2, 3;
                         """, params)
                         fetched_rows = cursor.fetchall() or []
                         if fetched_rows and isinstance(fetched_rows[0], dict) and "factions_json" in fetched_rows[0]:
@@ -10584,91 +10453,266 @@ class PostgresDatabase:
                             matchup_rows = json.loads(raw_m) if isinstance(raw_m, str) else (list(raw_m) if raw_m else [])
                             monthly = json.loads(raw_t) if isinstance(raw_t, str) else (list(raw_t) if raw_t else [])
                             raw_match_count = int(row0.get("raw_match_count") or 0)
-                        else:
+                        elif fetched_rows and isinstance(fetched_rows[0], dict) and "faction" in fetched_rows[0] and "p1_fac" not in fetched_rows[0]:
                             overall = [dict(r) for r in fetched_rows]
+                        else:
+                            fac_acc: Dict[str, Dict[str, float]] = {}
+                            mu_acc: Dict[Tuple[str, str], Dict[str, float]] = {}
+                            trend_acc: Dict[Tuple[str, str], Dict[str, int]] = {}
+
+                            def _ensure_fac(fname: str) -> Dict[str, float]:
+                                bucket = fac_acc.get(fname)
+                                if bucket is None:
+                                    bucket = {
+                                        "total_matches": 0,
+                                        "wins": 0,
+                                        "losses": 0,
+                                        "draws": 0,
+                                        "mirror_matches": 0,
+                                        "non_mirror_matches": 0,
+                                        "non_mirror_wins": 0,
+                                        "score_sum": 0.0,
+                                        "score_cnt": 0,
+                                        "opp_score_sum": 0.0,
+                                        "opp_score_cnt": 0,
+                                        "margin_sum": 0.0,
+                                        "margin_cnt": 0,
+                                    }
+                                    fac_acc[fname] = bucket
+                                return bucket
+
+                            for r in fetched_rows:
+                                raw_p1 = str(r.get("p1_fac") or "").strip()
+                                raw_p2 = str(r.get("p2_fac") or "").strip()
+                                if ("+" in raw_p1 or "pod (" in raw_p1.lower()) or ("+" in raw_p2 or "pod (" in raw_p2.lower()):
+                                    continue
+                                f1 = "" if PostgresDatabase.is_super_or_empty_faction(raw_p1) else PostgresDatabase.canonicalize_faction_name(raw_p1)
+                                f2 = "" if PostgresDatabase.is_super_or_empty_faction(raw_p2) else PostgresDatabase.canonicalize_faction_name(raw_p2)
+                                if not f1 and not f2:
+                                    continue
+
+                                m_cnt = int(r.get("match_cnt") or 0)
+                                if m_cnt <= 0:
+                                    continue
+                                raw_match_count += m_cnt
+
+                                p1_w = int(r.get("p1_wins") or 0)
+                                p1_l = int(r.get("p1_losses") or 0)
+                                drw = int(r.get("draws") or 0)
+                                p2_w = int(r.get("p2_wins") or 0)
+                                p2_l = int(r.get("p2_losses") or 0)
+                                p1_sc_sum = float(r.get("p1_score_sum") or 0.0)
+                                p1_sc_cnt = int(r.get("p1_score_cnt") or 0)
+                                p2_sc_sum = float(r.get("p2_score_sum") or 0.0)
+                                p2_sc_cnt = int(r.get("p2_score_cnt") or 0)
+                                p1_mgn_sum = float(r.get("p1_margin_sum") or 0.0)
+                                mgn_cnt = int(r.get("margin_cnt") or 0)
+
+                                p_date = r.get("period_date")
+                                if hasattr(p_date, "strftime"):
+                                    period_str = p_date.strftime("%Y-%m-%d" if is_short_window else "%Y-%m")
+                                else:
+                                    period_str = str(p_date or "")[:10 if is_short_window else 7]
+
+                                is_mirror = bool(f1 and f2 and f1.lower() == f2.lower())
+
+                                if f1:
+                                    b1 = _ensure_fac(f1)
+                                    b1["total_matches"] += m_cnt
+                                    b1["wins"] += p1_w
+                                    b1["losses"] += p1_l
+                                    b1["draws"] += drw
+                                    if is_mirror:
+                                        b1["mirror_matches"] += m_cnt
+                                    else:
+                                        b1["non_mirror_matches"] += m_cnt
+                                        b1["non_mirror_wins"] += p1_w
+                                    b1["score_sum"] += p1_sc_sum
+                                    b1["score_cnt"] += p1_sc_cnt
+                                    b1["opp_score_sum"] += p2_sc_sum
+                                    b1["opp_score_cnt"] += p2_sc_cnt
+                                    b1["margin_sum"] += p1_mgn_sum
+                                    b1["margin_cnt"] += mgn_cnt
+                                    if period_str:
+                                        tb1 = trend_acc.setdefault((period_str, f1), {"matches": 0, "wins": 0})
+                                        tb1["matches"] += m_cnt
+                                        tb1["wins"] += p1_w
+
+                                if f2:
+                                    b2 = _ensure_fac(f2)
+                                    b2["total_matches"] += m_cnt
+                                    b2["wins"] += p2_w
+                                    b2["losses"] += p2_l
+                                    b2["draws"] += drw
+                                    if is_mirror:
+                                        b2["mirror_matches"] += m_cnt
+                                    else:
+                                        b2["non_mirror_matches"] += m_cnt
+                                        b2["non_mirror_wins"] += p2_w
+                                    b2["score_sum"] += p2_sc_sum
+                                    b2["score_cnt"] += p2_sc_cnt
+                                    b2["opp_score_sum"] += p1_sc_sum
+                                    b2["opp_score_cnt"] += p1_sc_cnt
+                                    b2["margin_sum"] -= p1_mgn_sum
+                                    b2["margin_cnt"] += mgn_cnt
+                                    if period_str:
+                                        tb2 = trend_acc.setdefault((period_str, f2), {"matches": 0, "wins": 0})
+                                        tb2["matches"] += m_cnt
+                                        tb2["wins"] += p2_w
+
+                                if f1 and f2 and not is_mirror:
+                                    mb1 = mu_acc.setdefault((f1, f2), {"matches": 0, "wins": 0, "losses": 0, "draws": 0, "margin_sum": 0.0, "margin_cnt": 0})
+                                    mb1["matches"] += m_cnt
+                                    mb1["wins"] += p1_w
+                                    mb1["losses"] += p1_l
+                                    mb1["draws"] += drw
+                                    mb1["margin_sum"] += p1_mgn_sum
+                                    mb1["margin_cnt"] += mgn_cnt
+
+                                    mb2 = mu_acc.setdefault((f2, f1), {"matches": 0, "wins": 0, "losses": 0, "draws": 0, "margin_sum": 0.0, "margin_cnt": 0})
+                                    mb2["matches"] += m_cnt
+                                    mb2["wins"] += p2_w
+                                    mb2["losses"] += p2_l
+                                    mb2["draws"] += drw
+                                    mb2["margin_sum"] -= p1_mgn_sum
+                                    mb2["margin_cnt"] += mgn_cnt
+
+                            ev_acc: Dict[str, Dict[str, int]] = {}
+                            if fac_acc and not is_mock_cur:
+                                try:
+                                    cursor.execute("SET LOCAL statement_timeout = '1800ms';")
+                                    cursor.execute(f"""
+                                    WITH raw_sides AS (
+                                        SELECT COALESCE(event_id, 'no_ev') AS ev_id,
+                                               player1_id AS player_id,
+                                               player1_faction AS fac,
+                                               CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END AS w,
+                                               CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END AS l,
+                                               CASE WHEN is_draw IS TRUE THEN 1 ELSE 0 END AS d
+                                        FROM matches
+                                        WHERE {date_filter_sql}
+                                          AND player1_id IS NOT NULL AND player1_faction IS NOT NULL
+                                        UNION ALL
+                                        SELECT COALESCE(event_id, 'no_ev') AS ev_id,
+                                               player2_id AS player_id,
+                                               player2_faction AS fac,
+                                               CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END AS w,
+                                               CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END AS l,
+                                               CASE WHEN is_draw IS TRUE THEN 1 ELSE 0 END AS d
+                                        FROM matches
+                                        WHERE {date_filter_sql}
+                                          AND is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player2_faction IS NOT NULL
+                                    ),
+                                    event_runs AS (
+                                        SELECT ev_id, player_id, fac,
+                                               COUNT(*) AS games_in_event,
+                                               SUM(w) AS wins_in_event,
+                                               SUM(l) AS losses_in_event,
+                                               SUM(d) AS draws_in_event
+                                        FROM raw_sides
+                                        GROUP BY 1, 2, 3
+                                    )
+                                    SELECT fac,
+                                           COUNT(*) AS unique_pilots,
+                                           COUNT(*) FILTER (WHERE ev_id != 'no_ev' AND games_in_event >= 3) AS event_runs_count,
+                                           COUNT(*) FILTER (WHERE ev_id != 'no_ev' AND games_in_event >= {min_x0_games} AND losses_in_event = 0 AND draws_in_event = 0) AS x0_runs,
+                                           COUNT(*) FILTER (WHERE ev_id != 'no_ev' AND games_in_event >= {min_x0_games} AND losses_in_event <= 1 AND wins_in_event >= {min_x1_wins}) AS x1_runs
+                                    FROM event_runs
+                                    GROUP BY fac;
+                                    """, params + params)
+                                    for er in (cursor.fetchall() or []):
+                                        raw_ef = str(er.get("fac") or "").strip()
+                                        if "+" in raw_ef or "pod (" in raw_ef.lower() or PostgresDatabase.is_super_or_empty_faction(raw_ef):
+                                            continue
+                                        canon_ef = PostgresDatabase.canonicalize_faction_name(raw_ef)
+                                        if not canon_ef:
+                                            continue
+                                        eb = ev_acc.setdefault(canon_ef, {"unique_pilots": 0, "event_runs_count": 0, "x0_runs": 0, "x1_runs": 0})
+                                        eb["unique_pilots"] += int(er.get("unique_pilots") or 0)
+                                        eb["event_runs_count"] += int(er.get("event_runs_count") or 0)
+                                        eb["x0_runs"] += int(er.get("x0_runs") or 0)
+                                        eb["x1_runs"] += int(er.get("x1_runs") or 0)
+                                except Exception as ev_err:
+                                    conn.rollback()
+                                    logger.debug(f"Notice computing event_runs stats ({sys_norm}, {timeframe}): {ev_err}")
+
+                            for fname, b in fac_acc.items():
+                                tm = int(b["total_matches"])
+                                if tm < 1:
+                                    continue
+                                w = int(b["wins"])
+                                l = int(b["losses"])
+                                d = int(b["draws"])
+                                mirrors = int(b["mirror_matches"])
+                                nm_matches = int(b["non_mirror_matches"])
+                                nm_wins = int(b["non_mirror_wins"])
+                                wr = round((w * 100.0 / tm), 1) if tm > 0 else 0.0
+                                nm_wr = round((nm_wins * 100.0 / nm_matches), 1) if nm_matches > 0 else wr
+                                avg_sc = round((b["score_sum"] / b["score_cnt"]), 1) if b["score_cnt"] > 0 else 0.0
+                                avg_opp = round((b["opp_score_sum"] / b["opp_score_cnt"]), 1) if b["opp_score_cnt"] > 0 else 0.0
+                                avg_mgn = round((b["margin_sum"] / b["margin_cnt"]), 1) if b["margin_cnt"] > 0 else 0.0
+                                eb = ev_acc.get(fname) or {}
+                                overall.append({
+                                    "faction": fname,
+                                    "total_matches": tm,
+                                    "wins": w,
+                                    "losses": l,
+                                    "draws": d,
+                                    "win_rate": wr,
+                                    "mirror_matches": mirrors,
+                                    "non_mirror_matches": nm_matches,
+                                    "non_mirror_wins": nm_wins,
+                                    "non_mirror_win_rate": nm_wr,
+                                    "avg_score": avg_sc,
+                                    "avg_opp_score": avg_opp,
+                                    "avg_margin": avg_mgn,
+                                    "unique_pilots": int(eb.get("unique_pilots") or max(1, tm // 5)),
+                                    "events_played": 0,
+                                    "event_runs_count": int(eb.get("event_runs_count") or 0),
+                                    "x0_runs": int(eb.get("x0_runs") or 0),
+                                    "x1_runs": int(eb.get("x1_runs") or 0),
+                                })
+                            overall.sort(key=lambda x: (float(x.get("win_rate") or 0.0), int(x.get("total_matches") or 0)), reverse=True)
+
+                            for (fa, fb), mb in mu_acc.items():
+                                m_tot = int(mb["matches"])
+                                if m_tot < 1:
+                                    continue
+                                mw = int(mb["wins"])
+                                ml = int(mb["losses"])
+                                md = int(mb["draws"])
+                                m_wr = round((mw * 100.0 / m_tot), 1)
+                                m_mgn = round((mb["margin_sum"] / mb["margin_cnt"]), 1) if mb["margin_cnt"] > 0 else 0.0
+                                matchup_rows.append({
+                                    "faction": fa,
+                                    "opp_faction": fb,
+                                    "matches": m_tot,
+                                    "wins": mw,
+                                    "losses": ml,
+                                    "draws": md,
+                                    "win_rate": m_wr,
+                                    "avg_margin": m_mgn,
+                                })
+
+                            for (p_str, fname), tb in trend_acc.items():
+                                t_cnt = int(tb["matches"])
+                                if t_cnt < 2:
+                                    continue
+                                t_w = int(tb["wins"])
+                                t_wr = round((t_w * 100.0 / t_cnt), 1)
+                                monthly.append({
+                                    "month": p_str,
+                                    "faction": fname,
+                                    "matches_in_month": t_cnt,
+                                    "wins": t_w,
+                                    "win_rate": t_wr,
+                                })
+                            monthly.sort(key=lambda x: (str(x.get("month") or ""), -float(x.get("win_rate") or 0.0)))
                     except Exception as e:
                         conn.rollback()
                         logger.warning(f"Fallback get_faction_meta_stats notice: {e}")
-                        safe_clauses = [
-                            "is_done = TRUE",
-                            "match_date IS NOT NULL",
-                            "POSITION('+' IN COALESCE(player1_faction, '')) = 0",
-                            "POSITION('+' IN COALESCE(player2_faction, '')) = 0",
-                        ]
-                        safe_params: List[Any] = []
-                        if game_system and sys_norm != "all":
-                            safe_clauses.append("COALESCE(game_system, '40k') = %s")
-                            safe_params.append(sys_norm)
-                        if resolved_start:
-                            safe_clauses.append("match_date >= %s")
-                            safe_params.append(resolved_start)
-                        if resolved_end:
-                            safe_clauses.append("match_date <= %s")
-                            safe_params.append(resolved_end)
-                        if not resolved_start and not resolved_end:
-                            safe_clauses.append("match_date >= %s")
-                            safe_params.append((datetime.now(timezone.utc) - timedelta(days=540)).strftime("%Y-%m-%d"))
-                        s_filter = " AND ".join(safe_clauses)
-                        try:
-                            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
-                                if not is_mock_cur:
-                                    try:
-                                        cur_safe.execute("SET LOCAL statement_timeout = '3000ms'; SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off;")
-                                    except Exception:
-                                        conn.rollback()
-                                cur_safe.execute(f"""
-                                WITH recent_matches AS MATERIALIZED (
-                                    SELECT match_date,
-                                           player1_id, player1_faction, player1_score,
-                                           player2_id, player2_faction, player2_score,
-                                           winner_id, loser_id, is_draw, is_bye
-                                    FROM matches
-                                    WHERE {s_filter}
-                                    {order_by_cov}
-                                    LIMIT 100000
-                                ),
-                                match_sides AS (
-                                    SELECT match_date, player1_faction as faction, player1_score as score,
-                                           CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
-                                           CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
-                                           CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss
-                                    FROM recent_matches
-                                    WHERE player1_faction IS NOT NULL AND TRIM(player1_faction) != '' AND player1_faction != 'Unknown Faction'
-                                      AND POSITION('+' IN player1_faction) = 0
-                                    UNION ALL
-                                    SELECT match_date, player2_faction as faction, player2_score as score,
-                                           CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
-                                           CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
-                                           CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss
-                                    FROM recent_matches
-                                    WHERE player2_faction IS NOT NULL AND TRIM(player2_faction) != '' AND player2_faction != 'Unknown Faction' AND is_bye = FALSE AND player2_id IS NOT NULL
-                                      AND POSITION('+' IN player2_faction) = 0
-                                )
-                                SELECT 
-                                    faction,
-                                    COUNT(*) as total_matches,
-                                    SUM(is_win) as wins,
-                                    SUM(is_loss) as losses,
-                                    SUM(is_draw) as draws,
-                                    COALESCE(ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1), 0.0) as win_rate,
-                                    COALESCE(ROUND(AVG(score)::numeric, 1), 0.0) as avg_score
-                                FROM match_sides
-                                GROUP BY faction
-                                HAVING COUNT(*) >= 1
-                                ORDER BY win_rate DESC, total_matches DESC;
-                                """, safe_params)
-                                raw_safe = [dict(r) for r in cur_safe.fetchall()]
-                                overall = [
-                                    {**r, "faction": PostgresDatabase.canonicalize_faction_name(r.get("faction"))}
-                                    for r in raw_safe
-                                    if not PostgresDatabase.is_super_or_empty_faction(r.get("faction"))
-                                ]
-                                raw_match_count = sum(int(r.get("total_matches") or 0) for r in overall) // 2
-                        except Exception as safe_err:
-                            conn.rollback()
-                            logger.warning(f"Safe fallback get_faction_meta_stats notice: {safe_err}")
-                            overall = []
-                            raw_match_count = 0
+                        overall = []
+                        raw_match_count = 0
 
                     # Secondary fallback: if date-windowed matches returned no faction rows (e.g. smaller game systems or ratings-seeded systems),
                     # check all-time matches for this game_system, and then player_ratings primary_faction aggregates.
@@ -10964,6 +11008,27 @@ class PostgresDatabase:
         sys_norm = (game_system or "40k").strip().lower()
         warmed = 0
         import concurrent.futures
+
+        if not self._is_mock_instance() and not getattr(PostgresDatabase, "_meta_cov_index_verified", False):
+            PostgresDatabase._meta_cov_index_verified = True
+            try:
+                with self.get_connection() as conn_idx:
+                    conn_idx.commit()
+                    conn_idx.autocommit = True
+                    try:
+                        with conn_idx.cursor() as cur_idx:
+                            cur_idx.execute("SET statement_timeout = '30s';")
+                            cur_idx.execute(
+                                "CREATE INDEX IF NOT EXISTS idx_pg_matches_sys_date_cov ON matches ((COALESCE(game_system, '40k')), match_date DESC) INCLUDE (event_id, player1_id, player1_faction, player1_score, player2_id, player2_faction, player2_score, winner_id, loser_id, is_draw, is_bye) WHERE is_done = TRUE;"
+                            )
+                            cur_idx.execute("VACUUM ANALYZE matches;")
+                    finally:
+                        try:
+                            conn_idx.autocommit = False
+                        except Exception:
+                            pass
+            except Exception as idx_err:
+                logger.debug(f"Notice verifying idx_pg_matches_sys_date_cov: {idx_err}")
 
         def _warm_one(p: str) -> bool:
             try:
@@ -11980,8 +12045,8 @@ class PostgresDatabase:
                     return cached
 
             eff_limit = min(max(int(limit or 350), 350), 500) if not is_mock_self else int(limit)
-            l2_fac_key = f"faction_details_v6_{system}_{canon_tf}_{norm_fac_lower}_{eff_limit}"
-            l2_fac_key_350 = f"faction_details_v6_{system}_{canon_tf}_{norm_fac_lower}_350"
+            l2_fac_key = f"faction_details_v7_{system}_{canon_tf}_{norm_fac_lower}_{eff_limit}"
+            l2_fac_key_350 = f"faction_details_v7_{system}_{canon_tf}_{norm_fac_lower}_350"
 
             sys_clause = ""
             sys_params = []
@@ -12109,14 +12174,14 @@ class PostgresDatabase:
                                 except Exception:
                                     pass
 
-                            # 2. If matchups/meta_fac_info not in L1 memory yet, check L2 meta_intel_v9 cache on the same cursor (0ms vs full table scan)
+                            # 2. If matchups/meta_fac_info not in L1 memory yet, check L2 meta_intel_v10 cache on the same cursor (0ms vs full table scan)
                             if (not matchups or meta_fac_info is None) and meta_p:
                                 try:
-                                    l2_meta_key_v9 = f"meta_intel_v9_{system}_{meta_p}"
-                                    l2_meta_key_v9_leg = f"meta_intel_v9_legacy_{system}_{meta_p}"
+                                    l2_meta_key_v10 = f"meta_intel_v10_{system}_{meta_p}"
+                                    l2_meta_key_v10_leg = f"meta_intel_v10_legacy_{system}_{meta_p}"
                                     cursor.execute(
                                         "SELECT value, EXTRACT(EPOCH FROM updated_at) AS ts FROM system_settings WHERE key IN (%s, %s) ORDER BY updated_at DESC LIMIT 1;",
-                                        (l2_meta_key_v9, l2_meta_key_v9_leg)
+                                        (l2_meta_key_v10, l2_meta_key_v10_leg)
                                     )
                                     m_row = cursor.fetchone()
                                     m_val = m_row.get("value") if isinstance(m_row, dict) else (m_row[0] if m_row else None)
@@ -12135,19 +12200,26 @@ class PostgresDatabase:
                         recent_matches = self._query_faction_recent_matches(
                             faction_name, eff_limit, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor, search_query=clean_search or None
                         )
-                        if not matchups or is_mock_self:
+                        if is_mock_self or (not matchups and not meta_p):
                             matchups = self._query_faction_matchups(
                                 faction_name, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
                             )
             except Exception as err:
                 logger.warning(f"Error fetching faction details for {faction_name} ({system}, {tf}): {err}")
 
-            # 3. Guarantee 100% consistency with Meta Intel table if meta_fac_info wasn't loaded yet
+            # 3. Guarantee 100% consistency with Meta Intel table if meta_fac_info or matchups wasn't loaded yet
             if not is_mock_self and meta_p and (meta_fac_info is None or not matchups):
                 try:
                     meta_live = self.get_faction_meta_stats(timeframe=meta_p, game_system=system)
                     if isinstance(meta_live, dict):
                         _extract_from_meta_payload(meta_live)
+                except Exception:
+                    pass
+            if not matchups and not is_mock_self:
+                try:
+                    matchups = self._query_faction_matchups(
+                        faction_name, sys_params, sys_clause, date_clause, date_params=date_params
+                    )
                 except Exception:
                     pass
 
