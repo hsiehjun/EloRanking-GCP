@@ -204,7 +204,7 @@ function scheduleFactionPresetsPrefetch(sys) {
       if (factionMetaClientCache.has(ck)) continue;
       try {
         const res = await window.api.getFactionMeta(null, null, p);
-        if (res && Array.isArray(res.factions)) {
+        if (res && Array.isArray(res.factions) && res.factions.length > 0) {
           factionMetaClientCache.set(ck, { timestamp: Date.now(), data: res });
         }
       } catch (e) {
@@ -245,7 +245,8 @@ async function loadFactionMeta() {
 
   const cached = factionMetaClientCache.get(cacheKey);
   const now = Date.now();
-  if (cached && (now - cached.timestamp) < 600000) {
+  const cachedHasFactions = Boolean(cached && cached.data && Array.isArray(cached.data.factions) && cached.data.factions.length > 0);
+  if (cachedHasFactions && (now - cached.timestamp) < 600000) {
     _applyFactionMetaDataToUI(cached.data);
     scheduleFactionPresetsPrefetch(sys);
     // If cached entry is older than 60s, silently revalidate in the background so newly ingested tournaments show up
@@ -254,7 +255,7 @@ async function loadFactionMeta() {
       const reqEndBg = isCustom ? factionCustomEnd : null;
       const reqTfBg = factionTimeframe;
       window.api.getFactionMeta(reqStartBg, reqEndBg, reqTfBg).then((freshData) => {
-        if (freshData && Array.isArray(freshData.factions)) {
+        if (freshData && Array.isArray(freshData.factions) && freshData.factions.length > 0) {
           factionMetaClientCache.set(cacheKey, { timestamp: Date.now(), data: freshData });
           const changed = _checkAndInvalidateModalCacheOnMetaChange(cacheKey, freshData);
           if (changed && factionTimeframe === reqTfBg) {
@@ -274,7 +275,7 @@ async function loadFactionMeta() {
     const reqStart = isCustom ? factionCustomStart : null;
     const reqEnd = isCustom ? factionCustomEnd : null;
     const data = await window.api.getFactionMeta(reqStart, reqEnd, factionTimeframe);
-    if (data && Array.isArray(data.factions)) {
+    if (data && Array.isArray(data.factions) && data.factions.length > 0) {
       factionMetaClientCache.set(cacheKey, { timestamp: Date.now(), data });
       _checkAndInvalidateModalCacheOnMetaChange(cacheKey, data);
     }
@@ -292,7 +293,7 @@ function renderFactionMetaKpis() {
   const factions = factionMetaData.factions || [];
   const kpis = factionMetaData.summary_kpis || {};
   const totalAppearances = Number(kpis.total_appearances) || factions.reduce((acc, f) => acc + (Number(f.total_matches) || 0), 0);
-  const totalMatches = Number(kpis.total_matches) || Math.max(1, Math.round(totalAppearances / 2));
+  const totalMatches = Number(kpis.total_matches) || Math.round(totalAppearances / 2);
   const totalPilots = Number(kpis.total_pilots) || factions.reduce((acc, f) => acc + (Number(f.unique_pilots) || 0), 0);
   const activeFactions = factions.length;
 
@@ -555,7 +556,7 @@ function renderFactionDistribution() {
     if (tiers[f.tier] !== undefined) tiers[f.tier]++;
   });
 
-  const total = factions.length || 1;
+  const total = factions.length;
   container.innerHTML = `
     <div class="meta-dist-pills" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; font-size:0.8rem;">
       <div><b>Armies:</b> <span style="color:#fff; font-family:var(--font-mono); font-weight:700;">${total}</span></div>

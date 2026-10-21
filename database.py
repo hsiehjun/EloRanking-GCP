@@ -10232,8 +10232,8 @@ class PostgresDatabase:
             raw_legacy_key = f"{start_date}_{end_date}_{game_system}"
             if raw_legacy_key not in cache_keys:
                 cache_keys.append(raw_legacy_key)
-        l2_setting_key = f"meta_intel_v5_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
-        l2_legacy_key = f"meta_intel_v4_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
+        l2_setting_key = f"meta_intel_v6_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
+        l2_legacy_key = f"meta_intel_v6_legacy_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
 
         def _trigger_bg_meta_refresh() -> None:
             bg_key = f"meta_bg_{cache_key}"
@@ -10263,7 +10263,7 @@ class PostgresDatabase:
         if not _force_refresh:
             for k in cache_keys:
                 cached = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, k, ttl=7200)
-                if cached and isinstance(cached, dict) and "summary_kpis" in cached:
+                if cached and isinstance(cached, dict) and "summary_kpis" in cached and (cached.get("factions") or (cached.get("summary_kpis") or {}).get("total_matches", 0) > 0):
                     if isinstance(cached.get("filter"), dict) and cached["filter"].get("_seeded"):
                         _trigger_bg_meta_refresh()
                     return cached
@@ -10277,11 +10277,11 @@ class PostgresDatabase:
         # Stale-While-Revalidate: if another thread is already refreshing, return any available in-memory entry immediately without blocking
         if not _force_refresh and key_lock.locked():
             stale_entry = PostgresDatabase._faction_meta_cache_dict.get(cache_key) or PostgresDatabase._faction_meta_cache_dict.get(resolved_legacy_key)
-            if stale_entry and isinstance(stale_entry[0], dict):
+            if stale_entry and isinstance(stale_entry[0], dict) and stale_entry[0].get("factions"):
                 return stale_entry[0]
             for fb_p in ("90d", "180d", "1yr", "30d", "60d", "ytd", "all"):
                 fb_entry = PostgresDatabase._faction_meta_cache_dict.get(f"preset_{fb_p}_{sys_norm}")
-                if fb_entry and isinstance(fb_entry[0], dict) and "summary_kpis" in fb_entry[0]:
+                if fb_entry and isinstance(fb_entry[0], dict) and "summary_kpis" in fb_entry[0] and fb_entry[0].get("factions"):
                     return {
                         **fb_entry[0],
                         "filter": {
@@ -10296,7 +10296,7 @@ class PostgresDatabase:
             if not _force_refresh:
                 for k in cache_keys:
                     cached = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, k, ttl=7200)
-                    if cached and isinstance(cached, dict) and "summary_kpis" in cached:
+                    if cached and isinstance(cached, dict) and "summary_kpis" in cached and (cached.get("factions") or (cached.get("summary_kpis") or {}).get("total_matches", 0) > 0):
                         if isinstance(cached.get("filter"), dict) and cached["filter"].get("_seeded"):
                             _trigger_bg_meta_refresh()
                         return cached
@@ -10325,7 +10325,7 @@ class PostgresDatabase:
                                     p_ts = p_row.get("ts") if isinstance(p_row, dict) else p_row[1]
                                     if p_val:
                                         parsed = json.loads(p_val)
-                                        if isinstance(parsed, dict) and "factions" in parsed and "summary_kpis" in parsed:
+                                        if isinstance(parsed, dict) and parsed.get("factions") and "summary_kpis" in parsed:
                                             for k in cache_keys:
                                                 PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, k, parsed, max_size=200)
                                             age_s = (now_ts - float(p_ts)) if p_ts else 0.0
@@ -10355,14 +10355,14 @@ class PostgresDatabase:
                     is_mock_cur = is_mock_self or type(cursor).__module__.startswith("unittest.mock")
                     if not is_mock_cur:
                         try:
-                            cursor.execute("SET LOCAL statement_timeout = '650ms'; SET LOCAL work_mem = '32MB';")
+                            cursor.execute("SET LOCAL statement_timeout = '5000ms'; SET LOCAL work_mem = '32MB';")
                         except Exception:
                             conn.rollback()
 
                     where_clauses = ["is_done = TRUE", "match_date IS NOT NULL"]
                     params: List[Any] = []
                     if game_system and sys_norm != "all":
-                        where_clauses.append("COALESCE(game_system, '40k') = %s")
+                        where_clauses.append("game_system = %s")
                         params.append(sys_norm)
                     if resolved_start:
                         where_clauses.append("match_date >= %s")
@@ -10542,7 +10542,7 @@ class PostgresDatabase:
                         safe_clauses = ["is_done = TRUE", "match_date IS NOT NULL"]
                         safe_params: List[Any] = []
                         if game_system and sys_norm != "all":
-                            safe_clauses.append("COALESCE(game_system, '40k') = %s")
+                            safe_clauses.append("game_system = %s")
                             safe_params.append(sys_norm)
                         if resolved_start:
                             safe_clauses.append("match_date >= %s")
@@ -10558,7 +10558,7 @@ class PostgresDatabase:
                             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
                                 if not is_mock_cur:
                                     try:
-                                        cur_safe.execute("SET LOCAL statement_timeout = '500ms';")
+                                        cur_safe.execute("SET LOCAL statement_timeout = '3000ms';")
                                     except Exception:
                                         conn.rollback()
                                 cur_safe.execute(f"""
@@ -10607,6 +10607,41 @@ class PostgresDatabase:
                             logger.warning(f"Safe fallback get_faction_meta_stats notice: {safe_err}")
                             overall = []
                             raw_match_count = 0
+
+                    # Secondary fallback: if date-windowed matches returned no faction rows (e.g. smaller game systems or ratings-seeded systems),
+                    # check all-time matches for this game_system, and then player_ratings primary_faction aggregates.
+                    if not overall and not is_mock_cur and game_system and sys_norm != "all":
+                        try:
+                            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_fb:
+                                cur_fb.execute("SET LOCAL statement_timeout = '3000ms';")
+                                cur_fb.execute("""
+                                    SELECT
+                                        TRIM(primary_faction) AS faction,
+                                        SUM(COALESCE(matches_played, 0)) AS total_matches,
+                                        SUM(COALESCE(wins, 0)) AS wins,
+                                        SUM(COALESCE(losses, 0)) AS losses,
+                                        SUM(COALESCE(draws, 0)) AS draws,
+                                        COUNT(DISTINCT player_id) AS unique_pilots,
+                                        COUNT(*) FILTER (WHERE COALESCE(wins, 0) >= 3 AND COALESCE(losses, 0) = 0 AND COALESCE(draws, 0) = 0) AS x0_runs,
+                                        COUNT(*) FILTER (WHERE COALESCE(wins, 0) >= 3 AND COALESCE(losses, 0) <= 1) AS x1_runs,
+                                        COALESCE(ROUND((SUM(COALESCE(wins, 0)) * 100.0 / NULLIF(SUM(COALESCE(matches_played, 0)), 0))::numeric, 1), 0.0) AS win_rate,
+                                        0.0 AS avg_score
+                                    FROM player_ratings
+                                    WHERE game_system = %s
+                                      AND COALESCE(matches_played, 0) > 0
+                                      AND primary_faction IS NOT NULL
+                                      AND TRIM(primary_faction) != ''
+                                      AND LOWER(TRIM(primary_faction)) NOT IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various')
+                                    GROUP BY TRIM(primary_faction)
+                                    HAVING SUM(COALESCE(matches_played, 0)) >= 1
+                                    ORDER BY win_rate DESC, total_matches DESC;
+                                """, (sys_norm,))
+                                overall = [dict(r) for r in (cur_fb.fetchall() or [])]
+                                if overall:
+                                    raw_match_count = max(1, sum(int(r.get("total_matches") or 0) for r in overall) // 2)
+                        except Exception as fb_err:
+                            conn.rollback()
+                            logger.debug(f"Secondary player_ratings meta fallback notice ({sys_norm}): {fb_err}")
 
                     # Index matchup rows by faction for O(1) enrichment & matrix construction
                     matchups_by_fac: Dict[str, List[Dict[str, Any]]] = {}
@@ -10827,37 +10862,38 @@ class PostgresDatabase:
                         }
                     }
 
-                    for k in cache_keys:
-                        PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, k, res, max_size=200)
+                    if overall:
+                        for k in cache_keys:
+                            PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, k, res, max_size=200)
 
-                    if not is_mock_cur:
-                        for p_seed in ("90d", "30d", "60d", "180d", "1yr", "ytd", "all"):
-                            seed_k = f"preset_{p_seed}_{sys_norm}"
-                            if seed_k not in PostgresDatabase._faction_meta_cache_dict:
-                                seeded_payload = {
-                                    **res,
-                                    "filter": {
-                                        **(res.get("filter") or {}),
-                                        "preset": p_seed,
-                                        "_seeded": True,
-                                    },
-                                }
-                                PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, seed_k, seeded_payload, max_size=200)
-                        try:
-                            with conn.cursor() as cur_store:
-                                cur_store.execute("SET LOCAL statement_timeout = '1000ms';")
-                                cur_store.execute(
-                                    """
-                                    INSERT INTO system_settings (key, value, updated_at)
-                                    VALUES (%s, %s, NOW())
-                                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
-                                    """,
-                                    (l2_setting_key, json.dumps(res))
-                                )
-                            conn.commit()
-                        except Exception as store_err:
-                            conn.rollback()
-                            logger.debug(f"Notice saving L2 meta_intel cache ({l2_setting_key}): {store_err}")
+                        if not is_mock_cur:
+                            for p_seed in ("90d", "30d", "60d", "180d", "1yr", "ytd", "all"):
+                                seed_k = f"preset_{p_seed}_{sys_norm}"
+                                if seed_k not in PostgresDatabase._faction_meta_cache_dict:
+                                    seeded_payload = {
+                                        **res,
+                                        "filter": {
+                                            **(res.get("filter") or {}),
+                                            "preset": p_seed,
+                                            "_seeded": True,
+                                        },
+                                    }
+                                    PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, seed_k, seeded_payload, max_size=200)
+                            try:
+                                with conn.cursor() as cur_store:
+                                    cur_store.execute("SET LOCAL statement_timeout = '1000ms';")
+                                    cur_store.execute(
+                                        """
+                                        INSERT INTO system_settings (key, value, updated_at)
+                                        VALUES (%s, %s, NOW())
+                                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
+                                        """,
+                                        (l2_setting_key, json.dumps(res))
+                                    )
+                                conn.commit()
+                            except Exception as store_err:
+                                conn.rollback()
+                                logger.debug(f"Notice saving L2 meta_intel cache ({l2_setting_key}): {store_err}")
 
                     return res
 

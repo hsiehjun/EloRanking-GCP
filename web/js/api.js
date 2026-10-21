@@ -93,7 +93,8 @@ window.api = {
             return { error: json.detail || json.error || 'Server error' };
           }
 
-          if (canCache && json && !json.error && !json.sync_in_progress) {
+          const isEmptyFactionMeta = url.startsWith('/api/factions/meta') && Array.isArray(json.factions) && json.factions.length === 0;
+          if (canCache && json && !json.error && !json.sync_in_progress && !isEmptyFactionMeta) {
             let ttl = 30000;
             for (const [prefix, customTtl] of Object.entries(this._cacheTtls)) {
               if (url.startsWith(prefix)) {

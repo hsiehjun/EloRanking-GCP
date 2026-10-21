@@ -563,7 +563,8 @@ def _evaluate_40k_player_badges(
     tournaments: Optional[List[Dict[str, Any]]] = None,
     faction_mastery: Optional[List[Dict[str, Any]]] = None,
     matchup_matrix: Optional[List[Dict[str, Any]]] = None,
-    user_pinned_ids: Optional[List[str]] = None
+    user_pinned_ids: Optional[List[str]] = None,
+    game_system: str = "40k"
 ) -> Dict[str, Any]:
     """Evaluates all 105 badges for a player against authentic career and match history.
 
@@ -1141,9 +1142,10 @@ def _evaluate_40k_player_badges(
             progress = {"current": len(factions_won), "target": 5, "unit": "factions"}
 
         elif b_id == "army_customizer":
-            unlocked = True
-            progress = {"current": 1, "target": 1, "unit": "roster"}
-            provenance = "Linked official tournament roster"
+            unlocked = True if str(game_system or "40k").lower() == "40k" else (matches_played >= 1)
+            progress = {"current": 1 if unlocked else 0, "target": 1, "unit": "roster"}
+            if unlocked:
+                provenance = "Linked official tournament roster"
 
         elif b_id == "codex_purist":
             unlocked = any(f.get("wins", 0) >= 10 for f in faction_mastery) or wins >= 10
@@ -1296,9 +1298,10 @@ def _evaluate_40k_player_badges(
                 provenance = "Completed 25 official tournament matches across career"
 
         elif b_id == "omnitactica_pioneer":
-            unlocked = True
-            progress = {"current": 1, "target": 1, "unit": "pioneer"}
-            provenance = "Founding competitor in OmniTactica Honor System"
+            unlocked = True if str(game_system or "40k").lower() == "40k" else (matches_played >= 1)
+            progress = {"current": 1 if unlocked else 0, "target": 1, "unit": "pioneer"}
+            if unlocked:
+                provenance = "Founding competitor in OmniTactica Honor System"
 
         if unlocked:
             unlocked_count += 1
@@ -1334,7 +1337,7 @@ def _evaluate_40k_player_badges(
 
     pinned_badges = []
     if user_pinned_ids and isinstance(user_pinned_ids, list):
-        pinned_map = {b["id"]: b for b in evaluated_badges}
+        pinned_map = {b["id"]: b for b in evaluated_badges if b.get("unlocked")}
         for pid in user_pinned_ids[:3]:
             if pid in pinned_map:
                 pinned_badges.append(pinned_map[pid])
@@ -1396,7 +1399,8 @@ def evaluate_player_badges(
             tournaments=tournaments,
             faction_mastery=faction_mastery,
             matchup_matrix=matchup_matrix,
-            user_pinned_ids=user_pinned_ids
+            user_pinned_ids=user_pinned_ids,
+            game_system=target_sys
         )
 
     # Evaluate Season 2026
@@ -1423,7 +1427,7 @@ def evaluate_player_badges(
 
     # Check if user pinned any seasonal trophies
     if user_pinned_ids and isinstance(user_pinned_ids, list):
-        seasonal_map = {b["id"]: b for b in season_eval.get("badges", [])}
+        seasonal_map = {b["id"]: b for b in season_eval.get("badges", []) if b.get("unlocked")}
         cur_pinned_ids = {b["id"] for b in res.get("pinned_badges", [])}
         for pid in user_pinned_ids[:3]:
             if pid in seasonal_map and pid not in cur_pinned_ids:

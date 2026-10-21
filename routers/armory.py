@@ -232,7 +232,32 @@ def get_catalog(request: Request):
         # Unauthenticated users can still view the full catalog
         pass
 
-    game_sys = request.query_params.get("game_system", "40k")
+    game_sys = (request.query_params.get("game_system") or "40k").strip().lower()
+    if game_sys != "40k":
+        glory_state = dict(glory_state)
+        glory_state["unified_spendable_glory"] = glory_state.get("spendable_glory", 0)
+        if game_sys == "aos":
+            sys_earned = int(glory_state.get("glory_aos") or 0)
+        elif auth_mgr and user_id:
+            try:
+                target_pid = (user_data or {}).get("player_id")
+                sys_earned = int(auth_mgr.get_authentic_system_glory(target_pid, game_sys) or 0) if target_pid else 0
+            except Exception:
+                sys_earned = 0
+        else:
+            sys_earned = 0
+        sys_spent = 0
+        inv_map = (user_vault or {}).get("inventory") or {}
+        if isinstance(inv_map, dict):
+            for inv_id, inv_meta in inv_map.items():
+                c_item = armory_catalog.get_item_by_id(inv_id) or {}
+                if str(c_item.get("game_system") or "40k").lower() == game_sys:
+                    cost = int((inv_meta.get("total_net_cost") if isinstance(inv_meta, dict) and "total_net_cost" in inv_meta else None) or c_item.get("cost_glory") or 0)
+                    sys_spent += max(0, cost)
+        sys_bal = max(0, sys_earned - sys_spent)
+        glory_state["spendable_glory"] = sys_bal
+        glory_state["glory_balance"] = sys_bal
+        glory_state["current_balance"] = sys_bal
     user_peak_elo = float(glory_state.get("peak_elo") or 1500.0)
     user_champs = glory_state.get("championships")
     catalog = armory_catalog.get_armory_catalog(
@@ -614,9 +639,11 @@ async def equip_item(request: Request):
 
     item_sys = (item.get("game_system") or "").lower().strip()
     req_sys = (body.get("game_system") or "").lower().strip()
-    sys_key = item_sys if item_sys in ("40k", "aos") else (req_sys if req_sys in ("40k", "aos") else "40k")
+    sys_key = item_sys or req_sys or "40k"
 
     vault = armory_catalog.normalize_armory_vault(vault)
+    if sys_key not in vault["equipped"] or not isinstance(vault["equipped"].get(sys_key), dict):
+        vault["equipped"][sys_key] = armory_catalog._empty_system_equipped()
     vault["equipped"][sys_key][slot] = item_id
     user_data["armory_vault"] = vault
     session["armory_vault"] = vault
@@ -663,9 +690,7 @@ async def unequip_item(request: Request):
     if slot not in valid_slots:
         raise HTTPException(status_code=400, detail=f"Invalid slot '{slot}'. Valid slots: {valid_slots}")
 
-    sys_key = (body.get("game_system") or "40k").lower().strip()
-    if sys_key not in ("40k", "aos"):
-        sys_key = "40k"
+    sys_key = (body.get("game_system") or "40k").lower().strip() or "40k"
 
     vault = _get_or_init_vault(user_data)
     if isinstance(vault.get("equipped"), dict):

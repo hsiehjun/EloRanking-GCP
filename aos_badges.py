@@ -1018,7 +1018,7 @@ def evaluate_aos_player_badges(
     pinned_badges = []
     if user_pinned_ids:
         for pid in user_pinned_ids[:3]:
-            match = next((b for b in evaluated_badges if b["id"] == pid), None)
+            match = next((b for b in evaluated_badges if b["id"] == pid and b.get("unlocked")), None)
             if match:
                 pinned_badges.append(match)
 

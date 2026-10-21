@@ -1275,6 +1275,10 @@
   function checkFirstTimeCelebration(data, userId) {
     if (!data) return;
 
+    // Never show tournament honor celebrations for a game system where the player has 0 matches played
+    var matchesPlayed = Number((data.player && (data.player.matches_played || data.player.total_matches)) || (data.history && data.history.length) || 0);
+    if (matchesPlayed === 0) return;
+
     // 1. Determine newly unlocked badges
     var newlyUnlocked = [];
     if (Array.isArray(data.newly_unlocked_badges)) {
@@ -1288,14 +1292,26 @@
       if (newlyUnlocked.length === 0) return;
     }
 
+    var sys = String((data.player && data.player.game_system) || data.preferred_game_system || (typeof currentGameSystem !== 'undefined' && currentGameSystem) || '40k').toLowerCase();
     var userKey = 'ot_badges_celebrated_' + (userId || 'guest');
+    var sysUserKey = 'ot_badges_celebrated_' + sys + '_' + (userId || 'guest');
     var isIncremental = Array.isArray(data.acknowledged_badge_ids) && data.acknowledged_badge_ids.length > 0;
     var newlyUnlockedIds = newlyUnlocked.map(function(b) { return b.id; });
     var batchHash = newlyUnlockedIds.slice().sort().join(',');
 
-    // Fast localStorage check to prevent duplicate modal popups within the same browser session
+    // Fast localStorage check to prevent duplicate modal popups within the same browser session or across game switches
     try {
+      if (localStorage.getItem('ot_last_ack_hash_' + sys + '_' + (userId || 'guest')) === batchHash) return;
       if (localStorage.getItem('ot_last_ack_hash_' + (userId || 'guest')) === batchHash) return;
+      if (!isIncremental && (data.badges_celebrated || localStorage.getItem(userKey) === '1' || localStorage.getItem(sysUserKey) === '1')) {
+        localStorage.setItem('ot_last_ack_hash_' + sys + '_' + (userId || 'guest'), batchHash);
+        return;
+      }
+      // Record immediately on display so switching tabs/systems before clicking close never re-triggers
+      localStorage.setItem('ot_last_ack_hash_' + sys + '_' + (userId || 'guest'), batchHash);
+      localStorage.setItem('ot_last_ack_hash_' + (userId || 'guest'), batchHash);
+      localStorage.setItem(userKey, '1');
+      localStorage.setItem(sysUserKey, '1');
     } catch (e) {}
 
     showCelebrationModal(data, newlyUnlocked, isIncremental, userKey, userId, newlyUnlockedIds, batchHash);
@@ -1374,20 +1390,50 @@
     ].join('\n');
 
     document.body.appendChild(modal);
+
+    // Proactively persist acknowledgment to the database on display so switching tabs or game systems
+    // without explicitly clicking the close button never re-triggers this celebration modal.
+    try {
+      var headers = { 'Content-Type': 'application/json' };
+      var token = null;
+      try { token = localStorage.getItem('ot_auth_token'); } catch (e) {}
+      if (token) headers['Authorization'] = 'Bearer ' + token;
+      fetch('/api/user/settings', {
+        method: 'POST',
+        headers: headers,
+        credentials: 'include',
+        body: JSON.stringify({
+          acknowledged_badge_ids: newlyUnlockedIds || [],
+          badges_celebrated: true
+        })
+      }).catch(function() {});
+    } catch (e) {}
   }
 
   function closeCelebrationModal(userKey, userId, newlyUnlockedIds, batchHash) {
+    var sys = String((typeof currentGameSystem !== 'undefined' && currentGameSystem) || '40k').toLowerCase();
     if (batchHash) {
-      try { localStorage.setItem('ot_last_ack_hash_' + (userId || 'guest'), batchHash); } catch (e) {}
+      try {
+        localStorage.setItem('ot_last_ack_hash_' + (userId || 'guest'), batchHash);
+        localStorage.setItem('ot_last_ack_hash_' + sys + '_' + (userId || 'guest'), batchHash);
+      } catch (e) {}
     }
     if (userKey) {
-      try { localStorage.setItem(userKey, '1'); } catch (e) {}
+      try {
+        localStorage.setItem(userKey, '1');
+        localStorage.setItem('ot_badges_celebrated_' + sys + '_' + (userId || 'guest'), '1');
+      } catch (e) {}
     }
     // Persist acknowledged badge IDs to database so cleared cache / switching device never re-triggers the modal
     try {
+      var headers = { 'Content-Type': 'application/json' };
+      var token = null;
+      try { token = localStorage.getItem('ot_auth_token'); } catch (e) {}
+      if (token) headers['Authorization'] = 'Bearer ' + token;
       fetch('/api/user/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
+        credentials: 'include',
         body: JSON.stringify({
           acknowledged_badge_ids: newlyUnlockedIds || [],
           badges_celebrated: true

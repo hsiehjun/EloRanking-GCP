@@ -14,13 +14,16 @@ function buildMyHubShellData(u, gs = '40k') {
     ? normalizeGameSystem(u.game_system || '40k')
     : String(u.game_system || '40k').trim().toLowerCase();
   const matchesUserSys = (normGs === userSys);
-  let initialGlory = Number(u.spendable_glory ?? u.glory_balance ?? 0);
-  if (!initialGlory && typeof window !== 'undefined' && window.Armory && typeof window.Armory.getGlory === 'function') {
+  let initialGlory = matchesUserSys ? Number(u.spendable_glory ?? u.glory_balance ?? 0) : 0;
+  if (!initialGlory && matchesUserSys && typeof window !== 'undefined' && window.Armory && typeof window.Armory.getGlory === 'function') {
     const g = window.Armory.getGlory();
     if (g && g.spendable_glory != null) initialGlory = Number(g.spendable_glory);
   }
   if (!initialGlory) {
-    try { initialGlory = Number(localStorage.getItem('omnitactica_cached_spendable_glory') || 0); } catch (e) {}
+    try {
+      const sysKey = `omnitactica_cached_spendable_glory_${normGs}`;
+      initialGlory = Number(localStorage.getItem(sysKey) || (normGs === '40k' ? localStorage.getItem('omnitactica_cached_spendable_glory') : 0) || 0);
+    } catch (e) {}
   }
   return {
     player: {
@@ -2177,14 +2180,22 @@ function renderMyHub(data) {
         <span class="profile-subtab-count">${data.badge_count || 0}/${data.total_badges || 105}</span>
       </button>
       ${(() => {
-        const armoryGloryObj = (typeof window !== 'undefined' && window.Armory && typeof window.Armory.getGlory === 'function') ? window.Armory.getGlory() : null;
-        const armorySpendable = armoryGloryObj && armoryGloryObj.spendable_glory != null ? Number(armoryGloryObj.spendable_glory) : 0;
+        const hasAuthoritativeDataSpendable = !data._isSkeleton && (data.spendable_glory != null || data.glory_balance != null);
         const dataSpendable = data.spendable_glory != null ? Number(data.spendable_glory) : (data.glory_balance != null ? Number(data.glory_balance) : 0);
         let cachedSpendable = 0;
-        try { cachedSpendable = Number(localStorage.getItem('omnitactica_cached_spendable_glory') || 0); } catch (e) {}
-        const effectiveSpendableGlory = armorySpendable > 0 ? armorySpendable : (dataSpendable > 0 ? dataSpendable : cachedSpendable);
-        if (effectiveSpendableGlory > 0) {
-          try { localStorage.setItem('omnitactica_cached_spendable_glory', String(effectiveSpendableGlory)); } catch (e) {}
+        try {
+          cachedSpendable = Number(
+            localStorage.getItem(`omnitactica_cached_spendable_glory_${sys}`) ||
+            (sys === '40k' ? localStorage.getItem('omnitactica_cached_spendable_glory') : 0) ||
+            0
+          );
+        } catch (e) {}
+        const effectiveSpendableGlory = hasAuthoritativeDataSpendable ? dataSpendable : (dataSpendable > 0 ? dataSpendable : cachedSpendable);
+        if (hasAuthoritativeDataSpendable || effectiveSpendableGlory > 0) {
+          try {
+            localStorage.setItem(`omnitactica_cached_spendable_glory_${sys}`, String(effectiveSpendableGlory));
+            if (sys === '40k') localStorage.setItem('omnitactica_cached_spendable_glory', String(effectiveSpendableGlory));
+          } catch (e) {}
         }
         return `
           <button type="button" class="profile-subtab-btn hub-subtab-armory-btn" data-tab="armory" onclick="switchHubSubtab('armory')" title="${effectiveSpendableGlory.toLocaleString()} Spendable Glory Points Remaining">

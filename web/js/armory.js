@@ -45,8 +45,8 @@
   }
 
   function detectActiveGameSystem() {
-    if (typeof window !== 'undefined' && (window.currentGameSystem === '40k' || window.currentGameSystem === 'aos')) {
-      return window.currentGameSystem;
+    if (typeof window !== 'undefined' && typeof window.currentGameSystem === 'string' && window.currentGameSystem.trim()) {
+      return window.currentGameSystem.trim().toLowerCase();
     }
     try {
       var path = (window.location && window.location.pathname || '').toLowerCase();
@@ -54,8 +54,11 @@
       if (path.indexOf('/aos') === 0 || path.indexOf('/11th/tracker/aos') === 0 || hash.indexOf('#/aos') === 0 || hash.indexOf('/aos/') !== -1) {
         return 'aos';
       }
-      var stored = (localStorage.getItem('omni_game_system') || '').toLowerCase();
-      if (stored === 'aos' || stored === '40k') return stored;
+      var params = new URLSearchParams(window.location && window.location.search || '');
+      var qSys = (params.get('game') || params.get('sys') || params.get('game_system') || '').trim().toLowerCase();
+      if (qSys) return qSys;
+      var stored = (localStorage.getItem('omni_game_system') || '').trim().toLowerCase();
+      if (stored) return stored;
     } catch (e) {}
     return '40k';
   }
@@ -141,12 +144,28 @@
         }
       }
     });
-    return { '40k': eq40k, 'aos': eqAos };
+    var result = { '40k': eq40k, 'aos': eqAos };
+    Object.keys(src).forEach(function(k) {
+      if (k === '40k' || k === 'aos' || VALID_ARMORY_SLOTS.indexOf(k) !== -1) return;
+      if (src[k] && typeof src[k] === 'object') {
+        var sysEq = createEmptySystemEquipped();
+        VALID_ARMORY_SLOTS.forEach(function(slot) {
+          var val = src[k][slot];
+          if (typeof val === 'string' && val.trim()) {
+            val = val.trim();
+            if (getItemGameSystem(val) === k.toLowerCase()) {
+              sysEq[slot] = val;
+            }
+          }
+        });
+        result[k.toLowerCase()] = sysEq;
+      }
+    });
+    return result;
   }
 
   function getEquippedForSystem(allEq, system) {
     var sys = String(system || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
-    if (sys !== '40k' && sys !== 'aos') sys = '40k';
     var normalized = normalizeEquippedObject(allEq || (currentVault && currentVault.equipped) || {});
     return normalized[sys] || createEmptySystemEquipped();
   }
@@ -182,10 +201,10 @@
   }
 
   /**
-   * Synchronize Armory when the global app game system switches (navbar 40K <-> AoS)
+   * Synchronize Armory when the global app game system switches
    */
   async function syncGlobalGameSystem(sys) {
-    var nextSys = (sys === 'aos') ? 'aos' : '40k';
+    var nextSys = String(sys || detectActiveGameSystem() || '40k').trim().toLowerCase();
     currentGameSystem = nextSys;
     applyEquippedDecorations(nextSys);
     await loadArmoryData(nextSys);
@@ -225,10 +244,10 @@
   }
 
   /**
-   * Switch active game system inside Armory modal (40k vs aos)
+   * Switch active game system inside Armory modal
    */
   async function switchGameSystem(sys) {
-    if (sys !== '40k' && sys !== 'aos') sys = '40k';
+    sys = String(sys || detectActiveGameSystem() || '40k').trim().toLowerCase();
     currentGameSystem = sys;
 
     // Update switcher tab UI
@@ -264,7 +283,6 @@
    */
   async function loadArmoryData(gameSys, forceRefresh) {
     var sys = (gameSys || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
-    if (sys !== '40k' && sys !== 'aos') sys = '40k';
 
     hydrateVaultFromGlobalSession();
 
@@ -320,6 +338,9 @@
         // Strict per-system normalization: never write flat top-level slot keys
         if (!currentVault) currentVault = { inventory: {}, equipped: {} };
         currentVault.equipped = normalizeEquippedObject(currentVault.equipped);
+        if (!currentVault.equipped[sys]) {
+          currentVault.equipped[sys] = createEmptySystemEquipped();
+        }
 
         // If catalog items for `sys` have is_equipped === true, reflect them into currentVault.equipped[sys] ONLY
         if (currentCatalog && Array.isArray(currentCatalog.items)) {
@@ -446,10 +467,10 @@
   async function equipItem(slot, itemId, silent, system) {
     var itemSys = getItemGameSystem(itemId);
     var sys = (itemSys || system || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
-    if (sys !== '40k' && sys !== 'aos') sys = '40k';
 
     // 1. Instant optimistic in-memory update (strictly scoped to `sys`)
     currentVault.equipped = normalizeEquippedObject(currentVault.equipped);
+    if (!currentVault.equipped[sys]) currentVault.equipped[sys] = createEmptySystemEquipped();
     currentVault.equipped[sys][slot] = itemId;
     syncCachedUserVault();
 
@@ -512,10 +533,10 @@
    */
   async function unequipSlot(slot, silent, system) {
     var sys = (system || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
-    if (sys !== '40k' && sys !== 'aos') sys = '40k';
 
     // 1. Instant optimistic in-memory update (strictly scoped to `sys`)
     currentVault.equipped = normalizeEquippedObject(currentVault.equipped);
+    if (!currentVault.equipped[sys]) currentVault.equipped[sys] = createEmptySystemEquipped();
     currentVault.equipped[sys][slot] = null;
     syncCachedUserVault();
 
@@ -954,8 +975,8 @@
    * Effect Dispatcher: Applies active decorations only to player profile / My Hub hero cards (never Team View)
    */
   function applyEquippedDecorations(system, overrideEquipped, scopeRoot) {
-    var rawSys = (typeof system === 'string' && (system === '40k' || system === 'aos'))
-      ? system
+    var rawSys = (typeof system === 'string' && system.trim())
+      ? system.trim()
       : detectActiveGameSystem();
     var sys = String(rawSys).toLowerCase();
     var eq = getEquippedForSystem(overrideEquipped || (currentVault && currentVault.equipped) || {}, sys);
@@ -1258,9 +1279,13 @@
       }
     }
 
-    if (spendable > 0) {
+    if (spendable >= 0) {
       try {
-        localStorage.setItem('omnitactica_cached_spendable_glory', String(spendable));
+        var activeSys = String(currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
+        localStorage.setItem('omnitactica_cached_spendable_glory_' + activeSys, String(spendable));
+        if (activeSys === '40k') {
+          localStorage.setItem('omnitactica_cached_spendable_glory', String(spendable));
+        }
       } catch (e) {}
     }
 
@@ -1759,14 +1784,14 @@
   }
 
   function openStore(wing, system) {
-    currentGameSystem = (system === '40k' || system === 'aos') ? system : detectActiveGameSystem();
+    currentGameSystem = (typeof system === 'string' && system.trim()) ? system.trim().toLowerCase() : detectActiveGameSystem();
     if (wing) activeWingFilter = wing;
     currentArmoryMode = 'store';
     openArmoryModal('store', currentGameSystem);
   }
 
   function openVault(tab, system) {
-    currentGameSystem = (system === '40k' || system === 'aos') ? system : detectActiveGameSystem();
+    currentGameSystem = (typeof system === 'string' && system.trim()) ? system.trim().toLowerCase() : detectActiveGameSystem();
     if (tab) activeVaultTab = tab;
     currentArmoryMode = 'vault';
     openArmoryModal(tab || 'backpack', currentGameSystem);
@@ -1804,7 +1829,7 @@
    * Opens the full Retribution Armory Modal
    */
   async function openArmoryModal(initialWing, system) {
-    currentGameSystem = (system === '40k' || system === 'aos') ? system : detectActiveGameSystem();
+    currentGameSystem = (typeof system === 'string' && system.trim()) ? system.trim().toLowerCase() : detectActiveGameSystem();
     hydrateVaultFromGlobalSession();
 
     if (initialWing === 'store') {
@@ -2521,7 +2546,6 @@
     applyEquippedDecorations: applyEquippedDecorations,
     getEquipped: function(slot, system) {
       var sys = (system || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
-      if (sys !== '40k' && sys !== 'aos') sys = '40k';
       var eq = getEquippedForSystem(currentVault.equipped, sys);
       if (eq && eq[slot] !== undefined && eq[slot] !== null) {
         return eq[slot];
@@ -2542,7 +2566,6 @@
     },
     getEquippedItem: function(slotOrId, system) {
       var sys = (system || currentGameSystem || detectActiveGameSystem() || '40k').toLowerCase();
-      if (sys !== '40k' && sys !== 'aos') sys = '40k';
       var id = window.Armory.getEquipped(slotOrId, sys);
       if (!id && typeof slotOrId === 'string' && slotOrId.startsWith('dice_')) {
         if (getItemGameSystem(slotOrId) === sys) id = slotOrId;

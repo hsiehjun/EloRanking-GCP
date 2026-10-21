@@ -1713,7 +1713,9 @@ class AuthManager:
                     current_ack.update(acknowledged_badge_ids)
                     updates.append("acknowledged_badge_ids = %s")
                     params.append(json.dumps(list(current_ack)))
-                    updates.append("badges_celebrated = TRUE")
+                    if badges_celebrated is None:
+                        updates.append("badges_celebrated = %s")
+                        params.append(True)
 
                     target_pid = user_record.get("player_id")
                     if target_pid:
@@ -3186,7 +3188,7 @@ class AuthManager:
         raw_user_lists = self.db.get_user_army_lists(user_id) if (user_id and hasattr(self.db, "get_user_army_lists")) else []
         user_lists = [
             lst for lst in (raw_user_lists or [])
-            if not isinstance(lst, dict) or not lst.get("game_system") or str(lst.get("game_system")).strip().lower() == target_sys
+            if not isinstance(lst, dict) or str(lst.get("game_system") or "40k").strip().lower() == target_sys
         ]
         if not user_lists and user_id and target_sys in ("40k", "aos"):
             try:
@@ -3213,7 +3215,20 @@ class AuthManager:
         )
         user_ack = (user_info and user_info.get("acknowledged_badge_ids")) or []
         ack_set = set(user_ack) if isinstance(user_ack, list) else set()
-        newly_unlocked = [b for b in b_eval["badges"] if b.get("unlocked") and b.get("id") not in ack_set]
+        unlocked_ids = [b["id"] for b in b_eval["badges"] if b.get("unlocked") and b.get("id")]
+        already_celebrated = bool(
+            user_info and (
+                user_info.get("badges_celebrated")
+                or int(user_info.get("glory_spent") or 0) > 0
+                or user_info.get("pinned_badges")
+                or ((user_info.get("armory_vault") or {}).get("inventory"))
+            )
+        )
+        if int(p_stat.get("matches_played") or 0) == 0 or (already_celebrated and not ack_set):
+            ack_set.update(unlocked_ids)
+            newly_unlocked = []
+        else:
+            newly_unlocked = [b for b in b_eval["badges"] if b.get("unlocked") and b.get("id") not in ack_set]
 
         # Compute other game system authentic glory from that system's actual matches
         current_sys_glory = int(b_eval.get("glory_balance", b_eval.get("glory_score", 0)))
@@ -3257,6 +3272,20 @@ class AuthManager:
             except Exception as e:
                 logger.warning(f"Notice syncing ledger balance in get_user_hub_data for {user_id}: {e}")
 
+        if target_sys == "40k":
+            sys_spendable_glory = spendable_glory
+        else:
+            sys_spent = 0
+            vault_inv = ((user_info or {}).get("armory_vault") or {}).get("inventory") or {}
+            if isinstance(vault_inv, dict):
+                import armory_catalog
+                for inv_id, inv_meta in vault_inv.items():
+                    c_item = armory_catalog.get_item_by_id(inv_id) or {}
+                    if str(c_item.get("game_system") or "40k").lower() == target_sys:
+                        cost = int((inv_meta.get("total_net_cost") if isinstance(inv_meta, dict) and "total_net_cost" in inv_meta else None) or c_item.get("cost_glory") or 0)
+                        sys_spent += max(0, cost)
+            sys_spendable_glory = max(0, current_sys_glory - sys_spent)
+
         hub_payload = {
             "player": p_stat,
             "preferred_game_system": p_stat.get("preferred_game_system", target_sys),
@@ -3278,8 +3307,9 @@ class AuthManager:
             "glory_score": b_eval["glory_score"],
             "career_glory": b_eval.get("career_glory", b_eval.get("glory_score", 0)),
             "seasonal_glory": b_eval.get("seasonal_glory", 0),
-            "glory_balance": spendable_glory,
-            "spendable_glory": spendable_glory,
+            "glory_balance": sys_spendable_glory,
+            "spendable_glory": sys_spendable_glory,
+            "unified_spendable_glory": spendable_glory,
             "unified_glory": unified_glory,
             "total_glory": total_glory_credits,
             "total_earned": unified_glory,

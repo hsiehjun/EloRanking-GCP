@@ -4003,13 +4003,13 @@ async def api_faction_meta(
                 _force_refresh=bool(raw_refresh)
             )
         try:
-            return await asyncio.wait_for(asyncio.to_thread(_fetch_meta), timeout=0.75)
+            return await asyncio.wait_for(asyncio.to_thread(_fetch_meta), timeout=8.0)
         except asyncio.TimeoutError:
             from database import PostgresDatabase
             sys_norm = (sys_val or "40k").strip().lower()
             for fb_p in ("90d", "180d", "1yr", "30d", "60d", "ytd", "all"):
                 fb_entry = PostgresDatabase._faction_meta_cache_dict.get(f"preset_{fb_p}_{sys_norm}")
-                if fb_entry and isinstance(fb_entry[0], dict) and "summary_kpis" in fb_entry[0]:
+                if fb_entry and isinstance(fb_entry[0], dict) and "summary_kpis" in fb_entry[0] and fb_entry[0].get("factions"):
                     return {
                         **fb_entry[0],
                         "filter": {

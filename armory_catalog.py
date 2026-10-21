@@ -4285,10 +4285,25 @@ def normalize_armory_vault(vault: Any) -> Dict[str, Any]:
                 if not had_40k_dict and not eq_40k.get(slot):
                     eq_40k[slot] = val
 
-    vault["equipped"] = {
+    equipped_normalized: Dict[str, Any] = {
         "40k": eq_40k,
         "aos": eq_aos,
     }
+    for sys_k, sys_val in raw_eq.items():
+        if sys_k in ("40k", "aos") or sys_k in ARMORY_VALID_SLOTS:
+            continue
+        if isinstance(sys_val, dict):
+            sys_eq = _empty_system_equipped()
+            for slot in ARMORY_VALID_SLOTS:
+                sval = sys_val.get(slot)
+                if isinstance(sval, str) and sval.strip():
+                    sval = sval.strip()
+                    item = get_item_by_id(sval)
+                    if not item or (item.get("game_system") or sys_k).lower() == str(sys_k).lower():
+                        sys_eq[slot] = sval
+            equipped_normalized[str(sys_k).lower()] = sys_eq
+
+    vault["equipped"] = equipped_normalized
     return vault
 
 
@@ -4305,22 +4320,29 @@ def get_armory_catalog(
     equipped_all = vault["equipped"]
 
     req_sys = (game_system or "40k").lower().strip()
-    if req_sys not in ("40k", "aos"):
-        req_sys = "40k"
 
     # Strict game-specific equipped isolation: never fall back to another system's equipped items
     equipped = equipped_all.get(req_sys) if isinstance(equipped_all.get(req_sys), dict) else _empty_system_equipped()
 
     # Filter items by the requested game system
     system_items = [item for item in ARMORY_ITEMS if item.get("game_system") == req_sys]
+    if not system_items and req_sys not in ("40k", "aos"):
+        base_sys = "aos" if req_sys in ("the_old_world", "middle_earth", "conquest", "asoiaf", "warmachine") else "40k"
+        system_items = [
+            {**item, "id": f"{item['id']}__{req_sys}", "game_system": req_sys}
+            for item in ARMORY_ITEMS
+            if item.get("game_system") == base_sys
+        ]
 
     items_output = []
     for item in system_items:
         item_id = item["id"]
         is_owned = (
             item_id in inventory
-            or any(ARMORY_ALIASES.get(k) == item_id for k in inventory.keys())
-            or (item_id == "dice_40k_dark_angels" and ("dice_dark_angels_caliban" in inventory or "dice_dark_angels" in inventory))
+            or (req_sys in ("40k", "aos") and (
+                any(ARMORY_ALIASES.get(k) == item_id for k in inventory.keys())
+                or (item_id == "dice_40k_dark_angels" and ("dice_dark_angels_caliban" in inventory or "dice_dark_angels" in inventory))
+            ))
         )
         is_equipped = False
         slot = item.get("slot")
@@ -4391,4 +4413,13 @@ def get_item_by_id(item_id: str) -> Optional[Dict[str, Any]]:
     if not item_id:
         return None
     canonical = ARMORY_ALIASES.get(item_id, item_id)
-    return ARMORY_INDEX.get(canonical) or ARMORY_INDEX.get(item_id)
+    found = ARMORY_INDEX.get(canonical) or ARMORY_INDEX.get(item_id)
+    if found:
+        return found
+    if "__" in str(item_id):
+        base_id, sys_suffix = str(item_id).rsplit("__", 1)
+        base_canonical = ARMORY_ALIASES.get(base_id, base_id)
+        base_item = ARMORY_INDEX.get(base_canonical) or ARMORY_INDEX.get(base_id)
+        if base_item and sys_suffix:
+            return {**base_item, "id": str(item_id), "game_system": sys_suffix.lower().strip()}
+    return None
