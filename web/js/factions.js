@@ -161,6 +161,9 @@ function setTimelineMetric(metric) {
 }
 
 function _applyFactionMetaDataToUI(data) {
+  if (data && Array.isArray(data.factions)) {
+    data.factions = data.factions.filter(f => f && f.faction && !String(f.faction).includes('+'));
+  }
   factionMetaData = data;
 
   if (data && data.monthly_trends && data.monthly_trends.length > 0) {

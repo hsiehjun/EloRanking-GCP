@@ -348,6 +348,50 @@ class TestFactionMetaIntel(unittest.TestCase):
         self.assertIn("purge_l2_computed_caches", db_content)
         self.assertIn("_last_cache_invalidation_ts", db_content)
 
+    def test_composite_factions_and_canonical_aliases(self):
+        """Verifies composite 2v2 '+' factions are rejected and aliases map to canonical names."""
+        self.assertTrue(PostgresDatabase.is_super_or_empty_faction("Orks + T'au Empire"))
+        self.assertTrue(PostgresDatabase.is_super_or_empty_faction("T'au Empire + Blood Angels"))
+        self.assertTrue(PostgresDatabase.is_super_or_empty_faction("Pod (1)"))
+        self.assertEqual(PostgresDatabase.canonicalize_faction_name("Orks + T'au Empire"), "")
+        self.assertEqual(PostgresDatabase.canonicalize_faction_name("Space Marines (Astartes)"), "Space Marines")
+        self.assertEqual(PostgresDatabase.canonicalize_faction_name("Adeptus Astartes"), "Space Marines")
+        self.assertEqual(PostgresDatabase.canonicalize_faction_name("Genestealer Cult"), "Genestealer Cults")
+
+        sm_aliases = PostgresDatabase.get_faction_aliases_lower("Space Marines")
+        self.assertIn("space marines", sm_aliases)
+        self.assertIn("space marines (astartes)", sm_aliases)
+        self.assertIn("adeptus astartes", sm_aliases)
+
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        executed = []
+
+        class MockCur:
+            def __init__(self):
+                self.connection = None
+            def execute(self, q, p=None):
+                executed.append((q, p))
+            def fetchall(self):
+                return []
+
+        db._query_faction_recent_matches(
+            "Space Marines", 100, ["40k"], " AND COALESCE(matches.game_system, '40k') = %s",
+            " AND matches.match_date >= %s", date_params=["2026-07-01"], cursor=MockCur()
+        )
+        self.assertEqual(len(executed), 1)
+        q_sm, p_sm = executed[0]
+        self.assertIn("COALESCE(matches.game_system, '40k'), match_date DESC", q_sm)
+        self.assertIn("space marines (astartes)", p_sm)
+        self.assertIn("adeptus astartes", p_sm)
+
+    def test_no_4500_cap_and_covering_index_predicates(self):
+        """Verifies get_faction_meta_stats does not cap 90d at 4500 games and uses covering index predicate."""
+        import inspect
+        meta_src = inspect.getsource(PostgresDatabase.get_faction_meta_stats)
+        self.assertNotIn('"90d": 4500', meta_src)
+        self.assertIn("COALESCE(game_system, '40k') = %s", meta_src)
+        self.assertIn("POSITION('+' IN COALESCE(player1_faction, '')) = 0", meta_src)
+
 
 if __name__ == "__main__":
     unittest.main()

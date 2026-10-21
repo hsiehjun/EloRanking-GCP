@@ -397,10 +397,59 @@ class PostgresDatabase:
     GENERIC_SM_SQL_TUPLE = tuple(sorted(GENERIC_SM_SET))
     SUPER_AND_SM_SQL_TUPLE = tuple(sorted(EMPTY_FACTION_SET | SUPER_FACTION_SET | GENERIC_SM_SET))
 
+    FACTION_CANONICAL_MAP: Dict[str, str] = {
+        "space marines (astartes)": "Space Marines",
+        "adeptus astartes": "Space Marines",
+        "space marines": "Space Marines",
+        "genestealer cult": "Genestealer Cults",
+        "genestealer cults": "Genestealer Cults",
+        "astra militarum (imperial guard)": "Astra Militarum",
+        "imperial guard": "Astra Militarum",
+        "astra militarum": "Astra Militarum",
+        "agents of the imperium": "Imperial Agents",
+        "imperial agents": "Imperial Agents",
+        "craftworlds": "Aeldari",
+        "asuryani": "Aeldari",
+        "aeldari": "Aeldari",
+        "adepta sororitas (sisters of battle)": "Adepta Sororitas",
+        "sisters of battle": "Adepta Sororitas",
+        "adepta sororitas": "Adepta Sororitas",
+        "lumineth realm-lords": "Lumineth Realm-lords",
+        "flesh-eater courts": "Flesh-eater Courts",
+    }
+
+    FACTION_ALIASES_MAP: Dict[str, List[str]] = {
+        "space marines": ["space marines", "space marines (astartes)", "adeptus astartes"],
+        "genestealer cults": ["genestealer cults", "genestealer cult"],
+        "astra militarum": ["astra militarum", "astra militarum (imperial guard)", "imperial guard"],
+        "imperial agents": ["imperial agents", "agents of the imperium"],
+        "aeldari": ["aeldari", "craftworlds", "asuryani"],
+        "adepta sororitas": ["adepta sororitas", "adepta sororitas (sisters of battle)", "sisters of battle"],
+        "lumineth realm-lords": ["lumineth realm-lords"],
+        "flesh-eater courts": ["flesh-eater courts"],
+    }
+
+    @classmethod
+    def canonicalize_faction_name(cls, name: Optional[str]) -> str:
+        raw = str(name or "").strip()
+        if not raw:
+            return ""
+        low = raw.lower()
+        if "+" in low or low.startswith("pod ("):
+            return ""
+        return cls.FACTION_CANONICAL_MAP.get(low, raw)
+
+    @classmethod
+    def get_faction_aliases_lower(cls, name: Optional[str]) -> List[str]:
+        canon = cls.canonicalize_faction_name(name).strip().lower()
+        if not canon:
+            return []
+        return list(cls.FACTION_ALIASES_MAP.get(canon, [canon]))
+
     @classmethod
     def is_super_or_empty_faction(cls, name: Optional[str], include_generic_sm: bool = False) -> bool:
         norm = str(name or "").strip().lower()
-        if norm in cls.EMPTY_FACTION_SET or norm in cls.SUPER_FACTION_SET or " + " in norm or norm.startswith("pod ("):
+        if norm in cls.EMPTY_FACTION_SET or norm in cls.SUPER_FACTION_SET or "+" in norm or norm.startswith("pod ("):
             return True
         if include_generic_sm and norm in cls.GENERIC_SM_SET:
             return True
@@ -417,8 +466,8 @@ class PostgresDatabase:
                 val = str(raw.get("name") or raw.get("factionName") or raw.get("armyName") or "").strip()
             else:
                 val = str(raw).strip()
-            if val and val.lower() not in cls.EMPTY_FACTION_SET:
-                cleaned.append(val)
+            if val and val.lower() not in cls.EMPTY_FACTION_SET and "+" not in val and not val.lower().startswith("pod ("):
+                cleaned.append(cls.canonicalize_faction_name(val))
         for c in cleaned:
             low = c.lower()
             if low not in cls.SUPER_FACTION_SET and low not in cls.GENERIC_SM_SET:
@@ -10232,8 +10281,8 @@ class PostgresDatabase:
             raw_legacy_key = f"{start_date}_{end_date}_{game_system}"
             if raw_legacy_key not in cache_keys:
                 cache_keys.append(raw_legacy_key)
-        l2_setting_key = f"meta_intel_v6_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
-        l2_legacy_key = f"meta_intel_v6_legacy_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
+        l2_setting_key = f"meta_intel_v8_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
+        l2_legacy_key = f"meta_intel_v8_legacy_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
 
         def _trigger_bg_meta_refresh() -> None:
             bg_key = f"meta_bg_{cache_key}"
@@ -10274,23 +10323,11 @@ class PostgresDatabase:
                 key_lock = threading.Lock()
                 PostgresDatabase._faction_meta_inflight_locks[cache_key] = key_lock
 
-        # Stale-While-Revalidate: if another thread is already refreshing, return any available in-memory entry immediately without blocking
+        # Stale-While-Revalidate: if another thread is already refreshing this exact key, return its stale entry if present
         if not _force_refresh and key_lock.locked():
             stale_entry = PostgresDatabase._faction_meta_cache_dict.get(cache_key) or PostgresDatabase._faction_meta_cache_dict.get(resolved_legacy_key)
             if stale_entry and isinstance(stale_entry[0], dict) and stale_entry[0].get("factions"):
                 return stale_entry[0]
-            for fb_p in ("90d", "180d", "1yr", "30d", "60d", "ytd", "all"):
-                fb_entry = PostgresDatabase._faction_meta_cache_dict.get(f"preset_{fb_p}_{sys_norm}")
-                if fb_entry and isinstance(fb_entry[0], dict) and "summary_kpis" in fb_entry[0] and fb_entry[0].get("factions"):
-                    return {
-                        **fb_entry[0],
-                        "filter": {
-                            **(fb_entry[0].get("filter") or {}),
-                            "preset": preset or "custom",
-                            "start_date": resolved_start,
-                            "end_date": resolved_end,
-                        },
-                    }
 
         with key_lock:
             if not _force_refresh:
@@ -10335,18 +10372,7 @@ class PostgresDatabase:
                 except Exception as l2_err:
                     logger.debug(f"Notice reading L2 meta_intel cache ({l2_setting_key}): {l2_err}")
 
-            sample_limit_map = {
-                "30d": 3000,
-                "60d": 4000,
-                "90d": 4500,
-                "180d": 5500,
-                "ytd": 5500,
-                "1yr": 6500,
-                "all": 7500,
-            }
-            sample_limit = sample_limit_map.get(preset or "90d", 4500)
-            if sys_norm == "aos":
-                sample_limit = min(sample_limit, 4500)
+            sample_limit = 100000
             period_format = "YYYY-MM-DD" if is_short_window else "YYYY-MM"
             period_trunc = "week" if is_short_window else "month"
 
@@ -10359,10 +10385,15 @@ class PostgresDatabase:
                         except Exception:
                             conn.rollback()
 
-                    where_clauses = ["is_done = TRUE", "match_date IS NOT NULL"]
+                    where_clauses = [
+                        "is_done = TRUE",
+                        "match_date IS NOT NULL",
+                        "POSITION('+' IN COALESCE(player1_faction, '')) = 0",
+                        "POSITION('+' IN COALESCE(player2_faction, '')) = 0",
+                    ]
                     params: List[Any] = []
                     if game_system and sys_norm != "all":
-                        where_clauses.append("game_system = %s")
+                        where_clauses.append("COALESCE(game_system, '40k') = %s")
                         params.append(sys_norm)
                     if resolved_start:
                         where_clauses.append("match_date >= %s")
@@ -10386,13 +10417,37 @@ class PostgresDatabase:
                             SELECT event_id, match_date,
                                    player1_id,
                                    CASE
-                                       WHEN LOWER(TRIM(player1_faction)) IN ('space marines (astartes)', 'adeptus astartes') THEN 'Space Marines'
+                                       WHEN player1_faction IS NULL OR TRIM(player1_faction) = '' THEN NULL
+                                       WHEN POSITION('+' IN player1_faction) > 0 THEN NULL
+                                       WHEN LOWER(TRIM(player1_faction)) LIKE 'pod (%' THEN NULL
+                                       WHEN LOWER(TRIM(player1_faction)) IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar', 'the old world', 'warhammer: the old world', 'horus heresy', 'the horus heresy', 'loyalist', 'traitor', 'loyalists', 'traitors') THEN NULL
+                                       WHEN LOWER(TRIM(player1_faction)) IN ('space marines (astartes)', 'adeptus astartes', 'space marines') THEN 'Space Marines'
+                                       WHEN LOWER(TRIM(player1_faction)) IN ('genestealer cult', 'genestealer cults') THEN 'Genestealer Cults'
+                                       WHEN LOWER(TRIM(player1_faction)) IN ('astra militarum', 'imperial guard', 'astra militarum (imperial guard)') THEN 'Astra Militarum'
+                                       WHEN LOWER(TRIM(player1_faction)) IN ('imperial agents', 'agents of the imperium', 'inquisition') THEN 'Imperial Agents'
+                                       WHEN LOWER(TRIM(player1_faction)) IN ('aeldari', 'craftworlds', 'asuryani', 'aeldari (craftworlds)') THEN 'Aeldari'
+                                       WHEN LOWER(TRIM(player1_faction)) IN ('adepta sororitas', 'sisters of battle') THEN 'Adepta Sororitas'
+                                       WHEN LOWER(TRIM(player1_faction)) IN ('chaos daemons', 'daemons of chaos', 'legiones daemonica') THEN 'Chaos Daemons'
+                                       WHEN LOWER(TRIM(player1_faction)) IN ('lumineth realm-lords', 'lumineth realm lords') THEN 'Lumineth Realm-lords'
+                                       WHEN LOWER(TRIM(player1_faction)) IN ('flesh-eater courts', 'flesh eater courts') THEN 'Flesh-eater Courts'
                                        ELSE TRIM(player1_faction)
                                    END AS p1_fac,
                                    player1_score,
                                    player2_id,
                                    CASE
-                                       WHEN LOWER(TRIM(player2_faction)) IN ('space marines (astartes)', 'adeptus astartes') THEN 'Space Marines'
+                                       WHEN player2_faction IS NULL OR TRIM(player2_faction) = '' THEN NULL
+                                       WHEN POSITION('+' IN player2_faction) > 0 THEN NULL
+                                       WHEN LOWER(TRIM(player2_faction)) LIKE 'pod (%' THEN NULL
+                                       WHEN LOWER(TRIM(player2_faction)) IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar', 'the old world', 'warhammer: the old world', 'horus heresy', 'the horus heresy', 'loyalist', 'traitor', 'loyalists', 'traitors') THEN NULL
+                                       WHEN LOWER(TRIM(player2_faction)) IN ('space marines (astartes)', 'adeptus astartes', 'space marines') THEN 'Space Marines'
+                                       WHEN LOWER(TRIM(player2_faction)) IN ('genestealer cult', 'genestealer cults') THEN 'Genestealer Cults'
+                                       WHEN LOWER(TRIM(player2_faction)) IN ('astra militarum', 'imperial guard', 'astra militarum (imperial guard)') THEN 'Astra Militarum'
+                                       WHEN LOWER(TRIM(player2_faction)) IN ('imperial agents', 'agents of the imperium', 'inquisition') THEN 'Imperial Agents'
+                                       WHEN LOWER(TRIM(player2_faction)) IN ('aeldari', 'craftworlds', 'asuryani', 'aeldari (craftworlds)') THEN 'Aeldari'
+                                       WHEN LOWER(TRIM(player2_faction)) IN ('adepta sororitas', 'sisters of battle') THEN 'Adepta Sororitas'
+                                       WHEN LOWER(TRIM(player2_faction)) IN ('chaos daemons', 'daemons of chaos', 'legiones daemonica') THEN 'Chaos Daemons'
+                                       WHEN LOWER(TRIM(player2_faction)) IN ('lumineth realm-lords', 'lumineth realm lords') THEN 'Lumineth Realm-lords'
+                                       WHEN LOWER(TRIM(player2_faction)) IN ('flesh-eater courts', 'flesh eater courts') THEN 'Flesh-eater Courts'
                                        ELSE TRIM(player2_faction)
                                    END AS p2_fac,
                                    player2_score,
@@ -10401,7 +10456,6 @@ class PostgresDatabase:
                                    COALESCE(is_bye, FALSE) AS is_bye
                             FROM matches
                             WHERE {date_filter_sql}
-                            ORDER BY match_date DESC
                             LIMIT {sample_limit}
                         ),
                         match_sides AS (
@@ -10409,7 +10463,7 @@ class PostgresDatabase:
                                    player1_id AS player_id,
                                    p1_fac AS faction,
                                    CASE
-                                       WHEN is_bye = FALSE AND player2_id IS NOT NULL AND p2_fac IS NOT NULL AND p2_fac != '' AND p2_fac != 'Unknown Faction' AND LOWER(p2_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar')
+                                       WHEN is_bye = FALSE AND player2_id IS NOT NULL AND p2_fac IS NOT NULL
                                        THEN p2_fac
                                        ELSE NULL
                                    END AS opp_faction,
@@ -10419,25 +10473,19 @@ class PostgresDatabase:
                                    CASE WHEN is_draw THEN 1 ELSE 0 END AS is_draw,
                                    CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END AS is_loss
                             FROM recent_matches
-                            WHERE p1_fac IS NOT NULL AND p1_fac != '' AND p1_fac != 'Unknown Faction'
-                              AND LOWER(p1_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar')
+                            WHERE p1_fac IS NOT NULL
                             UNION ALL
                             SELECT event_id, match_date,
                                    player2_id AS player_id,
                                    p2_fac AS faction,
-                                   CASE
-                                       WHEN p1_fac IS NOT NULL AND p1_fac != '' AND p1_fac != 'Unknown Faction' AND LOWER(p1_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar')
-                                       THEN p1_fac
-                                       ELSE NULL
-                                   END AS opp_faction,
+                                   p1_fac AS opp_faction,
                                    player2_score AS score,
                                    player1_score AS opp_score,
                                    CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END AS is_win,
                                    CASE WHEN is_draw THEN 1 ELSE 0 END AS is_draw,
                                    CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END AS is_loss
                             FROM recent_matches
-                            WHERE p2_fac IS NOT NULL AND p2_fac != '' AND p2_fac != 'Unknown Faction'
-                              AND LOWER(p2_fac) NOT IN ('unknown', 'none', 'null', '-', 'bye', 'unassigned', 'various', 'imperium', 'armies of the imperium', 'forces of the imperium', 'chaos', 'armies of chaos', 'forces of chaos', 'xenos', 'xenos armies', 'forces of the hive mind', 'hive mind', 'order', 'grand alliance order', 'grand alliance: order', 'grand alliance chaos', 'grand alliance: chaos', 'death', 'grand alliance death', 'grand alliance: death', 'destruction', 'grand alliance destruction', 'grand alliance: destruction', 'warhammer 40,000', 'warhammer 40k', 'age of sigmar', 'warhammer age of sigmar')
+                            WHERE p2_fac IS NOT NULL
                               AND is_bye = FALSE AND player2_id IS NOT NULL
                         ),
                         sides_enriched AS (
@@ -10522,7 +10570,7 @@ class PostgresDatabase:
                             COALESCE((SELECT json_agg(row_to_json(f)) FROM faction_stats f), '[]'::json) AS factions_json,
                             COALESCE((SELECT json_agg(row_to_json(m)) FROM matchup_stats m), '[]'::json) AS matchups_json,
                             COALESCE((SELECT json_agg(row_to_json(t)) FROM trend_stats t), '[]'::json) AS trends_json,
-                            (SELECT COUNT(*) FROM recent_matches) AS raw_match_count;
+                            (SELECT COUNT(*) FROM recent_matches WHERE p1_fac IS NOT NULL OR p2_fac IS NOT NULL) AS raw_match_count;
                         """, params)
                         fetched_rows = cursor.fetchall() or []
                         if fetched_rows and isinstance(fetched_rows[0], dict) and "factions_json" in fetched_rows[0]:
@@ -10539,10 +10587,15 @@ class PostgresDatabase:
                     except Exception as e:
                         conn.rollback()
                         logger.warning(f"Fallback get_faction_meta_stats notice: {e}")
-                        safe_clauses = ["is_done = TRUE", "match_date IS NOT NULL"]
+                        safe_clauses = [
+                            "is_done = TRUE",
+                            "match_date IS NOT NULL",
+                            "POSITION('+' IN COALESCE(player1_faction, '')) = 0",
+                            "POSITION('+' IN COALESCE(player2_faction, '')) = 0",
+                        ]
                         safe_params: List[Any] = []
                         if game_system and sys_norm != "all":
-                            safe_clauses.append("game_system = %s")
+                            safe_clauses.append("COALESCE(game_system, '40k') = %s")
                             safe_params.append(sys_norm)
                         if resolved_start:
                             safe_clauses.append("match_date >= %s")
@@ -10569,8 +10622,7 @@ class PostgresDatabase:
                                            winner_id, loser_id, is_draw, is_bye
                                     FROM matches
                                     WHERE {s_filter}
-                                    ORDER BY match_date DESC
-                                    LIMIT 2500
+                                    LIMIT 25000
                                 ),
                                 match_sides AS (
                                     SELECT id, match_date, player1_faction as faction, player1_score as score,
@@ -10579,6 +10631,7 @@ class PostgresDatabase:
                                            CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss
                                     FROM recent_matches
                                     WHERE player1_faction IS NOT NULL AND TRIM(player1_faction) != '' AND player1_faction != 'Unknown Faction'
+                                      AND POSITION('+' IN player1_faction) = 0
                                     UNION ALL
                                     SELECT id, match_date, player2_faction as faction, player2_score as score,
                                            CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
@@ -10586,6 +10639,7 @@ class PostgresDatabase:
                                            CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss
                                     FROM recent_matches
                                     WHERE player2_faction IS NOT NULL AND TRIM(player2_faction) != '' AND player2_faction != 'Unknown Faction' AND is_bye = FALSE AND player2_id IS NOT NULL
+                                      AND POSITION('+' IN player2_faction) = 0
                                 )
                                 SELECT 
                                     faction,
@@ -10600,8 +10654,13 @@ class PostgresDatabase:
                                 HAVING COUNT(*) >= 1
                                 ORDER BY win_rate DESC, total_matches DESC;
                                 """, safe_params)
-                                overall = [dict(r) for r in cur_safe.fetchall()]
-                                raw_match_count = min(2500, sum(int(r.get("total_matches") or 0) for r in overall) // 2)
+                                raw_safe = [dict(r) for r in cur_safe.fetchall()]
+                                overall = [
+                                    {**r, "faction": PostgresDatabase.canonicalize_faction_name(r.get("faction"))}
+                                    for r in raw_safe
+                                    if not PostgresDatabase.is_super_or_empty_faction(r.get("faction"))
+                                ]
+                                raw_match_count = sum(int(r.get("total_matches") or 0) for r in overall) // 2
                         except Exception as safe_err:
                             conn.rollback()
                             logger.warning(f"Safe fallback get_faction_meta_stats notice: {safe_err}")
@@ -10631,12 +10690,18 @@ class PostgresDatabase:
                                       AND COALESCE(matches_played, 0) > 0
                                       AND primary_faction IS NOT NULL
                                       AND TRIM(primary_faction) != ''
+                                      AND POSITION('+' IN primary_faction) = 0
                                       AND LOWER(TRIM(primary_faction)) NOT IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various')
                                     GROUP BY TRIM(primary_faction)
                                     HAVING SUM(COALESCE(matches_played, 0)) >= 1
                                     ORDER BY win_rate DESC, total_matches DESC;
                                 """, (sys_norm,))
-                                overall = [dict(r) for r in (cur_fb.fetchall() or [])]
+                                raw_fb = [dict(r) for r in (cur_fb.fetchall() or [])]
+                                overall = [
+                                    {**r, "faction": PostgresDatabase.canonicalize_faction_name(r.get("faction"))}
+                                    for r in raw_fb
+                                    if not PostgresDatabase.is_super_or_empty_faction(r.get("faction"))
+                                ]
                                 if overall:
                                     raw_match_count = max(1, sum(int(r.get("total_matches") or 0) for r in overall) // 2)
                         except Exception as fb_err:
@@ -10867,18 +10932,6 @@ class PostgresDatabase:
                             PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, k, res, max_size=200)
 
                         if not is_mock_cur:
-                            for p_seed in ("90d", "30d", "60d", "180d", "1yr", "ytd", "all"):
-                                seed_k = f"preset_{p_seed}_{sys_norm}"
-                                if seed_k not in PostgresDatabase._faction_meta_cache_dict:
-                                    seeded_payload = {
-                                        **res,
-                                        "filter": {
-                                            **(res.get("filter") or {}),
-                                            "preset": p_seed,
-                                            "_seeded": True,
-                                        },
-                                    }
-                                    PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, seed_k, seeded_payload, max_size=200)
                             try:
                                 with conn.cursor() as cur_store:
                                     cur_store.execute("SET LOCAL statement_timeout = '1000ms';")
@@ -11375,17 +11428,16 @@ class PostgresDatabase:
         date_params: list = None,
         cursor = None
     ) -> List[Dict[str, Any]]:
-        clean_fac = (faction_name or "").strip()
-        fac_lower = clean_fac.lower()
-        if fac_lower in ("space marines (astartes)", "adeptus astartes"):
-            fac_lower = "space marines"
+        aliases = PostgresDatabase.get_faction_aliases_lower(faction_name)
         d_params = date_params or []
+        order_sys = ", COALESCE(matches.game_system, '40k')" if "game_system" in (sys_clause or "") else ""
 
         def _do_query(cur):
-            try:
-                cur.execute(f"""
-                WITH faction_player_games AS MATERIALIZED (
-                    (
+            p1_branches = []
+            p2_branches = []
+            q_params = []
+            for al in aliases:
+                p1_branches.append(f"""(
                         SELECT 
                             player1_id as p_id,
                             player1_name as p_name,
@@ -11396,12 +11448,14 @@ class PostgresDatabase:
                         FROM matches
                         WHERE LOWER(player1_faction) = %s
                           AND player1_id IS NOT NULL 
+                          AND POSITION('+' IN COALESCE(player2_faction, '')) = 0
                           AND is_done = TRUE{sys_clause}{date_clause}
-                        ORDER BY LOWER(player1_faction), match_date DESC
+                        ORDER BY LOWER(player1_faction){order_sys}, match_date DESC
                         LIMIT 200
-                    )
-                    UNION ALL
-                    (
+                    )""")
+                q_params.extend([al, *sys_params, *d_params])
+            for al in aliases:
+                p2_branches.append(f"""(
                         SELECT 
                             player2_id as p_id,
                             player2_name as p_name,
@@ -11413,10 +11467,18 @@ class PostgresDatabase:
                         WHERE LOWER(player2_faction) = %s
                           AND player2_id IS NOT NULL 
                           AND is_bye = FALSE 
+                          AND POSITION('+' IN COALESCE(player1_faction, '')) = 0
                           AND is_done = TRUE{sys_clause}{date_clause}
-                        ORDER BY LOWER(player2_faction), match_date DESC
+                        ORDER BY LOWER(player2_faction){order_sys}, match_date DESC
                         LIMIT 200
-                    )
+                    )""")
+                q_params.extend([al, *sys_params, *d_params])
+            q_params.append(system)
+            union_sql = "\n                    UNION ALL\n                    ".join(p1_branches + p2_branches)
+            try:
+                cur.execute(f"""
+                WITH faction_player_games AS MATERIALIZED (
+                    {union_sql}
                 ),
                 agg_pilots AS MATERIALIZED (
                     SELECT
@@ -11454,11 +11516,7 @@ class PostgresDatabase:
                 ) r ON TRUE
                 ORDER BY ap.wins DESC, ap.matches_played DESC, COALESCE(r.current_elo, 1500.0) DESC
                 LIMIT 25;
-                """, (
-                    fac_lower, *sys_params, *d_params,
-                    fac_lower, *sys_params, *d_params,
-                    system
-                ))
+                """, tuple(q_params))
                 return [dict(r) for r in cur.fetchall()]
             except Exception as e:
                 logger.warning(f"Fallback get_faction_details top_players notice: {e}")
@@ -11467,6 +11525,7 @@ class PostgresDatabase:
                         cur.connection.rollback()
                 except Exception:
                     pass
+                fac_lower = aliases[0]
                 cur.execute(f"""
                 WITH faction_player_games AS MATERIALIZED (
                     (
@@ -11541,37 +11600,65 @@ class PostgresDatabase:
         cursor = None,
         search_query: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        clean_fac = (faction_name or "").strip()
-        fac_lower = clean_fac.lower()
-        if fac_lower in ("space marines (astartes)", "adeptus astartes"):
-            fac_lower = "space marines"
+        aliases = PostgresDatabase.get_faction_aliases_lower(faction_name)
         d_params = date_params or []
         clean_q = (search_query or "").strip()
+        order_sys = ", COALESCE(matches.game_system, '40k')" if "game_system" in (sys_clause or "") else ""
+
+        def _normalize_match_rows(raw_rows: List[Any]) -> List[Dict[str, Any]]:
+            out = []
+            for r in (raw_rows or []):
+                d = dict(r)
+                if d.get("player_faction"):
+                    d["player_faction"] = PostgresDatabase.canonicalize_faction_name(d["player_faction"])
+                if d.get("opponent_faction"):
+                    d["opponent_faction"] = PostgresDatabase.canonicalize_faction_name(d["opponent_faction"])
+                out.append(d)
+            return out
 
         def _do_query(cur):
-            if clean_q:
-                q_like = f"%{clean_q}%"
-                scan_limit = max(int(limit or 350), 2500)
-                cur.execute(f"""
-                WITH p1_faction_matches AS MATERIALIZED (
+            per_branch_limit = max(int(limit or 350), 2500) if clean_q else int(limit)
+            p1_branches = []
+            p2_branches = []
+            p1_params = []
+            p2_params = []
+            for al in aliases:
+                p1_branches.append(f"""(
                     SELECT id, match_date, round, table_number
                     FROM matches
                     WHERE LOWER(player1_faction) = %s
+                      AND POSITION('+' IN COALESCE(player2_faction, '')) = 0
                       AND is_done = TRUE{sys_clause}{date_clause}
-                    ORDER BY LOWER(player1_faction), match_date DESC
+                    ORDER BY LOWER(player1_faction){order_sys}, match_date DESC
                     LIMIT %s
+                )""")
+                p1_params.extend([al, *sys_params, *d_params, per_branch_limit])
+                p2_branches.append(f"""(
+                    SELECT id, match_date, round, table_number
+                    FROM matches
+                    WHERE LOWER(player2_faction) = %s
+                      AND POSITION('+' IN COALESCE(player1_faction, '')) = 0
+                      AND is_done = TRUE AND is_bye = FALSE{sys_clause}{date_clause}
+                    ORDER BY LOWER(player2_faction){order_sys}, match_date DESC
+                    LIMIT %s
+                )""")
+                p2_params.extend([al, *sys_params, *d_params, per_branch_limit])
+
+            p1_sql = "\n                UNION ALL\n                ".join(p1_branches)
+            p2_sql = "\n                UNION ALL\n                ".join(p2_branches)
+
+            if clean_q:
+                q_like = f"%{clean_q}%"
+                cur.execute(f"""
+                WITH p1_faction_matches AS MATERIALIZED (
+                    {p1_sql}
                 ),
                 p1_matches AS (
                     SELECT id, match_date, round, table_number, TRUE as is_p1
                     FROM p1_faction_matches
                 ),
                 p2_faction_matches AS MATERIALIZED (
-                    SELECT id, match_date, round, table_number
-                    FROM matches
-                    WHERE LOWER(player2_faction) = %s
-                      AND is_done = TRUE AND is_bye = FALSE{sys_clause}{date_clause}
-                    ORDER BY LOWER(player2_faction), match_date DESC
-                    LIMIT %s
+                    {p2_sql}
                 ),
                 p2_matches AS (
                     SELECT id, match_date, round, table_number, FALSE as is_p1
@@ -11612,33 +11699,23 @@ class PostgresDatabase:
                 ORDER BY m.match_date DESC NULLS LAST, m.round DESC
                 LIMIT %s;
                 """, (
-                    fac_lower, *sys_params, *d_params, scan_limit,
-                    fac_lower, *sys_params, *d_params, scan_limit,
+                    *p1_params,
+                    *p2_params,
                     q_like, q_like, q_like, q_like,
                     limit
                 ))
-                return [dict(r) for r in cur.fetchall()]
+                return _normalize_match_rows(cur.fetchall())
 
             cur.execute(f"""
             WITH p1_faction_matches AS MATERIALIZED (
-                SELECT id, match_date, round, table_number
-                FROM matches
-                WHERE LOWER(player1_faction) = %s
-                  AND is_done = TRUE{sys_clause}{date_clause}
-                ORDER BY LOWER(player1_faction), match_date DESC
-                LIMIT %s
+                {p1_sql}
             ),
             p1_matches AS (
                 SELECT id, match_date, round, table_number, TRUE as is_p1
                 FROM p1_faction_matches
             ),
             p2_faction_matches AS MATERIALIZED (
-                SELECT id, match_date, round, table_number
-                FROM matches
-                WHERE LOWER(player2_faction) = %s
-                  AND is_done = TRUE AND is_bye = FALSE{sys_clause}{date_clause}
-                ORDER BY LOWER(player2_faction), match_date DESC
-                LIMIT %s
+                {p2_sql}
             ),
             p2_matches AS (
                 SELECT id, match_date, round, table_number, FALSE as is_p1
@@ -11678,11 +11755,11 @@ class PostgresDatabase:
             LEFT JOIN events e ON m.event_id = e.id
             ORDER BY m.match_date DESC NULLS LAST, m.round DESC;
             """, (
-                fac_lower, *sys_params, *d_params, limit,
-                fac_lower, *sys_params, *d_params, limit,
+                *p1_params,
+                *p2_params,
                 limit
             ))
-            return [dict(r) for r in cur.fetchall()]
+            return _normalize_match_rows(cur.fetchall())
 
         if cursor is not None:
             return _do_query(cursor)
@@ -11699,16 +11776,17 @@ class PostgresDatabase:
         date_params: list = None,
         cursor = None
     ) -> List[Dict[str, Any]]:
-        clean_fac = (faction_name or "").strip()
-        fac_lower = clean_fac.lower()
-        if fac_lower in ("space marines (astartes)", "adeptus astartes"):
-            fac_lower = "space marines"
+        aliases = PostgresDatabase.get_faction_aliases_lower(faction_name)
+        canon_self = (PostgresDatabase.canonicalize_faction_name(faction_name) or faction_name or "").strip().lower()
         d_params = date_params or []
+        order_sys = ", COALESCE(matches.game_system, '40k')" if "game_system" in (sys_clause or "") else ""
 
         def _do_query(cur):
-            cur.execute(f"""
-            WITH faction_games AS MATERIALIZED (
-                (
+            p1_branches = []
+            p2_branches = []
+            q_params = []
+            for al in aliases:
+                p1_branches.append(f"""(
                     SELECT 
                         player2_faction as opp_faction,
                         player1_score as score,
@@ -11720,13 +11798,15 @@ class PostgresDatabase:
                     WHERE LOWER(player1_faction) = %s
                       AND player2_faction IS NOT NULL AND player2_faction != '' 
                       AND player2_faction != 'Unknown Faction' 
+                      AND POSITION('+' IN player2_faction) = 0
                       AND LOWER(player2_faction) != %s
                       AND is_done = TRUE{sys_clause}{date_clause}
-                    ORDER BY LOWER(player1_faction), match_date DESC
-                    LIMIT 1500
-                )
-                UNION ALL
-                (
+                    ORDER BY LOWER(player1_faction){order_sys}, match_date DESC
+                    LIMIT 2500
+                )""")
+                q_params.extend([al, al, *sys_params, *d_params])
+            for al in aliases:
+                p2_branches.append(f"""(
                     SELECT 
                         player1_faction as opp_faction,
                         player2_score as score,
@@ -11738,12 +11818,19 @@ class PostgresDatabase:
                     WHERE LOWER(player2_faction) = %s
                       AND player1_faction IS NOT NULL AND player1_faction != '' 
                       AND player1_faction != 'Unknown Faction' 
+                      AND POSITION('+' IN player1_faction) = 0
                       AND is_bye = FALSE 
                       AND LOWER(player1_faction) != %s
                       AND is_done = TRUE{sys_clause}{date_clause}
-                    ORDER BY LOWER(player2_faction), match_date DESC
-                    LIMIT 1500
-                )
+                    ORDER BY LOWER(player2_faction){order_sys}, match_date DESC
+                    LIMIT 2500
+                )""")
+                q_params.extend([al, al, *sys_params, *d_params])
+
+            union_sql = "\n                UNION ALL\n                ".join(p1_branches + p2_branches)
+            cur.execute(f"""
+            WITH faction_games AS MATERIALIZED (
+                {union_sql}
             )
             SELECT 
                 opp_faction as opponent_faction,
@@ -11758,68 +11845,46 @@ class PostgresDatabase:
             HAVING COUNT(*) >= 1
             ORDER BY win_rate DESC, total_matches DESC
             LIMIT 100;
-            """, (
-                fac_lower, fac_lower, *sys_params, *d_params,
-                fac_lower, fac_lower, *sys_params, *d_params
-            ))
-            base_rows = [dict(r) for r in cur.fetchall()]
-            if not self._is_mock_instance():
-                try:
-                    mp_sys_clause = sys_clause.replace("matches.", "m.")
-                    mp_date_clause = date_clause.replace("matches.", "m.")
-                    cur.execute(f"""
-                        SELECT
-                            mp2.faction AS opponent_faction,
-                            COUNT(*) AS total_matches,
-                            SUM(CASE WHEN UPPER(COALESCE(mp1.result, '')) IN ('W', 'WIN') THEN 1 ELSE 0 END) AS wins,
-                            SUM(CASE WHEN UPPER(COALESCE(mp1.result, '')) IN ('L', 'LOSS') THEN 1 ELSE 0 END) AS losses,
-                            SUM(CASE WHEN UPPER(COALESCE(mp1.result, '')) IN ('D', 'DRAW', 'TIE') THEN 1 ELSE 0 END) AS draws,
-                            COALESCE(ROUND(AVG(CASE WHEN mp1.score IS NOT NULL AND mp2.score IS NOT NULL AND (mp1.score > 0 OR mp2.score > 0) THEN (mp1.score - mp2.score) ELSE NULL END)::numeric, 1), 0.0) AS avg_margin
-                        FROM match_participants mp1
-                        JOIN match_participants mp2
-                          ON mp2.match_id = mp1.match_id
-                         AND mp2.player_id != mp1.player_id
-                         AND COALESCE(NULLIF(mp2.team_id, ''), mp2.player_id) != COALESCE(NULLIF(mp1.team_id, ''), mp1.player_id)
-                        JOIN matches m ON m.id = mp1.match_id
-                        WHERE LOWER(mp1.faction) = %s
-                          AND mp2.faction IS NOT NULL AND mp2.faction != ''
-                          AND mp2.faction != 'Unknown Faction'
-                          AND LOWER(mp2.faction) != %s
-                          AND m.is_done = TRUE{mp_sys_clause}{mp_date_clause}
-                          AND (LOWER(COALESCE(m.player1_faction, '')) != %s AND LOWER(COALESCE(m.player2_faction, '')) != %s)
-                        GROUP BY mp2.faction
-                        LIMIT 100;
-                    """, (fac_lower, fac_lower, *sys_params, *d_params, fac_lower, fac_lower))
-                    mp_rows = [dict(r) for r in cur.fetchall()]
-                    if mp_rows:
-                        by_opp = {str(r["opponent_faction"]): dict(r) for r in base_rows}
-                        for mr in mp_rows:
-                            ofac = str(mr.get("opponent_faction") or "").strip()
-                            if not ofac:
-                                continue
-                            if ofac in by_opp:
-                                cur_o = by_opp[ofac]
-                                cur_o["total_matches"] = int(cur_o.get("total_matches") or 0) + int(mr.get("total_matches") or 0)
-                                cur_o["wins"] = int(cur_o.get("wins") or 0) + int(mr.get("wins") or 0)
-                                cur_o["losses"] = int(cur_o.get("losses") or 0) + int(mr.get("losses") or 0)
-                                cur_o["draws"] = int(cur_o.get("draws") or 0) + int(mr.get("draws") or 0)
-                                cur_o["win_rate"] = round(cur_o["wins"] * 100.0 / max(1, cur_o["total_matches"]), 1)
-                            else:
-                                tm = int(mr.get("total_matches") or 0)
-                                w = int(mr.get("wins") or 0)
-                                by_opp[ofac] = {
-                                    "opponent_faction": ofac,
-                                    "total_matches": tm,
-                                    "wins": w,
-                                    "losses": int(mr.get("losses") or 0),
-                                    "draws": int(mr.get("draws") or 0),
-                                    "win_rate": round(w * 100.0 / max(1, tm), 1),
-                                    "avg_margin": float(mr.get("avg_margin") or 0.0),
-                                }
-                        base_rows = sorted(by_opp.values(), key=lambda x: (float(x.get("win_rate") or 0.0), int(x.get("total_matches") or 0)), reverse=True)[:100]
-                except Exception:
-                    pass
-            return base_rows
+            """, tuple(q_params))
+            raw_rows = [dict(r) for r in cur.fetchall()]
+            merged_by_opp: Dict[str, Dict[str, Any]] = {}
+            for r in raw_rows:
+                raw_opp = str(r.get("opponent_faction") or "").strip()
+                if PostgresDatabase.is_super_or_empty_faction(raw_opp):
+                    continue
+                canon_opp = PostgresDatabase.canonicalize_faction_name(raw_opp)
+                if not canon_opp or canon_opp.lower() == canon_self:
+                    continue
+                tm = int(r.get("total_matches") or 0)
+                w = int(r.get("wins") or 0)
+                l = int(r.get("losses") or 0)
+                d = int(r.get("draws") or 0)
+                mgn = float(r.get("avg_margin") or 0.0)
+                if canon_opp in merged_by_opp:
+                    ex = merged_by_opp[canon_opp]
+                    prev_tm = ex["total_matches"]
+                    new_tm = prev_tm + tm
+                    ex["total_matches"] = new_tm
+                    ex["wins"] += w
+                    ex["losses"] += l
+                    ex["draws"] += d
+                    ex["win_rate"] = round(ex["wins"] * 100.0 / max(1, new_tm), 1)
+                    ex["avg_margin"] = round((ex["avg_margin"] * prev_tm + mgn * tm) / max(1, new_tm), 1)
+                else:
+                    merged_by_opp[canon_opp] = {
+                        "opponent_faction": canon_opp,
+                        "total_matches": tm,
+                        "wins": w,
+                        "losses": l,
+                        "draws": d,
+                        "win_rate": round(w * 100.0 / max(1, tm), 1) if tm > 0 else float(r.get("win_rate") or 0.0),
+                        "avg_margin": mgn,
+                    }
+            return sorted(
+                merged_by_opp.values(),
+                key=lambda x: (float(x.get("win_rate") or 0.0), int(x.get("total_matches") or 0)),
+                reverse=True,
+            )[:100]
 
         if cursor is not None:
             return _do_query(cursor)
@@ -11861,9 +11926,25 @@ class PostgresDatabase:
         }
         canon_tf = tf_canon_map.get(tf, tf or "1yr")
         raw_fac_lower = faction_name.strip().lower()
-        norm_fac_lower = "space marines" if raw_fac_lower in ("space marines (astartes)", "adeptus astartes") else raw_fac_lower
+        canon_fac_name = PostgresDatabase.canonicalize_faction_name(faction_name) or faction_name.strip()
+        norm_fac_lower = canon_fac_name.lower()
         cache_key = (norm_fac_lower, system, tf, int(limit), clean_search.lower()) if clean_search else (norm_fac_lower, system, tf, int(limit))
         canon_cache_key = (norm_fac_lower, system, canon_tf, int(limit), clean_search.lower()) if clean_search else (norm_fac_lower, system, canon_tf, int(limit))
+        is_mock_self = self._is_mock_instance()
+
+        def _is_valid_cached_details(entry: Any) -> bool:
+            if not isinstance(entry, dict):
+                return False
+            if is_mock_self:
+                return True
+            st = entry.get("stats") or {}
+            tm = int(st.get("total_matches") or entry.get("total_matches") or 0)
+            if tm > 0 and (not entry.get("matches") or (tm > 1 and not entry.get("matchups"))):
+                return False
+            if tm == 0 and not entry.get("matches") and not entry.get("matchups"):
+                return False
+            return True
+
         if not _force_refresh:
             cached = (
                 self.get_cached(self._faction_details_cache_dict, cache_key, ttl=86400)
@@ -11871,7 +11952,7 @@ class PostgresDatabase:
                 or (None if clean_search else self.get_cached(self._faction_details_cache_dict, (raw_fac_lower, system, tf, int(limit)), ttl=86400))
                 or (None if clean_search else self.get_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, 350), ttl=86400))
             )
-            if cached:
+            if cached and _is_valid_cached_details(cached):
                 if cached.get("faction") != faction_name or cached.get("timeframe") != tf:
                     return {**cached, "faction": faction_name, "timeframe": tf}
                 return cached
@@ -11890,15 +11971,14 @@ class PostgresDatabase:
                     or (None if clean_search else self.get_cached(self._faction_details_cache_dict, (raw_fac_lower, system, tf, int(limit)), ttl=86400))
                     or (None if clean_search else self.get_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, 350), ttl=86400))
                 )
-                if cached:
+                if cached and _is_valid_cached_details(cached):
                     if cached.get("faction") != faction_name or cached.get("timeframe") != tf:
                         return {**cached, "faction": faction_name, "timeframe": tf}
                     return cached
 
-            is_mock_self = self._is_mock_instance()
             eff_limit = min(max(int(limit or 350), 350), 500) if not is_mock_self else int(limit)
-            l2_fac_key = f"faction_details_v3_{system}_{canon_tf}_{norm_fac_lower}_{eff_limit}"
-            l2_fac_key_350 = f"faction_details_v3_{system}_{canon_tf}_{norm_fac_lower}_350"
+            l2_fac_key = f"faction_details_v5_{system}_{canon_tf}_{norm_fac_lower}_{eff_limit}"
+            l2_fac_key_350 = f"faction_details_v5_{system}_{canon_tf}_{norm_fac_lower}_350"
 
             sys_clause = ""
             sys_params = []
@@ -11906,34 +11986,13 @@ class PostgresDatabase:
                 sys_clause = " AND COALESCE(matches.game_system, '40k') = %s"
                 sys_params = [system]
 
+            # Use the exact same canonical date cutoff as get_faction_meta_stats so table and modal windows never diverge
+            meta_p_resolved, resolved_start, _resolved_end, _is_short = PostgresDatabase._resolve_meta_preset_and_dates(timeframe=canon_tf)
             date_clause = ""
             date_params = []
-            now_dt = datetime.now(timezone.utc)
-            # Parameterized date strings replace dynamic PostgreSQL runtime expressions:
-            # matches.match_date >= (CURRENT_DATE - INTERVAL '3 months')
-            # matches.match_date >= (CURRENT_DATE - INTERVAL '6 months')
-            # matches.match_date >= (CURRENT_DATE - INTERVAL '12 months')
-            if canon_tf == "30d":
+            if resolved_start and canon_tf != "all":
                 date_clause = " AND matches.match_date >= %s"
-                date_params = [(now_dt - timedelta(days=31)).strftime("%Y-%m-%d")]
-            elif canon_tf == "60d":
-                date_clause = " AND matches.match_date >= %s"
-                date_params = [(now_dt - timedelta(days=62)).strftime("%Y-%m-%d")]
-            elif canon_tf == "3mo":
-                date_clause = " AND matches.match_date >= %s"
-                date_params = [(now_dt - timedelta(days=92)).strftime("%Y-%m-%d")]
-            elif canon_tf == "6mo":
-                date_clause = " AND matches.match_date >= %s"
-                date_params = [(now_dt - timedelta(days=183)).strftime("%Y-%m-%d")]
-            elif canon_tf == "ytd":
-                date_clause = " AND matches.match_date >= %s"
-                date_params = [f"{now_dt.year}-01-01"]
-            elif canon_tf == "1yr" or not canon_tf:
-                date_clause = " AND matches.match_date >= %s"
-                date_params = [(now_dt - timedelta(days=366)).strftime("%Y-%m-%d")]
-            elif canon_tf == "all":
-                date_clause = ""
-                date_params = []
+                date_params = [resolved_start]
 
             top_players: List[Dict[str, Any]] = []
             recent_matches: List[Dict[str, Any]] = []
@@ -11941,7 +12000,7 @@ class PostgresDatabase:
             meta_fac_info: Optional[Dict[str, Any]] = None
 
             tf_to_meta_preset = {"30d": "30d", "60d": "60d", "3mo": "90d", "6mo": "180d", "1yr": "1yr", "ytd": "ytd", "all": "all"}
-            meta_p = tf_to_meta_preset.get(canon_tf)
+            meta_p = tf_to_meta_preset.get(canon_tf) or meta_p_resolved
 
             def _extract_from_meta_payload(meta_payload: Dict[str, Any]):
                 nonlocal matchups, meta_fac_info
@@ -11950,22 +12009,24 @@ class PostgresDatabase:
                 fac_list = meta_payload.get("factions")
                 if isinstance(fac_list, list):
                     for f_row in fac_list:
-                        if str(f_row.get("faction") or "").strip().lower() == norm_fac_lower:
+                        row_fac_norm = (PostgresDatabase.canonicalize_faction_name(f_row.get("faction")) or str(f_row.get("faction") or "")).strip().lower()
+                        if row_fac_norm == norm_fac_lower:
                             meta_fac_info = f_row
                             break
                 mu_by_fac = meta_payload.get("matchups_by_faction")
                 if isinstance(mu_by_fac, dict):
-                    found_mu = mu_by_fac.get(faction_name.strip())
+                    found_mu = mu_by_fac.get(canon_fac_name) or mu_by_fac.get(faction_name.strip())
                     if not found_mu:
                         for k_fac, v_list in mu_by_fac.items():
-                            if str(k_fac).strip().lower() == norm_fac_lower:
+                            k_norm = (PostgresDatabase.canonicalize_faction_name(k_fac) or str(k_fac)).strip().lower()
+                            if k_norm == norm_fac_lower:
                                 found_mu = v_list
                                 break
                     if isinstance(found_mu, list) and len(found_mu) > 0:
                         matchups = sorted(
                             [
                                 {
-                                    "opponent_faction": m.get("opponent_faction", ""),
+                                    "opponent_faction": PostgresDatabase.canonicalize_faction_name(m.get("opponent_faction", "")),
                                     "total_matches": int(m.get("total_matches") or m.get("matches") or 0),
                                     "wins": int(m.get("wins") or 0),
                                     "losses": int(m.get("losses") or 0),
@@ -11974,6 +12035,7 @@ class PostgresDatabase:
                                     "avg_margin": float(m.get("avg_margin") or 0.0),
                                 }
                                 for m in found_mu
+                                if not PostgresDatabase.is_super_or_empty_faction(m.get("opponent_faction", ""))
                             ],
                             key=lambda x: (x["win_rate"], x["total_matches"]),
                             reverse=True,
@@ -11993,8 +12055,8 @@ class PostgresDatabase:
                     with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                         if not is_mock_self:
                             try:
-                                # Single connection checkout with tight timeout and backward B-tree index scan
-                                cursor.execute("SET LOCAL statement_timeout = '650ms';")
+                                # Single connection checkout with generous 3000ms timeout and backward B-tree index scan
+                                cursor.execute("SET LOCAL statement_timeout = '3000ms';")
                                 cursor.execute("SET LOCAL enable_bitmapscan = off;")
                             except Exception:
                                 pass
@@ -12011,7 +12073,7 @@ class PostgresDatabase:
                                     p_ts = p_row.get("ts") if isinstance(p_row, dict) else (p_row[1] if p_row and len(p_row) > 1 else 0.0)
                                     if raw_val:
                                         parsed = json.loads(raw_val)
-                                        if isinstance(parsed, dict) and "matches" in parsed and "matchups" in parsed:
+                                        if _is_valid_cached_details(parsed):
                                             self.set_cached(self._faction_details_cache_dict, cache_key, parsed, max_size=1500)
                                             self.set_cached(self._faction_details_cache_dict, canon_cache_key, parsed, max_size=1500)
                                             self.set_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, eff_limit), parsed, max_size=1500)
@@ -12044,15 +12106,14 @@ class PostgresDatabase:
                                 except Exception:
                                     pass
 
-                            # 2. If matchups not in L1 memory yet, check L2 meta_intel_v5/v4/v2 cache on the same cursor (0ms vs full table scan)
-                            if not _force_refresh and not matchups and meta_p:
+                            # 2. If matchups/meta_fac_info not in L1 memory yet, check L2 meta_intel_v8 cache on the same cursor (0ms vs full table scan)
+                            if (not matchups or meta_fac_info is None) and meta_p:
                                 try:
-                                    l2_meta_key_v5 = f"meta_intel_v5_{system}_{meta_p}"
-                                    l2_meta_key_v4 = f"meta_intel_v4_{system}_{meta_p}"
-                                    l2_meta_key_v2 = f"meta_intel_v2_{system}_preset_{meta_p}"
+                                    l2_meta_key_v8 = f"meta_intel_v8_{system}_{meta_p}"
+                                    l2_meta_key_v8_leg = f"meta_intel_v8_legacy_{system}_{meta_p}"
                                     cursor.execute(
-                                        "SELECT value, EXTRACT(EPOCH FROM updated_at) AS ts FROM system_settings WHERE key IN (%s, %s, %s) ORDER BY updated_at DESC LIMIT 1;",
-                                        (l2_meta_key_v5, l2_meta_key_v4, l2_meta_key_v2)
+                                        "SELECT value, EXTRACT(EPOCH FROM updated_at) AS ts FROM system_settings WHERE key IN (%s, %s) ORDER BY updated_at DESC LIMIT 1;",
+                                        (l2_meta_key_v8, l2_meta_key_v8_leg)
                                     )
                                     m_row = cursor.fetchone()
                                     m_val = m_row.get("value") if isinstance(m_row, dict) else (m_row[0] if m_row else None)
@@ -12078,6 +12139,15 @@ class PostgresDatabase:
             except Exception as err:
                 logger.warning(f"Error fetching faction details for {faction_name} ({system}, {tf}): {err}")
 
+            # 3. Guarantee 100% consistency with Meta Intel table if meta_fac_info wasn't loaded yet
+            if not is_mock_self and meta_p and (meta_fac_info is None or not matchups):
+                try:
+                    meta_live = self.get_faction_meta_stats(timeframe=meta_p, game_system=system)
+                    if isinstance(meta_live, dict):
+                        _extract_from_meta_payload(meta_live)
+                except Exception:
+                    pass
+
             # Recent sample metrics
             total_m = len(recent_matches)
             total_w = sum(1 for m in recent_matches if m.get("outcome") == "W")
@@ -12100,7 +12170,7 @@ class PostgresDatabase:
             mu_total_losses = sum(int(m.get("losses") or 0) for m in matchups) if matchups else total_l
             mu_total_draws = sum(int(m.get("draws") or 0) for m in matchups) if matchups else total_d
 
-            use_meta_totals = bool(meta_fac_info and int(meta_fac_info.get("total_matches") or 0) >= mu_total_matches)
+            use_meta_totals = bool(meta_fac_info and int(meta_fac_info.get("total_matches") or 0) > 0)
             total_faction_matches = int(meta_fac_info.get("total_matches") or mu_total_matches) if use_meta_totals else mu_total_matches
             total_faction_wins = int(meta_fac_info.get("wins") or mu_total_wins) if use_meta_totals else mu_total_wins
             total_faction_losses = int(meta_fac_info.get("losses") or mu_total_losses) if use_meta_totals else mu_total_losses
@@ -12193,29 +12263,31 @@ class PostgresDatabase:
                 "matches": recent_matches,
                 "matchups": matchups
             }
-            self.set_cached(self._faction_details_cache_dict, cache_key, res, max_size=1500)
-            self.set_cached(self._faction_details_cache_dict, canon_cache_key, res, max_size=1500)
-            if not clean_search:
-                self.set_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, eff_limit), res, max_size=1500)
-            if not is_mock_self and not clean_search:
-                def _persist_l2_async(k_str: str, payload_obj: Dict[str, Any]):
-                    try:
-                        with self.get_connection() as c_bg:
-                            with c_bg.cursor() as cur_store:
-                                cur_store.execute("SET LOCAL statement_timeout = '2000ms';")
-                                cur_store.execute(
-                                    """
-                                    INSERT INTO system_settings (key, value, updated_at)
-                                    VALUES (%s, %s, NOW())
-                                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
-                                    """,
-                                    (k_str, json.dumps(payload_obj, default=str))
-                                )
-                            c_bg.commit()
-                    except Exception:
-                        pass
+            should_cache = is_mock_self or (len(recent_matches) > 0 and (len(matchups) > 0 or total_faction_matches <= 1))
+            if should_cache:
+                self.set_cached(self._faction_details_cache_dict, cache_key, res, max_size=1500)
+                self.set_cached(self._faction_details_cache_dict, canon_cache_key, res, max_size=1500)
+                if not clean_search:
+                    self.set_cached(self._faction_details_cache_dict, (norm_fac_lower, system, canon_tf, eff_limit), res, max_size=1500)
+                if not is_mock_self and not clean_search:
+                    def _persist_l2_async(k_str: str, payload_obj: Dict[str, Any]):
+                        try:
+                            with self.get_connection() as c_bg:
+                                with c_bg.cursor() as cur_store:
+                                    cur_store.execute("SET LOCAL statement_timeout = '2000ms';")
+                                    cur_store.execute(
+                                        """
+                                        INSERT INTO system_settings (key, value, updated_at)
+                                        VALUES (%s, %s, NOW())
+                                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
+                                        """,
+                                        (k_str, json.dumps(payload_obj, default=str))
+                                    )
+                                c_bg.commit()
+                        except Exception:
+                            pass
 
-                threading.Thread(target=_persist_l2_async, args=(l2_fac_key, res), daemon=True).start()
+                    threading.Thread(target=_persist_l2_async, args=(l2_fac_key, res), daemon=True).start()
 
             return res
 
@@ -12239,7 +12311,8 @@ class PostgresDatabase:
                     "Astra Militarum", "World Eaters", "Grey Knights", "Blood Angels",
                     "Dark Angels", "Black Templars", "Thousand Sons", "Adepta Sororitas",
                     "Chaos Daemons", "Imperial Knights", "Chaos Knights", "Drukhari",
-                    "Genestealer Cults", "Leagues of Votann", "Adeptus Mechanicus"
+                    "Genestealer Cults", "Leagues of Votann", "Adeptus Mechanicus",
+                    "Space Wolves", "Emperor's Children", "Imperial Agents", "Deathwatch"
                 ]
 
             raw_factions = self.get_factions(game_system=game_system)
@@ -12252,15 +12325,20 @@ class PostgresDatabase:
             if raw_factions and isinstance(raw_factions, list):
                 for f in raw_factions:
                     fname = f.get("name") or f.get("faction") if isinstance(f, dict) else str(f).strip()
-                    if fname and fname.lower() not in seen:
-                        ordered_factions.append(fname)
-                        seen.add(fname.lower())
+                    if fname and not PostgresDatabase.is_super_or_empty_faction(fname):
+                        fname = PostgresDatabase.canonicalize_faction_name(fname) or fname
+                        if fname.lower() not in seen:
+                            ordered_factions.append(fname)
+                            seen.add(fname.lower())
 
             target_factions = ordered_factions[:max_factions]
             warmed = 0
             for fname in target_factions:
                 if fname:
-                    self.get_faction_details(fname, limit=100, game_system=game_system, timeframe=timeframe, _from_bg_warm=True)
+                    try:
+                        self.get_faction_details(fname, limit=100, game_system=game_system, timeframe=timeframe, _from_bg_warm=True)
+                    except TypeError:
+                        self.get_faction_details(fname, limit=100, game_system=game_system, timeframe=timeframe)
                     warmed += 1
 
             is_mock_self = self._is_mock_instance()
@@ -12271,12 +12349,12 @@ class PostgresDatabase:
                     PostgresDatabase._faction_bg_warmed_keys.add(bg_rem_key)
                     def _bg_warm_all_remaining():
                         try:
-                            for fname in remaining_factions:
+                            for fname in ordered_factions:
                                 if not fname:
                                     continue
-                                for tf_warm in ("1yr", "all", "6mo"):
+                                for tf_warm in ("3mo", "1yr", "6mo", "all"):
                                     try:
-                                        self.get_faction_details(fname, limit=100, game_system=game_system, timeframe=tf_warm, _from_bg_warm=True)
+                                        self.get_faction_details(fname, limit=350, game_system=game_system, timeframe=tf_warm, _from_bg_warm=True)
                                         time.sleep(0.05)
                                     except Exception:
                                         pass
