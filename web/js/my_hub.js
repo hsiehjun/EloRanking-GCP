@@ -3479,8 +3479,27 @@ function mergeHubNewRecruitLists(localLists, cloudLists) {
       mergedMap.set(lk, item);
     } else {
       const existing = mergedMap.get(lk);
-      // Prefer local list if it has more recent edits or units, while preserving Cloud badge if synced
-      if (item.source_format && String(item.source_format).includes('Cloud')) {
+      const exRow = (existing && existing.nr_row) || {};
+      const inRow = (item && item.nr_row) || {};
+      const exVer = Number(exRow.version || existing.version || 0);
+      const inVer = Number(inRow.version || item.version || 0);
+      const exDt = String(exRow.date_mod || existing.updated_at || '');
+      const inDt = String(inRow.date_mod || item.updated_at || '');
+      const exSynced = exRow.synced !== false && exRow.synced !== 0;
+      const inIsCloud = Boolean(item.source_format && String(item.source_format).includes('Cloud'));
+      const cloudIsNewer = Boolean(
+        inIsCloud && (
+          (inVer > 0 && exVer > 0 && inVer > exVer) ||
+          (inVer === exVer && inDt && exDt && inDt > exDt) ||
+          (exSynced && inVer >= exVer && (Number(item.points || 0) !== Number(existing.points || 0) || JSON.stringify(inRow.army || {}) !== JSON.stringify(exRow.army || {})))
+        )
+      );
+      if (cloudIsNewer) {
+        mergedMap.set(lk, item);
+        if (item.nr_row && typeof writeNrRowToSameOriginIdb === 'function') {
+          writeNrRowToSameOriginIdb(Object.assign({}, item.nr_row, { synced: true })).catch(() => {});
+        }
+      } else if (inIsCloud) {
         existing.source_format = item.source_format;
       }
     }
