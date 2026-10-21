@@ -17309,6 +17309,8 @@ try:
             "_estimate_swiss_placement",
             "is_super_or_empty_faction",
             "pick_specific_faction",
+            "canonicalize_faction_name",
+            "get_faction_aliases_lower",
         },
         quiet_methods={"get_cached", "set_cached", "_is_mock_instance"},
     )
