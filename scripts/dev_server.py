@@ -53,15 +53,8 @@ _DEV_SYSTEM_FACTIONS_MAP = {
 }
 
 def _get_dev_system_factions(sys_val: str, sys_label: str = "") -> list:
-    from database import PostgresDatabase
-    if sys_val == "40k":
-        return list(PostgresDatabase.DEFAULT_40K_STATS["factions"])
-    if sys_val == "aos":
-        return list(PostgresDatabase.DEFAULT_AOS_STATS["factions"])
-    if sys_val in _DEV_SYSTEM_FACTIONS_MAP:
-        return list(_DEV_SYSTEM_FACTIONS_MAP[sys_val])
-    lbl = sys_label or sys_val.replace("_", " ").title()
-    return [f"{lbl} Vanguard", f"{lbl} Strikeforce", f"{lbl} Syndicate", f"{lbl} Sentinel"]
+    from config import get_default_factions_for_system
+    return get_default_factions_for_system(sys_val)
 
 EVENT_LIVESTREAMS_DB = {
     "ev_ongoing_gt_live": [
@@ -8644,289 +8637,77 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path == "api/factions":
             self.send_response(200)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
-            from config import normalize_game_system, get_game_system_meta
-            from database import PostgresDatabase
+            from config import normalize_game_system, get_default_factions_for_system
             from scripts.local_sqlite_db import get_local_sqlite_db
-            sys_val = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
+            raw_sys = (query_params.get("game_system") or query_params.get("system") or ["40k"])[0]
+            sys_val = normalize_game_system(raw_sys, default="40k")
             is_grouped = "grouped=true" in query_str or "grouped=1" in query_str
             local_db = get_local_sqlite_db()
-            data = None
-            if local_db and sys_val not in ("40k", "aos"):
-                sql_facs = local_db.get_factions_list(game_system=sys_val, grouped=is_grouped)
-                if sql_facs:
-                    data = sql_facs
+            data = local_db.get_factions_list(game_system=sys_val, grouped=is_grouped) if local_db else None
             if not data:
-                data = PostgresDatabase.get_factions(game_system=sys_val, grouped=is_grouped)
-            if not data and local_db:
-                data = local_db.get_factions_list(game_system=sys_val, grouped=is_grouped)
-            if not data and sys_val not in ("40k", "aos"):
-                meta = get_game_system_meta(sys_val)
-                dev_facs = _get_dev_system_factions(sys_val, meta.get("label", ""))
-                data = [{"group": "Factions", "factions": dev_facs}] if is_grouped else dev_facs
-            self.wfile.write(json.dumps(data).encode("utf-8"))
+                dev_facs = get_default_factions_for_system(sys_val)
+                data = [{"group": "Factions & Archetypes", "factions": dev_facs}] if is_grouped else dev_facs
+            if not is_head:
+                self.wfile.write(json.dumps(data, default=str).encode("utf-8"))
             return
 
         if clean_path.startswith("api/factions/meta"):
-            from config import normalize_game_system, get_game_system_meta
-            sys_val = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
-            if sys_val == "aos":
-                f_list = [
-                    {"faction": "Stormcast Eternals", "win_rate": 56.4, "non_mirror_win_rate": 56.8, "total_matches": 420, "wins": 237, "losses": 183, "draws": 0, "meta_share": 18.2, "ci_margin": 3.8, "unique_pilots": 112, "x0_runs": 14, "x1_runs": 28, "tiwp_rate": 12.5, "over_rep_ratio": 1.38, "avg_score": 31.8, "avg_opp_score": 25.4, "avg_margin": 6.4, "tier": "S", "tier_label": "Overperforming (55%+)", "best_matchup": {"faction": "Skaven", "win_rate": 63.2, "matches": 38}, "worst_matchup": {"faction": "Nighthaunt", "win_rate": 46.2, "matches": 26}},
-                    {"faction": "Blades of Khorne", "win_rate": 53.1, "non_mirror_win_rate": 53.4, "total_matches": 310, "wins": 165, "losses": 145, "draws": 0, "meta_share": 13.4, "ci_margin": 4.5, "unique_pilots": 84, "x0_runs": 9, "x1_runs": 19, "tiwp_rate": 10.7, "over_rep_ratio": 1.15, "avg_score": 29.5, "avg_opp_score": 26.8, "avg_margin": 2.7, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "Sylvaneth", "win_rate": 61.0, "matches": 24}, "worst_matchup": {"faction": "Stormcast Eternals", "win_rate": 44.8, "matches": 29}},
-                    {"faction": "Skaven", "win_rate": 50.2, "non_mirror_win_rate": 50.2, "total_matches": 290, "wins": 146, "losses": 144, "draws": 0, "meta_share": 12.6, "ci_margin": 4.7, "unique_pilots": 79, "x0_runs": 6, "x1_runs": 15, "tiwp_rate": 7.6, "over_rep_ratio": 0.94, "avg_score": 27.9, "avg_opp_score": 27.5, "avg_margin": 0.4, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "Gloomspite Gitz", "win_rate": 58.3, "matches": 24}, "worst_matchup": {"faction": "Stormcast Eternals", "win_rate": 36.8, "matches": 38}},
-                    {"faction": "Daughters of Khaine", "win_rate": 52.0, "non_mirror_win_rate": 52.3, "total_matches": 210, "wins": 109, "losses": 101, "draws": 0, "meta_share": 9.1, "ci_margin": 5.5, "unique_pilots": 58, "x0_runs": 5, "x1_runs": 12, "tiwp_rate": 8.6, "over_rep_ratio": 1.08, "avg_score": 28.2, "avg_opp_score": 26.9, "avg_margin": 1.3, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "Cities of Sigmar", "win_rate": 60.0, "matches": 20}, "worst_matchup": {"faction": "Blades of Khorne", "win_rate": 45.0, "matches": 20}}
-                ]
-                trends = [
-                    {"month": "2026-06", "faction": "Stormcast Eternals", "win_rate": 55.0, "matches_in_month": 40, "meta_share": 17.5},
-                    {"month": "2026-07", "faction": "Stormcast Eternals", "win_rate": 56.2, "matches_in_month": 42, "meta_share": 18.0},
-                    {"month": "2026-08", "faction": "Stormcast Eternals", "win_rate": 56.4, "matches_in_month": 45, "meta_share": 18.2}
-                ]
-            elif sys_val != "40k":
-                meta = get_game_system_meta(sys_val)
-                dev_facs = _get_dev_system_factions(sys_val, meta.get("label", ""))
-                sample_wrs = [55.8, 53.6, 51.9, 50.4, 48.9, 47.2]
-                f_list = []
-                from scripts.local_sqlite_db import get_local_sqlite_db
-                local_db = get_local_sqlite_db()
-                sql_meta = local_db.get_system_setting(f"meta_intel_v5_{sys_val}_90") if local_db else None
-                sql_factions = (sql_meta.get("factions") if isinstance(sql_meta, dict) else []) or []
-                sql_factions = [
-                    sf for sf in sql_factions
-                    if sf.get("faction")
-                    and "+" not in str(sf.get("faction"))
-                    and str(sf.get("faction")).lower() not in ("unknown", "none", "commander pod", "commander deck", "standard deck", "premier deck", "unassigned")
-                ]
-                if len(sql_factions) >= 2:
-                    all_names = [sf["faction"] for sf in sql_factions[:12]]
-                    for idx, sf in enumerate(sql_factions[:12]):
-                        fac_nm = sf["faction"]
-                        wr = float(sf.get("win_rate") or sample_wrs[idx % len(sample_wrs)])
-                        tot_m = max(1, int(sf.get("matches_played") or 10))
-                        wins_c = int(sf.get("wins") or 0)
-                        losses_c = int(sf.get("losses") or 0)
-                        draws_c = int(sf.get("draws") or 0)
-                        best_opp = all_names[(idx + 1) % len(all_names)]
-                        worst_opp = all_names[(idx + 2) % len(all_names)]
-                        f_list.append({
-                            "faction": fac_nm,
-                            "win_rate": wr,
-                            "non_mirror_win_rate": wr,
-                            "total_matches": tot_m,
-                            "wins": wins_c,
-                            "losses": losses_c,
-                            "draws": draws_c,
-                            "meta_share": float(sf.get("meta_share") or round(100.0 / len(all_names), 1)),
-                            "ci_margin": 3.5,
-                            "unique_pilots": max(2, tot_m // 3),
-                            "x0_runs": max(1, wins_c // 3),
-                            "x1_runs": max(2, wins_c // 2),
-                            "tiwp_rate": round(min(25.0, max(4.5, wr / 4.5)), 1),
-                            "over_rep_ratio": round(max(0.82, wr / 48.0), 2),
-                            "avg_score": round(18.5 - (idx % 5) * 0.6, 1),
-                            "avg_opp_score": round(14.2 + (idx % 5) * 0.4, 1),
-                            "avg_margin": round(4.3 - (idx % 5) * 1.0, 1),
-                            "tier": "S" if wr >= 55.0 else ("A" if wr >= 50.0 else "B"),
-                            "tier_label": "Overperforming (55%+)" if wr >= 55.0 else ("Balanced High (50-55%)" if wr >= 50.0 else "Balanced Low (45-50%)"),
-                            "best_matchup": {"faction": best_opp, "win_rate": 61.5, "matches": max(2, tot_m // 2)},
-                            "worst_matchup": {"faction": worst_opp, "win_rate": 43.8, "matches": max(2, tot_m // 2)},
-                            "detachments": sf.get("detachments") or [],
-                        })
-                if not f_list:
-                    for idx, fac_nm in enumerate(dev_facs[:6]):
-                        wr = sample_wrs[idx % len(sample_wrs)]
-                        tot_m = max(40, 220 - idx * 28)
-                        wins_c = int(round(tot_m * wr / 100.0))
-                        losses_c = tot_m - wins_c
-                        best_opp = dev_facs[(idx + 1) % len(dev_facs)]
-                        worst_opp = dev_facs[(idx + 2) % len(dev_facs)]
-                        f_list.append({
-                            "faction": fac_nm,
-                            "win_rate": wr,
-                            "non_mirror_win_rate": round(wr + 0.3, 1),
-                            "total_matches": tot_m,
-                            "wins": wins_c,
-                            "losses": losses_c,
-                            "draws": 0,
-                            "meta_share": round(100.0 / max(1, len(dev_facs[:6])), 1),
-                            "ci_margin": 3.5,
-                            "unique_pilots": max(15, tot_m // 3),
-                            "x0_runs": max(2, 10 - idx * 2),
-                            "x1_runs": max(5, 22 - idx * 3),
-                            "tiwp_rate": round(max(4.5, 12.8 - idx * 1.4), 1),
-                            "over_rep_ratio": round(max(0.82, 1.36 - idx * 0.11), 2),
-                            "avg_score": round(18.5 - idx * 0.6, 1),
-                            "avg_opp_score": round(14.2 + idx * 0.4, 1),
-                            "avg_margin": round(4.3 - idx * 1.0, 1),
-                            "tier": "S" if wr >= 55.0 else ("A" if wr >= 50.0 else "B"),
-                            "tier_label": "Overperforming (55%+)" if wr >= 55.0 else ("Balanced High (50-55%)" if wr >= 50.0 else "Balanced Low (45-50%)"),
-                            "best_matchup": {"faction": best_opp, "win_rate": 61.5, "matches": 18},
-                            "worst_matchup": {"faction": worst_opp, "win_rate": 43.8, "matches": 16},
-                        })
-                top_f_name = f_list[0]["faction"] if f_list else dev_facs[0]
-                trends = [
-                    {"month": "2026-06", "faction": top_f_name, "win_rate": 54.5, "matches_in_month": 28, "meta_share": 18.0},
-                    {"month": "2026-07", "faction": top_f_name, "win_rate": 55.2, "matches_in_month": 32, "meta_share": 18.5},
-                    {"month": "2026-08", "faction": top_f_name, "win_rate": 55.8, "matches_in_month": 36, "meta_share": 19.0},
-                ]
-            else:
-                f_list = [
-                    {"faction": "Drukhari", "win_rate": 55.1, "non_mirror_win_rate": 55.4, "total_matches": 700, "wins": 384, "losses": 313, "draws": 3, "meta_share": 4.7, "ci_margin": 1.9, "unique_pilots": 410, "x0_runs": 18, "x1_runs": 42, "tiwp_rate": 11.2, "over_rep_ratio": 1.48, "avg_score": 78.4, "avg_opp_score": 69.2, "avg_margin": 9.2, "tier": "S", "tier_label": "Overperforming (55%+)", "best_matchup": {"faction": "Imperial Knights", "win_rate": 64.5, "matches": 31}, "worst_matchup": {"faction": "Adeptus Custodes", "win_rate": 44.1, "matches": 34}},
-                    {"faction": "Emperor's Children", "win_rate": 54.8, "non_mirror_win_rate": 55.0, "total_matches": 580, "wins": 318, "losses": 255, "draws": 7, "meta_share": 3.9, "ci_margin": 2.1, "unique_pilots": 320, "x0_runs": 14, "x1_runs": 33, "tiwp_rate": 10.4, "over_rep_ratio": 1.38, "avg_score": 79.4, "avg_opp_score": 70.6, "avg_margin": 8.8, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "World Eaters", "win_rate": 62.5, "matches": 24}, "worst_matchup": {"faction": "Death Guard", "win_rate": 45.8, "matches": 24}},
-                    {"faction": "Necrons", "win_rate": 53.2, "non_mirror_win_rate": 53.5, "total_matches": 1200, "wins": 638, "losses": 540, "draws": 22, "meta_share": 8.1, "ci_margin": 1.5, "unique_pilots": 640, "x0_runs": 26, "x1_runs": 64, "tiwp_rate": 9.8, "over_rep_ratio": 1.24, "avg_score": 78.1, "avg_opp_score": 71.8, "avg_margin": 6.3, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "Orks", "win_rate": 59.4, "matches": 64}, "worst_matchup": {"faction": "Thousand Sons", "win_rate": 44.7, "matches": 38}},
-                    {"faction": "Adeptus Custodes", "win_rate": 52.8, "non_mirror_win_rate": 53.0, "total_matches": 1050, "wins": 554, "losses": 482, "draws": 14, "meta_share": 7.1, "ci_margin": 1.6, "unique_pilots": 590, "x0_runs": 33, "x1_runs": 71, "tiwp_rate": 11.4, "over_rep_ratio": 1.80, "avg_score": 79.8, "avg_opp_score": 72.1, "avg_margin": 7.7, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "World Eaters", "win_rate": 63.8, "matches": 58}, "worst_matchup": {"faction": "Death Guard", "win_rate": 43.5, "matches": 46}},
-                    {"faction": "Space Marines", "win_rate": 51.5, "non_mirror_win_rate": 51.7, "total_matches": 2100, "wins": 1081, "losses": 980, "draws": 39, "meta_share": 14.2, "ci_margin": 1.1, "unique_pilots": 1120, "x0_runs": 31, "x1_runs": 88, "tiwp_rate": 7.2, "over_rep_ratio": 0.85, "avg_score": 76.5, "avg_opp_score": 74.1, "avg_margin": 2.4, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "Astra Militarum", "win_rate": 56.2, "matches": 89}, "worst_matchup": {"faction": "Drukhari", "win_rate": 45.2, "matches": 42}},
-                    {"faction": "World Eaters", "win_rate": 51.0, "non_mirror_win_rate": 51.2, "total_matches": 880, "wins": 449, "losses": 421, "draws": 10, "meta_share": 5.9, "ci_margin": 1.7, "unique_pilots": 495, "x0_runs": 16, "x1_runs": 44, "tiwp_rate": 8.4, "over_rep_ratio": 1.05, "avg_score": 77.2, "avg_opp_score": 75.0, "avg_margin": 2.2, "tier": "A", "tier_label": "Balanced High (50-55%)", "best_matchup": {"faction": "Chaos Knights", "win_rate": 61.5, "matches": 39}, "worst_matchup": {"faction": "Adeptus Custodes", "win_rate": 36.2, "matches": 58}},
-                    {"faction": "Aeldari", "win_rate": 49.8, "non_mirror_win_rate": 49.9, "total_matches": 950, "wins": 473, "losses": 460, "draws": 17, "meta_share": 6.4, "ci_margin": 1.6, "unique_pilots": 530, "x0_runs": 19, "x1_runs": 48, "tiwp_rate": 8.9, "over_rep_ratio": 1.14, "avg_score": 75.2, "avg_opp_score": 75.4, "avg_margin": -0.2, "tier": "B", "tier_label": "Balanced Low (45-50%)", "best_matchup": {"faction": "Imperial Knights", "win_rate": 58.8, "matches": 34}, "worst_matchup": {"faction": "Necrons", "win_rate": 44.4, "matches": 54}}
-                ]
-                trends = [
-                    {"month": "2026-06", "faction": "Emperor's Children", "win_rate": 53.5, "matches_in_month": 80, "meta_share": 3.8},
-                    {"month": "2026-07", "faction": "Emperor's Children", "win_rate": 54.2, "matches_in_month": 95, "meta_share": 3.9},
-                    {"month": "2026-08", "faction": "Emperor's Children", "win_rate": 54.8, "matches_in_month": 110, "meta_share": 4.1},
-                    {"month": "2026-08", "faction": "Necrons", "win_rate": 53.2, "matches_in_month": 150, "meta_share": 8.1}
-                ]
-
-            most_pop_fac = max(f_list, key=lambda x: x.get("total_matches", 0)) if f_list else {"faction": "Unknown", "meta_share": 0.0, "total_matches": 0, "win_rate": 0.0, "unique_pilots": 0}
-            top_win_fac = max(f_list, key=lambda x: x.get("x0_runs", 0)) if f_list else {"faction": "Unknown", "x0_runs": 0, "x1_runs": 0, "tiwp_rate": 0.0, "over_rep_ratio": 1.0, "win_rate": 0.0}
-            summary_kpis = {
-                "total_matches": sum(x["total_matches"] for x in f_list) if sys_val != "40k" else 14820,
-                "total_appearances": sum(x["total_matches"] for x in f_list) * 2 if sys_val != "40k" else 29640,
-                "total_pilots": sum(x["unique_pilots"] for x in f_list) if sys_val != "40k" else 4105,
-                "total_x0_runs": sum(x["x0_runs"] for x in f_list) if sys_val != "40k" else 127,
-                "total_x1_runs": sum(x["x1_runs"] for x in f_list) if sys_val != "40k" else 340,
-                "active_factions": len(f_list),
-                "goldilocks_count": sum(1 for x in f_list if 45.0 <= x["win_rate"] <= 55.0),
-                "goldilocks_pct": round(sum(1 for x in f_list if 45.0 <= x["win_rate"] <= 55.0) * 100.0 / len(f_list), 1),
-                "most_popular": {"faction": "Space Marines", "meta_share": 14.2, "total_matches": 2100, "win_rate": 51.5, "unique_pilots": 1120} if sys_val == "40k" else {"faction": most_pop_fac["faction"], "meta_share": most_pop_fac["meta_share"], "total_matches": most_pop_fac["total_matches"], "win_rate": most_pop_fac["win_rate"], "unique_pilots": most_pop_fac["unique_pilots"]},
-                "highest_win_rate": {"faction": f_list[0]["faction"], "win_rate": f_list[0]["win_rate"], "non_mirror_win_rate": f_list[0].get("non_mirror_win_rate", f_list[0]["win_rate"]), "total_matches": f_list[0]["total_matches"], "meta_share": f_list[0].get("meta_share", 5.0)},
-                "top_event_winner": {"faction": "Adeptus Custodes", "x0_runs": 33, "x1_runs": 71, "tiwp_rate": 11.4, "over_rep_ratio": 1.80, "win_rate": 52.8} if sys_val == "40k" else {"faction": top_win_fac["faction"], "x0_runs": top_win_fac["x0_runs"], "x1_runs": top_win_fac["x1_runs"], "tiwp_rate": top_win_fac["tiwp_rate"], "over_rep_ratio": top_win_fac["over_rep_ratio"], "win_rate": top_win_fac["win_rate"]},
-                "highest_vp_margin": {"faction": f_list[0]["faction"], "avg_margin": f_list[0].get("avg_margin", 9.2), "avg_score": f_list[0].get("avg_score", 78.4), "avg_opp_score": f_list[0].get("avg_opp_score", 69.2), "win_rate": f_list[0]["win_rate"]},
-            }
-
+            from config import normalize_game_system
+            from scripts.local_sqlite_db import get_local_sqlite_db
+            raw_sys = (query_params.get("game_system") or query_params.get("system") or ["40k"])[0]
+            sys_val = normalize_game_system(raw_sys, default="40k")
+            tf_val = (query_params.get("timeframe") or ["90d"])[0]
+            start_d = (query_params.get("start_date") or [None])[0]
+            end_d = (query_params.get("end_date") or [None])[0]
+            local_db = get_local_sqlite_db()
+            meta_res = local_db.get_faction_meta_stats(
+                game_system=sys_val,
+                start_date=start_d,
+                end_date=end_d,
+                timeframe=tf_val,
+            )
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps({
-                    "game_system": sys_val,
-                    "factions": f_list,
-                    "monthly_trends": trends,
-                    "summary_kpis": summary_kpis,
-                    "matchup_matrix": {"factions": [x["faction"] for x in f_list[:6]], "cells": {}},
-                    "total_factions_tracked": len(f_list),
-                    "filter": {"granularity": "Monthly"}
-                }).encode("utf-8"))
+                self.wfile.write(json.dumps(meta_res, default=str).encode("utf-8"))
             return
 
         if clean_path.startswith("api/faction/"):
             from config import normalize_game_system
             from scripts.local_sqlite_db import get_local_sqlite_db
             local_db = get_local_sqlite_db()
-            fname = urllib.parse.unquote(clean_path.replace("api/faction/", "").strip("/"))
-            sys_val = normalize_game_system((query_params.get("game_system") or ["40k"])[0], default="40k")
-            tf_val = "1yr"
-            for cand_tf in ("30d", "3mo", "6mo", "1yr", "all"):
-                if f"timeframe={cand_tf}" in query_str:
-                    tf_val = cand_tf
-                    break
-            qp_fac_early = urllib.parse.parse_qs(query_str)
-            search_q_early = (qp_fac_early.get("search", [""])[0] or "").strip()
-            if local_db and sys_val != "40k":
-                sql_fac_detail = local_db.get_faction_details(fname, game_system=sys_val, timeframe=tf_val, search=search_q_early)
-                if sql_fac_detail:
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json; charset=utf-8")
-                    self.end_headers()
-                    if not is_head:
-                        self.wfile.write(json.dumps(sql_fac_detail, default=str).encode("utf-8"))
-                    return
-
-            matchups_list = [
-                {"opponent_faction": "Imperial Knights", "total_matches": 31, "wins": 20, "losses": 11, "draws": 0, "win_rate": 64.5, "avg_margin": 11.4},
-                {"opponent_faction": "Necrons", "total_matches": 24, "wins": 15, "losses": 9, "draws": 0, "win_rate": 62.5, "avg_margin": 8.6},
-                {"opponent_faction": "Space Marines", "total_matches": 20, "wins": 12, "losses": 8, "draws": 0, "win_rate": 60.0, "avg_margin": 6.9},
-                {"opponent_faction": "Aeldari", "total_matches": 18, "wins": 10, "losses": 7, "draws": 1, "win_rate": 55.6, "avg_margin": 4.2},
-                {"opponent_faction": "Tyranids", "total_matches": 15, "wins": 8, "losses": 7, "draws": 0, "win_rate": 53.3, "avg_margin": 2.1},
-                {"opponent_faction": "Chaos Space Marines", "total_matches": 14, "wins": 7, "losses": 7, "draws": 0, "win_rate": 50.0, "avg_margin": 0.4},
-                {"opponent_faction": "World Eaters", "total_matches": 16, "wins": 7, "losses": 9, "draws": 0, "win_rate": 43.8, "avg_margin": -3.8},
-                {"opponent_faction": "Adeptus Custodes", "total_matches": 18, "wins": 7, "losses": 11, "draws": 0, "win_rate": 38.9, "avg_margin": -8.2},
-            ]
-            tot_m = sum(m["total_matches"] for m in matchups_list)
-            tot_w = sum(m["wins"] for m in matchups_list)
-            tot_l = sum(m["losses"] for m in matchups_list)
-            tot_d = sum(m["draws"] for m in matchups_list)
-            wr_pct = round(tot_w * 100.0 / max(1, tot_m), 1)
-
-            all_dev_matches = [
-                {"id": "m_fac_lvo_1", "event_id": "7ohG0RuDqC1k", "event_name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open", "round": 6, "match_date": "2026-10-04", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 96, "opponent_id": "p_opp_lvo1", "opponent_name": "John Lennon", "opponent_faction": "Adeptus Custodes", "opponent_score": 74, "outcome": "W"},
-                {"id": "m_fac_lvo_2", "event_id": "7ohG0RuDqC1k", "event_name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open", "round": 5, "match_date": "2026-10-03", "player_id": "p_david", "player_name": "David Gaylard", "player_faction": fname, "player_score": 88, "opponent_id": "p_opp_lvo2", "opponent_name": "tamamo cross", "opponent_faction": "Adeptus Mechanicus", "opponent_score": 77, "outcome": "W"},
-                {"id": "m_fac_lvo_3", "event_id": "7ohG0RuDqC1k", "event_name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open", "round": 1, "match_date": "2026-10-02", "player_id": "p_jack", "player_name": "Jack Harpster", "player_faction": fname, "player_score": 77, "opponent_id": "p_opp_lvo3", "opponent_name": "Joshua Vernon", "opponent_faction": "Imperial Knights", "opponent_score": 94, "outcome": "L"},
-                {"id": "m_fac_1", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 5, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 92, "opponent_id": "p_opp1", "opponent_name": "John Lennon", "opponent_faction": "Ultramarines", "opponent_score": 78, "outcome": "W"},
-                {"id": "m_fac_2", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 4, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 85, "opponent_id": "p_opp2", "opponent_name": "David Gaylard", "opponent_faction": "Necrons", "opponent_score": 72, "outcome": "W"},
-                {"id": "m_fac_3", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 3, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 90, "opponent_id": "p_opp3", "opponent_name": "Manny Cheema", "opponent_faction": "Aeldari", "opponent_score": 68, "outcome": "W"},
-                {"id": "m_fac_4", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 2, "match_date": "2026-09-14", "player_id": "p_david", "player_name": "David Gaylard", "player_faction": fname, "player_score": 65, "opponent_id": "p_opp4", "opponent_name": "Richard Siegler", "opponent_faction": "Adeptus Custodes", "opponent_score": 88, "outcome": "L"},
-                {"id": "m_fac_5", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 1, "match_date": "2026-09-14", "player_id": "p_jack", "player_name": "Jack Harpster", "player_faction": fname, "player_score": 75, "opponent_id": "p_opp5", "opponent_name": "Brad Chester", "opponent_faction": "Genestealer Cults", "opponent_score": 75, "outcome": "D"}
-            ]
-            qp_fac = urllib.parse.parse_qs(query_str)
-            search_q = (qp_fac.get("search", [""])[0] or "").strip().lower()
-            if search_q:
-                all_dev_matches = [
-                    m for m in all_dev_matches
-                    if search_q in f"{m.get('event_name', '')} {m.get('player_name', '')} {m.get('opponent_name', '')} {m.get('opponent_faction', '')}".lower()
-                ]
-
-            res = {
-                "faction": fname,
-                "game_system": sys_val,
-                "timeframe": tf_val,
-                "stats": {
-                    "total_matches": tot_m,
-                    "total_wins": tot_w,
-                    "total_losses": tot_l,
-                    "total_draws": tot_d,
-                    "win_rate": wr_pct,
-                    "non_mirror_win_rate": wr_pct,
-                    "avg_score": 78.4,
-                    "avg_opp_score": 69.8,
-                    "avg_margin": 8.6,
-                    "meta_share": 6.4,
-                    "unique_pilots": 92,
-                    "x0_runs": 9,
-                    "x1_runs": 24,
-                    "tiwp_rate": 9.8,
-                    "over_rep_ratio": 1.32,
-                    "tier": "A" if wr_pct < 55.0 else "S",
-                    "tier_label": "Balanced High (50-55%)" if wr_pct < 55.0 else "Overperforming (55%+)",
-                    "opponent_factions_count": len(matchups_list),
-                    "favored_matchups_count": sum(1 for m in matchups_list if m["win_rate"] >= 55.0),
-                    "even_matchups_count": sum(1 for m in matchups_list if 45.0 <= m["win_rate"] < 55.0),
-                    "unfavored_matchups_count": sum(1 for m in matchups_list if m["win_rate"] < 45.0),
-                    "best_matchup": {"faction": matchups_list[0]["opponent_faction"], "win_rate": matchups_list[0]["win_rate"], "matches": matchups_list[0]["total_matches"], "wins": matchups_list[0]["wins"], "losses": matchups_list[0]["losses"]},
-                    "worst_matchup": {"faction": matchups_list[-1]["opponent_faction"], "win_rate": matchups_list[-1]["win_rate"], "matches": matchups_list[-1]["total_matches"], "wins": matchups_list[-1]["wins"], "losses": matchups_list[-1]["losses"]},
-                    "total_recent_sample": len(all_dev_matches),
-                    "recent_wins": sum(1 for m in all_dev_matches if m["outcome"] == "W"),
-                    "recent_losses": sum(1 for m in all_dev_matches if m["outcome"] == "L"),
-                    "recent_draws": sum(1 for m in all_dev_matches if m["outcome"] == "D"),
-                    "recent_win_rate": round(sum(1 for m in all_dev_matches if m["outcome"] == "W") * 100.0 / max(1, len(all_dev_matches)), 1),
-                    "top_player_count": 5
-                },
-                "total_matches": tot_m,
-                "top_players": [
-                    {"player_id": "p_innes", "player_name": "Innes Wilson", "team": "Art of War", "current_elo": 2185.4, "matches_played": 28, "wins": 24, "losses": 4, "draws": 0, "win_rate": 85.7, "avg_score": 89.2},
-                    {"player_id": "p_david", "player_name": "David Gaylard", "team": "Team Zero Comp", "current_elo": 2120.0, "matches_played": 22, "wins": 17, "losses": 5, "draws": 0, "win_rate": 77.3, "avg_score": 83.1},
-                    {"player_id": "p_jack", "player_name": "Jack Harpster", "team": "Art of War", "current_elo": 2095.8, "matches_played": 19, "wins": 14, "losses": 5, "draws": 0, "win_rate": 73.7, "avg_score": 81.4},
-                    {"player_id": "p_vik", "player_name": "Vik Vijay", "team": "Team Ignite", "current_elo": 2042.1, "matches_played": 16, "wins": 11, "losses": 5, "draws": 0, "win_rate": 68.8, "avg_score": 79.5},
-                    {"player_id": "p_liam", "player_name": "Liam Hackett", "team": "Down Under", "current_elo": 1998.0, "matches_played": 14, "wins": 9, "losses": 5, "draws": 0, "win_rate": 64.3, "avg_score": 77.0}
-                ],
-                "matches": all_dev_matches,
-                "matchups": matchups_list
-            }
+            fname = urllib.parse.unquote(urllib.parse.unquote(clean_path.replace("api/faction/", "").strip("/")))
+            raw_sys = (query_params.get("game_system") or query_params.get("system") or ["40k"])[0]
+            sys_val = normalize_game_system(raw_sys, default="40k")
+            tf_val = (query_params.get("timeframe") or ["1yr"])[0]
+            search_q_early = ((query_params.get("search") or [""])[0] or "").strip()
+            limit_val = int((query_params.get("limit") or ["150"])[0] or 150)
+            sql_fac_detail = (
+                local_db.get_faction_details(
+                    fname,
+                    game_system=sys_val,
+                    timeframe=tf_val,
+                    search=search_q_early,
+                    limit=limit_val,
+                )
+                if local_db
+                else None
+            )
+            if not sql_fac_detail:
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps({"error": f"Faction '{fname}' not found for {sys_val}"}).encode("utf-8"))
+                return
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps(res).encode("utf-8"))
+                self.wfile.write(json.dumps(sql_fac_detail, default=str).encode("utf-8"))
             return
 
         if clean_path in ("api/nr/detachments", "api/armylists/nr_detachments"):

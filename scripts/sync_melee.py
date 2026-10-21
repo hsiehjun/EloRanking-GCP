@@ -25,10 +25,20 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("elo.job.melee_sync")
 
 DEFAULT_MELEE_TARGETS: List[Tuple[str, str]] = [
-    ("mtg", "428253"),          # Arena Championship 12
-    ("mtg", "72980"),           # Pro Tour Thunder Junction
+    ("mtg", "428253"),          # Arena Championship 12 (2026)
+    ("mtg", "72980"),           # Pro Tour Thunder Junction (2024)
     ("sw_unlimited", "458821"), # Star Wars: Unlimited - 09/10/26
     ("sw_unlimited", "468577"), # SWU - 10/01/26
+]
+
+HISTORICAL_MELEE_TARGETS: List[Tuple[str, str]] = [
+    ("mtg", "5000"),            # Magic Online Society Pauper FNM
+    ("mtg", "8000"),            # SCG Tour Online - Satellite #1 - Standard
+    ("mtg", "14122"),           # Weekday Night Magic
+    ("mtg", "15255"),           # CF SEA - Canadian Highlander Tournament
+    ("lorcana", "65000"),       # Disney Lorcana - Constructed Tournament
+    ("mtg", "150000"),          # Aspettando lo Store Championship
+    ("sw_unlimited", "200000"), # Starwars Unlimited Weekly
 ]
 
 
@@ -38,20 +48,27 @@ def run_melee_sync(
     max_events: Optional[int] = 10,
     event_ids: Optional[List[Tuple[str, str]]] = None,
     sqlite_path: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Executes the Melee.gg tournament sync and incremental Elo reconstruction."""
-    logger.info(f"🚀 Starting Melee.gg Sync Job (game_system={game_system}, days={days}, max_events={max_events})")
+    logger.info(
+        f"🚀 Starting Melee.gg Sync Job (game_system={game_system}, days={days}, "
+        f"start_date={start_date}, end_date={end_date}, max_events={max_events})"
+    )
     db = get_sync_db(sqlite_path=sqlite_path)
 
     target_sys = (game_system or "all").strip().lower()
+    is_backfill = bool((days or 14) >= 365 or start_date)
     if event_ids:
         targets = event_ids
     else:
+        candidate_pool = list(DEFAULT_MELEE_TARGETS) + (list(HISTORICAL_MELEE_TARGETS) if is_backfill else [])
         targets = [
             (s, tid)
-            for s, tid in DEFAULT_MELEE_TARGETS
+            for s, tid in candidate_pool
             if target_sys in ("all", "other", "tcg") or s == target_sys
-        ][: (max_events or 10)]
+        ][: (max_events or 15)]
 
     if not targets:
         logger.info("ℹ️ [MeleeSync] No matching Melee.gg tournaments specified.")
@@ -72,7 +89,9 @@ def run_melee_sync(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Cloud Run Job: Melee.gg tournament sync & Elo recalculation")
     parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="Game system (all, mtg, sw_unlimited, lorcana, flesh_and_blood)")
-    parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "14")), help="Days of past tournaments to scrape (default: 14)")
+    parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "14")), help="Days of past tournaments to scrape (default: 14; use 3650 for 10yr backfill)")
+    parser.add_argument("--start-date", "--from", dest="start_date", default=os.getenv("START_DATE"), help="Optional start date (YYYY-MM-DD or ISO8601)")
+    parser.add_argument("--end-date", "--to", dest="end_date", default=os.getenv("END_DATE"), help="Optional end date (YYYY-MM-DD or ISO8601)")
     parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS", "10")), help="Max tournaments to scrape (default: 10)")
     parser.add_argument("--event-ids", default="", help="Optional comma-separated sys:tournament_id pairs (e.g. mtg:428253,sw_unlimited:458821)")
     parser.add_argument("--sqlite-path", default=os.getenv("LOCAL_SQLITE_PATH"), help="Optional local SQLite DB path for local verification")
@@ -95,5 +114,7 @@ if __name__ == "__main__":
         max_events=args.max_events,
         event_ids=explicit_pairs,
         sqlite_path=args.sqlite_path,
+        start_date=args.start_date,
+        end_date=args.end_date,
     )
     print(json.dumps(res, indent=2, default=str))

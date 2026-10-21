@@ -1035,11 +1035,32 @@ class EloEngine:
                     if pid:
                         rewound_pids_set.add(str(pid)[:64])
 
+                alias_map: Dict[str, str] = {}
+                try:
+                    cur.execute(
+                        """
+                        SELECT upl.platform_user_id,
+                               COALESCE(NULLIF(TRIM(u.player_id), ''), NULLIF(TRIM(u.bcp_user_id), ''), u.id) AS canon_pid
+                        FROM user_platform_links upl
+                        JOIN users u ON u.id = upl.user_id
+                        WHERE upl.platform_user_id IS NOT NULL AND upl.platform_user_id != '';
+                        """
+                    )
+                    for lr in (cur.fetchall() or []):
+                        a_pid = str(lr[0] if isinstance(lr, (list, tuple)) else lr.get("platform_user_id") or "").strip()[:64]
+                        c_pid = str(lr[1] if isinstance(lr, (list, tuple)) else lr.get("canon_pid") or "").strip()[:64]
+                        if a_pid and c_pid:
+                            alias_map[a_pid] = c_pid
+                except Exception:
+                    pass
+
                 for m in window_matches:
                     if m.get("player1_id"):
-                        rewound_pids_set.add(str(m["player1_id"])[:64])
+                        raw_p1 = str(m["player1_id"])[:64]
+                        rewound_pids_set.add(alias_map.get(raw_p1, raw_p1))
                     if m.get("player2_id"):
-                        rewound_pids_set.add(str(m["player2_id"])[:64])
+                        raw_p2 = str(m["player2_id"])[:64]
+                        rewound_pids_set.add(alias_map.get(raw_p2, raw_p2))
 
                 touched_pids = sorted(rewound_pids_set)
                 player_states: Dict[str, Dict[str, Any]] = {}
@@ -1125,11 +1146,13 @@ class EloEngine:
 
                 # 4. Replay window_matches in chronological order
                 for m in window_matches:
-                    p1_id, p2_id = m.get("player1_id"), m.get("player2_id")
-                    if not p1_id or not p2_id:
+                    raw_p1, raw_p2 = m.get("player1_id"), m.get("player2_id")
+                    if not raw_p1 or not raw_p2:
                         continue
-                    p1_id = str(p1_id)[:64]
-                    p2_id = str(p2_id)[:64]
+                    raw_p1_str = str(raw_p1)[:64]
+                    raw_p2_str = str(raw_p2)[:64]
+                    p1_id = alias_map.get(raw_p1_str, raw_p1_str)
+                    p2_id = alias_map.get(raw_p2_str, raw_p2_str)
 
                     p1_mname = _sanitize_name(m.get("player1_name"), max_len=100)
                     s1 = player_states.get(p1_id)
@@ -1169,7 +1192,9 @@ class EloEngine:
                     is_non_bcp_match = mid_str.startswith(("melee:", "ltcg:", "ls:", "td:"))
                     is_bye_match = bool(m.get("is_bye") or p2_id.upper() == "BYE" or p1_id.upper() == "BYE")
                     is_real_draw = bool(m.get("is_draw") and ((m.get("player1_score") or 0) > 0 or (m.get("player2_score") or 0) > 0 or is_non_bcp_match))
-                    has_valid_winner = bool(m.get("winner_id") and m.get("winner_id") in (p1_id, p2_id))
+                    raw_win = str(m.get("winner_id") or "")[:64] if m.get("winner_id") else None
+                    win_id = alias_map.get(raw_win, raw_win) if raw_win else None
+                    has_valid_winner = bool(win_id and win_id in (p1_id, p2_id))
                     if not is_bye_match and not has_valid_winner and not is_real_draw:
                         continue
 
@@ -1182,7 +1207,7 @@ class EloEngine:
                         res1, res2 = ("D", "D") if is_real_draw else ("W", "L")
                         new_elo1, new_elo2 = old_elo1, old_elo2
                     else:
-                        is_p1_win = (m.get("winner_id") == p1_id)
+                        is_p1_win = (win_id == p1_id)
                         res1, res2 = ("W", "L") if is_p1_win else ("L", "W")
                         k1 = self.provisional_k if s1["matches_played"] < self.provisional_matches else self.default_k
                         k2 = self.provisional_k if s2["matches_played"] < self.provisional_matches else self.default_k
@@ -1697,6 +1722,29 @@ class EloEngine:
             # 3. Process new matches and append trajectory points
             print(f"[3/3] ⚡ Computing Elo updates and persisting {total_new:,} {sys_target.upper()} matches...")
 
+            alias_map: Dict[str, str] = {}
+            try:
+                with conn.cursor() as acur:
+                    acur.execute(
+                        """
+                        SELECT upl.platform_user_id,
+                               COALESCE(NULLIF(TRIM(u.player_id), ''), NULLIF(TRIM(u.bcp_user_id), ''), u.id) AS canon_pid
+                        FROM user_platform_links upl
+                        JOIN users u ON u.id = upl.user_id
+                        WHERE upl.platform_user_id IS NOT NULL AND upl.platform_user_id != '';
+                        """
+                    )
+                    for lr in (acur.fetchall() or []):
+                        a_pid = str(lr[0] if isinstance(lr, (list, tuple)) else lr.get("platform_user_id") or "").strip()[:64]
+                        c_pid = str(lr[1] if isinstance(lr, (list, tuple)) else lr.get("canon_pid") or "").strip()[:64]
+                        if a_pid and c_pid:
+                            alias_map[a_pid] = c_pid
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
             # Preload match_participants for 2v2 Doubles and 4-Player FFA Pods before starting write transaction
             mp_by_match: Dict[str, List[Dict[str, Any]]] = collections.defaultdict(list)
             try:
@@ -1901,11 +1949,13 @@ class EloEngine:
                             continue
 
                     # --- BRANCH C: Standard 1v1 Match ---
-                    p1_id, p2_id = m["player1_id"], m["player2_id"]
-                    if not p1_id or not p2_id:
+                    raw_p1, raw_p2 = m["player1_id"], m["player2_id"]
+                    if not raw_p1 or not raw_p2:
                         continue
-                    p1_id = _bound_id(p1_id)
-                    p2_id = _bound_id(p2_id)
+                    raw_p1_b = _bound_id(raw_p1)
+                    raw_p2_b = _bound_id(raw_p2)
+                    p1_id = alias_map.get(raw_p1_b, raw_p1_b)
+                    p2_id = alias_map.get(raw_p2_b, raw_p2_b)
 
                     p1_mname = _sanitize_name(m.get("player1_name"), max_len=100)
                     p1_best = authoritative_names.get(p1_id) or (p1_mname if not _is_placeholder_name(p1_mname, p1_id) else None)
@@ -1940,7 +1990,8 @@ class EloEngine:
                     is_non_bcp_match = mid_str.startswith(("melee:", "ltcg:", "ls:", "td:"))
                     is_bye_match = bool(m.get("is_bye") or p2_id.upper() == "BYE" or p1_id.upper() == "BYE")
                     is_real_draw = bool(m.get("is_draw") and ((m.get("player1_score") or 0) > 0 or (m.get("player2_score") or 0) > 0 or is_non_bcp_match))
-                    win_id_1v1 = _bound_opt_id(m.get("winner_id"))
+                    raw_win_1v1 = _bound_opt_id(m.get("winner_id"))
+                    win_id_1v1 = alias_map.get(raw_win_1v1, raw_win_1v1) if raw_win_1v1 else None
                     has_valid_winner = bool(win_id_1v1 and win_id_1v1 in (p1_id, p2_id))
                     if not is_bye_match and not has_valid_winner and not is_real_draw:
                         continue
@@ -2346,6 +2397,25 @@ class EloEngine:
 
             # 2. Load authoritative real names before streaming
             authoritative_names = _heal_and_load_authoritative_names(conn, sys_target)
+            alias_map: Dict[str, str] = {}
+            try:
+                with conn.cursor() as acur:
+                    acur.execute(
+                        """
+                        SELECT upl.platform_user_id,
+                               COALESCE(NULLIF(TRIM(u.player_id), ''), NULLIF(TRIM(u.bcp_user_id), ''), u.id) AS canon_pid
+                        FROM user_platform_links upl
+                        JOIN users u ON u.id = upl.user_id
+                        WHERE upl.platform_user_id IS NOT NULL AND upl.platform_user_id != '';
+                        """
+                    )
+                    for lr in (acur.fetchall() or []):
+                        a_pid = str(lr[0] if isinstance(lr, (list, tuple)) else lr.get("platform_user_id") or "").strip()[:64]
+                        c_pid = str(lr[1] if isinstance(lr, (list, tuple)) else lr.get("canon_pid") or "").strip()[:64]
+                        if a_pid and c_pid:
+                            alias_map[a_pid] = c_pid
+            except Exception:
+                pass
 
         history_cols = (
             "player_id", "match_id", "event_id", "round", "match_date",
@@ -2405,17 +2475,21 @@ class EloEngine:
                         history_rows_in_chunk = 0
 
                         for m in chunk_matches:
-                            p1_id, p2_id = m["player1_id"], m["player2_id"]
-                            if not p1_id or not p2_id:
+                            raw_p1, raw_p2 = m["player1_id"], m["player2_id"]
+                            if not raw_p1 or not raw_p2:
                                 continue
-                            p1_id = str(p1_id)[:64]
-                            p2_id = str(p2_id)[:64]
+                            raw_p1_str = str(raw_p1)[:64]
+                            raw_p2_str = str(raw_p2)[:64]
+                            p1_id = alias_map.get(raw_p1_str, raw_p1_str)
+                            p2_id = alias_map.get(raw_p2_str, raw_p2_str)
 
                             mid_str = str(m.get("id") or "")
                             is_non_bcp_match = mid_str.startswith(("melee:", "ltcg:", "ls:", "td:"))
                             is_bye_match = bool(m.get("is_bye") or p2_id.upper() == "BYE" or p1_id.upper() == "BYE")
                             is_real_draw = bool(m.get("is_draw") and ((m.get("player1_score") or 0) > 0 or (m.get("player2_score") or 0) > 0 or is_non_bcp_match))
-                            has_valid_winner = bool(m.get("winner_id") and m.get("winner_id") in (p1_id, p2_id))
+                            raw_win = str(m.get("winner_id") or "")[:64] if m.get("winner_id") else None
+                            win_id = alias_map.get(raw_win, raw_win) if raw_win else None
+                            has_valid_winner = bool(win_id and win_id in (p1_id, p2_id))
                             if not is_bye_match and not has_valid_winner and not is_real_draw:
                                 continue
 
@@ -2457,7 +2531,7 @@ class EloEngine:
                                 res1, res2 = ("D", "D") if is_real_draw else ("W", "L")
                                 new_elo1, new_elo2 = old_elo1, old_elo2
                             else:
-                                is_p1_win = (m.get("winner_id") == p1_id)
+                                is_p1_win = (win_id == p1_id)
                                 res1, res2 = ("W", "L") if is_p1_win else ("L", "W")
                                 k1 = self.provisional_k if s1["matches_played"] < self.provisional_matches else self.default_k
                                 k2 = self.provisional_k if s2["matches_played"] < self.provisional_matches else self.default_k
@@ -3230,24 +3304,25 @@ class EloEngine:
         systems_to_run: List[str] = []
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cur:
-                if len(candidate_ids) > 1:
-                    old_aliases = [aid for aid in candidate_ids if aid != clean_pid]
+                try:
                     cur.execute(
-                        "UPDATE matches SET player1_id = %s WHERE player1_id = ANY(%s);",
-                        (clean_pid, old_aliases),
+                        """
+                        SELECT upl.platform_user_id
+                        FROM user_platform_links upl
+                        JOIN users u ON u.id = upl.user_id
+                        WHERE (u.id = %s OR u.player_id = %s OR u.bcp_user_id = %s OR upl.platform_user_id = %s)
+                          AND upl.platform_user_id IS NOT NULL AND upl.platform_user_id != '';
+                        """,
+                        (clean_pid, clean_pid, clean_pid, clean_pid),
                     )
-                    cur.execute(
-                        "UPDATE matches SET player2_id = %s WHERE player2_id = ANY(%s);",
-                        (clean_pid, old_aliases),
-                    )
-                    cur.execute(
-                        "UPDATE matches SET winner_id = %s WHERE winner_id = ANY(%s);",
-                        (clean_pid, old_aliases),
-                    )
-                    cur.execute(
-                        "UPDATE matches SET loser_id = %s WHERE loser_id = ANY(%s);",
-                        (clean_pid, old_aliases),
-                    )
+                    for lr in (cur.fetchall() or []):
+                        puid = str(lr[0] if isinstance(lr, (list, tuple)) else lr.get("platform_user_id") or "").strip()[:64]
+                        if puid and puid not in candidate_ids:
+                            candidate_ids.append(puid)
+                except Exception:
+                    pass
+
+                candidate_set = set(candidate_ids)
 
                 if game_system and str(game_system).strip().lower() not in ("all", "*"):
                     systems_to_run = [str(game_system).strip().lower()]
@@ -3256,9 +3331,9 @@ class EloEngine:
                         """
                         SELECT DISTINCT COALESCE(game_system, '40k') AS gs
                         FROM matches
-                        WHERE (player1_id = %s OR player2_id = %s) AND is_done = TRUE;
+                        WHERE (player1_id = ANY(%s) OR player2_id = ANY(%s)) AND is_done = TRUE;
                         """,
-                        (clean_pid, clean_pid),
+                        (candidate_ids, candidate_ids),
                     )
                     for r in (cur.fetchall() or []):
                         gs_val = r["gs"] if isinstance(r, dict) else r[0]
@@ -3283,16 +3358,16 @@ class EloEngine:
                         LEFT JOIN rating_history opp_rh
                           ON opp_rh.match_id = m.id
                          AND COALESCE(opp_rh.game_system, '40k') = COALESCE(m.game_system, '40k')
-                         AND opp_rh.player_id = (CASE WHEN m.player1_id = %s THEN m.player2_id ELSE m.player1_id END)
+                         AND opp_rh.player_id = (CASE WHEN m.player1_id = ANY(%s) THEN m.player2_id ELSE m.player1_id END)
                         LEFT JOIN player_ratings opp_pr
-                          ON opp_pr.player_id = (CASE WHEN m.player1_id = %s THEN m.player2_id ELSE m.player1_id END)
+                          ON opp_pr.player_id = (CASE WHEN m.player1_id = ANY(%s) THEN m.player2_id ELSE m.player1_id END)
                          AND COALESCE(opp_pr.game_system, '40k') = COALESCE(m.game_system, '40k')
-                        WHERE (m.player1_id = %s OR m.player2_id = %s)
+                        WHERE (m.player1_id = ANY(%s) OR m.player2_id = ANY(%s))
                           AND m.is_done = TRUE
                           AND COALESCE(m.game_system, '40k') = %s
                         ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC;
                         """,
-                        (clean_pid, clean_pid, clean_pid, clean_pid, sys_target),
+                        (candidate_ids, candidate_ids, candidate_ids, candidate_ids, sys_target),
                     )
                     user_matches = [dict(r) for r in (cur.fetchall() or [])]
                     if not user_matches:
@@ -3322,7 +3397,7 @@ class EloEngine:
                     for m in user_matches:
                         p1_id = str(m.get("player1_id") or "")[:64]
                         p2_id = str(m.get("player2_id") or "")[:64]
-                        is_p1 = (p1_id == clean_pid)
+                        is_p1 = (p1_id in candidate_set)
                         opp_id = p2_id if is_p1 else p1_id
                         my_name = _sanitize_name(m.get("player1_name") if is_p1 else m.get("player2_name"), max_len=100)
                         opp_name = _sanitize_name(m.get("player2_name") if is_p1 else m.get("player1_name"), max_len=100) or f"Player {opp_id[:8]}"
@@ -3348,7 +3423,7 @@ class EloEngine:
                             res_code = "D" if is_real_draw else "W"
                             new_elo = old_elo
                         else:
-                            did_win = (m.get("winner_id") == clean_pid)
+                            did_win = (m.get("winner_id") in candidate_set)
                             res_code = "W" if did_win else "L"
                             k_val = self.provisional_k if matches_played < self.provisional_matches else self.default_k
                             exp_s = self.expected_score(old_elo, opp_elo)

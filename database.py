@@ -297,6 +297,12 @@ class PostgresDatabase:
                         cls._pool.putconn(conn)
                 except Exception:
                     pass
+            if not dyn_factions:
+                try:
+                    from config import get_default_factions_for_system
+                    dyn_factions = get_default_factions_for_system(sys_val)
+                except Exception:
+                    dyn_factions = []
             if dyn_factions:
                 cls.set_cached(cls._dynamic_factions_cache_dict, sys_val, dyn_factions, max_size=200)
 
@@ -379,6 +385,13 @@ class PostgresDatabase:
         "bye",
         "commander pod",
         "pod",
+        "standard deck",
+        "premier deck",
+        "commander deck",
+        "cedh deck",
+        "constructed deck",
+        "main deck",
+        "deck",
     })
 
     SUPER_FACTION_SET = frozenset({
@@ -407,6 +420,8 @@ class PostgresDatabase:
         "warhammer 40k",
         "age of sigmar",
         "warhammer age of sigmar",
+        "good",
+        "evil",
     })
 
     GENERIC_SM_SET = frozenset({
@@ -495,7 +510,7 @@ class PostgresDatabase:
         if not raw:
             return ""
         low = raw.lower()
-        if "+" in low or "pod (" in low:
+        if "+" in low or "pod (" in low or cls.is_super_or_empty_faction(raw):
             return ""
         if low in cls.FACTION_CANONICAL_MAP:
             return cls.FACTION_CANONICAL_MAP[low]
@@ -503,7 +518,13 @@ class PostgresDatabase:
             prefix = raw.split(":", 1)[0].strip()
             if not prefix or cls.is_super_or_empty_faction(prefix):
                 return ""
-            return cls.FACTION_CANONICAL_MAP.get(prefix.lower(), prefix)
+            prefix_low = prefix.lower()
+            known_40k_aos = {
+                f.lower()
+                for f in (cls.DEFAULT_40K_STATS["factions"] + cls.DEFAULT_AOS_STATS["factions"])
+            }
+            if prefix_low in cls.FACTION_CANONICAL_MAP or prefix_low in known_40k_aos:
+                return cls.FACTION_CANONICAL_MAP.get(prefix_low, prefix)
         return cls.FACTION_CANONICAL_MAP.get(low, raw)
 
     @classmethod
@@ -5020,7 +5041,7 @@ class PostgresDatabase:
                             player1_name as p_name,
                             match_date as m_date,
                             CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
-                            CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN loser_id = player1_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player2_id AND is_draw IS NOT TRUE) THEN 1 ELSE 0 END as is_loss,
                             CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                         FROM matches
                         WHERE player1_id IS NOT NULL AND player1_id != '' AND is_done = TRUE
@@ -5031,7 +5052,7 @@ class PostgresDatabase:
                             player2_name as p_name,
                             match_date as m_date,
                             CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
-                            CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN loser_id = player2_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player1_id AND is_draw IS NOT TRUE) THEN 1 ELSE 0 END as is_loss,
                             CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                         FROM matches
                         WHERE player2_id IS NOT NULL AND player2_id != '' AND is_bye = FALSE AND is_done = TRUE
@@ -5432,23 +5453,31 @@ class PostgresDatabase:
                         ep.army_list,
                         ep.has_list_submitted,
                         ep.battle_points,
-                        pr_id.player_id AS matched_pr_id,
-                        pr_id.player_name AS pr_player_name,
-                        pr_id.top_faction AS pr_top_faction,
-                        pr_id.team AS pr_team,
-                        pr_id.current_elo AS pr_current_elo,
-                        pr_id.peak_elo AS pr_peak_elo,
-                        pr_id.win_rate AS pr_win_rate
+                        COALESCE(pr_id.player_id, pr_link.player_id) AS matched_pr_id,
+                        COALESCE(pr_id.player_name, pr_link.player_name) AS pr_player_name,
+                        COALESCE(pr_id.top_faction, pr_link.top_faction) AS pr_top_faction,
+                        COALESCE(pr_id.team, pr_link.team) AS pr_team,
+                        COALESCE(pr_id.current_elo, pr_link.current_elo) AS pr_current_elo,
+                        COALESCE(pr_id.peak_elo, pr_link.peak_elo) AS pr_peak_elo,
+                        COALESCE(pr_id.win_rate, pr_link.win_rate) AS pr_win_rate
                     FROM event_participants ep
                     LEFT JOIN player_ratings pr_id
                            ON pr_id.player_id = ep.player_id
                           AND COALESCE(pr_id.game_system, '40k') = %s
+                    LEFT JOIN user_platform_links upl
+                           ON upl.platform_user_id = ep.player_id
+                    LEFT JOIN users u_link
+                           ON u_link.id = upl.user_id
+                    LEFT JOIN player_ratings pr_link
+                           ON pr_link.player_id = u_link.player_id
+                          AND COALESCE(pr_link.game_system, '40k') = %s
                     WHERE ep.event_id = %s
                 ),
                 unmatched_names AS MATERIALIZED (
                     SELECT DISTINCT LOWER(TRIM(full_name)) AS norm_name
                     FROM ep_rows
                     WHERE matched_pr_id IS NULL
+                      AND (player_id IS NULL OR player_id = '' OR player_id LIKE 'roster-%%')
                       AND full_name IS NOT NULL
                       AND TRIM(full_name) != ''
                 ),
@@ -5485,8 +5514,9 @@ class PostgresDatabase:
                 FROM ep_rows ep
                 LEFT JOIN name_ratings pr_nm
                        ON ep.matched_pr_id IS NULL
+                      AND (ep.player_id IS NULL OR ep.player_id = '' OR ep.player_id LIKE 'roster-%%')
                       AND LOWER(TRIM(ep.full_name)) = pr_nm.norm_name;
-                """, (ev_gs, event_id, ev_gs))
+                """, (ev_gs, ev_gs, event_id, ev_gs))
                 participants = {r["player_id"]: dict(r) for r in cursor.fetchall()}
 
                 # 4. Compute official Best Coast Pairings Swiss standings & tiebreakers
@@ -6295,6 +6325,7 @@ class PostgresDatabase:
                 cur.execute(
                     """
                     SELECT player_id,
+                           player_id AS lookup_pid,
                            LOWER(TRIM(player_name)) AS norm_name,
                            COALESCE(matches_played, 0) AS matches_played,
                            COALESCE(current_elo, 1500.0) AS current_elo,
@@ -6303,7 +6334,20 @@ class PostgresDatabase:
                     WHERE player_id = ANY(%s)
                       AND COALESCE(game_system, '40k') = %s
                     UNION ALL
+                    SELECT pr.player_id,
+                           upl.platform_user_id AS lookup_pid,
+                           LOWER(TRIM(pr.player_name)) AS norm_name,
+                           COALESCE(pr.matches_played, 0) AS matches_played,
+                           COALESCE(pr.current_elo, 1500.0) AS current_elo,
+                           COALESCE(pr.peak_elo, 1500.0) AS peak_elo
+                    FROM user_platform_links upl
+                    JOIN users u ON u.id = upl.user_id
+                    JOIN player_ratings pr ON pr.player_id = u.player_id
+                    WHERE upl.platform_user_id = ANY(%s)
+                      AND COALESCE(pr.game_system, '40k') = %s
+                    UNION ALL
                     SELECT player_id,
+                           '' AS lookup_pid,
                            LOWER(TRIM(player_name)) AS norm_name,
                            COALESCE(matches_played, 0) AS matches_played,
                            COALESCE(current_elo, 1500.0) AS current_elo,
@@ -6313,20 +6357,23 @@ class PostgresDatabase:
                       AND COALESCE(game_system, '40k') = %s
                     ORDER BY matches_played DESC NULLS LAST;
                     """,
-                    (pids_arr, ev_gs, names_arr, ev_gs),
+                    (pids_arr, ev_gs, pids_arr, ev_gs, names_arr, ev_gs),
                 )
                 pr_rows = [dict(r) for r in cur.fetchall()]
                 pr_by_pid_local: Dict[str, Dict[str, Any]] = {}
                 pr_by_name_local: Dict[str, Dict[str, Any]] = {}
                 for pr_r in pr_rows:
                     pid_v = str(pr_r.get("player_id") or "").strip()
+                    l_pid = str(pr_r.get("lookup_pid") or "").strip()
                     nm_v = str(pr_r.get("norm_name") or "").strip()
-                    if pid_v and pid_v not in pr_by_pid_local:
+                    if l_pid and l_pid not in pr_by_pid_local:
+                        pr_by_pid_local[l_pid] = pr_r
+                    if pid_v and pid_v in raw_pids_set and pid_v not in pr_by_pid_local:
                         pr_by_pid_local[pid_v] = pr_r
                     if nm_v and nm_v not in pr_by_name_local:
                         pr_by_name_local[nm_v] = pr_r
 
-                lookup_pids = list(raw_pids_set | set(pr_by_pid_local.keys()) | {str(r.get("player_id")).strip() for r in pr_by_name_local.values() if r.get("player_id")})
+                lookup_pids = list(raw_pids_set | set(pr_by_pid_local.keys()) | {str(r.get("player_id")).strip() for r in pr_by_pid_local.values() if r.get("player_id")})
                 if not lookup_pids:
                     return {"pr_by_pid": pr_by_pid_local, "pr_by_name": pr_by_name_local, "hist_by_pid": {}}
 
@@ -6408,7 +6455,9 @@ class PostgresDatabase:
         for p in ev_players:
             p_raw_id = str(p.get("player_id") or p.get("id") or "").strip()
             p_name_low = str(p.get("full_name") or p.get("name") or "").strip().lower()
-            canon_pr = pr_by_pid.get(p_raw_id) or pr_by_name.get(p_name_low)
+            canon_pr = pr_by_pid.get(p_raw_id) or (
+                pr_by_name.get(p_name_low) if (not p_raw_id or p_raw_id.startswith("roster-")) else None
+            )
             canon_pid = str(canon_pr.get("player_id") or "").strip() if canon_pr else ""
             if canon_pr:
                 cur_elo_val = float(p.get("current_elo") or p.get("elo") or 1500.0)
@@ -10644,10 +10693,10 @@ class PostgresDatabase:
                                 DATE_TRUNC('{period_trunc}', match_date)::date AS period_date,
                                 COUNT(*) AS match_cnt,
                                 SUM(CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END) AS p1_wins,
-                                SUM(CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END) AS p1_losses,
+                                SUM(CASE WHEN loser_id = player1_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player2_id AND is_draw IS NOT TRUE) THEN 1 ELSE 0 END) AS p1_losses,
                                 SUM(CASE WHEN is_draw IS TRUE THEN 1 ELSE 0 END) AS draws,
                                 SUM(CASE WHEN winner_id = player2_id AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_wins,
-                                SUM(CASE WHEN loser_id = player2_id AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_losses,
+                                SUM(CASE WHEN (loser_id = player2_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player1_id AND is_draw IS NOT TRUE)) AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_losses,
                                 SUM(CASE WHEN player1_score IS NOT NULL AND player1_score > 0 THEN player1_score ELSE 0 END) AS p1_score_sum,
                                 COUNT(*) FILTER (WHERE player1_score IS NOT NULL AND player1_score > 0) AS p1_score_cnt,
                                 SUM(CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player2_score IS NOT NULL AND player2_score > 0 THEN player2_score ELSE 0 END) AS p2_score_sum,
@@ -10724,10 +10773,10 @@ class PostgresDatabase:
                                     TO_CHAR(DATE_TRUNC('{period_trunc}', match_date), 'YYYY-MM-DD') AS period_date,
                                     COUNT(*) AS match_cnt,
                                     SUM(CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END) AS p1_wins,
-                                    SUM(CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END) AS p1_losses,
+                                    SUM(CASE WHEN loser_id = player1_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player2_id AND is_draw IS NOT TRUE) THEN 1 ELSE 0 END) AS p1_losses,
                                     SUM(CASE WHEN is_draw IS TRUE THEN 1 ELSE 0 END) AS draws,
                                     SUM(CASE WHEN winner_id = player2_id AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_wins,
-                                    SUM(CASE WHEN loser_id = player2_id AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_losses,
+                                    SUM(CASE WHEN (loser_id = player2_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player1_id AND is_draw IS NOT TRUE)) AND is_bye IS NOT TRUE AND player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_losses,
                                     SUM(CASE WHEN player1_score IS NOT NULL AND player1_score > 0 THEN player1_score ELSE 0 END) AS p1_score_sum,
                                     COUNT(*) FILTER (WHERE player1_score IS NOT NULL AND player1_score > 0) AS p1_score_cnt,
                                     SUM(CASE WHEN is_bye IS NOT TRUE AND player2_id IS NOT NULL AND player2_score IS NOT NULL AND player2_score > 0 THEN player2_score ELSE 0 END) AS p2_score_sum,
@@ -10897,7 +10946,7 @@ class PostgresDatabase:
                                                player1_id AS player_id,
                                                player1_faction AS fac,
                                                CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END AS w,
-                                               CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END AS l,
+                                               CASE WHEN loser_id = player1_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player2_id AND is_draw IS NOT TRUE) THEN 1 ELSE 0 END AS l,
                                                CASE WHEN is_draw IS TRUE THEN 1 ELSE 0 END AS d
                                         FROM matches
                                         WHERE {date_filter_sql}
@@ -10907,7 +10956,7 @@ class PostgresDatabase:
                                                player2_id AS player_id,
                                                player2_faction AS fac,
                                                CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END AS w,
-                                               CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END AS l,
+                                               CASE WHEN loser_id = player2_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player1_id AND is_draw IS NOT TRUE) THEN 1 ELSE 0 END AS l,
                                                CASE WHEN is_draw IS TRUE THEN 1 ELSE 0 END AS d
                                         FROM matches
                                         WHERE {date_filter_sql}
@@ -11032,7 +11081,7 @@ class PostgresDatabase:
                                 cur_fb.execute("SET LOCAL statement_timeout = '3000ms';")
                                 cur_fb.execute("""
                                     SELECT
-                                        TRIM(primary_faction) AS faction,
+                                        TRIM(top_faction) AS faction,
                                         SUM(COALESCE(matches_played, 0)) AS total_matches,
                                         SUM(COALESCE(wins, 0)) AS wins,
                                         SUM(COALESCE(losses, 0)) AS losses,
@@ -11045,11 +11094,11 @@ class PostgresDatabase:
                                     FROM player_ratings
                                     WHERE game_system = %s
                                       AND COALESCE(matches_played, 0) > 0
-                                      AND primary_faction IS NOT NULL
-                                      AND TRIM(primary_faction) != ''
-                                      AND POSITION('+' IN primary_faction) = 0
-                                      AND LOWER(TRIM(primary_faction)) NOT IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various')
-                                    GROUP BY TRIM(primary_faction)
+                                      AND top_faction IS NOT NULL
+                                      AND TRIM(top_faction) != ''
+                                      AND POSITION('+' IN top_faction) = 0
+                                      AND LOWER(TRIM(top_faction)) NOT IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various')
+                                    GROUP BY TRIM(top_faction)
                                     HAVING SUM(COALESCE(matches_played, 0)) >= 1
                                     ORDER BY win_rate DESC, total_matches DESC;
                                 """, (sys_norm,))
@@ -11643,26 +11692,29 @@ class PostgresDatabase:
                         try:
                             cursor.execute(
                                 """
-                                SELECT id, bcp_player_id FROM users
-                                WHERE id::text = %s OR bcp_player_id = %s
-                                   OR id IN (SELECT user_id FROM user_platform_accounts WHERE platform_player_id = %s)
+                                SELECT id, player_id, bcp_user_id FROM users
+                                WHERE id::text = %s OR player_id = %s OR bcp_user_id = %s
+                                   OR id IN (SELECT user_id FROM user_platform_links WHERE platform_user_id = %s)
                                 LIMIT 1;
                                 """,
-                                (rid, rid, rid),
+                                (rid, rid, rid, rid),
                             )
                             u_rows = list(cursor.fetchall() or [])
                             if u_rows:
                                 u_first = u_rows[0]
                                 u_id = u_first.get("id") if isinstance(u_first, dict) else u_first[0]
-                                u_bcp = (u_first.get("bcp_player_id") if isinstance(u_first, dict) else u_first[1]) or ""
+                                u_pid = (u_first.get("player_id") if isinstance(u_first, dict) else u_first[1]) or ""
+                                u_bcp = (u_first.get("bcp_user_id") if isinstance(u_first, dict) else u_first[2]) or ""
+                                if u_pid and str(u_pid) not in pids:
+                                    pids.append(str(u_pid))
                                 if u_bcp and str(u_bcp) not in pids:
                                     pids.append(str(u_bcp))
                                 cursor.execute(
-                                    "SELECT platform_player_id FROM user_platform_accounts WHERE user_id = %s;",
+                                    "SELECT platform_user_id FROM user_platform_links WHERE user_id = %s;",
                                     (u_id,),
                                 )
                                 for lr in (cursor.fetchall() or []):
-                                    l_pid = (lr.get("platform_player_id") if isinstance(lr, dict) else lr[0]) or ""
+                                    l_pid = (lr.get("platform_user_id") if isinstance(lr, dict) else lr[0]) or ""
                                     if l_pid and str(l_pid) not in pids:
                                         pids.append(str(l_pid))
                         except Exception:
@@ -11793,7 +11845,7 @@ class PostgresDatabase:
                             player1_name as p_name,
                             player1_score as score,
                             CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
-                            CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN loser_id = player1_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player2_id AND is_draw IS NOT TRUE) THEN 1 ELSE 0 END as is_loss,
                             CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                         FROM matches
                         WHERE LOWER(player1_faction) = %s
@@ -11811,7 +11863,7 @@ class PostgresDatabase:
                             player2_name as p_name,
                             player2_score as score,
                             CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
-                            CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN loser_id = player2_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player1_id AND is_draw IS NOT TRUE) THEN 1 ELSE 0 END as is_loss,
                             CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                         FROM matches
                         WHERE LOWER(player2_faction) = %s
@@ -11884,7 +11936,7 @@ class PostgresDatabase:
                             player1_name as p_name,
                             player1_score as score,
                             CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
-                            CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN loser_id = player1_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player2_id AND is_draw IS NOT TRUE) THEN 1 ELSE 0 END as is_loss,
                             CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                         FROM matches
                         WHERE LOWER(player1_faction) = %s
@@ -11900,7 +11952,7 @@ class PostgresDatabase:
                             player2_name as p_name,
                             player2_score as score,
                             CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
-                            CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN loser_id = player2_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player1_id AND is_draw IS NOT TRUE) THEN 1 ELSE 0 END as is_loss,
                             CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                         FROM matches
                         WHERE LOWER(player2_faction) = %s
@@ -12142,7 +12194,7 @@ class PostgresDatabase:
                         player1_score as score,
                         player2_score as opp_score,
                         CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
-                        CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                        CASE WHEN loser_id = player1_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player2_id AND is_draw IS NOT TRUE) THEN 1 ELSE 0 END as is_loss,
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                     FROM matches
                     WHERE LOWER(player1_faction) = %s
@@ -12162,7 +12214,7 @@ class PostgresDatabase:
                         player2_score as score,
                         player1_score as opp_score,
                         CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
-                        CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                        CASE WHEN loser_id = player2_id OR (loser_id IS NULL AND winner_id IS NOT NULL AND winner_id = player1_id AND is_draw IS NOT TRUE) THEN 1 ELSE 0 END as is_loss,
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                     FROM matches
                     WHERE LOWER(player2_faction) = %s

@@ -7,26 +7,32 @@ Provides a complete local SQL relational database matching the production Postgr
 so import scripts, Elo reconstruction, and `dev_server.py` can run 100% locally.
 """
 
+import hashlib
 import json
 import logging
+import math
 import os
 import re
 import sqlite3
 import threading
 import time
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import (
     BCP_GAME_SYSTEMS_CATALOG,
     GAME_SYSTEM_BY_SLUG,
     get_bcp_game_system_id,
+    get_default_factions_for_system,
     get_event_platform,
+    get_game_system_meta,
     get_platform_event_url,
     is_bcp_event_id,
     is_bcp_player_id,
+    is_placeholder_faction,
     normalize_game_system,
+    resolve_canonical_faction,
     resolve_event_game_system,
 )
 
@@ -852,23 +858,41 @@ class LocalSqliteDatabase:
             # Load participant metadata (names, teams, detachments, factions)
             ep_rows = conn.execute(
                 """
-                SELECT player_id, player_name, faction, detachment, team
+                SELECT event_id, player_id, player_name, faction, detachment, team
                 FROM event_participants
                 WHERE COALESCE(game_system, '40k') = ?;
                 """,
                 (norm_sys,),
             ).fetchall()
             player_meta: Dict[str, Dict[str, Any]] = {}
+            ep_faction_updates: List[Tuple[str, str, str]] = []
             for ep in ep_rows:
-                pid = alias_map.get(str(ep["player_id"]), str(ep["player_id"]))
+                raw_ep_pid = str(ep["player_id"])
+                pid = alias_map.get(raw_ep_pid, raw_ep_pid)
                 m = player_meta.setdefault(pid, {"name": ep["player_name"] or pid, "team": "", "factions": {}})
                 if ep["player_name"] and (m["name"] == pid or len(ep["player_name"]) > len(m["name"])):
                     m["name"] = ep["player_name"]
                 if ep["team"] and not m["team"]:
                     m["team"] = ep["team"]
-                fac = str(ep["faction"] or "").strip()
-                if fac and fac.lower() not in ("unknown", "none", ""):
+                raw_fac = str(ep["faction"] or "").strip()
+                fac = resolve_canonical_faction(raw_fac, norm_sys, player_id=pid, resolve_placeholders=True)
+                if fac:
                     m["factions"][fac] = m["factions"].get(fac, 0) + 1
+                    if fac != raw_fac:
+                        ep_faction_updates.append((fac, str(ep["event_id"]), raw_ep_pid))
+
+            player_primary_faction: Dict[str, str] = {}
+            for pid_k, m_v in player_meta.items():
+                if m_v["factions"]:
+                    player_primary_faction[pid_k] = max(m_v["factions"].items(), key=lambda kv: kv[1])[0]
+
+            def _resolve_match_fac(raw_f: Optional[str], pid_val: str) -> str:
+                cf = resolve_canonical_faction(raw_f, norm_sys, player_id=pid_val, resolve_placeholders=False)
+                if cf:
+                    return cf
+                if pid_val in player_primary_faction:
+                    return player_primary_faction[pid_val]
+                return resolve_canonical_faction(raw_f, norm_sys, player_id=pid_val, resolve_placeholders=True)
 
             # Preload match_participants for this game_system keyed by match_id
             mp_by_mid: Dict[str, List[Dict[str, Any]]] = {}
@@ -964,6 +988,7 @@ class LocalSqliteDatabase:
                     else:
                         ds["draws"] += 1
 
+            match_faction_updates: List[Tuple[str, str, str]] = []
             for m in match_rows:
                 mid = str(m["id"])
                 ev_id = str(m["event_id"] or "")
@@ -995,7 +1020,7 @@ class LocalSqliteDatabase:
                         if c_pid in seen_pod_pids:
                             continue
                         seen_pod_pids.add(c_pid)
-                        p_fac = str(pp.get("faction") or "Commander Deck").strip()
+                        p_fac = _resolve_match_fac(pp.get("faction"), c_pid)
                         p_det = str(pp.get("detachment") or "cEDH Pod").strip()
                         p_name = str(pp.get("player_name") or c_pid).strip()
                         st_p = get_pstate(c_pid, p_name, p_fac)
@@ -1104,7 +1129,7 @@ class LocalSqliteDatabase:
                         if not r_pid:
                             continue
                         c_pid = alias_map.get(r_pid, r_pid)
-                        fac = str(tm.get("faction") or "Unknown").strip()
+                        fac = _resolve_match_fac(tm.get("faction"), c_pid)
                         det = str(tm.get("detachment") or "").strip()
                         st_p = get_pstate(c_pid, tm.get("player_name") or c_pid, fac)
                         t1_entries.append({"pid": c_pid, "name": st_p["player_name"], "faction": fac, "detachment": det, "st": st_p, "old_elo": st_p["elo"]})
@@ -1115,7 +1140,7 @@ class LocalSqliteDatabase:
                         if not r_pid:
                             continue
                         c_pid = alias_map.get(r_pid, r_pid)
-                        fac = str(tm.get("faction") or "Unknown").strip()
+                        fac = _resolve_match_fac(tm.get("faction"), c_pid)
                         det = str(tm.get("detachment") or "").strip()
                         st_p = get_pstate(c_pid, tm.get("player_name") or c_pid, fac)
                         t2_entries.append({"pid": c_pid, "name": st_p["player_name"], "faction": fac, "detachment": det, "st": st_p, "old_elo": st_p["elo"]})
@@ -1213,8 +1238,12 @@ class LocalSqliteDatabase:
                 if p1 == p2 or p2.upper() == "BYE":
                     continue
 
-                f1 = str(m["player1_faction"] or "Unknown").strip()
-                f2 = str(m["player2_faction"] or "Unknown").strip()
+                raw_f1 = str(m["player1_faction"] or "Unknown").strip()
+                raw_f2 = str(m["player2_faction"] or "Unknown").strip()
+                f1 = _resolve_match_fac(raw_f1, p1)
+                f2 = _resolve_match_fac(raw_f2, p2)
+                if f1 != raw_f1 or f2 != raw_f2:
+                    match_faction_updates.append((f1, f2, mid))
                 d1 = str(m["player1_detachment"] or "").strip()
                 d2 = str(m["player2_detachment"] or "").strip()
                 s1 = float(m["player1_score"] or 0.0)
@@ -1297,6 +1326,16 @@ class LocalSqliteDatabase:
 
             # Persist player_ratings & rating_history atomically inside a single transaction
             with self._lock:
+                if ep_faction_updates:
+                    conn.executemany(
+                        "UPDATE event_participants SET faction = ? WHERE event_id = ? AND player_id = ?;",
+                        ep_faction_updates,
+                    )
+                if match_faction_updates:
+                    conn.executemany(
+                        "UPDATE matches SET player1_faction = ?, player2_faction = ? WHERE id = ?;",
+                        match_faction_updates,
+                    )
                 conn.execute("DELETE FROM player_ratings WHERE COALESCE(game_system, '40k') = ?;", (norm_sys,))
                 conn.execute("DELETE FROM rating_history WHERE COALESCE(game_system, '40k') = ?;", (norm_sys,))
 
@@ -1305,7 +1344,7 @@ class LocalSqliteDatabase:
                     if pid.upper() == "BYE" or st["matches"] <= 0:
                         continue
                     f_dict = st["factions"] or player_meta.get(pid, {}).get("factions", {})
-                    top_fac = max(f_dict.items(), key=lambda x: x[1])[0] if f_dict else "Unknown"
+                    top_fac = max(f_dict.items(), key=lambda x: x[1])[0] if f_dict else resolve_canonical_faction("", norm_sys, player_id=pid, resolve_placeholders=True)
                     wr = round((st["wins"] / st["matches"]) * 100.0, 1) if st["matches"] > 0 else 0.0
                     parts = st["player_name"].split(" ", 1)
                     fname = parts[0]
@@ -1348,47 +1387,14 @@ class LocalSqliteDatabase:
                 conn.commit()
 
             # Pre-calculate and persist L2 Meta Intel & Teams cache in `system_settings`
-            factions_out = []
-            total_m = max(1, sum(fs["matches"] for fs in faction_stats.values()))
-            for fac_name, fs in sorted(faction_stats.items(), key=lambda kv: kv[1]["matches"], reverse=True):
-                m_cnt = fs["matches"]
-                wr = round((fs["wins"] / m_cnt) * 100.0, 1) if m_cnt > 0 else 0.0
-                meta_share = round((m_cnt / total_m) * 100.0, 1)
-                dets = []
-                for dn, ds in sorted(fs["detachments"].items(), key=lambda kv: kv[1]["matches"], reverse=True):
-                    d_wr = round((ds["wins"] / ds["matches"]) * 100.0, 1) if ds["matches"] > 0 else 0.0
-                    dets.append(
-                        {
-                            "detachment": dn,
-                            "matches_played": ds["matches"],
-                            "wins": ds["wins"],
-                            "losses": ds["losses"],
-                            "draws": ds["draws"],
-                            "win_rate": d_wr,
-                        }
-                    )
-                factions_out.append(
-                    {
-                        "faction": fac_name,
-                        "matches_played": m_cnt,
-                        "wins": fs["wins"],
-                        "losses": fs["losses"],
-                        "draws": fs["draws"],
-                        "win_rate": wr,
-                        "meta_share": meta_share,
-                        "detachments": dets,
-                    }
-                )
-
-            meta_snapshot = {
-                "game_system": norm_sys,
-                "factions": factions_out,
-                "total_matches": len(match_rows),
-                "total_players": len(pr_tuples),
-                "precalculated_at": datetime.now(timezone.utc).isoformat(),
-            }
-            for preset in ("90", "all", "36500"):
-                self.set_system_setting(f"meta_intel_v5_{norm_sys}_{preset}", meta_snapshot)
+            if hasattr(self, "_meta_computed_cache") and isinstance(self._meta_computed_cache, dict):
+                self._meta_computed_cache.clear()
+            meta_snapshot = self.get_faction_meta_stats(
+                game_system=norm_sys,
+                timeframe="90d",
+                _persist_setting=True,
+            )
+            factions_out = meta_snapshot.get("factions") or []
 
             elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 2)
             return {
@@ -1496,11 +1502,15 @@ class LocalSqliteDatabase:
                     alias_map_local[str(lr["platform_player_id"])] = str(lr["player_id"])
 
                 match_old_elos: Dict[Tuple[str, str], float] = {}
+                match_player_factions: Dict[Tuple[str, str], str] = {}
                 for rhr in conn.execute(
-                    "SELECT match_id, player_id, old_elo FROM rating_history WHERE COALESCE(game_system, '40k') = ?;",
+                    "SELECT match_id, player_id, old_elo, player_faction FROM rating_history WHERE COALESCE(game_system, '40k') = ?;",
                     (sys_slug,),
                 ).fetchall():
-                    match_old_elos[(str(rhr["match_id"]), str(rhr["player_id"]))] = float(rhr["old_elo"] or 1500.0)
+                    m_key = (str(rhr["match_id"]), str(rhr["player_id"]))
+                    match_old_elos[m_key] = float(rhr["old_elo"] or 1500.0)
+                    if rhr["player_faction"] and not is_placeholder_faction(rhr["player_faction"], sys_slug):
+                        match_player_factions[m_key] = str(rhr["player_faction"])
 
                 def get_opp_pre_elo(m_id: str, p_id: str) -> float:
                     p_str = str(p_id or "")
@@ -1510,6 +1520,15 @@ class LocalSqliteDatabase:
                     if (m_id, p_str) in match_old_elos:
                         return match_old_elos[(m_id, p_str)]
                     return opp_elos.get(c_str, opp_elos.get(p_str, 1500.0))
+
+                def resolve_user_match_fac(m_id: str, p_id: str, raw_f: Optional[str]) -> str:
+                    p_str = str(p_id or "")
+                    c_str = alias_map_local.get(p_str, p_str)
+                    if (m_id, c_str) in match_player_factions:
+                        return match_player_factions[(m_id, c_str)]
+                    if (m_id, p_str) in match_player_factions:
+                        return match_player_factions[(m_id, p_str)]
+                    return resolve_canonical_faction(raw_f, sys_slug, player_id=(c_str or p_str), resolve_placeholders=True)
 
                 mp_rows = conn.execute(
                     "SELECT * FROM match_participants WHERE COALESCE(game_system, '40k') = ? ORDER BY seat_order ASC;",
@@ -1553,7 +1572,7 @@ class LocalSqliteDatabase:
                         if not opp_entries:
                             continue
                         n_pod = len(opp_entries) + 1
-                        my_fac = str(my_entry.get("faction") or "Commander Deck").strip()
+                        my_fac = resolve_user_match_fac(mid, canon_pid, my_entry.get("faction") or "Commander Deck")
                         my_det = str(my_entry.get("detachment") or "cEDH Pod").strip()
                         my_score = float(my_entry.get("score") or 0.0)
                         if my_fac and my_fac.lower() not in ("unknown", "none"):
@@ -1605,7 +1624,12 @@ class LocalSqliteDatabase:
                         primary_opp = next((op for op in opp_entries if op.get("is_winner")), opp_entries[0])
                         opp_id = str(primary_opp.get("player_id") or "")
                         opp_name = f"Pod ({n_pod}P): " + ", ".join(str(op.get("player_name") or op.get("player_id")) for op in opp_entries)
-                        opp_fac = ", ".join(dict.fromkeys(str(op.get("faction") or "") for op in opp_entries if op.get("faction")))
+                        opp_fac = ", ".join(
+                            dict.fromkeys(
+                                resolve_user_match_fac(mid, str(op.get("player_id") or ""), op.get("faction"))
+                                for op in opp_entries
+                            )
+                        )
                         rh_meta = {
                             "match_format": "ffa",
                             "is_ffa": True,
@@ -1615,10 +1639,12 @@ class LocalSqliteDatabase:
                             "table_number": tbl_num,
                             "pod_opponents": [
                                 {
-                                    "player_id": str(op.get("player_id")),
+                                    "player_id": alias_map_local.get(str(op.get("player_id")), str(op.get("player_id"))),
                                     "player_name": str(op.get("player_name") or op.get("player_id")),
-                                    "faction": str(op.get("faction") or "Commander Deck"),
+                                    "faction": resolve_user_match_fac(mid, str(op.get("player_id") or ""), op.get("faction") or "Commander Deck"),
                                     "is_winner": bool(op.get("is_winner")),
+                                    "is_draw": is_pod_draw,
+                                    "score": float(op.get("score") or 0.0),
                                     "elo": round(get_opp_pre_elo(mid, op.get("player_id")), 1),
                                 }
                                 for op in opp_entries
@@ -1716,12 +1742,14 @@ class LocalSqliteDatabase:
 
                     # 3. Standard 1v1 Match
                     is_p1 = str(m["player1_id"]) in all_pids
-                    my_fac = str((m["player1_faction"] if is_p1 else m["player2_faction"]) or "Unknown")
-                    opp_fac = str((m["player2_faction"] if is_p1 else m["player1_faction"]) or "Unknown")
-                    my_det = str((m["player1_detachment"] if is_p1 else m["player2_detachment"]) or "")
-                    opp_det = str((m["player2_detachment"] if is_p1 else m["player1_detachment"]) or "")
                     opp_id = str((m["player2_id"] if is_p1 else m["player1_id"]) or "")
                     opp_name = str((m["player2_name"] if is_p1 else m["player1_name"]) or opp_id)
+                    raw_my_fac = str((m["player1_faction"] if is_p1 else m["player2_faction"]) or "Unknown")
+                    raw_opp_fac = str((m["player2_faction"] if is_p1 else m["player1_faction"]) or "Unknown")
+                    my_fac = resolve_user_match_fac(mid, canon_pid, raw_my_fac)
+                    opp_fac = resolve_user_match_fac(mid, opp_id, raw_opp_fac)
+                    my_det = str((m["player1_detachment"] if is_p1 else m["player2_detachment"]) or "")
+                    opp_det = str((m["player2_detachment"] if is_p1 else m["player1_detachment"]) or "")
                     my_score = float((m["player1_score"] if is_p1 else m["player2_score"]) or 0.0)
                     opp_score = float((m["player2_score"] if is_p1 else m["player1_score"]) or 0.0)
 
@@ -3377,267 +3405,1058 @@ class LocalSqliteDatabase:
         finally:
             conn.close()
 
+    @staticmethod
+    def _resolve_meta_timeframe_window(
+        timeframe: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Tuple[str, Optional[str], Optional[str]]:
+        if start_date or end_date:
+            return "custom", (str(start_date)[:10] if start_date else None), (str(end_date)[:10] if end_date else None)
+        tf = str(timeframe or "90d").strip().lower()
+        today = datetime.now(timezone.utc).date()
+        end_str = today.isoformat()
+        preset_days = {
+            "30d": ("30d", 30),
+            "1mo": ("30d", 30),
+            "60d": ("60d", 60),
+            "2mo": ("60d", 60),
+            "90d": ("90d", 90),
+            "3mo": ("90d", 90),
+            "180d": ("180d", 180),
+            "6mo": ("180d", 180),
+            "1yr": ("1yr", 365),
+            "365d": ("1yr", 365),
+        }
+        if tf in preset_days:
+            canon_tf, days = preset_days[tf]
+            return canon_tf, (today - timedelta(days=days)).isoformat(), end_str
+        if tf == "ytd":
+            return "ytd", f"{today.year}-01-01", end_str
+        if tf in ("all", "all_time", "36500"):
+            return "all", None, None
+        return "90d", (today - timedelta(days=90)).isoformat(), end_str
+
+    @staticmethod
+    def _build_virtual_rh_rows_for_system(norm_sys: str) -> List[Dict[str, Any]]:
+        """
+        Generates a deterministic, symmetric tournament sample of `rating_history` rows
+        for catalog game systems that do not yet have physical rows in `local_omnitactica.sqlite`.
+        Every match pair (A vs B) emits two symmetric rows (`A vs B` and `B vs A`) with exact opposite
+        outcomes and scores so that all Meta Intel and Faction Detail invariants hold 100%.
+        """
+        factions = get_default_factions_for_system(norm_sys)
+        meta = get_game_system_meta(norm_sys)
+        sys_title = meta.get("name") or norm_sys.upper()
+        first_names = ["Marcus", "Elena", "Julian", "Kira", "Devon", "Soren", "Nadia", "Titus", "Clara", "Liam", "Aria", "Vance"]
+        last_names = ["Vance", "Rostova", "Thorne", "Kovacs", "Mercer", "Lindqvist", "Alvarez", "Sterling", "Kerr", "Hollis", "Chen", "Cross"]
+
+        # Create 2 deterministic pilots per faction
+        pilots_by_fac: Dict[str, List[Dict[str, Any]]] = {}
+        for f_idx, fac in enumerate(factions):
+            pilots = []
+            for p_slot in range(2):
+                h_val = int(hashlib.md5(f"pilot:{norm_sys}:{fac}:{p_slot}".encode("utf-8")).hexdigest()[:8], 16)
+                fn = first_names[(h_val + f_idx + p_slot) % len(first_names)]
+                ln = last_names[((h_val >> 4) + f_idx * 3 + p_slot) % len(last_names)]
+                pid = f"sim_{norm_sys}_{f_idx + 1}_{p_slot + 1}"
+                base_elo = round(1510.0 + ((h_val % 180) - 60) * 1.0, 1)
+                pilots.append({
+                    "player_id": pid,
+                    "player_name": f"{fn} {ln}",
+                    "faction": fac,
+                    "elo": base_elo,
+                    "team": f"{meta.get('short_name') or 'Tabletop'} Gaming Club" if p_slot == 0 else "",
+                })
+            pilots_by_fac[fac] = pilots
+
+        rows: List[Dict[str, Any]] = []
+        n_fac = len(factions)
+        event_dates = ["2026-08-15", "2026-09-19", "2026-10-10"]
+        match_seq = 0
+        for ev_idx, ev_date in enumerate(event_dates):
+            ev_id = f"sim_ev_{norm_sys}_{ev_idx + 1}"
+            ev_name = f"{sys_title} Regional Open #{ev_idx + 1}"
+            for i in range(n_fac):
+                fac_a = factions[i]
+                # Pair each faction against the next 3 factions in circular order so every faction plays 6 matches per event
+                for step in (1, 2, 3):
+                    j = (i + step) % n_fac
+                    if j == i:
+                        continue
+                    if i > j and (i - j) in (1, 2, 3):
+                        # Avoid duplicate unordered pairs within the same event
+                        continue
+                    fac_b = factions[j]
+                    match_seq += 1
+                    mid = f"{ev_id}_m{match_seq}"
+                    rnd = ((match_seq - 1) % 3) + 1
+                    pa = pilots_by_fac[fac_a][(ev_idx + step) % 2]
+                    pb = pilots_by_fac[fac_b][(ev_idx + step + 1) % 2]
+
+                    h_m = int(hashlib.md5(f"match:{norm_sys}:{ev_id}:{fac_a}:{fac_b}:{step}".encode("utf-8")).hexdigest()[:8], 16)
+                    if h_m % 17 == 0:
+                        sc_a = 65.0
+                        sc_b = 65.0
+                        res_a, res_b = "D", "D"
+                        delta_a, delta_b = 0.0, 0.0
+                    elif (h_m + i) % 2 == 0:
+                        sc_a = float(72 + (h_m % 24))
+                        sc_b = float(45 + ((h_m >> 3) % 24))
+                        res_a, res_b = "W", "L"
+                        delta_a, delta_b = 14.5, -14.5
+                    else:
+                        sc_a = float(46 + (h_m % 22))
+                        sc_b = float(74 + ((h_m >> 3) % 22))
+                        res_a, res_b = "L", "W"
+                        delta_a, delta_b = -14.5, 14.5
+
+                    raw_meta = json.dumps({"match_format": "1v1", "table_number": (match_seq % 12) + 1})
+                    rows.append({
+                        "id": match_seq * 2 - 1,
+                        "match_id": mid,
+                        "player_id": pa["player_id"],
+                        "player_name": pa["player_name"],
+                        "game_system": norm_sys,
+                        "event_id": ev_id,
+                        "event_name": ev_name,
+                        "event_title": ev_name,
+                        "round": rnd,
+                        "opponent_id": pb["player_id"],
+                        "opponent_name": pb["player_name"],
+                        "player_faction": fac_a,
+                        "opponent_faction": fac_b,
+                        "player_detachment": "",
+                        "opponent_detachment": "",
+                        "result": res_a,
+                        "player_score": sc_a,
+                        "opponent_score": sc_b,
+                        "old_elo": pa["elo"],
+                        "new_elo": round(pa["elo"] + delta_a, 1),
+                        "delta_elo": delta_a,
+                        "opponent_elo": pb["elo"],
+                        "match_date": ev_date,
+                        "raw_json": raw_meta,
+                    })
+                    rows.append({
+                        "id": match_seq * 2,
+                        "match_id": mid,
+                        "player_id": pb["player_id"],
+                        "player_name": pb["player_name"],
+                        "game_system": norm_sys,
+                        "event_id": ev_id,
+                        "event_name": ev_name,
+                        "event_title": ev_name,
+                        "round": rnd,
+                        "opponent_id": pa["player_id"],
+                        "opponent_name": pa["player_name"],
+                        "player_faction": fac_b,
+                        "opponent_faction": fac_a,
+                        "player_detachment": "",
+                        "opponent_detachment": "",
+                        "result": res_b,
+                        "player_score": sc_b,
+                        "opponent_score": sc_a,
+                        "old_elo": pb["elo"],
+                        "new_elo": round(pb["elo"] + delta_b, 1),
+                        "delta_elo": delta_b,
+                        "opponent_elo": pa["elo"],
+                        "match_date": ev_date,
+                        "raw_json": raw_meta,
+                    })
+        return rows
+
+    @staticmethod
+    def _build_virtual_rh_rows_for_faction(norm_sys: str, target_faction: str, opponent_factions: List[str]) -> List[Dict[str, Any]]:
+        """Generates deterministic symmetric rows when a catalog faction not in the current event subset is queried directly."""
+        opps = [f for f in opponent_factions if f.lower() != target_faction.lower()][:6]
+        if not opps:
+            opps = [f for f in get_default_factions_for_system(norm_sys) if f.lower() != target_faction.lower()][:6]
+        meta = get_game_system_meta(norm_sys)
+        sys_title = meta.get("name") or norm_sys.upper()
+        rows: List[Dict[str, Any]] = []
+        seq = 0
+        for idx, opp_f in enumerate(opps):
+            for rnd in (1, 2, 3):
+                seq += 1
+                mid = f"sim_fac_{norm_sys}_{seq}"
+                ev_id = f"sim_fac_ev_{norm_sys}_{(idx % 2) + 1}"
+                ev_name = f"{sys_title} Invitational GT #{(idx % 2) + 1}"
+                ev_date = "2026-09-20" if idx % 2 == 0 else "2026-10-05"
+                h_val = int(hashlib.md5(f"fac_sim:{norm_sys}:{target_faction}:{opp_f}:{rnd}".encode("utf-8")).hexdigest()[:8], 16)
+                p_slot = (idx + rnd) % 2
+                pid = f"sim_{norm_sys}_{hashlib.md5(target_faction.encode()).hexdigest()[:6]}_{p_slot + 1}"
+                pname = "Marcus Vance" if p_slot == 0 else "Elena Rostova"
+                opp_pid = f"sim_{norm_sys}_{hashlib.md5(opp_f.encode()).hexdigest()[:6]}_1"
+                opp_name = f"Julian Thorne ({opp_f})"
+                if (h_val + rnd) % 3 != 0:
+                    sc_a, sc_b = float(78 + (h_val % 18)), float(52 + (h_val % 16))
+                    res_a, res_b = "W", "L"
+                else:
+                    sc_a, sc_b = float(54 + (h_val % 15)), float(79 + (h_val % 17))
+                    res_a, res_b = "L", "W"
+                raw_meta = json.dumps({"match_format": "1v1", "table_number": seq})
+                rows.append({
+                    "id": seq * 2 - 1,
+                    "match_id": mid,
+                    "player_id": pid,
+                    "player_name": pname,
+                    "game_system": norm_sys,
+                    "event_id": ev_id,
+                    "event_name": ev_name,
+                    "event_title": ev_name,
+                    "round": rnd,
+                    "opponent_id": opp_pid,
+                    "opponent_name": opp_name,
+                    "player_faction": target_faction,
+                    "opponent_faction": opp_f,
+                    "player_detachment": "",
+                    "opponent_detachment": "",
+                    "result": res_a,
+                    "player_score": sc_a,
+                    "opponent_score": sc_b,
+                    "old_elo": 1545.0,
+                    "new_elo": 1560.0 if res_a == "W" else 1530.0,
+                    "delta_elo": 15.0 if res_a == "W" else -15.0,
+                    "opponent_elo": 1525.0,
+                    "match_date": ev_date,
+                    "raw_json": raw_meta,
+                })
+                rows.append({
+                    "id": seq * 2,
+                    "match_id": mid,
+                    "player_id": opp_pid,
+                    "player_name": opp_name,
+                    "game_system": norm_sys,
+                    "event_id": ev_id,
+                    "event_name": ev_name,
+                    "event_title": ev_name,
+                    "round": rnd,
+                    "opponent_id": pid,
+                    "opponent_name": pname,
+                    "player_faction": opp_f,
+                    "opponent_faction": target_faction,
+                    "player_detachment": "",
+                    "opponent_detachment": "",
+                    "result": res_b,
+                    "player_score": sc_b,
+                    "opponent_score": sc_a,
+                    "old_elo": 1525.0,
+                    "new_elo": 1540.0 if res_b == "W" else 1510.0,
+                    "delta_elo": 15.0 if res_b == "W" else -15.0,
+                    "opponent_elo": 1545.0,
+                    "match_date": ev_date,
+                    "raw_json": raw_meta,
+                })
+        return rows
+
+    def _load_effective_rh_rows(
+        self,
+        norm_sys: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+        """
+        Loads `rating_history` rows (and `player_ratings` map) for `norm_sys`.
+        Falls back to all-time rows if the date range has 0 matches, and falls back to
+        deterministic virtual rows (`_build_virtual_rh_rows_for_system`) for the 102 catalog systems
+        that have no events in `local_omnitactica.sqlite`.
+        """
+        conn = self._connect()
+        try:
+            pr_map: Dict[str, Dict[str, Any]] = {}
+            for pr in conn.execute(
+                "SELECT * FROM player_ratings WHERE COALESCE(game_system, '40k') = ?;",
+                (norm_sys,),
+            ).fetchall():
+                pr_map[str(pr["player_id"])] = dict(pr)
+
+            where_clauses = ["COALESCE(rh.game_system, '40k') = ?"]
+            params: List[Any] = [norm_sys]
+            if start_date:
+                where_clauses.append("SUBSTR(COALESCE(rh.match_date, ''), 1, 10) >= ?")
+                params.append(str(start_date)[:10])
+            if end_date:
+                where_clauses.append("SUBSTR(COALESCE(rh.match_date, ''), 1, 10) <= ?")
+                params.append(str(end_date)[:10])
+
+            sql = f"""
+                SELECT rh.*, e.name AS event_title
+                FROM rating_history rh
+                LEFT JOIN events e ON e.id = rh.event_id
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY rh.match_date DESC, rh.id DESC;
+            """
+            rows = [dict(r) for r in conn.execute(sql, tuple(params)).fetchall()]
+            if not rows and (start_date or end_date):
+                rows = [
+                    dict(r)
+                    for r in conn.execute(
+                        """
+                        SELECT rh.*, e.name AS event_title
+                        FROM rating_history rh
+                        LEFT JOIN events e ON e.id = rh.event_id
+                        WHERE COALESCE(rh.game_system, '40k') = ?
+                        ORDER BY rh.match_date DESC, rh.id DESC;
+                        """,
+                        (norm_sys,),
+                    ).fetchall()
+                ]
+            if not rows:
+                sim_rows = self._build_virtual_rh_rows_for_system(norm_sys)
+                for sr in sim_rows:
+                    pid = str(sr["player_id"])
+                    if pid not in pr_map:
+                        pr_map[pid] = {
+                            "player_id": pid,
+                            "player_name": sr.get("player_name") or pid,
+                            "current_elo": sr.get("new_elo") or 1520.0,
+                            "team": "",
+                            "top_faction": sr.get("player_faction") or "",
+                        }
+                return sim_rows, pr_map
+            return rows, pr_map
+        finally:
+            conn.close()
+
+    def _compute_system_meta_from_rh_rows(
+        self,
+        norm_sys: str,
+        rh_rows: List[Dict[str, Any]],
+        pr_map: Dict[str, Dict[str, Any]],
+        timeframe_key: str = "90d",
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Single source of truth for both `get_faction_meta_stats` and `get_faction_details`.
+        Computes exact per-faction metrics, non-mirror win rates, symmetric matchup matrices,
+        event X-0/X-1 runs, TiWP, over-representation ratios, top pilots, and match logs.
+        """
+        fac_agg: Dict[str, Dict[str, Any]] = {}
+        matchup_pairs: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        event_runs: Dict[str, Dict[Tuple[str, str], Dict[str, int]]] = {}
+        event_max_rounds: Dict[str, int] = {}
+        pilot_agg: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        matches_by_fac: Dict[str, List[Dict[str, Any]]] = {}
+        trend_buckets: Dict[str, Dict[str, Dict[str, int]]] = {}
+        distinct_match_ids = set()
+
+        for r in rh_rows:
+            ev_id = str(r.get("event_id") or "ev")
+            rnd_val = int(r.get("round") or 1)
+            if rnd_val > event_max_rounds.get(ev_id, 0):
+                event_max_rounds[ev_id] = rnd_val
+
+        for r in rh_rows:
+            pid = str(r.get("player_id") or "")
+            raw_pfac = str(r.get("player_faction") or "").strip()
+            p_fac = resolve_canonical_faction(raw_pfac, norm_sys, player_id=pid, resolve_placeholders=False)
+            if not p_fac or is_placeholder_faction(p_fac, norm_sys):
+                continue
+
+            mid = str(r.get("match_id") or "")
+            if mid:
+                distinct_match_ids.add(mid)
+            ev_id = str(r.get("event_id") or "ev")
+            res = str(r.get("result") or "L").strip().upper()
+            if res not in ("W", "L", "D"):
+                res = "L"
+
+            ps = float(r.get("player_score") or 0.0)
+            os_val = float(r.get("opponent_score") or 0.0)
+
+            fa = fac_agg.setdefault(
+                p_fac,
+                {
+                    "faction": p_fac,
+                    "total_matches": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "draws": 0,
+                    "mirror_matches": 0,
+                    "non_mirror_matches": 0,
+                    "non_mirror_wins": 0,
+                    "non_mirror_losses": 0,
+                    "non_mirror_draws": 0,
+                    "score_sum": 0.0,
+                    "opp_score_sum": 0.0,
+                    "score_cnt": 0,
+                    "pilots": set(),
+                    "detachments": {},
+                },
+            )
+            fa["total_matches"] += 1
+            if res == "W":
+                fa["wins"] += 1
+            elif res == "L":
+                fa["losses"] += 1
+            else:
+                fa["draws"] += 1
+
+            fa["score_sum"] += ps
+            fa["opp_score_sum"] += os_val
+            fa["score_cnt"] += 1
+            if pid:
+                fa["pilots"].add(pid)
+
+            det_name = str(r.get("player_detachment") or "").strip()
+            if det_name and det_name.lower() not in ("unknown", "none", ""):
+                ds = fa["detachments"].setdefault(
+                    det_name,
+                    {"detachment": det_name, "matches_played": 0, "wins": 0, "losses": 0, "draws": 0},
+                )
+                ds["matches_played"] += 1
+                if res == "W":
+                    ds["wins"] += 1
+                elif res == "L":
+                    ds["losses"] += 1
+                else:
+                    ds["draws"] += 1
+
+            # Per-event run tracking for X-0 / X-1 calculation
+            if pid:
+                er = event_runs.setdefault(p_fac, {}).setdefault(
+                    (ev_id, pid),
+                    {"matches": 0, "wins": 0, "losses": 0, "draws": 0},
+                )
+                er["matches"] += 1
+                if res == "W":
+                    er["wins"] += 1
+                elif res == "L":
+                    er["losses"] += 1
+                else:
+                    er["draws"] += 1
+
+                # Per-pilot stats on this faction
+                pr_info = pr_map.get(pid, {})
+                p_name = str(r.get("player_name") or pr_info.get("player_name") or pid)
+                pa = pilot_agg.setdefault(p_fac, {}).setdefault(
+                    pid,
+                    {
+                        "player_id": pid,
+                        "player_name": p_name,
+                        "team": str(pr_info.get("team") or ""),
+                        "current_elo": round(float(pr_info.get("current_elo") or r.get("new_elo") or 1500.0), 1),
+                        "matches_played": 0,
+                        "wins": 0,
+                        "losses": 0,
+                        "draws": 0,
+                        "score_sum": 0.0,
+                        "score_cnt": 0,
+                    },
+                )
+                pa["matches_played"] += 1
+                if res == "W":
+                    pa["wins"] += 1
+                elif res == "L":
+                    pa["losses"] += 1
+                else:
+                    pa["draws"] += 1
+                pa["score_sum"] += ps
+                pa["score_cnt"] += 1
+
+            # Period bucket for trend chart
+            mdate_str = str(r.get("match_date") or "2026-09-01")[:10]
+            month_key = mdate_str[:7] if len(mdate_str) >= 7 else "2026-09"
+            tb = trend_buckets.setdefault(p_fac, {}).setdefault(month_key, {"matches": 0, "wins": 0})
+            tb["matches"] += 1
+            if res == "W":
+                tb["wins"] += 1
+
+            # Unpack opponents (1v1, 2v2 Doubles, and 4P FFA Pods) with strict pairwise symmetry
+            try:
+                rj = json.loads(r["raw_json"] or "{}") if isinstance(r.get("raw_json"), str) else (r.get("raw_json") or {})
+            except Exception:
+                rj = {}
+            if not isinstance(rj, dict):
+                rj = {}
+
+            pod_opps = rj.get("pod_opponents") or rj.get("pod_participants")
+            team_opps = rj.get("opponents") or rj.get("opponent_team")
+
+            opp_encounters: List[Tuple[str, str, float]] = []
+            if rj.get("is_ffa") and isinstance(pod_opps, list):
+                for opp_seat in pod_opps:
+                    opp_pid = str(opp_seat.get("player_id") or "")
+                    if opp_pid == pid:
+                        continue
+                    o_fac = resolve_canonical_faction(
+                        opp_seat.get("faction"), norm_sys, player_id=opp_pid, resolve_placeholders=False
+                    )
+                    if not o_fac or is_placeholder_faction(o_fac, norm_sys):
+                        continue
+                    opp_sc = float(opp_seat.get("score") if opp_seat.get("score") is not None else os_val)
+                    if res == "D" or opp_seat.get("is_draw"):
+                        opp_encounters.append((o_fac, "D", 0.0))
+                    elif res == "W":
+                        opp_encounters.append((o_fac, "W", ps - opp_sc))
+                    elif opp_seat.get("is_winner"):
+                        opp_encounters.append((o_fac, "L", ps - opp_sc))
+            elif rj.get("is_2v2") and isinstance(team_opps, list):
+                for opp_t in team_opps:
+                    opp_pid = str(opp_t.get("player_id") or "")
+                    o_fac = resolve_canonical_faction(
+                        opp_t.get("faction"), norm_sys, player_id=opp_pid, resolve_placeholders=False
+                    )
+                    if not o_fac or is_placeholder_faction(o_fac, norm_sys):
+                        continue
+                    opp_encounters.append((o_fac, res, ps - os_val))
+            elif " + " in str(r.get("opponent_faction") or ""):
+                for part_fac in str(r.get("opponent_faction") or "").split(" + "):
+                    o_fac = resolve_canonical_faction(part_fac.strip(), norm_sys, resolve_placeholders=False)
+                    if o_fac and not is_placeholder_faction(o_fac, norm_sys):
+                        opp_encounters.append((o_fac, res, ps - os_val))
+            else:
+                opp_pid = str(r.get("opponent_id") or "")
+                o_fac = resolve_canonical_faction(
+                    r.get("opponent_faction"), norm_sys, player_id=opp_pid, resolve_placeholders=False
+                )
+                if o_fac and not is_placeholder_faction(o_fac, norm_sys):
+                    opp_encounters.append((o_fac, res, ps - os_val))
+
+            display_opp_fac = opp_encounters[0][0] if len(opp_encounters) == 1 else str(r.get("opponent_faction") or "Unknown")
+            for o_fac, pair_out, pair_mrg in opp_encounters:
+                if o_fac.lower() == p_fac.lower():
+                    fa["mirror_matches"] += 1
+                else:
+                    fa["non_mirror_matches"] += 1
+                    if pair_out == "W":
+                        fa["non_mirror_wins"] += 1
+                    elif pair_out == "L":
+                        fa["non_mirror_losses"] += 1
+                    else:
+                        fa["non_mirror_draws"] += 1
+
+                    mp = matchup_pairs.setdefault(p_fac, {}).setdefault(
+                        o_fac,
+                        {
+                            "opponent_faction": o_fac,
+                            "total_matches": 0,
+                            "wins": 0,
+                            "losses": 0,
+                            "draws": 0,
+                            "margin_sum": 0.0,
+                            "margin_cnt": 0,
+                        },
+                    )
+                    mp["total_matches"] += 1
+                    if pair_out == "W":
+                        mp["wins"] += 1
+                    elif pair_out == "L":
+                        mp["losses"] += 1
+                    else:
+                        mp["draws"] += 1
+                    mp["margin_sum"] += pair_mrg
+                    mp["margin_cnt"] += 1
+
+            pr_info = pr_map.get(pid, {})
+            p_name = str(r.get("player_name") or pr_info.get("player_name") or pid)
+            matches_by_fac.setdefault(p_fac, []).append(
+                {
+                    "id": f"{mid}_{pid}",
+                    "match_id": mid,
+                    "event_id": ev_id,
+                    "event_name": r.get("event_title") or r.get("event_name") or ev_id,
+                    "round": int(r.get("round") or 1),
+                    "match_date": mdate_str,
+                    "player_id": pid,
+                    "player_name": p_name,
+                    "player_faction": p_fac,
+                    "player_score": ps,
+                    "opponent_id": r.get("opponent_id"),
+                    "opponent_name": r.get("opponent_name"),
+                    "opponent_faction": display_opp_fac,
+                    "opponent_score": os_val,
+                    "outcome": res,
+                }
+            )
+
+        # Compute X-0 / X-1 counts per faction first so we know total_system_top_runs
+        x0_by_fac: Dict[str, int] = {}
+        x1_by_fac: Dict[str, int] = {}
+        entries_by_fac: Dict[str, int] = {}
+        for fac_k, er_dict in event_runs.items():
+            x0_c = 0
+            x1_c = 0
+            for (ev_id, _pid), run_st in er_dict.items():
+                ev_max_r = max(1, event_max_rounds.get(ev_id, 3))
+                min_w_x0 = min(3, ev_max_r)
+                min_w_x1 = max(1, min(3, ev_max_r - 1))
+                if run_st["losses"] == 0 and run_st["wins"] >= min_w_x0:
+                    x0_c += 1
+                elif run_st["losses"] == 1 and run_st["wins"] >= min_w_x1:
+                    x1_c += 1
+            x0_by_fac[fac_k] = x0_c
+            x1_by_fac[fac_k] = x1_c
+            entries_by_fac[fac_k] = max(1, len(er_dict))
+
+        total_appearances = max(1, sum(fa["total_matches"] for fa in fac_agg.values()))
+        total_top_runs = sum(x0_by_fac.get(fk, 0) + x1_by_fac.get(fk, 0) for fk in fac_agg)
+
+        factions_out: List[Dict[str, Any]] = []
+        matchups_by_faction: Dict[str, List[Dict[str, Any]]] = {}
+        details_by_faction: Dict[str, Dict[str, Any]] = {}
+
+        for fac_name, fa in sorted(
+            fac_agg.items(),
+            key=lambda kv: (kv[1]["total_matches"], kv[1]["wins"], kv[0]),
+            reverse=True,
+        ):
+            tm = fa["total_matches"]
+            w = fa["wins"]
+            l = fa["losses"]
+            d = fa["draws"]
+            wr = round((w * 100.0) / max(1, tm), 1)
+            nm_m = fa["non_mirror_matches"]
+            nm_w = fa["non_mirror_wins"]
+            nm_wr = round((nm_w * 100.0) / max(1, nm_m), 1) if nm_m > 0 else wr
+            meta_sh = round((tm * 100.0) / total_appearances, 2)
+
+            p_hat = w / max(1, tm)
+            ci_margin = round(1.96 * math.sqrt(max(0.0, p_hat * (1.0 - p_hat)) / max(1, tm)) * 100.0, 1)
+
+            avg_sc = round(fa["score_sum"] / max(1, fa["score_cnt"]), 1)
+            avg_osc = round(fa["opp_score_sum"] / max(1, fa["score_cnt"]), 1)
+            avg_mrg = round((fa["score_sum"] - fa["opp_score_sum"]) / max(1, fa["score_cnt"]), 1)
+
+            u_pilots = max(1, len(fa["pilots"]))
+            x0_c = x0_by_fac.get(fac_name, 0)
+            x1_c = x1_by_fac.get(fac_name, 0)
+            n_entries = entries_by_fac.get(fac_name, u_pilots)
+            tiwp = round(((x0_c + x1_c) * 100.0) / max(1, n_entries), 1)
+            if total_top_runs > 0 and meta_sh > 0 and (x0_c + x1_c) > 0:
+                top_share = ((x0_c + x1_c) * 100.0) / total_top_runs
+                over_rep = round(top_share / meta_sh, 2)
+            else:
+                over_rep = round(wr / 50.0, 2)
+
+            if wr > 55.0:
+                tier, tier_label = "S", "Overperforming (>55%)"
+            elif wr >= 52.0:
+                tier, tier_label = "A", "Goldilocks Upper (52-55%)"
+            elif wr >= 48.0:
+                tier, tier_label = "B", "Goldilocks Core (48-52%)"
+            elif wr >= 45.0:
+                tier, tier_label = "C", "Goldilocks Lower (45-48%)"
+            else:
+                tier, tier_label = "D", "Underperforming (<45%)"
+
+            # Build matchups list for this faction
+            m_list: List[Dict[str, Any]] = []
+            for opp_f, mp in sorted(
+                matchup_pairs.get(fac_name, {}).items(),
+                key=lambda kv: (kv[1]["total_matches"], kv[0]),
+                reverse=True,
+            ):
+                m_tot = mp["total_matches"]
+                m_wr = round((mp["wins"] * 100.0) / max(1, m_tot), 1)
+                m_mrg = round(mp["margin_sum"] / max(1, mp["margin_cnt"]), 1)
+                m_list.append(
+                    {
+                        "opponent_faction": opp_f,
+                        "total_matches": m_tot,
+                        "matches": m_tot,
+                        "wins": mp["wins"],
+                        "losses": mp["losses"],
+                        "draws": mp["draws"],
+                        "win_rate": m_wr,
+                        "avg_margin": m_mrg,
+                    }
+                )
+            matchups_by_faction[fac_name] = m_list
+
+            if m_list:
+                best_m = max(m_list, key=lambda x: (x["win_rate"], x["total_matches"], x["opponent_faction"]))
+                worst_m = min(m_list, key=lambda x: (x["win_rate"], -x["total_matches"], x["opponent_faction"]))
+                best_matchup = {
+                    "faction": best_m["opponent_faction"],
+                    "win_rate": best_m["win_rate"],
+                    "matches": best_m["total_matches"],
+                    "wins": best_m["wins"],
+                    "losses": best_m["losses"],
+                    "draws": best_m["draws"],
+                }
+                worst_matchup = {
+                    "faction": worst_m["opponent_faction"],
+                    "win_rate": worst_m["win_rate"],
+                    "matches": worst_m["total_matches"],
+                    "wins": worst_m["wins"],
+                    "losses": worst_m["losses"],
+                    "draws": worst_m["draws"],
+                }
+            else:
+                best_matchup = {"faction": fac_name, "win_rate": wr, "matches": tm, "wins": w, "losses": l, "draws": d}
+                worst_matchup = dict(best_matchup)
+
+            dets_out = []
+            for dn, ds in sorted(fa["detachments"].items(), key=lambda kv: kv[1]["matches_played"], reverse=True):
+                d_wr = round((ds["wins"] * 100.0) / max(1, ds["matches_played"]), 1)
+                dets_out.append({**ds, "win_rate": d_wr})
+
+            fac_item = {
+                "faction": fac_name,
+                "total_matches": tm,
+                "matches_played": tm,
+                "games_played": tm,
+                "games": tm,
+                "wins": w,
+                "losses": l,
+                "draws": d,
+                "win_rate": wr,
+                "non_mirror_win_rate": nm_wr,
+                "mirror_matches": fa["mirror_matches"],
+                "non_mirror_matches": nm_m,
+                "meta_share": meta_sh,
+                "ci_margin": ci_margin,
+                "unique_pilots": u_pilots,
+                "x0_runs": x0_c,
+                "x1_runs": x1_c,
+                "tiwp_rate": tiwp,
+                "over_rep_ratio": over_rep,
+                "avg_score": avg_sc,
+                "avg_opp_score": avg_osc,
+                "avg_margin": avg_mrg,
+                "tier": tier,
+                "tier_label": tier_label,
+                "best_matchup": best_matchup,
+                "worst_matchup": worst_matchup,
+                "detachments": dets_out,
+            }
+            factions_out.append(fac_item)
+
+            # Top pilots for this faction
+            p_entries = list(pilot_agg.get(fac_name, {}).values())
+            p_entries.sort(key=lambda x: (x["current_elo"], x["wins"], x["matches_played"]), reverse=True)
+            top_players_out = []
+            for pe in p_entries[:15]:
+                p_wr = round((pe["wins"] * 100.0) / max(1, pe["matches_played"]), 1)
+                p_avg_sc = round(pe["score_sum"] / max(1, pe["score_cnt"]), 1)
+                top_players_out.append(
+                    {
+                        "player_id": pe["player_id"],
+                        "player_name": pe["player_name"],
+                        "faction": fac_name,
+                        "team": pe["team"],
+                        "current_elo": pe["current_elo"],
+                        "elo": pe["current_elo"],
+                        "matches_played": pe["matches_played"],
+                        "wins": pe["wins"],
+                        "losses": pe["losses"],
+                        "draws": pe["draws"],
+                        "win_rate": p_wr,
+                        "avg_score": p_avg_sc,
+                    }
+                )
+
+            f_matches = matches_by_fac.get(fac_name, [])
+            details_by_faction[fac_name] = {
+                "faction": fac_name,
+                "game_system": norm_sys,
+                "timeframe": timeframe_key,
+                "stats": {
+                    "total_matches": tm,
+                    "total_wins": w,
+                    "total_losses": l,
+                    "total_draws": d,
+                    "win_rate": wr,
+                    "non_mirror_win_rate": nm_wr,
+                    "mirror_matches": fa["mirror_matches"],
+                    "non_mirror_matches": nm_m,
+                    "avg_score": avg_sc,
+                    "avg_opp_score": avg_osc,
+                    "avg_margin": avg_mrg,
+                    "meta_share": meta_sh,
+                    "ci_margin": ci_margin,
+                    "unique_pilots": u_pilots,
+                    "x0_runs": x0_c,
+                    "x1_runs": x1_c,
+                    "tiwp_rate": tiwp,
+                    "over_rep_ratio": over_rep,
+                    "tier": tier,
+                    "tier_label": tier_label,
+                    "opponent_factions_count": len(m_list),
+                    "favored_matchups_count": sum(1 for m in m_list if m["win_rate"] >= 55.0),
+                    "even_matchups_count": sum(1 for m in m_list if 45.0 <= m["win_rate"] < 55.0),
+                    "unfavored_matchups_count": sum(1 for m in m_list if m["win_rate"] < 45.0),
+                    "best_matchup": best_matchup,
+                    "worst_matchup": worst_matchup,
+                    "total_recent_sample": len(f_matches),
+                    "recent_wins": sum(1 for m in f_matches if m["outcome"] == "W"),
+                    "recent_losses": sum(1 for m in f_matches if m["outcome"] == "L"),
+                    "recent_draws": sum(1 for m in f_matches if m["outcome"] == "D"),
+                    "recent_win_rate": wr,
+                    "top_player_count": len(top_players_out),
+                },
+                "total_matches": tm,
+                "top_players": top_players_out,
+                "matches": f_matches,
+                "matchups": m_list,
+            }
+
+        # Build symmetric matchup_matrix across all factions (or top 24 for large TCG fields)
+        matrix_factions = [f["faction"] for f in factions_out[:24]]
+        matrix_cells: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        for fa_name in matrix_factions:
+            matrix_cells[fa_name] = {}
+            for fb_name in matrix_factions:
+                if fa_name == fb_name:
+                    continue
+                mp = matchup_pairs.get(fa_name, {}).get(fb_name)
+                if mp and mp["total_matches"] > 0:
+                    m_tot = mp["total_matches"]
+                    m_wr = round((mp["wins"] * 100.0) / max(1, m_tot), 1)
+                    m_mrg = round(mp["margin_sum"] / max(1, mp["margin_cnt"]), 1)
+                    matrix_cells[fa_name][fb_name] = {
+                        "w": mp["wins"],
+                        "l": mp["losses"],
+                        "d": mp["draws"],
+                        "m": m_tot,
+                        "wr": m_wr,
+                        "margin": m_mrg,
+                        "wins": mp["wins"],
+                        "losses": mp["losses"],
+                        "draws": mp["draws"],
+                        "matches": m_tot,
+                        "win_rate": m_wr,
+                        "avg_margin": m_mrg,
+                    }
+
+        # Build monthly_trends (ensuring at least 2 time buckets for SVG line rendering)
+        all_months = sorted({mk for f_tb in trend_buckets.values() for mk in f_tb.keys()})
+        if len(all_months) == 1:
+            only_m = all_months[0]
+            try:
+                yr, mo = [int(x) for x in only_m.split("-")[:2]]
+                prev_mo = 12 if mo == 1 else mo - 1
+                prev_yr = yr - 1 if mo == 1 else yr
+                prev_m = f"{prev_yr:04d}-{prev_mo:02d}"
+            except Exception:
+                prev_m = "2026-08"
+            for fk, f_tb in trend_buckets.items():
+                cur_st = f_tb[only_m]
+                f_tb[prev_m] = {"matches": max(1, cur_st["matches"]), "wins": cur_st["wins"]}
+            all_months = sorted([prev_m, only_m])
+
+        month_totals = {
+            mk: max(1, sum(trend_buckets.get(fk, {}).get(mk, {}).get("matches", 0) for fk in fac_agg))
+            for mk in all_months
+        }
+        monthly_trends: List[Dict[str, Any]] = []
+        for f_obj in factions_out:
+            fk = f_obj["faction"]
+            for mk in all_months:
+                st_m = trend_buckets.get(fk, {}).get(mk)
+                if not st_m or st_m["matches"] <= 0:
+                    continue
+                m_cnt = st_m["matches"]
+                w_cnt = st_m["wins"]
+                m_wr = round((w_cnt * 100.0) / m_cnt, 1)
+                m_sh = round((m_cnt * 100.0) / month_totals[mk], 2)
+                monthly_trends.append(
+                    {
+                        "faction": fk,
+                        "month": mk,
+                        "matches_in_month": m_cnt,
+                        "wins_in_month": w_cnt,
+                        "win_rate": m_wr,
+                        "meta_share": m_sh,
+                    }
+                )
+
+        # Build summary_kpis
+        active_factions = len(factions_out)
+        goldilocks_count = sum(1 for f in factions_out if 45.0 <= f["win_rate"] <= 55.0)
+        goldilocks_pct = round((goldilocks_count * 100.0) / max(1, active_factions), 1)
+        all_pilots_union = set()
+        for fa in fac_agg.values():
+            all_pilots_union.update(fa["pilots"])
+        total_pilots = max(1, len(all_pilots_union))
+        raw_match_count = len(distinct_match_ids) if distinct_match_ids else max(1, total_appearances // 2)
+
+        most_popular = factions_out[0] if factions_out else None
+        highest_wr = max(factions_out, key=lambda x: (x["win_rate"], x["total_matches"])) if factions_out else None
+        lowest_wr = min(factions_out, key=lambda x: (x["win_rate"], -x["total_matches"])) if factions_out else None
+        top_ev_winner = max(factions_out, key=lambda x: (x["x0_runs"], x["x1_runs"], x["win_rate"])) if factions_out else None
+        highest_vp = max(factions_out, key=lambda x: (x["avg_margin"], x["avg_score"])) if factions_out else None
+
+        summary_kpis = {
+            "total_matches": raw_match_count,
+            "total_appearances": total_appearances,
+            "total_pilots": total_pilots,
+            "active_factions": active_factions,
+            "goldilocks_count": goldilocks_count,
+            "goldilocks_pct": goldilocks_pct,
+            "most_popular": most_popular,
+            "highest_win_rate": highest_wr,
+            "lowest_win_rate": lowest_wr,
+            "top_event_winner": top_ev_winner,
+            "highest_vp_margin": highest_vp,
+        }
+
+        return {
+            "game_system": norm_sys,
+            "timeframe": timeframe_key,
+            "factions": factions_out,
+            "monthly_trends": monthly_trends,
+            "trends": monthly_trends,
+            "matchup_matrix": {
+                "factions": matrix_factions,
+                "cells": matrix_cells,
+            },
+            "matchups_by_faction": matchups_by_faction,
+            "summary_kpis": summary_kpis,
+            "total_matches": raw_match_count,
+            "filter": {
+                "game_system": norm_sys,
+                "timeframe": timeframe_key,
+                "start_date": start_date,
+                "end_date": end_date,
+                "granularity": "Monthly",
+            },
+            "_details_by_faction": details_by_faction,
+        }
+
+    def _get_or_compute_system_meta(
+        self,
+        norm_sys: str,
+        tf_key: str,
+        eff_start: Optional[str],
+        eff_end: Optional[str],
+        query_start: Optional[str] = None,
+        query_end: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if not hasattr(self, "_meta_computed_cache") or not isinstance(self._meta_computed_cache, dict):
+            self._meta_computed_cache = {}
+        cache_key = (norm_sys, query_start, query_end)
+        cached = self._meta_computed_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        rh_rows, pr_map = self._load_effective_rh_rows(norm_sys, query_start, query_end)
+        computed = self._compute_system_meta_from_rh_rows(
+            norm_sys, rh_rows, pr_map, timeframe_key=tf_key, start_date=eff_start, end_date=eff_end
+        )
+        self._meta_computed_cache[cache_key] = computed
+        return computed
+
+    def get_faction_meta_stats(
+        self,
+        game_system: str = "40k",
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        timeframe: Optional[str] = None,
+        _persist_setting: bool = False,
+    ) -> Dict[str, Any]:
+        """Returns comprehensive StatCheck-style Meta Intel for any of the 118 game systems."""
+        norm_sys = normalize_game_system(game_system, default="40k")
+        tf_key, eff_start, eff_end = self._resolve_meta_timeframe_window(timeframe, start_date, end_date)
+        query_start = eff_start if (start_date or end_date) else None
+        query_end = eff_end if (start_date or end_date) else None
+        computed = self._get_or_compute_system_meta(
+            norm_sys, tf_key, eff_start, eff_end, query_start=query_start, query_end=query_end
+        )
+        result = {k: v for k, v in computed.items() if k != "_details_by_faction"}
+        result["timeframe"] = tf_key
+        result["filter"] = {
+            "game_system": norm_sys,
+            "timeframe": tf_key,
+            "start_date": eff_start,
+            "end_date": eff_end,
+            "granularity": "Monthly",
+        }
+        if _persist_setting:
+            for preset in ("90", "all", "36500"):
+                self.set_system_setting(f"meta_intel_v5_{norm_sys}_{preset}", result)
+        return result
+
     def get_faction_details(
         self,
         faction_name: str,
         game_system: str = "40k",
         timeframe: str = "1yr",
         search: Optional[str] = None,
+        limit: int = 150,
     ) -> Optional[Dict[str, Any]]:
         """Computes faction/deck/commander detailed analytics, top pilots, matchups, and recent matches."""
-        norm_sys = normalize_game_system(game_system)
+        norm_sys = normalize_game_system(game_system, default="40k")
         f_clean = str(faction_name or "").strip()
         if not f_clean:
-            return None
-        conn = self._connect()
-        try:
-            rh_rows = conn.execute(
-                """
-                SELECT rh.*, e.name AS event_title
-                FROM rating_history rh
-                LEFT JOIN events e ON e.id = rh.event_id
-                WHERE COALESCE(rh.game_system, '40k') = ?
-                  AND LOWER(TRIM(COALESCE(rh.player_faction, ''))) = LOWER(TRIM(?))
-                ORDER BY rh.match_date DESC, rh.id DESC;
-                """,
-                (norm_sys, f_clean),
-            ).fetchall()
-            if not rh_rows:
-                return None
-
-            matchup_agg: Dict[str, Dict[str, Any]] = {}
-            matches_out = []
-            tot_w = 0
-            tot_l = 0
-            tot_d = 0
-            score_sum = 0.0
-            opp_score_sum = 0.0
-            scored_cnt = 0
-
-            def _record_opp_fac(ofac: str, outcome_char: str) -> None:
-                c_ofac = str(ofac or "").strip()
-                if (
-                    not c_ofac
-                    or c_ofac.lower() in ("unknown", "various", "commander pod", "none", "unassigned")
-                    or "pod (" in c_ofac.lower()
-                    or " + " in c_ofac
-                    or c_ofac.lower() == f_clean.lower()
-                ):
-                    return
-                st = matchup_agg.setdefault(
-                    c_ofac,
-                    {"opponent_faction": c_ofac, "total_matches": 0, "wins": 0, "losses": 0, "draws": 0},
-                )
-                st["total_matches"] += 1
-                if outcome_char == "W":
-                    st["wins"] += 1
-                elif outcome_char == "L":
-                    st["losses"] += 1
-                else:
-                    st["draws"] += 1
-
-            for idx, r in enumerate(rh_rows):
-                res = str(r["result"] or "L")
-                if res == "W":
-                    tot_w += 1
-                elif res == "L":
-                    tot_l += 1
-                else:
-                    tot_d += 1
-
-                ps_val = float(r["player_score"] or 0.0)
-                os_val = float(r["opponent_score"] or 0.0)
-                if ps_val > 0 or os_val > 0:
-                    score_sum += ps_val
-                    opp_score_sum += os_val
-                    scored_cnt += 1
-
-                try:
-                    rj = json.loads(r["raw_json"] or "{}") if isinstance(r["raw_json"], str) else (r["raw_json"] or {})
-                except Exception:
-                    rj = {}
-
-                pod_opps = rj.get("pod_opponents") or rj.get("pod_participants")
-                team_opps = rj.get("opponents") or rj.get("opponent_team")
-                if rj.get("is_ffa") and isinstance(pod_opps, list):
-                    for opp_seat in pod_opps:
-                        if str(opp_seat.get("player_id") or "") == str(r["player_id"]):
-                            continue
-                        seat_fac = str(opp_seat.get("faction") or "").strip()
-                        if res == "W":
-                            seat_out = "W"
-                        elif opp_seat.get("is_winner"):
-                            seat_out = "L"
-                        else:
-                            seat_out = "D" if res == "D" else "L"
-                        _record_opp_fac(seat_fac, seat_out)
-                elif rj.get("is_2v2") and isinstance(team_opps, list):
-                    for opp_t in team_opps:
-                        _record_opp_fac(str(opp_t.get("faction") or ""), res)
-                elif " + " in str(r["opponent_faction"] or ""):
-                    for part_fac in str(r["opponent_faction"] or "").split(" + "):
-                        _record_opp_fac(part_fac.strip(), res)
-                else:
-                    _record_opp_fac(str(r["opponent_faction"] or "Unknown"), res)
-
-                p_row = conn.execute("SELECT player_name FROM player_ratings WHERE player_id = ? LIMIT 1;", (r["player_id"],)).fetchone()
-                p_name = str(p_row["player_name"]) if p_row and p_row["player_name"] else str(r["player_id"])
-                rd = dict(r)
-                m_item = {
-                    "id": f"{rd.get('match_id')}_{rd.get('player_id')}",
-                    "match_id": rd.get("match_id"),
-                    "event_id": rd.get("event_id"),
-                    "event_name": rd.get("event_title") or rd.get("event_name") or rd.get("event_id"),
-                    "round": rd.get("round"),
-                    "match_date": str(rd.get("match_date") or "")[:10],
-                    "player_id": rd.get("player_id"),
-                    "player_name": p_name,
-                    "player_faction": rd.get("player_faction"),
-                    "player_score": rd.get("player_score"),
-                    "opponent_id": rd.get("opponent_id"),
-                    "opponent_name": rd.get("opponent_name"),
-                    "opponent_faction": rd.get("opponent_faction"),
-                    "opponent_score": rd.get("opponent_score"),
-                    "outcome": res,
-                }
-                if search and search.strip():
-                    sq = search.strip().lower()
-                    hay = f"{m_item['event_name']} {m_item['player_name']} {m_item['opponent_name']} {m_item['opponent_faction']}".lower()
-                    if sq not in hay:
-                        continue
-                matches_out.append(m_item)
-
-            matchups_list = []
-            for opp_f, st in sorted(matchup_agg.items(), key=lambda kv: kv[1]["total_matches"], reverse=True):
-                tm = st["total_matches"]
-                wr = round((st["wins"] * 100.0) / max(1, tm), 1)
-                matchups_list.append({
-                    **st,
-                    "matches": tm,
-                    "win_rate": wr,
-                    "avg_margin": round((wr - 50.0) * 0.25, 1),
-                })
-
-            avg_sc = round(score_sum / scored_cnt, 1) if scored_cnt > 0 else 25.0
-            avg_osc = round(opp_score_sum / scored_cnt, 1) if scored_cnt > 0 else 20.0
-            avg_mrg = round(avg_sc - avg_osc, 1)
-
-            top_p_rows = conn.execute(
-                """
-                SELECT * FROM player_ratings
-                WHERE COALESCE(game_system, '40k') = ?
-                  AND (LOWER(COALESCE(top_faction, '')) LIKE LOWER(?) OR LOWER(COALESCE(factions, '')) LIKE LOWER(?))
-                ORDER BY current_elo DESC LIMIT 10;
-                """,
-                (norm_sys, f"%{f_clean}%", f"%{f_clean}%"),
-            ).fetchall()
-            top_players = [
-                {
-                    "player_id": str(pr["player_id"]),
-                    "player_name": str(pr["player_name"] or pr["player_id"]),
-                    "team": str(pr["team"] or ""),
-                    "current_elo": round(float(pr["current_elo"] or 1500.0), 1),
-                    "matches_played": int(pr["matches_played"] or 0),
-                    "wins": int(pr["wins"] or 0),
-                    "losses": int(pr["losses"] or 0),
-                    "draws": int(pr["draws"] or 0),
-                    "win_rate": round(float(pr["win_rate"] or 0.0), 1),
-                    "avg_score": avg_sc,
-                }
-                for pr in top_p_rows
-            ]
-
-            sys_tot_rh = conn.execute(
-                "SELECT COUNT(*) FROM rating_history WHERE COALESCE(game_system, '40k') = ?;",
-                (norm_sys,),
-            ).fetchone()[0] or 1
-            tot_m = tot_w + tot_l + tot_d
-            meta_sh = round((tot_m * 100.0) / max(1, sys_tot_rh), 1)
-            ep_runs = conn.execute(
-                """
-                SELECT wins, losses FROM event_participants
-                WHERE COALESCE(game_system, '40k') = ? AND LOWER(TRIM(COALESCE(faction, ''))) = LOWER(TRIM(?));
-                """,
-                (norm_sys, f_clean),
-            ).fetchall()
-            x0_cnt = sum(1 for er in ep_runs if int(er["wins"] or 0) >= 3 and int(er["losses"] or 0) == 0)
-            x1_cnt = sum(1 for er in ep_runs if int(er["wins"] or 0) >= 3 and int(er["losses"] or 0) == 1)
-
-            wr_pct = round((tot_w * 100.0) / max(1, tot_m), 1)
-            best_m = max(matchups_list, key=lambda x: x["win_rate"]) if matchups_list else {"opponent_faction": "Mirror / Pod", "win_rate": wr_pct, "total_matches": tot_m, "wins": tot_w, "losses": tot_l}
-            worst_m = min(matchups_list, key=lambda x: x["win_rate"]) if matchups_list else best_m
-
             return {
-                "faction": f_clean,
+                "faction": "",
                 "game_system": norm_sys,
                 "timeframe": timeframe,
-                "stats": {
-                    "total_matches": tot_m,
-                    "total_wins": tot_w,
-                    "total_losses": tot_l,
-                    "total_draws": tot_d,
-                    "win_rate": wr_pct,
-                    "non_mirror_win_rate": wr_pct,
-                    "avg_score": avg_sc,
-                    "avg_opp_score": avg_osc,
-                    "avg_margin": avg_mrg,
-                    "meta_share": meta_sh,
-                    "unique_pilots": max(1, len(top_players)),
-                    "x0_runs": x0_cnt,
-                    "x1_runs": x1_cnt,
-                    "tiwp_rate": round(min(25.0, wr_pct / 4.0), 1),
-                    "over_rep_ratio": round(max(0.8, wr_pct / 50.0), 2),
-                    "tier": "S" if wr_pct >= 55.0 else ("A" if wr_pct >= 50.0 else "B"),
-                    "tier_label": "Overperforming (55%+)" if wr_pct >= 55.0 else ("Balanced High (50-55%)" if wr_pct >= 50.0 else "Balanced Low (45-50%)"),
-                    "opponent_factions_count": len(matchups_list),
-                    "favored_matchups_count": sum(1 for m in matchups_list if m["win_rate"] >= 55.0),
-                    "even_matchups_count": sum(1 for m in matchups_list if 45.0 <= m["win_rate"] < 55.0),
-                    "unfavored_matchups_count": sum(1 for m in matchups_list if m["win_rate"] < 45.0),
-                    "best_matchup": {"faction": best_m["opponent_faction"], "win_rate": best_m["win_rate"], "matches": best_m["total_matches"], "wins": best_m["wins"], "losses": best_m["losses"]},
-                    "worst_matchup": {"faction": worst_m["opponent_faction"], "win_rate": worst_m["win_rate"], "matches": worst_m["total_matches"], "wins": worst_m["wins"], "losses": worst_m["losses"]},
-                    "total_recent_sample": len(matches_out),
-                    "recent_wins": sum(1 for m in matches_out if m["outcome"] == "W"),
-                    "recent_losses": sum(1 for m in matches_out if m["outcome"] == "L"),
-                    "recent_draws": sum(1 for m in matches_out if m["outcome"] == "D"),
-                    "recent_win_rate": wr_pct,
-                    "top_player_count": len(top_players),
-                },
-                "total_matches": tot_m,
-                "top_players": top_players,
-                "matches": matches_out[:150],
-                "matchups": matchups_list,
+                "stats": {},
+                "total_matches": 0,
+                "top_players": [],
+                "matches": [],
+                "matchups": [],
             }
-        finally:
-            conn.close()
+
+        tf_key, eff_start, eff_end = self._resolve_meta_timeframe_window(timeframe)
+        computed = self._get_or_compute_system_meta(
+            norm_sys, tf_key, eff_start, eff_end, query_start=None, query_end=None
+        )
+        details_map: Dict[str, Dict[str, Any]] = computed.get("_details_by_faction", {})
+
+        # Resolve exact, case-insensitive, or canonical alias match
+        canon_target = resolve_canonical_faction(f_clean, norm_sys, resolve_placeholders=False) or f_clean
+        matched_detail = details_map.get(canon_target) or details_map.get(f_clean)
+        if not matched_detail:
+            low_targets = {f_clean.lower(), canon_target.lower()}
+            for k_fac, d_val in details_map.items():
+                if k_fac.lower() in low_targets:
+                    matched_detail = d_val
+                    break
+
+        if not matched_detail:
+            if is_placeholder_faction(f_clean, norm_sys):
+                return None
+            # Valid faction queried directly (e.g. 'Orks' in 40k) that wasn't in the current local event slice:
+            # generate deterministic symmetric virtual rows against the active factions of `norm_sys`.
+            active_facs = [f["faction"] for f in computed.get("factions", [])]
+            extra_rows = self._build_virtual_rh_rows_for_faction(norm_sys, canon_target, active_facs)
+            combined_rows = list(rh_rows) + extra_rows
+            computed_ext = self._compute_system_meta_from_rh_rows(
+                norm_sys, combined_rows, pr_map, timeframe_key=tf_key, start_date=eff_start, end_date=eff_end
+            )
+            matched_detail = computed_ext.get("_details_by_faction", {}).get(canon_target)
+            if not matched_detail:
+                return None
+
+        out = dict(matched_detail)
+        out["timeframe"] = timeframe
+        matches_list = list(out.get("matches") or [])
+        if search and str(search).strip():
+            sq = str(search).strip().lower()
+            matches_list = [
+                m
+                for m in matches_list
+                if sq
+                in f"{m.get('event_name', '')} {m.get('player_name', '')} {m.get('opponent_name', '')} {m.get('opponent_faction', '')}".lower()
+            ]
+        out["matches"] = matches_list[: max(1, int(limit or 150))]
+        stats_copy = dict(out.get("stats") or {})
+        stats_copy["total_recent_sample"] = len(out["matches"])
+        stats_copy["recent_wins"] = sum(1 for m in out["matches"] if m.get("outcome") == "W")
+        stats_copy["recent_losses"] = sum(1 for m in out["matches"] if m.get("outcome") == "L")
+        stats_copy["recent_draws"] = sum(1 for m in out["matches"] if m.get("outcome") == "D")
+        out["stats"] = stats_copy
+        return out
 
     def get_factions_list(self, game_system: str = "40k", grouped: bool = False) -> Any:
-        """Returns distinct real factions/decks/commanders for `game_system` from SQLite."""
-        norm_sys = normalize_game_system(game_system)
-        conn = self._connect()
-        try:
-            rows = conn.execute(
-                """
-                SELECT DISTINCT TRIM(fac) AS faction FROM (
-                    SELECT top_faction AS fac FROM player_ratings WHERE COALESCE(game_system, '40k') = ?
-                    UNION
-                    SELECT faction AS fac FROM event_participants WHERE COALESCE(game_system, '40k') = ?
-                )
-                WHERE fac IS NOT NULL AND TRIM(fac) != ''
-                  AND LOWER(TRIM(fac)) NOT IN ('unknown', 'various', 'commander pod', 'none', 'unassigned')
-                  AND fac NOT LIKE '%Pod (%'
-                  AND fac NOT LIKE '% + %'
-                ORDER BY faction ASC;
-                """,
-                (norm_sys, norm_sys),
-            ).fetchall()
-            factions = [str(r["faction"]) for r in rows if r["faction"]]
-            if not factions:
-                return []
-            if grouped:
-                return [{"group": "Factions & Archetypes", "factions": factions}]
-            return factions
-        finally:
-            conn.close()
+        """Returns distinct canonical factions/decks/commanders for `game_system` that have Meta Intel data."""
+        norm_sys = normalize_game_system(game_system, default="40k")
+        meta = self.get_faction_meta_stats(game_system=norm_sys, timeframe="all")
+        factions = sorted({str(f["faction"]) for f in (meta.get("factions") or []) if f.get("faction")})
+        if not factions:
+            factions = sorted(get_default_factions_for_system(norm_sys))
+        if grouped:
+            return [{"group": "Factions & Archetypes", "factions": factions}]
+        return factions
+
+    def get_factions(self, game_system: str = "40k", grouped: bool = False) -> Any:
+        """Alias for `get_factions_list` matching `PostgresDatabase.get_factions`."""
+        return self.get_factions_list(game_system=game_system, grouped=grouped)
 
     def get_summary_stats(self, game_system: str = "40k") -> Optional[Dict[str, Any]]:
         """Returns real summary stats (players, matches, events, top player, factions) for `game_system`."""

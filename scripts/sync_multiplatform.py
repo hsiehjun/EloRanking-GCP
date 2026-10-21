@@ -65,7 +65,7 @@ def _bound_id(val: Any, max_len: int = 64) -> str:
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import get_bcp_game_system_id
+from config import get_bcp_game_system_id, resolve_canonical_faction
 from scraper import BestCoastPairingsScraper
 from scripts.local_sqlite_db import DEFAULT_SQLITE_PATH, LocalSqliteDatabase
 
@@ -212,7 +212,8 @@ def import_live_limitless_tournaments(
             pid = _bound_id(f"ltcg:{raw_pid}")
             pname = str(st.get("name") or raw_pid).strip()
             deck_obj = st.get("deck") if isinstance(st.get("deck"), dict) else {}
-            deck_name = str(deck_obj.get("name") or details.get("format") or "Standard Deck").strip()
+            raw_deck_name = str(deck_obj.get("name") or details.get("format") or "Standard Deck").strip()
+            deck_name = resolve_canonical_faction(raw_deck_name, sys_slug, pid, resolve_placeholders=True)
             rec = st.get("record") if isinstance(st.get("record"), dict) else {}
             w = int(rec.get("wins") or 0)
             l = int(rec.get("losses") or 0)
@@ -270,7 +271,15 @@ def import_live_limitless_tournaments(
             if not raw_p1:
                 continue
 
-            p1_info = player_lookup.get(raw_p1, {"pid": _bound_id(f"ltcg:{raw_p1}"), "name": raw_p1, "faction": "Standard Deck", "detachment": "Standard"})
+            p1_info = player_lookup.get(
+                raw_p1,
+                {
+                    "pid": _bound_id(f"ltcg:{raw_p1}"),
+                    "name": raw_p1,
+                    "faction": resolve_canonical_faction("Standard Deck", sys_slug, _bound_id(f"ltcg:{raw_p1}"), resolve_placeholders=True),
+                    "detachment": "Standard",
+                },
+            )
             raw_winner = pr.get("winner")
 
             if not raw_p2 or raw_winner == -1:
@@ -302,7 +311,15 @@ def import_live_limitless_tournaments(
                 )
                 continue
 
-            p2_info = player_lookup.get(raw_p2, {"pid": _bound_id(f"ltcg:{raw_p2}"), "name": raw_p2, "faction": "Standard Deck", "detachment": "Standard"})
+            p2_info = player_lookup.get(
+                raw_p2,
+                {
+                    "pid": _bound_id(f"ltcg:{raw_p2}"),
+                    "name": raw_p2,
+                    "faction": resolve_canonical_faction("Standard Deck", sys_slug, _bound_id(f"ltcg:{raw_p2}"), resolve_placeholders=True),
+                    "detachment": "Standard",
+                },
+            )
             w_str = str(raw_winner or "").strip().lower()
             is_draw = raw_winner in (0, "0", "tie", "draw", None, "")
             if w_str == raw_p1:
@@ -389,13 +406,37 @@ def import_live_bcp_tournaments(
     return {"events_imported": events_imported, "matches_imported": matches_imported}
 
 
+LONGSHANKS_HOST_BY_SYSTEM = {
+    "mcp": "https://mcp.longshanks.org",
+    "aos": "https://ageofsigmar.longshanks.org",
+    "40k": "https://warhammer40k.longshanks.org",
+    "the_old_world": "https://oldworld.longshanks.org",
+    "horus_heresy": "https://horusheresy.longshanks.org",
+    "kill_team": "https://killteam.longshanks.org",
+    "sw_legion": "https://legion.longshanks.org",
+    "shatterpoint": "https://shatterpoint.longshanks.org",
+    "x_wing": "https://xwing.longshanks.org",
+    "guild_ball": "https://guildball.longshanks.org",
+    "warmachine": "https://warmachine.longshanks.org",
+    "malifaux": "https://malifaux.longshanks.org",
+    "infinity": "https://infinity.longshanks.org",
+    "conquest": "https://conquest.longshanks.org",
+    "bolt_action": "https://boltaction.longshanks.org",
+    "battletech": "https://battletech.longshanks.org",
+    "mesbg": "https://mesbg.longshanks.org",
+    "middle_earth": "https://mesbg.longshanks.org",
+    "blood_bowl": "https://bloodbowl.longshanks.org",
+    "lorcana": "https://lorcana.longshanks.org",
+}
+
+
 def import_live_longshanks_tournaments(
     db: LocalSqliteDatabase,
     event_targets: List[Tuple[str, str]],
 ) -> Dict[str, Any]:
     """
     Scrapes 100% REAL completed Longshanks tournaments, player standings, factions,
-    and round-by-round games directly from `https://mcp.longshanks.org`.
+    and round-by-round games directly from Longshanks system subdomains.
     """
     events_imported = 0
     matches_imported = 0
@@ -403,7 +444,7 @@ def import_live_longshanks_tournaments(
 
     for sys_slug, raw_eid in event_targets:
         eid = _bound_id(f"ls:{raw_eid}")
-        base_host = "https://mcp.longshanks.org" if sys_slug == "mcp" else "https://www.longshanks.org"
+        base_host = LONGSHANKS_HOST_BY_SYSTEM.get(sys_slug, "https://www.longshanks.org")
         try:
             ev_html = _http_get_text(f"{base_host}/event/{raw_eid}/")
             st_html = _http_get_text(f"{base_host}/events/detail/panel_standings.php?event={raw_eid}&section=player")
@@ -414,6 +455,8 @@ def import_live_longshanks_tournaments(
 
         title_m = re.search(r"<title>([^<]+)</title>", ev_html)
         raw_title = html.unescape(title_m.group(1)).split("•")[0].strip() if title_m else f"Longshanks Event {raw_eid}"
+        ev_dt_m = re.search(r"event_date\.png[^>]*></td>\s*<td>\s*(\d{4}-\d{2}-\d{2})", ev_html)
+        default_ev_date = f"{ev_dt_m.group(1)}T12:00:00" if ev_dt_m else "2026-09-19T10:00:00"
 
         round_nums = sorted({int(x) for x in re.findall(r"<option value=['\"](\d+)['\"]", gm_r1_html)} or {1})
         max_rnd = max(round_nums, default=4)
@@ -438,8 +481,9 @@ def import_live_longshanks_tournaments(
             comm_m = re.search(r"pop_community\(\d+\);['\"]>([^<]+)</a>", blk)
             team_name = html.unescape(comm_m.group(1)).strip() if comm_m else ""
 
-            facs = re.findall(r'/systems/[a-z0-9_]+/factions/[^"]+" title="([^"]+)"', blk)
-            primary_fac = facs[0] if facs else "Unaffiliated"
+            facs = re.findall(r'/systems/[a-z0-9_-]+/factions/[^"]+" title="([^"]+)"', blk)
+            raw_primary_fac = facs[0] if facs else "Unaffiliated"
+            primary_fac = resolve_canonical_faction(raw_primary_fac, sys_slug, pid, resolve_placeholders=True)
             second_fac = facs[1] if len(facs) > 1 else ""
 
             wins_m = re.search(r'<span class="wins">(\d+)</span>', blk)
@@ -482,7 +526,7 @@ def import_live_longshanks_tournaments(
 
         # Parse all rounds from panel_games.php
         m_batch = []
-        ev_date = "2026-09-19T10:00:00"
+        ev_date = default_ev_date
         for rnd in round_nums:
             gm_html = gm_r1_html if rnd == 1 else _http_get_text(f"{base_host}/events/detail/panel_games.php?event={raw_eid}&round={rnd}")
             games = re.split(r"<div class=['\"]game['\"] id=['\"]game_(\d+)['\"]>", gm_html)
@@ -495,7 +539,7 @@ def import_live_longshanks_tournaments(
                 tbl_m = re.search(r"<span class=['\"]header['\"]>Table</span>&nbsp;(\d+)", gblk)
                 t_num = int(tbl_m.group(1)) if tbl_m else ((g_idx // 2) + 1)
 
-                p_parts = re.split(r"<div class=['\"]player (winner|loser|draw)['\"]>", gblk)
+                p_parts = re.split(r"<div class=['\"]player (winner|loser|draw|tie)['\"]>", gblk)
                 parsed_p = []
                 for j in range(1, len(p_parts), 2):
                     outcome = p_parts[j]
@@ -508,8 +552,9 @@ def import_live_longshanks_tournaments(
                     pid = _bound_id(f"ls:{raw_pid}")
                     raw_n = re.sub(r"<span class=['\"]nickname['\"]>.*?</span>", "", pm.group(2))
                     clean_n = " ".join(html.unescape(re.sub(r"<[^>]+>", "", raw_n)).split()).strip()
-                    fac_m = re.search(r'/systems/[a-z0-9_]+/factions/[^"]+" title="([^"]+)"', phtml)
-                    fac_str = fac_m.group(1) if fac_m else player_lookup.get(pid, {}).get("faction", "Unaffiliated")
+                    fac_m = re.search(r'/systems/[a-z0-9_-]+/factions/[^"]+" title="([^"]+)"', phtml)
+                    raw_fac_str = fac_m.group(1) if fac_m else player_lookup.get(pid, {}).get("faction", "Unaffiliated")
+                    fac_str = resolve_canonical_faction(raw_fac_str, sys_slug, pid, resolve_placeholders=True)
                     vp_m = re.search(r"<div class=['\"]score vp['\"][^>]*>(\d+)</div>", phtml)
                     vp_val = float(vp_m.group(1)) if vp_m else 0.0
                     parsed_p.append((outcome, pid, clean_n, fac_str, vp_val))
@@ -549,7 +594,7 @@ def import_live_longshanks_tournaments(
                     continue
 
                 (o1, p1_id, p1_name, p1_fac, p1_vp), (o2, p2_id, p2_name, p2_fac, p2_vp) = parsed_p[0], parsed_p[1]
-                is_draw = (o1 == "draw" or o2 == "draw" or (o1 != "winner" and o2 != "winner" and p1_vp == p2_vp))
+                is_draw = (o1 in ("draw", "tie") or o2 in ("draw", "tie") or (o1 != "winner" and o2 != "winner" and p1_vp == p2_vp))
                 if o1 == "winner":
                     winner_id = p1_id
                 elif o2 == "winner":
@@ -584,8 +629,8 @@ def import_live_longshanks_tournaments(
                     }
                 )
 
-        if not ep_batch and not m_batch:
-            logger.info(f"ℹ️ [Longshanks:{sys_slug.upper()}] Skipping upcoming/empty event '{raw_title}' ({eid}) with 0 players/games.")
+        if not ep_batch or not m_batch:
+            logger.info(f"ℹ️ [Longshanks:{sys_slug.upper()}] Skipping upcoming/empty event '{raw_title}' ({eid}) with {len(ep_batch)} players / {len(m_batch)} games.")
             continue
 
         db.upsert_event(
@@ -905,6 +950,12 @@ def import_live_topdeck_tournaments(
                 }
             )
 
+        if not ep_batch or not m_batch:
+            logger.info(
+                f"ℹ️ [TopDeck.gg:{sys_slug.upper()}] Skipping incomplete tournament '{ev_name}' ({eid}) with {len(ep_batch)} players / {len(m_batch)} completed pods."
+            )
+            continue
+
         db.upsert_event(
             {
                 "id": eid,
@@ -1105,14 +1156,15 @@ main().catch(err => {
             logger.debug(f"[Melee.gg] Notice reading melee_live_cache.json.gz: {cache_err}")
 
     scraped_by_tid: Dict[str, Any] = {}
+    unscraped_tids = [t for t in tids if not (cached_by_tid.get(t) or {}).get("standings") or os.getenv("MELEE_FORCE_LIVE", "0") == "1"]
     has_node_and_chrome = bool(
         shutil.which("node")
         and (shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser"))
     )
-    if has_node_and_chrome and os.getenv("MELEE_SKIP_CHROME", "0") != "1":
+    if unscraped_tids and has_node_and_chrome and os.getenv("MELEE_SKIP_CHROME", "0") != "1":
         try:
             subprocess.run(
-                ["node", "-e", node_script, json.dumps(tids), out_json_path],
+                ["node", "-e", node_script, json.dumps(unscraped_tids), out_json_path],
                 check=True,
                 timeout=45,
             )
@@ -1173,7 +1225,9 @@ main().catch(err => {
             chosen_dk = next((dk for dk in dks if dk.get("DecklistName") and dk.get("DecklistName") != "Decklist"), dks[0] if dks else {})
             arch_name = str(chosen_dk.get("DecklistName") or "").strip()
             if not arch_name or arch_name == "Decklist":
-                arch_name = "Standard Deck" if sys_slug == "mtg" else "Premier Deck"
+                arch_name = resolve_canonical_faction("Standard Deck" if sys_slug == "mtg" else "Premier Deck", sys_slug, pid)
+            else:
+                arch_name = resolve_canonical_faction(arch_name, sys_slug, pid)
             deck_guid = str(chosen_dk.get("DecklistId") or "").strip()
             dl_text = _format_melee_decklist_text(decklists_map.get(deck_guid), fallback_name=arch_name)
             dl_url = f"https://melee.gg/Decklist/View/{deck_guid}" if deck_guid else f"https://melee.gg/Tournament/View/{raw_tid}"
@@ -1315,6 +1369,12 @@ main().catch(err => {
                 )
 
         gs_id = get_bcp_game_system_id(sys_slug, default="FM1PYUZbsL")
+        if not ep_batch or not m_batch:
+            logger.info(
+                f"ℹ️ [Melee.gg:{sys_slug.upper()}] Skipping incomplete tournament '{title}' ({eid}) with {len(ep_batch)} players / {len(m_batch)} matches."
+            )
+            continue
+
         db.upsert_event(
             {
                 "id": eid,
@@ -1396,7 +1456,6 @@ def seed_and_test_real_linked_users(db: LocalSqliteDatabase) -> List[Dict[str, A
             "primary_faction": "Hellfire Club",
             "links": [
                 ("bcp", "r0IKtzv5BlvN", "Steven Yingling (BCP)"),
-                ("longshanks", "ls:9256", "Steven Yingling #9256 (Longshanks)"),
             ],
         },
         {
@@ -1424,8 +1483,6 @@ def seed_and_test_real_linked_users(db: LocalSqliteDatabase) -> List[Dict[str, A
             "primary_faction": "Arcum Dagsson",
             "links": [
                 ("bcp", "gCtLsa0uiUhk", "Tommy T (BCP Tarkir)"),
-                ("bcp", "SJt9Y8hrk2ok", "Tommy T (BCP Avatar)"),
-                ("topdeck", "td:F6bYMu2NJ1VnpwBTJud86Gn85Oc2", "Tommy T (TopDeck.gg)"),
             ],
         },
         {

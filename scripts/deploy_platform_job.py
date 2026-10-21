@@ -66,7 +66,12 @@ def deploy_or_update_job(
     command: str,
     script_arg: str,
     template_job: str = "elo-tournament-sync-job",
+    execute_args: str = "",
 ) -> int:
+    exec_cmd = ["gcloud", "run", "jobs", "execute", job_name, f"--region={region}", "--async"]
+    if execute_args and str(execute_args).strip():
+        exec_cmd.append(f"--args={execute_args.strip()}")
+
     # 1. Check if the job already exists
     desc = _run_cmd(
         ["gcloud", "run", "jobs", "describe", job_name, f"--region={region}", "--format=json"],
@@ -85,6 +90,7 @@ def deploy_or_update_job(
                 f"--region={region}",
                 f"--command={command}",
                 f"--args={script_arg}",
+                "--task-timeout=30m",
             ],
             check=False,
         )
@@ -92,7 +98,7 @@ def deploy_or_update_job(
         sys.stderr.write(upd.stderr or "")
         if upd.returncode == 0:
             print(f"🚀 Triggering async execution for updated job '{job_name}'...", flush=True)
-            _run_cmd(["gcloud", "run", "jobs", "execute", job_name, f"--region={region}", "--async"], check=False)
+            _run_cmd(exec_cmd, check=False)
         return upd.returncode
 
     print(
@@ -139,7 +145,7 @@ def deploy_or_update_job(
     sys.stderr.write(cr.stderr or "")
     if cr.returncode == 0:
         print(f"🚀 Triggering initial async execution for newly created job '{job_name}'...", flush=True)
-        _run_cmd(["gcloud", "run", "jobs", "execute", job_name, f"--region={region}", "--async"], check=False)
+        _run_cmd(exec_cmd, check=False)
     return cr.returncode
 
 
@@ -258,6 +264,7 @@ def main() -> None:
     parser.add_argument("--region", default="us-central1", help="GCP region (default: us-central1)")
     parser.add_argument("--command", default="python3", help="Container command entrypoint (default: python3)")
     parser.add_argument("--args", dest="script_arg", required=True, help="Script path / args (e.g. scripts/sync_melee.py)")
+    parser.add_argument("--execute-args", default="", help="Optional comma-separated args override for immediate execution (e.g. for 10yr backfill)")
     parser.add_argument("--template-job", default="elo-tournament-sync-job", help="Reference job to inherit Cloud SQL & env vars from on initial create")
     parser.add_argument("--schedule", default="", help="Cron schedule in America/Los_Angeles (e.g. '15 0 * * *')")
     parser.add_argument("--scheduler-name", default="", help="Cloud Scheduler job name (e.g. elo-melee-scheduler-job)")
@@ -271,6 +278,7 @@ def main() -> None:
         command=args.command,
         script_arg=args.script_arg,
         template_job=args.template_job,
+        execute_args=args.execute_args,
     )
     if rc == 0 and args.schedule:
         ensure_scheduler_job(

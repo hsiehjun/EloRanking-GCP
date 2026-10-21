@@ -142,17 +142,24 @@ def test_2v2_doubles_and_4p_ffa_pod_retrofitting_and_elo():
 
 def test_strict_player_id_separation_never_merges_by_name():
     """
-    Verifies that two distinct players with the EXACT SAME display_name ('Alex Smith')
-    but different `player_id`s are NEVER merged or conflated unless explicitly linked via `user_id`.
+    Verifies:
+    1. Two distinct accounts with the EXACT SAME display_name across platforms (e.g., 40K on BCP and Melee.gg,
+       or MCP on BCP and Longshanks, or MTG on BCP and TopDeck.gg) are NEVER merged or conflated on import/backfill.
+    2. They appear as 2 separate players in Player Search (`/api/players`, `/api/players/search`) and
+       Elo Leaderboard (`/api/leaderboard`) with independent Elo ratings.
+    3. ONLY when the user explicitly links both accounts via `/api/user/platform/link` are they combined into
+       1 player and their Elo recomputed across both platforms.
+    4. Unlinking via `/api/user/platform/unlink` cleanly splits them back into 2 separate players.
     """
+    import urllib.parse
     from scripts.local_sqlite_db import LocalSqliteDatabase
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_db = LocalSqliteDatabase(str(Path(tmpdir) / "test_strict_id.sqlite"))
         tmp_db.upsert_event(
             {
-                "id": "test_ev_strict_id",
-                "name": "Strict ID Test GT",
+                "id": "test_ev_bcp_40k",
+                "name": "BCP 40K GT",
                 "game_system": "40k",
                 "source_platform": "bcp",
                 "event_date": "2026-03-01",
@@ -161,18 +168,37 @@ def test_strict_player_id_separation_never_merges_by_name():
                 "ended": True,
             }
         )
+        tmp_db.upsert_event(
+            {
+                "id": "melee:99940k",
+                "name": "Melee 40K GT",
+                "game_system": "40k",
+                "source_platform": "melee",
+                "event_date": "2026-03-08",
+                "players_count": 2,
+                "num_rounds": 1,
+                "ended": True,
+            }
+        )
         tmp_db.upsert_event_participants_batch(
-            "test_ev_strict_id",
+            "test_ev_bcp_40k",
             [
                 {"player_id": "bcp_alex_1", "player_name": "Alex Smith", "faction": "Aeldari", "wins": 1, "losses": 0, "draws": 0, "placement": 1},
-                {"player_id": "bcp_alex_2", "player_name": "Alex Smith", "faction": "Necrons", "wins": 0, "losses": 1, "draws": 0, "placement": 2},
+                {"player_id": "bcp_opp_1", "player_name": "BCP Opponent", "faction": "Necrons", "wins": 0, "losses": 1, "draws": 0, "placement": 2},
+            ],
+        )
+        tmp_db.upsert_event_participants_batch(
+            "melee:99940k",
+            [
+                {"player_id": "melee:alex_smith", "player_name": "Alex Smith", "faction": "Aeldari", "wins": 1, "losses": 0, "draws": 0, "placement": 1},
+                {"player_id": "melee:opp_2", "player_name": "Melee Opponent", "faction": "Orks", "wins": 0, "losses": 1, "draws": 0, "placement": 2},
             ],
         )
         tmp_db.upsert_matches_batch(
             [
                 {
-                    "id": "m_strict_1",
-                    "event_id": "test_ev_strict_id",
+                    "id": "m_strict_bcp_1",
+                    "event_id": "test_ev_bcp_40k",
                     "game_system": "40k",
                     "round": 1,
                     "table_number": 1,
@@ -180,22 +206,113 @@ def test_strict_player_id_separation_never_merges_by_name():
                     "player1_name": "Alex Smith",
                     "player1_faction": "Aeldari",
                     "player1_score": 90,
-                    "player2_id": "bcp_alex_2",
-                    "player2_name": "Alex Smith",
+                    "player2_id": "bcp_opp_1",
+                    "player2_name": "BCP Opponent",
                     "player2_faction": "Necrons",
                     "player2_score": 45,
                     "winner_id": "bcp_alex_1",
                     "completed": True,
                     "match_date": "2026-03-01",
-                }
+                },
+                {
+                    "id": "melee:99940k-r1-t1",
+                    "event_id": "melee:99940k",
+                    "game_system": "40k",
+                    "round": 1,
+                    "table_number": 1,
+                    "player1_id": "melee:alex_smith",
+                    "player1_name": "Alex Smith",
+                    "player1_faction": "Aeldari",
+                    "player1_score": 85,
+                    "player2_id": "melee:opp_2",
+                    "player2_name": "Melee Opponent",
+                    "player2_faction": "Orks",
+                    "player2_score": 50,
+                    "winner_id": "melee:alex_smith",
+                    "completed": True,
+                    "match_date": "2026-03-08",
+                },
             ]
         )
+        # 1. Unlinked: Both 'Alex Smith' accounts (BCP & Melee.gg) must appear as 2 separate players
         tmp_db.reconstruct_elo_for_system("40k")
         lb = tmp_db.get_leaderboard_rows(game_system="40k")
         ids = {p["player_id"]: p for p in lb}
-        assert "bcp_alex_1" in ids and "bcp_alex_2" in ids, "Players with identical names but distinct player_ids must never be merged!"
-        assert ids["bcp_alex_1"]["current_elo"] > 1500.0
-        assert ids["bcp_alex_2"]["current_elo"] < 1500.0
+        assert "bcp_alex_1" in ids and "melee:alex_smith" in ids, "Unlinked same-name players across BCP & Melee must be 2 separate players!"
+        assert ids["bcp_alex_1"]["matches_played"] == 1 and ids["melee:alex_smith"]["matches_played"] == 1
+        search_unlinked = tmp_db.search_players_directory(game_system="40k", query="Alex Smith")
+        assert {p["player_id"] for p in search_unlinked["players"]} == {"bcp_alex_1", "melee:alex_smith"}
+
+        # 2. Link both accounts -> combined into 1 player ('bcp_alex_1') with 2 matches and higher combined Elo
+        tmp_db.link_user_platform_and_reconstruct("u_alex", "bcp", "bcp_alex_1", display_name="Alex Smith")
+        tmp_db.link_user_platform_and_reconstruct("u_alex", "melee", "melee:alex_smith", display_name="Alex Smith")
+        search_linked = tmp_db.search_players_directory(game_system="40k", query="Alex Smith")
+        assert [p["player_id"] for p in search_linked["players"]] == ["bcp_alex_1"], (
+            f"Linked accounts must combine into 1 player, got: {search_linked['players']}"
+        )
+        assert search_linked["players"][0]["matches_played"] == 2
+        assert search_linked["players"][0]["current_elo"] > ids["bcp_alex_1"]["current_elo"]
+
+        # 3. Unlink Melee account -> cleanly splits back into 2 separate players
+        tmp_db.unlink_user_platform_and_reconstruct("u_alex", "melee", "melee:alex_smith")
+        search_re_unlinked = tmp_db.search_players_directory(game_system="40k", query="Alex Smith")
+        assert {p["player_id"] for p in search_re_unlinked["players"]} == {"bcp_alex_1", "melee:alex_smith"}
+
+    # Live HTTP verification on real cross-platform data:
+    # Steven Yingling in MCP (BCP `r0IKtzv5BlvN` + Longshanks `ls:9256`) and Tommy T in MTG (BCP `gCtLsa0uiUhk` + TopDeck `td:F6bYMu2NJ1VnpwBTJud86Gn85Oc2`)
+    st_t, res_t, _ = fetch_json("/api/players?game_system=mtg&query=" + urllib.parse.quote("Tommy T"))
+    assert st_t == 200
+    tommy_pids = {p["player_id"] for p in (res_t.get("players") or [])}
+    assert "gCtLsa0uiUhk" in tommy_pids and "td:F6bYMu2NJ1VnpwBTJud86Gn85Oc2" in tommy_pids, (
+        f"Unlinked Tommy T across BCP & TopDeck must appear as separate players, got: {tommy_pids}"
+    )
+
+    # Check Steven Yingling before linking Longshanks `ls:9256` -> 2 separate players in search & leaderboard
+    st_y1, res_y1, _ = fetch_json("/api/players?game_system=mcp&query=" + urllib.parse.quote("Steven Yingling"))
+    assert st_y1 == 200
+    yingling_before = {p["player_id"]: p for p in (res_y1.get("players") or [])}
+    assert "r0IKtzv5BlvN" in yingling_before and "ls:9256" in yingling_before, (
+        f"Unlinked Steven Yingling across BCP & Longshanks must be 2 separate players, got: {set(yingling_before.keys())}"
+    )
+    assert yingling_before["r0IKtzv5BlvN"]["matches_played"] == 2
+    assert yingling_before["ls:9256"]["matches_played"] == 4
+
+    # Link Longshanks `ls:9256` to `user_steven_yingling` -> combines into 1 player (`r0IKtzv5BlvN`) with 6 matches
+    st_lk, res_lk, _ = fetch_json(
+        "/api/user/platform/link",
+        method="POST",
+        payload={
+            "user_id": "user_steven_yingling",
+            "platform": "longshanks",
+            "platform_player_id": "ls:9256",
+            "platform_handle": "Steven Yingling #9256 (Longshanks)",
+            "display_name": "Steven Yingling",
+        },
+    )
+    assert st_lk == 200 and res_lk.get("success")
+    st_y2, res_y2, _ = fetch_json("/api/players?game_system=mcp&query=" + urllib.parse.quote("Steven Yingling"))
+    yingling_linked = {p["player_id"]: p for p in (res_y2.get("players") or [])}
+    assert set(yingling_linked.keys()) == {"r0IKtzv5BlvN"}, (
+        f"Linked Steven Yingling must combine into 1 player, got: {set(yingling_linked.keys())}"
+    )
+    assert yingling_linked["r0IKtzv5BlvN"]["matches_played"] == 6
+
+    # Unlink Longshanks `ls:9256` -> splits back into 2 separate players (`r0IKtzv5BlvN` and `ls:9256`)
+    st_ulk, res_ulk, _ = fetch_json(
+        "/api/user/platform/unlink",
+        method="POST",
+        payload={
+            "user_id": "user_steven_yingling",
+            "platform": "longshanks",
+            "platform_player_id": "ls:9256",
+        },
+    )
+    assert st_ulk == 200 and res_ulk.get("unlinked_player_id") == "ls:9256"
+    st_y3, res_y3, _ = fetch_json("/api/players?game_system=mcp&query=" + urllib.parse.quote("Steven Yingling"))
+    yingling_after_unlink = {p["player_id"]: p for p in (res_y3.get("players") or [])}
+    assert "r0IKtzv5BlvN" in yingling_after_unlink and "ls:9256" in yingling_after_unlink
+    assert yingling_after_unlink["r0IKtzv5BlvN"]["matches_played"] == 2
+    assert yingling_after_unlink["ls:9256"]["matches_played"] == 4
 
 
 def test_40k_and_aos_zero_regression_and_meta_intel_sync_safety():

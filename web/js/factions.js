@@ -179,7 +179,9 @@ function _applyFactionMetaDataToUI(data) {
       .map(f => f.faction);
   }
 
-  if (selectedFactions.size === 0 && allAvailableFactions.length > 0) {
+  const hasOverlap = allAvailableFactions.some(f => selectedFactions.has(f));
+  if ((selectedFactions.size === 0 || !hasOverlap) && allAvailableFactions.length > 0) {
+    selectedFactions.clear();
     allAvailableFactions.slice(0, 8).forEach(f => selectedFactions.add(f));
   }
 
@@ -206,7 +208,7 @@ function scheduleFactionPresetsPrefetch(sys) {
       const ck = `${sysKey}_preset_${p}`;
       if (factionMetaClientCache.has(ck)) continue;
       try {
-        const res = await window.api.getFactionMeta(null, null, p);
+        const res = await window.api.getFactionMeta(null, null, p, sysKey);
         if (res && Array.isArray(res.factions) && res.factions.length > 0) {
           factionMetaClientCache.set(ck, { timestamp: Date.now(), data: res });
         }
@@ -257,7 +259,7 @@ async function loadFactionMeta() {
       const reqStartBg = isCustom ? factionCustomStart : null;
       const reqEndBg = isCustom ? factionCustomEnd : null;
       const reqTfBg = factionTimeframe;
-      window.api.getFactionMeta(reqStartBg, reqEndBg, reqTfBg).then((freshData) => {
+      window.api.getFactionMeta(reqStartBg, reqEndBg, reqTfBg, sys).then((freshData) => {
         if (freshData && Array.isArray(freshData.factions) && freshData.factions.length > 0) {
           factionMetaClientCache.set(cacheKey, { timestamp: Date.now(), data: freshData });
           const changed = _checkAndInvalidateModalCacheOnMetaChange(cacheKey, freshData);
@@ -277,7 +279,7 @@ async function loadFactionMeta() {
   try {
     const reqStart = isCustom ? factionCustomStart : null;
     const reqEnd = isCustom ? factionCustomEnd : null;
-    const data = await window.api.getFactionMeta(reqStart, reqEnd, factionTimeframe);
+    const data = await window.api.getFactionMeta(reqStart, reqEnd, factionTimeframe, sys);
     if (data && Array.isArray(data.factions) && data.factions.length > 0) {
       factionMetaClientCache.set(cacheKey, { timestamp: Date.now(), data });
       _checkAndInvalidateModalCacheOnMetaChange(cacheKey, data);

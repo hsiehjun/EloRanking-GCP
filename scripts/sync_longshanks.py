@@ -16,7 +16,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from datetime import datetime, timedelta, timezone
 from scripts.sync_multiplatform import (
+    LONGSHANKS_HOST_BY_SYSTEM,
     _http_get_text,
     finalize_platform_sync,
     get_sync_db,
@@ -26,49 +28,80 @@ from scripts.sync_multiplatform import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("elo.job.longshanks_sync")
 
-LONGSHANKS_HOST_BY_SYSTEM = {
-    "mcp": "https://mcp.longshanks.org",
-    "aos": "https://aos.longshanks.org",
-    "40k": "https://40k.longshanks.org",
-    "the_old_world": "https://tow.longshanks.org",
-    "horus_heresy": "https://hh.longshanks.org",
-    "kill_team": "https://kt.longshanks.org",
-    "sw_legion": "https://legion.longshanks.org",
-    "battletech": "https://bt.longshanks.org",
-}
-
 
 DEFAULT_LONGSHANKS_TARGETS: List[Tuple[str, str]] = [
     ("mcp", "36154"),  # HoC MCP Tournament & Infinity Circuit Qualifier
     ("mcp", "38479"),  # LVO 2026 MCP GT & LCQ
 ]
 
+# Multi-year historical Longshanks tournaments spanning 2016–2026 (10-year archive)
+HISTORICAL_LONGSHANKS_TARGETS: List[Tuple[str, str]] = [
+    ("guild_ball", "391"),       # 2016-11-27 Guild Ball World Championship
+    ("guild_ball", "923"),       # 2017-03-11 JFJ 2017
+    ("guild_ball", "2500"),      # 2019-06-21 Third Underground Tournament
+    ("mcp", "12114"),            # 2023-12-30 MCP Year-End Tournament
+    ("guild_ball", "20000"),     # 2024-09-29 It's Fall Y'all
+    ("mcp", "28673"),            # 2025-10-25 Autumn MCP Open
+    ("shatterpoint", "38251"),   # 2026-10-18 Premier Shatterpoint Event
+    ("malifaux", "34151"),       # 2026-10-10 Malifaux Championship
+    ("guild_ball", "37438"),     # 2026-10-17 October Tulsa Tourney
+    ("x_wing", "38580"),         # 2026-10-18 12ª Etapa LPX X-Wing
+    ("middle_earth", "31084"),   # 2026-10-18 Gondor in 60 Seconds Championship
+    ("mcp", "38774"),            # 2026-10-18 STWC MCP October Tournament
+    ("mcp", "37920"),            # 2026-10-18 MNDGMS Monthly MCP Event
+]
+
 
 def discover_longshanks_targets(
     game_system: str = "mcp",
+    days: int = 7,
     max_events: int = 10,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> List[Tuple[str, str]]:
-    """Discovers recent completed Longshanks events from the system subdomain."""
+    """
+    Discovers completed Longshanks events from `/events/history/` with date range
+    filtering (`date_from`..`date_to`) and multi-year 2016–2026 historical coverage.
+    """
     target_sys = (game_system or "mcp").strip().lower()
-    systems = ["mcp"] if target_sys in ("all", "other") else [target_sys]
+    is_backfill = bool(days >= 365 or start_date)
+    if target_sys in ("all", "other"):
+        systems = ["mcp", "guild_ball", "shatterpoint", "malifaux", "x_wing", "middle_earth"] if is_backfill else ["mcp"]
+    else:
+        systems = [target_sys]
+
+    now_dt = datetime.now(timezone.utc)
+    from_str = (str(start_date).strip()[:10] if start_date else (now_dt - timedelta(days=max(1, int(days or 7)))).strftime("%Y-%m-%d"))
+    to_str = (str(end_date).strip()[:10] if end_date else now_dt.strftime("%Y-%m-%d"))
+
     discovered: List[Tuple[str, str]] = []
+    for def_sys, def_eid in DEFAULT_LONGSHANKS_TARGETS:
+        if (target_sys in ("all", "other") or def_sys == target_sys) and (def_sys, def_eid) not in discovered:
+            discovered.append((def_sys, def_eid))
+
+    if is_backfill:
+        for hist_sys, hist_eid in HISTORICAL_LONGSHANKS_TARGETS:
+            if (target_sys in ("all", "other") or hist_sys == target_sys) and (hist_sys, hist_eid) not in discovered:
+                discovered.append((hist_sys, hist_eid))
+                if len(discovered) >= max_events:
+                    return discovered[:max_events]
 
     for sys_slug in systems:
-        for def_sys, def_eid in DEFAULT_LONGSHANKS_TARGETS:
-            if def_sys == sys_slug and (def_sys, def_eid) not in discovered:
-                discovered.append((def_sys, def_eid))
-
+        if len(discovered) >= max_events:
+            break
         host = LONGSHANKS_HOST_BY_SYSTEM.get(sys_slug, "https://www.longshanks.org")
         try:
-            html_txt = _http_get_text(f"{host}/events/")
-            eids = []
+            hist_url = (
+                f"{host}/events/history/?rated=rated&style=tournament&size_min=6"
+                f"&date_from={from_str}&date_to={to_str}"
+            )
+            html_txt = _http_get_text(hist_url)
             for m in re.finditer(r"/event/(\d+)/", html_txt):
                 eid = m.group(1)
-                if eid not in eids:
-                    eids.append(eid)
-            for eid in eids[: max(1, max_events)]:
                 if (sys_slug, eid) not in discovered:
                     discovered.append((sys_slug, eid))
+                    if len(discovered) >= max_events:
+                        break
         except Exception as e:
             logger.warning(f"⚠️ [LongshanksSync:{sys_slug.upper()}] Discovery notice: {e}")
 
@@ -81,14 +114,22 @@ def run_longshanks_sync(
     max_events: Optional[int] = 10,
     event_ids: Optional[List[Tuple[str, str]]] = None,
     sqlite_path: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Executes the Longshanks tournament sync and incremental Elo reconstruction."""
-    logger.info(f"🚀 Starting Longshanks Sync Job (game_system={game_system}, days={days}, max_events={max_events})")
+    logger.info(
+        f"🚀 Starting Longshanks Sync Job (game_system={game_system}, days={days}, "
+        f"start_date={start_date}, end_date={end_date}, max_events={max_events})"
+    )
     db = get_sync_db(sqlite_path=sqlite_path)
 
     targets = event_ids if event_ids else discover_longshanks_targets(
         game_system=game_system,
+        days=days,
         max_events=max_events or 10,
+        start_date=start_date,
+        end_date=end_date,
     )
     if not targets:
         logger.info("ℹ️ [LongshanksSync] No matching Longshanks events found.")
@@ -109,7 +150,9 @@ def run_longshanks_sync(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Cloud Run Job: Longshanks tournament sync & Elo recalculation")
     parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "mcp"), help="Game system (mcp, aos, 40k, the_old_world, etc.)")
-    parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "7")), help="Days of past tournaments to scrape (default: 7)")
+    parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "7")), help="Days of past tournaments to scrape (default: 7; use 3650 for 10yr backfill)")
+    parser.add_argument("--start-date", "--from", dest="start_date", default=os.getenv("START_DATE"), help="Optional start date (YYYY-MM-DD or ISO8601)")
+    parser.add_argument("--end-date", "--to", dest="end_date", default=os.getenv("END_DATE"), help="Optional end date (YYYY-MM-DD or ISO8601)")
     parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS", "10")), help="Max tournaments to scrape (default: 10)")
     parser.add_argument("--event-ids", default="", help="Optional comma-separated sys:event_id pairs (e.g. mcp:36154,mcp:38479)")
     parser.add_argument("--sqlite-path", default=os.getenv("LOCAL_SQLITE_PATH"), help="Optional local SQLite DB path for local verification")
@@ -132,5 +175,7 @@ if __name__ == "__main__":
         max_events=args.max_events,
         event_ids=explicit_pairs,
         sqlite_path=args.sqlite_path,
+        start_date=args.start_date,
+        end_date=args.end_date,
     )
     print(json.dumps(res, indent=2, default=str))
