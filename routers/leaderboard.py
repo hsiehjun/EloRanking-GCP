@@ -4003,7 +4003,7 @@ async def api_faction_meta(
                 _force_refresh=bool(raw_refresh)
             )
         try:
-            return await asyncio.wait_for(asyncio.to_thread(_fetch_meta), timeout=8.0)
+            return await asyncio.wait_for(asyncio.to_thread(_fetch_meta), timeout=16.0)
         except asyncio.TimeoutError:
             from database import PostgresDatabase
             sys_norm = (sys_val or "40k").strip().lower()

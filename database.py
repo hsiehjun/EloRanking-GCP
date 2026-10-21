@@ -10389,7 +10389,7 @@ class PostgresDatabase:
                     is_mock_cur = is_mock_self or type(cursor).__module__.startswith("unittest.mock")
                     if not is_mock_cur:
                         try:
-                            cursor.execute("SET LOCAL statement_timeout = '6500ms'; SET LOCAL work_mem = '32MB';")
+                            cursor.execute("SET LOCAL statement_timeout = '15000ms'; SET LOCAL work_mem = '64MB'; SET LOCAL max_parallel_workers_per_gather = 4;")
                         except Exception:
                             conn.rollback()
 
@@ -10401,7 +10401,10 @@ class PostgresDatabase:
                     ]
                     params: List[Any] = []
                     if game_system and sys_norm != "all":
-                        where_clauses.append("COALESCE(game_system, '40k') = %s")
+                        if sys_norm == "40k":
+                            where_clauses.append("COALESCE(game_system, '40k') = %s")
+                        else:
+                            where_clauses.append("game_system = %s")
                         params.append(sys_norm)
                     if resolved_start:
                         where_clauses.append("match_date >= %s")
@@ -10420,6 +10423,7 @@ class PostgresDatabase:
                     raw_match_count = 0
 
                     try:
+                        q1_t0 = time.time()
                         cursor.execute(f"""
                         /* matchup_stats AS single-pass streaming HashAggregate ({order_by_cov}) */
                         /* games_in_event >= {min_x0_games} */
@@ -10444,6 +10448,7 @@ class PostgresDatabase:
                         GROUP BY 1, 2, 3;
                         """, params)
                         fetched_rows = cursor.fetchall() or []
+                        q1_elapsed_ms = (time.time() - q1_t0) * 1000.0
                         if fetched_rows and isinstance(fetched_rows[0], dict) and "factions_json" in fetched_rows[0]:
                             row0 = fetched_rows[0]
                             raw_f = row0.get("factions_json")
@@ -10578,9 +10583,9 @@ class PostgresDatabase:
                                     mb2["margin_cnt"] += mgn_cnt
 
                             ev_acc: Dict[str, Dict[str, int]] = {}
-                            if fac_acc and not is_mock_cur:
+                            if fac_acc and not is_mock_cur and q1_elapsed_ms < 2200.0:
                                 try:
-                                    cursor.execute("SET LOCAL statement_timeout = '1800ms';")
+                                    cursor.execute("SET LOCAL statement_timeout = '1500ms';")
                                     cursor.execute(f"""
                                     WITH raw_sides AS (
                                         SELECT COALESCE(event_id, 'no_ev') AS ev_id,
@@ -11009,27 +11014,6 @@ class PostgresDatabase:
         warmed = 0
         import concurrent.futures
 
-        if not self._is_mock_instance() and not getattr(PostgresDatabase, "_meta_cov_index_verified", False):
-            PostgresDatabase._meta_cov_index_verified = True
-            try:
-                with self.get_connection() as conn_idx:
-                    conn_idx.commit()
-                    conn_idx.autocommit = True
-                    try:
-                        with conn_idx.cursor() as cur_idx:
-                            cur_idx.execute("SET statement_timeout = '30s';")
-                            cur_idx.execute(
-                                "CREATE INDEX IF NOT EXISTS idx_pg_matches_sys_date_cov ON matches ((COALESCE(game_system, '40k')), match_date DESC) INCLUDE (event_id, player1_id, player1_faction, player1_score, player2_id, player2_faction, player2_score, winner_id, loser_id, is_draw, is_bye) WHERE is_done = TRUE;"
-                            )
-                            cur_idx.execute("VACUUM ANALYZE matches;")
-                    finally:
-                        try:
-                            conn_idx.autocommit = False
-                        except Exception:
-                            pass
-            except Exception as idx_err:
-                logger.debug(f"Notice verifying idx_pg_matches_sys_date_cov: {idx_err}")
-
         def _warm_one(p: str) -> bool:
             try:
                 existing = PostgresDatabase._faction_meta_cache_dict.get(f"preset_{p}_{sys_norm}")
@@ -11047,7 +11031,7 @@ class PostgresDatabase:
                 logger.warning(f"Notice warming Meta Intel preset {p} ({game_system}): {e}")
                 return False
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             for ok in pool.map(_warm_one, target_presets):
                 if ok:
                     warmed += 1
