@@ -84,17 +84,6 @@ def discover_limitless_targets(
     targets: List[Tuple[str, str]] = []
     deferred_from_milestones: List[Tuple[str, str]] = []
     seen_tids = set()
-    for def_sys, def_tid in DEFAULT_LIMITLESS_TARGETS:
-        if (
-            (target_sys in ("all", "other", "tcg") or def_sys == target_sys)
-            and def_tid not in seen_tids
-            and def_tid not in existing_set
-            and f"ltcg:{def_tid}" not in existing_set
-        ):
-            seen_tids.add(def_tid)
-            targets.append((def_sys, def_tid))
-            if max_events and len(targets) >= max_events:
-                return targets
 
     try:
         per_page_quota = max(12, ((max_events or 25) - len(targets) + 12) // 13) if is_backfill else (max_events or 25)
@@ -152,6 +141,18 @@ def discover_limitless_targets(
                 break
             targets.append(item)
 
+    for def_sys, def_tid in DEFAULT_LIMITLESS_TARGETS:
+        if max_events and len(targets) >= max_events:
+            break
+        if (
+            (target_sys in ("all", "other", "tcg") or def_sys == target_sys)
+            and def_tid not in seen_tids
+            and def_tid not in existing_set
+            and f"ltcg:{def_tid}" not in existing_set
+        ):
+            seen_tids.add(def_tid)
+            targets.append((def_sys, def_tid))
+
     return targets
 
 
@@ -167,8 +168,7 @@ def run_limitless_sync(
     """Executes the Limitless TCG tournament sync and incremental Elo reconstruction."""
     logger.info(f"🚀 Starting Limitless TCG Sync Job (game_system={game_system}, days={days}, max_events={max_events})")
     db = get_sync_db(sqlite_path=sqlite_path)
-    is_backfill = bool((days or 7) >= 365 or start_date)
-    existing_ids = get_existing_platform_event_ids(db, "ltcg") if (is_backfill and not event_ids) else set()
+    existing_ids = get_existing_platform_event_ids(db, "ltcg") if not event_ids else set()
 
     targets = event_ids if event_ids else discover_limitless_targets(
         game_system=game_system,

@@ -5,8 +5,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install runtime dependencies for psycopg2 and health checks
-RUN apt-get update && apt-get install -y --no-install-recommends     curl     libpq5     && rm -rf /var/lib/apt/lists/*
+# Install runtime dependencies for psycopg2, health checks, and headless Chromium CDP (Melee.gg live sync)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    libpq5 \
+    nodejs \
+    chromium \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Python requirements
 COPY requirements.txt .

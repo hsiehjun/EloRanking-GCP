@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,6 +29,14 @@ from scripts.sync_multiplatform import (
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("elo.job.melee_sync")
+
+MELEE_GAME_TAGS: Dict[str, str] = {
+    "mtg": "MagicTheGathering",
+    "sw_unlimited": "StarWarsUnlimited",
+    "lorcana": "Lorcana",
+    "flesh_and_blood": "FleshAndBlood",
+    "riftbound": "Riftbound",
+}
 
 DEFAULT_MELEE_TARGETS: List[Tuple[str, str]] = [
     ("mtg", "428253"),          # Arena Championship 12 (2026)
@@ -105,6 +114,224 @@ HISTORICAL_MELEE_TARGETS: List[Tuple[str, str]] = [
 ]
 
 
+def _parse_iso_bound(val: Optional[str], is_end: bool = False) -> Optional[datetime]:
+    if not val or not str(val).strip():
+        return None
+    s = str(val).strip()
+    if len(s) == 10:
+        s = f"{s}T23:59:59+00:00" if is_end else f"{s}T00:00:00+00:00"
+    else:
+        s = s.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def _discover_live_melee_targets_via_cdp(
+    systems: List[str],
+    start_iso: str,
+    end_iso: str,
+    is_backfill: bool,
+    cap: int,
+    existing_set: set,
+) -> List[Tuple[str, str]]:
+    """
+    Discovers completed Melee.gg tournaments directly from `https://melee.gg/Tournament/TournamentSearch`
+    via headless Chrome/Chromium CDP across requested game tags.
+    """
+    chrome_bin = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
+    if not (shutil.which("node") and chrome_bin) or os.getenv("MELEE_SKIP_CHROME", "0") == "1":
+        return []
+
+    tag_pairs = [(s, MELEE_GAME_TAGS[s]) for s in systems if s in MELEE_GAME_TAGS]
+    if not tag_pairs:
+        return []
+
+    with tempfile.NamedTemporaryFile(prefix="melee_disc_", suffix=".json", delete=False) as tf:
+        out_path = tf.name
+
+    node_disc_script = r"""
+const { spawn } = require("child_process");
+const http = require("http");
+const fs = require("fs");
+
+const cfg = JSON.parse(process.argv[1]);
+const outPath = process.argv[2];
+const chromeBin = process.argv[3] || "google-chrome";
+
+async function main() {
+  const port = 9460 + Math.floor(Math.random() * 200);
+  const chrome = spawn(chromeBin, [
+    "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+    "--disable-blink-features=AutomationControlled",
+    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    `--remote-debugging-port=${port}`,
+    "https://melee.gg/Tournament/Index?ordering=StartDate&mode=Table"
+  ]);
+  await new Promise(r => setTimeout(r, 3200));
+  const targets = await new Promise((resolve, reject) => {
+    http.get(`http://127.0.0.1:${port}/json`, res => {
+      let d = ""; res.on("data", c => d += c); res.on("end", () => resolve(JSON.parse(d)));
+    }).on("error", reject);
+  });
+  const pageTarget = targets.find(t => t.type === "page");
+  const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
+  await new Promise(r => ws.addEventListener("open", r));
+  let msgId = 1;
+  const send = (method, params = {}) => new Promise(resolve => {
+    const id = msgId++;
+    const listener = (ev) => {
+      const data = JSON.parse(ev.data);
+      if (data.id === id) { ws.removeEventListener("message", listener); resolve(data.result); }
+    };
+    ws.addEventListener("message", listener);
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+  await new Promise(r => setTimeout(r, 2200));
+  const res = await send("Runtime.evaluate", {
+    expression: `(async () => {
+      const baseColumns = [
+        {"data":"StartDate","name":"StartDate","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+        {"data":"Name","name":"Name","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+        {"data":"OrganizationName","name":"OrganizationName","searchable":true,"orderable":false,"search":{"value":"","regex":false}},
+        {"data":"Format","name":"Format","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+        {"data":"Status","name":"Status","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+        {"data":"Game","name":"Game","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+        {"data":"Decklists","name":"Decklists","searchable":false,"orderable":true,"search":{"value":"","regex":false}},
+        {"data":"Cards","name":"Cards","searchable":true,"orderable":false,"search":{"value":"","regex":false}}
+      ];
+      const tagPairs = ${JSON.stringify(cfg.tagPairs)};
+      const startIso = ${JSON.stringify(cfg.startIso)};
+      const endIso = ${JSON.stringify(cfg.endIso)};
+      const isBackfill = ${JSON.stringify(cfg.isBackfill)};
+      const bySystem = {};
+
+      await Promise.all(tagPairs.map(async ([sysSlug, tag]) => {
+        bySystem[sysSlug] = [];
+        try {
+          const first = await $.post("/Tournament/TournamentSearch", {
+            ordering: "StartDate",
+            filters: ["Ended", tag],
+            mode: "Table",
+            variables: {
+              draw: 1,
+              columns: baseColumns,
+              order: [{"column": 0, "dir": "desc"}],
+              start: 0,
+              length: 100,
+              search: {"value": "", "regex": false}
+            }
+          });
+          const totalFiltered = (first && first.recordsFiltered) || 0;
+          const allRows = (first && first.data) ? [...first.data] : [];
+          let extraOffsets = [100];
+          if (isBackfill && totalFiltered > 200) {
+            const maxOff = Math.min(totalFiltered - 100, 40000);
+            const rawOffs = [100, 300, 800, 2000, 5000, 12000, 25000, maxOff];
+            extraOffsets = Array.from(new Set(rawOffs.filter(o => o > 0 && o <= maxOff)));
+          } else if (totalFiltered <= 100) {
+            extraOffsets = [];
+          }
+          const extraPages = await Promise.all(extraOffsets.map(off =>
+            $.post("/Tournament/TournamentSearch", {
+              ordering: "StartDate",
+              filters: ["Ended", tag],
+              mode: "Table",
+              variables: {
+                draw: 1,
+                columns: baseColumns,
+                order: [{"column": 0, "dir": "desc"}],
+                start: off,
+                length: 100,
+                search: {"value": "", "regex": false}
+              }
+            }).then(r => (r && r.data) || []).catch(() => [])
+          ));
+          for (const pageRows of extraPages) {
+            allRows.push(...pageRows);
+          }
+          for (const row of allRows) {
+            const sd = String(row.startDate || "");
+            const enrolled = Number(row.enrolledPlayerCount || 0);
+            if (row.id && enrolled >= 6 && sd >= startIso && sd <= endIso) {
+              bySystem[sysSlug].push(String(row.id));
+            }
+          }
+        } catch (e) {}
+      }));
+      return JSON.stringify(bySystem);
+    })()`,
+    awaitPromise: true,
+    returnByValue: true
+  });
+  fs.writeFileSync(outPath, (res && res.result && res.result.value) || "{}");
+  ws.close();
+  chrome.kill("SIGKILL");
+  process.exit(0);
+}
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
+"""
+    discovered: List[Tuple[str, str]] = []
+    seen_tids: set = set()
+    try:
+        payload = {
+            "tagPairs": tag_pairs,
+            "startIso": start_iso,
+            "endIso": end_iso,
+            "isBackfill": is_backfill,
+        }
+        subprocess.run(
+            ["node", "-e", node_disc_script, json.dumps(payload), out_path, chrome_bin],
+            check=True,
+            timeout=35,
+        )
+        with open(out_path, "r", encoding="utf-8") as f:
+            by_system = json.load(f) or {}
+
+        per_sys_quota = max(4, (cap + len(tag_pairs) - 1) // max(1, len(tag_pairs)))
+        deferred: List[Tuple[str, str]] = []
+        for sys_slug, _ in tag_pairs:
+            tids_for_sys = by_system.get(sys_slug) or []
+            added = 0
+            for tid in tids_for_sys:
+                tid_str = str(tid).strip()
+                if (
+                    not tid_str
+                    or tid_str in seen_tids
+                    or tid_str in existing_set
+                    or f"melee:{tid_str}" in existing_set
+                ):
+                    continue
+                seen_tids.add(tid_str)
+                if len(tag_pairs) > 1 and added >= per_sys_quota:
+                    deferred.append((sys_slug, tid_str))
+                else:
+                    discovered.append((sys_slug, tid_str))
+                    added += 1
+                    if len(discovered) >= cap:
+                        break
+            if len(discovered) >= cap:
+                break
+
+        if len(discovered) < cap and deferred:
+            for item in deferred:
+                if len(discovered) >= cap:
+                    break
+                discovered.append(item)
+    except Exception as e:
+        logger.warning(f"⚠️ [MeleeSync] Live /Tournament/TournamentSearch discovery notice: {e}")
+    finally:
+        if os.path.exists(out_path):
+            os.remove(out_path)
+
+    return discovered[:cap]
+
+
 def discover_melee_targets(
     game_system: str = "all",
     days: int = 14,
@@ -114,18 +341,44 @@ def discover_melee_targets(
     existing_ids: Optional[set] = None,
 ) -> List[Tuple[str, str]]:
     """
-    Discovers completed Melee.gg tournaments across 2020–2026 (`mtg`, `sw_unlimited`, `lorcana`, `flesh_and_blood`).
-    Prioritizes unimported events when `existing_ids` is provided so successive backfill runs advance through the archive.
+    Discovers completed Melee.gg tournaments directly from `https://melee.gg/Tournament/TournamentSearch`
+    across 2020–2026 (`mtg`, `sw_unlimited`, `lorcana`, `flesh_and_blood`, `riftbound`), falling back to
+    `DEFAULT_MELEE_TARGETS` / `HISTORICAL_MELEE_TARGETS` only when headless Chrome is unavailable or more events are needed.
     """
     target_sys = (game_system or "all").strip().lower()
     is_backfill = bool((days or 14) >= 365 or start_date)
     cap = max_events or (200 if is_backfill else 15)
     existing_set = existing_ids or set()
 
-    candidate_pool: List[Tuple[str, str]] = list(DEFAULT_MELEE_TARGETS) + (
-        list(HISTORICAL_MELEE_TARGETS) if is_backfill else []
+    if target_sys in ("all", "other", "tcg"):
+        systems = list(MELEE_GAME_TAGS.keys())
+    else:
+        systems = [target_sys]
+
+    now_dt = datetime.now(timezone.utc)
+    end_dt = min(_parse_iso_bound(end_date, is_end=True) or now_dt, now_dt + timedelta(days=1))
+    start_dt = _parse_iso_bound(start_date, is_end=False) or (end_dt - timedelta(days=max(1, int(days or 14))))
+    start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    live_discovered = _discover_live_melee_targets_via_cdp(
+        systems=systems,
+        start_iso=start_iso,
+        end_iso=end_iso,
+        is_backfill=is_backfill,
+        cap=cap,
+        existing_set=existing_set,
     )
+    if len(live_discovered) >= cap:
+        return live_discovered[:cap]
+
+    candidate_pool: List[Tuple[str, str]] = list(live_discovered)
     seen_tids = {tid for _, tid in candidate_pool}
+
+    for s_slug, tid in list(DEFAULT_MELEE_TARGETS) + (list(HISTORICAL_MELEE_TARGETS) if is_backfill else []):
+        if tid not in seen_tids:
+            seen_tids.add(tid)
+            candidate_pool.append((s_slug, tid))
 
     cache_gz_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "melee_live_cache.json.gz")
     if os.path.exists(cache_gz_path):
@@ -174,12 +427,11 @@ def run_melee_sync(
         f"start_date={start_date}, end_date={end_date}, max_events={max_events})"
     )
     db = get_sync_db(sqlite_path=sqlite_path)
-    is_backfill = bool((days or 14) >= 365 or start_date)
 
     if event_ids:
         targets = event_ids
     else:
-        existing_ids = get_existing_platform_event_ids(db, "melee") if is_backfill else set()
+        existing_ids = get_existing_platform_event_ids(db, "melee")
         targets = discover_melee_targets(
             game_system=game_system,
             days=days,

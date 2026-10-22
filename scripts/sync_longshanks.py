@@ -102,29 +102,6 @@ def discover_longshanks_targets(
     discovered: List[Tuple[str, str]] = []
     seen_eids: set = set()
 
-    for def_sys, def_eid in DEFAULT_LONGSHANKS_TARGETS:
-        if (
-            (target_sys in ("all", "other") or def_sys == target_sys)
-            and def_eid not in seen_eids
-            and def_eid not in existing_set
-            and f"ls:{def_eid}" not in existing_set
-        ):
-            seen_eids.add(def_eid)
-            discovered.append((def_sys, def_eid))
-
-    if is_backfill:
-        for hist_sys, hist_eid in HISTORICAL_LONGSHANKS_TARGETS:
-            if (
-                (target_sys in ("all", "other") or hist_sys == target_sys)
-                and hist_eid not in seen_eids
-                and hist_eid not in existing_set
-                and f"ls:{hist_eid}" not in existing_set
-            ):
-                seen_eids.add(hist_eid)
-                discovered.append((hist_sys, hist_eid))
-                if len(discovered) >= max_events:
-                    return discovered[:max_events]
-
     per_sys_quota = max(8, (max_events - len(discovered) + len(systems) - 1) // max(1, len(systems))) if is_backfill else max_events
     deferred_candidates: List[Tuple[str, str]] = []
 
@@ -181,6 +158,19 @@ def discover_longshanks_targets(
                 break
             discovered.append(item)
 
+    if len(discovered) < max_events:
+        for def_sys, def_eid in list(DEFAULT_LONGSHANKS_TARGETS) + (list(HISTORICAL_LONGSHANKS_TARGETS) if is_backfill else []):
+            if (
+                (target_sys in ("all", "other") or def_sys == target_sys)
+                and def_eid not in seen_eids
+                and def_eid not in existing_set
+                and f"ls:{def_eid}" not in existing_set
+            ):
+                seen_eids.add(def_eid)
+                discovered.append((def_sys, def_eid))
+                if len(discovered) >= max_events:
+                    break
+
     return discovered[: max(2, max_events)]
 
 
@@ -199,8 +189,7 @@ def run_longshanks_sync(
         f"start_date={start_date}, end_date={end_date}, max_events={max_events})"
     )
     db = get_sync_db(sqlite_path=sqlite_path)
-    is_backfill = bool((days or 7) >= 365 or start_date)
-    existing_ids = get_existing_platform_event_ids(db, "ls") if (is_backfill and not event_ids) else set()
+    existing_ids = get_existing_platform_event_ids(db, "ls") if not event_ids else set()
 
     targets = event_ids if event_ids else discover_longshanks_targets(
         game_system=game_system,

@@ -153,16 +153,6 @@ def discover_topdeck_targets(
                 logger.warning(f"⚠️ [TopDeckSync] v2 API discovery notice for {sys_slug}: {e}")
 
     if not discovered:
-        for s_slug, tid in DEFAULT_TOPDECK_TARGETS:
-            if (
-                (target_sys in ("all", "other", "tcg") or s_slug == target_sys)
-                and len(discovered) < max_events
-                and tid not in seen_tids
-                and tid not in existing_set
-                and f"td:{tid}" not in existing_set
-            ):
-                seen_tids.add(tid)
-                discovered.append((s_slug, tid))
         if len(discovered) < max_events:
             from datetime import datetime, timezone
 
@@ -255,6 +245,17 @@ def discover_topdeck_targets(
                         break
                     discovered.append(item)
 
+        for s_slug, tid in DEFAULT_TOPDECK_TARGETS:
+            if (
+                (target_sys in ("all", "other", "tcg") or s_slug == target_sys)
+                and len(discovered) < max_events
+                and tid not in seen_tids
+                and tid not in existing_set
+                and f"td:{tid}" not in existing_set
+            ):
+                seen_tids.add(tid)
+                discovered.append((s_slug, tid))
+
     return discovered[:max_events]
 
 
@@ -270,8 +271,7 @@ def run_topdeck_sync(
     """Executes the TopDeck.gg tournament sync, 4P FFA Pod normalization, and multiparty Elo reconstruction."""
     logger.info(f"🚀 Starting TopDeck.gg Sync Job (game_system={game_system}, days={days}, max_events={max_events})")
     db = get_sync_db(sqlite_path=sqlite_path)
-    is_backfill = bool((days or 14) >= 365 or start_date)
-    existing_ids = get_existing_platform_event_ids(db, "td") if (is_backfill and not event_ids) else set()
+    existing_ids = get_existing_platform_event_ids(db, "td") if not event_ids else set()
 
     targets = event_ids if event_ids else discover_topdeck_targets(
         game_system=game_system,

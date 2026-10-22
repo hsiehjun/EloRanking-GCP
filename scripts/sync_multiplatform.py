@@ -1201,7 +1201,7 @@ const chromeBin = process.argv[3] || "google-chrome";
 async function main() {
   const port = 9360 + Math.floor(Math.random() * 200);
   const chrome = spawn(chromeBin, [
-    "--headless=new", "--no-sandbox", "--disable-gpu",
+    "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
     "--disable-blink-features=AutomationControlled",
     "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
     `--remote-debugging-port=${port}`,
@@ -1231,56 +1231,62 @@ async function main() {
     expression: `(async () => {
       const targetTids = ${JSON.stringify(tids)};
       const results = {};
-      for (const tid of targetTids) {
-        const html = await fetch("/Tournament/View/" + tid).then(r => r.text());
-        const doc = new DOMParser().parseFromString(html, "text/html");
-        const title = (doc.title || "").split("|")[0].trim() || ("Melee Tournament " + tid);
-        const sRounds = Array.from(doc.querySelectorAll("#standings-round-selector-container .round-selector")).map(el => ({
-          id: el.getAttribute("data-id"),
-          name: el.getAttribute("data-name")
-        }));
-        const pRounds = Array.from(doc.querySelectorAll("#pairings-round-selector-container .round-selector")).map(el => ({
-          id: el.getAttribute("data-id"),
-          name: el.getAttribute("data-name")
-        }));
-
-        let standings = [];
-        for (let i = sRounds.length - 1; i >= 0; i--) {
-          const r = await $.post("/Standing/GetRoundStandings", {
-            draw: 1, start: 0, length: 250, roundId: sRounds[i].id,
-            "columns[0][data]": "Rank", "order[0][column]": 0, "order[0][dir]": "asc"
-          });
-          if (r && r.data && r.data.length > 0) {
-            standings = r.data;
-            break;
-          }
-        }
-
-        const roundMatches = (await Promise.all(pRounds.map((pr, idx) =>
-          $.post("/Match/GetRoundMatches/" + pr.id, {
-            draw: 1, start: 0, length: 250,
-            "columns[0][data]": "TableNumber", "order[0][column]": 0, "order[0][dir]": "asc"
-          }).then(res => ({ roundNum: idx + 1, roundId: pr.id, roundName: pr.name, matches: (res && res.data) || [] }))
-            .catch(() => ({ roundNum: idx + 1, roundId: pr.id, roundName: pr.name, matches: [] }))
-        ))).filter(rm => rm.matches.length > 0);
-
-        const deckIds = [];
-        for (const st of standings.slice(0, 16)) {
-          const dks = st.Decklists || [];
-          const chosen = dks.find(d => d.DecklistName && d.DecklistName !== "Decklist") || dks[0];
-          if (chosen && chosen.DecklistId && !deckIds.includes(chosen.DecklistId)) {
-            deckIds.push(chosen.DecklistId);
-          }
-        }
-        const decklists = {};
-        await Promise.all(deckIds.map(async did => {
+      const chunkSize = 6;
+      for (let c = 0; c < targetTids.length; c += chunkSize) {
+        const chunk = targetTids.slice(c, c + chunkSize);
+        await Promise.all(chunk.map(async tid => {
           try {
-            const d = await $.get("/Decklist/GetDecklistDetails", { id: did });
-            if (d && d.Components) decklists[did] = d;
+            const html = await fetch("/Tournament/View/" + tid).then(r => r.text());
+            const doc = new DOMParser().parseFromString(html, "text/html");
+            const title = (doc.title || "").split("|")[0].trim() || ("Melee Tournament " + tid);
+            const sRounds = Array.from(doc.querySelectorAll("#standings-round-selector-container .round-selector")).map(el => ({
+              id: el.getAttribute("data-id"),
+              name: el.getAttribute("data-name")
+            }));
+            const pRounds = Array.from(doc.querySelectorAll("#pairings-round-selector-container .round-selector")).map(el => ({
+              id: el.getAttribute("data-id"),
+              name: el.getAttribute("data-name")
+            }));
+
+            let standings = [];
+            for (let i = sRounds.length - 1; i >= 0; i--) {
+              const r = await $.post("/Standing/GetRoundStandings", {
+                draw: 1, start: 0, length: 250, roundId: sRounds[i].id,
+                "columns[0][data]": "Rank", "order[0][column]": 0, "order[0][dir]": "asc"
+              });
+              if (r && r.data && r.data.length > 0) {
+                standings = r.data;
+                break;
+              }
+            }
+
+            const roundMatches = (await Promise.all(pRounds.map((pr, idx) =>
+              $.post("/Match/GetRoundMatches/" + pr.id, {
+                draw: 1, start: 0, length: 250,
+                "columns[0][data]": "TableNumber", "order[0][column]": 0, "order[0][dir]": "asc"
+              }).then(res => ({ roundNum: idx + 1, roundId: pr.id, roundName: pr.name, matches: (res && res.data) || [] }))
+                .catch(() => ({ roundNum: idx + 1, roundId: pr.id, roundName: pr.name, matches: [] }))
+            ))).filter(rm => rm.matches.length > 0);
+
+            const deckIds = [];
+            for (const st of standings.slice(0, 16)) {
+              const dks = st.Decklists || [];
+              const chosen = dks.find(d => d.DecklistName && d.DecklistName !== "Decklist") || dks[0];
+              if (chosen && chosen.DecklistId && !deckIds.includes(chosen.DecklistId)) {
+                deckIds.push(chosen.DecklistId);
+              }
+            }
+            const decklists = {};
+            await Promise.all(deckIds.map(async did => {
+              try {
+                const d = await $.get("/Decklist/GetDecklistDetails", { id: did });
+                if (d && d.Components) decklists[did] = d;
+              } catch (e) {}
+            }));
+
+            results[tid] = { tid, title, standings, roundMatches, decklists };
           } catch (e) {}
         }));
-
-        results[tid] = { tid, title, standings, roundMatches, decklists };
       }
       return JSON.stringify(results);
     })()`,
@@ -1310,15 +1316,15 @@ main().catch(err => {
             logger.debug(f"[Melee.gg] Notice reading melee_live_cache.json.gz: {cache_err}")
 
     scraped_by_tid: Dict[str, Any] = {}
-    unscraped_tids = [t for t in tids if not (cached_by_tid.get(t) or {}).get("standings") or os.getenv("MELEE_FORCE_LIVE", "0") == "1"]
     chrome_bin = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
     has_node_and_chrome = bool(shutil.which("node") and chrome_bin)
-    if unscraped_tids and has_node_and_chrome and os.getenv("MELEE_SKIP_CHROME", "0") != "1":
+    live_tids = list(tids) if os.getenv("MELEE_USE_CACHE_ONLY", "0") != "1" else [t for t in tids if not (cached_by_tid.get(t) or {}).get("standings")]
+    if live_tids and has_node_and_chrome and os.getenv("MELEE_SKIP_CHROME", "0") != "1":
         try:
             subprocess.run(
-                ["node", "-e", node_script, json.dumps(unscraped_tids), out_json_path, chrome_bin],
+                ["node", "-e", node_script, json.dumps(live_tids), out_json_path, chrome_bin],
                 check=True,
-                timeout=max(60, len(unscraped_tids) * 4),
+                timeout=max(60, len(live_tids) * 3),
             )
             with open(out_json_path, "r", encoding="utf-8") as f:
                 scraped_by_tid = json.load(f) or {}
