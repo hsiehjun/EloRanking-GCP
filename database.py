@@ -5220,7 +5220,29 @@ class PostgresDatabase:
                     else:
                         cursor.execute(f"SELECT COUNT(*) as total_count FROM player_ratings r {where_sql};", params)
                         total_count = cursor.fetchone()["total_count"] or 0
-                        if not is_mock_cur:
+                        if (
+                            not is_mock_cur
+                            and total_count < 10
+                            and target_sys not in ("40k", "aos", "all")
+                            and not query
+                            and (not faction or faction in ("All", "All Factions"))
+                            and min_matches <= 5
+                        ):
+                            try:
+                                cursor.execute(
+                                    "SELECT COUNT(*) as m_cnt FROM (SELECT 1 FROM matches WHERE game_system = %s AND is_done = TRUE LIMIT 25) t;",
+                                    (target_sys,),
+                                )
+                                m_cnt_r = cursor.fetchone()
+                                m_cnt = int((m_cnt_r.get("m_cnt") if isinstance(m_cnt_r, dict) else m_cnt_r[0]) or 0) if m_cnt_r else 0
+                                if m_cnt >= 25:
+                                    from elo import EloEngine
+                                    EloEngine(db=self).reconstruct_system_ratings_fast(game_system=target_sys)
+                                    cursor.execute(f"SELECT COUNT(*) as total_count FROM player_ratings r {where_sql};", params)
+                                    total_count = cursor.fetchone()["total_count"] or 0
+                            except Exception as heal_dir_err:
+                                logger.warning(f"Directory self-heal notice ({target_sys}): {heal_dir_err}")
+                        if not is_mock_cur and total_count >= 10:
                             PostgresDatabase.set_cached(PostgresDatabase._players_count_cache_dict, count_cache_key, total_count)
                     cursor.execute(sql, params + [page_size, offset])
                     rows = [dict(r) for r in cursor.fetchall()]

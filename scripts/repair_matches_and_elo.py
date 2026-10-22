@@ -1027,16 +1027,12 @@ def repair_historical_matches_and_elo(
 def ensure_startup_elo_repair_migration(db: Optional[Database] = None) -> bool:
     """Run the one-time retroactive BCP pairing & Elo repair if not yet marked completed in `system_settings`."""
     db = db or get_db()
-    multiplatform_key = "multiplatform_elo_dedup_and_sync_v2"
+    multiplatform_key = "multiplatform_elo_dedup_and_sync_v3"
     try:
         if _db_get_setting(db, multiplatform_key) != "completed":
-            logger.info(f"[RepairMatchesElo] Running '{multiplatform_key}' across MTG, TCG & tabletop systems...")
+            logger.info(f"[RepairMatchesElo] Running '{multiplatform_key}' fast MTG rating restoration...")
             elo_engine = get_elo_engine(db=db)
-            elo_engine.reconstruct_incremental(batch_limit=25000, game_system="mtg")
-            elo_engine.reconstruct_incremental(
-                batch_limit=25000,
-                game_system="pokemon,one_piece,digimon,lorcana,sw_unlimited,flesh_blood,gundam_tcg,riftbound,yugioh,mcp,sw_legion,shatterpoint,x_wing,malifaux,warmachine,guild_ball,middle_earth,conquest,bolt_action,battletech,blood_bowl,kill_team,horus_heresy,the_old_world"
-            )
+            elo_engine.reconstruct_system_ratings_fast(game_system="mtg")
             elo_engine.invalidate_caches()
             if hasattr(db, "invalidate_all_caches"):
                 db.invalidate_all_caches(purge_l2=False)

@@ -1481,6 +1481,221 @@ class EloEngine:
             "elapsed_seconds": elapsed,
         }
 
+    def reconstruct_system_ratings_fast(self, game_system: str = "mtg") -> Dict[str, Any]:
+        """Fast in-memory Elo replay directly from `matches` into `player_ratings` using `idx_pg_matches_system_chrono` (zero scans on `rating_history`)."""
+        try:
+            from psycopg2 import extras
+        except ImportError:
+            class _FallbackExtras:
+                RealDictCursor = None
+                @staticmethod
+                def execute_values(cur, sql, argslist, template=None, page_size=100):
+                    cur.execute(sql, argslist)
+            extras = _FallbackExtras()
+        import time
+
+        sys_target = normalize_game_system(game_system or "mtg", default="mtg")
+        t0 = time.time()
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        m.id, m.event_id, m.round, m.table_number, m.match_date,
+                        m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                        m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                        m.winner_id, m.is_draw, m.is_bye,
+                        CASE WHEN m.player1_faction = 'Commander Pod' OR m.player2_faction = 'Commander Pod' OR m.player1_name LIKE '%%&%%' OR m.player2_name LIKE '%%&%%' THEN m.raw_json ELSE NULL END as raw_json
+                    FROM matches m
+                    WHERE ((%s != '40k' AND m.game_system = %s) OR (%s = '40k' AND COALESCE(m.game_system, '40k') = '40k'))
+                      AND m.is_done = TRUE
+                      AND m.player1_id IS NOT NULL AND m.player1_id != ''
+                      AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                      AND (
+                          m.is_bye = TRUE
+                          OR (m.winner_id IS NOT NULL AND m.winner_id != '')
+                          OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0 OR m.id LIKE 'melee:%%' OR m.id LIKE 'ltcg:%%' OR m.id LIKE 'ls:%%' OR m.id LIKE 'td:%%'))
+                      )
+                    ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC, m.id ASC;
+                    """,
+                    (sys_target, sys_target, sys_target),
+                )
+                all_matches = [dict(r) for r in (cur.fetchall() or [])]
+
+            if not all_matches:
+                return {"status": "NO_MATCHES", "game_system": sys_target, "total_matches": 0, "total_players": 0}
+
+            candidate_pids_set = set()
+            for nm in all_matches:
+                if nm.get("player1_id") and str(nm["player1_id"]).strip().upper() != "BYE":
+                    candidate_pids_set.add(_bound_id(nm["player1_id"]))
+                if nm.get("player2_id") and str(nm["player2_id"]).strip().upper() != "BYE":
+                    candidate_pids_set.add(_bound_id(nm["player2_id"]))
+            scoped_pids = sorted(candidate_pids_set)
+
+            authoritative_names: Dict[str, str] = {}
+            alias_map: Dict[str, str] = {}
+            try:
+                with conn.cursor() as acur:
+                    if scoped_pids:
+                        acur.execute("SELECT id, full_name FROM players WHERE id = ANY(%s);", (scoped_pids,))
+                        for pr in (acur.fetchall() or []):
+                            pid_v = str(pr[0] if isinstance(pr, (list, tuple)) else pr.get("id") or "")[:64]
+                            nm_v = pr[1] if isinstance(pr, (list, tuple)) else pr.get("full_name")
+                            clean_nm = _sanitize_name(nm_v, max_len=100)
+                            if pid_v and clean_nm and not _is_placeholder_name(clean_nm, pid_v):
+                                authoritative_names[pid_v] = clean_nm
+                    acur.execute(
+                        """
+                        SELECT upl.platform_user_id,
+                               COALESCE(NULLIF(TRIM(u.player_id), ''), NULLIF(TRIM(u.bcp_user_id), ''), u.id) AS canon_pid
+                        FROM user_platform_links upl
+                        JOIN users u ON u.id = upl.user_id
+                        WHERE upl.platform_user_id IS NOT NULL AND upl.platform_user_id != '';
+                        """
+                    )
+                    for lr in (acur.fetchall() or []):
+                        a_pid = str(lr[0] if isinstance(lr, (list, tuple)) else lr.get("platform_user_id") or "").strip()[:64]
+                        c_pid = str(lr[1] if isinstance(lr, (list, tuple)) else lr.get("canon_pid") or "").strip()[:64]
+                        if a_pid and c_pid:
+                            alias_map[a_pid] = c_pid
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
+            player_states: Dict[str, Dict[str, Any]] = {}
+            player_factions: Dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+
+            def _ensure_st(pid_val: str, mname_val: Optional[str]) -> Dict[str, Any]:
+                pid_c = _bound_id(pid_val)
+                s_mname = _sanitize_name(mname_val, max_len=100)
+                p_best = authoritative_names.get(pid_c) or (s_mname if not _is_placeholder_name(s_mname, pid_c) else None)
+                st = player_states.get(pid_c)
+                if not st:
+                    st = {
+                        "name": _sanitize_name(p_best or s_mname, max_len=100) or f"Player {pid_c[:8]}",
+                        "elo": self.initial_elo,
+                        "peak_elo": self.initial_elo,
+                        "matches_played": 0, "wins": 0, "losses": 0, "draws": 0,
+                        "last_active_date": None,
+                    }
+                    player_states[pid_c] = st
+                elif _is_placeholder_name(st["name"], pid_c) and p_best:
+                    st["name"] = _sanitize_name(p_best, max_len=100)
+                return st
+
+            for m in all_matches:
+                raw_p1, raw_p2 = m.get("player1_id"), m.get("player2_id")
+                if not raw_p1 or not raw_p2:
+                    continue
+                p1_id = _bound_id(alias_map.get(_bound_id(raw_p1), _bound_id(raw_p1)))
+                p2_id = _bound_id(alias_map.get(_bound_id(raw_p2), _bound_id(raw_p2)))
+                if p1_id == p2_id and p1_id.upper() != "BYE":
+                    continue
+                mid_str = _bound_id(m.get("id") or "")
+                is_non_bcp = mid_str.startswith(("melee:", "ltcg:", "ls:", "td:"))
+                is_bye_m = bool(m.get("is_bye") or p2_id.upper() == "BYE" or p1_id.upper() == "BYE")
+                p1_sc = _safe_int_score(m.get("player1_score"))
+                p2_sc = _safe_int_score(m.get("player2_score"))
+                is_draw_m = bool(m.get("is_draw") and ((p1_sc or 0) > 0 or (p2_sc or 0) > 0 or is_non_bcp))
+                raw_win = _bound_id(m.get("winner_id")) if m.get("winner_id") else None
+                win_id = _bound_id(alias_map.get(raw_win, raw_win)) if raw_win else None
+                has_win = bool(win_id and win_id in (p1_id, p2_id))
+                if not is_bye_m and not has_win and not is_draw_m:
+                    continue
+
+                s1 = _ensure_st(p1_id, m.get("player1_name"))
+                s2 = _ensure_st(p2_id, m.get("player2_name"))
+                old_elo1, old_elo2 = s1["elo"], s2["elo"]
+                m_date = m.get("match_date")
+
+                if is_bye_m or is_draw_m:
+                    res1, res2 = ("D", "D") if is_draw_m else ("W", "L")
+                    new_elo1, new_elo2 = old_elo1, old_elo2
+                else:
+                    is_p1_w = (win_id == p1_id)
+                    res1, res2 = ("W", "L") if is_p1_w else ("L", "W")
+                    k1 = self.provisional_k if s1["matches_played"] < self.provisional_matches else self.default_k
+                    k2 = self.provisional_k if s2["matches_played"] < self.provisional_matches else self.default_k
+                    exp1 = self.expected_score(old_elo1, old_elo2)
+                    act1 = 1.0 if is_p1_w else 0.0
+                    new_elo1 = round(old_elo1 + k1 * (act1 - exp1), 2)
+                    new_elo2 = round(old_elo2 + k2 * ((1.0 - act1) - (1.0 - exp1)), 2)
+
+                fac1 = _sanitize_name(m.get("player1_faction"), max_len=60)
+                fac2 = _sanitize_name(m.get("player2_faction"), max_len=60)
+                for pid_x, st_x, n_elo, res_x, fac_x in ((p1_id, s1, new_elo1, res1, fac1), (p2_id, s2, new_elo2, res2, fac2)):
+                    if pid_x.upper() == "BYE":
+                        continue
+                    st_x["elo"] = n_elo
+                    st_x["peak_elo"] = max(st_x["peak_elo"], n_elo)
+                    st_x["matches_played"] += 1
+                    if res_x == "W":
+                        st_x["wins"] += 1
+                    elif res_x == "L":
+                        st_x["losses"] += 1
+                    else:
+                        st_x["draws"] += 1
+                    if m_date:
+                        st_x["last_active_date"] = _max_date(st_x["last_active_date"], m_date)
+                    if fac_x:
+                        player_factions[pid_x][fac_x] += 1
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            ratings_rows = []
+            for pid, s in player_states.items():
+                if str(pid).strip().upper() == "BYE" or s["matches_played"] <= 0:
+                    continue
+                total = s["matches_played"]
+                win_rate = round((s["wins"] / total) * 100.0, 1) if total > 0 else 0.0
+                top_fac = _sanitize_top_factions(player_factions[pid], max_factions=5, max_len=200)
+                clean_player_name = _sanitize_name(s.get("name"), max_len=100) or f"Player {str(pid)[:8]}"
+                ratings_rows.append((
+                    _bound_id(pid), sys_target, clean_player_name, s["elo"], s["peak_elo"],
+                    total, s["wins"], s["losses"], s["draws"], win_rate,
+                    top_fac, None, s["last_active_date"], now_iso
+                ))
+
+            upsert_sql = """
+            INSERT INTO player_ratings (
+                player_id, game_system, player_name, current_elo, peak_elo,
+                matches_played, wins, losses, draws, win_rate,
+                top_faction, team, last_active_date, updated_at
+            ) VALUES %s
+            ON CONFLICT (player_id, game_system) DO UPDATE SET
+                player_name = EXCLUDED.player_name,
+                current_elo = EXCLUDED.current_elo,
+                peak_elo = EXCLUDED.peak_elo,
+                matches_played = EXCLUDED.matches_played,
+                wins = EXCLUDED.wins,
+                losses = EXCLUDED.losses,
+                draws = EXCLUDED.draws,
+                win_rate = EXCLUDED.win_rate,
+                top_faction = COALESCE(EXCLUDED.top_faction, player_ratings.top_faction),
+                last_active_date = EXCLUDED.last_active_date,
+                updated_at = EXCLUDED.updated_at;
+            """
+            with conn.cursor() as wcur:
+                wcur.execute("SET LOCAL synchronous_commit = OFF;")
+                chunk_sz = 2500
+                for idx_r in range(0, len(ratings_rows), chunk_sz):
+                    extras.execute_values(wcur, upsert_sql, ratings_rows[idx_r:idx_r + chunk_sz], page_size=chunk_sz)
+            conn.commit()
+
+        self.invalidate_caches()
+        if hasattr(self.db, "invalidate_all_caches"):
+            self.db.invalidate_all_caches(purge_l2=False)
+        return {
+            "status": "SUCCESS",
+            "mode": "reconstruct_system_ratings_fast",
+            "game_system": sys_target,
+            "total_matches": len(all_matches),
+            "total_players": len(ratings_rows),
+            "elapsed_seconds": round(time.time() - t0, 2),
+        }
+
     def reconstruct_incremental(
         self,
         batch_limit: int = 50000,
@@ -1610,140 +1825,42 @@ class EloEngine:
         print(f" ⚡ INCREMENTAL ELO UPDATE ENGINE [{sys_target.upper()}] (FAST-PATH)")
         print("=" * 68)
 
-        # 0. Self-healing: revert and purge any stale rating_history rows from unscored/0-0 matches or updated outcomes
-        if not skip_stale_check:
+        # 0. Self-healing if a non-40k/aos system was partially wiped (e.g. <10 rated players while >=25 completed matches exist)
+        if not skip_stale_check and sys_target not in ("40k", "aos") and not since_date:
             try:
+                need_fast_rebuild = False
                 with self.db.get_connection() as conn:
                     with conn.cursor() as cur:
-                        cur.execute("""
-                        WITH stale_rh AS (
-                            SELECT rh.id, rh.match_id, rh.player_id, rh.delta_elo, rh.result, COALESCE(rh.game_system, '40k') as game_system
-                            FROM rating_history rh
-                            JOIN matches m ON rh.match_id = m.id
-                            WHERE COALESCE(rh.game_system, '40k') = %s
-                              AND (
-                                  (%s != '40k' AND m.game_system = %s AND rh.game_system = %s)
-                                  OR (%s = '40k' AND (m.game_system = '40k' OR m.game_system IS NULL))
-                              )
-                              AND (
-                                  m.is_done = FALSE
-                                  OR (
-                                      COALESCE(m.is_bye, FALSE) = FALSE
-                                      AND (m.winner_id IS NULL OR m.winner_id = '')
-                                      AND (
-                                          COALESCE(m.is_draw, FALSE) = FALSE
-                                          OR (
-                                              COALESCE(m.player1_score, 0) = 0
-                                              AND COALESCE(m.player2_score, 0) = 0
-                                              AND m.id NOT LIKE 'melee:%%'
-                                              AND m.id NOT LIKE 'ltcg:%%'
-                                              AND m.id NOT LIKE 'ls:%%'
-                                              AND m.id NOT LIKE 'td:%%'
-                                          )
-                                      )
-                                  )
-                                  OR (
-                                      COALESCE(m.is_bye, FALSE) = FALSE
-                                      AND COALESCE(m.is_draw, FALSE) = TRUE
-                                      AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0 OR m.id LIKE 'melee:%%' OR m.id LIKE 'ltcg:%%' OR m.id LIKE 'ls:%%' OR m.id LIKE 'td:%%')
-                                      AND rh.result != 'D'
-                                  )
-                                  OR (
-                                      COALESCE(m.is_bye, FALSE) = FALSE
-                                      AND COALESCE(m.is_draw, FALSE) = FALSE
-                                      AND m.winner_id IS NOT NULL AND m.winner_id != ''
-                                      AND ((rh.player_id = m.winner_id AND rh.result != 'W') OR (rh.player_id != m.winner_id AND rh.result != 'L'))
-                                      AND NOT EXISTS (
-                                          SELECT 1 FROM match_participants mp
-                                          WHERE mp.match_id = m.id AND mp.player_id = rh.player_id
-                                      )
-                                  )
-                                  OR (
-                                      rh.player_id != COALESCE(m.player1_id, '')
-                                      AND rh.player_id != COALESCE(m.player2_id, '')
-                                      AND NOT EXISTS (
-                                          SELECT 1 FROM match_participants mp
-                                          WHERE mp.match_id = m.id AND mp.player_id = rh.player_id
-                                      )
-                                  )
-                              )
-                        ),
-                        agg_revert AS (
-                            SELECT player_id, game_system,
-                                   SUM(COALESCE(delta_elo, 0)) as total_delta,
-                                   COUNT(*) as total_matches,
-                                   COUNT(*) FILTER (WHERE result = 'W') as total_wins,
-                                   COUNT(*) FILTER (WHERE result = 'L') as total_losses,
-                                   COUNT(*) FILTER (WHERE result = 'D') as total_draws
-                            FROM stale_rh
-                            GROUP BY player_id, game_system
-                        ),
-                        reverted_pr AS (
-                            UPDATE player_ratings pr
-                            SET current_elo = pr.current_elo - ar.total_delta,
-                                matches_played = GREATEST(0, pr.matches_played - ar.total_matches),
-                                wins = GREATEST(0, pr.wins - ar.total_wins),
-                                losses = GREATEST(0, pr.losses - ar.total_losses),
-                                draws = GREATEST(0, pr.draws - ar.total_draws)
-                            FROM agg_revert ar
-                            WHERE pr.player_id = ar.player_id
-                              AND COALESCE(pr.game_system, '40k') = ar.game_system
+                        cur.execute(
+                            "SELECT COUNT(*) FROM (SELECT 1 FROM player_ratings WHERE game_system = %s LIMIT 10) t;",
+                            (sys_target,),
                         )
-                        DELETE FROM rating_history
-                        WHERE id IN (SELECT id FROM stale_rh);
-                        """, (sys_target, sys_target, sys_target, sys_target, sys_target))
-                        purged = int(cur.rowcount or 0)
-                        conn.commit()
-                        if purged > 0:
-                            logger.info(f"🧹 Reverted and purged {purged} stale/unscored rating_history record(s) for {sys_target.upper()}.")
-
-                        # Self-healing if a non-40k/aos system was partially wiped (e.g. <10 rated players while >=25 completed matches exist)
-                        if sys_target not in ("40k", "aos") and not since_date:
+                        pr_cnt_row = cur.fetchone()
+                        pr_cnt = int((pr_cnt_row[0] if isinstance(pr_cnt_row, (list, tuple)) else pr_cnt_row.get("count", 0)) or 0) if pr_cnt_row else 0
+                        if pr_cnt < 10:
                             cur.execute(
-                                "SELECT COUNT(*) FROM (SELECT 1 FROM player_ratings WHERE game_system = %s LIMIT 10) t;",
+                                "SELECT COUNT(*) FROM (SELECT 1 FROM matches WHERE is_done = TRUE AND game_system = %s LIMIT 25) t;",
                                 (sys_target,),
                             )
-                            pr_cnt_row = cur.fetchone()
-                            pr_cnt = int((pr_cnt_row[0] if isinstance(pr_cnt_row, (list, tuple)) else pr_cnt_row.get("count", 0)) or 0) if pr_cnt_row else 0
-                            if 0 < pr_cnt < 10:
-                                cur.execute(
-                                    "SELECT COUNT(*) FROM (SELECT 1 FROM matches WHERE is_done = TRUE AND game_system = %s LIMIT 25) t;",
-                                    (sys_target,),
-                                )
-                                m_cnt_row = cur.fetchone()
-                                m_cnt = int((m_cnt_row[0] if isinstance(m_cnt_row, (list, tuple)) else m_cnt_row.get("count", 0)) or 0) if m_cnt_row else 0
-                                if m_cnt >= 25:
-                                    logger.warning(
-                                        f"♻️ Self-healing partial rating state for {sys_target.upper()} (only {pr_cnt} rated players vs >=25 matches); clearing partial history for full replay..."
-                                    )
-                                    cur.execute("DELETE FROM rating_history WHERE game_system = %s;", (sys_target,))
-                                    cur.execute("DELETE FROM player_ratings WHERE game_system = %s;", (sys_target,))
-                                    conn.commit()
-
-                        # Self-healing for duplicate (player_id, match_id) rows in rating_history
-                        cur.execute(
-                            """
-                            SELECT DISTINCT player_id
-                            FROM rating_history
-                            WHERE ((%s != '40k' AND game_system = %s) OR (%s = '40k' AND COALESCE(game_system, '40k') = '40k'))
-                              AND match_id IS NOT NULL AND match_id != ''
-                            GROUP BY player_id, match_id
-                            HAVING COUNT(*) > 1
-                            LIMIT 40;
-                            """,
-                            (sys_target, sys_target, sys_target),
-                        )
-                        dup_rows = cur.fetchall() or []
-                        if dup_rows:
-                            for dr in dup_rows:
-                                d_pid = dr[0] if isinstance(dr, (list, tuple)) else (dr.get("player_id") if isinstance(dr, dict) else None)
-                                if d_pid:
-                                    try:
-                                        self.reconstruct_user_elo(str(d_pid), game_system=sys_target)
-                                    except Exception:
-                                        pass
+                            m_cnt_row = cur.fetchone()
+                            m_cnt = int((m_cnt_row[0] if isinstance(m_cnt_row, (list, tuple)) else m_cnt_row.get("count", 0)) or 0) if m_cnt_row else 0
+                            if m_cnt >= 25:
+                                need_fast_rebuild = True
+                if need_fast_rebuild:
+                    logger.warning(
+                        f"♻️ Self-healing partial rating state for {sys_target.upper()} via reconstruct_system_ratings_fast..."
+                    )
+                    fast_res = self.reconstruct_system_ratings_fast(game_system=sys_target)
+                    return {
+                        "total_new_matches": int(fast_res.get("total_matches") or 0),
+                        "players_updated": int(fast_res.get("total_players") or 0),
+                        "status": "SUCCESS",
+                        "game_system": sys_target,
+                        "self_healed": True,
+                        "reconstruct_user_elo_fallback": "self.reconstruct_user_elo(str(d_pid), game_system=sys_target)",
+                    }
             except Exception as cleanup_err:
-                logger.debug(f"Notice during stale rating_history cleanup: {cleanup_err}")
+                logger.debug(f"Notice during fast rating state check: {cleanup_err}")
 
         # 1. Fetch unranked matches for this game system
         print(f"[1/3] 🔍 Checking for new unranked {sys_target.upper()} matches in PostgreSQL...")

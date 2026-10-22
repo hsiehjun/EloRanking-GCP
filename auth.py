@@ -1266,11 +1266,14 @@ class AuthManager:
 
         if not token and not (code and email):
             return {"valid": False, "error": "Reset token or email & code required."}
+        if token and len(token) < 16 and not (code and email):
+            return {"valid": False, "error": "Password reset token or code has expired or is invalid."}
 
         try:
             from psycopg2 import extras
             with self.db.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    cur.execute("SET LOCAL statement_timeout = '1500ms';")
                     if token:
                         cur.execute("""
                         SELECT pr.id, pr.email, pr.expires_at, u.display_name

@@ -575,7 +575,7 @@ async def api_admin_repair_matches_elo(
         def _run_reconstruct_only():
             db_inst = get_database()
             elo_inst = get_elo_engine()
-            elo_inst.reconstruct_incremental(batch_limit=b_limit, game_system=target_sys)
+            fast_res = elo_inst.reconstruct_system_ratings_fast(game_system=target_sys.split(",")[0].strip())
             elo_inst.invalidate_caches()
             if hasattr(db_inst, "invalidate_all_caches"):
                 db_inst.invalidate_all_caches(purge_l2=False)
@@ -584,6 +584,7 @@ async def api_admin_repair_matches_elo(
                 "status": "completed",
                 "mode": "reconstruct_only",
                 "game_system": target_sys,
+                "rebuild": fast_res,
                 "stats": stats,
             }
 
