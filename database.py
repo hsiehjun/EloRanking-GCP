@@ -10571,7 +10571,7 @@ class PostgresDatabase:
             raw_legacy_key = f"{start_date}_{end_date}_{game_system}"
             if raw_legacy_key not in cache_keys:
                 cache_keys.append(raw_legacy_key)
-        meta_ver = "v11" if sys_norm == "aos" else "v10"
+        meta_ver = "v12" if (sys_norm == "aos" and preset == "all") else ("v11" if sys_norm == "aos" else "v10")
         l2_setting_key = f"meta_intel_{meta_ver}_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
         l2_legacy_key = f"meta_intel_{meta_ver}_legacy_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
 
@@ -10653,13 +10653,35 @@ class PostgresDatabase:
                                     p_ts = p_row.get("ts") if isinstance(p_row, dict) else p_row[1]
                                     if p_val:
                                         parsed = json.loads(p_val)
-                                        if isinstance(parsed, dict) and parsed.get("factions") and "summary_kpis" in parsed:
+                                        if isinstance(parsed, dict) and parsed.get("factions") and len(parsed["factions"]) <= 200 and "summary_kpis" in parsed:
                                             for k in cache_keys:
                                                 PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, k, parsed, max_size=200)
                                             age_s = (now_ts - float(p_ts)) if p_ts else 0.0
                                             if age_s >= 86400 or float(p_ts or 0.0) < PostgresDatabase._last_cache_invalidation_ts:
                                                 _trigger_bg_meta_refresh()
                                             return parsed
+                                if preset == "all":
+                                    fb_1yr_key = f"meta_intel_{'v11' if sys_norm == 'aos' else 'v10'}_{sys_norm}_1yr"
+                                    cur_l2.execute(
+                                        "SELECT value FROM system_settings WHERE key = %s LIMIT 1;",
+                                        (fb_1yr_key,)
+                                    )
+                                    fb_row = cur_l2.fetchone()
+                                    fb_val = fb_row.get("value") if isinstance(fb_row, dict) else (fb_row[0] if fb_row else None)
+                                    if fb_val:
+                                        fb_parsed = json.loads(fb_val)
+                                        if isinstance(fb_parsed, dict) and fb_parsed.get("factions") and len(fb_parsed["factions"]) <= 200 and "summary_kpis" in fb_parsed:
+                                            fb_copy = dict(fb_parsed)
+                                            fb_copy["filter"] = {
+                                                **dict(fb_parsed.get("filter") or {}),
+                                                "preset": "all",
+                                                "start_date": None,
+                                                "end_date": None,
+                                            }
+                                            for k in cache_keys:
+                                                PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, k, fb_copy, max_size=200)
+                                            _trigger_bg_meta_refresh()
+                                            return fb_copy
                 except Exception as l2_err:
                     logger.debug(f"Notice reading L2 meta_intel cache ({l2_setting_key}): {l2_err}")
 
@@ -10683,10 +10705,7 @@ class PostgresDatabase:
                     ]
                     params: List[Any] = []
                     if game_system and sys_norm != "all":
-                        if sys_norm == "40k":
-                            where_clauses.append("COALESCE(game_system, '40k') = %s")
-                        else:
-                            where_clauses.append("game_system = %s")
+                        where_clauses.append("COALESCE(game_system, '40k') = %s")
                         params.append(sys_norm)
                     if resolved_start:
                         where_clauses.append("match_date >= %s")
@@ -10709,7 +10728,7 @@ class PostgresDatabase:
                         eff_start_str = resolved_start or "2025-04-01"
                         eff_end_str = resolved_end or datetime.now(timezone.utc).strftime("%Y-%m-%d")
                         use_monthly_chunks = False
-                        if not is_mock_cur and sys_norm in ("40k", "all"):
+                        if not is_mock_cur and sys_norm in ("40k", "aos", "all"):
                             try:
                                 d_s = datetime.strptime(eff_start_str[:10], "%Y-%m-%d").date()
                                 d_e = datetime.strptime(eff_end_str[:10], "%Y-%m-%d").date()
@@ -10785,10 +10804,7 @@ class PostgresDatabase:
                             ]
                             base_params: List[Any] = []
                             if game_system and sys_norm != "all":
-                                if sys_norm == "40k":
-                                    base_clauses.append("COALESCE(game_system, '40k') = %s")
-                                else:
-                                    base_clauses.append("game_system = %s")
+                                base_clauses.append("COALESCE(game_system, '40k') = %s")
                                 base_params.append(sys_norm)
 
                             fetched_rows = []
@@ -11116,7 +11132,7 @@ class PostgresDatabase:
                                 cur_fb.execute("SET LOCAL statement_timeout = '3000ms';")
                                 cur_fb.execute("""
                                     SELECT
-                                        TRIM(top_faction) AS faction,
+                                        TRIM(SPLIT_PART(top_faction, ',', 1)) AS faction,
                                         SUM(COALESCE(matches_played, 0)) AS total_matches,
                                         SUM(COALESCE(wins, 0)) AS wins,
                                         SUM(COALESCE(losses, 0)) AS losses,
@@ -11130,19 +11146,51 @@ class PostgresDatabase:
                                     WHERE game_system = %s
                                       AND COALESCE(matches_played, 0) > 0
                                       AND top_faction IS NOT NULL
-                                      AND TRIM(top_faction) != ''
+                                      AND TRIM(SPLIT_PART(top_faction, ',', 1)) != ''
                                       AND POSITION('+' IN top_faction) = 0
-                                      AND LOWER(TRIM(top_faction)) NOT IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various')
-                                    GROUP BY TRIM(top_faction)
+                                      AND LOWER(TRIM(SPLIT_PART(top_faction, ',', 1))) NOT IN ('unknown', 'unknown faction', 'none', 'null', '-', 'bye', 'unassigned', 'various')
+                                    GROUP BY TRIM(SPLIT_PART(top_faction, ',', 1))
                                     HAVING SUM(COALESCE(matches_played, 0)) >= 1
                                     ORDER BY win_rate DESC, total_matches DESC;
                                 """, (sys_norm,))
                                 raw_fb = [dict(r) for r in (cur_fb.fetchall() or [])]
-                                overall = [
-                                    {**r, "faction": PostgresDatabase.canonicalize_faction_name(r.get("faction"))}
-                                    for r in raw_fb
-                                    if not PostgresDatabase.is_super_or_empty_faction(r.get("faction"))
-                                ]
+                                fb_merged: Dict[str, Dict[str, Any]] = {}
+                                for r in raw_fb:
+                                    raw_f = str(r.get("faction") or "").split(",")[0].strip()
+                                    if not raw_f or PostgresDatabase.is_super_or_empty_faction(raw_f):
+                                        continue
+                                    canon_f = PostgresDatabase.canonicalize_faction_name(raw_f)
+                                    if not canon_f or PostgresDatabase.is_super_or_empty_faction(canon_f):
+                                        continue
+                                    mb = fb_merged.get(canon_f)
+                                    if mb is None:
+                                        mb = {
+                                            "faction": canon_f,
+                                            "total_matches": 0,
+                                            "wins": 0,
+                                            "losses": 0,
+                                            "draws": 0,
+                                            "unique_pilots": 0,
+                                            "x0_runs": 0,
+                                            "x1_runs": 0,
+                                            "avg_score": 0.0,
+                                        }
+                                        fb_merged[canon_f] = mb
+                                    mb["total_matches"] += int(r.get("total_matches") or 0)
+                                    mb["wins"] += int(r.get("wins") or 0)
+                                    mb["losses"] += int(r.get("losses") or 0)
+                                    mb["draws"] += int(r.get("draws") or 0)
+                                    mb["unique_pilots"] += int(r.get("unique_pilots") or 0)
+                                    mb["x0_runs"] += int(r.get("x0_runs") or 0)
+                                    mb["x1_runs"] += int(r.get("x1_runs") or 0)
+                                overall = []
+                                for mb in fb_merged.values():
+                                    tm_val = int(mb["total_matches"])
+                                    if tm_val < 1:
+                                        continue
+                                    mb["win_rate"] = round((int(mb["wins"]) * 100.0 / tm_val), 1)
+                                    overall.append(mb)
+                                overall.sort(key=lambda x: (float(x.get("win_rate") or 0.0), int(x.get("total_matches") or 0)), reverse=True)
                                 if overall:
                                     raw_match_count = max(1, sum(int(r.get("total_matches") or 0) for r in overall) // 2)
                         except Exception as fb_err:
@@ -12638,7 +12686,7 @@ class PostgresDatabase:
                             # 1. Check L2 meta_intel cache first if not in L1 yet so L2 faction_details hit is 100% reconciled
                             if (not matchups or meta_fac_info is None) and meta_p:
                                 try:
-                                    meta_ver = "v11" if system == "aos" else "v10"
+                                    meta_ver = "v12" if (system == "aos" and meta_p == "all") else ("v11" if system == "aos" else "v10")
                                     l2_meta_key_v = f"meta_intel_{meta_ver}_{system}_{meta_p}"
                                     l2_meta_key_v_leg = f"meta_intel_{meta_ver}_legacy_{system}_{meta_p}"
                                     cursor.execute(
@@ -12649,7 +12697,7 @@ class PostgresDatabase:
                                     m_val = m_row.get("value") if isinstance(m_row, dict) else (m_row[0] if m_row else None)
                                     if m_val:
                                         parsed_meta = json.loads(m_val)
-                                        if isinstance(parsed_meta, dict):
+                                        if isinstance(parsed_meta, dict) and len(parsed_meta.get("factions") or []) <= 200:
                                             self.set_cached(self._faction_meta_cache_dict, f"preset_{meta_p}_{system}", parsed_meta, max_size=200)
                                             _extract_from_meta_payload(parsed_meta)
                                 except Exception:

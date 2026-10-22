@@ -40,17 +40,6 @@ steps:
       - '10'
       - '--cpu-throttling'
 
-  # 3b. Run Sequential Production Endpoint & DB Latency Gate (<1000ms budget)
-  - name: 'python:3.11-slim'
-    id: 'verify-prod-performance'
-    entrypoint: python3
-    args:
-      - 'scripts/verify_prod_performance.py'
-      - '--base-url'
-      - 'https://omnitactica.com'
-      - '--max-ms'
-      - '1000'
-
   # 4. Update Cloud Run Job: elo-tournament-sync-job
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'update-tournament-job'
@@ -192,6 +181,17 @@ steps:
       - '55 0 * * *'
       - '--description'
       - 'Scrapes TopDeck.gg tournaments (4-player FFA Commander pods & MTG) and recalculates Elo once a day via Cloud Run Job'
+
+  # 12. Run Sequential Production Endpoint & DB Latency Gate (<1000ms budget)
+  - name: 'python:3.11-slim'
+    id: 'verify-prod-performance'
+    entrypoint: python3
+    args:
+      - 'scripts/verify_prod_performance.py'
+      - '--base-url'
+      - 'https://omnitactica.com'
+      - '--max-ms'
+      - '1000'
 
 images:
   - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
