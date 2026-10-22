@@ -326,6 +326,7 @@ try:
         PROVISIONAL_K_FACTOR,
         PROVISIONAL_MATCH_COUNT,
         MIN_MATCHES_FOR_RANKING,
+        normalize_game_system,
     )
     from google3.experimental.users.hsiehjun.EloRanking.database import Database
 except ImportError:
@@ -336,6 +337,7 @@ except ImportError:
             PROVISIONAL_K_FACTOR,
             PROVISIONAL_MATCH_COUNT,
             MIN_MATCHES_FOR_RANKING,
+            normalize_game_system,
         )
         from experimental.users.hsiehjun.EloRanking.database import Database
     except ImportError:
@@ -345,6 +347,7 @@ except ImportError:
             PROVISIONAL_K_FACTOR,
             PROVISIONAL_MATCH_COUNT,
             MIN_MATCHES_FOR_RANKING,
+            normalize_game_system,
         )
         from database import Database
 
@@ -1597,6 +1600,7 @@ class EloEngine:
                 "history_points_saved": r_40k.get("history_points_saved", 0) + r_aos.get("history_points_saved", 0) + extra_hist
             }
 
+        sys_target = normalize_game_system(sys_target, default=sys_target)
         t0 = time.time()
         print("\n" + "=" * 68)
         print(f" ⚡ INCREMENTAL ELO UPDATE ENGINE [{sys_target.upper()}] (FAST-PATH)")

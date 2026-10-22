@@ -293,11 +293,12 @@ main().catch(err => {
         with open(out_path, "r", encoding="utf-8") as f:
             by_system = json.load(f) or {}
 
-        per_sys_quota = max(4, (cap + len(tag_pairs) - 1) // max(1, len(tag_pairs)))
-        deferred: List[Tuple[str, str]] = []
+        import itertools
+
+        per_sys_lists: List[List[Tuple[str, str]]] = []
         for sys_slug, _ in tag_pairs:
             tids_for_sys = by_system.get(sys_slug) or []
-            added = 0
+            sys_cands: List[Tuple[str, str]] = []
             for tid in tids_for_sys:
                 tid_str = str(tid).strip()
                 if (
@@ -308,21 +309,19 @@ main().catch(err => {
                 ):
                     continue
                 seen_tids.add(tid_str)
-                if len(tag_pairs) > 1 and added >= per_sys_quota:
-                    deferred.append((sys_slug, tid_str))
-                else:
-                    discovered.append((sys_slug, tid_str))
-                    added += 1
-                    if len(discovered) >= cap:
-                        break
-            if len(discovered) >= cap:
-                break
+                sys_cands.append((sys_slug, tid_str))
+            if sys_cands:
+                per_sys_lists.append(sys_cands)
 
-        if len(discovered) < cap and deferred:
-            for item in deferred:
+        for row_tuple in itertools.zip_longest(*per_sys_lists):
+            for pair in row_tuple:
+                if pair is None:
+                    continue
+                discovered.append(pair)
                 if len(discovered) >= cap:
                     break
-                discovered.append(item)
+            if len(discovered) >= cap:
+                break
     except Exception as e:
         logger.warning(f"⚠️ [MeleeSync] Live /Tournament/TournamentSearch discovery notice: {e}")
     finally:

@@ -4246,7 +4246,7 @@ class PostgresDatabase:
         event_id = _bound_id(raw_event_id, 64)
         match_id_val = _bound_id(raw_match_id, 64)
 
-        game_system = str(match_data.get("game_system") or "40k").strip()[:16]
+        game_system = normalize_game_system(match_data.get("game_system") or "40k", default="40k")[:16]
         p1_id_val = _bound_opt_id(match_data.get("player1_id"), 64)
         p2_id_val = _bound_opt_id(match_data.get("player2_id"), 64)
         p1_name_val = match_data.get("player1_name") or "Player 1"
@@ -4455,7 +4455,7 @@ class PostgresDatabase:
                             m.get("event_name") or "Tournament",
                             m.get("match_date"),
                             now_utc,
-                            str(m.get("game_system") or "40k").strip()[:16]
+                            normalize_game_system(m.get("game_system") or "40k", default="40k")[:16]
                         )
                 if events_dict:
                     extras.execute_values(
@@ -4574,7 +4574,7 @@ class PostgresDatabase:
                         is_bye_m,
                         bool(m.get("is_done", True)),
                         json.dumps(m.get("raw_json", {})),
-                        str(m.get("game_system") or "40k").strip()[:16]
+                        normalize_game_system(m.get("game_system") or "40k", default="40k")[:16]
                     )
 
                 if matches_dict:
@@ -10558,7 +10558,8 @@ class PostgresDatabase:
         _force_refresh: bool = False
     ) -> Dict[str, Any]:
         """Returns overall faction balance metrics, StatCheck/EloRank competitive KPIs, matchup matrix, and timeline trends (L1+L2 cached)."""
-        sys_norm = (game_system or "40k").strip().lower()
+        raw_sys = (game_system or "40k").strip().lower()
+        sys_norm = "all" if raw_sys == "all" else normalize_game_system(raw_sys, default="40k")
         preset, resolved_start, resolved_end, is_short_window = PostgresDatabase._resolve_meta_preset_and_dates(
             start_date=start_date, end_date=end_date, timeframe=timeframe
         )
@@ -10708,7 +10709,7 @@ class PostgresDatabase:
                         eff_start_str = resolved_start or "2025-04-01"
                         eff_end_str = resolved_end or datetime.now(timezone.utc).strftime("%Y-%m-%d")
                         use_monthly_chunks = False
-                        if not is_mock_cur:
+                        if not is_mock_cur and sys_norm in ("40k", "all"):
                             try:
                                 d_s = datetime.strptime(eff_start_str[:10], "%Y-%m-%d").date()
                                 d_e = datetime.strptime(eff_end_str[:10], "%Y-%m-%d").date()
@@ -11398,7 +11399,8 @@ class PostgresDatabase:
     ) -> int:
         """Pre-warms L1 and L2 (system_settings) Meta Intel caches for all standard timeframe presets."""
         target_presets = presets or ["90d", "30d", "60d", "180d", "ytd", "1yr", "all"]
-        sys_norm = (game_system or "40k").strip().lower()
+        raw_sys = (game_system or "40k").strip().lower()
+        sys_norm = "all" if raw_sys == "all" else normalize_game_system(raw_sys, default="40k")
         warmed = 0
 
         for p in target_presets:
@@ -11422,7 +11424,8 @@ class PostgresDatabase:
     def get_player_history(self, player_id: str, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Returns rating progression history for a player."""
         is_mock_self = hasattr(self.get_connection, "_mock_name")
-        sys_norm = (game_system or "40k").strip().lower()
+        raw_sys = (game_system or "40k").strip().lower()
+        sys_norm = "all" if raw_sys == "all" else normalize_game_system(raw_sys, default="40k")
         cache_key = (str(player_id or "").strip(), sys_norm)
         if not is_mock_self:
             cached = PostgresDatabase.get_cached(PostgresDatabase._player_history_cache_dict, cache_key, ttl=600)

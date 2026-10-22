@@ -95,21 +95,21 @@ def discover_longshanks_targets(
     else:
         systems = [target_sys]
 
+    from concurrent.futures import ThreadPoolExecutor
+    import itertools
+
     now_dt = datetime.now(timezone.utc)
     from_str = (str(start_date).strip()[:10] if start_date else (now_dt - timedelta(days=max(1, int(days or 7)))).strftime("%Y-%m-%d"))
     to_str = (str(end_date).strip()[:10] if end_date else now_dt.strftime("%Y-%m-%d"))
 
     discovered: List[Tuple[str, str]] = []
     seen_eids: set = set()
+    per_sys_cap = max(12, ((max_events * 2) + len(systems) - 1) // max(1, len(systems))) if is_backfill else max_events
 
-    per_sys_quota = max(8, (max_events - len(discovered) + len(systems) - 1) // max(1, len(systems))) if is_backfill else max_events
-    deferred_candidates: List[Tuple[str, str]] = []
-
-    for sys_slug in systems:
-        if len(discovered) >= max_events:
-            break
+    def _discover_for_system(sys_slug: str) -> List[Tuple[str, str]]:
         host = LONGSHANKS_HOST_BY_SYSTEM.get(sys_slug, "https://www.longshanks.org")
-        added_for_sys = 0
+        sys_items: List[Tuple[str, str]] = []
+        sys_seen: set = set()
         try:
             first_url = (
                 f"{host}/events/history/?rated=rated&style=tournament&size_min=6"
@@ -118,17 +118,17 @@ def discover_longshanks_targets(
             first_html = _http_get_text(first_url)
             first_eids = list(dict.fromkeys(m.group(1) for m in re.finditer(r"/event/(\d+)/", first_html)))
             if not first_eids:
-                continue
+                return sys_items
             total_pages = max([int(p) for p in re.findall(r"[?&]page=(\d+)", first_html)] or [1])
             if is_backfill and total_pages > 1:
-                step = max(1, total_pages // 10)
-                milestones = sorted({1, total_pages} | {min(total_pages, 1 + i * step) for i in range(1, 10)})
-                pages_to_scan = milestones + [p for p in range(2, min(total_pages + 1, 80)) if p not in milestones]
+                step = max(1, total_pages // 8)
+                milestones = sorted({1, total_pages} | {min(total_pages, 1 + i * step) for i in range(1, 8)})
+                pages_to_scan = milestones + [p for p in range(2, min(total_pages + 1, 25)) if p not in milestones]
             else:
                 pages_to_scan = [1, 2] if total_pages >= 2 else [1]
 
             for page in pages_to_scan:
-                if len(discovered) >= max_events:
+                if len(sys_items) >= per_sys_cap:
                     break
                 html_txt = first_html if page == 1 else _http_get_text(first_url + f"&page={page}")
                 page_eids = first_eids if page == 1 else list(dict.fromkeys(m.group(1) for m in re.finditer(r"/event/(\d+)/", html_txt)))
@@ -136,27 +136,37 @@ def discover_longshanks_targets(
                     break
                 new_on_page = 0
                 for eid in page_eids:
-                    if eid not in seen_eids:
-                        seen_eids.add(eid)
+                    if eid not in sys_seen:
+                        sys_seen.add(eid)
                         new_on_page += 1
                         if eid not in existing_set and f"ls:{eid}" not in existing_set:
-                            if is_backfill and len(systems) > 1 and added_for_sys >= per_sys_quota:
-                                deferred_candidates.append((sys_slug, eid))
-                            else:
-                                discovered.append((sys_slug, eid))
-                                added_for_sys += 1
-                                if len(discovered) >= max_events:
-                                    break
-                if new_on_page == 0 or (is_backfill and len(systems) > 1 and added_for_sys >= per_sys_quota and len(deferred_candidates) >= max_events):
+                            sys_items.append((sys_slug, eid))
+                            if len(sys_items) >= per_sys_cap:
+                                break
+                if new_on_page == 0:
                     break
         except Exception as e:
             logger.warning(f"⚠️ [LongshanksSync:{sys_slug.upper()}] Discovery notice: {e}")
+        return sys_items
 
-    if len(discovered) < max_events and deferred_candidates:
-        for item in deferred_candidates:
-            if len(discovered) >= max_events:
-                break
-            discovered.append(item)
+    per_sys_lists: List[List[Tuple[str, str]]] = []
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(systems)))) as pool:
+        for res_list in pool.map(_discover_for_system, systems):
+            if res_list:
+                per_sys_lists.append(res_list)
+
+    for row_tuple in itertools.zip_longest(*per_sys_lists):
+        for pair in row_tuple:
+            if pair is None:
+                continue
+            sys_slug, eid = pair
+            if eid not in seen_eids:
+                seen_eids.add(eid)
+                discovered.append((sys_slug, eid))
+                if len(discovered) >= max_events:
+                    break
+        if len(discovered) >= max_events:
+            break
 
     if len(discovered) < max_events:
         for def_sys, def_eid in list(DEFAULT_LONGSHANKS_TARGETS) + (list(HISTORICAL_LONGSHANKS_TARGETS) if is_backfill else []):

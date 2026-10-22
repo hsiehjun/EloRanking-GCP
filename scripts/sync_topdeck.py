@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scripts.sync_multiplatform import (
+    _TOPDECK_FIRESTORE_DOC_CACHE,
     _http_post_json,
     finalize_platform_sync,
     get_existing_platform_event_ids,
@@ -154,31 +155,29 @@ def discover_topdeck_targets(
 
     if not discovered:
         if len(discovered) < max_events:
+            from concurrent.futures import ThreadPoolExecutor
             from datetime import datetime, timezone
+            import itertools
 
             is_backfill = bool((days or 14) >= 365 or start_date)
             if is_backfill:
-                # Generate rolling 45-day checkpoints from end_s back to max(cutoff_s, 2021-01-01)
                 floor_s = max(cutoff_s, int(datetime(2021, 1, 1, tzinfo=timezone.utc).timestamp()))
-                step_s = 45 * 86400
+                step_s = 90 * 86400
                 checkpoints = []
                 cur_cp = end_s
-                while cur_cp >= floor_s and len(checkpoints) < 48:
+                while cur_cp >= floor_s and len(checkpoints) < 20:
                     checkpoints.append(cur_cp)
                     cur_cp -= step_s
                 if not checkpoints:
                     checkpoints = [end_s]
-                per_cp_quota = max(6, (max_events - len(discovered) + len(checkpoints) - 1) // len(checkpoints))
+                per_cp_limit = max(160, ((max_events * 3) // max(1, len(checkpoints))) + 60)
             else:
                 checkpoints = [end_s]
-                per_cp_quota = max_events
+                per_cp_limit = max(120, max_events * 5)
 
-            deferred_from_checkpoints: List[Tuple[str, str]] = []
-            for cp_end in checkpoints:
-                if len(discovered) >= max_events:
-                    break
-                cp_start = max(cutoff_s, cp_end - 60 * 86400) if is_backfill else cutoff_s
-                added_in_cp = 0
+            def _fetch_cp_docs(cp_end: int) -> List[Tuple[str, str]]:
+                cp_start = max(cutoff_s, cp_end - 125 * 86400) if is_backfill else cutoff_s
+                cp_cands: List[Tuple[str, str]] = []
                 try:
                     fs_rows = _http_post_json(
                         "https://firestore.googleapis.com/v1/projects/eminence-1b40b/databases/(default)/documents:runQuery",
@@ -195,7 +194,7 @@ def discover_topdeck_targets(
                                     }
                                 },
                                 "orderBy": [{"field": {"fieldPath": "StartDate"}, "direction": "DESCENDING"}],
-                                "limit": max(80, per_cp_quota * 5),
+                                "limit": per_cp_limit,
                             }
                         },
                         timeout=15,
@@ -220,7 +219,6 @@ def discover_topdeck_targets(
                             has_valid_winner = ("integerValue" in w_field) or ("stringValue" in w_field)
                             if (
                                 tid
-                                and tid not in seen_tids
                                 and tid not in existing_set
                                 and f"td:{tid}" not in existing_set
                                 and len(t1_es) >= 2
@@ -228,22 +226,30 @@ def discover_topdeck_targets(
                                 and "naruto" not in ev_title
                                 and "test" not in ev_title
                             ):
-                                seen_tids.add(tid)
-                                if added_in_cp < per_cp_quota:
-                                    discovered.append((doc_sys, tid))
-                                    added_in_cp += 1
-                                    if len(discovered) >= max_events:
-                                        break
-                                else:
-                                    deferred_from_checkpoints.append((doc_sys, tid))
+                                _TOPDECK_FIRESTORE_DOC_CACHE[tid] = doc
+                                cp_cands.append((doc_sys, tid))
                 except Exception as e:
                     logger.warning(f"⚠️ [TopDeckSync] Firestore discovery notice: {e}")
+                return cp_cands
 
-            if len(discovered) < max_events and deferred_from_checkpoints:
-                for item in deferred_from_checkpoints:
-                    if len(discovered) >= max_events:
-                        break
-                    discovered.append(item)
+            cp_lists: List[List[Tuple[str, str]]] = []
+            with ThreadPoolExecutor(max_workers=min(10, max(1, len(checkpoints)))) as pool:
+                for c_list in pool.map(_fetch_cp_docs, checkpoints):
+                    if c_list:
+                        cp_lists.append(c_list)
+
+            for row_tuple in itertools.zip_longest(*cp_lists):
+                for pair in row_tuple:
+                    if pair is None:
+                        continue
+                    doc_sys, tid = pair
+                    if tid not in seen_tids:
+                        seen_tids.add(tid)
+                        discovered.append((doc_sys, tid))
+                        if len(discovered) >= max_events:
+                            break
+                if len(discovered) >= max_events:
+                    break
 
         for s_slug, tid in DEFAULT_TOPDECK_TARGETS:
             if (

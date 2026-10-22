@@ -88,18 +88,29 @@ LIMITLESS_GAME_MAP = {
 }
 
 _LIMITLESS_CATALOG_CACHE: Dict[str, Dict[str, Any]] = {}
+_TOPDECK_FIRESTORE_DOC_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
 def _http_get_text(url: str, timeout: int = 15) -> str:
+    import gzip as _gzip
+
     req = urllib.request.Request(
         url,
         headers={
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36",
             "Accept": "text/html,application/json,*/*",
+            "Accept-Encoding": "gzip",
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read().decode("utf-8", errors="ignore")
+        raw = resp.read()
+        enc = str(resp.headers.get("Content-Encoding") or "").lower()
+        if "gzip" in enc:
+            try:
+                raw = _gzip.decompress(raw)
+            except Exception:
+                pass
+        return raw.decode("utf-8", errors="ignore")
 
 
 def _http_get_json(url: str, timeout: int = 15) -> Any:
@@ -107,6 +118,8 @@ def _http_get_json(url: str, timeout: int = 15) -> Any:
 
 
 def _http_post_json(url: str, payload: Dict[str, Any], timeout: int = 15) -> Any:
+    import gzip as _gzip
+
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -114,10 +127,18 @@ def _http_post_json(url: str, payload: Dict[str, Any], timeout: int = 15) -> Any
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36",
             "Content-Type": "application/json",
             "Accept": "application/json",
+            "Accept-Encoding": "gzip",
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8", errors="ignore"))
+        raw = resp.read()
+        enc = str(resp.headers.get("Content-Encoding") or "").lower()
+        if "gzip" in enc:
+            try:
+                raw = _gzip.decompress(raw)
+            except Exception:
+                pass
+        return json.loads(raw.decode("utf-8", errors="ignore"))
 
 
 def format_limitless_decklist(dl: Any) -> str:
@@ -708,14 +729,28 @@ def import_live_longshanks_tournaments(
 
     def _fetch_ls_bundle(sys_slug_in: str, raw_eid_in: str):
         host = LONGSHANKS_HOST_BY_SYSTEM.get(sys_slug_in, "https://www.longshanks.org")
-        ev_h = _http_get_text(f"{host}/event/{raw_eid_in}/")
         st_h = _http_get_text(f"{host}/events/detail/panel_standings.php?event={raw_eid_in}&section=player")
         gm_r1_h = _http_get_text(f"{host}/events/detail/panel_games.php?event={raw_eid_in}&round=1")
         r_nums = sorted({int(x) for x in re.findall(r"<option value=['\"](\d+)['\"]", gm_r1_h)} or {1})
         rounds_map = {1: gm_r1_h}
-        for r_n in r_nums:
-            if r_n != 1:
-                rounds_map[r_n] = _http_get_text(f"{host}/events/detail/panel_games.php?event={raw_eid_in}&round={r_n}")
+        other_rounds = [r_n for r_n in r_nums if r_n != 1]
+        if other_rounds:
+            with ThreadPoolExecutor(max_workers=min(6, len(other_rounds))) as r_pool:
+                r_futs = {
+                    r_n: r_pool.submit(_http_get_text, f"{host}/events/detail/panel_games.php?event={raw_eid_in}&round={r_n}")
+                    for r_n in other_rounds
+                }
+                for r_n, r_fut in r_futs.items():
+                    try:
+                        rounds_map[r_n] = r_fut.result()
+                    except Exception:
+                        rounds_map[r_n] = ""
+        ev_h = st_h
+        if not re.search(r"<span class=['\"]header['\"]>Date</span>&nbsp;([0-9-]+)", gm_r1_h):
+            try:
+                ev_h = _http_get_text(f"{host}/event/{raw_eid_in}/")
+            except Exception:
+                pass
         return ev_h, st_h, r_nums, rounds_map
 
     prefetched_ls: Dict[Tuple[str, str], Any] = {}
@@ -1014,12 +1049,14 @@ def import_live_topdeck_tournaments(
     matches_imported = 0
 
     def _fetch_td_bundle(sys_slug_in: str, tid_in: str):
-        fs_d = _http_get_json(
-            f"https://firestore.googleapis.com/v1/projects/eminence-1b40b/databases/(default)/documents/tournaments/{tid_in}"
-        )
+        fs_d = _TOPDECK_FIRESTORE_DOC_CACHE.get(tid_in)
+        if not fs_d or not isinstance(fs_d, dict) or not fs_d.get("fields"):
+            fs_d = _http_get_json(
+                f"https://firestore.googleapis.com/v1/projects/eminence-1b40b/databases/(default)/documents/tournaments/{tid_in}"
+            )
         p_d = _http_get_json(f"https://topdeck.gg/PublicPData/{tid_in}")
         e16_map: Dict[str, Dict[str, Any]] = {}
-        if sys_slug_in == "mtg":
+        if sys_slug_in == "mtg" and len(tournament_slugs) <= 25 and isinstance(p_d, dict) and len(p_d) >= 48:
             try:
                 gql = {
                     "query": f'{{ tournament(TID: "{tid_in}") {{ name tournamentDate size swissRounds entries {{ standing wins losses draws decklist player {{ name }} commander {{ name }} }} }} }}'
@@ -1429,7 +1466,7 @@ async function main() {
     "--disable-blink-features=AutomationControlled",
     "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
     `--remote-debugging-port=${port}`,
-    `https://melee.gg/Tournament/View/${tids[0]}`
+    "https://melee.gg/Tournament/Index?ordering=StartDate&mode=Table"
   ]);
   await new Promise(r => setTimeout(r, 3200));
   const targets = await new Promise((resolve, reject) => {
@@ -1455,7 +1492,8 @@ async function main() {
     expression: `(async () => {
       const targetTids = ${JSON.stringify(tids)};
       const results = {};
-      const chunkSize = 6;
+      const chunkSize = 8;
+      const maxDecklists = targetTids.length > 10 ? 2 : 8;
       for (let c = 0; c < targetTids.length; c += chunkSize) {
         const chunk = targetTids.slice(c, c + chunkSize);
         await Promise.all(chunk.map(async tid => {
@@ -1493,7 +1531,7 @@ async function main() {
             ))).filter(rm => rm.matches.length > 0);
 
             const deckIds = [];
-            for (const st of standings.slice(0, 16)) {
+            for (const st of standings.slice(0, maxDecklists)) {
               const dks = st.Decklists || [];
               const chosen = dks.find(d => d.DecklistName && d.DecklistName !== "Decklist") || dks[0];
               if (chosen && chosen.DecklistId && !deckIds.includes(chosen.DecklistId)) {
@@ -1550,10 +1588,10 @@ main().catch(err => {
     matches_imported = 0
 
     for t_idx, raw_tid in enumerate(tids):
-        if t_idx % 20 == 0:
+        if t_idx % 25 == 0:
             scraped_by_tid.clear()
-            chunk_tids = tids[t_idx : t_idx + 20]
-            live_chunk = list(chunk_tids) if os.getenv("MELEE_USE_CACHE_ONLY", "0") != "1" else [t for t in chunk_tids if not (cached_by_tid.get(t) or {}).get("standings")]
+            chunk_tids = tids[t_idx : t_idx + 25]
+            live_chunk = [t for t in chunk_tids if not (cached_by_tid.get(t) or {}).get("standings")]
             if live_chunk and has_node_and_chrome and os.getenv("MELEE_SKIP_CHROME", "0") != "1":
                 try:
                     subprocess.run(
@@ -1577,7 +1615,7 @@ main().catch(err => {
         if not t_data or not t_data.get("standings"):
             continue
 
-        sys_slug = sys_by_tid.get(raw_tid, "mtg")
+        sys_slug = normalize_game_system(sys_by_tid.get(raw_tid, "mtg"), default="mtg")
         eid = _bound_id(f"melee:{raw_tid}")
         title = str(t_data.get("title") or f"Melee Event {raw_tid}").strip()
         standings = t_data.get("standings") or []
@@ -2079,7 +2117,9 @@ def finalize_platform_sync(db: Any, touched_systems: List[str], platform_name: s
     Runs 2v2/FFA retrofitting (if supported), incremental Elo reconstruction, and L2 Meta Intel
     cache refresh ONLY for the game systems touched by this platform sync job.
     """
-    unique_systems = sorted({s.strip().lower() for s in (touched_systems or []) if s and s.strip()})
+    unique_systems = sorted(
+        {normalize_game_system(s.strip().lower(), default=s.strip().lower()) for s in (touched_systems or []) if s and s.strip()}
+    )
     if not unique_systems:
         return {"platform": platform_name, "systems_updated": [], "reconstruction": {}}
 
@@ -2103,9 +2143,10 @@ def finalize_platform_sync(db: Any, touched_systems: List[str], platform_name: s
         csv_systems = ",".join(unique_systems)
         recon_summary = engine.reconstruct_incremental(game_system=csv_systems)
         if hasattr(db, "prewarm_meta_intel_presets"):
+            target_presets = ["90d", "all"] if len(unique_systems) > 2 else None
             for sys_slug in unique_systems:
                 try:
-                    db.prewarm_meta_intel_presets(sys_slug, force_refresh=True)
+                    db.prewarm_meta_intel_presets(sys_slug, presets=target_presets, force_refresh=True)
                 except Exception as meta_err:
                     logger.warning(f"[{platform_name}] Notice refreshing Meta Intel for {sys_slug}: {meta_err}")
 
