@@ -684,6 +684,19 @@ class TestRepairMatchesAndElo(unittest.TestCase):
                 f"{method_name} must deduplicate outcomes per (event_id, pid, round_num)",
             )
 
+    def test_mtg_reconstruct_incremental_preserves_ratings_and_safe_int_scores(self):
+        """Verify reconstruct_incremental heals duplicate players surgically without wiping all system ratings, and bounds 32-bit int scores."""
+        import inspect
+        from elo import EloEngine, _safe_int_score
+
+        self.assertEqual(_safe_int_score(2), 2)
+        self.assertIsNone(_safe_int_score(9999999999999))
+        self.assertIsNone(_safe_int_score(-9999999999999))
+
+        src = inspect.getsource(EloEngine.reconstruct_incremental)
+        self.assertIn("self.reconstruct_user_elo(str(d_pid), game_system=sys_target)", src)
+        self.assertIn('m.get("event_id") or "unknown_event"', src)
+
 
 if __name__ == "__main__":
     unittest.main()

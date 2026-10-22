@@ -37,7 +37,10 @@ def _safe_int_score(val: Any) -> Optional[int]:
     if val is None:
         return None
     try:
-        return int(round(float(val)))
+        v = int(round(float(val)))
+        if v < -2147483648 or v > 2147483647:
+            return None
+        return v
     except Exception:
         return None
 
@@ -163,73 +166,74 @@ def _heal_and_load_authoritative_names(
 
         with conn.cursor() as cur:
             if scoped_pids is not None:
-                cur.execute("""
-                SELECT id FROM players
-                WHERE id = ANY(%s)
-                  AND (full_name IS NULL OR TRIM(full_name) = '' OR full_name ~* %s OR LENGTH(full_name) > 100 OR full_name LIKE '{%%');
-                """, (scoped_pids, PLACEHOLDER_REGEX_STR))
-                bad_pids = [
-                    str(r[0] if isinstance(r, (list, tuple)) else r.get("id"))
-                    for r in (cur.fetchall() or [])
-                    if (r[0] if isinstance(r, (list, tuple)) else (r.get("id") if isinstance(r, dict) else None))
-                ]
-                if bad_pids:
+                if len(scoped_pids) <= 500:
                     cur.execute("""
-                    UPDATE players p
-                    SET full_name = SUBSTRING(TRIM(ep.full_name), 1, 100)
-                    FROM event_participants ep
-                    WHERE p.id = ANY(%s)
-                      AND p.id = ep.player_id
-                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
-                      AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != '' AND LENGTH(ep.full_name) <= 100
-                      AND ep.full_name NOT LIKE '{%%' AND ep.full_name NOT LIKE '[%%'
-                      AND NOT (ep.full_name ~* %s OR ep.full_name ILIKE 'BYE');
-                    """, (bad_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
-                    cur.execute("""
-                    UPDATE players p
-                    SET full_name = SUBSTRING(TRIM(m.player1_name), 1, 100)
-                    FROM matches m
-                    WHERE p.id = ANY(%s)
-                      AND p.id = m.player1_id
-                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
-                      AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != '' AND LENGTH(m.player1_name) <= 100
-                      AND m.player1_name NOT LIKE '{%%' AND m.player1_name NOT LIKE '[%%'
-                      AND NOT (m.player1_name ~* %s OR m.player1_name ILIKE 'BYE');
-                    """, (bad_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
-                    cur.execute("""
-                    UPDATE players p
-                    SET full_name = SUBSTRING(TRIM(m.player2_name), 1, 100)
-                    FROM matches m
-                    WHERE p.id = ANY(%s)
-                      AND p.id = m.player2_id
-                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
-                      AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != '' AND LENGTH(m.player2_name) <= 100
-                      AND m.player2_name NOT LIKE '{%%' AND m.player2_name NOT LIKE '[%%'
-                      AND NOT (m.player2_name ~* %s OR m.player2_name ILIKE 'BYE');
-                    """, (bad_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+                    SELECT id FROM players
+                    WHERE id = ANY(%s)
+                      AND (full_name IS NULL OR TRIM(full_name) = '' OR full_name ~* %s OR LENGTH(full_name) > 100 OR full_name LIKE '{%%');
+                    """, (scoped_pids, PLACEHOLDER_REGEX_STR))
+                    bad_pids = [
+                        str(r[0] if isinstance(r, (list, tuple)) else r.get("id"))
+                        for r in (cur.fetchall() or [])
+                        if (r[0] if isinstance(r, (list, tuple)) else (r.get("id") if isinstance(r, dict) else None))
+                    ]
+                    if bad_pids:
+                        cur.execute("""
+                        UPDATE players p
+                        SET full_name = SUBSTRING(TRIM(ep.full_name), 1, 100)
+                        FROM event_participants ep
+                        WHERE p.id = ANY(%s)
+                          AND p.id = ep.player_id
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+                          AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != '' AND LENGTH(ep.full_name) <= 100
+                          AND ep.full_name NOT LIKE '{%%' AND ep.full_name NOT LIKE '[%%'
+                          AND NOT (ep.full_name ~* %s OR ep.full_name ILIKE 'BYE');
+                        """, (bad_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+                        cur.execute("""
+                        UPDATE players p
+                        SET full_name = SUBSTRING(TRIM(m.player1_name), 1, 100)
+                        FROM matches m
+                        WHERE p.id = ANY(%s)
+                          AND p.id = m.player1_id
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+                          AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != '' AND LENGTH(m.player1_name) <= 100
+                          AND m.player1_name NOT LIKE '{%%' AND m.player1_name NOT LIKE '[%%'
+                          AND NOT (m.player1_name ~* %s OR m.player1_name ILIKE 'BYE');
+                        """, (bad_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+                        cur.execute("""
+                        UPDATE players p
+                        SET full_name = SUBSTRING(TRIM(m.player2_name), 1, 100)
+                        FROM matches m
+                        WHERE p.id = ANY(%s)
+                          AND p.id = m.player2_id
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+                          AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != '' AND LENGTH(m.player2_name) <= 100
+                          AND m.player2_name NOT LIKE '{%%' AND m.player2_name NOT LIKE '[%%'
+                          AND NOT (m.player2_name ~* %s OR m.player2_name ILIKE 'BYE');
+                        """, (bad_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
 
-                cur.execute("""
-                SELECT player_id FROM player_ratings
-                WHERE player_id = ANY(%s)
-                  AND (player_name IS NULL OR TRIM(player_name) = '' OR player_name ~* %s OR LENGTH(player_name) > 100 OR player_name LIKE '{%%');
-                """, (scoped_pids, PLACEHOLDER_REGEX_STR))
-                bad_pr_pids = [
-                    str(r[0] if isinstance(r, (list, tuple)) else r.get("player_id"))
-                    for r in (cur.fetchall() or [])
-                    if (r[0] if isinstance(r, (list, tuple)) else (r.get("player_id") if isinstance(r, dict) else None))
-                ]
-                if bad_pr_pids:
                     cur.execute("""
-                    UPDATE player_ratings pr
-                    SET player_name = SUBSTRING(TRIM(p.full_name), 1, 100), updated_at = NOW()
-                    FROM players p
-                    WHERE pr.player_id = ANY(%s)
-                      AND pr.player_id = p.id
-                      AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s OR LENGTH(pr.player_name) > 100 OR pr.player_name LIKE '{%%')
-                      AND p.full_name IS NOT NULL AND TRIM(p.full_name) != '' AND LENGTH(p.full_name) <= 100
-                      AND p.full_name NOT LIKE '{%%' AND p.full_name NOT LIKE '[%%'
-                      AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
-                    """, (bad_pr_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+                    SELECT player_id FROM player_ratings
+                    WHERE player_id = ANY(%s)
+                      AND (player_name IS NULL OR TRIM(player_name) = '' OR player_name ~* %s OR LENGTH(player_name) > 100 OR player_name LIKE '{%%');
+                    """, (scoped_pids, PLACEHOLDER_REGEX_STR))
+                    bad_pr_pids = [
+                        str(r[0] if isinstance(r, (list, tuple)) else r.get("player_id"))
+                        for r in (cur.fetchall() or [])
+                        if (r[0] if isinstance(r, (list, tuple)) else (r.get("player_id") if isinstance(r, dict) else None))
+                    ]
+                    if bad_pr_pids:
+                        cur.execute("""
+                        UPDATE player_ratings pr
+                        SET player_name = SUBSTRING(TRIM(p.full_name), 1, 100), updated_at = NOW()
+                        FROM players p
+                        WHERE pr.player_id = ANY(%s)
+                          AND pr.player_id = p.id
+                          AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s OR LENGTH(pr.player_name) > 100 OR pr.player_name LIKE '{%%')
+                          AND p.full_name IS NOT NULL AND TRIM(p.full_name) != '' AND LENGTH(p.full_name) <= 100
+                          AND p.full_name NOT LIKE '{%%' AND p.full_name NOT LIKE '[%%'
+                          AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
+                        """, (bad_pr_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
 
                 cur.execute("""
                 SELECT id, full_name FROM players
@@ -1693,36 +1697,51 @@ class EloEngine:
                         if purged > 0:
                             logger.info(f"🧹 Reverted and purged {purged} stale/unscored rating_history record(s) for {sys_target.upper()}.")
 
+                        # Self-healing if a non-40k/aos system was partially wiped (e.g. <10 rated players while >=25 completed matches exist)
+                        if sys_target not in ("40k", "aos") and not since_date:
+                            cur.execute(
+                                "SELECT COUNT(*) FROM (SELECT 1 FROM player_ratings WHERE game_system = %s LIMIT 10) t;",
+                                (sys_target,),
+                            )
+                            pr_cnt_row = cur.fetchone()
+                            pr_cnt = int((pr_cnt_row[0] if isinstance(pr_cnt_row, (list, tuple)) else pr_cnt_row.get("count", 0)) or 0) if pr_cnt_row else 0
+                            if 0 < pr_cnt < 10:
+                                cur.execute(
+                                    "SELECT COUNT(*) FROM (SELECT 1 FROM matches WHERE is_done = TRUE AND game_system = %s LIMIT 25) t;",
+                                    (sys_target,),
+                                )
+                                m_cnt_row = cur.fetchone()
+                                m_cnt = int((m_cnt_row[0] if isinstance(m_cnt_row, (list, tuple)) else m_cnt_row.get("count", 0)) or 0) if m_cnt_row else 0
+                                if m_cnt >= 25:
+                                    logger.warning(
+                                        f"♻️ Self-healing partial rating state for {sys_target.upper()} (only {pr_cnt} rated players vs >=25 matches); clearing partial history for full replay..."
+                                    )
+                                    cur.execute("DELETE FROM rating_history WHERE game_system = %s;", (sys_target,))
+                                    cur.execute("DELETE FROM player_ratings WHERE game_system = %s;", (sys_target,))
+                                    conn.commit()
+
                         # Self-healing for duplicate (player_id, match_id) rows in rating_history
                         cur.execute(
                             """
                             SELECT DISTINCT player_id
                             FROM rating_history
-                            WHERE COALESCE(game_system, '40k') = %s
+                            WHERE ((%s != '40k' AND game_system = %s) OR (%s = '40k' AND COALESCE(game_system, '40k') = '40k'))
                               AND match_id IS NOT NULL AND match_id != ''
                             GROUP BY player_id, match_id
                             HAVING COUNT(*) > 1
-                            LIMIT 200;
+                            LIMIT 40;
                             """,
-                            (sys_target,),
+                            (sys_target, sys_target, sys_target),
                         )
                         dup_rows = cur.fetchall() or []
                         if dup_rows:
-                            if sys_target not in ("40k", "aos") and not since_date:
-                                logger.warning(
-                                    f"♻️ Detected duplicate rating_history entries in {sys_target.upper()} ({len(dup_rows)} players affected); resetting {sys_target.upper()} ratings for clean replay..."
-                                )
-                                cur.execute("DELETE FROM rating_history WHERE COALESCE(game_system, '40k') = %s;", (sys_target,))
-                                cur.execute("DELETE FROM player_ratings WHERE COALESCE(game_system, '40k') = %s;", (sys_target,))
-                                conn.commit()
-                            else:
-                                for dr in dup_rows:
-                                    d_pid = dr[0] if isinstance(dr, (list, tuple)) else (dr.get("player_id") if isinstance(dr, dict) else None)
-                                    if d_pid:
-                                        try:
-                                            self.reconstruct_user_elo(str(d_pid), game_system=sys_target)
-                                        except Exception:
-                                            pass
+                            for dr in dup_rows:
+                                d_pid = dr[0] if isinstance(dr, (list, tuple)) else (dr.get("player_id") if isinstance(dr, dict) else None)
+                                if d_pid:
+                                    try:
+                                        self.reconstruct_user_elo(str(d_pid), game_system=sys_target)
+                                    except Exception:
+                                        pass
             except Exception as cleanup_err:
                 logger.debug(f"Notice during stale rating_history cleanup: {cleanup_err}")
 
@@ -2015,9 +2034,10 @@ class EloEngine:
 
                 for m in new_matches:
                     mid_str = _bound_id(m.get("id") or "")
-                    ev_id_bound = _bound_opt_id(m.get("event_id"))
+                    ev_id_bound = _bound_id(m.get("event_id") or "unknown_event")
+                    round_int = _safe_int_score(m.get("round"))
                     m_date = m.get("match_date")
-                    match_sys = m.get("game_system") or sys_target
+                    match_sys = _bound_id(normalize_game_system(m.get("game_system") or sys_target, default=sys_target), max_len=16)
                     raw_obj: Dict[str, Any] = {}
                     raw_val = m.get("raw_json")
                     if isinstance(raw_val, dict):
@@ -2035,10 +2055,10 @@ class EloEngine:
 
                     # --- BRANCH A: 2v2 Doubles (Composite Team Elo: Avg(A1, A2) vs Avg(B1, B2), Zero-Sum) ---
                     if is_2v2_match and (len(mp_rows) >= 2 or raw_obj.get("team1_players") or raw_obj.get("team2_players")):
-                        t1_list = raw_obj.get("team1_players") or [r for r in mp_rows if str(r.get("team_id") or "") == "1"]
-                        t2_list = raw_obj.get("team2_players") or [r for r in mp_rows if str(r.get("team_id") or "") == "2"]
-                        t1_valid = [p for p in t1_list if p.get("player_id") and str(p.get("player_id")).upper() != "BYE"]
-                        t2_valid = [p for p in t2_list if p.get("player_id") and str(p.get("player_id")).upper() != "BYE"]
+                        t1_list = raw_obj.get("team1_players") or [r for r in mp_rows if isinstance(r, dict) and str(r.get("team_id") or "") == "1"]
+                        t2_list = raw_obj.get("team2_players") or [r for r in mp_rows if isinstance(r, dict) and str(r.get("team_id") or "") == "2"]
+                        t1_valid = [p for p in t1_list if isinstance(p, dict) and p.get("player_id") and str(p.get("player_id")).strip().upper() != "BYE"]
+                        t2_valid = [p for p in t2_list if isinstance(p, dict) and p.get("player_id") and str(p.get("player_id")).strip().upper() != "BYE"]
                         if t1_valid and t2_valid:
                             for p in t1_valid + t2_valid:
                                 _ensure_player_state(str(p["player_id"]), p.get("player_name"))
@@ -2088,7 +2108,7 @@ class EloEngine:
                                         player_factions[pid_p][p_fac] += 1
                                     touched_players.add(pid_p)
                                     history_batch.append((
-                                        pid_p, mid_str, ev_id_bound, m.get("round"), m_date,
+                                        pid_p, mid_str, ev_id_bound, round_int, m_date,
                                         old_e, new_e, delta_e,
                                         opp_id_rep, opp_names, opp_avg, res_code,
                                         p_fac, opp_facs, my_sc, op_sc, match_sys
@@ -2098,7 +2118,14 @@ class EloEngine:
                     # --- BRANCH B: 4-Player FFA Pod (Multiparty Pairwise Expected Score, Zero-Sum) ---
                     pod_candidates = mp_rows if len(mp_rows) >= 3 else (raw_obj.get("pod_participants") or [])
                     if is_ffa_match and len(pod_candidates) >= 3:
-                        pod_seats = [r for r in pod_candidates if isinstance(r, dict) and r.get("player_id") and str(r.get("player_id")).upper() != "BYE"]
+                        raw_pod_seats = [r for r in pod_candidates if isinstance(r, dict) and r.get("player_id") and str(r.get("player_id")).strip().upper() != "BYE"]
+                        seen_pod_pids = set()
+                        pod_seats = []
+                        for s_r in raw_pod_seats:
+                            b_pid = _bound_id(s_r.get("player_id"))
+                            if b_pid and b_pid not in seen_pod_pids:
+                                seen_pod_pids.add(b_pid)
+                                pod_seats.append(s_r)
                         n_pod = len(pod_seats)
                         if n_pod >= 3:
                             for s_row in pod_seats:
@@ -2116,6 +2143,8 @@ class EloEngine:
                                 st_i = player_states[pid_i]
                                 old_i = old_pod_elos[pid_i]
                                 others = [o for o in pod_seats if _bound_id(o["player_id"]) != pid_i]
+                                if not others:
+                                    continue
                                 exp_pair_sum = 0.0
                                 act_pair_sum = 0.0
                                 for o_row in others:
@@ -2130,8 +2159,8 @@ class EloEngine:
                                         act_pair_sum += 0.0
                                     else:
                                         act_pair_sum += 0.5
-                                exp_norm = exp_pair_sum / float(n_pod - 1)
-                                act_norm = act_pair_sum / float(n_pod - 1)
+                                exp_norm = exp_pair_sum / float(len(others))
+                                act_norm = act_pair_sum / float(len(others))
                                 delta_i = round(k_pod * (act_norm - exp_norm), 2)
                                 new_i = round(old_i + delta_i, 2)
                                 res_i = "D" if is_pod_draw else ("W" if pid_i == win_id_ffa else "L")
@@ -2154,7 +2183,7 @@ class EloEngine:
                                 my_sc = _safe_int_score(raw_my_sc)
                                 op_sc = _safe_int_score(raw_op_sc)
                                 history_batch.append((
-                                    pid_i, mid_str, ev_id_bound, m.get("round"), m_date,
+                                    pid_i, mid_str, ev_id_bound, round_int, m_date,
                                     old_i, new_i, delta_i,
                                     opp_rep_id, opp_pod_names, opp_avg_elo, res_i,
                                     fac_i, f"{n_pod}-Player FFA Pod", my_sc, op_sc, match_sys
@@ -2262,7 +2291,7 @@ class EloEngine:
                     p2_sc_int = _safe_int_score(m.get("player2_score"))
                     if p1_id.upper() != "BYE":
                         history_batch.append((
-                            p1_id, mid_str, ev_id_bound, m.get("round"), m_date,
+                            p1_id, mid_str, ev_id_bound, round_int, m_date,
                             old_elo1, new_elo1, round(new_elo1 - old_elo1, 2),
                             p2_id, _sanitize_name(s2["name"], max_len=100), old_elo2, res1,
                             fac1, fac2,
@@ -2271,7 +2300,7 @@ class EloEngine:
                         ))
                     if p2_id.upper() != "BYE" and not is_bye_match:
                         history_batch.append((
-                            p2_id, mid_str, ev_id_bound, m.get("round"), m_date,
+                            p2_id, mid_str, ev_id_bound, round_int, m_date,
                             old_elo2, new_elo2, round(new_elo2 - old_elo2, 2),
                             p1_id, _sanitize_name(s1["name"], max_len=100), old_elo1, res2,
                             fac2, fac1,
@@ -2279,8 +2308,8 @@ class EloEngine:
                             match_sys
                         ))
 
-                if history_batch:
-                    dedup_hb = list({(r[0], r[1]): r for r in history_batch}.values())
+                dedup_hb = list({(r[0], r[1]): r for r in history_batch}.values()) if history_batch else []
+                if dedup_hb:
                     extras.execute_values(cursor, insert_history_pg, dedup_hb, page_size=2500)
 
                 # Upsert updated player ratings for touched players only into composite PK (player_id, game_system)
@@ -2335,8 +2364,8 @@ class EloEngine:
                             try:
                                 conn.rollback()
                                 cursor.execute("SET LOCAL synchronous_commit = OFF;")
-                                if history_batch:
-                                    extras.execute_values(cursor, insert_history_pg, history_batch, page_size=2500)
+                                if dedup_hb:
+                                    extras.execute_values(cursor, insert_history_pg, dedup_hb, page_size=2500)
                             except Exception:
                                 pass
                             upsert_fallback = upsert_ratings_pg.replace("ON CONFLICT (player_id, game_system)", "ON CONFLICT (player_id)")
@@ -2353,18 +2382,48 @@ class EloEngine:
                 elif hasattr(self.db.__class__, "invalidate_all_caches"):
                     self.db.__class__.invalidate_all_caches()
 
+        # If this batch hit `batch_limit` on a real DB, continue draining remaining unranked batches
+        more_matches = 0
+        more_hist = 0
+        if not since_date and total_new >= batch_limit and batch_limit >= 5000:
+            first_mid_prev = _bound_id(new_matches[0].get("id") or "") if new_matches else ""
+            for _cont in range(12):
+                try:
+                    peek = self.db.get_unranked_matches(limit=1, game_system=sys_target)
+                except Exception:
+                    peek = []
+                if not peek:
+                    break
+                next_first_mid = _bound_id(peek[0].get("id") or "")
+                if not next_first_mid or next_first_mid == first_mid_prev:
+                    break
+                first_mid_prev = next_first_mid
+                sub_res = self.reconstruct_incremental(
+                    batch_limit=batch_limit,
+                    game_system=sys_target,
+                    since_date=None,
+                    skip_stale_check=True,
+                )
+                sub_new = int(sub_res.get("total_new_matches", 0) or 0)
+                more_matches += sub_new
+                more_hist += int(sub_res.get("history_points_saved", 0) or 0)
+                if sub_new < batch_limit:
+                    break
+
         total_time = time.time() - t0
+        total_new_all = total_new + more_matches
+        total_hist_all = len(dedup_hb) + more_hist
         print("=" * 68)
         print(f" 🎉 INCREMENTAL UPDATE [{sys_target.upper()}] FINISHED IN {total_time:.2f}s!")
-        print(f"    • New Matches Processed:   {total_new:,}")
+        print(f"    • New Matches Processed:   {total_new_all:,}")
         print(f"    • Active Players Updated:  {len(touched_players):,}")
-        print(f"    • History Points Appended: {len(history_batch):,}")
+        print(f"    • History Points Appended: {total_hist_all:,}")
         print("=" * 68 + "\n")
 
         return {
-            "total_new_matches": total_new,
+            "total_new_matches": total_new_all,
             "players_updated": len(touched_players),
-            "history_points_saved": len(history_batch),
+            "history_points_saved": total_hist_all,
             "elapsed_seconds": round(total_time, 2),
             "game_system": sys_target
         }
@@ -2665,9 +2724,9 @@ class EloEngine:
                       OR (m.winner_id IS NOT NULL AND m.winner_id != '')
                       OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0 OR m.id LIKE 'melee:%%' OR m.id LIKE 'ltcg:%%' OR m.id LIKE 'ls:%%' OR m.id LIKE 'td:%%'))
                   )
-                  AND COALESCE(m.game_system, '40k') = %s
+                  AND ((%s != '40k' AND m.game_system = %s) OR (%s = '40k' AND COALESCE(m.game_system, '40k') = '40k'))
                 ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC;
-                """, (sys_target,))
+                """, (sys_target, sys_target, sys_target))
 
                 with self.db.get_connection() as write_conn:
                     with write_conn.cursor() as init_cur:
@@ -2783,23 +2842,27 @@ class EloEngine:
                             if m_date: s2["last_active_date"] = _max_date(s2["last_active_date"], m_date)
 
                             # Row 1 (Player 1 perspective)
+                            ev_id_safe = str(m.get("event_id") or "unknown_event")[:64]
+                            rnd_safe = _safe_int_score(m.get("round"))
+                            p1_sc_safe = _safe_int_score(m.get("player1_score"))
+                            p2_sc_safe = _safe_int_score(m.get("player2_score"))
                             r1_vals = (
-                                p1_id, str(m["id"])[:64], str(m.get("event_id") or "")[:64] if m.get("event_id") else None, m.get("round"), m_date,
+                                p1_id, str(m["id"])[:64], ev_id_safe, rnd_safe, m_date,
                                 old_elo1, new_elo1, round(new_elo1 - old_elo1, 2),
                                 p2_id, _sanitize_name(s2["name"], max_len=100), old_elo2, res1,
                                 fac1, fac2,
-                                m.get("player1_score"), m.get("player2_score"),
+                                p1_sc_safe, p2_sc_safe,
                                 sys_target
                             )
                             tsv_buffer.write("\t".join(_format_tsv_field(v) for v in r1_vals) + "\n")
 
                             # Row 2 (Player 2 perspective)
                             r2_vals = (
-                                p2_id, str(m["id"])[:64], str(m.get("event_id") or "")[:64] if m.get("event_id") else None, m.get("round"), m_date,
+                                p2_id, str(m["id"])[:64], ev_id_safe, rnd_safe, m_date,
                                 old_elo2, new_elo2, round(new_elo2 - old_elo2, 2),
                                 p1_id, _sanitize_name(s1["name"], max_len=100), old_elo1, res2,
                                 fac2, fac1,
-                                m.get("player2_score"), m.get("player1_score"),
+                                p2_sc_safe, p1_sc_safe,
                                 sys_target
                             )
                             tsv_buffer.write("\t".join(_format_tsv_field(v) for v in r2_vals) + "\n")

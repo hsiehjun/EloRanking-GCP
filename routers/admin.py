@@ -529,6 +529,9 @@ class RepairMatchesEloPayload(BaseModel):
     scan_all: bool = False
     reconstruct: bool = True
     force_reconstruct: bool = True
+    reconstruct_only: bool = False
+    game_system: Optional[str] = None
+    batch_limit: int = 25000
     run_in_background: bool = False
     token: Optional[str] = None
     secret: Optional[str] = None
@@ -564,6 +567,30 @@ async def api_admin_repair_matches_elo(
     body = payload or RepairMatchesEloPayload()
     if not _is_admin_or_cron_request(request, token=body.token or token, secret=body.secret or secret):
         raise HTTPException(status_code=403, detail="Admin session or valid X-Cron-Secret required.")
+
+    if body.reconstruct_only:
+        target_sys = (body.game_system or "mtg").strip()
+        b_limit = max(1000, int(body.batch_limit or 25000))
+
+        def _run_reconstruct_only():
+            db_inst = get_database()
+            elo_inst = get_elo_engine()
+            elo_inst.reconstruct_incremental(batch_limit=b_limit, game_system=target_sys)
+            elo_inst.invalidate_caches()
+            if hasattr(db_inst, "invalidate_all_caches"):
+                db_inst.invalidate_all_caches(purge_l2=False)
+            stats = db_inst.get_summary_stats(game_system=target_sys.split(",")[0].strip())
+            return {
+                "status": "completed",
+                "mode": "reconstruct_only",
+                "game_system": target_sys,
+                "stats": stats,
+            }
+
+        if body.run_in_background:
+            background_tasks.add_task(_run_reconstruct_only)
+            return {"status": "scheduled", "mode": "reconstruct_only", "game_system": target_sys}
+        return await asyncio.to_thread(_run_reconstruct_only)
 
     from scripts.repair_matches_and_elo import get_repair_status, repair_historical_matches_and_elo
 

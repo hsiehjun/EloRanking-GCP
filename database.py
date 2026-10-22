@@ -4731,6 +4731,7 @@ class PostgresDatabase:
                 where_extra = ""
                 params: List[Any] = []
                 if game_system and game_system != "all":
+                    game_system = normalize_game_system(game_system, default=game_system)
                     if game_system == "40k":
                         where_extra += " AND (m.game_system = %s OR m.game_system IS NULL)"
                     else:
@@ -4746,7 +4747,7 @@ class PostgresDatabase:
                         m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
                         m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
                         m.winner_id, m.is_draw, m.is_bye,
-                        m.raw_json,
+                        CASE WHEN m.player1_faction = 'Commander Pod' OR m.player2_faction = 'Commander Pod' OR m.player1_name LIKE '%%&%%' OR m.player2_name LIKE '%%&%%' THEN m.raw_json ELSE NULL END as raw_json,
                         COALESCE(m.game_system, '40k') as game_system
                     FROM matches m
                     WHERE m.is_done = TRUE
@@ -4767,20 +4768,20 @@ class PostgresDatabase:
                           LIMIT 1
                       )
                       {where_extra}
-                    ORDER BY m.match_date ASC NULLS FIRST, m.event_id ASC, m.round ASC, m.table_number ASC, m.id ASC
+                    ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC, m.id ASC
                     LIMIT %s;
                     """, (*params, limit))
                     return [dict(r) for r in cursor.fetchall()]
                 except Exception:
                     conn.rollback()
                     with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
-                        cur_safe.execute("""
+                        cur_safe.execute(f"""
                         SELECT 
                             m.id, m.event_id, m.round, m.table_number, m.match_date,
                             m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
                             m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
                             m.winner_id, m.is_draw, m.is_bye,
-                            '40k' as game_system
+                            COALESCE(m.game_system, '40k') as game_system
                         FROM matches m
                         WHERE m.is_done = TRUE
                           AND m.player1_id IS NOT NULL AND m.player1_id != ''
@@ -4793,9 +4794,10 @@ class PostgresDatabase:
                           AND NOT EXISTS (
                               SELECT 1 FROM rating_history rh WHERE rh.match_id = m.id LIMIT 1
                           )
-                        ORDER BY m.match_date ASC NULLS FIRST, m.event_id ASC, m.round ASC, m.table_number ASC, m.id ASC
+                          {where_extra}
+                        ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC, m.id ASC
                         LIMIT %s;
-                        """, (limit,))
+                        """, (*params, limit))
                         return [dict(r) for r in cur_safe.fetchall()]
 
     def get_all_matches_chronological(self, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
@@ -4894,7 +4896,12 @@ class PostgresDatabase:
                         if p_row and p_row[0]:
                             parsed = json.loads(p_row[0])
                             p_time = float(p_row[1]) if p_row[1] else 0.0
-                            if p_time >= PostgresDatabase._last_cache_invalidation_ts:
+                            is_stale_zero = (
+                                int(parsed.get("total_events") or 0) <= 0
+                                or int(parsed.get("total_matches") or 0) <= 0
+                                or (cache_key == "mtg" and int(parsed.get("total_players") or 0) < 10)
+                            )
+                            if not is_stale_zero and p_time >= PostgresDatabase._last_cache_invalidation_ts:
                                 PostgresDatabase._stats_cache_map[cache_key] = (parsed, p_time or now)
                                 cached_entry = (parsed, p_time or now)
                                 if (now - p_time) < 1800:
@@ -4920,10 +4927,16 @@ class PostgresDatabase:
                     where_e = "WHERE 1=1"
                     params_sys = []
                     if cache_key != "all":
-                        where_pr_fast += " AND COALESCE(game_system, '40k') = %s"
-                        where_pr_top += " AND COALESCE(game_system, '40k') = %s"
-                        where_m += " AND COALESCE(game_system, '40k') = %s"
-                        where_e += " AND COALESCE(game_system, '40k') = %s"
+                        if cache_key == "40k":
+                            where_pr_fast += " AND COALESCE(game_system, '40k') = %s"
+                            where_pr_top += " AND COALESCE(game_system, '40k') = %s"
+                            where_m += " AND COALESCE(game_system, '40k') = %s"
+                            where_e += " AND COALESCE(game_system, '40k') = %s"
+                        else:
+                            where_pr_fast += " AND game_system = %s"
+                            where_pr_top += " AND game_system = %s"
+                            where_m += " AND game_system = %s"
+                            where_e += " AND game_system = %s"
                         params_sys = [cache_key]
 
                     cursor.execute(f"SELECT COUNT(*) as cnt FROM player_ratings {where_pr_fast};", tuple(params_sys))
@@ -5026,7 +5039,8 @@ class PostgresDatabase:
                 }
                 col = allowed_cols.get(sort_by, "current_elo")
                 dir_str = "ASC" if str(order).upper() == "ASC" else "DESC"
-                target_sys = (game_system or "40k").strip().lower()
+                raw_target_sys = (game_system or "40k").strip().lower()
+                target_sys = "all" if raw_target_sys == "all" else normalize_game_system(raw_target_sys, default="40k")
 
                 if faction and faction != "All" and faction != "All Factions":
                     # Faction isolated aggregation
@@ -5151,8 +5165,11 @@ class PostgresDatabase:
                 params = [min_matches]
                 if active_only:
                     where_clauses.append("COALESCE(r.last_active_date, CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days'")
-                if game_system and game_system != "all":
-                    where_clauses.append("COALESCE(r.game_system, '40k') = %s")
+                if game_system and target_sys != "all":
+                    if target_sys == "40k":
+                        where_clauses.append("COALESCE(r.game_system, '40k') = %s")
+                    else:
+                        where_clauses.append("r.game_system = %s")
                     params.append(target_sys)
                 if query:
                     q_str = str(query).strip()
