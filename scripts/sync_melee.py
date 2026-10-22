@@ -128,11 +128,16 @@ def discover_melee_targets(
     seen_tids = {tid for _, tid in candidate_pool}
 
     cache_gz_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "melee_live_cache.json.gz")
-    if is_backfill and os.path.exists(cache_gz_path):
+    if os.path.exists(cache_gz_path):
         try:
             with gzip.open(cache_gz_path, "rt", encoding="utf-8") as gf:
                 cached_by_tid = json.load(gf) or {}
-            for raw_tid in sorted(cached_by_tid.keys(), key=lambda x: int(x) if str(x).isdigit() else 0):
+            sorted_keys = sorted(
+                cached_by_tid.keys(),
+                key=lambda x: int(x) if str(x).isdigit() else 0,
+                reverse=not is_backfill,
+            )
+            for raw_tid in sorted_keys:
                 if raw_tid not in seen_tids:
                     gs_val = str((cached_by_tid.get(raw_tid) or {}).get("game_system") or "mtg").strip().lower()
                     seen_tids.add(raw_tid)

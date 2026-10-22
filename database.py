@@ -3923,50 +3923,54 @@ class PostgresDatabase:
                         )
             conn.commit()
 
+    _match_participants_schema_ensured: bool = False
+
     def upsert_match_participants_batch(self, mp_rows: List[Dict[str, Any]]):
         """Upserts 2v2 Doubles and 4-Player FFA Pod seats into match_participants safely without poisoning transactions."""
         if not mp_rows:
             return
         with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS match_participants (
-                        match_id VARCHAR(64) NOT NULL,
-                        event_id VARCHAR(64),
-                        player_id VARCHAR(64) NOT NULL,
-                        raw_player_id VARCHAR(128),
-                        player_name TEXT,
-                        team_id TEXT,
-                        seat_order INTEGER DEFAULT 1,
-                        faction TEXT,
-                        detachment TEXT,
-                        score DOUBLE PRECISION,
-                        result TEXT,
-                        placement INTEGER,
-                        is_winner BOOLEAN DEFAULT FALSE,
-                        game_system VARCHAR(16) DEFAULT '40k',
-                        raw_json JSONB,
-                        PRIMARY KEY (match_id, player_id)
-                    );
-                """)
-            conn.commit()
-            for ddl_stmt in (
-                "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS event_id VARCHAR(64);",
-                "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS raw_player_id VARCHAR(128);",
-                "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS team_id TEXT;",
-                "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS seat_order INTEGER DEFAULT 1;",
-                "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS result TEXT;",
-                "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS placement INTEGER;",
-                "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS is_winner BOOLEAN DEFAULT FALSE;",
-                "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
-                "ALTER TABLE match_participants ALTER COLUMN event_id DROP NOT NULL;",
-            ):
-                try:
-                    with conn.cursor() as cursor:
-                        cursor.execute(ddl_stmt)
-                    conn.commit()
-                except Exception:
-                    conn.rollback()
+            if not PostgresDatabase._match_participants_schema_ensured:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS match_participants (
+                            match_id VARCHAR(64) NOT NULL,
+                            event_id VARCHAR(64),
+                            player_id VARCHAR(64) NOT NULL,
+                            raw_player_id VARCHAR(128),
+                            player_name TEXT,
+                            team_id TEXT,
+                            seat_order INTEGER DEFAULT 1,
+                            faction TEXT,
+                            detachment TEXT,
+                            score DOUBLE PRECISION,
+                            result TEXT,
+                            placement INTEGER,
+                            is_winner BOOLEAN DEFAULT FALSE,
+                            game_system VARCHAR(16) DEFAULT '40k',
+                            raw_json JSONB,
+                            PRIMARY KEY (match_id, player_id)
+                        );
+                    """)
+                conn.commit()
+                for ddl_stmt in (
+                    "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS event_id VARCHAR(64);",
+                    "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS raw_player_id VARCHAR(128);",
+                    "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS team_id TEXT;",
+                    "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS seat_order INTEGER DEFAULT 1;",
+                    "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS result TEXT;",
+                    "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS placement INTEGER;",
+                    "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS is_winner BOOLEAN DEFAULT FALSE;",
+                    "ALTER TABLE match_participants ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
+                    "ALTER TABLE match_participants ALTER COLUMN event_id DROP NOT NULL;",
+                ):
+                    try:
+                        with conn.cursor() as cursor:
+                            cursor.execute(ddl_stmt)
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                PostgresDatabase._match_participants_schema_ensured = True
 
             dedup_rows: Dict[Tuple[str, str], tuple] = {}
             for r in mp_rows:
@@ -4187,17 +4191,32 @@ class PostgresDatabase:
                 if extra_ep_meta:
                     try:
                         cursor.execute("SAVEPOINT ep_extra_meta;")
-                        for det_v, alist_v, has_l, ev_v, p_v in extra_ep_meta:
-                            cursor.execute(
+                        if hasattr(extras, "execute_values") and extras.execute_values is not None:
+                            extras.execute_values(
+                                cursor,
                                 """
-                                UPDATE event_participants
-                                SET detachment = COALESCE(NULLIF(%s, ''), detachment),
-                                    army_list = COALESCE(NULLIF(%s, ''), army_list),
-                                    has_list_submitted = (COALESCE(has_list_submitted, FALSE) OR %s)
-                                WHERE event_id = %s AND player_id = %s;
+                                UPDATE event_participants AS ep
+                                SET detachment = COALESCE(NULLIF(v.detachment, ''), ep.detachment),
+                                    army_list = COALESCE(NULLIF(v.army_list, ''), ep.army_list),
+                                    has_list_submitted = (COALESCE(ep.has_list_submitted, FALSE) OR v.has_list)
+                                FROM (VALUES %s) AS v(detachment, army_list, has_list, event_id, player_id)
+                                WHERE ep.event_id = v.event_id AND ep.player_id = v.player_id;
                                 """,
-                                (det_v, alist_v, has_l, ev_v, p_v),
+                                extra_ep_meta,
+                                page_size=500,
                             )
+                        else:
+                            for det_v, alist_v, has_l, ev_v, p_v in extra_ep_meta:
+                                cursor.execute(
+                                    """
+                                    UPDATE event_participants
+                                    SET detachment = COALESCE(NULLIF(%s, ''), detachment),
+                                        army_list = COALESCE(NULLIF(%s, ''), army_list),
+                                        has_list_submitted = (COALESCE(has_list_submitted, FALSE) OR %s)
+                                    WHERE event_id = %s AND player_id = %s;
+                                    """,
+                                    (det_v, alist_v, has_l, ev_v, p_v),
+                                )
                         cursor.execute("RELEASE SAVEPOINT ep_extra_meta;")
                     except Exception:
                         try:
@@ -4382,7 +4401,7 @@ class PostgresDatabase:
             conn.commit()
         PostgresDatabase.invalidate_all_caches(db_inst=self)
 
-    def upsert_matches_batch(self, matches: List[Dict[str, Any]]):
+    def upsert_matches_batch(self, matches: List[Dict[str, Any]], invalidate_cache: bool = True):
         """Batches all match upserts for a round or tournament into fast bulk execute_values statements."""
         if not matches:
             return
@@ -4406,7 +4425,8 @@ class PostgresDatabase:
                             upserted_players=upserted_players
                         )
                     conn.commit()
-                    PostgresDatabase.invalidate_all_caches(db_inst=self)
+                    if invalidate_cache:
+                        PostgresDatabase.invalidate_all_caches(db_inst=self)
                     return
 
                 now_utc = datetime.now(timezone.utc)
@@ -4600,7 +4620,8 @@ class PostgresDatabase:
                         page_size=500
                     )
             conn.commit()
-        PostgresDatabase.invalidate_all_caches(db_inst=self)
+        if invalidate_cache:
+            PostgresDatabase.invalidate_all_caches(db_inst=self)
 
     def get_total_matches_count(self, game_system: Optional[str] = "40k") -> int:
         """Returns total count of valid completed matches."""

@@ -167,6 +167,19 @@ def import_live_limitless_tournaments(
 
     from concurrent.futures import ThreadPoolExecutor
 
+    def _upsert_matches_fast(target_db: Any, batch: List[Dict[str, Any]]) -> None:
+        try:
+            target_db.upsert_matches_batch(batch, invalidate_cache=False)
+        except TypeError:
+            target_db.upsert_matches_batch(batch)
+
+    def _flush_db_caches_once(target_db: Any) -> None:
+        if hasattr(target_db, "invalidate_all_caches"):
+            try:
+                target_db.invalidate_all_caches(db_inst=target_db)
+            except TypeError:
+                target_db.invalidate_all_caches()
+
     def _fetch_ltcg_bundle(raw_tid: str):
         details = _http_get_json(f"https://play.limitlesstcg.com/api/tournaments/{raw_tid}/details") or {}
         standings = _http_get_json(f"https://play.limitlesstcg.com/api/tournaments/{raw_tid}/standings") or []
@@ -175,7 +188,7 @@ def import_live_limitless_tournaments(
 
     prefetched_ltcg: Dict[str, Any] = {}
     if len(targets) > 1:
-        with ThreadPoolExecutor(max_workers=min(6, len(targets))) as pool:
+        with ThreadPoolExecutor(max_workers=min(8, len(targets))) as pool:
             futs = {t[1]: pool.submit(_fetch_ltcg_bundle, t[1]) for t in targets}
             for raw_tid_k, fut in futs.items():
                 try:
@@ -201,29 +214,6 @@ def import_live_limitless_tournaments(
         max_rnd = max([int(p.get("round") or 1) for p in pairings], default=5)
         ev_date = str(details.get("date") or t_meta.get("date") or datetime.now(timezone.utc).isoformat())[:19]
         org_name = (details.get("organizer") or {}).get("name") if isinstance(details.get("organizer"), dict) else "Limitless Online"
-
-        db.upsert_event(
-            {
-                "id": eid,
-                "name": details.get("name") or t_meta.get("name") or f"Limitless {sys_slug.upper()} Open",
-                "event_date": ev_date,
-                "end_date": ev_date,
-                "players_count": int(details.get("players") or t_meta.get("players") or len(standings)),
-                "num_rounds": max_rnd,
-                "is_ended": True,
-                "bcp_status": 2,
-                "game_system": sys_slug,
-                "game_system_id": g_code,
-                "source_platform": "limitless",
-                "external_event_id": raw_tid,
-                "city": "Online",
-                "country": "Global",
-                "venue_name": org_name or "Limitless TCG",
-                "latitude": 37.7749,
-                "longitude": -122.4194,
-                "raw_json": {"summary": t_meta, "details": details},
-            }
-        )
 
         player_lookup: Dict[str, Dict[str, str]] = {}
         ep_batch = []
@@ -279,10 +269,6 @@ def import_live_limitless_tournaments(
                     "raw_json": st,
                 }
             )
-
-        db.upsert_players_batch(players_batch)
-        db.upsert_event_participants_batch(ep_batch)
-        participants_imported += len(ep_batch)
 
         m_batch = []
         for m_idx, pr in enumerate(pairings):
@@ -384,13 +370,47 @@ def import_live_limitless_tournaments(
                 }
             )
 
-        db.upsert_matches_batch(m_batch)
+        if not ep_batch or not m_batch:
+            logger.info(
+                f"ℹ️ [LimitlessTCG:{sys_slug.upper()}] Skipping incomplete tournament '{details.get('name') or raw_tid}' ({eid}) with {len(ep_batch)} players / {len(m_batch)} matches."
+            )
+            continue
+
+        db.upsert_event(
+            {
+                "id": eid,
+                "name": details.get("name") or t_meta.get("name") or f"Limitless {sys_slug.upper()} Open",
+                "event_date": ev_date,
+                "end_date": ev_date,
+                "players_count": int(details.get("players") or t_meta.get("players") or len(ep_batch)),
+                "num_rounds": max_rnd,
+                "is_ended": True,
+                "bcp_status": 2,
+                "game_system": sys_slug,
+                "game_system_id": g_code,
+                "source_platform": "limitless",
+                "external_event_id": raw_tid,
+                "city": "Online",
+                "country": "Global",
+                "venue_name": org_name or "Limitless TCG",
+                "latitude": 37.7749,
+                "longitude": -122.4194,
+                "raw_json": {"summary": t_meta, "details": details},
+            }
+        )
+        db.upsert_players_batch(players_batch)
+        db.upsert_event_participants_batch(ep_batch)
+        _upsert_matches_fast(db, m_batch)
+        participants_imported += len(ep_batch)
         events_imported += 1
         matches_imported += len(m_batch)
         logger.info(
             f"✅ [LimitlessTCG:{sys_slug.upper()}] Imported REAL tournament '{details.get('name')}' ({eid}): "
             f"{len(ep_batch)} players, {len(m_batch)} matches."
         )
+
+    if events_imported > 0:
+        _flush_db_caches_once(db)
 
     return {
         "events_imported": events_imported,
@@ -460,17 +480,44 @@ def import_live_longshanks_tournaments(
     Scrapes 100% REAL completed Longshanks tournaments, player standings, factions,
     and round-by-round games directly from Longshanks system subdomains.
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     events_imported = 0
     matches_imported = 0
     participants_imported = 0
 
+    def _fetch_ls_bundle(sys_slug_in: str, raw_eid_in: str):
+        host = LONGSHANKS_HOST_BY_SYSTEM.get(sys_slug_in, "https://www.longshanks.org")
+        ev_h = _http_get_text(f"{host}/event/{raw_eid_in}/")
+        st_h = _http_get_text(f"{host}/events/detail/panel_standings.php?event={raw_eid_in}&section=player")
+        gm_r1_h = _http_get_text(f"{host}/events/detail/panel_games.php?event={raw_eid_in}&round=1")
+        r_nums = sorted({int(x) for x in re.findall(r"<option value=['\"](\d+)['\"]", gm_r1_h)} or {1})
+        rounds_map = {1: gm_r1_h}
+        for r_n in r_nums:
+            if r_n != 1:
+                rounds_map[r_n] = _http_get_text(f"{host}/events/detail/panel_games.php?event={raw_eid_in}&round={r_n}")
+        return ev_h, st_h, r_nums, rounds_map
+
+    prefetched_ls: Dict[Tuple[str, str], Any] = {}
+    if len(event_targets) > 1:
+        with ThreadPoolExecutor(max_workers=min(8, len(event_targets))) as pool:
+            futs = {(s, e): pool.submit(_fetch_ls_bundle, s, e) for s, e in event_targets}
+            for k_pair, fut in futs.items():
+                try:
+                    prefetched_ls[k_pair] = fut.result()
+                except Exception as exc:
+                    prefetched_ls[k_pair] = exc
+
     for sys_slug, raw_eid in event_targets:
         eid = _bound_id(f"ls:{raw_eid}")
-        base_host = LONGSHANKS_HOST_BY_SYSTEM.get(sys_slug, "https://www.longshanks.org")
         try:
-            ev_html = _http_get_text(f"{base_host}/event/{raw_eid}/")
-            st_html = _http_get_text(f"{base_host}/events/detail/panel_standings.php?event={raw_eid}&section=player")
-            gm_r1_html = _http_get_text(f"{base_host}/events/detail/panel_games.php?event={raw_eid}&round=1")
+            pre = prefetched_ls.get((sys_slug, raw_eid))
+            if isinstance(pre, Exception):
+                raise pre
+            if pre is not None:
+                ev_html, st_html, round_nums, rounds_html_map = pre
+            else:
+                ev_html, st_html, round_nums, rounds_html_map = _fetch_ls_bundle(sys_slug, raw_eid)
         except Exception as e:
             logger.warning(f"⚠️ [Longshanks:{sys_slug.upper()}] Failed fetching {raw_eid}: {e}")
             continue
@@ -480,7 +527,6 @@ def import_live_longshanks_tournaments(
         ev_dt_m = re.search(r"event_date\.png[^>]*></td>\s*<td>\s*(\d{4}-\d{2}-\d{2})", ev_html)
         default_ev_date = f"{ev_dt_m.group(1)}T12:00:00" if ev_dt_m else "2026-09-19T10:00:00"
 
-        round_nums = sorted({int(x) for x in re.findall(r"<option value=['\"](\d+)['\"]", gm_r1_html)} or {1})
         max_rnd = max(round_nums, default=4)
 
         # Parse real standings from panel_standings.php
@@ -550,7 +596,7 @@ def import_live_longshanks_tournaments(
         m_batch = []
         ev_date = default_ev_date
         for rnd in round_nums:
-            gm_html = gm_r1_html if rnd == 1 else _http_get_text(f"{base_host}/events/detail/panel_games.php?event={raw_eid}&round={rnd}")
+            gm_html = rounds_html_map.get(rnd, "")
             games = re.split(r"<div class=['\"]game['\"] id=['\"]game_(\d+)['\"]>", gm_html)
             for g_idx in range(1, len(games), 2):
                 gid = games[g_idx]
@@ -679,7 +725,10 @@ def import_live_longshanks_tournaments(
         )
         db.upsert_players_batch(players_batch)
         db.upsert_event_participants_batch(ep_batch)
-        db.upsert_matches_batch(m_batch)
+        try:
+            db.upsert_matches_batch(m_batch, invalidate_cache=False)
+        except TypeError:
+            db.upsert_matches_batch(m_batch)
         events_imported += 1
         participants_imported += len(ep_batch)
         matches_imported += len(m_batch)
@@ -687,6 +736,12 @@ def import_live_longshanks_tournaments(
             f"✅ [Longshanks:{sys_slug.upper()}] Imported REAL tournament '{raw_title}' ({eid}): "
             f"{len(ep_batch)} players, {len(m_batch)} matches."
         )
+
+    if events_imported > 0 and hasattr(db, "invalidate_all_caches"):
+        try:
+            db.invalidate_all_caches(db_inst=db)
+        except TypeError:
+            db.invalidate_all_caches()
 
     return {
         "events_imported": events_imported,
@@ -723,46 +778,71 @@ def import_live_topdeck_tournaments(
     tournament_slugs: List[Tuple[str, str]],
 ) -> Dict[str, Any]:
     """
-    Fetches 100% REAL completed TopDeck.gg tournaments, 4-player pods, standings,
-    and 100-card Commander decklists directly from:
+    Fetches 100% REAL completed TopDeck.gg tournaments (both 4-player FFA Commander pods and 1v1 tournaments),
+    standings, and decklists directly from:
       - `https://firestore.googleapis.com/v1/projects/eminence-1b40b/databases/(default)/documents/tournaments/{tid}`
       - `https://topdeck.gg/PublicPData/{tid}`
       - `https://edhtop16.com/api/graphql`
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     events_imported = 0
     participants_imported = 0
     pods_imported = 0
     matches_imported = 0
 
+    def _fetch_td_bundle(sys_slug_in: str, tid_in: str):
+        fs_d = _http_get_json(
+            f"https://firestore.googleapis.com/v1/projects/eminence-1b40b/databases/(default)/documents/tournaments/{tid_in}"
+        )
+        p_d = _http_get_json(f"https://topdeck.gg/PublicPData/{tid_in}")
+        e16_map: Dict[str, Dict[str, Any]] = {}
+        if sys_slug_in == "mtg":
+            try:
+                gql = {
+                    "query": f'{{ tournament(TID: "{tid_in}") {{ name tournamentDate size swissRounds entries {{ standing wins losses draws decklist player {{ name }} commander {{ name }} }} }} }}'
+                }
+                gql_res = _http_post_json("https://edhtop16.com/api/graphql", gql)
+                t_node = (gql_res.get("data") or {}).get("tournament") or {}
+                for ent in t_node.get("entries") or []:
+                    dl = str(ent.get("decklist") or "")
+                    uid = dl.split("/")[-1] if "topdeck.gg/deck/" in dl else ""
+                    if uid:
+                        e16_map[uid] = ent
+            except Exception:
+                pass
+        return fs_d, p_d, e16_map
+
+    prefetched_td: Dict[Tuple[str, str], Any] = {}
+    if len(tournament_slugs) > 1:
+        with ThreadPoolExecutor(max_workers=min(8, len(tournament_slugs))) as pool:
+            futs = {(s, t): pool.submit(_fetch_td_bundle, s, t) for s, t in tournament_slugs}
+            for k_pair, fut in futs.items():
+                try:
+                    prefetched_td[k_pair] = fut.result()
+                except Exception as exc:
+                    prefetched_td[k_pair] = exc
+
     for sys_slug, tid in tournament_slugs:
         eid = _bound_id(f"td:{tid}")
         try:
-            fs_doc = _http_get_json(
-                f"https://firestore.googleapis.com/v1/projects/eminence-1b40b/databases/(default)/documents/tournaments/{tid}"
-            )
-            pdata = _http_get_json(f"https://topdeck.gg/PublicPData/{tid}")
+            pre = prefetched_td.get((sys_slug, tid))
+            if isinstance(pre, Exception):
+                raise pre
+            if pre is not None:
+                fs_doc, pdata, edhtop16_entries = pre
+            else:
+                fs_doc, pdata, edhtop16_entries = _fetch_td_bundle(sys_slug, tid)
         except Exception as e:
             logger.warning(f"⚠️ [TopDeck.gg:{sys_slug.upper()}] Failed fetching {tid}: {e}")
             continue
 
-        # Also query EDHTop16 GraphQL for official final standings/wins/losses/draws if available
-        edhtop16_entries: Dict[str, Dict[str, Any]] = {}
-        try:
-            gql = {
-                "query": f'{{ tournament(TID: "{tid}") {{ name tournamentDate size swissRounds entries {{ standing wins losses draws decklist player {{ name }} commander {{ name }} }} }} }}'
-            }
-            gql_res = _http_post_json("https://edhtop16.com/api/graphql", gql)
-            t_node = (gql_res.get("data") or {}).get("tournament") or {}
-            for ent in t_node.get("entries") or []:
-                dl = str(ent.get("decklist") or "")
-                uid = dl.split("/")[-1] if "topdeck.gg/deck/" in dl else ""
-                if uid:
-                    edhtop16_entries[uid] = ent
-        except Exception:
-            pass
+        if not isinstance(pdata, dict):
+            pdata = {}
 
         fields = fs_doc.get("fields") or {}
         ev_name = (fields.get("Name") or {}).get("stringValue") or tid
+        ev_fmt = (fields.get("Format") or {}).get("stringValue") or ("cEDH Pod" if sys_slug == "mtg" else "Constructed")
         start_ts = int((fields.get("StartDate") or {}).get("integerValue") or 1775000000)
         if start_ts > 10_000_000_000:
             start_ts = start_ts // 1000
@@ -776,13 +856,14 @@ def import_live_topdeck_tournaments(
                 if uid_val and uid_val != "_x_":
                     entry_to_uid[int(m.group(1))] = uid_val
 
-        # Tally W/L/D from live Firestore pod tables as well
+        # Tally W/L/D from live Firestore pod/1v1 tables as well
         pod_keys = sorted(
             [k for k in fields.keys() if re.match(r"^S\d+:R\d+:T\d+$", k)],
             key=lambda x: tuple(int(n) for n in re.findall(r"\d+", x)),
         )
         wld_by_uid: Dict[str, List[int]] = {}
         max_round_num = 1
+        max_pod_size = 0
         for pk in pod_keys:
             sec_num, rnd_num, tbl_num = [int(n) for n in re.findall(r"\d+", pk)]
             eff_rnd = rnd_num if sec_num == 1 else (5 + rnd_num)
@@ -793,6 +874,7 @@ def import_live_topdeck_tournaments(
                 for x in ((pf.get("Es") or {}).get("arrayValue") or {}).get("values") or []
                 if "integerValue" in x
             ]
+            max_pod_size = max(max_pod_size, len(es))
             w_obj = pf.get("Winner") or {}
             w_val = int(w_obj["integerValue"]) if "integerValue" in w_obj else w_obj.get("stringValue")
             for e_num in es:
@@ -807,13 +889,15 @@ def import_live_topdeck_tournaments(
                 elif w_val is not None:
                     rec[1] += 1
 
+        is_ffa_tournament = max_pod_size >= 3
+        default_detachment = "cEDH Pod" if is_ffa_tournament else (ev_fmt or "Constructed")
         players_batch = []
         ep_batch = []
         uid_info: Dict[str, Dict[str, str]] = {}
 
-        # Sort players by wins DESC, draws DESC for placement if not in edhtop16_entries
+        all_known_uids = set(pdata.keys()) | set(entry_to_uid.values())
         sorted_uids = sorted(
-            pdata.keys(),
+            all_known_uids,
             key=lambda u: (
                 int((edhtop16_entries.get(u) or {}).get("standing") or 999),
                 -(wld_by_uid.get(u, [0, 0, 0])[0]),
@@ -822,20 +906,24 @@ def import_live_topdeck_tournaments(
         )
 
         for idx, uid in enumerate(sorted_uids):
-            p_obj = pdata.get(uid) or {}
+            p_obj = pdata.get(uid) if isinstance(pdata.get(uid), dict) else {}
             pname = str(p_obj.get("name") or p_obj.get("username") or uid).strip()
             dl_raw = str(p_obj.get("decklist") or "")
             e16 = edhtop16_entries.get(uid) or {}
-            cmd_name = ((e16.get("commander") or {}).get("name") or "").strip() or _extract_topdeck_commander(dl_raw)
+            pid = _bound_id(f"td:{uid}")
+            raw_cmd = ((e16.get("commander") or {}).get("name") or "").strip() or _extract_topdeck_commander(dl_raw)
+            if not is_ffa_tournament and raw_cmd == "Commander Deck":
+                cmd_name = resolve_canonical_faction(ev_fmt or "Standard Deck", sys_slug, pid, resolve_placeholders=True)
+            else:
+                cmd_name = raw_cmd
             w, l, d = wld_by_uid.get(uid, [int(e16.get("wins") or 0), int(e16.get("losses") or 0), int(e16.get("draws") or 0)])
             placing = int(e16.get("standing") or (idx + 1))
-            pid = _bound_id(f"td:{uid}")
 
             uid_info[uid] = {
                 "pid": pid,
                 "name": pname,
                 "faction": cmd_name,
-                "detachment": "cEDH Pod",
+                "detachment": default_detachment,
             }
             players_batch.append(
                 {
@@ -853,13 +941,13 @@ def import_live_topdeck_tournaments(
                     "player_id": pid,
                     "player_name": pname,
                     "faction": cmd_name,
-                    "detachment": "cEDH Pod",
+                    "detachment": default_detachment,
                     "team": "",
                     "placement": placing,
                     "wins": w,
                     "losses": l,
                     "draws": d,
-                    "battle_points": float(w * 5 + d),
+                    "battle_points": float(w * (5 if is_ffa_tournament else 3) + d),
                     "army_list_text": dl_raw,
                     "army_list_url": f"https://topdeck.gg/deck/{tid}/{uid}",
                     "game_system": sys_slug,
@@ -890,6 +978,39 @@ def import_live_topdeck_tournaments(
             pod_mid = _bound_id(f"td:{tid}-s{sec_num}-r{rnd_num}-t{tbl_num}")
             is_pod_draw = w_val == "_DRAW_"
             winner_uid = entry_to_uid.get(w_val) if isinstance(w_val, int) else None
+
+            if len(pod_uids) == 2 and not is_ffa_tournament:
+                # 1v1 match on TopDeck.gg
+                p1_meta = uid_info[pod_uids[0]]
+                p2_meta = uid_info[pod_uids[1]]
+                w_meta = uid_info.get(winner_uid) if winner_uid else None
+                m_batch.append(
+                    {
+                        "id": pod_mid,
+                        "event_id": eid,
+                        "round": eff_rnd,
+                        "table_number": tbl_num,
+                        "player1_id": p1_meta["pid"],
+                        "player1_name": p1_meta["name"],
+                        "player1_faction": p1_meta["faction"],
+                        "player1_detachment": default_detachment,
+                        "player1_score": 2.0 if (w_meta and w_meta["pid"] == p1_meta["pid"]) else (1.0 if is_pod_draw else 0.0),
+                        "player2_id": p2_meta["pid"],
+                        "player2_name": p2_meta["name"],
+                        "player2_faction": p2_meta["faction"],
+                        "player2_detachment": default_detachment,
+                        "player2_score": 2.0 if (w_meta and w_meta["pid"] == p2_meta["pid"]) else (1.0 if is_pod_draw else 0.0),
+                        "winner_id": w_meta["pid"] if w_meta else None,
+                        "is_draw": is_pod_draw,
+                        "is_bye": False,
+                        "match_date": ev_date,
+                        "game_system": sys_slug,
+                        "raw_player1_id": pod_uids[0],
+                        "raw_player2_id": pod_uids[1],
+                        "raw_json": {"match_format": "1v1", "is_ffa": False, "pod_key": pk, "winner": w_val},
+                    }
+                )
+                continue
 
             for seat_idx, p_uid in enumerate(pod_uids, start=1):
                 p_meta = uid_info[p_uid]
@@ -989,7 +1110,7 @@ def import_live_topdeck_tournaments(
                 "is_ended": True,
                 "bcp_status": 2,
                 "game_system": sys_slug,
-                "game_system_id": "FM1PYUZbsL",
+                "game_system_id": get_bcp_game_system_id(sys_slug, default="FM1PYUZbsL"),
                 "source_platform": "topdeck",
                 "external_event_id": tid,
                 "city": "United States",
@@ -1002,15 +1123,25 @@ def import_live_topdeck_tournaments(
         )
         db.upsert_players_batch(players_batch)
         db.upsert_event_participants_batch(ep_batch)
-        db.upsert_matches_batch(m_batch)
-        db.upsert_match_participants_batch(mp_batch)
+        try:
+            db.upsert_matches_batch(m_batch, invalidate_cache=False)
+        except TypeError:
+            db.upsert_matches_batch(m_batch)
+        if mp_batch:
+            db.upsert_match_participants_batch(mp_batch)
         events_imported += 1
         participants_imported += len(ep_batch)
         matches_imported += len(m_batch)
         logger.info(
             f"✅ [TopDeck.gg:{sys_slug.upper()}] Imported REAL tournament '{ev_name}' ({eid}): "
-            f"{len(ep_batch)} players, {len(pod_keys)} 4-player pods ({len(mp_batch)} pod seats, {len(m_batch)} pairwise outcomes)."
+            f"{len(ep_batch)} players, {len(m_batch)} tables/matches ({len(mp_batch)} pod seats)."
         )
+
+    if events_imported > 0 and hasattr(db, "invalidate_all_caches"):
+        try:
+            db.invalidate_all_caches(db_inst=db)
+        except TypeError:
+            db.invalidate_all_caches()
 
     return {
         "events_imported": events_imported,
@@ -1065,10 +1196,11 @@ const fs = require("fs");
 
 const tids = JSON.parse(process.argv[1]);
 const outPath = process.argv[2];
+const chromeBin = process.argv[3] || "google-chrome";
 
 async function main() {
   const port = 9360 + Math.floor(Math.random() * 200);
-  const chrome = spawn("google-chrome", [
+  const chrome = spawn(chromeBin, [
     "--headless=new", "--no-sandbox", "--disable-gpu",
     "--disable-blink-features=AutomationControlled",
     "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
@@ -1179,16 +1311,14 @@ main().catch(err => {
 
     scraped_by_tid: Dict[str, Any] = {}
     unscraped_tids = [t for t in tids if not (cached_by_tid.get(t) or {}).get("standings") or os.getenv("MELEE_FORCE_LIVE", "0") == "1"]
-    has_node_and_chrome = bool(
-        shutil.which("node")
-        and (shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser"))
-    )
+    chrome_bin = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
+    has_node_and_chrome = bool(shutil.which("node") and chrome_bin)
     if unscraped_tids and has_node_and_chrome and os.getenv("MELEE_SKIP_CHROME", "0") != "1":
         try:
             subprocess.run(
-                ["node", "-e", node_script, json.dumps(unscraped_tids), out_json_path],
+                ["node", "-e", node_script, json.dumps(unscraped_tids), out_json_path, chrome_bin],
                 check=True,
-                timeout=45,
+                timeout=max(60, len(unscraped_tids) * 4),
             )
             with open(out_json_path, "r", encoding="utf-8") as f:
                 scraped_by_tid = json.load(f) or {}
@@ -1321,6 +1451,12 @@ main().catch(err => {
                     gw = float(c_obj.get("GameWins") if c_obj.get("GameWins") is not None else (c_obj.get("GameWinsAndGameByes") or 0))
                     return un, meta["pid"], meta["name"], fac, gw
 
+                compact_raw = {
+                    "Guid": m_guid,
+                    "TableNumber": t_num,
+                    "ResultString": m_obj.get("ResultString"),
+                    "ByeReason": m_obj.get("ByeReason"),
+                }
                 if len(comps) == 1 or m_obj.get("ByeReason") is not None:
                     u1, p1_id, p1_name, p1_fac, p1_gw = _parse_comp(comps[0])
                     m_batch.append(
@@ -1346,7 +1482,7 @@ main().catch(err => {
                             "game_system": sys_slug,
                             "raw_player1_id": u1,
                             "raw_player2_id": "BYE",
-                            "raw_json": m_obj,
+                            "raw_json": compact_raw,
                         }
                     )
                     continue
@@ -1386,7 +1522,7 @@ main().catch(err => {
                         "game_system": sys_slug,
                         "raw_player1_id": u1,
                         "raw_player2_id": u2,
-                        "raw_json": m_obj,
+                        "raw_json": compact_raw,
                     }
                 )
 
@@ -1421,7 +1557,10 @@ main().catch(err => {
         )
         db.upsert_players_batch(players_batch)
         db.upsert_event_participants_batch(ep_batch)
-        db.upsert_matches_batch(m_batch)
+        try:
+            db.upsert_matches_batch(m_batch, invalidate_cache=False)
+        except TypeError:
+            db.upsert_matches_batch(m_batch)
         events_imported += 1
         participants_imported += len(ep_batch)
         matches_imported += len(m_batch)
@@ -1429,6 +1568,12 @@ main().catch(err => {
             f"✅ [Melee.gg:{sys_slug.upper()}] Imported REAL tournament '{title}' ({eid}): "
             f"{len(ep_batch)} players, {len(m_batch)} matches, {len(decklists_map)} decklists."
         )
+
+    if events_imported > 0 and hasattr(db, "invalidate_all_caches"):
+        try:
+            db.invalidate_all_caches(db_inst=db)
+        except TypeError:
+            db.invalidate_all_caches()
 
     return {
         "events_imported": events_imported,

@@ -125,25 +125,36 @@ def discover_longshanks_targets(
                 if len(discovered) >= max_events:
                     return discovered[:max_events]
 
-    per_sys_quota = max(5, (max_events - len(discovered) + len(systems) - 1) // max(1, len(systems))) if is_backfill else max_events
-    max_pages = 30 if is_backfill else 2
+    per_sys_quota = max(8, (max_events - len(discovered) + len(systems) - 1) // max(1, len(systems))) if is_backfill else max_events
+    deferred_candidates: List[Tuple[str, str]] = []
 
     for sys_slug in systems:
         if len(discovered) >= max_events:
             break
         host = LONGSHANKS_HOST_BY_SYSTEM.get(sys_slug, "https://www.longshanks.org")
         added_for_sys = 0
-        for page in range(1, max_pages + 1):
-            if len(discovered) >= max_events or (is_backfill and len(systems) > 1 and added_for_sys >= per_sys_quota):
-                break
-            try:
-                hist_url = (
-                    f"{host}/events/history/?rated=rated&style=tournament&size_min=6"
-                    f"&date_from={from_str}&date_to={to_str}"
-                    + (f"&page={page}" if page > 1 else "")
-                )
-                html_txt = _http_get_text(hist_url)
-                page_eids = [m.group(1) for m in re.finditer(r"/event/(\d+)/", html_txt)]
+        try:
+            first_url = (
+                f"{host}/events/history/?rated=rated&style=tournament&size_min=6"
+                f"&date_from={from_str}&date_to={to_str}"
+            )
+            first_html = _http_get_text(first_url)
+            first_eids = list(dict.fromkeys(m.group(1) for m in re.finditer(r"/event/(\d+)/", first_html)))
+            if not first_eids:
+                continue
+            total_pages = max([int(p) for p in re.findall(r"[?&]page=(\d+)", first_html)] or [1])
+            if is_backfill and total_pages > 1:
+                step = max(1, total_pages // 10)
+                milestones = sorted({1, total_pages} | {min(total_pages, 1 + i * step) for i in range(1, 10)})
+                pages_to_scan = milestones + [p for p in range(2, min(total_pages + 1, 80)) if p not in milestones]
+            else:
+                pages_to_scan = [1, 2] if total_pages >= 2 else [1]
+
+            for page in pages_to_scan:
+                if len(discovered) >= max_events:
+                    break
+                html_txt = first_html if page == 1 else _http_get_text(first_url + f"&page={page}")
+                page_eids = first_eids if page == 1 else list(dict.fromkeys(m.group(1) for m in re.finditer(r"/event/(\d+)/", html_txt)))
                 if not page_eids:
                     break
                 new_on_page = 0
@@ -152,15 +163,23 @@ def discover_longshanks_targets(
                         seen_eids.add(eid)
                         new_on_page += 1
                         if eid not in existing_set and f"ls:{eid}" not in existing_set:
-                            discovered.append((sys_slug, eid))
-                            added_for_sys += 1
-                            if len(discovered) >= max_events or (is_backfill and len(systems) > 1 and added_for_sys >= per_sys_quota):
-                                break
-                if new_on_page == 0:
+                            if is_backfill and len(systems) > 1 and added_for_sys >= per_sys_quota:
+                                deferred_candidates.append((sys_slug, eid))
+                            else:
+                                discovered.append((sys_slug, eid))
+                                added_for_sys += 1
+                                if len(discovered) >= max_events:
+                                    break
+                if new_on_page == 0 or (is_backfill and len(systems) > 1 and added_for_sys >= per_sys_quota and len(deferred_candidates) >= max_events):
                     break
-            except Exception as e:
-                logger.warning(f"⚠️ [LongshanksSync:{sys_slug.upper()}] Discovery notice (page {page}): {e}")
+        except Exception as e:
+            logger.warning(f"⚠️ [LongshanksSync:{sys_slug.upper()}] Discovery notice: {e}")
+
+    if len(discovered) < max_events and deferred_candidates:
+        for item in deferred_candidates:
+            if len(discovered) >= max_events:
                 break
+            discovered.append(item)
 
     return discovered[: max(2, max_events)]
 

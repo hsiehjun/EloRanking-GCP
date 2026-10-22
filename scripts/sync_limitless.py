@@ -70,17 +70,19 @@ def discover_limitless_targets(
     target_sys = (game_system or "all").strip().lower()
     start_dt = _parse_iso_bound(start_date, is_end=False) or (datetime.now(timezone.utc) - timedelta(days=max(1, int(days or 7))))
     end_dt = _parse_iso_bound(end_date, is_end=True) or datetime.now(timezone.utc)
-    limit_param = min(200, max(50, (max_events or 25) * 4))
     is_backfill = bool((days or 7) >= 365 or start_date)
+    limit_param = 200 if is_backfill else min(200, max(50, (max_events or 25) * 4))
     existing_set = existing_ids or set()
     if is_backfill:
         # Stratified multi-year milestones first, then sequential deep pagination 1..400
         milestone_pages = [1, 5, 15, 30, 50, 80, 120, 150, 200, 250, 300, 350, 380]
         pages_to_scan = milestone_pages + [p for p in range(2, 401) if p not in milestone_pages]
     else:
+        milestone_pages = []
         pages_to_scan = [1]
 
     targets: List[Tuple[str, str]] = []
+    deferred_from_milestones: List[Tuple[str, str]] = []
     seen_tids = set()
     for def_sys, def_tid in DEFAULT_LIMITLESS_TARGETS:
         if (
@@ -95,7 +97,7 @@ def discover_limitless_targets(
                 return targets
 
     try:
-        per_page_quota = max(8, ((max_events or 25) - len(targets) + 12) // 13) if is_backfill else (max_events or 25)
+        per_page_quota = max(12, ((max_events or 25) - len(targets) + 12) // 13) if is_backfill else (max_events or 25)
         for page in pages_to_scan:
             url = f"https://play.limitlesstcg.com/api/tournaments?limit={limit_param}" + (f"&page={page}" if page > 1 else "")
             catalog = _http_get_json(url)
@@ -132,16 +134,23 @@ def discover_limitless_targets(
                     and f"ltcg:{tid}" not in existing_set
                 ):
                     seen_tids.add(tid)
-                    targets.append((sys_slug, tid))
-                    added_on_page += 1
-                    if max_events and len(targets) >= max_events:
-                        return targets
-                    if is_backfill and page in (1, 5, 15, 30, 50, 80, 120, 150, 200, 250, 300, 350, 380) and added_on_page >= per_page_quota:
-                        break
-            if oldest_on_page and oldest_on_page < start_dt:
+                    if is_backfill and page in milestone_pages and added_on_page >= per_page_quota:
+                        deferred_from_milestones.append((sys_slug, tid))
+                    else:
+                        targets.append((sys_slug, tid))
+                        added_on_page += 1
+                        if max_events and len(targets) >= max_events:
+                            return targets
+            if oldest_on_page and oldest_on_page < start_dt and page not in milestone_pages:
                 break
     except Exception as e:
         logger.warning(f"⚠️ [LimitlessSync] Catalog discovery notice: {e}")
+
+    if max_events and len(targets) < max_events and deferred_from_milestones:
+        for item in deferred_from_milestones:
+            if len(targets) >= max_events:
+                break
+            targets.append(item)
 
     return targets
 

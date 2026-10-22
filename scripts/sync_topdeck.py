@@ -41,6 +41,28 @@ TOPDECK_V2_GAME_NAMES = {
     "mcp": "Marvel: Crisis Protocol",
 }
 
+TOPDECK_FIRESTORE_GAME_MAP = {
+    "magic: the gathering": "mtg",
+    "mtg": "mtg",
+    "pokemon": "pokemon",
+    "pokémon": "pokemon",
+    "one piece": "one_piece",
+    "one piece card game": "one_piece",
+    "star wars: unlimited": "sw_unlimited",
+    "star wars unlimited": "sw_unlimited",
+    "disney lorcana": "lorcana",
+    "lorcana": "lorcana",
+    "yu-gi-oh!": "yugioh",
+    "yugioh": "yugioh",
+    "flesh and blood": "flesh_and_blood",
+    "riftbound": "riftbound",
+    "warhammer 40,000": "40k",
+    "warhammer 40k": "40k",
+    "warhammer: age of sigmar": "aos",
+    "age of sigmar": "aos",
+    "marvel: crisis protocol": "mcp",
+}
+
 
 DEFAULT_TOPDECK_TARGETS: List[Tuple[str, str]] = [
     ("mtg", "commander-invitational-qualifier-final-fortune-gaming-5"),
@@ -130,9 +152,15 @@ def discover_topdeck_targets(
             except Exception as e:
                 logger.warning(f"⚠️ [TopDeckSync] v2 API discovery notice for {sys_slug}: {e}")
 
-    if not discovered and target_sys in ("all", "other", "mtg"):
+    if not discovered:
         for s_slug, tid in DEFAULT_TOPDECK_TARGETS:
-            if len(discovered) < max_events and tid not in seen_tids and tid not in existing_set and f"td:{tid}" not in existing_set:
+            if (
+                (target_sys in ("all", "other", "tcg") or s_slug == target_sys)
+                and len(discovered) < max_events
+                and tid not in seen_tids
+                and tid not in existing_set
+                and f"td:{tid}" not in existing_set
+            ):
                 seen_tids.add(tid)
                 discovered.append((s_slug, tid))
         if len(discovered) < max_events:
@@ -140,25 +168,26 @@ def discover_topdeck_targets(
 
             is_backfill = bool((days or 14) >= 365 or start_date)
             if is_backfill:
-                # Generate rolling 60-day checkpoints from end_s back to max(cutoff_s, 2021-01-01)
+                # Generate rolling 45-day checkpoints from end_s back to max(cutoff_s, 2021-01-01)
                 floor_s = max(cutoff_s, int(datetime(2021, 1, 1, tzinfo=timezone.utc).timestamp()))
-                step_s = 60 * 86400
+                step_s = 45 * 86400
                 checkpoints = []
                 cur_cp = end_s
-                while cur_cp >= floor_s and len(checkpoints) < 36:
+                while cur_cp >= floor_s and len(checkpoints) < 48:
                     checkpoints.append(cur_cp)
                     cur_cp -= step_s
                 if not checkpoints:
                     checkpoints = [end_s]
-                per_cp_quota = max(5, (max_events - len(discovered) + len(checkpoints) - 1) // len(checkpoints))
+                per_cp_quota = max(6, (max_events - len(discovered) + len(checkpoints) - 1) // len(checkpoints))
             else:
                 checkpoints = [end_s]
                 per_cp_quota = max_events
 
+            deferred_from_checkpoints: List[Tuple[str, str]] = []
             for cp_end in checkpoints:
                 if len(discovered) >= max_events:
                     break
-                cp_start = max(cutoff_s, cp_end - 90 * 86400) if is_backfill else cutoff_s
+                cp_start = max(cutoff_s, cp_end - 60 * 86400) if is_backfill else cutoff_s
                 added_in_cp = 0
                 try:
                     fs_rows = _http_post_json(
@@ -176,7 +205,7 @@ def discover_topdeck_targets(
                                     }
                                 },
                                 "orderBy": [{"field": {"fieldPath": "StartDate"}, "direction": "DESCENDING"}],
-                                "limit": max(50, per_cp_quota * 4),
+                                "limit": max(80, per_cp_quota * 5),
                             }
                         },
                         timeout=15,
@@ -187,25 +216,44 @@ def discover_topdeck_targets(
                             fields = doc.get("fields") or {}
                             tid = str(doc.get("name") or "").split("/")[-1].strip()
                             ev_title = str((fields.get("Name") or {}).get("stringValue") or "").lower()
+                            raw_game = str((fields.get("Game") or {}).get("stringValue") or "Magic: The Gathering").strip().lower()
+                            doc_sys = TOPDECK_FIRESTORE_GAME_MAP.get(raw_game)
+                            if not doc_sys:
+                                if "naruto" in raw_game or "union arena" in raw_game or "naruto" in ev_title:
+                                    continue
+                                doc_sys = "mtg"
+                            if target_sys not in ("all", "other", "tcg") and doc_sys != target_sys:
+                                continue
                             t1_fields = ((fields.get("S1:R1:T1") or {}).get("mapValue") or {}).get("fields") or {}
                             t1_es = ((t1_fields.get("Es") or {}).get("arrayValue") or {}).get("values") or []
+                            w_field = t1_fields.get("Winner") or {}
+                            has_valid_winner = ("integerValue" in w_field) or ("stringValue" in w_field)
                             if (
                                 tid
                                 and tid not in seen_tids
                                 and tid not in existing_set
                                 and f"td:{tid}" not in existing_set
-                                and len(t1_es) >= 3
-                                and "Winner" in t1_fields
+                                and len(t1_es) >= 2
+                                and has_valid_winner
                                 and "naruto" not in ev_title
                                 and "test" not in ev_title
                             ):
                                 seen_tids.add(tid)
-                                discovered.append(("mtg", tid))
-                                added_in_cp += 1
-                                if len(discovered) >= max_events or added_in_cp >= per_cp_quota:
-                                    break
+                                if added_in_cp < per_cp_quota:
+                                    discovered.append((doc_sys, tid))
+                                    added_in_cp += 1
+                                    if len(discovered) >= max_events:
+                                        break
+                                else:
+                                    deferred_from_checkpoints.append((doc_sys, tid))
                 except Exception as e:
                     logger.warning(f"⚠️ [TopDeckSync] Firestore discovery notice: {e}")
+
+            if len(discovered) < max_events and deferred_from_checkpoints:
+                for item in deferred_from_checkpoints:
+                    if len(discovered) >= max_events:
+                        break
+                    discovered.append(item)
 
     return discovered[:max_events]
 
