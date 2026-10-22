@@ -4767,7 +4767,7 @@ class PostgresDatabase:
                           LIMIT 1
                       )
                       {where_extra}
-                    ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
+                    ORDER BY m.match_date ASC NULLS FIRST, m.event_id ASC, m.round ASC, m.table_number ASC, m.id ASC
                     LIMIT %s;
                     """, (*params, limit))
                     return [dict(r) for r in cursor.fetchall()]
@@ -4793,7 +4793,7 @@ class PostgresDatabase:
                           AND NOT EXISTS (
                               SELECT 1 FROM rating_history rh WHERE rh.match_id = m.id LIMIT 1
                           )
-                        ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
+                        ORDER BY m.match_date ASC NULLS FIRST, m.event_id ASC, m.round ASC, m.table_number ASC, m.id ASC
                         LIMIT %s;
                         """, (limit,))
                         return [dict(r) for r in cur_safe.fetchall()]
@@ -4821,7 +4821,7 @@ class PostgresDatabase:
                         COALESCE(m.game_system, '40k') as game_system
                     FROM matches m
                     {where_clause}
-                    ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC;
+                    ORDER BY m.match_date ASC NULLS FIRST, m.event_id ASC, m.round ASC, m.table_number ASC, m.id ASC;
                     """, tuple(params))
                     return cursor.fetchall()
                 except Exception:
@@ -9748,6 +9748,8 @@ class PostgresDatabase:
                         SELECT m.event_id FROM matches m WHERE m.player1_id = %(pid)s AND m.event_id IS NOT NULL
                         UNION
                         SELECT m.event_id FROM matches m WHERE m.player2_id = %(pid)s AND m.event_id IS NOT NULL
+                        UNION
+                        SELECT rh.event_id FROM rating_history rh WHERE rh.player_id = %(pid)s AND rh.event_id IS NOT NULL
                     ),
                     player_name_ref AS (
                         SELECT LOWER(TRIM(full_name)) AS norm_name
@@ -11498,7 +11500,8 @@ class PostgresDatabase:
                         GROUP BY ep.event_id
                     ),
                     player_hist AS MATERIALIZED (
-                        SELECT h.*,
+                        SELECT DISTINCT ON (COALESCE(NULLIF(h.match_id, ''), h.id::text), COALESCE(h.game_system, '40k'))
+                               h.*,
                                COALESCE(
                                    NULLIF(NULLIF(TRIM(h.player_faction), ''), 'Unknown'),
                                    CASE WHEN m.player1_id = h.player_id THEN NULLIF(NULLIF(TRIM(m.player1_faction), ''), 'Unknown')
@@ -11530,6 +11533,7 @@ class PostgresDatabase:
                         LEFT JOIN events e ON h.event_id = e.id
                         LEFT JOIN player_ep pep ON h.event_id = pep.event_id
                         {where_sql}
+                        ORDER BY COALESCE(NULLIF(h.match_id, ''), h.id::text), COALESCE(h.game_system, '40k'), h.id ASC
                     ),
                     player_tg AS MATERIALIZED (
                         SELECT DISTINCT ON (LOWER(event_id), round_num, table_num)
@@ -11560,7 +11564,7 @@ class PostgresDatabase:
                      AND LOWER(ph.event_id) = tg.ev_low
                      AND ph.m_round = tg.round_num
                      AND ph.table_number = tg.table_num
-                    ORDER BY ph.match_date ASC, ph.round ASC;
+                    ORDER BY ph.match_date ASC NULLS FIRST, COALESCE(ph.event_id, '') ASC, COALESCE(ph.m_round, ph.round, 0) ASC, ph.id ASC;
                     """, tuple([player_id] + params))
                     rows = [dict(r) for r in cursor.fetchall()]
                     for r in rows:

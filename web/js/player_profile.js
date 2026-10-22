@@ -310,19 +310,47 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
   const mainFaction = factionsList.length > 0 ? factionsList[0].faction : (p.top_faction || 'Various');
 
   // Match History (sorted newest first for Recent Form & Tournament Journey)
-  const rawHistory = Array.isArray(data.history) ? data.history : (data.win_path || []);
+  const rawHistoryInput = Array.isArray(data.history) ? data.history : (data.win_path || []);
+  const seenMatchIds = new Set();
+  const rawHistory = rawHistoryInput.filter(m => {
+    if (!m || typeof m !== 'object') return false;
+    const mid = String(m.match_id || m.id || '').trim();
+    if (mid) {
+      if (seenMatchIds.has(mid)) return false;
+      seenMatchIds.add(mid);
+    }
+    return true;
+  });
   const sortedHistory = typeof sortMatchesNewestFirst === 'function'
     ? sortMatchesNewestFirst(rawHistory)
     : [...rawHistory].reverse();
 
-  // Lookup tournament placements and field sizes from data.tournaments / data.events_attended
+  const otherSystemHistoryRaw = Array.isArray(data.other_system_history) ? data.other_system_history : [];
+  const seenOtherMatchIds = new Set();
+  const otherSystemHistory = otherSystemHistoryRaw.filter(m => {
+    if (!m || typeof m !== 'object') return false;
+    const mid = `${String(m.game_system || '').toLowerCase()}::${String(m.match_id || m.id || '').trim()}`;
+    if (mid !== '::') {
+      if (seenOtherMatchIds.has(mid)) return false;
+      seenOtherMatchIds.add(mid);
+    }
+    return true;
+  });
+
+  // Lookup tournament placements and field sizes from data.tournaments / data.events_attended + data.other_system_tournaments
   const tournamentsMetaList = Array.isArray(data.tournaments)
     ? data.tournaments
     : (Array.isArray(data.events_attended) ? data.events_attended : []);
+  const otherSystemTournamentsList = Array.isArray(data.other_system_tournaments) ? data.other_system_tournaments : [];
+  const allTournamentsMetaList = [
+    ...tournamentsMetaList.map(t => (t && typeof t === 'object') ? { ...t, game_system: String(t.game_system || sys).toLowerCase() } : null).filter(Boolean),
+    ...otherSystemTournamentsList.map(t => (t && typeof t === 'object') ? { ...t, game_system: String(t.game_system || sys).toLowerCase() } : null).filter(Boolean)
+  ];
+
   const tournamentMetaById = new Map();
   const tournamentMetaByNameYear = new Map();
   const tournamentMetaByName = new Map();
-  tournamentsMetaList.forEach(t => {
+  allTournamentsMetaList.forEach(t => {
     if (!t) return;
     const tid = String(t.event_id || t.id || '').trim();
     if (tid) tournamentMetaById.set(tid, t);
@@ -336,21 +364,31 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     }
   });
 
-  // Group matches by Event (most recent event first)
+  const combinedJourneyHistory = [
+    ...sortedHistory.map(m => ({ ...m, game_system: String(m.game_system || sys).toLowerCase() })),
+    ...(typeof sortMatchesNewestFirst === 'function' ? sortMatchesNewestFirst(otherSystemHistory) : [...otherSystemHistory].reverse())
+      .map(m => ({ ...m, game_system: String(m.game_system || sys).toLowerCase() }))
+  ];
+
+  // Group matches by Event across all active game systems (most recent event first)
   const eventMap = new Map();
-  sortedHistory.forEach(m => {
+  combinedJourneyHistory.forEach(m => {
     const evName = (m.event_name || 'Tournament Event').trim();
     const matchYr = String(m.match_date || m.event_date || '').slice(0, 4);
     const tMeta = (m.event_id && tournamentMetaById.get(String(m.event_id).trim()))
       || (matchYr && tournamentMetaByNameYear.get(`${evName.toLowerCase()}::${matchYr}`))
       || tournamentMetaByName.get(evName.toLowerCase())
       || null;
+    const evSys = String(m.game_system || (tMeta && tMeta.game_system) || sys).toLowerCase();
     const resolvedEid = String(m.event_id || (tMeta && (tMeta.event_id || tMeta.id)) || '').trim();
-    const evKey = resolvedEid || (matchYr ? `${evName}::${matchYr}` : evName);
+    const baseEvKey = resolvedEid || (matchYr ? `${evName}::${matchYr}` : evName);
+    const evKey = `${evSys}::${baseEvKey}`;
     if (!eventMap.has(evKey)) {
       eventMap.set(evKey, {
         event_name: evName,
         event_id: resolvedEid,
+        game_system: evSys,
+        system_player_id: m.system_player_id || m.player_id || (tMeta && tMeta.system_player_id) || p.player_id || currentProfilePlayerId,
         date: m.match_date ? String(m.match_date).slice(0, 10) : (tMeta && tMeta.event_date ? String(tMeta.event_date).slice(0, 10) : ''),
         faction: pickSpecificFaction(tMeta && tMeta.registered_faction, tMeta && tMeta.faction, m.player_faction),
         placement: Number((tMeta && tMeta.placement) || m.placement || 0),
@@ -378,9 +416,44 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     if (!ev.total_players && tMeta && tMeta.total_players) ev.total_players = Number(tMeta.total_players);
   });
 
+  // Ensure any tournament in allTournamentsMetaList without round rows in history is still shown in Tournament Journey
+  allTournamentsMetaList.forEach(t => {
+    if (!t) return;
+    const evSys = String(t.game_system || sys).toLowerCase();
+    const resolvedEid = String(t.event_id || t.id || '').trim();
+    const evName = String(t.event_name || t.name || 'Tournament Event').trim();
+    const tyr = String(t.event_date || t.date || '').slice(0, 4);
+    const baseEvKey = resolvedEid || (tyr ? `${evName}::${tyr}` : evName);
+    const evKey = `${evSys}::${baseEvKey}`;
+    if (!eventMap.has(evKey) && (Number(t.matches_played || 0) > 0 || Number(t.placement || 0) > 0)) {
+      eventMap.set(evKey, {
+        event_name: evName,
+        event_id: resolvedEid,
+        game_system: evSys,
+        system_player_id: t.system_player_id || p.player_id || currentProfilePlayerId,
+        date: t.event_date ? String(t.event_date).slice(0, 10) : (t.date ? String(t.date).slice(0, 10) : ''),
+        faction: pickSpecificFaction(t.registered_faction, t.faction),
+        placement: Number(t.placement || 0),
+        total_players: Number(t.total_players || 0),
+        rounds: [],
+        wins: Number(t.wins || 0),
+        losses: Number(t.losses || 0),
+        draws: Number(t.draws || 0),
+        totalEloDelta: 0
+      });
+    }
+  });
+
   const eventsList = Array.from(eventMap.values())
     .map(ev => ensureEventPlacement(ev))
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  const journeySystemCounts = new Map();
+  eventsList.forEach(ev => {
+    const gsKey = String(ev.game_system || sys).toLowerCase();
+    journeySystemCounts.set(gsKey, (journeySystemCounts.get(gsKey) || 0) + 1);
+  });
+  const careerSystemsList = Array.isArray(data.career_systems) ? data.career_systems : [];
 
   // Recent Form (5 most recent matches, newest first)
   const recentMatches = sortedHistory.slice(0, 5);
@@ -511,6 +584,16 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
   } else {
     eventsHtml = eventsList.map((ev, idx) => {
       const isExpanded = false;
+      const evSys = String(ev.game_system || sys).toLowerCase();
+      const evSysShort = (typeof getGameSystemShortLabel === 'function')
+        ? getGameSystemShortLabel(evSys)
+        : evSys.toUpperCase();
+      const evSysIcon = (typeof getGameSystemIcon === 'function')
+        ? getGameSystemIcon(evSys)
+        : (evSys === 'aos' ? '⚡' : '⚔️');
+      const isOtherSys = evSys !== sys;
+      const sysBadgeHtml = `<span class="badge" style="background:${isOtherSys ? 'rgba(245,158,11,0.16)' : 'rgba(56,189,248,0.14)'}; color:${isOtherSys ? '#fbbf24' : '#38bdf8'}; border:1px solid ${isOtherSys ? 'rgba(245,158,11,0.38)' : 'rgba(56,189,248,0.32)'}; font-size:0.64rem; font-weight:800; padding:1px 6px; white-space:nowrap;" title="Game System: ${escapeHtml(evSysShort)}">${evSysIcon} ${escapeHtml(evSysShort)}</span>`;
+
       const recordStr = `${ev.wins}W - ${ev.losses}L${ev.draws > 0 ? ` - ${ev.draws}D` : ''}`;
       const isFlawless = (ev.losses === 0 && (!ev.draws || ev.draws === 0) && ev.wins >= 3);
       const eloDelta = ev.totalEloDelta;
@@ -518,7 +601,7 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
       const eloColor = eloDelta > 0 ? 'var(--win)' : (eloDelta < 0 ? 'var(--loss)' : 'var(--text-muted)');
       const placingPillHtml = formatTournamentPlacingBadge(ev.placement, ev.total_players);
 
-      const profilePlayerId = p.player_id || currentProfilePlayerId || playerName;
+      const profilePlayerId = ev.system_player_id || p.player_id || currentProfilePlayerId || playerName;
 
       const roundsRows = ev.rounds.map((r, rIdx) => {
         const isWin = r.result === 'W';
@@ -544,7 +627,7 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
           || (evId && tableNum ? `BCP-${evId}-R${roundNum}-T${tableNum}` : (evId ? `BCP-${evId}-R${roundNum}-P-${profilePlayerId}` : `MATCH-R${roundNum}`));
 
         const oppBadge = !isBye && r.opponent_elo
-          ? (typeof renderEloBadgePill === 'function' ? renderEloBadgePill(r.opponent_elo, null, { size: 'sm', gameSystem: sys }) : `<span class="badge">${Number(r.opponent_elo).toFixed(1)}</span>`)
+          ? (typeof renderEloBadgePill === 'function' ? renderEloBadgePill(r.opponent_elo, null, { size: 'sm', gameSystem: evSys }) : `<span class="badge">${Number(r.opponent_elo).toFixed(1)}</span>`)
           : '';
 
         const scoreCellHtml = (!isBye && hasScores) ? `
@@ -584,7 +667,7 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
       }).join('');
 
       return `
-        <div class="profile-event-card ${isExpanded ? 'expanded' : ''}" id="event-card-${idx}">
+        <div class="profile-event-card ${isExpanded ? 'expanded' : ''}" id="event-card-${idx}" data-game-system="${escapeHtml(evSys)}">
           <div class="profile-event-header" onclick="toggleProfileEventCard(${idx})">
             <div class="profile-event-title-group">
               <div class="profile-event-name">
@@ -594,6 +677,7 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
                     <span style="font-size: 0.72rem; opacity: 0.85;">↗</span>
                   </span>
                 ` : `<span>${escapeHtml(ev.event_name)}</span>`}
+                ${sysBadgeHtml}
                 ${ev.event_id && typeof getPlatformBadgeHtml === 'function' ? getPlatformBadgeHtml(ev.event_id, ev) : ''}
                 ${(ev.rounds && ev.rounds.some(r => r.is_2v2 || r.match_format === '2v2')) ? '<span class="badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.38); font-size:0.64rem; font-weight:800; padding:1px 6px; white-space:nowrap;">👥 2v2 Doubles</span>' : ''}
                 ${(ev.rounds && ev.rounds.some(r => r.is_ffa || r.match_format === 'ffa')) ? '<span class="badge" style="background:rgba(16,185,129,0.16); color:#34d399; border:1px solid rgba(16,185,129,0.38); font-size:0.64rem; font-weight:800; padding:1px 6px; white-space:nowrap;">🎲 4P FFA Pod</span>' : ''}
@@ -635,6 +719,53 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
         </div>
       `;
     }).join('');
+  }
+
+  let multiSystemCareerHtml = '';
+  if (careerSystemsList.length > 1) {
+    const careerPills = careerSystemsList.map(cs => {
+      const csSys = String(cs.game_system || '').toLowerCase();
+      const csShort = (typeof getGameSystemShortLabel === 'function') ? getGameSystemShortLabel(csSys) : csSys.toUpperCase();
+      const csIcon = (typeof getGameSystemIcon === 'function') ? getGameSystemIcon(csSys) : '⚔️';
+      const csPid = cs.player_id || currentProfilePlayerId;
+      const isCurrent = csSys === sys;
+      const csElo = Number(cs.current_elo || 1500).toFixed(1);
+      const csGames = Number(cs.matches_played || 0);
+      return `
+        <button type="button" class="badge" onclick="openPlayerProfilePage('${escapeJsArg(csPid)}', '${escapeJsArg(csSys)}', {}, '${escapeJsArg(playerName)}')" style="cursor:pointer; padding:4px 10px; font-size:0.74rem; font-weight:700; display:inline-flex; align-items:center; gap:5px; border-radius:999px; transition:all 0.15s ease; ${isCurrent ? 'background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.55); box-shadow:0 0 10px rgba(56,189,248,0.2);' : 'background:rgba(15,23,42,0.75); color:var(--text-secondary); border:1px solid rgba(255,255,255,0.14);'}" title="Switch profile view to ${escapeHtml(csShort)} (${csElo} Elo · ${csGames} matches)">
+          <span>${csIcon} ${escapeHtml(csShort)}</span>
+          <span style="font-family:var(--font-mono); color:${isCurrent ? '#fff' : '#38bdf8'};">${csElo}</span>
+          <span style="opacity:0.75; font-size:0.68rem;">(${csGames}G)</span>
+        </button>
+      `;
+    }).join('');
+    multiSystemCareerHtml = `
+      <div class="profile-multi-system-bar" style="margin-top:0.55rem; display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+        <span style="font-size:0.7rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted);">🌍 Active Systems:</span>
+        ${careerPills}
+      </div>
+    `;
+  }
+
+  let journeySystemFilterBarHtml = '';
+  if (journeySystemCounts.size > 1) {
+    const sysFilterButtons = Array.from(journeySystemCounts.entries()).map(([gsKey, cnt]) => {
+      const gsShort = (typeof getGameSystemShortLabel === 'function') ? getGameSystemShortLabel(gsKey) : gsKey.toUpperCase();
+      const gsIcon = (typeof getGameSystemIcon === 'function') ? getGameSystemIcon(gsKey) : '⚔️';
+      return `
+        <button type="button" class="journey-sys-filter-btn" data-sys-filter="${escapeHtml(gsKey)}" onclick="filterProfileJourneyBySystem('${escapeJsArg(gsKey)}')" style="cursor:pointer; padding:4px 10px; border-radius:999px; font-size:0.73rem; font-weight:700; background:rgba(15,23,42,0.7); color:var(--text-secondary); border:1px solid rgba(255,255,255,0.12);">
+          ${gsIcon} ${escapeHtml(gsShort)} (${cnt})
+        </button>
+      `;
+    }).join('');
+    journeySystemFilterBarHtml = `
+      <div id="profile-journey-system-filters" style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+        <button type="button" class="journey-sys-filter-btn active" data-sys-filter="all" onclick="filterProfileJourneyBySystem('all')" style="cursor:pointer; padding:4px 10px; border-radius:999px; font-size:0.73rem; font-weight:800; background:rgba(56,189,248,0.18); color:#38bdf8; border:1px solid rgba(56,189,248,0.45);">
+          🌍 All Game Systems (${eventsList.length})
+        </button>
+        ${sysFilterButtons}
+      </div>
+    `;
   }
 
   // Compute Faction Mastery & Matchup Matrix for Profile Tabs
@@ -721,6 +852,7 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
               ${champPillHtml}
               ${teamName ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="if(typeof openTeamProfilePage === 'function'){ openTeamProfilePage('${escapeHtml(teamName)}', '${sys}'); } else if(typeof openTeamModal === 'function') { openTeamModal('${escapeHtml(teamName)}'); }" title="Click to view ${escapeHtml(teamName)} hub & roster">🛡️ ${escapeHtml(teamName)}</span>` : ''}
             </div>
+            ${multiSystemCareerHtml}
             ${window.BadgesUI ? window.BadgesUI.renderPinnedMedals(data.pinned_badges, data.badge_count, data.is_self, 'switchProfileSubtab') : ''}
           </div>
         </div>
@@ -849,6 +981,7 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
             </button>
           ` : ''}
         </div>
+        ${journeySystemFilterBarHtml}
 
         <div id="profile-events-accordion-container">
           ${eventsHtml}
@@ -3063,10 +3196,36 @@ function toggleProfileCareerDetails(ev) {
   }
 }
 
+function filterProfileJourneyBySystem(sysFilter) {
+  const target = String(sysFilter || 'all').toLowerCase();
+  const cards = document.querySelectorAll('#profile-events-accordion-container .profile-event-card');
+  let visibleCount = 0;
+  cards.forEach(c => {
+    const cardSys = String(c.getAttribute('data-game-system') || '').toLowerCase();
+    const show = target === 'all' || cardSys === target;
+    c.style.display = show ? '' : 'none';
+    if (show) visibleCount++;
+  });
+  const countEl = document.querySelector('#profile-panel-journey .profile-journey-count');
+  if (countEl) {
+    countEl.textContent = `(${visibleCount} Event${visibleCount === 1 ? '' : 's'})`;
+  }
+  const btns = document.querySelectorAll('#profile-journey-system-filters .journey-sys-filter-btn');
+  btns.forEach(b => {
+    const bSys = String(b.getAttribute('data-sys-filter') || '').toLowerCase();
+    const isAct = bSys === target;
+    b.classList.toggle('active', isAct);
+    b.style.background = isAct ? 'rgba(56,189,248,0.18)' : 'rgba(15,23,42,0.7)';
+    b.style.color = isAct ? '#38bdf8' : 'var(--text-secondary)';
+    b.style.borderColor = isAct ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.12)';
+  });
+}
+
 // Global exports
 if (typeof window !== 'undefined') {
   window.openPlayerProfilePage = openPlayerProfilePage;
   window.renderDedicatedPlayerProfile = renderDedicatedPlayerProfile;
+  window.filterProfileJourneyBySystem = filterProfileJourneyBySystem;
   window.toggleProfileEventCard = toggleProfileEventCard;
   window.toggleAllProfileEventCards = toggleAllProfileEventCards;
   window.toggleProfileCareerDetails = toggleProfileCareerDetails;

@@ -649,6 +649,12 @@ def import_live_limitless_tournaments(
             f"✅ [LimitlessTCG:{sys_slug.upper()}] Imported REAL tournament '{details.get('name')}' ({eid}): "
             f"{len(ep_batch)} players, {len(m_batch)} matches."
         )
+        if events_imported % 25 == 0 and not hasattr(db, "reconstruct_elo_for_system"):
+            try:
+                from elo import get_elo_engine
+                get_elo_engine(db=db).reconstruct_incremental(game_system=sys_slug)
+            except Exception as inc_err:
+                logger.debug(f"[LimitlessTCG:{sys_slug.upper()}] Incremental batch Elo notice: {inc_err}")
 
     if events_imported > 0:
         _flush_db_caches_once(db)
@@ -993,6 +999,12 @@ def import_live_longshanks_tournaments(
             f"✅ [Longshanks:{sys_slug.upper()}] Imported REAL tournament '{raw_title}' ({eid}): "
             f"{len(ep_batch)} players, {len(m_batch)} matches."
         )
+        if events_imported % 25 == 0 and not hasattr(db, "reconstruct_elo_for_system"):
+            try:
+                from elo import get_elo_engine
+                get_elo_engine(db=db).reconstruct_incremental(game_system=sys_slug)
+            except Exception as inc_err:
+                logger.debug(f"[Longshanks:{sys_slug.upper()}] Incremental batch Elo notice: {inc_err}")
 
     if events_imported > 0 and hasattr(db, "invalidate_all_caches"):
         try:
@@ -1397,6 +1409,12 @@ def import_live_topdeck_tournaments(
             f"✅ [TopDeck.gg:{sys_slug.upper()}] Imported REAL tournament '{ev_name}' ({eid}): "
             f"{len(ep_batch)} players, {len(m_batch)} tables/matches ({len(mp_batch)} pod seats)."
         )
+        if events_imported % 25 == 0 and not hasattr(db, "reconstruct_elo_for_system"):
+            try:
+                from elo import get_elo_engine
+                get_elo_engine(db=db).reconstruct_incremental(game_system=sys_slug)
+            except Exception as inc_err:
+                logger.debug(f"[TopDeck.gg:{sys_slug.upper()}] Incremental batch Elo notice: {inc_err}")
 
     if events_imported > 0 and hasattr(db, "invalidate_all_caches"):
         try:
@@ -1869,6 +1887,12 @@ main().catch(() => {
             f"✅ [Melee.gg:{sys_slug.upper()}] Imported REAL tournament '{title}' ({eid}): "
             f"{len(ep_batch)} players, {len(m_batch)} matches, {len(decklists_map)} decklists."
         )
+        if events_imported % 25 == 0 and not hasattr(db, "reconstruct_elo_for_system"):
+            try:
+                from elo import get_elo_engine
+                get_elo_engine(db=db).reconstruct_incremental(game_system=sys_slug)
+            except Exception as inc_err:
+                logger.debug(f"[Melee.gg:{sys_slug.upper()}] Incremental batch Elo notice: {inc_err}")
 
     if events_imported > 0 and hasattr(db, "invalidate_all_caches"):
         try:

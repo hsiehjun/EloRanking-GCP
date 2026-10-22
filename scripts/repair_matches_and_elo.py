@@ -1027,6 +1027,36 @@ def repair_historical_matches_and_elo(
 def ensure_startup_elo_repair_migration(db: Optional[Database] = None) -> bool:
     """Run the one-time retroactive BCP pairing & Elo repair if not yet marked completed in `system_settings`."""
     db = db or get_db()
+    multiplatform_key = "multiplatform_elo_dedup_and_sync_v1"
+    try:
+        if _db_get_setting(db, multiplatform_key) != "completed":
+            mp_lock_id = 840202602
+            with db.get_connection() as mp_conn:
+                with mp_conn.cursor() as mp_cur:
+                    mp_cur.execute("SELECT pg_try_advisory_lock(%s);", (mp_lock_id,))
+                    mp_row = mp_cur.fetchone()
+                    got_mp_lock = bool(mp_row[0]) if mp_row is not None and isinstance(mp_row, (list, tuple)) else True
+                if got_mp_lock:
+                    try:
+                        if _db_get_setting(db, multiplatform_key) != "completed":
+                            logger.info(f"[RepairMatchesElo] Running '{multiplatform_key}' across TCG & tabletop systems...")
+                            elo_engine = get_elo_engine(db=db)
+                            elo_engine.reconstruct_incremental(
+                                game_system="mtg,pokemon,one_piece,digimon,lorcana,sw_unlimited,flesh_blood,gundam_tcg,riftbound,yugioh,mcp,sw_legion,shatterpoint,x_wing,malifaux,warmachine,guild_ball,middle_earth,conquest,bolt_action,battletech,blood_bowl,kill_team,horus_heresy,the_old_world"
+                            )
+                            elo_engine.invalidate_caches()
+                            if hasattr(db, "invalidate_all_caches"):
+                                db.invalidate_all_caches(purge_l2=False)
+                            _db_set_setting(db, multiplatform_key, "completed")
+                    finally:
+                        try:
+                            with mp_conn.cursor() as mp_cur:
+                                mp_cur.execute("SELECT pg_advisory_unlock(%s);", (mp_lock_id,))
+                        except Exception:
+                            pass
+    except Exception as mp_err:
+        logger.warning(f"[RepairMatchesElo] Multiplatform Elo dedup/sync notice: {mp_err}")
+
     try:
         status_val = _db_get_setting(db, REPAIR_MIGRATION_KEY)
         if status_val == "completed":

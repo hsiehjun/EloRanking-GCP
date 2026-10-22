@@ -1692,6 +1692,37 @@ class EloEngine:
                         conn.commit()
                         if purged > 0:
                             logger.info(f"🧹 Reverted and purged {purged} stale/unscored rating_history record(s) for {sys_target.upper()}.")
+
+                        # Self-healing for duplicate (player_id, match_id) rows in rating_history
+                        cur.execute(
+                            """
+                            SELECT DISTINCT player_id
+                            FROM rating_history
+                            WHERE COALESCE(game_system, '40k') = %s
+                              AND match_id IS NOT NULL AND match_id != ''
+                            GROUP BY player_id, match_id
+                            HAVING COUNT(*) > 1
+                            LIMIT 200;
+                            """,
+                            (sys_target,),
+                        )
+                        dup_rows = cur.fetchall() or []
+                        if dup_rows:
+                            if sys_target not in ("40k", "aos") and not since_date:
+                                logger.warning(
+                                    f"♻️ Detected duplicate rating_history entries in {sys_target.upper()} ({len(dup_rows)} players affected); resetting {sys_target.upper()} ratings for clean replay..."
+                                )
+                                cur.execute("DELETE FROM rating_history WHERE COALESCE(game_system, '40k') = %s;", (sys_target,))
+                                cur.execute("DELETE FROM player_ratings WHERE COALESCE(game_system, '40k') = %s;", (sys_target,))
+                                conn.commit()
+                            else:
+                                for dr in dup_rows:
+                                    d_pid = dr[0] if isinstance(dr, (list, tuple)) else (dr.get("player_id") if isinstance(dr, dict) else None)
+                                    if d_pid:
+                                        try:
+                                            self.reconstruct_user_elo(str(d_pid), game_system=sys_target)
+                                        except Exception:
+                                            pass
             except Exception as cleanup_err:
                 logger.debug(f"Notice during stale rating_history cleanup: {cleanup_err}")
 
@@ -1791,6 +1822,38 @@ class EloEngine:
         scoped_candidate_pids = sorted(candidate_pids_set)
 
         with self.db.get_connection() as conn:
+            try:
+                with conn.cursor() as lock_cur:
+                    lock_cur.execute("SELECT pg_advisory_xact_lock(hashtext('elo_recon_' || %s));", (sys_target,))
+                    cand_mids = [_bound_id(m.get("id")) for m in new_matches if m.get("id")]
+                    if cand_mids:
+                        lock_cur.execute(
+                            """
+                            SELECT DISTINCT match_id
+                            FROM rating_history
+                            WHERE match_id = ANY(%s)
+                              AND (
+                                  (%s != '40k' AND game_system = %s)
+                                  OR (%s = '40k' AND COALESCE(game_system, '40k') = '40k')
+                              );
+                            """,
+                            (cand_mids, sys_target, sys_target, sys_target),
+                        )
+                        already_rated = {
+                            str(r[0] if isinstance(r, (list, tuple)) else r.get("match_id") or "")
+                            for r in (lock_cur.fetchall() or [])
+                        }
+                        if already_rated:
+                            new_matches = [m for m in new_matches if _bound_id(m.get("id")) not in already_rated]
+                            total_new = len(new_matches)
+                            if total_new == 0:
+                                conn.commit()
+                                return {"total_new_matches": 0, "status": "UP_TO_DATE", "game_system": sys_target, "healed_ratings": 0}
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
             authoritative_names = _heal_and_load_authoritative_names(
                 conn, sys_target, candidate_pids=scoped_candidate_pids
             )
@@ -2197,25 +2260,28 @@ class EloEngine:
 
                     p1_sc_int = _safe_int_score(m.get("player1_score"))
                     p2_sc_int = _safe_int_score(m.get("player2_score"))
-                    history_batch.append((
-                        p1_id, mid_str, ev_id_bound, m.get("round"), m_date,
-                        old_elo1, new_elo1, round(new_elo1 - old_elo1, 2),
-                        p2_id, _sanitize_name(s2["name"], max_len=100), old_elo2, res1,
-                        fac1, fac2,
-                        p1_sc_int, p2_sc_int,
-                        match_sys
-                    ))
-                    history_batch.append((
-                        p2_id, mid_str, ev_id_bound, m.get("round"), m_date,
-                        old_elo2, new_elo2, round(new_elo2 - old_elo2, 2),
-                        p1_id, _sanitize_name(s1["name"], max_len=100), old_elo1, res2,
-                        fac2, fac1,
-                        p2_sc_int, p1_sc_int,
-                        match_sys
-                    ))
+                    if p1_id.upper() != "BYE":
+                        history_batch.append((
+                            p1_id, mid_str, ev_id_bound, m.get("round"), m_date,
+                            old_elo1, new_elo1, round(new_elo1 - old_elo1, 2),
+                            p2_id, _sanitize_name(s2["name"], max_len=100), old_elo2, res1,
+                            fac1, fac2,
+                            p1_sc_int, p2_sc_int,
+                            match_sys
+                        ))
+                    if p2_id.upper() != "BYE" and not is_bye_match:
+                        history_batch.append((
+                            p2_id, mid_str, ev_id_bound, m.get("round"), m_date,
+                            old_elo2, new_elo2, round(new_elo2 - old_elo2, 2),
+                            p1_id, _sanitize_name(s1["name"], max_len=100), old_elo1, res2,
+                            fac2, fac1,
+                            p2_sc_int, p1_sc_int,
+                            match_sys
+                        ))
 
                 if history_batch:
-                    extras.execute_values(cursor, insert_history_pg, history_batch, page_size=2500)
+                    dedup_hb = list({(r[0], r[1]): r for r in history_batch}.values())
+                    extras.execute_values(cursor, insert_history_pg, dedup_hb, page_size=2500)
 
                 # Upsert updated player ratings for touched players only into composite PK (player_id, game_system)
                 now_iso = datetime.now(timezone.utc)
@@ -3118,6 +3184,7 @@ class EloEngine:
         except Exception:
             pass
 
+        unrated_real_matches_count = 0
         if supplement_matches:
             for m in supplement_matches:
                 if not isinstance(m, dict):
@@ -3131,6 +3198,9 @@ class EloEngine:
                     continue
                 is_p1 = (m.get("player1_id") == player_id)
                 opp_id = m.get("player2_id") if is_p1 else m.get("player1_id")
+                # Never append unrated BCP byes or dropped rounds (opponent_id is None / BYE) into history
+                if m.get("is_bye") or not opp_id or str(opp_id).strip().upper() == "BYE":
+                    continue
                 opp_name = m.get("player2_name") if is_p1 else m.get("player1_name")
                 opp_fac = m.get("player2_faction") if is_p1 else m.get("player1_faction")
                 my_fac = m.get("player1_faction") if is_p1 else m.get("player2_faction")
@@ -3152,9 +3222,10 @@ class EloEngine:
                             is_draw = True
                     except (ValueError, TypeError):
                         pass
-                if not (is_win or is_loss or is_draw or m.get("is_bye")):
+                if not (is_win or is_loss or is_draw):
                     continue
-                res = "W" if (is_win or m.get("is_bye")) else ("L" if is_loss else ("D" if is_draw else "-"))
+                res = "W" if is_win else ("L" if is_loss else ("D" if is_draw else "-"))
+                unrated_real_matches_count += 1
 
                 if mid is not None:
                     seen_match_ids.add(str(mid))
@@ -3175,15 +3246,71 @@ class EloEngine:
                     "new_elo": player_meta.get("current_elo", self.initial_elo),
                     "delta_elo": 0.0,
                     "opponent_id": opp_id,
-                    "opponent_name": opp_name or ("BYE" if m.get("is_bye") else "Opponent"),
+                    "opponent_name": opp_name or "Opponent",
                     "opponent_elo": 1500.0,
                     "result": res,
                     "player_faction": my_fac,
                     "opponent_faction": opp_fac,
                     "player_score": my_score,
                     "opponent_score": opp_score,
-                    "is_bye": bool(m.get("is_bye"))
+                    "is_bye": False
                 })
+
+        # Self-heal if player_ratings is out of sync with rating_history or if unrated real matches exist
+        if is_real_pg and player_id and str(player_id).strip().upper() != "BYE":
+            has_discontinuous_elo = False
+            for idx_h in range(1, len(history)):
+                h_prev = history[idx_h - 1]
+                h_curr = history[idx_h]
+                if isinstance(h_prev, dict) and isinstance(h_curr, dict):
+                    try:
+                        prev_new = float(h_prev.get("new_elo") or self.initial_elo)
+                        curr_old = float(h_curr.get("old_elo") or self.initial_elo)
+                        if abs(curr_old - prev_new) > 0.5:
+                            has_discontinuous_elo = True
+                            break
+                    except (ValueError, TypeError):
+                        pass
+
+            pr_matches_cnt = int(player_meta.get("matches_played") or 0)
+            pr_curr_elo = float(player_meta.get("current_elo") or self.initial_elo)
+            hist_last_elo = float(history[-1].get("new_elo") or self.initial_elo) if history and isinstance(history[-1], dict) else self.initial_elo
+            needs_user_elo_recon = bool(
+                unrated_real_matches_count > 0
+                or has_discontinuous_elo
+                or (history and (pr_matches_cnt != len(history) or abs(pr_curr_elo - hist_last_elo) > 0.5))
+            )
+            if needs_user_elo_recon:
+                try:
+                    self.reconstruct_user_elo(player_id, game_system=game_system)
+                    history = self.db.get_player_history(player_id, game_system=game_system)
+                    refreshed_info = self.db.search_players(player_id, game_system=game_system)
+                    if refreshed_info:
+                        player_meta = refreshed_info[0]
+                    if include_tournaments and hasattr(self.db, "get_player_tournaments"):
+                        tournaments_list = self.db.get_player_tournaments(player_id, game_system=game_system)
+                except Exception as recon_err:
+                    logger.debug(f"Self-heal reconstruct_user_elo notice for {player_id}: {recon_err}")
+
+        # Ensure player_meta stats (matches_played, wins, losses, draws, win_rate, current_elo, peak_elo) strictly match history
+        if history and isinstance(player_meta, dict):
+            h_wins = sum(1 for h in history if isinstance(h, dict) and str(h.get("result") or "").upper() == "W")
+            h_losses = sum(1 for h in history if isinstance(h, dict) and str(h.get("result") or "").upper() == "L")
+            h_draws = sum(1 for h in history if isinstance(h, dict) and str(h.get("result") or "").upper() == "D")
+            h_total = len(history)
+            if h_total > 0:
+                player_meta["matches_played"] = h_total
+                player_meta["wins"] = h_wins
+                player_meta["losses"] = h_losses
+                player_meta["draws"] = h_draws
+                player_meta["win_rate"] = round((h_wins * 100.0) / h_total, 1)
+                try:
+                    last_new_elo = float(history[-1].get("new_elo") or player_meta.get("current_elo") or self.initial_elo)
+                    max_hist_elo = max([self.initial_elo] + [float(h.get("new_elo") or self.initial_elo) for h in history if isinstance(h, dict)])
+                    player_meta["current_elo"] = round(last_new_elo, 2)
+                    player_meta["peak_elo"] = round(max(last_new_elo, max_hist_elo), 2)
+                except (ValueError, TypeError):
+                    pass
 
         if history:
             _sync_history_from_tournaments(tournaments_list, history)
@@ -3208,7 +3335,7 @@ class EloEngine:
                         continue
                     t_eid = str(t_item.get("event_id") or "").strip()
                     wld = hist_wld_by_eid.get(t_eid)
-                    if wld and sum(wld) > int(t_item.get("matches_played") or 0):
+                    if wld and sum(wld) > 0:
                         t_item["wins"] = wld[0]
                         t_item["losses"] = wld[1]
                         t_item["draws"] = wld[2]
@@ -3352,9 +3479,18 @@ class EloEngine:
             })
         matchup_matrix.sort(key=lambda x: (x["total_encounters"], x["win_rate"]), reverse=True)
 
-        # Collect distinct teams for this player ordered by recency
+        # Collect distinct teams and cross-system career history for this player
         all_teams_list = []
+        career_systems: List[Dict[str, Any]] = []
+        other_system_history: List[Dict[str, Any]] = []
+        other_system_tournaments: List[Dict[str, Any]] = []
         target_sys = (game_system or "40k").strip().lower()
+        resolved_pname = str(
+            player_meta.get("player_name")
+            or player_meta.get("full_name")
+            or player_name
+            or (history[0].get("opponent_name") if history else "Unknown")
+        ).strip()
         try:
             with self.db.get_connection() as conn:
                 with conn.cursor() as cur:
@@ -3369,8 +3505,139 @@ class EloEngine:
                     ORDER BY last_seen DESC NULLS LAST;
                     """, (player_id, target_sys))
                     all_teams_list = [r[0] for r in cur.fetchall() if r[0]]
+
+                    if include_tournaments and is_real_pg:
+                        alias_pids = [player_id]
+                        if initial_pid and initial_pid not in alias_pids:
+                            alias_pids.append(initial_pid)
+                        try:
+                            cur.execute(
+                                """
+                                SELECT u.id, u.player_id, u.bcp_user_id, upl.platform_user_id
+                                FROM users u
+                                LEFT JOIN user_platform_links upl ON u.id = upl.user_id
+                                WHERE u.id = ANY(%s) OR u.player_id = ANY(%s) OR u.bcp_user_id = ANY(%s) OR upl.platform_user_id = ANY(%s);
+                                """,
+                                (alias_pids, alias_pids, alias_pids, alias_pids),
+                            )
+                            for lr in (cur.fetchall() or []):
+                                for col_v in (lr if isinstance(lr, (list, tuple)) else lr.values()):
+                                    s_v = str(col_v or "").strip()
+                                    if s_v and s_v not in alias_pids:
+                                        alias_pids.append(s_v)
+                        except Exception:
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
+
+                        exact_name_filter = (
+                            resolved_pname
+                            if (
+                                resolved_pname
+                                and " " in resolved_pname
+                                and len(resolved_pname) >= 6
+                                and not _is_placeholder_name(resolved_pname, player_id)
+                            )
+                            else ""
+                        )
+                        if exact_name_filter:
+                            cur.execute(
+                                """
+                                SELECT COALESCE(game_system, '40k') AS gs,
+                                       player_id,
+                                       player_name,
+                                       current_elo,
+                                       peak_elo,
+                                       matches_played,
+                                       wins,
+                                       losses,
+                                       draws,
+                                       win_rate,
+                                       top_faction
+                                FROM player_ratings
+                                WHERE (
+                                    player_id = ANY(%s)
+                                    OR (player_name ILIKE %s AND LOWER(TRIM(player_name)) = LOWER(TRIM(%s)))
+                                )
+                                  AND COALESCE(matches_played, 0) > 0
+                                ORDER BY (player_id = ANY(%s)) DESC, matches_played DESC, current_elo DESC;
+                                """,
+                                (alias_pids, exact_name_filter, exact_name_filter, alias_pids),
+                            )
+                        else:
+                            cur.execute(
+                                """
+                                SELECT COALESCE(game_system, '40k') AS gs,
+                                       player_id,
+                                       player_name,
+                                       current_elo,
+                                       peak_elo,
+                                       matches_played,
+                                       wins,
+                                       losses,
+                                       draws,
+                                       win_rate,
+                                       top_faction
+                                FROM player_ratings
+                                WHERE player_id = ANY(%s) AND COALESCE(matches_played, 0) > 0
+                                ORDER BY matches_played DESC, current_elo DESC;
+                                """,
+                                (alias_pids,),
+                            )
+                        cs_rows = cur.fetchall() or []
+                        seen_gs = set()
+                        for r_cs in cs_rows:
+                            if isinstance(r_cs, (list, tuple)) and len(r_cs) >= 11:
+                                gs_v = str(r_cs[0] or "40k").strip().lower()
+                                if gs_v in seen_gs:
+                                    continue
+                                seen_gs.add(gs_v)
+                                career_systems.append({
+                                    "game_system": gs_v,
+                                    "player_id": str(r_cs[1] or player_id),
+                                    "player_name": str(r_cs[2] or resolved_pname),
+                                    "current_elo": float(r_cs[3] or self.initial_elo),
+                                    "peak_elo": float(r_cs[4] or self.initial_elo),
+                                    "matches_played": int(r_cs[5] or 0),
+                                    "wins": int(r_cs[6] or 0),
+                                    "losses": int(r_cs[7] or 0),
+                                    "draws": int(r_cs[8] or 0),
+                                    "win_rate": float(r_cs[9] or 0.0),
+                                    "top_faction": str(r_cs[10] or ""),
+                                })
         except Exception as e:
-            logger.debug(f"Error fetching team history for {player_id}: {e}")
+            logger.debug(f"Error fetching team/career history for {player_id}: {e}")
+
+        # Fetch Tournament Journey history & tournaments across other active game systems for this player
+        if include_tournaments and is_real_pg and career_systems:
+            other_cs = [cs for cs in career_systems if cs.get("game_system") != target_sys][:6]
+            for cs_entry in other_cs:
+                other_gs = cs_entry["game_system"]
+                other_pid = cs_entry["player_id"]
+                try:
+                    o_hist = self.db.get_player_history(other_pid, game_system=other_gs) or []
+                    o_tours = (
+                        self.db.get_player_tournaments(other_pid, game_system=other_gs)
+                        if hasattr(self.db, "get_player_tournaments")
+                        else []
+                    ) or []
+                    if o_hist and o_tours:
+                        _sync_history_from_tournaments(o_tours, o_hist)
+                    for oh in o_hist:
+                        if isinstance(oh, dict):
+                            oh_copy = dict(oh)
+                            oh_copy["game_system"] = other_gs
+                            oh_copy["system_player_id"] = other_pid
+                            other_system_history.append(oh_copy)
+                    for ot in o_tours:
+                        if isinstance(ot, dict):
+                            ot_copy = dict(ot)
+                            ot_copy["game_system"] = other_gs
+                            ot_copy["system_player_id"] = other_pid
+                            other_system_tournaments.append(ot_copy)
+                except Exception as o_err:
+                    logger.debug(f"Notice fetching other system ({other_gs}) journey for {other_pid}: {o_err}")
 
         # Current/Latest team is the first one in recency order
         latest_team = all_teams_list[0] if all_teams_list else (player_meta.get("team") or None)
@@ -3399,6 +3666,9 @@ class EloEngine:
             "trajectory": trajectory,
             "tournaments": tournaments_list,
             "events_attended": tournaments_list,
+            "career_systems": career_systems,
+            "other_system_history": other_system_history,
+            "other_system_tournaments": other_system_tournaments,
             "player": {
                 **player_meta,
                 "team": latest_team,
@@ -3486,11 +3756,15 @@ class EloEngine:
                 else:
                     cur.execute(
                         """
-                        SELECT DISTINCT COALESCE(game_system, '40k') AS gs
-                        FROM matches
-                        WHERE (player1_id = ANY(%s) OR player2_id = ANY(%s)) AND is_done = TRUE;
+                        SELECT DISTINCT COALESCE(m.game_system, '40k') AS gs
+                        FROM matches m
+                        WHERE (
+                            m.player1_id = ANY(%s)
+                            OR m.player2_id = ANY(%s)
+                            OR EXISTS (SELECT 1 FROM match_participants mp WHERE mp.match_id = m.id AND mp.player_id = ANY(%s))
+                        ) AND m.is_done = TRUE;
                         """,
-                        (candidate_ids, candidate_ids),
+                        (candidate_ids, candidate_ids, candidate_ids),
                     )
                     for r in (cur.fetchall() or []):
                         gs_val = r["gs"] if isinstance(r, dict) else r[0]
@@ -3508,25 +3782,50 @@ class EloEngine:
                             m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
                             m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
                             m.winner_id, m.is_draw, m.is_bye,
+                            m.raw_json,
                             COALESCE(m.game_system, '40k') AS game_system,
                             opp_rh.old_elo AS opp_hist_elo,
                             opp_pr.current_elo AS opp_curr_elo
                         FROM matches m
-                        LEFT JOIN rating_history opp_rh
-                          ON opp_rh.match_id = m.id
-                         AND COALESCE(opp_rh.game_system, '40k') = COALESCE(m.game_system, '40k')
-                         AND opp_rh.player_id = (CASE WHEN m.player1_id = ANY(%s) THEN m.player2_id ELSE m.player1_id END)
-                        LEFT JOIN player_ratings opp_pr
-                          ON opp_pr.player_id = (CASE WHEN m.player1_id = ANY(%s) THEN m.player2_id ELSE m.player1_id END)
-                         AND COALESCE(opp_pr.game_system, '40k') = COALESCE(m.game_system, '40k')
-                        WHERE (m.player1_id = ANY(%s) OR m.player2_id = ANY(%s))
+                        LEFT JOIN LATERAL (
+                            SELECT r.old_elo
+                            FROM rating_history r
+                            WHERE r.match_id = m.id
+                              AND COALESCE(r.game_system, '40k') = COALESCE(m.game_system, '40k')
+                              AND r.player_id = (CASE WHEN m.player1_id = ANY(%s) THEN m.player2_id ELSE m.player1_id END)
+                            ORDER BY r.id ASC
+                            LIMIT 1
+                        ) opp_rh ON TRUE
+                        LEFT JOIN LATERAL (
+                            SELECT p.current_elo
+                            FROM player_ratings p
+                            WHERE p.player_id = (CASE WHEN m.player1_id = ANY(%s) THEN m.player2_id ELSE m.player1_id END)
+                              AND COALESCE(p.game_system, '40k') = COALESCE(m.game_system, '40k')
+                            LIMIT 1
+                        ) opp_pr ON TRUE
+                        WHERE (
+                            m.player1_id = ANY(%s)
+                            OR m.player2_id = ANY(%s)
+                            OR EXISTS (SELECT 1 FROM match_participants mp WHERE mp.match_id = m.id AND mp.player_id = ANY(%s))
+                        )
                           AND m.is_done = TRUE
+                          AND m.player1_id IS NOT NULL AND m.player1_id != ''
+                          AND m.player2_id IS NOT NULL AND m.player2_id != ''
                           AND COALESCE(m.game_system, '40k') = %s
-                        ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC;
+                        ORDER BY m.match_date ASC NULLS FIRST, m.event_id ASC, m.round ASC, m.table_number ASC, m.id ASC;
                         """,
-                        (candidate_ids, candidate_ids, candidate_ids, candidate_ids, sys_target),
+                        (candidate_ids, candidate_ids, candidate_ids, candidate_ids, candidate_ids, sys_target),
                     )
-                    user_matches = [dict(r) for r in (cur.fetchall() or [])]
+                    raw_user_matches = [dict(r) for r in (cur.fetchall() or [])]
+                    seen_um_ids = set()
+                    user_matches = []
+                    for um in raw_user_matches:
+                        um_id = str(um.get("id") or "")
+                        if um_id and um_id in seen_um_ids:
+                            continue
+                        if um_id:
+                            seen_um_ids.add(um_id)
+                        user_matches.append(um)
                     if not user_matches:
                         continue
 
@@ -3552,6 +3851,86 @@ class EloEngine:
                     hist_rows = []
 
                     for m in user_matches:
+                        mid_str = str(m.get("id") or "")
+                        raw_obj: Dict[str, Any] = {}
+                        raw_val = m.get("raw_json")
+                        if isinstance(raw_val, dict):
+                            raw_obj = raw_val
+                        elif isinstance(raw_val, str) and raw_val.strip().startswith("{"):
+                            try:
+                                raw_obj = json.loads(raw_val)
+                            except Exception:
+                                raw_obj = {}
+
+                        pod_parts = raw_obj.get("pod_participants")
+                        if isinstance(pod_parts, list) and len(pod_parts) >= 3:
+                            my_seat = next(
+                                (s for s in pod_parts if isinstance(s, dict) and str(s.get("player_id") or "")[:64] in candidate_set),
+                                None,
+                            )
+                            if my_seat:
+                                my_name_pod = _sanitize_name(my_seat.get("player_name"), max_len=100)
+                                if my_name_pod and not _is_placeholder_name(my_name_pod, clean_pid):
+                                    best_name = my_name_pod
+                                my_fac_pod = _sanitize_name(my_seat.get("faction"), max_len=60)
+                                others_pod = [s for s in pod_parts if isinstance(s, dict) and str(s.get("player_id") or "")[:64] not in candidate_set]
+                                n_pod = len(pod_parts)
+                                win_id_pod = str(m.get("winner_id") or "")[:64]
+                                is_pod_draw = bool(m.get("is_draw") or not win_id_pod)
+                                old_elo = cur_elo
+                                opp_elo = self.initial_elo
+                                exp_norm = self.expected_score(old_elo, opp_elo)
+                                if is_pod_draw:
+                                    act_norm = 0.5
+                                    res_code = "D"
+                                elif win_id_pod in candidate_set:
+                                    act_norm = 1.0
+                                    res_code = "W"
+                                else:
+                                    act_norm = (0.5 * float(max(0, n_pod - 2))) / float(max(1, n_pod - 1))
+                                    res_code = "L"
+                                k_val = self.provisional_k if matches_played < self.provisional_matches else self.default_k
+                                delta_e = round(k_val * (act_norm - exp_norm), 2)
+                                new_elo = round(old_elo + delta_e, 2)
+                                cur_elo = new_elo
+                                peak_elo = max(peak_elo, new_elo)
+                                matches_played += 1
+                                if res_code == "W":
+                                    wins += 1
+                                elif res_code == "L":
+                                    losses += 1
+                                else:
+                                    draws += 1
+                                m_date = m.get("match_date")
+                                if m_date:
+                                    last_active_date = _max_date(last_active_date, m_date)
+                                if my_fac_pod and "Pod" not in my_fac_pod:
+                                    fac_counts[my_fac_pod] += 1
+                                opp_rep_id = win_id_pod if (win_id_pod and win_id_pod not in candidate_set) else (str(others_pod[0].get("player_id") or "POD")[:64] if others_pod else "POD")
+                                opp_pod_names = ("Pod: " + ", ".join(_sanitize_name(o.get("player_name"), max_len=26) or str(o.get("player_id") or "")[:6] for o in others_pod))[:100]
+                                my_sc = _safe_int_score(my_seat.get("score") if my_seat.get("score") is not None else (5 if res_code == "W" else (1 if res_code == "D" else 0)))
+                                op_sc = _safe_int_score(1 if is_pod_draw else (0 if res_code == "W" else 5))
+                                hist_rows.append((
+                                    clean_pid,
+                                    mid_str[:64],
+                                    str(m.get("event_id") or "")[:64] if m.get("event_id") else None,
+                                    m.get("round"),
+                                    m_date,
+                                    old_elo,
+                                    new_elo,
+                                    delta_e,
+                                    opp_rep_id,
+                                    opp_pod_names,
+                                    opp_elo,
+                                    res_code,
+                                    my_fac_pod,
+                                    f"{n_pod}-Player FFA Pod",
+                                    my_sc,
+                                    op_sc,
+                                    sys_target,
+                                ))
+                                continue
+
                         p1_id = str(m.get("player1_id") or "")[:64]
                         p2_id = str(m.get("player2_id") or "")[:64]
                         is_p1 = (p1_id in candidate_set)
@@ -3566,7 +3945,6 @@ class EloEngine:
                         my_score = m.get("player1_score") if is_p1 else m.get("player2_score")
                         opp_score = m.get("player2_score") if is_p1 else m.get("player1_score")
 
-                        mid_str = str(m.get("id") or "")
                         is_non_bcp_match = mid_str.startswith(("melee:", "ltcg:", "ls:", "td:"))
                         is_bye_match = bool(m.get("is_bye") or opp_id.upper() == "BYE")
                         is_real_draw = bool(m.get("is_draw") and ((m.get("player1_score") or 0) > 0 or (m.get("player2_score") or 0) > 0 or is_non_bcp_match))
@@ -3651,7 +4029,7 @@ class EloEngine:
                             ON CONFLICT (player_id, game_system) DO UPDATE SET
                                 player_name = EXCLUDED.player_name,
                                 current_elo = EXCLUDED.current_elo,
-                                peak_elo = GREATEST(player_ratings.peak_elo, EXCLUDED.peak_elo),
+                                peak_elo = EXCLUDED.peak_elo,
                                 matches_played = EXCLUDED.matches_played,
                                 wins = EXCLUDED.wins,
                                 losses = EXCLUDED.losses,
