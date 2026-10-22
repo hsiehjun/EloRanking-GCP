@@ -81,9 +81,13 @@ LIMITLESS_GAME_MAP = {
     "DCG": "digimon",
     "SWU": "sw_unlimited",
     "LOR": "lorcana",
+    "LORCANA": "lorcana",
+    "RB": "riftbound",
     "MTG": "mtg",
     "GUNDAM": "gundam_tcg",
 }
+
+_LIMITLESS_CATALOG_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
 def _http_get_text(url: str, timeout: int = 15) -> str:
@@ -136,30 +140,234 @@ def format_limitless_decklist(dl: Any) -> str:
     return "\n".join(lines).strip()
 
 
+def _fetch_limitless_completed_catalog_html(
+    game_code: Optional[str] = None,
+    page: int = 1,
+    show: int = 100,
+    time_filter: str = "all",
+) -> List[Dict[str, Any]]:
+    """Scrapes completed Limitless TCG tournaments from `/tournaments/completed` HTML (zero rate limit)."""
+    q = [f"show={show}", f"time={time_filter}"]
+    if game_code:
+        q.append(f"game={game_code}")
+    if page > 1:
+        q.append(f"page={page}")
+    url = "https://play.limitlesstcg.com/tournaments/completed?" + "&".join(q)
+    txt = _http_get_text(url, timeout=15)
+    out: List[Dict[str, Any]] = []
+    for tr_m in re.finditer(r'<tr([^>]+data-date="([^"]+)"[^>]*)>(.*?)</tr>', txt, re.S):
+        attrs, d_str, body = tr_m.group(1), tr_m.group(2), tr_m.group(3)
+        tid_m = re.search(r'href="/tournament/([^/"?#]+)/standings"', body)
+        if not tid_m:
+            continue
+        tid = tid_m.group(1).strip()
+        name_m = re.search(r'data-name="([^"]*)"', attrs)
+        org_m = re.search(r'data-organizer="([^"]*)"', attrs)
+        pl_m = re.search(r'data-players="(\d+)"', attrs)
+        fmt_m = re.search(r'class="format[^"]*"[^>]*data-tooltip="([^"]+)"', body)
+        item = {
+            "id": tid,
+            "name": html.unescape(name_m.group(1)).strip() if name_m else tid,
+            "date": d_str,
+            "organizer": html.unescape(org_m.group(1)).strip() if org_m else "Limitless Online",
+            "players": int(pl_m.group(1)) if pl_m else 0,
+            "format": html.unescape(fmt_m.group(1)).strip() if fmt_m else "Standard",
+            "game": (game_code or "PTCG").upper(),
+        }
+        _LIMITLESS_CATALOG_CACHE[tid] = item
+        out.append(item)
+    return out
+
+
+def _fetch_ltcg_decklist_html(raw_tid: str, raw_pid: str) -> str:
+    """Fetches a player's formatted decklist from `/tournament/{tid}/player/{pid}/decklist` HTML (zero rate limit)."""
+    try:
+        dl_html = _http_get_text(
+            f"https://play.limitlesstcg.com/tournament/{raw_tid}/player/{raw_pid}/decklist",
+            timeout=10,
+        )
+        dl_lines: List[str] = []
+        for col_m in re.finditer(r'<div class="cards">\s*<div class="heading">(.*?)</div>(.*?)</div>', dl_html, re.S):
+            sec_title = html.unescape(re.sub(r"<[^>]+>", "", col_m.group(1)).strip())
+            if sec_title:
+                dl_lines.append(f"=== {sec_title.upper()} ===")
+            for p_m in re.finditer(r"<p[^>]*>(.*?)</p>", col_m.group(2), re.S):
+                card_txt = html.unescape(re.sub(r"<[^>]+>", "", p_m.group(1)).strip())
+                if card_txt:
+                    dl_lines.append(card_txt)
+            dl_lines.append("")
+        return "\n".join(dl_lines).strip()
+    except Exception:
+        return ""
+
+
+def _fetch_ltcg_bundle_html(
+    raw_tid: str,
+    t_meta: Optional[Dict[str, Any]] = None,
+    max_decklists: int = 2,
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    Scrapes tournament details, standings, decklists, and all Swiss + bracket rounds from
+    `https://play.limitlesstcg.com/tournament/{raw_tid}/...` HTML pages (`RateLimit: None`).
+    """
+    meta = dict(_LIMITLESS_CATALOG_CACHE.get(raw_tid) or {})
+    if isinstance(t_meta, dict):
+        for k, v in t_meta.items():
+            if v is not None and v != "":
+                meta[k] = v
+
+    st_html = _http_get_text(f"https://play.limitlesstcg.com/tournament/{raw_tid}/standings", timeout=15)
+    t_m = re.search(r"<title>(?:Standings:\s*)?(.*?)\s*\|\s*Limitless</title>", st_html, re.S)
+    title = html.unescape(t_m.group(1).strip()) if t_m else str(meta.get("name") or raw_tid)
+    desc_m = re.search(r'<meta name="description" content="([^"]+)">', st_html)
+    desc_parts = [p.strip() for p in (desc_m.group(1).split(" - ") if desc_m else [])]
+    fmt = (
+        desc_parts[1].replace(" format", "").strip()
+        if len(desc_parts) >= 2
+        else str(meta.get("format") or "Standard")
+    )
+    org = (
+        desc_parts[2]
+        if len(desc_parts) >= 3
+        else str(meta.get("organizer") or "Limitless Online")
+    )
+
+    ev_date = str(meta.get("date") or "").strip()
+    if not ev_date:
+        try:
+            det_html = _http_get_text(f"https://play.limitlesstcg.com/tournament/{raw_tid}/details", timeout=12)
+            tm_m = re.search(r'data-time="(\d+)"', det_html)
+            if tm_m:
+                ev_date = datetime.fromtimestamp(int(tm_m.group(1)) / 1000.0, tz=timezone.utc).isoformat()
+        except Exception:
+            pass
+
+    standings: List[Dict[str, Any]] = []
+    decklist_fetched = 0
+    for tr_m in re.finditer(r'<tr([^>]+data-placing="(\d+)"[^>]*)>(.*?)</tr>', st_html, re.S):
+        attrs, placing_s, body = tr_m.group(1), tr_m.group(2), tr_m.group(3)
+        name_m = re.search(r'data-name="([^"]*)"', attrs)
+        country_m = re.search(r'data-country="([^"]*)"', attrs)
+        drop_m = re.search(r'data-drop="([^"]*)"', attrs)
+        pid_m = re.search(r'href="/tournament/[^/]+/player/([^"/?#]+)"', body)
+        rec_m = re.search(r">\s*(\d+)\s*-\s*(\d+)\s*-\s*(\d+)\s*<", body)
+        deck_name = ""
+        mg_m = re.search(r'<a href="/tournament/[^/]+/metagame/[^"]*">(.*?)</a>', body, re.S)
+        if mg_m:
+            tt_m = re.search(r'data-tooltip="([^"]+)"', mg_m.group(1))
+            if tt_m:
+                deck_name = html.unescape(tt_m.group(1).strip())
+            else:
+                deck_name = html.unescape(re.sub(r"<[^>]+>", "", mg_m.group(1)).strip())
+        raw_pid = (pid_m.group(1) if pid_m else f"p_{placing_s}").strip()
+        has_dl = bool(re.search(r'/player/[^"/]+/decklist', body))
+        dl_text = ""
+        if has_dl and decklist_fetched < max_decklists:
+            dl_text = _fetch_ltcg_decklist_html(raw_tid, raw_pid)
+            if dl_text:
+                decklist_fetched += 1
+        standings.append(
+            {
+                "player": raw_pid,
+                "name": html.unescape(name_m.group(1)).strip() if name_m else raw_pid,
+                "country": country_m.group(1).strip() if country_m else "",
+                "placing": int(placing_s),
+                "drop": int(drop_m.group(1)) if (drop_m and drop_m.group(1).isdigit()) else None,
+                "record": {
+                    "wins": int(rec_m.group(1)) if rec_m else 0,
+                    "losses": int(rec_m.group(2)) if rec_m else 0,
+                    "ties": int(rec_m.group(3)) if rec_m else 0,
+                },
+                "deck": {"name": deck_name or fmt},
+                "decklist_text": dl_text,
+            }
+        )
+
+    pr_html = _http_get_text(f"https://play.limitlesstcg.com/tournament/{raw_tid}/pairings", timeout=15)
+    r_nums = sorted({int(x) for x in re.findall(r"/pairings\?round=(\d+)", pr_html)} or {1})
+    act_m = re.search(r'<li class="active"><a href="/tournament/[^/]+/pairings\?round=(\d+)"', pr_html)
+    act_r = int(act_m.group(1)) if act_m else max(r_nums)
+    r_pages: Dict[int, str] = {act_r: pr_html}
+    for rn in r_nums:
+        if rn not in r_pages:
+            try:
+                r_pages[rn] = _http_get_text(
+                    f"https://play.limitlesstcg.com/tournament/{raw_tid}/pairings?round={rn}",
+                    timeout=15,
+                )
+            except Exception:
+                pass
+
+    pairings: List[Dict[str, Any]] = []
+    for rn in sorted(r_pages.keys()):
+        rh = r_pages[rn]
+        tbl_idx = 0
+        for tr_m in re.finditer(r"<tr([^>]*)>(.*?)</tr>", rh, re.S):
+            t_attrs, t_body = tr_m.group(1), tr_m.group(2)
+            p_cells = re.findall(r'<td class="player([^"]*)"[^>]*data-id="([^"]+)"', t_body)
+            if not p_cells:
+                continue
+            tbl_idx += 1
+            t_num_m = re.search(r"<td>\s*(\d+)\s*</td>", t_body)
+            t_num = int(t_num_m.group(1)) if t_num_m else tbl_idx
+            w_attr = re.search(r'data-winner="([^"]*)"', t_attrs)
+            if len(p_cells) == 1:
+                pairings.append(
+                    {"round": rn, "table": t_num, "player1": p_cells[0][1], "player2": None, "winner": -1}
+                )
+            else:
+                p1, p2 = p_cells[0][1], p_cells[1][1]
+                w_val = (
+                    w_attr.group(1)
+                    if w_attr
+                    else ("winner" in p_cells[0][0] and p1 or ("winner" in p_cells[1][0] and p2 or 0))
+                )
+                pairings.append({"round": rn, "table": t_num, "player1": p1, "player2": p2, "winner": w_val})
+        for bm in re.finditer(r'<div class="bracket-match"[^>]*>(.*?)</div>\s*</div>\s*</div>', rh, re.S):
+            b_body = bm.group(1)
+            bp = re.findall(r'<div class="live-bracket-player([^"]*)"[^>]*data-id="([^"]+)"', b_body)
+            if len(bp) >= 2:
+                tbl_idx += 1
+                p1, p2 = bp[0][1], bp[1][1]
+                w_val = p1 if "winner" in bp[0][0] else (p2 if "winner" in bp[1][0] else 0)
+                pairings.append({"round": rn, "table": tbl_idx, "player1": p1, "player2": p2, "winner": w_val})
+
+    details = {
+        "id": raw_tid,
+        "name": title,
+        "date": ev_date or datetime.now(timezone.utc).isoformat(),
+        "format": fmt,
+        "game": str(meta.get("game") or ""),
+        "players": len(standings) or int(meta.get("players") or 0),
+        "organizer": {"name": org},
+    }
+    return details, standings, pairings
+
+
 def import_live_limitless_tournaments(
     db: LocalSqliteDatabase,
     explicit_tournament_ids: Optional[List[Tuple[str, str]]] = None,
 ) -> Dict[str, Any]:
     """
     Fetches real live completed tournaments, standings, decklists, and round-by-round pairings
-    from `https://play.limitlesstcg.com/api/tournaments/{id}` and stores 100% raw payloads in SQL.
+    from `https://play.limitlesstcg.com` and stores 100% raw payloads in SQL.
     """
     targets: List[Tuple[str, str, Dict[str, Any]]] = []
     if explicit_tournament_ids:
         for sys_slug, raw_tid in explicit_tournament_ids:
-            targets.append((sys_slug, raw_tid, {"id": raw_tid}))
+            cached_meta = dict(_LIMITLESS_CATALOG_CACHE.get(raw_tid) or {"id": raw_tid})
+            targets.append((sys_slug, raw_tid, cached_meta))
     else:
-        logger.info("🌐 [LimitlessTCG] Fetching live tournament catalog from https://play.limitlesstcg.com/api/tournaments...")
-        catalog = _http_get_json("https://play.limitlesstcg.com/api/tournaments?limit=120")
-        if isinstance(catalog, list):
-            seen_per_game: Dict[str, int] = {}
-            for item in catalog:
-                g_code = str(item.get("game") or "").upper()
-                if g_code not in LIMITLESS_GAME_MAP or int(item.get("players") or 0) < 10:
-                    continue
-                if seen_per_game.get(g_code, 0) < 1:
-                    seen_per_game[g_code] = seen_per_game.get(g_code, 0) + 1
-                    targets.append((LIMITLESS_GAME_MAP[g_code], str(item.get("id")), item))
+        logger.info("🌐 [LimitlessTCG] Fetching live tournament catalog from https://play.limitlesstcg.com/tournaments/completed...")
+        for g_code, sys_slug in (("PTCG", "pokemon"), ("OP", "one_piece"), ("DCG", "digimon"), ("GUNDAM", "gundam_tcg"), ("LORCANA", "lorcana"), ("SWU", "sw_unlimited")):
+            try:
+                cat_items = _fetch_limitless_completed_catalog_html(game_code=g_code, page=1, show=25, time_filter="all")
+                for item in cat_items:
+                    if int(item.get("players") or 0) >= 10:
+                        targets.append((sys_slug, str(item["id"]), item))
+                        break
+            except Exception:
+                pass
 
     events_imported = 0
     matches_imported = 0
@@ -180,7 +388,17 @@ def import_live_limitless_tournaments(
             except TypeError:
                 target_db.invalidate_all_caches()
 
-    def _fetch_ltcg_bundle(raw_tid: str):
+    max_dl_per_event = 1 if len(targets) > 25 else 3
+
+    def _fetch_ltcg_bundle(raw_tid: str, t_meta: Optional[Dict[str, Any]] = None):
+        try:
+            details, standings, pairings = _fetch_ltcg_bundle_html(
+                raw_tid, t_meta=t_meta, max_decklists=max_dl_per_event
+            )
+            if standings and pairings:
+                return details, standings, pairings
+        except Exception as html_err:
+            logger.debug(f"Limitless HTML fetch fallback for {raw_tid}: {html_err}")
         details = _http_get_json(f"https://play.limitlesstcg.com/api/tournaments/{raw_tid}/details") or {}
         standings = _http_get_json(f"https://play.limitlesstcg.com/api/tournaments/{raw_tid}/standings") or []
         pairings = _http_get_json(f"https://play.limitlesstcg.com/api/tournaments/{raw_tid}/pairings") or []
@@ -193,7 +411,7 @@ def import_live_limitless_tournaments(
             chunk_targets = targets[idx : idx + 20]
             if len(chunk_targets) > 1:
                 with ThreadPoolExecutor(max_workers=min(10, len(chunk_targets))) as pool:
-                    futs = {t[1]: pool.submit(_fetch_ltcg_bundle, t[1]) for t in chunk_targets}
+                    futs = {t[1]: pool.submit(_fetch_ltcg_bundle, t[1], t[2]) for t in chunk_targets}
                     for raw_tid_k, fut in futs.items():
                         try:
                             prefetched_ltcg[raw_tid_k] = fut.result()
@@ -207,7 +425,7 @@ def import_live_limitless_tournaments(
             if pre is not None:
                 details, standings, pairings = pre
             else:
-                details, standings, pairings = _fetch_ltcg_bundle(raw_tid)
+                details, standings, pairings = _fetch_ltcg_bundle(raw_tid, t_meta)
         except Exception as e:
             logger.warning(f"Skipping Limitless tournament {raw_tid}: {e}")
             continue
@@ -233,7 +451,7 @@ def import_live_limitless_tournaments(
             l = int(rec.get("losses") or 0)
             d = int(rec.get("ties") or 0)
             bp = float(w * 3 + d)
-            dl_text = format_limitless_decklist(st.get("decklist"))
+            dl_text = str(st.get("decklist_text") or "") or format_limitless_decklist(st.get("decklist"))
 
             player_lookup[raw_pid] = {
                 "pid": pid,

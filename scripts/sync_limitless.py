@@ -18,6 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scripts.sync_multiplatform import (
     LIMITLESS_GAME_MAP,
+    _LIMITLESS_CATALOG_CACHE,
+    _fetch_limitless_completed_catalog_html,
     _http_get_json,
     finalize_platform_sync,
     get_existing_platform_event_ids,
@@ -85,9 +87,99 @@ def discover_limitless_targets(
     deferred_from_milestones: List[Tuple[str, str]] = []
     seen_tids = set()
 
+    # 1. Primary Zero-Rate-Limit Multi-Game HTML Catalog Discovery (`/tournaments/completed`)
+    html_game_pairs = [
+        (g, s)
+        for g, s in (
+            ("PTCG", "pokemon"),
+            ("OP", "one_piece"),
+            ("DCG", "digimon"),
+            ("GUNDAM", "gundam_tcg"),
+            ("LORCANA", "lorcana"),
+            ("SWU", "sw_unlimited"),
+            ("RB", "riftbound"),
+        )
+        if target_sys in ("all", "other", "tcg") or s == target_sys
+    ]
+    if html_game_pairs:
+        from concurrent.futures import ThreadPoolExecutor
+        import itertools
+
+        html_pages = (
+            [1, 3, 7, 15, 30, 50, 75, 100] + [p for p in range(2, 120) if p not in (1, 3, 7, 15, 30, 50, 75, 100)]
+            if is_backfill
+            else [1, 2, 3]
+        )
+        active_games = list(html_game_pairs)
+        time_param = "all" if is_backfill or (days or 7) > 28 else ("7days" if (days or 7) <= 7 else "4weeks")
+        for h_page in html_pages:
+            if not active_games or (max_events and len(targets) >= max_events):
+                break
+            page_results: Dict[str, List[Dict[str, Any]]] = {}
+            with ThreadPoolExecutor(max_workers=min(7, len(active_games))) as pool:
+                futs = {
+                    g_code: pool.submit(
+                        _fetch_limitless_completed_catalog_html,
+                        game_code=g_code,
+                        page=h_page,
+                        show=100,
+                        time_filter=time_param,
+                    )
+                    for g_code, _ in active_games
+                }
+                for g_code, fut in futs.items():
+                    try:
+                        page_results[g_code] = fut.result() or []
+                    except Exception:
+                        page_results[g_code] = []
+
+            next_active_games: List[Tuple[str, str]] = []
+            per_game_candidates: List[List[Tuple[str, str]]] = []
+            for g_code, sys_slug in active_games:
+                h_items = page_results.get(g_code) or []
+                if len(h_items) >= 50 or (is_backfill and h_page == 1 and len(h_items) > 0 and g_code in ("PTCG", "OP", "DCG", "GUNDAM")):
+                    next_active_games.append((g_code, sys_slug))
+                g_cands: List[Tuple[str, str]] = []
+                for item in h_items:
+                    if int(item.get("players") or 0) < min_players:
+                        continue
+                    raw_date = str(item.get("date") or "")[:19]
+                    if raw_date:
+                        try:
+                            ev_dt = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+                            if ev_dt.tzinfo is None:
+                                ev_dt = ev_dt.replace(tzinfo=timezone.utc)
+                            if ev_dt > end_dt or ev_dt < start_dt:
+                                continue
+                        except Exception:
+                            pass
+                    tid = str(item.get("id") or "").strip()
+                    if (
+                        tid
+                        and tid not in seen_tids
+                        and tid not in existing_set
+                        and f"ltcg:{tid}" not in existing_set
+                    ):
+                        seen_tids.add(tid)
+                        g_cands.append((sys_slug, tid))
+                if g_cands:
+                    per_game_candidates.append(g_cands)
+
+            for row_tuple in itertools.zip_longest(*per_game_candidates):
+                for pair in row_tuple:
+                    if pair is None:
+                        continue
+                    targets.append(pair)
+                    if max_events and len(targets) >= max_events:
+                        return targets
+            active_games = next_active_games
+
+    # 2. Secondary JSON API Catalog Fallback (`/api/tournaments`) if HTML catalog yielded fewer than max_events
     try:
         per_page_quota = max(12, ((max_events or 25) - len(targets) + len(milestone_pages) - 1) // max(1, len(milestone_pages))) if is_backfill else (max_events or 25)
         for page in pages_to_scan:
+            if max_events and len(targets) >= max_events:
+                return targets
             url = f"https://play.limitlesstcg.com/api/tournaments?limit={limit_param}" + (f"&page={page}" if page > 1 else "")
             catalog = _http_get_json(url)
             if not isinstance(catalog, list) or not catalog:
@@ -118,6 +210,8 @@ def discover_limitless_targets(
                     except Exception:
                         pass
                 tid = str(item.get("id") or "").strip()
+                if tid:
+                    _LIMITLESS_CATALOG_CACHE[tid] = item
                 if (
                     tid
                     and tid not in seen_tids

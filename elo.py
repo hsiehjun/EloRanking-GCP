@@ -164,49 +164,73 @@ def _heal_and_load_authoritative_names(
         with conn.cursor() as cur:
             if scoped_pids is not None:
                 cur.execute("""
-                UPDATE players p
-                SET full_name = SUBSTRING(TRIM(ep.full_name), 1, 100)
-                FROM event_participants ep
-                WHERE p.id = ANY(%s)
-                  AND p.id = ep.player_id
-                  AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
-                  AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != '' AND LENGTH(ep.full_name) <= 100
-                  AND ep.full_name NOT LIKE '{%%' AND ep.full_name NOT LIKE '[%%'
-                  AND NOT (ep.full_name ~* %s OR ep.full_name ILIKE 'BYE');
-                """, (scoped_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+                SELECT id FROM players
+                WHERE id = ANY(%s)
+                  AND (full_name IS NULL OR TRIM(full_name) = '' OR full_name ~* %s OR LENGTH(full_name) > 100 OR full_name LIKE '{%%');
+                """, (scoped_pids, PLACEHOLDER_REGEX_STR))
+                bad_pids = [
+                    str(r[0] if isinstance(r, (list, tuple)) else r.get("id"))
+                    for r in (cur.fetchall() or [])
+                    if (r[0] if isinstance(r, (list, tuple)) else (r.get("id") if isinstance(r, dict) else None))
+                ]
+                if bad_pids:
+                    cur.execute("""
+                    UPDATE players p
+                    SET full_name = SUBSTRING(TRIM(ep.full_name), 1, 100)
+                    FROM event_participants ep
+                    WHERE p.id = ANY(%s)
+                      AND p.id = ep.player_id
+                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+                      AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != '' AND LENGTH(ep.full_name) <= 100
+                      AND ep.full_name NOT LIKE '{%%' AND ep.full_name NOT LIKE '[%%'
+                      AND NOT (ep.full_name ~* %s OR ep.full_name ILIKE 'BYE');
+                    """, (bad_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+                    cur.execute("""
+                    UPDATE players p
+                    SET full_name = SUBSTRING(TRIM(m.player1_name), 1, 100)
+                    FROM matches m
+                    WHERE p.id = ANY(%s)
+                      AND p.id = m.player1_id
+                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+                      AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != '' AND LENGTH(m.player1_name) <= 100
+                      AND m.player1_name NOT LIKE '{%%' AND m.player1_name NOT LIKE '[%%'
+                      AND NOT (m.player1_name ~* %s OR m.player1_name ILIKE 'BYE');
+                    """, (bad_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+                    cur.execute("""
+                    UPDATE players p
+                    SET full_name = SUBSTRING(TRIM(m.player2_name), 1, 100)
+                    FROM matches m
+                    WHERE p.id = ANY(%s)
+                      AND p.id = m.player2_id
+                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+                      AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != '' AND LENGTH(m.player2_name) <= 100
+                      AND m.player2_name NOT LIKE '{%%' AND m.player2_name NOT LIKE '[%%'
+                      AND NOT (m.player2_name ~* %s OR m.player2_name ILIKE 'BYE');
+                    """, (bad_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+
                 cur.execute("""
-                UPDATE players p
-                SET full_name = SUBSTRING(TRIM(m.player1_name), 1, 100)
-                FROM matches m
-                WHERE p.id = ANY(%s)
-                  AND p.id = m.player1_id
-                  AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
-                  AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != '' AND LENGTH(m.player1_name) <= 100
-                  AND m.player1_name NOT LIKE '{%%' AND m.player1_name NOT LIKE '[%%'
-                  AND NOT (m.player1_name ~* %s OR m.player1_name ILIKE 'BYE');
-                """, (scoped_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
-                cur.execute("""
-                UPDATE players p
-                SET full_name = SUBSTRING(TRIM(m.player2_name), 1, 100)
-                FROM matches m
-                WHERE p.id = ANY(%s)
-                  AND p.id = m.player2_id
-                  AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
-                  AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != '' AND LENGTH(m.player2_name) <= 100
-                  AND m.player2_name NOT LIKE '{%%' AND m.player2_name NOT LIKE '[%%'
-                  AND NOT (m.player2_name ~* %s OR m.player2_name ILIKE 'BYE');
-                """, (scoped_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
-                cur.execute("""
-                UPDATE player_ratings pr
-                SET player_name = SUBSTRING(TRIM(p.full_name), 1, 100), updated_at = NOW()
-                FROM players p
-                WHERE pr.player_id = ANY(%s)
-                  AND pr.player_id = p.id
-                  AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s OR LENGTH(pr.player_name) > 100 OR pr.player_name LIKE '{%%')
-                  AND p.full_name IS NOT NULL AND TRIM(p.full_name) != '' AND LENGTH(p.full_name) <= 100
-                  AND p.full_name NOT LIKE '{%%' AND p.full_name NOT LIKE '[%%'
-                  AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
-                """, (scoped_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+                SELECT player_id FROM player_ratings
+                WHERE player_id = ANY(%s)
+                  AND (player_name IS NULL OR TRIM(player_name) = '' OR player_name ~* %s OR LENGTH(player_name) > 100 OR player_name LIKE '{%%');
+                """, (scoped_pids, PLACEHOLDER_REGEX_STR))
+                bad_pr_pids = [
+                    str(r[0] if isinstance(r, (list, tuple)) else r.get("player_id"))
+                    for r in (cur.fetchall() or [])
+                    if (r[0] if isinstance(r, (list, tuple)) else (r.get("player_id") if isinstance(r, dict) else None))
+                ]
+                if bad_pr_pids:
+                    cur.execute("""
+                    UPDATE player_ratings pr
+                    SET player_name = SUBSTRING(TRIM(p.full_name), 1, 100), updated_at = NOW()
+                    FROM players p
+                    WHERE pr.player_id = ANY(%s)
+                      AND pr.player_id = p.id
+                      AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s OR LENGTH(pr.player_name) > 100 OR pr.player_name LIKE '{%%')
+                      AND p.full_name IS NOT NULL AND TRIM(p.full_name) != '' AND LENGTH(p.full_name) <= 100
+                      AND p.full_name NOT LIKE '{%%' AND p.full_name NOT LIKE '[%%'
+                      AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
+                    """, (bad_pr_pids, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+
                 cur.execute("""
                 SELECT id, full_name FROM players
                 WHERE id = ANY(%s)
@@ -1801,12 +1825,20 @@ class EloEngine:
                         if pid and clean_t and pid not in existing_teams:
                             existing_teams[str(pid)[:64]] = clean_t
 
-                cur.execute("""
-                SELECT player_id, player_name, current_elo, peak_elo,
-                       matches_played, wins, losses, draws, top_faction, team, last_active_date
-                FROM player_ratings
-                WHERE (game_system = %s OR (game_system IS NULL AND %s = '40k'));
-                """, (sys_target, sys_target))
+                if sys_target == "40k":
+                    cur.execute("""
+                    SELECT player_id, player_name, current_elo, peak_elo,
+                           matches_played, wins, losses, draws, top_faction, team, last_active_date
+                    FROM player_ratings
+                    WHERE (game_system = '40k' OR game_system IS NULL);
+                    """)
+                else:
+                    cur.execute("""
+                    SELECT player_id, player_name, current_elo, peak_elo,
+                           matches_played, wins, losses, draws, top_faction, team, last_active_date
+                    FROM player_ratings
+                    WHERE game_system = %s;
+                    """, (sys_target,))
                 for r in cur.fetchall():
                     pid = str(r["player_id"])[:64]
                     raw_name = r.get("player_name") or pid
