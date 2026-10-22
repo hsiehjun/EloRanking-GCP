@@ -187,16 +187,18 @@ def import_live_limitless_tournaments(
         return details, standings, pairings
 
     prefetched_ltcg: Dict[str, Any] = {}
-    if len(targets) > 1:
-        with ThreadPoolExecutor(max_workers=min(8, len(targets))) as pool:
-            futs = {t[1]: pool.submit(_fetch_ltcg_bundle, t[1]) for t in targets}
-            for raw_tid_k, fut in futs.items():
-                try:
-                    prefetched_ltcg[raw_tid_k] = fut.result()
-                except Exception as e:
-                    prefetched_ltcg[raw_tid_k] = e
-
-    for sys_slug, raw_tid, t_meta in targets:
+    for idx, (sys_slug, raw_tid, t_meta) in enumerate(targets):
+        if idx % 20 == 0:
+            prefetched_ltcg.clear()
+            chunk_targets = targets[idx : idx + 20]
+            if len(chunk_targets) > 1:
+                with ThreadPoolExecutor(max_workers=min(10, len(chunk_targets))) as pool:
+                    futs = {t[1]: pool.submit(_fetch_ltcg_bundle, t[1]) for t in chunk_targets}
+                    for raw_tid_k, fut in futs.items():
+                        try:
+                            prefetched_ltcg[raw_tid_k] = fut.result()
+                        except Exception as e:
+                            prefetched_ltcg[raw_tid_k] = e
         eid = _bound_id(f"ltcg:{raw_tid}")
         try:
             pre = prefetched_ltcg.get(raw_tid)
@@ -499,16 +501,18 @@ def import_live_longshanks_tournaments(
         return ev_h, st_h, r_nums, rounds_map
 
     prefetched_ls: Dict[Tuple[str, str], Any] = {}
-    if len(event_targets) > 1:
-        with ThreadPoolExecutor(max_workers=min(8, len(event_targets))) as pool:
-            futs = {(s, e): pool.submit(_fetch_ls_bundle, s, e) for s, e in event_targets}
-            for k_pair, fut in futs.items():
-                try:
-                    prefetched_ls[k_pair] = fut.result()
-                except Exception as exc:
-                    prefetched_ls[k_pair] = exc
-
-    for sys_slug, raw_eid in event_targets:
+    for idx, (sys_slug, raw_eid) in enumerate(event_targets):
+        if idx % 20 == 0:
+            prefetched_ls.clear()
+            chunk_ls = event_targets[idx : idx + 20]
+            if len(chunk_ls) > 1:
+                with ThreadPoolExecutor(max_workers=min(8, len(chunk_ls))) as pool:
+                    futs = {(s, e): pool.submit(_fetch_ls_bundle, s, e) for s, e in chunk_ls}
+                    for k_pair, fut in futs.items():
+                        try:
+                            prefetched_ls[k_pair] = fut.result()
+                        except Exception as exc:
+                            prefetched_ls[k_pair] = exc
         eid = _bound_id(f"ls:{raw_eid}")
         try:
             pre = prefetched_ls.get((sys_slug, raw_eid))
@@ -814,16 +818,18 @@ def import_live_topdeck_tournaments(
         return fs_d, p_d, e16_map
 
     prefetched_td: Dict[Tuple[str, str], Any] = {}
-    if len(tournament_slugs) > 1:
-        with ThreadPoolExecutor(max_workers=min(8, len(tournament_slugs))) as pool:
-            futs = {(s, t): pool.submit(_fetch_td_bundle, s, t) for s, t in tournament_slugs}
-            for k_pair, fut in futs.items():
-                try:
-                    prefetched_td[k_pair] = fut.result()
-                except Exception as exc:
-                    prefetched_td[k_pair] = exc
-
-    for sys_slug, tid in tournament_slugs:
+    for idx, (sys_slug, tid) in enumerate(tournament_slugs):
+        if idx % 20 == 0:
+            prefetched_td.clear()
+            chunk_td = tournament_slugs[idx : idx + 20]
+            if len(chunk_td) > 1:
+                with ThreadPoolExecutor(max_workers=min(8, len(chunk_td))) as pool:
+                    futs = {(s, t): pool.submit(_fetch_td_bundle, s, t) for s, t in chunk_td}
+                    for k_pair, fut in futs.items():
+                        try:
+                            prefetched_td[k_pair] = fut.result()
+                        except Exception as exc:
+                            prefetched_td[k_pair] = exc
         eid = _bound_id(f"td:{tid}")
         try:
             pre = prefetched_td.get((sys_slug, tid))
@@ -1318,35 +1324,37 @@ main().catch(err => {
     scraped_by_tid: Dict[str, Any] = {}
     chrome_bin = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
     has_node_and_chrome = bool(shutil.which("node") and chrome_bin)
-    live_tids = list(tids) if os.getenv("MELEE_USE_CACHE_ONLY", "0") != "1" else [t for t in tids if not (cached_by_tid.get(t) or {}).get("standings")]
-    if live_tids and has_node_and_chrome and os.getenv("MELEE_SKIP_CHROME", "0") != "1":
-        try:
-            subprocess.run(
-                ["node", "-e", node_script, json.dumps(live_tids), out_json_path, chrome_bin],
-                check=True,
-                timeout=max(60, len(live_tids) * 3),
-            )
-            with open(out_json_path, "r", encoding="utf-8") as f:
-                scraped_by_tid = json.load(f) or {}
-        except Exception as e:
-            logger.warning(f"⚠️ [Melee.gg] Headless Chrome CDP fetch failed (falling back to cached live snapshot): {e}")
-            scraped_by_tid = {}
-        finally:
-            if os.path.exists(out_json_path):
-                os.remove(out_json_path)
-    else:
-        if os.path.exists(out_json_path):
-            os.remove(out_json_path)
-
-    for raw_tid in tids:
-        if not (scraped_by_tid.get(raw_tid) or {}).get("standings") and raw_tid in cached_by_tid:
-            scraped_by_tid[raw_tid] = cached_by_tid[raw_tid]
+    if os.path.exists(out_json_path):
+        os.remove(out_json_path)
 
     events_imported = 0
     participants_imported = 0
     matches_imported = 0
 
-    for raw_tid in tids:
+    for t_idx, raw_tid in enumerate(tids):
+        if t_idx % 20 == 0:
+            scraped_by_tid.clear()
+            chunk_tids = tids[t_idx : t_idx + 20]
+            live_chunk = list(chunk_tids) if os.getenv("MELEE_USE_CACHE_ONLY", "0") != "1" else [t for t in chunk_tids if not (cached_by_tid.get(t) or {}).get("standings")]
+            if live_chunk and has_node_and_chrome and os.getenv("MELEE_SKIP_CHROME", "0") != "1":
+                try:
+                    subprocess.run(
+                        ["node", "-e", node_script, json.dumps(live_chunk), out_json_path, chrome_bin],
+                        check=True,
+                        timeout=max(60, len(live_chunk) * 4),
+                    )
+                    with open(out_json_path, "r", encoding="utf-8") as f:
+                        scraped_by_tid = json.load(f) or {}
+                except Exception as e:
+                    logger.warning(f"⚠️ [Melee.gg] Headless Chrome CDP fetch failed (falling back to cached live snapshot): {e}")
+                    scraped_by_tid = {}
+                finally:
+                    if os.path.exists(out_json_path):
+                        os.remove(out_json_path)
+            for c_tid in chunk_tids:
+                if not (scraped_by_tid.get(c_tid) or {}).get("standings") and c_tid in cached_by_tid:
+                    scraped_by_tid[c_tid] = cached_by_tid[c_tid]
+
         t_data = scraped_by_tid.get(raw_tid)
         if not t_data or not t_data.get("standings"):
             continue

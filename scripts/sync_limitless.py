@@ -74,23 +74,25 @@ def discover_limitless_targets(
     limit_param = 200 if is_backfill else min(200, max(50, (max_events or 25) * 4))
     existing_set = existing_ids or set()
     if is_backfill:
-        # Stratified multi-year milestones first, then sequential deep pagination 1..400
-        milestone_pages = [1, 5, 15, 30, 50, 80, 120, 150, 200, 250, 300, 350, 380]
-        pages_to_scan = milestone_pages + [p for p in range(2, 401) if p not in milestone_pages]
+        # Stratified multi-year milestones (2026..2020 at limit=200) first, then sequential deep pagination 2..198
+        milestone_pages = [1, 10, 25, 45, 70, 95, 120, 145, 165, 180, 190]
+        pages_to_scan = milestone_pages + [p for p in range(2, 199) if p not in milestone_pages]
     else:
         milestone_pages = []
-        pages_to_scan = [1]
+        pages_to_scan = [1, 2, 3]
 
     targets: List[Tuple[str, str]] = []
     deferred_from_milestones: List[Tuple[str, str]] = []
     seen_tids = set()
 
     try:
-        per_page_quota = max(12, ((max_events or 25) - len(targets) + 12) // 13) if is_backfill else (max_events or 25)
+        per_page_quota = max(12, ((max_events or 25) - len(targets) + len(milestone_pages) - 1) // max(1, len(milestone_pages))) if is_backfill else (max_events or 25)
         for page in pages_to_scan:
             url = f"https://play.limitlesstcg.com/api/tournaments?limit={limit_param}" + (f"&page={page}" if page > 1 else "")
             catalog = _http_get_json(url)
             if not isinstance(catalog, list) or not catalog:
+                if page in milestone_pages:
+                    continue
                 break
             oldest_on_page: Optional[datetime] = None
             added_on_page = 0
@@ -130,6 +132,11 @@ def discover_limitless_targets(
                         added_on_page += 1
                         if max_events and len(targets) >= max_events:
                             return targets
+            if is_backfill and page == milestone_pages[-1] and deferred_from_milestones and max_events and (len(targets) + len(deferred_from_milestones)) >= max_events:
+                for item in deferred_from_milestones:
+                    if len(targets) >= max_events:
+                        return targets
+                    targets.append(item)
             if oldest_on_page and oldest_on_page < start_dt and page not in milestone_pages:
                 break
     except Exception as e:
