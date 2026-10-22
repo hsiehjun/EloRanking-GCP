@@ -3612,32 +3612,48 @@ class EloEngine:
         # Fetch Tournament Journey history & tournaments across other active game systems for this player
         if include_tournaments and is_real_pg and career_systems:
             other_cs = [cs for cs in career_systems if cs.get("game_system") != target_sys][:6]
-            for cs_entry in other_cs:
-                other_gs = cs_entry["game_system"]
-                other_pid = cs_entry["player_id"]
-                try:
-                    o_hist = self.db.get_player_history(other_pid, game_system=other_gs) or []
-                    o_tours = (
-                        self.db.get_player_tournaments(other_pid, game_system=other_gs)
-                        if hasattr(self.db, "get_player_tournaments")
-                        else []
-                    ) or []
-                    if o_hist and o_tours:
-                        _sync_history_from_tournaments(o_tours, o_hist)
-                    for oh in o_hist:
-                        if isinstance(oh, dict):
-                            oh_copy = dict(oh)
-                            oh_copy["game_system"] = other_gs
-                            oh_copy["system_player_id"] = other_pid
-                            other_system_history.append(oh_copy)
-                    for ot in o_tours:
-                        if isinstance(ot, dict):
-                            ot_copy = dict(ot)
-                            ot_copy["game_system"] = other_gs
-                            ot_copy["system_player_id"] = other_pid
-                            other_system_tournaments.append(ot_copy)
-                except Exception as o_err:
-                    logger.debug(f"Notice fetching other system ({other_gs}) journey for {other_pid}: {o_err}")
+            if other_cs:
+                from concurrent.futures import ThreadPoolExecutor
+
+                def _fetch_one_other_sys(cs_entry: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+                    other_gs = cs_entry["game_system"]
+                    other_pid = cs_entry["player_id"]
+                    loc_hist: List[Dict[str, Any]] = []
+                    loc_tours: List[Dict[str, Any]] = []
+                    try:
+                        o_hist = self.db.get_player_history(other_pid, game_system=other_gs) or []
+                        o_tours = (
+                            self.db.get_player_tournaments(other_pid, game_system=other_gs)
+                            if hasattr(self.db, "get_player_tournaments")
+                            else []
+                        ) or []
+                        if o_hist and o_tours:
+                            _sync_history_from_tournaments(o_tours, o_hist)
+                        for oh in o_hist:
+                            if isinstance(oh, dict):
+                                oh_copy = dict(oh)
+                                oh_copy["game_system"] = other_gs
+                                oh_copy["system_player_id"] = other_pid
+                                loc_hist.append(oh_copy)
+                        for ot in o_tours:
+                            if isinstance(ot, dict):
+                                ot_copy = dict(ot)
+                                ot_copy["game_system"] = other_gs
+                                ot_copy["system_player_id"] = other_pid
+                                loc_tours.append(ot_copy)
+                    except Exception as o_err:
+                        logger.debug(f"Notice fetching other system ({other_gs}) journey for {other_pid}: {o_err}")
+                    return loc_hist, loc_tours
+
+                with ThreadPoolExecutor(max_workers=min(4, len(other_cs))) as pool_ex:
+                    futs = [pool_ex.submit(_fetch_one_other_sys, ce) for ce in other_cs]
+                    for fut in futs:
+                        try:
+                            lh, lt = fut.result(timeout=4.0)
+                            other_system_history.extend(lh)
+                            other_system_tournaments.extend(lt)
+                        except Exception:
+                            pass
 
         # Current/Latest team is the first one in recency order
         latest_team = all_teams_list[0] if all_teams_list else (player_meta.get("team") or None)
@@ -3758,10 +3774,12 @@ class EloEngine:
                         """
                         SELECT DISTINCT COALESCE(m.game_system, '40k') AS gs
                         FROM matches m
-                        WHERE (
-                            m.player1_id = ANY(%s)
-                            OR m.player2_id = ANY(%s)
-                            OR EXISTS (SELECT 1 FROM match_participants mp WHERE mp.match_id = m.id AND mp.player_id = ANY(%s))
+                        WHERE m.id IN (
+                            SELECT m1.id FROM matches m1 WHERE m1.player1_id = ANY(%s)
+                            UNION
+                            SELECT m2.id FROM matches m2 WHERE m2.player2_id = ANY(%s)
+                            UNION
+                            SELECT mp.match_id FROM match_participants mp WHERE mp.player_id = ANY(%s)
                         ) AND m.is_done = TRUE;
                         """,
                         (candidate_ids, candidate_ids, candidate_ids),
@@ -3803,10 +3821,12 @@ class EloEngine:
                               AND COALESCE(p.game_system, '40k') = COALESCE(m.game_system, '40k')
                             LIMIT 1
                         ) opp_pr ON TRUE
-                        WHERE (
-                            m.player1_id = ANY(%s)
-                            OR m.player2_id = ANY(%s)
-                            OR EXISTS (SELECT 1 FROM match_participants mp WHERE mp.match_id = m.id AND mp.player_id = ANY(%s))
+                        WHERE m.id IN (
+                            SELECT m1.id FROM matches m1 WHERE m1.player1_id = ANY(%s) AND COALESCE(m1.game_system, '40k') = %s
+                            UNION
+                            SELECT m2.id FROM matches m2 WHERE m2.player2_id = ANY(%s) AND COALESCE(m2.game_system, '40k') = %s
+                            UNION
+                            SELECT mp.match_id FROM match_participants mp WHERE mp.player_id = ANY(%s)
                         )
                           AND m.is_done = TRUE
                           AND m.player1_id IS NOT NULL AND m.player1_id != ''
@@ -3814,7 +3834,7 @@ class EloEngine:
                           AND COALESCE(m.game_system, '40k') = %s
                         ORDER BY m.match_date ASC NULLS FIRST, m.event_id ASC, m.round ASC, m.table_number ASC, m.id ASC;
                         """,
-                        (candidate_ids, candidate_ids, candidate_ids, candidate_ids, candidate_ids, sys_target),
+                        (candidate_ids, candidate_ids, candidate_ids, sys_target, candidate_ids, sys_target, candidate_ids, sys_target),
                     )
                     raw_user_matches = [dict(r) for r in (cur.fetchall() or [])]
                     seen_um_ids = set()
