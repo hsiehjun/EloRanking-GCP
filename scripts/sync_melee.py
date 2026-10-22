@@ -34,7 +34,7 @@ MELEE_GAME_TAGS: Dict[str, str] = {
     "mtg": "MagicTheGathering",
     "sw_unlimited": "StarWarsUnlimited",
     "lorcana": "Lorcana",
-    "flesh_and_blood": "FleshAndBlood",
+    "flesh_blood": "FleshAndBlood",
     "riftbound": "Riftbound",
 }
 
@@ -162,21 +162,46 @@ const outPath = process.argv[2];
 const chromeBin = process.argv[3] || "google-chrome";
 
 async function main() {
-  const port = 9460 + Math.floor(Math.random() * 200);
+  const port = 19560 + Math.floor(Math.random() * 400);
+  const profileDir = `/tmp/chrome_disc_${port}_${process.pid}`;
+  try { fs.mkdirSync(profileDir, { recursive: true }); } catch (e) {}
   const chrome = spawn(chromeBin, [
     "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+    "--no-first-run", "--no-default-browser-check",
     "--disable-blink-features=AutomationControlled",
+    `--user-data-dir=${profileDir}`,
     "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
     `--remote-debugging-port=${port}`,
     "https://melee.gg/Tournament/Index?ordering=StartDate&mode=Table"
-  ]);
-  await new Promise(r => setTimeout(r, 3200));
-  const targets = await new Promise((resolve, reject) => {
-    http.get(`http://127.0.0.1:${port}/json`, res => {
-      let d = ""; res.on("data", c => d += c); res.on("end", () => resolve(JSON.parse(d)));
-    }).on("error", reject);
-  });
-  const pageTarget = targets.find(t => t.type === "page");
+  ], { stdio: "ignore" });
+  const cleanup = () => {
+    try { chrome.kill("SIGKILL"); } catch (e) {}
+    try { fs.rmSync(profileDir, { recursive: true, force: true }); } catch (e) {}
+  };
+  let pageTarget = null;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    await new Promise(r => setTimeout(r, 350));
+    try {
+      const targets = await new Promise((resolve, reject) => {
+        const req = http.get(`http://127.0.0.1:${port}/json`, res => {
+          let d = ""; res.on("data", c => d += c); res.on("end", () => {
+            try { resolve(JSON.parse(d)); } catch (e) { reject(e); }
+          });
+        });
+        req.on("error", reject);
+        req.setTimeout(1000, () => { req.destroy(); reject(new Error("timeout")); });
+      });
+      if (Array.isArray(targets)) {
+        pageTarget = targets.find(t => t.type === "page" && t.webSocketDebuggerUrl && String(t.url || "").includes("melee.gg"));
+        if (pageTarget) break;
+      }
+    } catch (e) {}
+  }
+  if (!pageTarget) {
+    fs.writeFileSync(outPath, "{}");
+    cleanup();
+    process.exit(0);
+  }
   const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
   await new Promise(r => ws.addEventListener("open", r));
   let msgId = 1;
@@ -189,7 +214,11 @@ async function main() {
     ws.addEventListener("message", listener);
     ws.send(JSON.stringify({ id, method, params }));
   });
-  await new Promise(r => setTimeout(r, 2200));
+  for (let w = 0; w < 35; w++) {
+    const chk = await send("Runtime.evaluate", { expression: "Boolean(window.$ && window.$.post)", returnByValue: true });
+    if (chk && chk.result && chk.result.value === true) break;
+    await new Promise(r => setTimeout(r, 350));
+  }
   const res = await send("Runtime.evaluate", {
     expression: `(async () => {
       const baseColumns = [
@@ -267,13 +296,13 @@ async function main() {
     returnByValue: true
   });
   fs.writeFileSync(outPath, (res && res.result && res.result.value) || "{}");
-  ws.close();
-  chrome.kill("SIGKILL");
+  try { ws.close(); } catch (e) {}
+  cleanup();
   process.exit(0);
 }
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
+main().catch(() => {
+  try { fs.writeFileSync(outPath, "{}"); } catch (e) {}
+  process.exit(0);
 });
 """
     discovered: List[Tuple[str, str]] = []
@@ -288,6 +317,8 @@ main().catch(err => {
         subprocess.run(
             ["node", "-e", node_disc_script, json.dumps(payload), out_path, chrome_bin],
             check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             timeout=35,
         )
         with open(out_path, "r", encoding="utf-8") as f:
@@ -323,7 +354,7 @@ main().catch(err => {
             if len(discovered) >= cap:
                 break
     except Exception as e:
-        logger.warning(f"⚠️ [MeleeSync] Live /Tournament/TournamentSearch discovery notice: {e}")
+        logger.debug(f"[MeleeSync] Live /Tournament/TournamentSearch discovery fallback: {e}")
     finally:
         if os.path.exists(out_path):
             os.remove(out_path)
@@ -341,10 +372,12 @@ def discover_melee_targets(
 ) -> List[Tuple[str, str]]:
     """
     Discovers completed Melee.gg tournaments directly from `https://melee.gg/Tournament/TournamentSearch`
-    across 2020–2026 (`mtg`, `sw_unlimited`, `lorcana`, `flesh_and_blood`, `riftbound`), falling back to
+    across 2020–2026 (`mtg`, `sw_unlimited`, `lorcana`, `flesh_blood`, `riftbound`), falling back to
     `DEFAULT_MELEE_TARGETS` / `HISTORICAL_MELEE_TARGETS` only when headless Chrome is unavailable or more events are needed.
     """
     target_sys = (game_system or "all").strip().lower()
+    if target_sys == "flesh_and_blood":
+        target_sys = "flesh_blood"
     is_backfill = bool((days or 14) >= 365 or start_date)
     cap = max_events or (200 if is_backfill else 15)
     existing_set = existing_ids or set()
@@ -374,10 +407,12 @@ def discover_melee_targets(
     candidate_pool: List[Tuple[str, str]] = list(live_discovered)
     seen_tids = {tid for _, tid in candidate_pool}
 
+    fallback_by_sys: Dict[str, List[Tuple[str, str]]] = {}
     for s_slug, tid in list(DEFAULT_MELEE_TARGETS) + (list(HISTORICAL_MELEE_TARGETS) if is_backfill else []):
+        s_norm = "flesh_blood" if s_slug == "flesh_and_blood" else s_slug
         if tid not in seen_tids:
             seen_tids.add(tid)
-            candidate_pool.append((s_slug, tid))
+            fallback_by_sys.setdefault(s_norm, []).append((s_norm, tid))
 
     cache_gz_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "melee_live_cache.json.gz")
     if os.path.exists(cache_gz_path):
@@ -392,10 +427,18 @@ def discover_melee_targets(
             for raw_tid in sorted_keys:
                 if raw_tid not in seen_tids:
                     gs_val = str((cached_by_tid.get(raw_tid) or {}).get("game_system") or "mtg").strip().lower()
+                    if gs_val == "flesh_and_blood":
+                        gs_val = "flesh_blood"
                     seen_tids.add(raw_tid)
-                    candidate_pool.append((gs_val, str(raw_tid)))
+                    fallback_by_sys.setdefault(gs_val, []).append((gs_val, str(raw_tid)))
         except Exception:
             pass
+
+    import itertools
+    for row_tuple in itertools.zip_longest(*[b for b in fallback_by_sys.values() if b]):
+        for pair in row_tuple:
+            if pair is not None:
+                candidate_pool.append(pair)
 
     filtered = [
         (s, tid)

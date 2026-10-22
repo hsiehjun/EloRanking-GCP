@@ -105,15 +105,14 @@ def discover_limitless_targets(
         from concurrent.futures import ThreadPoolExecutor
         import itertools
 
-        html_pages = (
-            [1, 3, 7, 15, 30, 50, 75, 100] + [p for p in range(2, 120) if p not in (1, 3, 7, 15, 30, 50, 75, 100)]
-            if is_backfill
-            else [1, 2, 3]
-        )
+        html_pages = list(range(1, 120)) if is_backfill else [1, 2, 3]
         active_games = list(html_game_pairs)
         time_param = "all" if is_backfill or (days or 7) > 28 else ("7days" if (days or 7) <= 7 else "4weeks")
+        by_game_buckets: Dict[str, List[Tuple[str, str]]] = {s: [] for _, s in html_game_pairs}
+        per_game_cap = (max_events or 500) if len(html_game_pairs) == 1 else max(100, ((max_events or 500) // 2) + 25)
+        total_collected = 0
         for h_page in html_pages:
-            if not active_games or (max_events and len(targets) >= max_events):
+            if not active_games or (max_events and total_collected >= max_events and h_page >= 2):
                 break
             page_results: Dict[str, List[Dict[str, Any]]] = {}
             with ThreadPoolExecutor(max_workers=min(7, len(active_games))) as pool:
@@ -134,12 +133,8 @@ def discover_limitless_targets(
                         page_results[g_code] = []
 
             next_active_games: List[Tuple[str, str]] = []
-            per_game_candidates: List[List[Tuple[str, str]]] = []
             for g_code, sys_slug in active_games:
                 h_items = page_results.get(g_code) or []
-                if len(h_items) >= 50 or (is_backfill and h_page == 1 and len(h_items) > 0 and g_code in ("PTCG", "OP", "DCG", "GUNDAM")):
-                    next_active_games.append((g_code, sys_slug))
-                g_cands: List[Tuple[str, str]] = []
                 for item in h_items:
                     if int(item.get("players") or 0) < min_players:
                         continue
@@ -161,18 +156,20 @@ def discover_limitless_targets(
                         and f"ltcg:{tid}" not in existing_set
                     ):
                         seen_tids.add(tid)
-                        g_cands.append((sys_slug, tid))
-                if g_cands:
-                    per_game_candidates.append(g_cands)
-
-            for row_tuple in itertools.zip_longest(*per_game_candidates):
-                for pair in row_tuple:
-                    if pair is None:
-                        continue
-                    targets.append(pair)
-                    if max_events and len(targets) >= max_events:
-                        return targets
+                        by_game_buckets.setdefault(sys_slug, []).append((sys_slug, tid))
+                        total_collected += 1
+                if len(h_items) >= 25 and len(by_game_buckets.get(sys_slug, [])) < per_game_cap:
+                    next_active_games.append((g_code, sys_slug))
             active_games = next_active_games
+
+        non_empty_buckets = [b for b in by_game_buckets.values() if b]
+        for row_tuple in itertools.zip_longest(*non_empty_buckets):
+            for pair in row_tuple:
+                if pair is None:
+                    continue
+                targets.append(pair)
+                if max_events and len(targets) >= max_events:
+                    return targets
 
     # 2. Secondary JSON API Catalog Fallback (`/api/tournaments`) if HTML catalog yielded fewer than max_events
     try:

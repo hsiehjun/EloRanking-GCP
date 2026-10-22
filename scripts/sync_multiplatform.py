@@ -65,7 +65,7 @@ def _bound_id(val: Any, max_len: int = 64) -> str:
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import get_bcp_game_system_id, resolve_canonical_faction
+from config import get_bcp_game_system_id, normalize_game_system, resolve_canonical_faction
 from scraper import BestCoastPairingsScraper
 from scripts.local_sqlite_db import DEFAULT_SQLITE_PATH, LocalSqliteDatabase
 
@@ -1460,21 +1460,46 @@ const outPath = process.argv[2];
 const chromeBin = process.argv[3] || "google-chrome";
 
 async function main() {
-  const port = 9360 + Math.floor(Math.random() * 200);
+  const port = 19360 + Math.floor(Math.random() * 400);
+  const profileDir = `/tmp/chrome_cdp_${port}_${process.pid}`;
+  try { fs.mkdirSync(profileDir, { recursive: true }); } catch (e) {}
   const chrome = spawn(chromeBin, [
     "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+    "--no-first-run", "--no-default-browser-check",
     "--disable-blink-features=AutomationControlled",
+    `--user-data-dir=${profileDir}`,
     "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
     `--remote-debugging-port=${port}`,
     "https://melee.gg/Tournament/Index?ordering=StartDate&mode=Table"
-  ]);
-  await new Promise(r => setTimeout(r, 3200));
-  const targets = await new Promise((resolve, reject) => {
-    http.get(`http://127.0.0.1:${port}/json`, res => {
-      let d = ""; res.on("data", c => d += c); res.on("end", () => resolve(JSON.parse(d)));
-    }).on("error", reject);
-  });
-  const pageTarget = targets.find(t => t.type === "page");
+  ], { stdio: "ignore" });
+  const cleanup = () => {
+    try { chrome.kill("SIGKILL"); } catch (e) {}
+    try { fs.rmSync(profileDir, { recursive: true, force: true }); } catch (e) {}
+  };
+  let pageTarget = null;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    await new Promise(r => setTimeout(r, 350));
+    try {
+      const targets = await new Promise((resolve, reject) => {
+        const req = http.get(`http://127.0.0.1:${port}/json`, res => {
+          let d = ""; res.on("data", c => d += c); res.on("end", () => {
+            try { resolve(JSON.parse(d)); } catch (e) { reject(e); }
+          });
+        });
+        req.on("error", reject);
+        req.setTimeout(1000, () => { req.destroy(); reject(new Error("timeout")); });
+      });
+      if (Array.isArray(targets)) {
+        pageTarget = targets.find(t => t.type === "page" && t.webSocketDebuggerUrl && String(t.url || "").includes("melee.gg"));
+        if (pageTarget) break;
+      }
+    } catch (e) {}
+  }
+  if (!pageTarget) {
+    fs.writeFileSync(outPath, "{}");
+    cleanup();
+    process.exit(0);
+  }
   const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
   await new Promise(r => ws.addEventListener("open", r));
   let msgId = 1;
@@ -1487,7 +1512,11 @@ async function main() {
     ws.addEventListener("message", listener);
     ws.send(JSON.stringify({ id, method, params }));
   });
-  await new Promise(r => setTimeout(r, 2200));
+  for (let w = 0; w < 35; w++) {
+    const chk = await send("Runtime.evaluate", { expression: "Boolean(window.$ && window.$.post)", returnByValue: true });
+    if (chk && chk.result && chk.result.value === true) break;
+    await new Promise(r => setTimeout(r, 350));
+  }
   const res = await send("Runtime.evaluate", {
     expression: `(async () => {
       const targetTids = ${JSON.stringify(tids)};
@@ -1556,13 +1585,13 @@ async function main() {
     returnByValue: true
   });
   fs.writeFileSync(outPath, (res && res.result && res.result.value) || "{}");
-  ws.close();
-  chrome.kill("SIGKILL");
+  try { ws.close(); } catch (e) {}
+  cleanup();
   process.exit(0);
 }
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
+main().catch(() => {
+  try { fs.writeFileSync(outPath, "{}"); } catch (e) {}
+  process.exit(0);
 });
 """
     import gzip
@@ -1597,12 +1626,14 @@ main().catch(err => {
                     subprocess.run(
                         ["node", "-e", node_script, json.dumps(live_chunk), out_json_path, chrome_bin],
                         check=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
                         timeout=max(60, len(live_chunk) * 4),
                     )
                     with open(out_json_path, "r", encoding="utf-8") as f:
                         scraped_by_tid = json.load(f) or {}
                 except Exception as e:
-                    logger.warning(f"⚠️ [Melee.gg] Headless Chrome CDP fetch failed (falling back to cached live snapshot): {e}")
+                    logger.debug(f"[Melee.gg] Headless Chrome CDP fetch fallback: {e}")
                     scraped_by_tid = {}
                 finally:
                     if os.path.exists(out_json_path):
