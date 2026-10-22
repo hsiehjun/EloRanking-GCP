@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts.sync_multiplatform import (
     _http_post_json,
     finalize_platform_sync,
+    get_existing_platform_event_ids,
     get_sync_db,
     import_live_topdeck_tournaments,
 )
@@ -72,6 +73,7 @@ def discover_topdeck_targets(
     max_events: int = 10,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    existing_ids: Optional[set] = None,
 ) -> List[Tuple[str, str]]:
     """
     Discovers recent or historical completed TopDeck.gg tournaments using either:
@@ -85,6 +87,7 @@ def discover_topdeck_targets(
     api_key = os.getenv("TOPDECK_API_KEY", "").strip()
     discovered: List[Tuple[str, str]] = []
     seen_tids = set()
+    existing_set = existing_ids or set()
 
     now_s = int(time.time())
     end_s = _parse_epoch_bound(end_date, is_end=True) or now_s
@@ -119,7 +122,7 @@ def discover_topdeck_targets(
                 if isinstance(rows, list):
                     for r in rows:
                         tid = str(r.get("TID") or r.get("id") or "").strip()
-                        if tid and tid not in seen_tids:
+                        if tid and tid not in seen_tids and tid not in existing_set and f"td:{tid}" not in existing_set:
                             seen_tids.add(tid)
                             discovered.append((sys_slug, tid))
                             if len(discovered) >= max_events:
@@ -129,7 +132,7 @@ def discover_topdeck_targets(
 
     if not discovered and target_sys in ("all", "other", "mtg"):
         for s_slug, tid in DEFAULT_TOPDECK_TARGETS:
-            if len(discovered) < max_events and tid not in seen_tids:
+            if len(discovered) < max_events and tid not in seen_tids and tid not in existing_set and f"td:{tid}" not in existing_set:
                 seen_tids.add(tid)
                 discovered.append((s_slug, tid))
         if len(discovered) < max_events:
@@ -137,16 +140,17 @@ def discover_topdeck_targets(
 
             is_backfill = bool((days or 14) >= 365 or start_date)
             if is_backfill:
-                checkpoints = [
-                    end_s,
-                    int(datetime(2026, 6, 15, tzinfo=timezone.utc).timestamp()),
-                    int(datetime(2025, 12, 15, tzinfo=timezone.utc).timestamp()),
-                    int(datetime(2025, 6, 15, tzinfo=timezone.utc).timestamp()),
-                    int(datetime(2024, 12, 15, tzinfo=timezone.utc).timestamp()),
-                    int(datetime(2024, 6, 15, tzinfo=timezone.utc).timestamp()),
-                ]
-                checkpoints = [cp for cp in checkpoints if cutoff_s <= cp <= end_s] or [end_s]
-                per_cp_quota = max(2, (max_events - len(discovered) + len(checkpoints) - 1) // len(checkpoints))
+                # Generate rolling 60-day checkpoints from end_s back to max(cutoff_s, 2021-01-01)
+                floor_s = max(cutoff_s, int(datetime(2021, 1, 1, tzinfo=timezone.utc).timestamp()))
+                step_s = 60 * 86400
+                checkpoints = []
+                cur_cp = end_s
+                while cur_cp >= floor_s and len(checkpoints) < 36:
+                    checkpoints.append(cur_cp)
+                    cur_cp -= step_s
+                if not checkpoints:
+                    checkpoints = [end_s]
+                per_cp_quota = max(5, (max_events - len(discovered) + len(checkpoints) - 1) // len(checkpoints))
             else:
                 checkpoints = [end_s]
                 per_cp_quota = max_events
@@ -154,7 +158,7 @@ def discover_topdeck_targets(
             for cp_end in checkpoints:
                 if len(discovered) >= max_events:
                     break
-                cp_start = max(cutoff_s, cp_end - 180 * 86400) if is_backfill else cutoff_s
+                cp_start = max(cutoff_s, cp_end - 90 * 86400) if is_backfill else cutoff_s
                 added_in_cp = 0
                 try:
                     fs_rows = _http_post_json(
@@ -172,7 +176,7 @@ def discover_topdeck_targets(
                                     }
                                 },
                                 "orderBy": [{"field": {"fieldPath": "StartDate"}, "direction": "DESCENDING"}],
-                                "limit": max(25, per_cp_quota * 4),
+                                "limit": max(50, per_cp_quota * 4),
                             }
                         },
                         timeout=15,
@@ -188,6 +192,8 @@ def discover_topdeck_targets(
                             if (
                                 tid
                                 and tid not in seen_tids
+                                and tid not in existing_set
+                                and f"td:{tid}" not in existing_set
                                 and len(t1_es) >= 3
                                 and "Winner" in t1_fields
                                 and "naruto" not in ev_title
@@ -216,6 +222,8 @@ def run_topdeck_sync(
     """Executes the TopDeck.gg tournament sync, 4P FFA Pod normalization, and multiparty Elo reconstruction."""
     logger.info(f"🚀 Starting TopDeck.gg Sync Job (game_system={game_system}, days={days}, max_events={max_events})")
     db = get_sync_db(sqlite_path=sqlite_path)
+    is_backfill = bool((days or 14) >= 365 or start_date)
+    existing_ids = get_existing_platform_event_ids(db, "td") if (is_backfill and not event_ids) else set()
 
     targets = event_ids if event_ids else discover_topdeck_targets(
         game_system=game_system,
@@ -223,6 +231,7 @@ def run_topdeck_sync(
         max_events=max_events or 10,
         start_date=start_date,
         end_date=end_date,
+        existing_ids=existing_ids,
     )
     if not targets:
         logger.info("ℹ️ [TopDeckSync] No matching TopDeck.gg tournaments found in window.")

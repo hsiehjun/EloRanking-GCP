@@ -20,6 +20,7 @@ from scripts.sync_multiplatform import (
     LIMITLESS_GAME_MAP,
     _http_get_json,
     finalize_platform_sync,
+    get_existing_platform_event_ids,
     get_sync_db,
     import_live_limitless_tournaments,
 )
@@ -63,6 +64,7 @@ def discover_limitless_targets(
     min_players: int = 8,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    existing_ids: Optional[set] = None,
 ) -> List[Tuple[str, str]]:
     """Discovers completed Limitless TCG tournaments within the requested date window (supports multi-page historical backfill)."""
     target_sys = (game_system or "all").strip().lower()
@@ -70,19 +72,30 @@ def discover_limitless_targets(
     end_dt = _parse_iso_bound(end_date, is_end=True) or datetime.now(timezone.utc)
     limit_param = min(200, max(50, (max_events or 25) * 4))
     is_backfill = bool((days or 7) >= 365 or start_date)
-    pages_to_scan = [1, 15, 50, 150, 300, 380] if is_backfill else [1]
+    existing_set = existing_ids or set()
+    if is_backfill:
+        # Stratified multi-year milestones first, then sequential deep pagination 1..400
+        milestone_pages = [1, 5, 15, 30, 50, 80, 120, 150, 200, 250, 300, 350, 380]
+        pages_to_scan = milestone_pages + [p for p in range(2, 401) if p not in milestone_pages]
+    else:
+        pages_to_scan = [1]
 
     targets: List[Tuple[str, str]] = []
     seen_tids = set()
     for def_sys, def_tid in DEFAULT_LIMITLESS_TARGETS:
-        if (target_sys in ("all", "other", "tcg") or def_sys == target_sys) and def_tid not in seen_tids:
+        if (
+            (target_sys in ("all", "other", "tcg") or def_sys == target_sys)
+            and def_tid not in seen_tids
+            and def_tid not in existing_set
+            and f"ltcg:{def_tid}" not in existing_set
+        ):
             seen_tids.add(def_tid)
             targets.append((def_sys, def_tid))
             if max_events and len(targets) >= max_events:
                 return targets
 
     try:
-        per_page_quota = max(2, ((max_events or 25) - len(targets) + len(pages_to_scan) - 1) // len(pages_to_scan))
+        per_page_quota = max(8, ((max_events or 25) - len(targets) + 12) // 13) if is_backfill else (max_events or 25)
         for page in pages_to_scan:
             url = f"https://play.limitlesstcg.com/api/tournaments?limit={limit_param}" + (f"&page={page}" if page > 1 else "")
             catalog = _http_get_json(url)
@@ -112,13 +125,18 @@ def discover_limitless_targets(
                     except Exception:
                         pass
                 tid = str(item.get("id") or "").strip()
-                if tid and tid not in seen_tids:
+                if (
+                    tid
+                    and tid not in seen_tids
+                    and tid not in existing_set
+                    and f"ltcg:{tid}" not in existing_set
+                ):
                     seen_tids.add(tid)
                     targets.append((sys_slug, tid))
                     added_on_page += 1
                     if max_events and len(targets) >= max_events:
                         return targets
-                    if is_backfill and added_on_page >= per_page_quota:
+                    if is_backfill and page in (1, 5, 15, 30, 50, 80, 120, 150, 200, 250, 300, 350, 380) and added_on_page >= per_page_quota:
                         break
             if oldest_on_page and oldest_on_page < start_dt:
                 break
@@ -140,6 +158,8 @@ def run_limitless_sync(
     """Executes the Limitless TCG tournament sync and incremental Elo reconstruction."""
     logger.info(f"🚀 Starting Limitless TCG Sync Job (game_system={game_system}, days={days}, max_events={max_events})")
     db = get_sync_db(sqlite_path=sqlite_path)
+    is_backfill = bool((days or 7) >= 365 or start_date)
+    existing_ids = get_existing_platform_event_ids(db, "ltcg") if (is_backfill and not event_ids) else set()
 
     targets = event_ids if event_ids else discover_limitless_targets(
         game_system=game_system,
@@ -147,6 +167,7 @@ def run_limitless_sync(
         max_events=max_events,
         start_date=start_date,
         end_date=end_date,
+        existing_ids=existing_ids,
     )
     if not targets:
         logger.info("ℹ️ [LimitlessSync] No matching Limitless TCG tournaments found in window.")

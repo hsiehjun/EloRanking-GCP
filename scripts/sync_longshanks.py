@@ -21,6 +21,7 @@ from scripts.sync_multiplatform import (
     LONGSHANKS_HOST_BY_SYSTEM,
     _http_get_text,
     finalize_platform_sync,
+    get_existing_platform_event_ids,
     get_sync_db,
     import_live_longshanks_tournaments,
 )
@@ -58,15 +59,39 @@ def discover_longshanks_targets(
     max_events: int = 10,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    existing_ids: Optional[set] = None,
 ) -> List[Tuple[str, str]]:
     """
     Discovers completed Longshanks events from `/events/history/` with date range
-    filtering (`date_from`..`date_to`) and multi-year 2016–2026 historical coverage.
+    filtering (`date_from`..`date_to`), multi-page pagination (`&page=1..N`),
+    and multi-year 2016–2026 historical coverage across Longshanks game systems.
     """
     target_sys = (game_system or "mcp").strip().lower()
     is_backfill = bool(days >= 365 or start_date)
+    existing_set = existing_ids or set()
     if target_sys in ("all", "other"):
-        systems = ["mcp", "guild_ball", "shatterpoint", "malifaux", "x_wing", "middle_earth"] if is_backfill else ["mcp"]
+        systems = (
+            [
+                "mcp",
+                "guild_ball",
+                "shatterpoint",
+                "malifaux",
+                "x_wing",
+                "middle_earth",
+                "sw_legion",
+                "warmachine",
+                "infinity",
+                "conquest",
+                "bolt_action",
+                "battletech",
+                "blood_bowl",
+                "kill_team",
+                "horus_heresy",
+                "the_old_world",
+            ]
+            if is_backfill
+            else ["mcp"]
+        )
     else:
         systems = [target_sys]
 
@@ -75,35 +100,67 @@ def discover_longshanks_targets(
     to_str = (str(end_date).strip()[:10] if end_date else now_dt.strftime("%Y-%m-%d"))
 
     discovered: List[Tuple[str, str]] = []
+    seen_eids: set = set()
+
     for def_sys, def_eid in DEFAULT_LONGSHANKS_TARGETS:
-        if (target_sys in ("all", "other") or def_sys == target_sys) and (def_sys, def_eid) not in discovered:
+        if (
+            (target_sys in ("all", "other") or def_sys == target_sys)
+            and def_eid not in seen_eids
+            and def_eid not in existing_set
+            and f"ls:{def_eid}" not in existing_set
+        ):
+            seen_eids.add(def_eid)
             discovered.append((def_sys, def_eid))
 
     if is_backfill:
         for hist_sys, hist_eid in HISTORICAL_LONGSHANKS_TARGETS:
-            if (target_sys in ("all", "other") or hist_sys == target_sys) and (hist_sys, hist_eid) not in discovered:
+            if (
+                (target_sys in ("all", "other") or hist_sys == target_sys)
+                and hist_eid not in seen_eids
+                and hist_eid not in existing_set
+                and f"ls:{hist_eid}" not in existing_set
+            ):
+                seen_eids.add(hist_eid)
                 discovered.append((hist_sys, hist_eid))
                 if len(discovered) >= max_events:
                     return discovered[:max_events]
+
+    per_sys_quota = max(5, (max_events - len(discovered) + len(systems) - 1) // max(1, len(systems))) if is_backfill else max_events
+    max_pages = 30 if is_backfill else 2
 
     for sys_slug in systems:
         if len(discovered) >= max_events:
             break
         host = LONGSHANKS_HOST_BY_SYSTEM.get(sys_slug, "https://www.longshanks.org")
-        try:
-            hist_url = (
-                f"{host}/events/history/?rated=rated&style=tournament&size_min=6"
-                f"&date_from={from_str}&date_to={to_str}"
-            )
-            html_txt = _http_get_text(hist_url)
-            for m in re.finditer(r"/event/(\d+)/", html_txt):
-                eid = m.group(1)
-                if (sys_slug, eid) not in discovered:
-                    discovered.append((sys_slug, eid))
-                    if len(discovered) >= max_events:
-                        break
-        except Exception as e:
-            logger.warning(f"⚠️ [LongshanksSync:{sys_slug.upper()}] Discovery notice: {e}")
+        added_for_sys = 0
+        for page in range(1, max_pages + 1):
+            if len(discovered) >= max_events or (is_backfill and len(systems) > 1 and added_for_sys >= per_sys_quota):
+                break
+            try:
+                hist_url = (
+                    f"{host}/events/history/?rated=rated&style=tournament&size_min=6"
+                    f"&date_from={from_str}&date_to={to_str}"
+                    + (f"&page={page}" if page > 1 else "")
+                )
+                html_txt = _http_get_text(hist_url)
+                page_eids = [m.group(1) for m in re.finditer(r"/event/(\d+)/", html_txt)]
+                if not page_eids:
+                    break
+                new_on_page = 0
+                for eid in page_eids:
+                    if eid not in seen_eids:
+                        seen_eids.add(eid)
+                        new_on_page += 1
+                        if eid not in existing_set and f"ls:{eid}" not in existing_set:
+                            discovered.append((sys_slug, eid))
+                            added_for_sys += 1
+                            if len(discovered) >= max_events or (is_backfill and len(systems) > 1 and added_for_sys >= per_sys_quota):
+                                break
+                if new_on_page == 0:
+                    break
+            except Exception as e:
+                logger.warning(f"⚠️ [LongshanksSync:{sys_slug.upper()}] Discovery notice (page {page}): {e}")
+                break
 
     return discovered[: max(2, max_events)]
 
@@ -123,6 +180,8 @@ def run_longshanks_sync(
         f"start_date={start_date}, end_date={end_date}, max_events={max_events})"
     )
     db = get_sync_db(sqlite_path=sqlite_path)
+    is_backfill = bool((days or 7) >= 365 or start_date)
+    existing_ids = get_existing_platform_event_ids(db, "ls") if (is_backfill and not event_ids) else set()
 
     targets = event_ids if event_ids else discover_longshanks_targets(
         game_system=game_system,
@@ -130,6 +189,7 @@ def run_longshanks_sync(
         max_events=max_events or 10,
         start_date=start_date,
         end_date=end_date,
+        existing_ids=existing_ids,
     )
     if not targets:
         logger.info("ℹ️ [LongshanksSync] No matching Longshanks events found.")

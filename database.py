@@ -4710,7 +4710,10 @@ class PostgresDatabase:
                 where_extra = ""
                 params: List[Any] = []
                 if game_system and game_system != "all":
-                    where_extra += " AND COALESCE(m.game_system, '40k') = %s"
+                    if game_system == "40k":
+                        where_extra += " AND (m.game_system = %s OR m.game_system IS NULL)"
+                    else:
+                        where_extra += " AND m.game_system = %s"
                     params.append(game_system)
                 if since_date:
                     where_extra += " AND m.match_date >= %s::timestamptz"
@@ -4736,7 +4739,10 @@ class PostgresDatabase:
                       AND NOT EXISTS (
                           SELECT 1 FROM rating_history rh 
                           WHERE rh.match_id = m.id 
-                            AND COALESCE(rh.game_system, '40k') = COALESCE(m.game_system, '40k')
+                            AND (
+                                (m.game_system IS NOT NULL AND m.game_system != '40k' AND rh.game_system = m.game_system)
+                                OR ((m.game_system IS NULL OR m.game_system = '40k') AND COALESCE(rh.game_system, '40k') = '40k')
+                            )
                           LIMIT 1
                       )
                       {where_extra}
@@ -4778,7 +4784,10 @@ class PostgresDatabase:
                 where_clause = "WHERE m.is_done = TRUE AND m.player1_id IS NOT NULL AND m.player1_id != '' AND m.player2_id IS NOT NULL AND m.player2_id != '' AND (m.is_bye = TRUE OR (m.winner_id IS NOT NULL AND m.winner_id != '') OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0 OR m.id LIKE 'melee:%%' OR m.id LIKE 'ltcg:%%' OR m.id LIKE 'ls:%%' OR m.id LIKE 'td:%%')))"
                 params = []
                 if game_system and game_system != "all":
-                    where_clause += " AND COALESCE(m.game_system, '40k') = %s"
+                    if game_system == "40k":
+                        where_clause += " AND (m.game_system = %s OR m.game_system IS NULL)"
+                    else:
+                        where_clause += " AND m.game_system = %s"
                     params.append(game_system)
                 try:
                     cursor.execute(f"""

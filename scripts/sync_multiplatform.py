@@ -165,12 +165,34 @@ def import_live_limitless_tournaments(
     matches_imported = 0
     participants_imported = 0
 
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _fetch_ltcg_bundle(raw_tid: str):
+        details = _http_get_json(f"https://play.limitlesstcg.com/api/tournaments/{raw_tid}/details") or {}
+        standings = _http_get_json(f"https://play.limitlesstcg.com/api/tournaments/{raw_tid}/standings") or []
+        pairings = _http_get_json(f"https://play.limitlesstcg.com/api/tournaments/{raw_tid}/pairings") or []
+        return details, standings, pairings
+
+    prefetched_ltcg: Dict[str, Any] = {}
+    if len(targets) > 1:
+        with ThreadPoolExecutor(max_workers=min(6, len(targets))) as pool:
+            futs = {t[1]: pool.submit(_fetch_ltcg_bundle, t[1]) for t in targets}
+            for raw_tid_k, fut in futs.items():
+                try:
+                    prefetched_ltcg[raw_tid_k] = fut.result()
+                except Exception as e:
+                    prefetched_ltcg[raw_tid_k] = e
+
     for sys_slug, raw_tid, t_meta in targets:
         eid = _bound_id(f"ltcg:{raw_tid}")
         try:
-            details = _http_get_json(f"https://play.limitlesstcg.com/api/tournaments/{raw_tid}/details") or {}
-            standings = _http_get_json(f"https://play.limitlesstcg.com/api/tournaments/{raw_tid}/standings") or []
-            pairings = _http_get_json(f"https://play.limitlesstcg.com/api/tournaments/{raw_tid}/pairings") or []
+            pre = prefetched_ltcg.get(raw_tid)
+            if isinstance(pre, Exception):
+                raise pre
+            if pre is not None:
+                details, standings, pairings = pre
+            else:
+                details, standings, pairings = _fetch_ltcg_bundle(raw_tid)
         except Exception as e:
             logger.warning(f"Skipping Limitless tournament {raw_tid}: {e}")
             continue
@@ -1614,6 +1636,65 @@ def get_sync_db(sqlite_path: Optional[str] = None):
         return LocalSqliteDatabase(db_path=resolved_sqlite)
     from database import get_database
     return get_database()
+
+
+def get_existing_platform_event_ids(db: Any, prefix: str) -> set:
+    """Returns a set of raw and prefixed event IDs that already have imported matches in the database."""
+    existing: set = set()
+    if not db or not prefix:
+        return existing
+    clean_p = prefix.rstrip(":")
+    like_pat = f"{clean_p}:%"
+    try:
+        if hasattr(db, "get_connection") and type(getattr(db, "get_connection", None)).__name__ != "MagicMock":
+            with db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT e.id, e.external_event_id
+                        FROM events e
+                        WHERE e.id LIKE %s
+                          AND EXISTS (SELECT 1 FROM matches m WHERE m.event_id = e.id LIMIT 1);
+                        """,
+                        (like_pat,),
+                    )
+                    for row in (cur.fetchall() or []):
+                        eid = str(row[0] if isinstance(row, (list, tuple)) else row.get("id") or "").strip()
+                        ext = str(row[1] if isinstance(row, (list, tuple)) else row.get("external_event_id") or "").strip()
+                        if eid:
+                            existing.add(eid)
+                            if eid.startswith(f"{clean_p}:"):
+                                existing.add(eid[len(clean_p) + 1 :])
+                        if ext:
+                            existing.add(ext)
+                            existing.add(f"{clean_p}:{ext}")
+        elif hasattr(db, "_connect") and type(getattr(db, "_connect", None)).__name__ != "MagicMock":
+            conn = db._connect()
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT e.id, e.external_event_id
+                    FROM events e
+                    WHERE e.id LIKE ?
+                      AND EXISTS (SELECT 1 FROM matches m WHERE m.event_id = e.id LIMIT 1);
+                    """,
+                    (like_pat,),
+                ).fetchall()
+                for row in (rows or []):
+                    eid = str(row[0] or "").strip()
+                    ext = str(row[1] or "").strip()
+                    if eid:
+                        existing.add(eid)
+                        if eid.startswith(f"{clean_p}:"):
+                            existing.add(eid[len(clean_p) + 1 :])
+                    if ext:
+                        existing.add(ext)
+                        existing.add(f"{clean_p}:{ext}")
+            finally:
+                conn.close()
+    except Exception as e:
+        logger.debug(f"Notice checking existing {clean_p}: events: {e}")
+    return existing
 
 
 def finalize_platform_sync(db: Any, touched_systems: List[str], platform_name: str = "platform") -> Dict[str, Any]:
