@@ -1496,6 +1496,11 @@ class EloEngine:
 
         sys_target = normalize_game_system(game_system or "mtg", default="mtg")
         t0 = time.time()
+        # Literal (non-OR) system predicates so the planner can use idx_pg_matches_system_chrono /
+        # player_ratings(game_system) instead of sequentially scanning every system's rows.
+        m_sys_clause = "COALESCE(m.game_system, '40k') = '40k'" if sys_target == "40k" else "m.game_system = %s"
+        pr_sys_clause = "COALESCE(game_system, '40k') = '40k'" if sys_target == "40k" else "game_system = %s"
+        pr_sys_params = () if sys_target == "40k" else (sys_target,)
         with self.db.get_connection() as conn:
             match_sql = """
                     SELECT
@@ -1505,7 +1510,7 @@ class EloEngine:
                         m.winner_id, m.is_draw, m.is_bye,
                         CASE WHEN m.player1_faction = 'Commander Pod' OR m.player2_faction = 'Commander Pod' OR m.player1_name LIKE '%%Pod (%%' OR m.player2_name LIKE '%%Pod (%%' OR m.player1_name LIKE '%%&%%' OR m.player2_name LIKE '%%&%%' THEN m.raw_json ELSE NULL END as raw_json
                     FROM matches m
-                    WHERE ((%s != '40k' AND m.game_system = %s) OR (%s = '40k' AND COALESCE(m.game_system, '40k') = '40k'))
+                    WHERE {m_sys_clause}
                       AND m.is_done = TRUE
                       AND m.player1_id IS NOT NULL AND m.player1_id != ''
                       AND m.player2_id IS NOT NULL AND m.player2_id != ''
@@ -1515,8 +1520,8 @@ class EloEngine:
                           OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0 OR m.id LIKE 'melee:%%' OR m.id LIKE 'ltcg:%%' OR m.id LIKE 'ls:%%' OR m.id LIKE 'td:%%'))
                       )
                     ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC, m.id ASC;
-                    """
-            match_params = (sys_target, sys_target, sys_target)
+                    """.replace("{m_sys_clause}", m_sys_clause)
+            match_params = () if sys_target == "40k" else (sys_target,)
             is_real_pg = type(conn).__module__.startswith("psycopg2")
             cursor_seq = [0]
 
@@ -1695,8 +1700,8 @@ class EloEngine:
             hist_wcur = conn.cursor()
             hist_wcur.execute("SET LOCAL synchronous_commit = OFF;")
             hist_wcur.execute(
-                "SELECT player_id FROM player_ratings WHERE ((%s != '40k' AND game_system = %s) OR (%s = '40k' AND COALESCE(game_system, '40k') = '40k'));",
-                (sys_target, sys_target, sys_target),
+                f"SELECT player_id FROM player_ratings WHERE {pr_sys_clause};",
+                pr_sys_params,
             )
             hist_pids = set(scoped_pids)
             for pr_row in (hist_wcur.fetchall() or []):
@@ -1986,8 +1991,8 @@ class EloEngine:
                 wcur.execute("SET LOCAL synchronous_commit = OFF;")
                 _flush_history()
                 wcur.execute(
-                    "DELETE FROM player_ratings WHERE ((%s != '40k' AND game_system = %s) OR (%s = '40k' AND COALESCE(game_system, '40k') = '40k'));",
-                    (sys_target, sys_target, sys_target),
+                    f"DELETE FROM player_ratings WHERE {pr_sys_clause};",
+                    pr_sys_params,
                 )
                 chunk_sz = 2500
                 for idx_r in range(0, len(ratings_rows), chunk_sz):

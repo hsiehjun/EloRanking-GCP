@@ -587,7 +587,8 @@ async def api_admin_repair_matches_elo(
                 except Exception as mm_err:
                     logger.warning(f"Notice repairing Melee metadata: {mm_err}")
                     melee_meta_res = {"error": str(mm_err)}
-            per_system = {sys_one: _run_reconstruct_one(sys_one) for sys_one in systems_to_run}
+            # reconstruct=False -> metadata repair/dedupe only (rebuild systems in separate, shorter requests).
+            per_system = {sys_one: _run_reconstruct_one(sys_one) for sys_one in systems_to_run} if body.reconstruct else {}
             return {
                 "status": "completed",
                 "mode": "reconstruct_only",
