@@ -4883,6 +4883,7 @@ class PostgresDatabase:
             return cached_entry[0]
 
         # 3. Check persistent database cache in system_settings if in-memory cache is empty (e.g. cold container boot)
+        persisted_nonzero = None
         if not cached_entry:
             try:
                 with self.get_connection() as conn:
@@ -4901,6 +4902,8 @@ class PostgresDatabase:
                                 or int(parsed.get("total_matches") or 0) <= 0
                                 or (cache_key == "mtg" and int(parsed.get("total_players") or 0) < 10)
                             )
+                            if not is_stale_zero:
+                                persisted_nonzero = parsed
                             if not is_stale_zero and p_time >= PostgresDatabase._last_cache_invalidation_ts:
                                 PostgresDatabase._stats_cache_map[cache_key] = (parsed, p_time or now)
                                 cached_entry = (parsed, p_time or now)
@@ -4939,8 +4942,10 @@ class PostgresDatabase:
                             where_e += " AND game_system = %s"
                         params_sys = [cache_key]
 
-                    cursor.execute(f"SELECT COUNT(*) as cnt FROM player_ratings {where_pr_fast};", tuple(params_sys))
-                    total_players = cursor.fetchone()["cnt"]
+                    cursor.execute(f"SELECT COUNT(*) as cnt, COALESCE(SUM(matches_played), 0) as mp FROM player_ratings {where_pr_fast};", tuple(params_sys))
+                    pr_row = cursor.fetchone()
+                    total_players = pr_row["cnt"]
+                    pr_matches_est = int(int(pr_row.get("mp") or 0) / 2) if isinstance(pr_row, dict) else 0
 
                     total_matches = 0
                     if cache_key in ("40k", "all"):
@@ -4953,8 +4958,19 @@ class PostgresDatabase:
                         except Exception:
                             total_matches = 0
                     if total_matches <= 0:
-                        cursor.execute(f"SELECT COUNT(*) as cnt FROM matches {where_m};", tuple(params_sys))
-                        total_matches = cursor.fetchone()["cnt"]
+                        # Use a SAVEPOINT so a slow/timed-out exact count (e.g. stale visibility map right after
+                        # a bulk import) degrades to the player_ratings-derived estimate instead of zeroing stats.
+                        cursor.execute("SAVEPOINT stats_match_count;")
+                        try:
+                            cursor.execute("SET LOCAL statement_timeout = '1500ms';")
+                            cursor.execute(f"SELECT COUNT(*) as cnt FROM matches {where_m};", tuple(params_sys))
+                            total_matches = cursor.fetchone()["cnt"]
+                            cursor.execute("RELEASE SAVEPOINT stats_match_count;")
+                        except Exception as mc_err:
+                            cursor.execute("ROLLBACK TO SAVEPOINT stats_match_count;")
+                            logger.warning(f"Exact match count timed out for {cache_key}; using player_ratings estimate: {mc_err}")
+                            total_matches = pr_matches_est
+                        cursor.execute("SET LOCAL statement_timeout = '4000ms';")
 
                     cursor.execute(f"SELECT COUNT(*) as cnt FROM events {where_e};", tuple(params_sys))
                     total_events = cursor.fetchone()["cnt"]
@@ -5001,9 +5017,11 @@ class PostgresDatabase:
                     return res
         except Exception as e:
             logger.warning(f"Notice during get_summary_stats computation ({cache_key}): {e}")
-            fallback_res = cached_entry[0] if cached_entry else dict(default_stats)
-            if not hasattr(getattr(self, "get_connection", None), "assert_called"):
-                PostgresDatabase._stats_cache_map[cache_key] = (fallback_res, now)
+            fallback_res = cached_entry[0] if cached_entry else (persisted_nonzero or dict(default_stats))
+            is_zero_fallback = int(fallback_res.get("total_matches") or 0) <= 0 and int(fallback_res.get("total_players") or 0) <= 0
+            if not hasattr(getattr(self, "get_connection", None), "assert_called") and not is_zero_fallback:
+                # Short-lived (60s) cache of the fallback so we retry soon; never pin all-zero stats.
+                PostgresDatabase._stats_cache_map[cache_key] = (fallback_res, max(now - 1740, PostgresDatabase._last_cache_invalidation_ts))
             return fallback_res
         finally:
             PostgresDatabase._stats_refresh_lock.release()

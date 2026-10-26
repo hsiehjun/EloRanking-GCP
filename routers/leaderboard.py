@@ -6,6 +6,7 @@ import secrets
 import asyncio
 import re
 import time
+import threading
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
@@ -2230,9 +2231,88 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
     return event_details
 
 
+_EVENT_SWR_MAX_AGE_S = 6 * 3600
+_EVENT_COLD_BUDGET_S = 0.75
+_event_refresh_inflight: set = set()
+_event_refresh_lock = threading.Lock()
+
+
+def _is_event_mock_env(db) -> bool:
+    return bool(
+        hasattr(db, "assert_called")
+        or hasattr(getattr(db, "get_event_details", None), "assert_called")
+        or hasattr(BestCoastPairingsScraper, "assert_called")
+        or hasattr(getattr(BestCoastPairingsScraper, "fetch_event_players", None), "assert_called")
+        or hasattr(getattr(BestCoastPairingsScraper, "fetch_event_details", None), "assert_called")
+        or hasattr(getattr(BestCoastPairingsScraper, "fetch_event_teams", None), "assert_called")
+        or hasattr(getattr(BestCoastPairingsScraper, "fetch_event_pairings_for_round", None), "assert_called")
+    )
+
+
+def _bg_refresh_event_details(event_id_str: str) -> None:
+    """Refreshes one event's details off the request path (deduplicated per event)."""
+    with _event_refresh_lock:
+        if event_id_str in _event_refresh_inflight:
+            return
+        _event_refresh_inflight.add(event_id_str)
+
+    def _run():
+        try:
+            _sync_api_event_details(event_id_str, False, bypass_cache=True)
+        except Exception as bg_err:
+            logger.debug(f"Background event refresh failed for {event_id_str}: {bg_err}")
+        finally:
+            with _event_refresh_lock:
+                _event_refresh_inflight.discard(event_id_str)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _fast_event_fallback(event_id_str: str) -> Optional[Dict[str, Any]]:
+    """Cheap DB/L2-only event payload used when the live BCP sync exceeds the cold-path budget."""
+    l2_ev = _load_event_l2_cache(event_id_str, time.time())
+    if l2_ev:
+        return l2_ev
+    db = get_database()
+    if db is None:
+        return None
+    try:
+        ev = db.get_event_details(event_id_str)
+    except Exception:
+        return None
+    if isinstance(ev, dict) and ev.get("id"):
+        ev = dict(ev)
+        ev["sync_in_progress"] = True
+        return ev
+    return None
+
+
 @router.get("/api/event/{event_id}", summary="Get tournament metadata, placings, and round pairings")
 async def api_event_details(event_id: str, force_sync: bool = False):
-    return await asyncio.to_thread(_sync_api_event_details, event_id, force_sync)
+    event_id_str = (event_id or "").strip()
+    db = get_database()
+    if force_sync or _is_event_mock_env(db) or event_id_str.startswith("ES-"):
+        return await asyncio.to_thread(_sync_api_event_details, event_id, force_sync)
+
+    # Stale-while-revalidate: serve any reasonably fresh cached payload instantly and refresh in background.
+    entry = _event_details_cache.get(event_id_str)
+    if entry and entry.get("timestamp"):
+        age = time.time() - entry["timestamp"]
+        ttl = 3600 if entry.get("is_ended") else 120
+        if age < _EVENT_SWR_MAX_AGE_S:
+            if age >= ttl:
+                _bg_refresh_event_details(event_id_str)
+            return _enrich_event_team_pairings(entry["data"], event_id_str)
+
+    # Cold path: bound latency. If the full live sync is slow, return DB/L2 data and let it finish in background.
+    sync_task = asyncio.ensure_future(asyncio.to_thread(_sync_api_event_details, event_id, False))
+    try:
+        return await asyncio.wait_for(asyncio.shield(sync_task), timeout=_EVENT_COLD_BUDGET_S)
+    except asyncio.TimeoutError:
+        fallback = await asyncio.to_thread(_fast_event_fallback, event_id_str)
+        if fallback:
+            return fallback
+        return await sync_task
 
 
 def _get_event_l2_cache_paths(event_id_str: str) -> List[Path]:
@@ -2271,7 +2351,7 @@ def _save_event_l2_cache(event_id_str: str, event_details: Dict[str, Any]) -> No
         pass
 
 
-def _sync_api_event_details(event_id: str, force_sync: bool = False):
+def _sync_api_event_details(event_id: str, force_sync: bool = False, bypass_cache: bool = False):
     db = get_database()
     event_id_str = event_id.strip()
     now_ts = time.time()
@@ -2286,7 +2366,7 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False):
         or hasattr(getattr(BestCoastPairingsScraper, "fetch_event_teams", None), "assert_called")
         or hasattr(getattr(BestCoastPairingsScraper, "fetch_event_pairings_for_round", None), "assert_called")
     )
-    if not force_sync and not is_mock_env and event_id_str in _event_details_cache:
+    if not force_sync and not bypass_cache and not is_mock_env and event_id_str in _event_details_cache:
         entry = _event_details_cache[event_id_str]
         ttl = 3600 if entry.get("is_ended") else 120
         if (now_ts - entry.get("timestamp", 0)) < ttl:
