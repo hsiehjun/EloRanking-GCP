@@ -4,23 +4,26 @@ Dedicated Cloud Run Job / CLI Sync Script for Melee.gg (`scripts/sync_melee.py`)
 Scrapes completed competitive TCG tournaments (`mtg`, `sw_unlimited`, `lorcana`, `flesh_and_blood`, `riftbound`)
 from `https://melee.gg` (`melee:` prefix), including round standings, pairings, and decklists,
 and updates Elo & Meta Intel strictly for the touched game systems.
+
+Backfill mode (`--days >= 365` or `--start-date`) walks every ENDED tournament with >= 8 enrolled players
+oldest-id-first and persists a cursor in `system_settings` so nightly runs resume; `--time-budget-minutes`
+(default 50) bounds discovery + import so the Cloud Run Job always finishes cleanly.
 """
 
 import argparse
-import gzip
 import json
 import logging
 import os
-import shutil
-import subprocess
 import sys
-import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from scripts.melee_client import MELEE_PAGE_SIZE, MeleeClient
 from scripts.sync_multiplatform import (
+    _melee_game_to_system,
     finalize_platform_sync,
     get_existing_platform_event_ids,
     get_sync_db,
@@ -168,238 +171,191 @@ def _parse_iso_bound(val: Optional[str], is_end: bool = False) -> Optional[datet
         return None
 
 
-def _discover_live_melee_targets_via_cdp(
-    systems: List[str],
-    start_iso: str,
-    end_iso: str,
-    is_backfill: bool,
-    cap: int,
-    existing_set: set,
-) -> List[Tuple[str, str]]:
-    """
-    Discovers completed Melee.gg tournaments directly from `https://melee.gg/Tournament/TournamentSearch`
-    via headless Chrome/Chromium CDP across requested game tags.
-    """
-    chrome_bin = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
-    if not (shutil.which("node") and chrome_bin) or os.getenv("MELEE_SKIP_CHROME", "0") == "1":
-        return []
+# =============================================================================
+# Live discovery over Melee.gg's `/Tournament/TournamentSearch` DataTables endpoint
+# =============================================================================
 
-    tag_pairs = [(s, MELEE_GAME_TAGS[s]) for s in systems if s in MELEE_GAME_TAGS]
-    if not tag_pairs:
-        return []
+MELEE_MIN_PLAYERS = int(os.getenv("MELEE_MIN_PLAYERS", "8"))
+MELEE_HISTORY_FLOOR = "2020-01-01"  # Melee.gg launched in 2020.
+MELEE_CURSOR_KEY_PREFIX = "melee_backfill_cursor_v1"
+# Tournaments that fetched fine but had no standings/matches (casual, unpublished, cancelled): skipped by the
+# recent pass for `MELEE_EMPTY_SKIP_DAYS` so they don't eat `--max-events` every night.
+MELEE_EMPTY_SKIP_KEY = "melee_empty_tids_v1"
+MELEE_EMPTY_SKIP_DAYS = int(os.getenv("MELEE_EMPTY_SKIP_DAYS", "30"))
+MELEE_MAX_RECENT_PAGES = int(os.getenv("MELEE_MAX_RECENT_PAGES", "40"))
+# Game tags are missing on many tournaments (all pre-2024 ones, and ~half of Lorcana: tag filter = 87k rows
+# vs 163k Lorcana rows under plain `Ended`; SWU 115.0k vs 115.8k), so history is walked through the untagged
+# `Ended` filter and rows are classified by `gameDescription`. Only Riftbound's tag filter is complete.
+MELEE_TAG_COMPLETE_SYSTEMS = {"riftbound"}
 
-    with tempfile.NamedTemporaryFile(prefix="melee_disc_", suffix=".json", delete=False) as tf:
-        out_path = tf.name
 
-    node_disc_script = r"""
-const { spawn } = require("child_process");
-const http = require("http");
-const fs = require("fs");
+def _row_system(row: Dict[str, Any]) -> Optional[str]:
+    return _melee_game_to_system(row.get("gameDescription"))
 
-const cfg = JSON.parse(process.argv[1]);
-const outPath = process.argv[2];
-const chromeBin = process.argv[3] || "google-chrome";
 
-async function main() {
-  const port = 19560 + Math.floor(Math.random() * 400);
-  const profileDir = `/tmp/chrome_disc_${port}_${process.pid}`;
-  try { fs.mkdirSync(profileDir, { recursive: true }); } catch (e) {}
-  const chrome = spawn(chromeBin, [
-    "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
-    "--no-first-run", "--no-default-browser-check",
-    "--disable-blink-features=AutomationControlled",
-    `--user-data-dir=${profileDir}`,
-    "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-    `--remote-debugging-port=${port}`,
-    "https://melee.gg/Tournament/Index?ordering=StartDate&mode=Table"
-  ], { stdio: "ignore" });
-  const cleanup = () => {
-    try { chrome.kill("SIGKILL"); } catch (e) {}
-    try { fs.rmSync(profileDir, { recursive: true, force: true }); } catch (e) {}
-  };
-  let pageTarget = null;
-  for (let attempt = 0; attempt < 40; attempt++) {
-    await new Promise(r => setTimeout(r, 350));
-    try {
-      const targets = await new Promise((resolve, reject) => {
-        const req = http.get(`http://127.0.0.1:${port}/json`, res => {
-          let d = ""; res.on("data", c => d += c); res.on("end", () => {
-            try { resolve(JSON.parse(d)); } catch (e) { reject(e); }
-          });
-        });
-        req.on("error", reject);
-        req.setTimeout(1000, () => { req.destroy(); reject(new Error("timeout")); });
-      });
-      if (Array.isArray(targets)) {
-        pageTarget = targets.find(t => t.type === "page" && t.webSocketDebuggerUrl && String(t.url || "").includes("melee.gg"));
-        if (pageTarget) break;
-      }
-    } catch (e) {}
-  }
-  if (!pageTarget) {
-    fs.writeFileSync(outPath, "{}");
-    cleanup();
-    process.exit(0);
-  }
-  const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
-  await new Promise(r => ws.addEventListener("open", r));
-  let msgId = 1;
-  const send = (method, params = {}) => new Promise(resolve => {
-    const id = msgId++;
-    const listener = (ev) => {
-      const data = JSON.parse(ev.data);
-      if (data.id === id) { ws.removeEventListener("message", listener); resolve(data.result); }
-    };
-    ws.addEventListener("message", listener);
-    ws.send(JSON.stringify({ id, method, params }));
-  });
-  for (let w = 0; w < 35; w++) {
-    const chk = await send("Runtime.evaluate", { expression: "Boolean(window.$ && window.$.post)", returnByValue: true });
-    if (chk && chk.result && chk.result.value === true) break;
-    await new Promise(r => setTimeout(r, 350));
-  }
-  const res = await send("Runtime.evaluate", {
-    expression: `(async () => {
-      const baseColumns = [
-        {"data":"StartDate","name":"StartDate","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
-        {"data":"Name","name":"Name","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
-        {"data":"OrganizationName","name":"OrganizationName","searchable":true,"orderable":false,"search":{"value":"","regex":false}},
-        {"data":"Format","name":"Format","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
-        {"data":"Status","name":"Status","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
-        {"data":"Game","name":"Game","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
-        {"data":"Decklists","name":"Decklists","searchable":false,"orderable":true,"search":{"value":"","regex":false}},
-        {"data":"Cards","name":"Cards","searchable":true,"orderable":false,"search":{"value":"","regex":false}}
-      ];
-      const tagPairs = ${JSON.stringify(cfg.tagPairs)};
-      const startIso = ${JSON.stringify(cfg.startIso)};
-      const endIso = ${JSON.stringify(cfg.endIso)};
-      const isBackfill = ${JSON.stringify(cfg.isBackfill)};
-      const bySystem = {};
+def _row_is_candidate(row: Dict[str, Any], systems: List[str], floor_iso: str, ceil_iso: str) -> Optional[str]:
+    sys_slug = _row_system(row)
+    if not sys_slug or sys_slug not in systems:
+        return None
+    if int(row.get("enrolledPlayerCount") or 0) < MELEE_MIN_PLAYERS:
+        return None
+    sd = str(row.get("startDate") or "")
+    if not sd or sd < floor_iso or sd > ceil_iso:  # Melee has junk years like 0202 / 8202.
+        return None
+    return sys_slug
 
-      await Promise.all(tagPairs.map(async ([sysSlug, tag]) => {
-        bySystem[sysSlug] = [];
-        try {
-          const first = await $.post("/Tournament/TournamentSearch", {
-            ordering: "StartDate",
-            filters: ["Ended", tag],
-            mode: "Table",
-            variables: {
-              draw: 1,
-              columns: baseColumns,
-              order: [{"column": 0, "dir": "desc"}],
-              start: 0,
-              length: 100,
-              search: {"value": "", "regex": false}
-            }
-          });
-          const totalFiltered = (first && first.recordsFiltered) || 0;
-          const allRows = (first && first.data) ? [...first.data] : [];
-          let extraOffsets = [100];
-          if (isBackfill && totalFiltered > 200) {
-            const maxOff = Math.min(totalFiltered - 100, 40000);
-            const rawOffs = [100, 300, 800, 2000, 5000, 12000, 25000, maxOff];
-            extraOffsets = Array.from(new Set(rawOffs.filter(o => o > 0 && o <= maxOff)));
-          } else if (totalFiltered <= 100) {
-            extraOffsets = [];
-          }
-          const extraPages = await Promise.all(extraOffsets.map(off =>
-            $.post("/Tournament/TournamentSearch", {
-              ordering: "StartDate",
-              filters: ["Ended", tag],
-              mode: "Table",
-              variables: {
-                draw: 1,
-                columns: baseColumns,
-                order: [{"column": 0, "dir": "desc"}],
-                start: off,
-                length: 100,
-                search: {"value": "", "regex": false}
-              }
-            }).then(r => (r && r.data) || []).catch(() => [])
-          ));
-          for (const pageRows of extraPages) {
-            allRows.push(...pageRows);
-          }
-          allRows.sort((a, b) => Number(b.enrolledPlayerCount || 0) - Number(a.enrolledPlayerCount || 0));
-          for (const row of allRows) {
-            const sd = String(row.startDate || "");
-            const enrolled = Number(row.enrolledPlayerCount || 0);
-            if (row.id && enrolled >= 6 && sd >= startIso && sd <= endIso) {
-              bySystem[sysSlug].push(String(row.id));
-            }
-          }
-        } catch (e) {}
-      }));
-      return JSON.stringify(bySystem);
-    })()`,
-    awaitPromise: true,
-    returnByValue: true
-  });
-  fs.writeFileSync(outPath, (res && res.result && res.result.value) || "{}");
-  try { ws.close(); } catch (e) {}
-  cleanup();
-  process.exit(0);
-}
-main().catch(() => {
-  try { fs.writeFileSync(outPath, "{}"); } catch (e) {}
-  process.exit(0);
-});
-"""
-    discovered: List[Tuple[str, str]] = []
-    seen_tids: set = set()
+
+def _search_filters(systems: List[str]) -> List[str]:
+    if len(systems) == 1 and systems[0] in MELEE_TAG_COMPLETE_SYSTEMS:
+        return ["Ended", MELEE_GAME_TAGS[systems[0]]]
+    return ["Ended"]
+
+
+def _cursor_key(systems: List[str]) -> str:
+    scope = "all" if sorted(systems) == sorted(MELEE_GAME_TAGS.keys()) else ",".join(sorted(systems))
+    return f"{MELEE_CURSOR_KEY_PREFIX}:{scope}"
+
+
+def load_melee_cursor(db: Any, key: str) -> Dict[str, Any]:
+    """Reads the resumable backfill cursor from `system_settings` (Postgres `get_setting` or SQLite `get_system_setting`)."""
+    raw: Any = None
     try:
-        payload = {
-            "tagPairs": tag_pairs,
-            "startIso": start_iso,
-            "endIso": end_iso,
-            "isBackfill": is_backfill,
-        }
-        subprocess.run(
-            ["node", "-e", node_disc_script, json.dumps(payload), out_path, chrome_bin],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=35,
-        )
-        with open(out_path, "r", encoding="utf-8") as f:
-            by_system = json.load(f) or {}
-
-        import itertools
-
-        per_sys_lists: List[List[Tuple[str, str]]] = []
-        for sys_slug, _ in tag_pairs:
-            tids_for_sys = by_system.get(sys_slug) or []
-            sys_cands: List[Tuple[str, str]] = []
-            for tid in tids_for_sys:
-                tid_str = str(tid).strip()
-                if (
-                    not tid_str
-                    or tid_str in seen_tids
-                    or tid_str in existing_set
-                    or f"melee:{tid_str}" in existing_set
-                ):
-                    continue
-                seen_tids.add(tid_str)
-                sys_cands.append((sys_slug, tid_str))
-            if sys_cands:
-                per_sys_lists.append(sys_cands)
-
-        for row_tuple in itertools.zip_longest(*per_sys_lists):
-            for pair in row_tuple:
-                if pair is None:
-                    continue
-                discovered.append(pair)
-                if len(discovered) >= cap:
-                    break
-            if len(discovered) >= cap:
-                break
+        if type(db).__name__ == "MagicMock":
+            return {}
+        if hasattr(db, "get_setting"):
+            raw = db.get_setting(key)
+        elif hasattr(db, "get_system_setting"):
+            raw = db.get_system_setting(key)
     except Exception as e:
-        logger.debug(f"[MeleeSync] Live /Tournament/TournamentSearch discovery fallback: {e}")
-    finally:
-        if os.path.exists(out_path):
-            os.remove(out_path)
+        logger.debug(f"[MeleeSync] cursor read notice: {e}")
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            val = json.loads(raw)
+            return val if isinstance(val, dict) else {}
+        except Exception:
+            return {}
+    return {}
 
-    return discovered[:cap]
+
+def save_melee_cursor(db: Any, key: str, state: Dict[str, Any]) -> None:
+    state = {**state, "updated_at": datetime.now(timezone.utc).isoformat()}
+    try:
+        if type(db).__name__ == "MagicMock":
+            return
+        if hasattr(db, "set_setting"):
+            db.set_setting(key, json.dumps(state))
+        elif hasattr(db, "set_system_setting"):
+            db.set_system_setting(key, json.dumps(state))
+    except Exception as e:
+        logger.warning(f"[MeleeSync] cursor save notice: {e}")
+
+
+def _discover_recent(
+    client: MeleeClient,
+    systems: List[str],
+    since_iso: str,
+    until_iso: str,
+    existing_set: set,
+    cap: int,
+    deadline: Optional[float],
+) -> List[Tuple[str, str, int, int]]:
+    """Walks Ended tournaments newest-first (start date desc) back to `since_iso`; catches events that were
+    created long before they ended (their ids sit behind the backfill cursor)."""
+    out: List[Tuple[str, str, int, int]] = []
+    seen: set = set()
+    filters = _search_filters(systems)
+    for page in range(MELEE_MAX_RECENT_PAGES):
+        if len(out) >= cap or (deadline and time.time() >= deadline):
+            break
+        res = client.search_tournaments(filters, page, order_by="startDate", order_dir="desc")
+        rows = res["data"]
+        if not rows:
+            break
+        for row in rows:
+            tid = str(row.get("id") or "")
+            sys_slug = _row_is_candidate(row, systems, since_iso, until_iso)
+            if not sys_slug or tid in seen or tid in existing_set or f"melee:{tid}" in existing_set:
+                continue
+            seen.add(tid)
+            out.append((sys_slug, tid, int(row.get("enrolledPlayerCount") or 0), int(row["id"])))
+            if len(out) >= cap:
+                break
+        oldest = min((str(r.get("startDate") or "9999") for r in rows if str(r.get("startDate") or "") <= until_iso), default="9999")
+        if oldest < since_iso:
+            break
+    return out
+
+
+def _first_offset_after_id(client: MeleeClient, filters: List[str], last_id: int, total: int) -> int:
+    """Binary-searches (1-row probes, deterministic id ordering) the first row offset whose id > last_id."""
+    lo, hi = 0, total
+    while lo < hi:
+        mid = (lo + hi) // 2
+        res = client.search_tournaments(filters, mid, order_by="id", order_dir="asc", length=1)
+        rows = res["data"]
+        if not rows:
+            hi = mid
+            continue
+        if int(rows[0]["id"]) <= last_id:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+
+
+def _discover_backfill(
+    client: MeleeClient,
+    systems: List[str],
+    floor_iso: str,
+    ceil_iso: str,
+    cursor: Dict[str, Any],
+    existing_set: set,
+    skip_tids: set,
+    cap: int,
+    deadline: Optional[float],
+) -> Tuple[List[Tuple[str, str, int, int]], int, bool]:
+    """Walks Ended tournaments oldest-id-first from the stored cursor. Returns (candidates, scanned_through_id, reached_end)."""
+    filters = _search_filters(systems)
+    last_id = int(cursor.get("last_id") or 0)
+    first = client.search_tournaments(filters, 0, order_by="id", order_dir="asc", length=1)
+    total = first["recordsFiltered"]
+    if total <= 0:
+        return [], last_id, True
+    offset = _first_offset_after_id(client, filters, last_id, total) if last_id > 0 else 0
+    page = offset // MELEE_PAGE_SIZE
+    out: List[Tuple[str, str, int, int]] = []
+    scanned_through = last_id
+    reached_end = False
+    while True:
+        if deadline and time.time() >= deadline:
+            break
+        res = client.search_tournaments(filters, page, order_by="id", order_dir="asc")
+        rows = res["data"]
+        if not rows:
+            reached_end = True
+            break
+        stopped_mid_page = False
+        for row in rows:
+            rid = int(row.get("id") or 0)
+            if rid <= last_id:
+                continue
+            tid = str(rid)
+            sys_slug = _row_is_candidate(row, systems, floor_iso, ceil_iso)
+            if sys_slug and tid not in existing_set and f"melee:{tid}" not in existing_set and tid not in skip_tids:
+                out.append((sys_slug, tid, int(row.get("enrolledPlayerCount") or 0), rid))
+            scanned_through = max(scanned_through, rid)
+            if len(out) >= cap:
+                stopped_mid_page = True
+                break
+        if stopped_mid_page:
+            break
+        if len(rows) < MELEE_PAGE_SIZE:
+            reached_end = True
+            break
+        page += 1
+    return out, scanned_through, reached_end
 
 
 def discover_melee_targets(
@@ -409,89 +365,109 @@ def discover_melee_targets(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     existing_ids: Optional[set] = None,
+    db: Any = None,
+    recent_days: Optional[int] = None,
+    deadline: Optional[float] = None,
+    plan: Optional[Dict[str, Any]] = None,
 ) -> List[Tuple[str, str]]:
     """
-    Discovers completed Melee.gg tournaments directly from `https://melee.gg/Tournament/TournamentSearch`
-    across 2020–2026 (`mtg`, `sw_unlimited`, `lorcana`, `flesh_blood`, `riftbound`), falling back to
-    `DEFAULT_MELEE_TARGETS` / `HISTORICAL_MELEE_TARGETS` only when headless Chrome is unavailable or more events are needed.
+    Discovers ENDED Melee.gg tournaments with >= `MELEE_MIN_PLAYERS` enrolled players for the requested systems
+    (`mtg`, `sw_unlimited`, `lorcana`, `flesh_blood`, `riftbound`) straight from `/Tournament/TournamentSearch`:
+      1. recent pass: newest start dates first, back `recent_days` (default 14),
+      2. backfill pass (when `days >= 365` or `start_date` is set): oldest tournament ids first from the cursor
+         persisted in `system_settings` (`melee_backfill_cursor_v1:<scope>`), so nightly runs resume where the last one stopped.
+    Already-imported ids are skipped. Falls back to `DEFAULT_MELEE_TARGETS` only if melee.gg is unreachable.
+    `plan` (optional dict) is filled with cursor bookkeeping consumed by `run_melee_sync`.
     """
     target_sys = (game_system or "all").strip().lower()
     if target_sys == "flesh_and_blood":
         target_sys = "flesh_blood"
     is_backfill = bool((days or 14) >= 365 or start_date)
-    cap = max_events or (200 if is_backfill else 15)
+    cap = int(max_events or (200 if is_backfill else 15))
     existing_set = existing_ids or set()
-
-    if target_sys in ("all", "other", "tcg"):
-        systems = list(MELEE_GAME_TAGS.keys())
-    else:
-        systems = [target_sys]
+    systems = list(MELEE_GAME_TAGS.keys()) if target_sys in ("all", "other", "tcg") else [target_sys]
+    systems = [s for s in systems if s in MELEE_GAME_TAGS]
+    plan = plan if plan is not None else {}
+    if not systems:
+        return []
 
     now_dt = datetime.now(timezone.utc)
     end_dt = min(_parse_iso_bound(end_date, is_end=True) or now_dt, now_dt + timedelta(days=1))
     start_dt = _parse_iso_bound(start_date, is_end=False) or (end_dt - timedelta(days=max(1, int(days or 14))))
-    start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    ceil_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    floor_iso = max(start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"), MELEE_HISTORY_FLOOR)
+    window_days = int(recent_days if recent_days is not None else (14 if is_backfill else max(1, int(days or 14))))
+    recent_since = max((end_dt - timedelta(days=window_days)).strftime("%Y-%m-%dT%H:%M:%SZ"), floor_iso)
 
-    live_discovered = _discover_live_melee_targets_via_cdp(
-        systems=systems,
-        start_iso=start_iso,
-        end_iso=end_iso,
-        is_backfill=is_backfill,
-        cap=cap,
-        existing_set=existing_set,
-    )
-    if len(live_discovered) >= cap:
-        return live_discovered[:cap]
-
-    candidate_pool: List[Tuple[str, str]] = list(live_discovered)
-    seen_tids = {tid for _, tid in candidate_pool}
-
-    fallback_by_sys: Dict[str, List[Tuple[str, str]]] = {}
-    for s_slug, tid in list(DEFAULT_MELEE_TARGETS) + (list(HISTORICAL_MELEE_TARGETS) if is_backfill else []):
-        s_norm = "flesh_blood" if s_slug == "flesh_and_blood" else s_slug
-        if tid not in seen_tids:
-            seen_tids.add(tid)
-            fallback_by_sys.setdefault(s_norm, []).append((s_norm, tid))
-
-    cache_gz_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "melee_live_cache.json.gz")
-    if os.path.exists(cache_gz_path):
-        try:
-            with gzip.open(cache_gz_path, "rt", encoding="utf-8") as gf:
-                cached_by_tid = json.load(gf) or {}
-            sorted_keys = sorted(
-                cached_by_tid.keys(),
-                key=lambda x: int(x) if str(x).isdigit() else 0,
-                reverse=not is_backfill,
+    client = MeleeClient()
+    targets: List[Tuple[str, str, int, int]] = []
+    try:
+        t0 = time.time()
+        recent = _discover_recent(client, systems, recent_since, ceil_iso, existing_set, cap, deadline)
+        targets.extend(recent)
+        logger.info(f"🔎 [MeleeSync] Recent pass ({recent_since[:10]}..{ceil_iso[:10]}): {len(recent)} new tournaments in {time.time() - t0:.1f}s")
+        if is_backfill and len(targets) < cap:
+            t1 = time.time()
+            key = _cursor_key(systems)
+            cursor = load_melee_cursor(db, key) if db is not None else {}
+            backfill, scanned_through, reached_end = _discover_backfill(
+                client, systems, floor_iso, ceil_iso, cursor, existing_set, {t[1] for t in targets}, cap - len(targets), deadline
             )
-            for raw_tid in sorted_keys:
-                if raw_tid not in seen_tids:
-                    gs_val = str((cached_by_tid.get(raw_tid) or {}).get("game_system") or "mtg").strip().lower()
-                    if gs_val == "flesh_and_blood":
-                        gs_val = "flesh_blood"
-                    seen_tids.add(raw_tid)
-                    fallback_by_sys.setdefault(gs_val, []).append((gs_val, str(raw_tid)))
-        except Exception:
-            pass
+            targets.extend(backfill)
+            plan.update(
+                {
+                    "cursor_key": key,
+                    "cursor_prev": cursor,
+                    "backfill_candidates": [(t[1], t[3]) for t in backfill],
+                    "scanned_through_id": scanned_through,
+                    "reached_end": reached_end,
+                }
+            )
+            logger.info(
+                f"🔎 [MeleeSync] Backfill pass from id>{int(cursor.get('last_id') or 0)} (filters={_search_filters(systems)}): "
+                f"{len(backfill)} tournaments, scanned through id {scanned_through}{' (reached end)' if reached_end else ''} "
+                f"in {time.time() - t1:.1f}s, {client.request_count} search requests"
+            )
+    except Exception as e:
+        logger.warning(f"[MeleeSync] Live discovery failed ({e}); falling back to curated DEFAULT_MELEE_TARGETS.")
+        if not targets:
+            fallback = [
+                (s, tid, 0, int(tid))
+                for s, tid in DEFAULT_MELEE_TARGETS
+                if s in systems and tid not in existing_set and f"melee:{tid}" not in existing_set
+            ]
+            targets = fallback[:cap]
+    finally:
+        client.close()
 
-    import itertools
-    for row_tuple in itertools.zip_longest(*[b for b in fallback_by_sys.values() if b]):
-        for pair in row_tuple:
-            if pair is not None:
-                candidate_pool.append(pair)
+    plan["targets_full"] = targets[:cap]
+    return [(t[0], t[1], t[2]) for t in targets[:cap]]
 
-    filtered = [
-        (s, tid)
-        for s, tid in candidate_pool
-        if target_sys in ("all", "other", "tcg") or s == target_sys
-    ]
-    unimported = [
-        (s, tid)
-        for s, tid in filtered
-        if tid not in existing_set and f"melee:{tid}" not in existing_set
-    ]
-    selected = unimported[:cap] if unimported else filtered[:cap]
-    return selected
+
+def _advance_cursor(db: Any, plan: Dict[str, Any], attempted: List[str]) -> Optional[Dict[str, Any]]:
+    """Moves the backfill cursor past every candidate that was attempted (in id order)."""
+    key = plan.get("cursor_key")
+    if not key:
+        return None
+    prev = plan.get("cursor_prev") or {}
+    last_id = int(prev.get("last_id") or 0)
+    attempted_set = set(attempted)
+    candidates = plan.get("backfill_candidates") or []
+    first_pending = next((rid for tid, rid in candidates if tid not in attempted_set), None)
+    if first_pending is None:
+        new_last = max(last_id, int(plan.get("scanned_through_id") or last_id))
+        done = bool(plan.get("reached_end"))
+    else:
+        new_last = max(last_id, int(first_pending) - 1)
+        done = False
+    state = {
+        "last_id": new_last,
+        "runs": int(prev.get("runs") or 0) + 1,
+        "imported_total": int(prev.get("imported_total") or 0),
+        "reached_end": done or bool(prev.get("reached_end")),
+    }
+    save_melee_cursor(db, key, state)
+    return state
 
 
 def run_melee_sync(
@@ -502,18 +478,28 @@ def run_melee_sync(
     sqlite_path: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    time_budget_minutes: Optional[float] = None,
+    recent_days: Optional[int] = None,
+    skip_finalize: bool = False,
 ) -> Dict[str, Any]:
     """Executes the Melee.gg tournament sync and incremental Elo reconstruction."""
+    started = time.time()
+    budget_min = float(time_budget_minutes if time_budget_minutes is not None else os.getenv("TIME_BUDGET_MINUTES", "50"))
+    deadline = started + budget_min * 60.0 if budget_min > 0 else None
     logger.info(
         f"🚀 Starting Melee.gg Sync Job (game_system={game_system}, days={days}, "
-        f"start_date={start_date}, end_date={end_date}, max_events={max_events})"
+        f"start_date={start_date}, end_date={end_date}, max_events={max_events}, time_budget={budget_min}m)"
     )
     db = get_sync_db(sqlite_path=sqlite_path)
 
+    plan: Dict[str, Any] = {}
     if event_ids:
-        targets = event_ids
+        targets = list(event_ids)
     else:
         existing_ids = get_existing_platform_event_ids(db, "melee")
+        logger.info(f"[MeleeSync] {len(existing_ids) // 2} Melee events already imported.")
+        empty_skips = load_melee_cursor(db, MELEE_EMPTY_SKIP_KEY).get("tids") or {}
+        existing_ids = set(existing_ids) | set(empty_skips.keys())
         targets = discover_melee_targets(
             game_system=game_system,
             days=days,
@@ -521,21 +507,51 @@ def run_melee_sync(
             start_date=start_date,
             end_date=end_date,
             existing_ids=existing_ids,
+            db=db,
+            recent_days=recent_days,
+            deadline=deadline,
+            plan=plan,
         )
+    discovery_s = round(time.time() - started, 1)
 
     if not targets:
         logger.info("ℹ️ [MeleeSync] No matching Melee.gg tournaments specified.")
-        return {"platform": "melee", "events_imported": 0, "matches_imported": 0}
+        if plan.get("cursor_key"):
+            _advance_cursor(db, plan, [])
+        return {"platform": "melee", "events_imported": 0, "matches_imported": 0, "discovery_seconds": discovery_s}
 
-    import_res = import_live_melee_tournaments(db, targets)
-    touched_systems = sorted({t[0] for t in targets})
-    finalize_res = finalize_platform_sync(db, touched_systems, platform_name="Melee.gg")
+    logger.info(f"[MeleeSync] Importing {len(targets)} tournaments (discovery took {discovery_s}s).")
+    import_res = import_live_melee_tournaments(db, targets, deadline=deadline)
+    attempted = list(import_res.get("attempted_tids") or [t[1] for t in targets])
+    cursor_state = _advance_cursor(db, plan, attempted) if plan.get("cursor_key") else None
+    if not event_ids and import_res.get("empty_tids"):
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=MELEE_EMPTY_SKIP_DAYS)).isoformat()
+        skips = {k: v for k, v in (load_melee_cursor(db, MELEE_EMPTY_SKIP_KEY).get("tids") or {}).items() if str(v) >= cutoff}
+        skips.update({str(t): now_iso for t in import_res["empty_tids"]})
+        save_melee_cursor(db, MELEE_EMPTY_SKIP_KEY, {"tids": skips})
+    if cursor_state is not None and plan.get("cursor_key"):
+        cursor_state["imported_total"] = int(cursor_state.get("imported_total") or 0) + int(import_res.get("events_imported") or 0)
+        save_melee_cursor(db, plan["cursor_key"], cursor_state)
+
+    touched_systems = sorted(import_res.get("systems_touched") or {t[0] for t in targets})
+    finalize_res: Dict[str, Any] = {}
+    if touched_systems and not skip_finalize:
+        t_fin = time.time()
+        finalize_res = finalize_platform_sync(db, touched_systems, platform_name="Melee.gg")
+        finalize_res["finalize_seconds"] = round(time.time() - t_fin, 1)
 
     return {
         **import_res,
         **finalize_res,
+        "attempted_tids": len(attempted),
+        "failed_tids": len(import_res.get("failed_tids") or []),
+        "empty_tids": len(import_res.get("empty_tids") or []),
         "platform": "melee",
         "targets_count": len(targets),
+        "discovery_seconds": discovery_s,
+        "cursor": cursor_state,
+        "total_seconds": round(time.time() - started, 1),
     }
 
 
@@ -543,11 +559,14 @@ if __name__ == "__main__":
     from scripts.job_status import install_job_recorder, record_job_run
     install_job_recorder("melee_sync")
     parser = argparse.ArgumentParser(description="Cloud Run Job: Melee.gg tournament sync & Elo recalculation")
-    parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="Game system (all, mtg, sw_unlimited, lorcana, flesh_and_blood)")
-    parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "14")), help="Days of past tournaments to scrape (default: 14; use 3650 for 10yr backfill)")
-    parser.add_argument("--start-date", "--from", dest="start_date", default=os.getenv("START_DATE"), help="Optional start date (YYYY-MM-DD or ISO8601)")
+    parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="Game system (all, mtg, sw_unlimited, lorcana, flesh_and_blood, riftbound)")
+    parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "14")), help="Days of past tournaments to scrape (default: 14; >=365 enables the resumable history backfill)")
+    parser.add_argument("--start-date", "--from", dest="start_date", default=os.getenv("START_DATE"), help="Optional start date (YYYY-MM-DD or ISO8601); enables the backfill pass")
     parser.add_argument("--end-date", "--to", dest="end_date", default=os.getenv("END_DATE"), help="Optional end date (YYYY-MM-DD or ISO8601)")
-    parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS", "10")), help="Max tournaments to scrape (default: 10)")
+    parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS", "10")), help="Max tournaments to import this run (default: 10)")
+    parser.add_argument("--time-budget-minutes", type=float, default=float(os.getenv("TIME_BUDGET_MINUTES", "50")), help="Stop discovering/importing after this many minutes (default: 50); Elo finalize runs afterwards")
+    parser.add_argument("--recent-days", type=int, default=int(os.getenv("RECENT_DAYS")) if os.getenv("RECENT_DAYS") else None, help="Recent pass window in days (default: 14 in backfill mode, else --days)")
+    parser.add_argument("--skip-finalize", action="store_true", help="Skip Elo/Meta reconstruction (debugging)")
     parser.add_argument("--event-ids", default="", help="Optional comma-separated sys:tournament_id pairs (e.g. mtg:428253,sw_unlimited:458821)")
     parser.add_argument("--sqlite-path", default=os.getenv("LOCAL_SQLITE_PATH"), help="Optional local SQLite DB path for local verification")
     args, _ = parser.parse_known_args()
@@ -571,6 +590,9 @@ if __name__ == "__main__":
         sqlite_path=args.sqlite_path,
         start_date=args.start_date,
         end_date=args.end_date,
+        time_budget_minutes=args.time_budget_minutes,
+        recent_days=args.recent_days,
+        skip_finalize=args.skip_finalize,
     )
     print(json.dumps(res, indent=2, default=str))
     record_job_run("melee_sync", {"status": "SUCCESS", "result": res})

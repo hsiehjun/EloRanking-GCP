@@ -8,6 +8,7 @@ Usage:
 """
 
 import argparse
+import re
 import json
 import logging
 import os
@@ -71,7 +72,8 @@ if __name__ == "__main__":
     parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "mtg"))
     parser.add_argument("--repair-melee-metadata", action="store_true")
     args, _ = parser.parse_known_args()
-    systems = [s.strip().lower() for s in args.game_system.split(",") if s.strip()]
+    # "+" separates systems too, because Cloud Run job --args are themselves comma-separated.
+    systems = [s.strip().lower() for s in re.split(r"[,+]", args.game_system) if s.strip()]
     result = run_rebuild(systems, repair_melee_metadata=args.repair_melee_metadata)
     print(json.dumps(result, indent=2, default=str))
     failed = [k for k, v in result["systems"].items() if v.get("status") == "FAILED"]
