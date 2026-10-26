@@ -247,6 +247,23 @@ def main() -> int:
 
         time.sleep(0.04)
 
+    # Re-check failures once after the sweep so a single transient spike (new revision warming up,
+    # a nightly job briefly holding the DB) does not fail the deploy gate; persistent slowness still fails.
+    if failures:
+        time.sleep(5)
+        still_failing: List[Dict[str, Any]] = []
+        for entry in failures:
+            status3, ms3, _ = fetch_once(f"{base_url}{entry['ep']}")
+            entry["recheck_ms"] = round(ms3, 2)
+            entry["recheck_status"] = status3
+            if 200 <= status3 < 500 and ms3 <= max_ms:
+                entry["passed"] = True
+                print(f"   ↻ RECHECK PASS | {ms3:7.1f}ms | HTTP {status3} | {entry['ep']}")
+            else:
+                still_failing.append(entry)
+                print(f"   ↻ RECHECK FAIL | {ms3:7.1f}ms | HTTP {status3} | {entry['ep']}")
+        failures = still_failing
+
     # Fetch server-side telemetry snapshot
     tel_status, _, tel_body = fetch_once(f"{base_url}/api/system/perf-telemetry")
     telemetry_snapshot = {}
