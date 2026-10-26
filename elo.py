@@ -1497,9 +1497,7 @@ class EloEngine:
         sys_target = normalize_game_system(game_system or "mtg", default="mtg")
         t0 = time.time()
         with self.db.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute(
-                    """
+            match_sql = """
                     SELECT
                         m.id, m.event_id, m.round, m.table_number, m.match_date,
                         m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
@@ -1517,17 +1515,33 @@ class EloEngine:
                           OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0 OR m.id LIKE 'melee:%%' OR m.id LIKE 'ltcg:%%' OR m.id LIKE 'ls:%%' OR m.id LIKE 'td:%%'))
                       )
                     ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC, m.id ASC;
-                    """,
-                    (sys_target, sys_target, sys_target),
-                )
-                all_matches = [dict(r) for r in (cur.fetchall() or [])]
+                    """
+            match_params = (sys_target, sys_target, sys_target)
+            is_real_pg = type(conn).__module__.startswith("psycopg2")
+            cursor_seq = [0]
 
-            if not all_matches:
-                return {"status": "NO_MATCHES", "game_system": sys_target, "total_matches": 0, "total_players": 0}
+            def _iter_matches():
+                """Streams matches in chronological order (server-side cursor) to keep memory flat."""
+                if is_real_pg:
+                    cursor_seq[0] += 1
+                    with conn.cursor(name=f"fast_recon_{sys_target}_{cursor_seq[0]}", cursor_factory=extras.RealDictCursor) as scur:
+                        scur.itersize = 5000
+                        scur.execute(match_sql, match_params)
+                        for r in scur:
+                            yield dict(r)
+                else:
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                        cur.execute(match_sql, match_params)
+                        for r in (cur.fetchall() or []):
+                            yield dict(r)
+
+            total_match_count = 0
+            parsed_raw_by_mid: Dict[str, Dict[str, Any]] = {}
 
             candidate_pids_set = set()
             scoped_eids_set = set()
-            for nm in all_matches:
+            for nm in _iter_matches():
+                total_match_count += 1
                 if nm.get("event_id"):
                     scoped_eids_set.add(_bound_id(nm["event_id"]))
                 if nm.get("player1_id") and str(nm["player1_id"]).strip().upper() != "BYE":
@@ -1544,13 +1558,17 @@ class EloEngine:
                             raw_obj = json.loads(raw_val)
                         except Exception:
                             raw_obj = {}
-                    nm["_parsed_raw"] = raw_obj
+                    if raw_obj:
+                        parsed_raw_by_mid[str(nm.get("id") or "")] = raw_obj
                     for list_k in ("pod_participants", "team1_players", "team2_players"):
                         for p_item in (raw_obj.get(list_k) or []):
                             if isinstance(p_item, dict) and p_item.get("player_id"):
                                 p_str = str(p_item["player_id"]).strip()
                                 if p_str and p_str.upper() != "BYE":
                                     candidate_pids_set.add(_bound_id(p_str))
+
+            if total_match_count == 0:
+                return {"status": "NO_MATCHES", "game_system": sys_target, "total_matches": 0, "total_players": 0}
 
             scoped_pids = sorted(candidate_pids_set)
             scoped_eids = sorted(scoped_eids_set)
@@ -1665,10 +1683,10 @@ class EloEngine:
                     st["name"] = _sanitize_name(p_best, max_len=100)
                 return st
 
-            for m in all_matches:
+            for m in _iter_matches():
                 ev_id_b = _bound_id(m.get("event_id") or "")
                 m_date = m.get("match_date")
-                raw_obj = m.get("_parsed_raw") or {}
+                raw_obj = parsed_raw_by_mid.get(str(m.get("id") or "")) or {}
 
                 # --- BRANCH A: 2v2 Doubles / Team Match ---
                 t1_list = raw_obj.get("team1_players")
@@ -1969,7 +1987,7 @@ class EloEngine:
             "status": "SUCCESS",
             "mode": "reconstruct_system_ratings_fast",
             "game_system": sys_target,
-            "total_matches": len(all_matches),
+            "total_matches": total_match_count,
             "total_players": len(ratings_rows),
             "history_rows": history_count[0],
             "elapsed_seconds": round(time.time() - t0, 2),
