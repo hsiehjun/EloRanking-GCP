@@ -39,6 +39,8 @@ steps:
       - '--max'
       - '10'
       - '--cpu-throttling'
+      - '--memory'
+      - '2Gi'
 
   # 4. Update Cloud Run Job: elo-tournament-sync-job
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -106,6 +108,7 @@ steps:
       - '2'
       - '--task-timeout'
       - '60m'
+      - '--no-execute'
       - '--scheduler-name'
       - 'elo-melee-scheduler-job'
       - '--schedule'
@@ -137,6 +140,7 @@ steps:
       - '2'
       - '--task-timeout'
       - '60m'
+      - '--no-execute'
       - '--scheduler-name'
       - 'elo-limitless-scheduler-job'
       - '--schedule'
@@ -168,6 +172,7 @@ steps:
       - '2'
       - '--task-timeout'
       - '60m'
+      - '--no-execute'
       - '--scheduler-name'
       - 'elo-longshanks-scheduler-job'
       - '--schedule'
@@ -199,6 +204,7 @@ steps:
       - '2'
       - '--task-timeout'
       - '60m'
+      - '--no-execute'
       - '--scheduler-name'
       - 'elo-topdeck-scheduler-job'
       - '--schedule'
@@ -228,7 +234,7 @@ steps:
       - '--cpu'
       - '2'
       - '--task-timeout'
-      - '60m'
+      - '180m'
       - '--no-execute'
 
   # 12. Run Sequential Production Endpoint & DB Latency Gate (<1000ms budget)

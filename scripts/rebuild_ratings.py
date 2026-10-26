@@ -19,6 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("elo.job.rebuild")
 
+FULL_ENGINE_SYSTEMS = {"40k", "aos"}
+
 
 def run_rebuild(game_systems, repair_melee_metadata: bool = False) -> dict:
     from database import get_database
@@ -38,7 +40,13 @@ def run_rebuild(game_systems, repair_melee_metadata: bool = False) -> dict:
     for sys_one in game_systems:
         t0 = time.time()
         try:
-            res = engine.reconstruct_system_ratings_fast(game_system=sys_one)
+            if sys_one in FULL_ENGINE_SYSTEMS:
+                # Multi-million-match systems use the chunked streaming engine (bounded memory).
+                res = engine.reconstruct_all_rankings(game_system=sys_one)
+            else:
+                res = engine.reconstruct_system_ratings_fast(game_system=sys_one)
+            if not isinstance(res, dict):
+                res = {"status": "SUCCESS", "result": str(res)[:500]}
         except Exception as err:
             logger.exception(f"Rebuild failed for {sys_one}")
             res = {"status": "FAILED", "error": str(err)}

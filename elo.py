@@ -368,6 +368,24 @@ def _max_date(d1, d2):
     return d1 if s1 >= s2 else d2
 
 
+# Card games use intentional draws (IDs) heavily, so a draw leaves both ratings unchanged there.
+# Wargames treat a draw as a real half-point result (standard Elo: both move toward each other).
+TCG_NO_DRAW_SHIFT_SYSTEMS = frozenset({
+    "mtg", "commander", "pokemon", "one_piece", "digimon", "gundam_tcg", "lorcana", "sw_unlimited",
+    "star_wars_unli", "star_wars_unli_2", "flesh_blood", "riftbound", "yugioh", "union_arena", "dbs",
+    "dbs_fusion", "cardfight_vang", "vanguard_zero", "weiss_schwarz", "grand_archive", "keyforge",
+    "final_fantasy_", "force_of_will", "shard_bugs_tcg", "soul_masters_t", "primal_tcg", "battle_spirits",
+    "wixoss", "star_wars_dest", "legend_of_the_", "universus_my_h", "metazoo", "genesis_battle",
+    "naruto", "argent_saga", "future_card_bu", "chrono_core_tc", "doomtown", "hero_realms", "star_realms",
+    "vs_system_2pcg", "netrunner", "altered", "sorcery",
+})
+
+
+def draws_move_elo(game_system: Optional[str]) -> bool:
+    """True when a drawn game should apply standard Elo (actual score 0.5) instead of leaving ratings unchanged."""
+    return normalize_game_system(game_system or "40k", default="40k") not in TCG_NO_DRAW_SHIFT_SYSTEMS
+
+
 class EloEngine:
     """Reconstructs historical player trajectories, win paths, and post-constructed Elo ratings."""
 
@@ -1302,18 +1320,18 @@ class EloEngine:
                     m_date = m.get("match_date")
                     match_sys = m.get("game_system") or sys_target
 
-                    if is_bye_match or is_real_draw:
+                    if is_bye_match or (is_real_draw and not draws_move_elo(match_sys)):
                         res1, res2 = ("D", "D") if is_real_draw else ("W", "L")
                         new_elo1, new_elo2 = old_elo1, old_elo2
                     else:
                         is_p1_win = (win_id == p1_id)
-                        res1, res2 = ("W", "L") if is_p1_win else ("L", "W")
+                        res1, res2 = ("D", "D") if is_real_draw else (("W", "L") if is_p1_win else ("L", "W"))
                         k1 = self.provisional_k if s1["matches_played"] < self.provisional_matches else self.default_k
                         k2 = self.provisional_k if s2["matches_played"] < self.provisional_matches else self.default_k
 
                         exp1 = self.expected_score(old_elo1, old_elo2)
                         exp2 = 1.0 - exp1
-                        act1 = 1.0 if is_p1_win else 0.0
+                        act1 = 0.5 if is_real_draw else (1.0 if is_p1_win else 0.0)
                         act2 = 1.0 - act1
 
                         new_elo1 = round(old_elo1 + k1 * (act1 - exp1), 2)
@@ -1789,7 +1807,7 @@ class EloEngine:
                                 pid_p = p["canon_pid"]
                                 st_p = player_states[pid_p]
                                 old_e = st_p["elo"]
-                                delta_e = 0.0 if is_draw_2v2 else round(k_2v2 * (act_s - exp_s), 2)
+                                delta_e = 0.0 if (is_draw_2v2 and not draws_move_elo(sys_target)) else round(k_2v2 * (act_s - exp_s), 2)
                                 new_e = round(old_e + delta_e, 2)
                                 st_p["elo"] = new_e
                                 st_p["peak_elo"] = max(st_p["peak_elo"], new_e)
@@ -1918,7 +1936,7 @@ class EloEngine:
                 s2 = _ensure_st(p2_id, m.get("player2_name"))
                 old_elo1, old_elo2 = s1["elo"], s2["elo"]
 
-                if is_bye_m or is_draw_m:
+                if is_bye_m or (is_draw_m and not draws_move_elo(sys_target)):
                     if is_draw_m:
                         res1, res2 = ("D", "D")
                     elif p1_id.upper() == "BYE":
@@ -1929,11 +1947,11 @@ class EloEngine:
                     new_elo1, new_elo2 = old_elo1, old_elo2
                 else:
                     is_p1_w = (win_id == p1_id)
-                    res1, res2 = ("W", "L") if is_p1_w else ("L", "W")
+                    res1, res2 = ("D", "D") if is_draw_m else (("W", "L") if is_p1_w else ("L", "W"))
                     k1 = self.provisional_k if s1["matches_played"] < self.provisional_matches else self.default_k
                     k2 = self.provisional_k if s2["matches_played"] < self.provisional_matches else self.default_k
                     exp1 = self.expected_score(old_elo1, old_elo2)
-                    act1 = 1.0 if is_p1_w else 0.0
+                    act1 = 0.5 if is_draw_m else (1.0 if is_p1_w else 0.0)
                     new_elo1 = round(old_elo1 + k1 * (act1 - exp1), 2)
                     new_elo2 = round(old_elo2 + k2 * ((1.0 - act1) - (1.0 - exp1)), 2)
 
@@ -2544,7 +2562,7 @@ class EloEngine:
                                     pid_p = _bound_id(p["player_id"])
                                     st_p = player_states[pid_p]
                                     old_e = st_p["elo"]
-                                    delta_e = 0.0 if is_draw_2v2 else round(k_2v2 * (act_s - exp_s), 2)
+                                    delta_e = 0.0 if (is_draw_2v2 and not draws_move_elo(match_sys)) else round(k_2v2 * (act_s - exp_s), 2)
                                     new_e = round(old_e + delta_e, 2)
                                     st_p["elo"] = new_e
                                     st_p["peak_elo"] = max(st_p["peak_elo"], new_e)
@@ -2698,18 +2716,18 @@ class EloEngine:
                     m_date = m.get("match_date")
                     match_sys = m.get("game_system") or sys_target
 
-                    if is_bye_match or is_real_draw:
+                    if is_bye_match or (is_real_draw and not draws_move_elo(match_sys)):
                         res1, res2 = ("D", "D") if is_real_draw else ("W", "L")
                         new_elo1, new_elo2 = old_elo1, old_elo2
                     else:
                         is_p1_win = (win_id_1v1 == p1_id)
-                        res1, res2 = ("W", "L") if is_p1_win else ("L", "W")
+                        res1, res2 = ("D", "D") if is_real_draw else (("W", "L") if is_p1_win else ("L", "W"))
                         k1 = self.provisional_k if s1["matches_played"] < self.provisional_matches else self.default_k
                         k2 = self.provisional_k if s2["matches_played"] < self.provisional_matches else self.default_k
 
                         exp1 = self.expected_score(old_elo1, old_elo2)
                         exp2 = 1.0 - exp1
-                        act1 = 1.0 if is_p1_win else 0.0
+                        act1 = 0.5 if is_real_draw else (1.0 if is_p1_win else 0.0)
                         act2 = 1.0 - act1
 
                         new_elo1 = round(old_elo1 + k1 * (act1 - exp1), 2)
@@ -3252,18 +3270,18 @@ class EloEngine:
                             old_elo2 = s2["elo"]
                             m_date = m.get("match_date")
 
-                            if is_bye_match or is_real_draw:
+                            if is_bye_match or (is_real_draw and not draws_move_elo(sys_target)):
                                 res1, res2 = ("D", "D") if is_real_draw else ("W", "L")
                                 new_elo1, new_elo2 = old_elo1, old_elo2
                             else:
                                 is_p1_win = (win_id == p1_id)
-                                res1, res2 = ("W", "L") if is_p1_win else ("L", "W")
+                                res1, res2 = ("D", "D") if is_real_draw else (("W", "L") if is_p1_win else ("L", "W"))
                                 k1 = self.provisional_k if s1["matches_played"] < self.provisional_matches else self.default_k
                                 k2 = self.provisional_k if s2["matches_played"] < self.provisional_matches else self.default_k
 
                                 exp1 = self.expected_score(old_elo1, old_elo2)
                                 exp2 = 1.0 - exp1
-                                act1 = 1.0 if is_p1_win else 0.0
+                                act1 = 0.5 if is_real_draw else (1.0 if is_p1_win else 0.0)
                                 act2 = 1.0 - act1
 
                                 new_elo1 = round(old_elo1 + k1 * (act1 - exp1), 2)
@@ -4520,15 +4538,15 @@ class EloEngine:
 
                         old_elo = cur_elo
                         opp_elo = float(m.get("opp_hist_elo") or m.get("opp_curr_elo") or self.initial_elo)
-                        if is_bye_match or is_real_draw:
+                        if is_bye_match or (is_real_draw and not draws_move_elo(m.get("game_system") or game_system)):
                             res_code = "D" if is_real_draw else "W"
                             new_elo = old_elo
                         else:
                             did_win = (m.get("winner_id") in candidate_set)
-                            res_code = "W" if did_win else "L"
+                            res_code = "D" if is_real_draw else ("W" if did_win else "L")
                             k_val = self.provisional_k if matches_played < self.provisional_matches else self.default_k
                             exp_s = self.expected_score(old_elo, opp_elo)
-                            act_s = 1.0 if did_win else 0.0
+                            act_s = 0.5 if is_real_draw else (1.0 if did_win else 0.0)
                             new_elo = round(old_elo + k_val * (act_s - exp_s), 2)
 
                         cur_elo = new_elo
