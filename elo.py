@@ -44,7 +44,7 @@ def _safe_int_score(val: Any) -> Optional[int]:
     except Exception:
         return None
 
-PLACEHOLDER_REGEX_STR = r'^(player($|[^a-zA-Z])|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned)'
+PLACEHOLDER_REGEX_STR = r'^(player($|[^a-zA-Z])|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned|pod\s*[\(:]|commander\s*pod)'
 _PLACEHOLDER_RE = re.compile(PLACEHOLDER_REGEX_STR, re.IGNORECASE)
 
 
@@ -127,7 +127,7 @@ def _sanitize_top_factions(player_factions_counter: collections.Counter, max_fac
     generic_sm_candidates: List[str] = []
     for fac, cnt in player_factions_counter.most_common():
         clean_fac = _sanitize_name(fac, max_len=60)
-        if not clean_fac or Database.is_super_or_empty_faction(clean_fac, include_generic_sm=False):
+        if not clean_fac or clean_fac.lower() in ("commander pod", "pod", "4-player ffa pod", "3-player ffa pod", "none", "unknown") or Database.is_super_or_empty_faction(clean_fac, include_generic_sm=False):
             continue
         if Database.is_super_or_empty_faction(clean_fac, include_generic_sm=True):
             if clean_fac not in generic_sm_candidates:
@@ -1505,7 +1505,7 @@ class EloEngine:
                         m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
                         m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
                         m.winner_id, m.is_draw, m.is_bye,
-                        CASE WHEN m.player1_faction = 'Commander Pod' OR m.player2_faction = 'Commander Pod' OR m.player1_name LIKE '%%&%%' OR m.player2_name LIKE '%%&%%' THEN m.raw_json ELSE NULL END as raw_json
+                        CASE WHEN m.player1_faction = 'Commander Pod' OR m.player2_faction = 'Commander Pod' OR m.player1_name LIKE '%%Pod (%%' OR m.player2_name LIKE '%%Pod (%%' OR m.player1_name LIKE '%%&%%' OR m.player2_name LIKE '%%&%%' THEN m.raw_json ELSE NULL END as raw_json
                     FROM matches m
                     WHERE ((%s != '40k' AND m.game_system = %s) OR (%s = '40k' AND COALESCE(m.game_system, '40k') = '40k'))
                       AND m.is_done = TRUE
@@ -1526,25 +1526,42 @@ class EloEngine:
                 return {"status": "NO_MATCHES", "game_system": sys_target, "total_matches": 0, "total_players": 0}
 
             candidate_pids_set = set()
+            scoped_eids_set = set()
             for nm in all_matches:
+                if nm.get("event_id"):
+                    scoped_eids_set.add(_bound_id(nm["event_id"]))
                 if nm.get("player1_id") and str(nm["player1_id"]).strip().upper() != "BYE":
                     candidate_pids_set.add(_bound_id(nm["player1_id"]))
                 if nm.get("player2_id") and str(nm["player2_id"]).strip().upper() != "BYE":
                     candidate_pids_set.add(_bound_id(nm["player2_id"]))
+                raw_val = nm.get("raw_json")
+                if raw_val:
+                    raw_obj: Dict[str, Any] = {}
+                    if isinstance(raw_val, dict):
+                        raw_obj = raw_val
+                    elif isinstance(raw_val, str) and raw_val.strip().startswith("{"):
+                        try:
+                            raw_obj = json.loads(raw_val)
+                        except Exception:
+                            raw_obj = {}
+                    nm["_parsed_raw"] = raw_obj
+                    for list_k in ("pod_participants", "team1_players", "team2_players"):
+                        for p_item in (raw_obj.get(list_k) or []):
+                            if isinstance(p_item, dict) and p_item.get("player_id"):
+                                p_str = str(p_item["player_id"]).strip()
+                                if p_str and p_str.upper() != "BYE":
+                                    candidate_pids_set.add(_bound_id(p_str))
+
             scoped_pids = sorted(candidate_pids_set)
+            scoped_eids = sorted(scoped_eids_set)
 
             authoritative_names: Dict[str, str] = {}
+            authoritative_teams: Dict[str, str] = {}
+            ep_event_factions: Dict[Tuple[str, str], str] = {}
+            ep_player_factions: Dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
             alias_map: Dict[str, str] = {}
             try:
                 with conn.cursor() as acur:
-                    if scoped_pids:
-                        acur.execute("SELECT id, full_name FROM players WHERE id = ANY(%s);", (scoped_pids,))
-                        for pr in (acur.fetchall() or []):
-                            pid_v = str(pr[0] if isinstance(pr, (list, tuple)) else pr.get("id") or "")[:64]
-                            nm_v = pr[1] if isinstance(pr, (list, tuple)) else pr.get("full_name")
-                            clean_nm = _sanitize_name(nm_v, max_len=100)
-                            if pid_v and clean_nm and not _is_placeholder_name(clean_nm, pid_v):
-                                authoritative_names[pid_v] = clean_nm
                     acur.execute(
                         """
                         SELECT upl.platform_user_id,
@@ -1559,6 +1576,51 @@ class EloEngine:
                         c_pid = str(lr[1] if isinstance(lr, (list, tuple)) else lr.get("canon_pid") or "").strip()[:64]
                         if a_pid and c_pid:
                             alias_map[a_pid] = c_pid
+
+                    if scoped_pids:
+                        acur.execute("SELECT id, full_name, team FROM players WHERE id = ANY(%s);", (scoped_pids,))
+                        for pr in (acur.fetchall() or []):
+                            pid_raw = str(pr[0] if isinstance(pr, (list, tuple)) else pr.get("id") or "")[:64]
+                            pid_v = _bound_id(alias_map.get(pid_raw, pid_raw))
+                            nm_v = pr[1] if isinstance(pr, (list, tuple)) else pr.get("full_name")
+                            tm_v = pr[2] if isinstance(pr, (list, tuple)) else pr.get("team")
+                            clean_nm = _sanitize_name(nm_v, max_len=100)
+                            if pid_v and clean_nm and not _is_placeholder_name(clean_nm, pid_v):
+                                authoritative_names[pid_v] = clean_nm
+                            clean_tm = _sanitize_team(tm_v)
+                            if pid_v and clean_tm:
+                                authoritative_teams[pid_v] = clean_tm
+
+                    if scoped_eids:
+                        acur.execute(
+                            """
+                            SELECT event_id, player_id, full_name, faction, team
+                            FROM event_participants
+                            WHERE event_id = ANY(%s)
+                              AND player_id IS NOT NULL AND player_id != '';
+                            """,
+                            (scoped_eids,),
+                        )
+                        for epr in (acur.fetchall() or []):
+                            eid_v = _bound_id(epr[0] if isinstance(epr, (list, tuple)) else epr.get("event_id"))
+                            pid_raw = _bound_id(epr[1] if isinstance(epr, (list, tuple)) else epr.get("player_id"))
+                            pid_v = _bound_id(alias_map.get(pid_raw, pid_raw))
+                            nm_v = epr[2] if isinstance(epr, (list, tuple)) else epr.get("full_name")
+                            fac_v = epr[3] if isinstance(epr, (list, tuple)) else epr.get("faction")
+                            tm_v = epr[4] if isinstance(epr, (list, tuple)) else epr.get("team")
+                            if not pid_v or pid_v.upper() == "BYE":
+                                continue
+                            clean_nm = _sanitize_name(nm_v, max_len=100)
+                            if clean_nm and not _is_placeholder_name(clean_nm, pid_v) and pid_v not in authoritative_names:
+                                authoritative_names[pid_v] = clean_nm
+                            clean_fac = _sanitize_name(fac_v, max_len=60)
+                            if clean_fac and clean_fac.lower() not in ("commander pod", "pod", "none", "unknown", ""):
+                                if eid_v:
+                                    ep_event_factions[(eid_v, pid_v)] = clean_fac
+                                ep_player_factions[pid_v][clean_fac] += 1
+                            clean_tm = _sanitize_team(tm_v)
+                            if clean_tm and pid_v not in authoritative_teams:
+                                authoritative_teams[pid_v] = clean_tm
             except Exception:
                 try:
                     conn.rollback()
@@ -1571,11 +1633,13 @@ class EloEngine:
             def _ensure_st(pid_val: str, mname_val: Optional[str]) -> Dict[str, Any]:
                 pid_c = _bound_id(pid_val)
                 s_mname = _sanitize_name(mname_val, max_len=100)
-                p_best = authoritative_names.get(pid_c) or (s_mname if not _is_placeholder_name(s_mname, pid_c) else None)
+                if _is_placeholder_name(s_mname, pid_c):
+                    s_mname = ""
+                p_best = authoritative_names.get(pid_c) or s_mname
                 st = player_states.get(pid_c)
                 if not st:
                     st = {
-                        "name": _sanitize_name(p_best or s_mname, max_len=100) or f"Player {pid_c[:8]}",
+                        "name": _sanitize_name(p_best, max_len=100) or f"Player {pid_c[:8]}",
                         "elo": self.initial_elo,
                         "peak_elo": self.initial_elo,
                         "matches_played": 0, "wins": 0, "losses": 0, "draws": 0,
@@ -1587,6 +1651,141 @@ class EloEngine:
                 return st
 
             for m in all_matches:
+                ev_id_b = _bound_id(m.get("event_id") or "")
+                m_date = m.get("match_date")
+                raw_obj = m.get("_parsed_raw") or {}
+
+                # --- BRANCH A: 2v2 Doubles / Team Match ---
+                t1_list = raw_obj.get("team1_players")
+                t2_list = raw_obj.get("team2_players")
+                if isinstance(t1_list, list) and isinstance(t2_list, list) and t1_list and t2_list:
+                    t1_valid = []
+                    t2_valid = []
+                    for p in t1_list:
+                        if isinstance(p, dict) and p.get("player_id") and str(p["player_id"]).strip().upper() != "BYE":
+                            raw_b = _bound_id(p["player_id"])
+                            t1_valid.append({**p, "canon_pid": _bound_id(alias_map.get(raw_b, raw_b))})
+                    for p in t2_list:
+                        if isinstance(p, dict) and p.get("player_id") and str(p["player_id"]).strip().upper() != "BYE":
+                            raw_b = _bound_id(p["player_id"])
+                            t2_valid.append({**p, "canon_pid": _bound_id(alias_map.get(raw_b, raw_b))})
+                    if t1_valid and t2_valid:
+                        for p in t1_valid + t2_valid:
+                            _ensure_st(p["canon_pid"], p.get("player_name"))
+                        t1_old_avg = sum(player_states[p["canon_pid"]]["elo"] for p in t1_valid) / len(t1_valid)
+                        t2_old_avg = sum(player_states[p["canon_pid"]]["elo"] for p in t2_valid) / len(t2_valid)
+                        exp_t1 = self.expected_score(t1_old_avg, t2_old_avg)
+                        exp_t2 = 1.0 - exp_t1
+                        is_draw_2v2 = bool(m.get("is_draw"))
+                        t1_ids = {p["canon_pid"] for p in t1_valid}
+                        raw_win_2v2 = _bound_id(m.get("winner_id") or "")
+                        win_2v2 = _bound_id(alias_map.get(raw_win_2v2, raw_win_2v2)) if raw_win_2v2 else ""
+                        t1_won = bool(not is_draw_2v2 and win_2v2 in t1_ids)
+                        act_t1 = 0.5 if is_draw_2v2 else (1.0 if t1_won else 0.0)
+                        act_t2 = 1.0 - act_t1
+                        k_2v2 = sum(
+                            (self.provisional_k if player_states[p["canon_pid"]]["matches_played"] < self.provisional_matches else self.default_k)
+                            for p in (t1_valid + t2_valid)
+                        ) / float(len(t1_valid) + len(t2_valid))
+                        for side_idx, side_players in ((1, t1_valid), (2, t2_valid)):
+                            exp_s = exp_t1 if side_idx == 1 else exp_t2
+                            act_s = act_t1 if side_idx == 1 else act_t2
+                            res_code = "D" if is_draw_2v2 else ("W" if act_s == 1.0 else "L")
+                            for p in side_players:
+                                pid_p = p["canon_pid"]
+                                st_p = player_states[pid_p]
+                                old_e = st_p["elo"]
+                                delta_e = 0.0 if is_draw_2v2 else round(k_2v2 * (act_s - exp_s), 2)
+                                new_e = round(old_e + delta_e, 2)
+                                st_p["elo"] = new_e
+                                st_p["peak_elo"] = max(st_p["peak_elo"], new_e)
+                                st_p["matches_played"] += 1
+                                if res_code == "W":
+                                    st_p["wins"] += 1
+                                elif res_code == "L":
+                                    st_p["losses"] += 1
+                                else:
+                                    st_p["draws"] += 1
+                                if m_date:
+                                    st_p["last_active_date"] = _max_date(st_p["last_active_date"], m_date)
+                                p_fac = _sanitize_name(p.get("faction"), max_len=60) or ep_event_factions.get((ev_id_b, pid_p), "")
+                                if p_fac and " + " not in p_fac and "Pod" not in p_fac:
+                                    player_factions[pid_p][p_fac] += 1
+                        continue
+
+                # --- BRANCH B: 4-Player FFA Commander Pod ---
+                pod_candidates = raw_obj.get("pod_participants")
+                if isinstance(pod_candidates, list) and len(pod_candidates) >= 3:
+                    seen_pod_pids = set()
+                    pod_seats = []
+                    for s_r in pod_candidates:
+                        if not isinstance(s_r, dict) or not s_r.get("player_id"):
+                            continue
+                        raw_sp = _bound_id(s_r["player_id"])
+                        if not raw_sp or raw_sp.upper() == "BYE":
+                            continue
+                        canon_sp = _bound_id(alias_map.get(raw_sp, raw_sp))
+                        if canon_sp and canon_sp not in seen_pod_pids:
+                            seen_pod_pids.add(canon_sp)
+                            pod_seats.append({**s_r, "canon_pid": canon_sp})
+                    n_pod = len(pod_seats)
+                    if n_pod >= 3:
+                        for s_row in pod_seats:
+                            _ensure_st(s_row["canon_pid"], s_row.get("player_name"))
+                        old_pod_elos = {s_row["canon_pid"]: player_states[s_row["canon_pid"]]["elo"] for s_row in pod_seats}
+                        raw_win_ffa = _bound_id(m.get("winner_id") or "")
+                        win_id_ffa = _bound_id(alias_map.get(raw_win_ffa, raw_win_ffa)) if raw_win_ffa else ""
+                        is_pod_draw = bool(m.get("is_draw") or not win_id_ffa or win_id_ffa not in old_pod_elos)
+                        k_pod = sum(
+                            (self.provisional_k if player_states[s_row["canon_pid"]]["matches_played"] < self.provisional_matches else self.default_k)
+                            for s_row in pod_seats
+                        ) / float(n_pod)
+
+                        for s_row in pod_seats:
+                            pid_i = s_row["canon_pid"]
+                            st_i = player_states[pid_i]
+                            old_i = old_pod_elos[pid_i]
+                            others = [o for o in pod_seats if o["canon_pid"] != pid_i]
+                            if not others:
+                                continue
+                            exp_pair_sum = 0.0
+                            act_pair_sum = 0.0
+                            for o_row in others:
+                                pid_j = o_row["canon_pid"]
+                                old_j = old_pod_elos[pid_j]
+                                exp_pair_sum += self.expected_score(old_i, old_j)
+                                if is_pod_draw:
+                                    act_pair_sum += 0.5
+                                elif pid_i == win_id_ffa:
+                                    act_pair_sum += 1.0
+                                elif pid_j == win_id_ffa:
+                                    act_pair_sum += 0.0
+                                else:
+                                    act_pair_sum += 0.5
+                            exp_norm = exp_pair_sum / float(len(others))
+                            act_norm = act_pair_sum / float(len(others))
+                            delta_i = round(k_pod * (act_norm - exp_norm), 2)
+                            new_i = round(old_i + delta_i, 2)
+                            res_i = "D" if is_pod_draw else ("W" if pid_i == win_id_ffa else "L")
+                            st_i["elo"] = new_i
+                            st_i["peak_elo"] = max(st_i["peak_elo"], new_i)
+                            st_i["matches_played"] += 1
+                            if res_i == "W":
+                                st_i["wins"] += 1
+                            elif res_i == "L":
+                                st_i["losses"] += 1
+                            else:
+                                st_i["draws"] += 1
+                            if m_date:
+                                st_i["last_active_date"] = _max_date(st_i["last_active_date"], m_date)
+                            fac_i = _sanitize_name(s_row.get("faction"), max_len=60)
+                            if not fac_i or "Pod" in fac_i:
+                                fac_i = ep_event_factions.get((ev_id_b, pid_i), "")
+                            if fac_i and "Pod" not in fac_i and "Commander Pod" not in fac_i:
+                                player_factions[pid_i][fac_i] += 1
+                        continue
+
+                # --- BRANCH C: Standard 1v1 Match ---
                 raw_p1, raw_p2 = m.get("player1_id"), m.get("player2_id")
                 if not raw_p1 or not raw_p2:
                     continue
@@ -1609,7 +1808,6 @@ class EloEngine:
                 s1 = _ensure_st(p1_id, m.get("player1_name"))
                 s2 = _ensure_st(p2_id, m.get("player2_name"))
                 old_elo1, old_elo2 = s1["elo"], s2["elo"]
-                m_date = m.get("match_date")
 
                 if is_bye_m or is_draw_m:
                     res1, res2 = ("D", "D") if is_draw_m else ("W", "L")
@@ -1625,7 +1823,11 @@ class EloEngine:
                     new_elo2 = round(old_elo2 + k2 * ((1.0 - act1) - (1.0 - exp1)), 2)
 
                 fac1 = _sanitize_name(m.get("player1_faction"), max_len=60)
+                if not fac1 or "Pod" in fac1:
+                    fac1 = ep_event_factions.get((ev_id_b, p1_id), "")
                 fac2 = _sanitize_name(m.get("player2_faction"), max_len=60)
+                if not fac2 or "Pod" in fac2:
+                    fac2 = ep_event_factions.get((ev_id_b, p2_id), "")
                 for pid_x, st_x, n_elo, res_x, fac_x in ((p1_id, s1, new_elo1, res1, fac1), (p2_id, s2, new_elo2, res2, fac2)):
                     if pid_x.upper() == "BYE":
                         continue
@@ -1640,7 +1842,7 @@ class EloEngine:
                         st_x["draws"] += 1
                     if m_date:
                         st_x["last_active_date"] = _max_date(st_x["last_active_date"], m_date)
-                    if fac_x:
+                    if fac_x and "Pod" not in fac_x:
                         player_factions[pid_x][fac_x] += 1
 
             now_iso = datetime.now(timezone.utc).isoformat()
@@ -1650,12 +1852,13 @@ class EloEngine:
                     continue
                 total = s["matches_played"]
                 win_rate = round((s["wins"] / total) * 100.0, 1) if total > 0 else 0.0
-                top_fac = _sanitize_top_factions(player_factions[pid], max_factions=5, max_len=200)
+                fac_counter = player_factions[pid] if player_factions.get(pid) else ep_player_factions.get(pid, collections.Counter())
+                top_fac = _sanitize_top_factions(fac_counter, max_factions=5, max_len=200)
                 clean_player_name = _sanitize_name(s.get("name"), max_len=100) or f"Player {str(pid)[:8]}"
                 ratings_rows.append((
                     _bound_id(pid), sys_target, clean_player_name, s["elo"], s["peak_elo"],
                     total, s["wins"], s["losses"], s["draws"], win_rate,
-                    top_fac, None, s["last_active_date"], now_iso
+                    top_fac, authoritative_teams.get(pid), s["last_active_date"], now_iso
                 ))
 
             upsert_sql = """
@@ -1674,11 +1877,16 @@ class EloEngine:
                 draws = EXCLUDED.draws,
                 win_rate = EXCLUDED.win_rate,
                 top_faction = COALESCE(EXCLUDED.top_faction, player_ratings.top_faction),
+                team = COALESCE(EXCLUDED.team, player_ratings.team),
                 last_active_date = EXCLUDED.last_active_date,
                 updated_at = EXCLUDED.updated_at;
             """
             with conn.cursor() as wcur:
                 wcur.execute("SET LOCAL synchronous_commit = OFF;")
+                wcur.execute(
+                    "DELETE FROM player_ratings WHERE ((%s != '40k' AND game_system = %s) OR (%s = '40k' AND COALESCE(game_system, '40k') = '40k'));",
+                    (sys_target, sys_target, sys_target),
+                )
                 chunk_sz = 2500
                 for idx_r in range(0, len(ratings_rows), chunk_sz):
                     extras.execute_values(wcur, upsert_sql, ratings_rows[idx_r:idx_r + chunk_sz], page_size=chunk_sz)
@@ -3458,6 +3666,7 @@ class EloEngine:
             needs_user_elo_recon = bool(
                 unrated_real_matches_count > 0
                 or has_discontinuous_elo
+                or (pr_matches_cnt > 0 and len(history) < pr_matches_cnt)
                 or (history and (pr_matches_cnt != len(history) or abs(pr_curr_elo - hist_last_elo) > 0.5))
             )
             if needs_user_elo_recon:
@@ -4007,6 +4216,12 @@ class EloEngine:
                             SELECT m2.id FROM matches m2 WHERE m2.player2_id = ANY(%s) AND COALESCE(m2.game_system, '40k') = %s
                             UNION
                             SELECT mp.match_id FROM match_participants mp WHERE mp.player_id = ANY(%s)
+                            UNION
+                            SELECT m3.id FROM matches m3
+                            JOIN event_participants ep ON ep.event_id = m3.event_id
+                            WHERE ep.player_id = ANY(%s)
+                              AND COALESCE(m3.game_system, '40k') = %s
+                              AND (m3.player1_faction = 'Commander Pod' OR m3.player2_faction = 'Commander Pod')
                         )
                           AND m.is_done = TRUE
                           AND m.player1_id IS NOT NULL AND m.player1_id != ''
@@ -4014,7 +4229,7 @@ class EloEngine:
                           AND COALESCE(m.game_system, '40k') = %s
                         ORDER BY m.match_date ASC NULLS FIRST, m.event_id ASC, m.round ASC, m.table_number ASC, m.id ASC;
                         """,
-                        (candidate_ids, candidate_ids, candidate_ids, sys_target, candidate_ids, sys_target, candidate_ids, sys_target),
+                        (candidate_ids, candidate_ids, candidate_ids, sys_target, candidate_ids, sys_target, candidate_ids, candidate_ids, sys_target, sys_target),
                     )
                     raw_user_matches = [dict(r) for r in (cur.fetchall() or [])]
                     seen_um_ids = set()
@@ -4048,10 +4263,30 @@ class EloEngine:
                     last_active_date = None
                     fac_counts: collections.Counter = collections.Counter()
                     best_name = f"Player {clean_pid[:8]}"
+                    ep_user_factions: Dict[str, str] = {}
+                    pod_opp_elos: Dict[str, float] = {}
+                    try:
+                        cur.execute(
+                            "SELECT event_id, full_name, faction FROM event_participants WHERE player_id = ANY(%s);",
+                            (candidate_ids,),
+                        )
+                        for epr in (cur.fetchall() or []):
+                            eid_u = str(epr.get("event_id") if isinstance(epr, dict) else epr[0] or "")[:64]
+                            nm_u = _sanitize_name(epr.get("full_name") if isinstance(epr, dict) else epr[1], max_len=100)
+                            fac_u = _sanitize_name(epr.get("faction") if isinstance(epr, dict) else epr[2], max_len=60)
+                            if nm_u and not _is_placeholder_name(nm_u, clean_pid):
+                                best_name = nm_u
+                            if fac_u and "Pod" not in fac_u and fac_u.lower() not in ("none", "unknown", ""):
+                                if eid_u:
+                                    ep_user_factions[eid_u] = fac_u
+                                fac_counts[fac_u] += 1
+                    except Exception:
+                        pass
                     hist_rows = []
 
                     for m in user_matches:
                         mid_str = str(m.get("id") or "")
+                        ev_id_u = str(m.get("event_id") or "")[:64]
                         raw_obj: Dict[str, Any] = {}
                         raw_val = m.get("raw_json")
                         if isinstance(raw_val, dict):
@@ -4073,6 +4308,8 @@ class EloEngine:
                                 if my_name_pod and not _is_placeholder_name(my_name_pod, clean_pid):
                                     best_name = my_name_pod
                                 my_fac_pod = _sanitize_name(my_seat.get("faction"), max_len=60)
+                                if not my_fac_pod or "Pod" in my_fac_pod:
+                                    my_fac_pod = ep_user_factions.get(ev_id_u, "")
                                 others_pod = [s for s in pod_parts if isinstance(s, dict) and str(s.get("player_id") or "")[:64] not in candidate_set]
                                 n_pod = len(pod_parts)
                                 win_id_pod = str(m.get("winner_id") or "")[:64]
@@ -4130,9 +4367,13 @@ class EloEngine:
                                     sys_target,
                                 ))
                                 continue
+                            else:
+                                continue
 
                         p1_id = str(m.get("player1_id") or "")[:64]
                         p2_id = str(m.get("player2_id") or "")[:64]
+                        if p1_id not in candidate_set and p2_id not in candidate_set:
+                            continue
                         is_p1 = (p1_id in candidate_set)
                         opp_id = p2_id if is_p1 else p1_id
                         my_name = _sanitize_name(m.get("player1_name") if is_p1 else m.get("player2_name"), max_len=100)

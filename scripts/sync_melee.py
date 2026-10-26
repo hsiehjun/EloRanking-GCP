@@ -39,8 +39,47 @@ MELEE_GAME_TAGS: Dict[str, str] = {
 }
 
 DEFAULT_MELEE_TARGETS: List[Tuple[str, str]] = [
+    ("mtg", "472270"),          # Arena Championship 13 (2026)
+    ("mtg", "440878"),          # Magic Spotlight: Fracture - SCG CON Hartford (2026)
+    ("mtg", "480317"),          # South America Regional Championship Buenos Aires (2026)
+    ("mtg", "414849"),          # ANZ Super Series Cycle 13 Regional Championships - Sydney (2026)
+    ("mtg", "405591"),          # Regional Championship - SCG CON Los Angeles (2026)
+    ("mtg", "470109"),          # Ultimate Guard European Magic Series - Regional Championship Ghent (2026)
+    ("mtg", "411350"),          # Champions Cup Final Season 5 Round 1 (2026)
+    ("mtg", "459699"),          # Ottawa 2026-27 Round 1 Regional Championship (2026)
+    ("mtg", "444419"),          # Magic Spotlight: Marvel Super Heroes Brussels (2026)
+    ("mtg", "444425"),          # Limited Championship Qualifier Brussels (2026)
+    ("mtg", "434455"),          # Pro Tour Magic: The Gathering | Marvel Super Heroes in Amsterdam (2026)
+    ("mtg", "428968"),          # Limited Championship Qualifier Prague (2026)
+    ("mtg", "424913"),          # Ultimate Guard European Magic Series - Regional Championship Prague (2026)
     ("mtg", "428253"),          # Arena Championship 12 (2026)
+    ("mtg", "410903"),          # Champions Cup Final Season 4 Round 3 (2026)
+    ("mtg", "415628"),          # Pro Tour Secrets of Strixhaven in Las Vegas (2026)
+    ("mtg", "324862"),          # Champions Cup Final Season 4 Round 2 (2026)
+    ("mtg", "402685"),          # Arena Championship 11 (2026)
+    ("mtg", "395321"),          # Magic Spotlight: Eclipsed - F2FTour Weekend Toronto (2026)
+    ("mtg", "394299"),          # Pro Tour Lorwyn Eclipsed in Richmond (2026)
+    ("mtg", "390023"),          # Arena Championship 10 (2025)
+    ("mtg", "375961"),          # World Championship 31 in Bellevue USA (2025)
+    ("mtg", "236512"),          # Champions Cup Final Season 4 Round 1 (2025)
+    ("mtg", "355905"),          # Pro Tour Edge of Eternities in Atlanta (2025)
+    ("mtg", "303784"),          # Pro Tour Magic: The Gathering—FINAL FANTASY in Las Vegas (2025)
+    ("mtg", "228372"),          # Pro Tour Aetherdrift in Chicago (2025)
+    ("mtg", "193204"),          # Arena Championship 7 (2024)
+    ("mtg", "152753"),          # Ultimate Guard European Magic Series – Regional Championship Lille (2024)
+    ("mtg", "146430"),          # World Championship 30 in Las Vegas (2024)
+    ("mtg", "105258"),          # Pro Tour Modern Horizons 3 (2024)
+    ("mtg", "55875"),           # Legacy European Championship Naples (2024)
     ("mtg", "72980"),           # Pro Tour Thunder Junction (2024)
+    ("mtg", "66668"),           # Arena Championship 5 (2024)
+    ("mtg", "52679"),           # Pro Tour Murders at Karlov Manor (2024)
+    ("mtg", "28412"),           # Legacy European Championship Ghent (2024)
+    ("mtg", "16639"),           # Legacy European Championship Lille (2023)
+    ("mtg", "16429"),           # Pro Tour The Lord of the Rings (2023)
+    ("mtg", "15288"),           # Legacy European Championship Athens (2023)
+    ("mtg", "14968"),           # Pro Tour March of the Machine (2023)
+    ("mtg", "14139"),           # Legacy European Championship Naples (2023)
+    ("mtg", "12521"),           # Legacy European Championship Sofia (2022)
     ("sw_unlimited", "458821"), # Star Wars: Unlimited - 09/10/26
     ("sw_unlimited", "468577"), # SWU - 10/01/26
 ]
@@ -281,6 +320,7 @@ async function main() {
           for (const pageRows of extraPages) {
             allRows.push(...pageRows);
           }
+          allRows.sort((a, b) => Number(b.enrolledPlayerCount || 0) - Number(a.enrolledPlayerCount || 0));
           for (const row of allRows) {
             const sd = String(row.startDate || "");
             const enrolled = Number(row.enrolledPlayerCount || 0);

@@ -526,6 +526,100 @@ def test_sync_jobs_varchar64_bounding_and_transaction_resilience():
     print("✅ test_sync_jobs_varchar64_bounding_and_transaction_resilience passed")
 
 
+def test_reconstruct_system_ratings_fast_ffa_pods_and_melee_targets():
+    """Verify reconstruct_system_ratings_fast rates all 4 Commander Pod seats with real names/factions and DEFAULT_MELEE_TARGETS covers premier MTG events."""
+    from elo import EloEngine, _is_placeholder_name
+    from scripts.sync_melee import DEFAULT_MELEE_TARGETS
+
+    mtg_melee_tids = [tid for sys_slug, tid in DEFAULT_MELEE_TARGETS if sys_slug == "mtg"]
+    assert len(mtg_melee_tids) >= 35, f"Expected >= 35 premier MTG tournaments in DEFAULT_MELEE_TARGETS, got {len(mtg_melee_tids)}"
+    assert "472270" in mtg_melee_tids  # Arena Championship 13
+    assert "434455" in mtg_melee_tids  # Pro Tour Marvel Super Heroes
+    assert "375961" in mtg_melee_tids  # World Championship 31
+
+    assert _is_placeholder_name("Pod (Bob, Charlie, Dave)", "td:p2") is True
+    assert _is_placeholder_name("Commander Pod", "td:p2") is True
+
+    mock_db = MagicMock()
+    mock_conn = MagicMock()
+    mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+
+    pod_match = {
+        "id": "td:ev1-r1-t1",
+        "event_id": "td:ev1",
+        "round": 1,
+        "table_number": 1,
+        "match_date": "2026-10-15T12:00:00",
+        "player1_id": "td:p2",
+        "player1_name": "Bob",
+        "player1_faction": "Commander Pod",
+        "player1_score": 5.0,
+        "player2_id": "td:p2",
+        "player2_name": "Pod (Bob, Charlie, Dave)",
+        "player2_faction": "Commander Pod",
+        "player2_score": 0.0,
+        "winner_id": "td:p2",
+        "is_draw": False,
+        "is_bye": False,
+        "raw_json": {
+            "match_format": "ffa",
+            "is_ffa": True,
+            "pod_participants": [
+                {"player_id": "td:p1", "player_name": "Alice", "faction": "Commander Pod", "score": 0.0, "is_winner": False},
+                {"player_id": "td:p2", "player_name": "Pod (Bob, Charlie, Dave)", "faction": "Commander Pod", "score": 5.0, "is_winner": True},
+                {"player_id": "td:p3", "player_name": "Charlie", "faction": "Sisay, Weatherlight Captain", "score": 0.0, "is_winner": False},
+                {"player_id": "td:p4", "player_name": "Dave", "faction": "Rograkh / Silas", "score": 0.0, "is_winner": False},
+            ],
+        },
+    }
+
+    ep_rows = [
+        ("td:ev1", "td:p1", "Alice Real", "Tymna / Kraum", "Team A"),
+        ("td:ev1", "td:p2", "Bob Real", "Kinnan, Bonder Prodigy", "Team B"),
+    ]
+
+    upserted_ratings = []
+
+    def _cursor_side_effect(*args, **kwargs):
+        cur = MagicMock()
+        state = {"last_sql": ""}
+
+        def _exec(sql, params=None):
+            s = str(sql)
+            state["last_sql"] = s
+            if "INSERT INTO player_ratings" in s and isinstance(params, list):
+                upserted_ratings.extend(params)
+
+        def _fetchall():
+            s = state["last_sql"]
+            if "FROM matches m" in s:
+                return [pod_match]
+            if "FROM event_participants" in s:
+                return ep_rows
+            return []
+
+        cur.execute.side_effect = _exec
+        cur.fetchall.side_effect = _fetchall
+        cm = MagicMock()
+        cm.__enter__.return_value = cur
+        return cm
+
+    mock_conn.cursor.side_effect = _cursor_side_effect
+    engine = EloEngine(db=mock_db)
+    res = engine.reconstruct_system_ratings_fast(game_system="mtg")
+
+    assert res["status"] == "SUCCESS"
+    assert res["total_players"] == 4
+    by_pid = {r[0]: r for r in upserted_ratings}
+    assert set(by_pid.keys()) == {"td:p1", "td:p2", "td:p3", "td:p4"}
+    assert by_pid["td:p2"][2] == "Bob Real"
+    assert by_pid["td:p2"][3] > 1500.0  # Winner gained Elo even though player1_id == player2_id on 1v1 columns
+    assert by_pid["td:p2"][10] == "Kinnan, Bonder Prodigy"
+    assert by_pid["td:p1"][10] == "Tymna / Kraum"
+    assert by_pid["td:p3"][10] == "Sisay, Weatherlight Captain"
+    print("✅ test_reconstruct_system_ratings_fast_ffa_pods_and_melee_targets passed")
+
+
 if __name__ == "__main__":
     print("=== RUNNING GCP JOBS & MULTI-GAME TEST SUITE ===")
     test_faction_groups_and_legacy_wahapedia_removed()
@@ -539,5 +633,6 @@ if __name__ == "__main__":
     test_armory_40k_and_aos_equipped_isolation()
     test_active_public_tables_and_obsolete_pruning()
     test_sync_jobs_varchar64_bounding_and_transaction_resilience()
+    test_reconstruct_system_ratings_fast_ffa_pods_and_melee_targets()
     print("\n🎉 ALL GCP JOBS & MULTI-GAME TESTS PASSED 100%!")
 

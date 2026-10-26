@@ -1409,12 +1409,6 @@ def import_live_topdeck_tournaments(
             f"✅ [TopDeck.gg:{sys_slug.upper()}] Imported REAL tournament '{ev_name}' ({eid}): "
             f"{len(ep_batch)} players, {len(m_batch)} tables/matches ({len(mp_batch)} pod seats)."
         )
-        if events_imported % 25 == 0 and not hasattr(db, "reconstruct_elo_for_system"):
-            try:
-                from elo import get_elo_engine
-                get_elo_engine(db=db).reconstruct_incremental(game_system=sys_slug)
-            except Exception as inc_err:
-                logger.debug(f"[TopDeck.gg:{sys_slug.upper()}] Incremental batch Elo notice: {inc_err}")
 
     if events_imported > 0 and hasattr(db, "invalidate_all_caches"):
         try:
@@ -1887,12 +1881,6 @@ main().catch(() => {
             f"✅ [Melee.gg:{sys_slug.upper()}] Imported REAL tournament '{title}' ({eid}): "
             f"{len(ep_batch)} players, {len(m_batch)} matches, {len(decklists_map)} decklists."
         )
-        if events_imported % 25 == 0 and not hasattr(db, "reconstruct_elo_for_system"):
-            try:
-                from elo import get_elo_engine
-                get_elo_engine(db=db).reconstruct_incremental(game_system=sys_slug)
-            except Exception as inc_err:
-                logger.debug(f"[Melee.gg:{sys_slug.upper()}] Incremental batch Elo notice: {inc_err}")
 
     if events_imported > 0 and hasattr(db, "invalidate_all_caches"):
         try:
@@ -2195,8 +2183,12 @@ def finalize_platform_sync(db: Any, touched_systems: List[str], platform_name: s
     else:
         from elo import get_elo_engine
         engine = get_elo_engine()
-        csv_systems = ",".join(unique_systems)
-        recon_summary = engine.reconstruct_incremental(game_system=csv_systems)
+        if hasattr(engine, "reconstruct_system_ratings_fast"):
+            for sys_slug in unique_systems:
+                recon_summary[sys_slug] = engine.reconstruct_system_ratings_fast(game_system=sys_slug)
+        else:
+            csv_systems = ",".join(unique_systems)
+            recon_summary = engine.reconstruct_incremental(game_system=csv_systems)
         if hasattr(db, "prewarm_meta_intel_presets"):
             target_presets = ["90d", "all"] if len(unique_systems) > 2 else None
             for sys_slug in unique_systems:

@@ -575,15 +575,40 @@ async def api_admin_repair_matches_elo(
         def _run_reconstruct_only():
             db_inst = get_database()
             elo_inst = get_elo_engine()
-            fast_res = elo_inst.reconstruct_system_ratings_fast(game_system=target_sys.split(",")[0].strip())
+            sys_clean = target_sys.split(",")[0].strip().lower()
+            melee_sync_res = None
+            if sys_clean in ("mtg", "sw_unlimited", "lorcana", "flesh_blood", "riftbound"):
+                try:
+                    from scripts.sync_melee import DEFAULT_MELEE_TARGETS
+                    from scripts.sync_multiplatform import get_existing_platform_event_ids, import_live_melee_tournaments
+                    existing_melee = get_existing_platform_event_ids(db_inst, "melee")
+                    missing_targets = [
+                        (s_slug, tid)
+                        for s_slug, tid in DEFAULT_MELEE_TARGETS
+                        if s_slug == sys_clean and tid not in existing_melee and f"melee:{tid}" not in existing_melee
+                    ]
+                    if missing_targets:
+                        prev_skip = os.environ.get("MELEE_SKIP_CHROME")
+                        os.environ["MELEE_SKIP_CHROME"] = "1"
+                        try:
+                            melee_sync_res = import_live_melee_tournaments(db_inst, missing_targets)
+                        finally:
+                            if prev_skip is None:
+                                os.environ.pop("MELEE_SKIP_CHROME", None)
+                            else:
+                                os.environ["MELEE_SKIP_CHROME"] = prev_skip
+                except Exception as ms_err:
+                    logger.warning(f"Notice importing cached Melee targets during reconstruct_only({sys_clean}): {ms_err}")
+            fast_res = elo_inst.reconstruct_system_ratings_fast(game_system=sys_clean)
             elo_inst.invalidate_caches()
             if hasattr(db_inst, "invalidate_all_caches"):
                 db_inst.invalidate_all_caches(purge_l2=False)
-            stats = db_inst.get_summary_stats(game_system=target_sys.split(",")[0].strip())
+            stats = db_inst.get_summary_stats(game_system=sys_clean)
             return {
                 "status": "completed",
                 "mode": "reconstruct_only",
                 "game_system": target_sys,
+                "melee_imported": melee_sync_res,
                 "rebuild": fast_res,
                 "stats": stats,
             }
