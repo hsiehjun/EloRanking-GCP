@@ -1443,6 +1443,97 @@ def _format_melee_decklist_text(d_obj: Optional[Dict[str, Any]], fallback_name: 
     return "\n".join(lines)
 
 
+_MELEE_GAME_NAME_TO_SYSTEM = {
+    "magic: the gathering": "mtg",
+    "disney lorcana": "lorcana",
+    "star wars: unlimited": "sw_unlimited",
+    "flesh and blood tcg": "flesh_blood",
+    "flesh and blood": "flesh_blood",
+    "riftbound": "riftbound",
+}
+
+
+def _melee_game_to_system(game_name: Optional[str]) -> Optional[str]:
+    if not game_name:
+        return None
+    return _MELEE_GAME_NAME_TO_SYSTEM.get(str(game_name).strip().lower())
+
+
+def dedupe_melee_matches(db: Any) -> int:
+    """Removes Melee match rows duplicated under a full-length Guid when the canonical 12-char id exists."""
+    if not hasattr(db, "get_connection"):
+        return 0
+    with db.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM matches a
+                USING matches b
+                WHERE a.event_id LIKE 'melee:%%'
+                  AND b.event_id = a.event_id
+                  AND b.round = a.round
+                  AND a.id <> b.id
+                  AND LENGTH(a.id) > LENGTH(b.id)
+                  AND LEFT(a.id, LENGTH(b.id)) = b.id;
+                """
+            )
+            deleted = cur.rowcount or 0
+        conn.commit()
+    return int(deleted)
+
+
+def repair_melee_event_metadata(db: Any) -> Dict[str, Any]:
+    """Backfills real Melee start dates & game systems from melee_live_cache.json.gz into events/matches/participants."""
+    import gzip
+
+    cache_gz_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "melee_live_cache.json.gz")
+    with gzip.open(cache_gz_path, "rt", encoding="utf-8") as gf:
+        cached = json.load(gf) or {}
+    fixes = []
+    for tid, t in cached.items():
+        start = str(t.get("start_date") or "").replace("Z", "")[:19]
+        sys_slug = normalize_game_system(_melee_game_to_system(t.get("game_name")) or t.get("game_system"), default="mtg")
+        if start:
+            fixes.append((f"melee:{tid}", start, sys_slug))
+    touched_systems = set()
+    ev_updates = 0
+    m_updates = 0
+    with db.get_connection() as conn:
+        with conn.cursor() as cur:
+            for eid, start, sys_slug in fixes:
+                cur.execute("SELECT game_system FROM events WHERE id = %s;", (eid,))
+                row = cur.fetchone()
+                if not row:
+                    continue
+                old_sys = row[0] if isinstance(row, (list, tuple)) else row.get("game_system")
+                if old_sys:
+                    touched_systems.add(old_sys)
+                touched_systems.add(sys_slug)
+                cur.execute(
+                    "UPDATE events SET event_date = %s, end_date = %s, game_system = %s WHERE id = %s;",
+                    (start, start, sys_slug, eid),
+                )
+                ev_updates += cur.rowcount or 0
+                cur.execute(
+                    "UPDATE matches SET match_date = %s, game_system = %s "
+                    "WHERE event_id = %s AND (match_date IS DISTINCT FROM %s::timestamptz OR game_system IS DISTINCT FROM %s);",
+                    (start, sys_slug, eid, start, sys_slug),
+                )
+                m_updates += cur.rowcount or 0
+                cur.execute(
+                    "UPDATE event_participants SET game_system = %s WHERE event_id = %s AND game_system IS DISTINCT FROM %s;",
+                    (sys_slug, eid, sys_slug),
+                )
+        conn.commit()
+    deduped = dedupe_melee_matches(db)
+    return {
+        "events_updated": ev_updates,
+        "matches_updated": m_updates,
+        "duplicate_matches_removed": deduped,
+        "touched_systems": sorted(touched_systems),
+    }
+
+
 def import_live_melee_tournaments(
     db: LocalSqliteDatabase,
     tournament_targets: List[Tuple[str, str]],
@@ -1542,6 +1633,10 @@ async function main() {
             const html = await fetch("/Tournament/View/" + tid).then(r => r.text());
             const doc = new DOMParser().parseFromString(html, "text/html");
             const title = (doc.title || "").split("|")[0].trim() || ("Melee Tournament " + tid);
+            const startEl = doc.querySelector("#tournament-headline-start-date-field [data-value]");
+            const start_date = startEl ? startEl.getAttribute("data-value") : null;
+            const gameEl = doc.querySelector("#tournament-headline-game");
+            const game_name = gameEl ? gameEl.textContent.replace("Game:", "").trim() : null;
             const sRounds = Array.from(doc.querySelectorAll("#standings-round-selector-container .round-selector")).map(el => ({
               id: el.getAttribute("data-id"),
               name: el.getAttribute("data-name")
@@ -1587,7 +1682,7 @@ async function main() {
               } catch (e) {}
             }));
 
-            results[tid] = { tid, title, standings, roundMatches, decklists };
+            results[tid] = { tid, title, start_date, game_name, standings, roundMatches, decklists };
           } catch (e) {}
         }));
       }
@@ -1658,14 +1753,23 @@ main().catch(() => {
         if not t_data or not t_data.get("standings"):
             continue
 
-        sys_slug = normalize_game_system(sys_by_tid.get(raw_tid, "mtg"), default="mtg")
+        sys_slug = normalize_game_system(
+            _melee_game_to_system(t_data.get("game_name")) or t_data.get("game_system") or sys_by_tid.get(raw_tid, "mtg"),
+            default="mtg",
+        )
         eid = _bound_id(f"melee:{raw_tid}")
         title = str(t_data.get("title") or f"Melee Event {raw_tid}").strip()
         standings = t_data.get("standings") or []
         round_matches = t_data.get("roundMatches") or []
         decklists_map = t_data.get("decklists") or {}
 
-        raw_dt = str(standings[0].get("DateCreated") or "2026-05-23T15:30:00Z").replace("Z", "")
+        # Use the tournament's real StartDate. Standing.DateCreated is a row timestamp (Melee re-created
+        # all legacy standings on 2024-04-19), so it is only a last-resort fallback.
+        raw_dt = str(
+            t_data.get("start_date")
+            or min((str(st.get("DateCreated") or "") for st in standings if st.get("DateCreated")), default="")
+            or "2026-05-23T15:30:00Z"
+        ).replace("Z", "")
         ev_date = raw_dt[:19] if len(raw_dt) >= 19 else "2026-05-23T15:30:00"
         fmt_name = str(standings[0].get("FormatName") or standings[0].get("FormatDescription") or "Constructed")
 
@@ -1739,7 +1843,8 @@ main().catch(() => {
             r_num = int(rm.get("roundNum") or 1)
             for m_idx, m_obj in enumerate(rm.get("matches") or []):
                 t_num = int(m_obj.get("TableNumber") or (m_idx + 1))
-                m_guid = str(m_obj.get("Guid") or f"r{r_num}-t{t_num}")
+                # Canonical 12-char Guid prefix so cached (compacted) and live scrapes map to the same match id.
+                m_guid = str(m_obj.get("Guid") or f"r{r_num}-t{t_num}")[:12]
                 comps = m_obj.get("Competitors") or []
                 if not comps:
                     continue
@@ -1881,6 +1986,12 @@ main().catch(() => {
             f"✅ [Melee.gg:{sys_slug.upper()}] Imported REAL tournament '{title}' ({eid}): "
             f"{len(ep_batch)} players, {len(m_batch)} matches, {len(decklists_map)} decklists."
         )
+
+    if events_imported > 0:
+        try:
+            dedupe_melee_matches(db)
+        except Exception as dd_err:
+            logger.warning(f"[Melee.gg] Notice deduplicating Melee matches: {dd_err}")
 
     if events_imported > 0 and hasattr(db, "invalidate_all_caches"):
         try:

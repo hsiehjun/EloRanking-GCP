@@ -530,6 +530,7 @@ class RepairMatchesEloPayload(BaseModel):
     reconstruct: bool = True
     force_reconstruct: bool = True
     reconstruct_only: bool = False
+    repair_melee_metadata: bool = False
     game_system: Optional[str] = None
     batch_limit: int = 25000
     run_in_background: bool = False
@@ -574,8 +575,30 @@ async def api_admin_repair_matches_elo(
 
         def _run_reconstruct_only():
             db_inst = get_database()
+            melee_meta_res = None
+            systems_to_run = [x.strip().lower() for x in target_sys.split(",") if x.strip()]
+            if body.repair_melee_metadata:
+                try:
+                    from scripts.sync_multiplatform import repair_melee_event_metadata
+                    melee_meta_res = repair_melee_event_metadata(db_inst)
+                    for t_sys in melee_meta_res.get("touched_systems") or []:
+                        if t_sys and t_sys.lower() not in systems_to_run:
+                            systems_to_run.append(t_sys.lower())
+                except Exception as mm_err:
+                    logger.warning(f"Notice repairing Melee metadata: {mm_err}")
+                    melee_meta_res = {"error": str(mm_err)}
+            per_system = {sys_one: _run_reconstruct_one(sys_one) for sys_one in systems_to_run}
+            return {
+                "status": "completed",
+                "mode": "reconstruct_only",
+                "game_system": target_sys,
+                "melee_metadata": melee_meta_res,
+                "systems": per_system,
+            }
+
+        def _run_reconstruct_one(sys_clean: str):
+            db_inst = get_database()
             elo_inst = get_elo_engine()
-            sys_clean = target_sys.split(",")[0].strip().lower()
             melee_sync_res = None
             if sys_clean in ("mtg", "sw_unlimited", "lorcana", "flesh_blood", "riftbound"):
                 try:
@@ -607,7 +630,7 @@ async def api_admin_repair_matches_elo(
             return {
                 "status": "completed",
                 "mode": "reconstruct_only",
-                "game_system": target_sys,
+                "game_system": sys_clean,
                 "melee_imported": melee_sync_res,
                 "rebuild": fast_res,
                 "stats": stats,

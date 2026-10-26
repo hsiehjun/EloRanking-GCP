@@ -166,7 +166,9 @@ class Test40kDeepBackendVerification(unittest.TestCase):
             mock_db_instance.get_top_ranked_players.return_value = {"players": [{"player_id": "p1", "name": "Folger Pyles"}], "total_count": 1}
             
             res = asyncio.run(api_leaderboard())
-            mock_db_instance.get_top_ranked_players.assert_called_once()
+            mock_db_instance.get_top_ranked_players.assert_called()
+            first_kwargs = mock_db_instance.get_top_ranked_players.call_args_list[0][1]
+            self.assertEqual(first_kwargs["min_matches"], 10)
             called_kwargs = mock_db_instance.get_top_ranked_players.call_args[1]
             self.assertEqual(called_kwargs["game_system"], "40k")
             self.assertEqual(res["total_count"], 1)

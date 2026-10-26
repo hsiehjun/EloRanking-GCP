@@ -4872,6 +4872,12 @@ class PostgresDatabase:
 
         if not hasattr(PostgresDatabase, "_stats_cache_map"):
             PostgresDatabase._stats_cache_map = {}
+        # Per-system refresh lock: a slow refresh for one game system must not zero out another system's stats.
+        if not hasattr(PostgresDatabase, "_stats_refresh_locks"):
+            PostgresDatabase._stats_refresh_locks = {}
+        key_lock = PostgresDatabase._stats_refresh_locks.get(cache_key)
+        if key_lock is None:
+            key_lock = PostgresDatabase._stats_refresh_locks.setdefault(cache_key, threading.Lock())
 
         # 1. Hot in-memory cache check (1800s / 30m TTL)
         cached_entry = PostgresDatabase._stats_cache_map.get(cache_key)
@@ -4879,7 +4885,7 @@ class PostgresDatabase:
             return cached_entry[0]
 
         # 2. Stale-While-Revalidate: If cache is expired but exists, and another thread is already refreshing, return immediately
-        if cached_entry and cached_entry[1] >= PostgresDatabase._last_cache_invalidation_ts and PostgresDatabase._stats_refresh_lock.locked():
+        if cached_entry and cached_entry[1] >= PostgresDatabase._last_cache_invalidation_ts and key_lock.locked():
             return cached_entry[0]
 
         # 3. Check persistent database cache in system_settings if in-memory cache is empty (e.g. cold container boot)
@@ -4913,11 +4919,11 @@ class PostgresDatabase:
                 logger.debug(f"Notice reading persisted summary stats ({cache_key}): {pe}")
 
         # 4. Controlled Refresh: Acquire non-blocking lock to eliminate thundering herd
-        acquired = PostgresDatabase._stats_refresh_lock.acquire(blocking=False)
+        acquired = key_lock.acquire(blocking=False)
         if not acquired:
             if cached_entry:
                 return cached_entry[0]
-            return dict(default_stats)
+            return dict(persisted_nonzero or default_stats)
 
         try:
             with self.get_connection() as conn:
@@ -5024,7 +5030,7 @@ class PostgresDatabase:
                 PostgresDatabase._stats_cache_map[cache_key] = (fallback_res, max(now - 1740, PostgresDatabase._last_cache_invalidation_ts))
             return fallback_res
         finally:
-            PostgresDatabase._stats_refresh_lock.release()
+            key_lock.release()
 
     def get_top_ranked_players(self, page=1, page_size=25, limit=None, min_matches=3, query=None, faction=None, sort_by="current_elo", order="DESC", game_system: Optional[str] = "40k", active_only: bool = True) -> Dict[str, Any]:
         return self.get_players_directory(page=page, page_size=page_size, limit=limit, query=query, faction=faction, min_matches=min_matches, sort_by=sort_by, order=order, game_system=game_system, active_only=active_only)

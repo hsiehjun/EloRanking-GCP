@@ -112,7 +112,7 @@ HISTORICAL_MELEE_TARGETS: List[Tuple[str, str]] = [
     ("lorcana", "138500"),      # Saturday Lorcana 08/24/24
     ("lorcana", "142000"),      # Lorcana - Enchanted Series
     ("lorcana", "149000"),      # Weekly Play - Lorcana League: Shimmering Skies, Week 6
-    ("mtg", "150000"),          # Aspettando lo Store Championship
+    ("lorcana", "150000"),          # Aspettando lo Store Championship
     ("sw_unlimited", "159500"), # Saturday SWU Locals
     ("sw_unlimited", "170000"), # Tournoi Construit Star Wars Unlimited
     ("sw_unlimited", "187500"), # Star Wars Unlimited DRAFT night

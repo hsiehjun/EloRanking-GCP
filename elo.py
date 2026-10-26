@@ -1629,6 +1629,17 @@ class EloEngine:
 
             player_states: Dict[str, Dict[str, Any]] = {}
             player_factions: Dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+            # Per-player journey rows mirrored into rating_history so /api/player trajectories match player_ratings.
+            history_rows: List[Tuple[Any, ...]] = []
+
+            def _hist(pid_h, m_h, old_h, new_h, opp_id_h, opp_name_h, opp_elo_h, res_h, fac_h, opp_fac_h, sc_h, opp_sc_h):
+                history_rows.append((
+                    _bound_id(pid_h), _bound_id(m_h.get("id") or ""), _bound_id(m_h.get("event_id") or "unknown_event"),
+                    _safe_int_score(m_h.get("round")), m_h.get("match_date"),
+                    old_h, new_h, round(new_h - old_h, 2),
+                    _bound_id(opp_id_h or ""), _sanitize_name(opp_name_h, max_len=100), opp_elo_h, res_h,
+                    fac_h or None, opp_fac_h or None, sc_h, opp_sc_h, sys_target,
+                ))
 
             def _ensure_st(pid_val: str, mname_val: Optional[str]) -> Dict[str, Any]:
                 pid_c = _bound_id(pid_val)
@@ -1711,6 +1722,14 @@ class EloEngine:
                                 p_fac = _sanitize_name(p.get("faction"), max_len=60) or ep_event_factions.get((ev_id_b, pid_p), "")
                                 if p_fac and " + " not in p_fac and "Pod" not in p_fac:
                                     player_factions[pid_p][p_fac] += 1
+                                opp_side = t2_valid if side_idx == 1 else t1_valid
+                                _hist(
+                                    pid_p, m, old_e, new_e,
+                                    opp_side[0]["canon_pid"],
+                                    " & ".join(player_states[o["canon_pid"]]["name"] for o in opp_side),
+                                    round(t2_old_avg if side_idx == 1 else t1_old_avg, 2),
+                                    res_code, p_fac, "", None, None,
+                                )
                         continue
 
                 # --- BRANCH B: 4-Player FFA Commander Pod ---
@@ -1783,6 +1802,13 @@ class EloEngine:
                                 fac_i = ep_event_factions.get((ev_id_b, pid_i), "")
                             if fac_i and "Pod" not in fac_i and "Commander Pod" not in fac_i:
                                 player_factions[pid_i][fac_i] += 1
+                            _hist(
+                                pid_i, m, old_i, new_i,
+                                others[0]["canon_pid"],
+                                f"Pod ({n_pod} players)",
+                                round(sum(old_pod_elos[o["canon_pid"]] for o in others) / float(len(others)), 2),
+                                res_i, fac_i, "", None, None,
+                            )
                         continue
 
                 # --- BRANCH C: Standard 1v1 Match ---
@@ -1810,7 +1836,13 @@ class EloEngine:
                 old_elo1, old_elo2 = s1["elo"], s2["elo"]
 
                 if is_bye_m or is_draw_m:
-                    res1, res2 = ("D", "D") if is_draw_m else ("W", "L")
+                    if is_draw_m:
+                        res1, res2 = ("D", "D")
+                    elif p1_id.upper() == "BYE":
+                        # The real player is in seat 2; never hand them a loss for receiving a bye.
+                        res1, res2 = ("L", "W")
+                    else:
+                        res1, res2 = ("W", "L")
                     new_elo1, new_elo2 = old_elo1, old_elo2
                 else:
                     is_p1_w = (win_id == p1_id)
@@ -1828,9 +1860,17 @@ class EloEngine:
                 fac2 = _sanitize_name(m.get("player2_faction"), max_len=60)
                 if not fac2 or "Pod" in fac2:
                     fac2 = ep_event_factions.get((ev_id_b, p2_id), "")
-                for pid_x, st_x, n_elo, res_x, fac_x in ((p1_id, s1, new_elo1, res1, fac1), (p2_id, s2, new_elo2, res2, fac2)):
+                for pid_x, st_x, n_elo, res_x, fac_x, o_elo, opp_id_x, opp_st, opp_old, opp_fac, sc_x, opp_sc in (
+                    (p1_id, s1, new_elo1, res1, fac1, old_elo1, p2_id, s2, old_elo2, fac2, p1_sc, p2_sc),
+                    (p2_id, s2, new_elo2, res2, fac2, old_elo2, p1_id, s1, old_elo1, fac1, p2_sc, p1_sc),
+                ):
                     if pid_x.upper() == "BYE":
                         continue
+                    _hist(
+                        pid_x, m, o_elo, n_elo, opp_id_x,
+                        "BYE" if opp_id_x.upper() == "BYE" else opp_st["name"],
+                        opp_old, res_x, fac_x, opp_fac, sc_x, opp_sc,
+                    )
                     st_x["elo"] = n_elo
                     st_x["peak_elo"] = max(st_x["peak_elo"], n_elo)
                     st_x["matches_played"] += 1
@@ -1883,6 +1923,35 @@ class EloEngine:
             """
             with conn.cursor() as wcur:
                 wcur.execute("SET LOCAL synchronous_commit = OFF;")
+                # Rewrite this system's rating_history (journeys) in the same transaction as player_ratings.
+                wcur.execute(
+                    "SELECT player_id FROM player_ratings WHERE ((%s != '40k' AND game_system = %s) OR (%s = '40k' AND COALESCE(game_system, '40k') = '40k'));",
+                    (sys_target, sys_target, sys_target),
+                )
+                hist_pids = set(scoped_pids) | set(player_states.keys())
+                for pr_row in (wcur.fetchall() or []):
+                    pr_pid = pr_row[0] if isinstance(pr_row, (list, tuple)) else (pr_row.get("player_id") if isinstance(pr_row, dict) else None)
+                    if pr_pid:
+                        hist_pids.add(str(pr_pid)[:64])
+                hist_pid_list = sorted(hist_pids)
+                for idx_d in range(0, len(hist_pid_list), 5000):
+                    wcur.execute(
+                        "DELETE FROM rating_history WHERE player_id = ANY(%s) AND COALESCE(game_system, '40k') = %s;",
+                        (hist_pid_list[idx_d:idx_d + 5000], sys_target),
+                    )
+                if history_rows and hasattr(wcur, "copy_from"):
+                    hist_cols = (
+                        "player_id", "match_id", "event_id", "round", "match_date",
+                        "old_elo", "new_elo", "delta_elo", "opponent_id", "opponent_name",
+                        "opponent_elo", "result", "player_faction", "opponent_faction",
+                        "player_score", "opponent_score", "game_system",
+                    )
+                    for idx_h in range(0, len(history_rows), 50000):
+                        buf = io.StringIO()
+                        for hv in history_rows[idx_h:idx_h + 50000]:
+                            buf.write("\t".join(_format_tsv_field(v) for v in hv) + "\n")
+                        buf.seek(0)
+                        wcur.copy_from(buf, "rating_history", columns=hist_cols, null="\\N")
                 wcur.execute(
                     "DELETE FROM player_ratings WHERE ((%s != '40k' AND game_system = %s) OR (%s = '40k' AND COALESCE(game_system, '40k') = '40k'));",
                     (sys_target, sys_target, sys_target),
@@ -1901,6 +1970,7 @@ class EloEngine:
             "game_system": sys_target,
             "total_matches": len(all_matches),
             "total_players": len(ratings_rows),
+            "history_rows": len(history_rows),
             "elapsed_seconds": round(time.time() - t0, 2),
         }
 

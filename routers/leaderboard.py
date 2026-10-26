@@ -60,7 +60,7 @@ async def api_leaderboard(
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=5, le=200),
     limit: Optional[int] = Query(None),
-    min_matches: int = Query(3, ge=0),
+    min_matches: Optional[int] = Query(None, ge=0),
     query: Optional[str] = Query(None),
     faction: str = Query("All"),
     sort_by: str = Query("current_elo"),
@@ -68,12 +68,12 @@ async def api_leaderboard(
     game_system: Optional[str] = Query("40k"),
     active_only: bool = Query(True)
 ):
-    def _fetch():
+    def _fetch(min_m: int):
         return get_database().get_top_ranked_players(
             page=page,
             page_size=page_size,
             limit=limit,
-            min_matches=min_matches,
+            min_matches=min_m,
             query=query.strip() if query else None,
             faction=faction.strip() if faction else "All",
             sort_by=sort_by,
@@ -81,7 +81,25 @@ async def api_leaderboard(
             game_system=game_system,
             active_only=active_only
         )
-    return await asyncio.to_thread(_fetch)
+
+    def _fetch_adaptive():
+        if min_matches is not None:
+            return _fetch(min_matches)
+        # Rank only players past their provisional placement window (10 matches) so a 3-0 or 4-0 debut
+        # cannot top a system; small systems without enough established players fall back to 3 matches.
+        established = _fetch(LEADERBOARD_ESTABLISHED_MIN_MATCHES)
+        total = established.get("total") if isinstance(established, dict) else None
+        if isinstance(total, int) and total >= LEADERBOARD_MIN_ESTABLISHED_PLAYERS:
+            return established
+        if query or (faction and faction.strip() != "All"):
+            return established if total else _fetch(3)
+        return _fetch(3)
+
+    return await asyncio.to_thread(_fetch_adaptive)
+
+
+LEADERBOARD_ESTABLISHED_MIN_MATCHES = 10
+LEADERBOARD_MIN_ESTABLISHED_PLAYERS = 25
 
 # API: Teams Power Rankings
 @router.get("/api/teams", summary="Get teams power rankings (paginated)")

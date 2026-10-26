@@ -5,6 +5,7 @@ import unittest
 import asyncio
 from unittest.mock import MagicMock, patch
 import json
+import threading
 import time
 
 from database import PostgresDatabase
@@ -86,14 +87,17 @@ class TestStatsResilienceAndHealth(unittest.TestCase):
         # Cached 2000s ago (>1800s TTL)
         PostgresDatabase._stats_cache_map["40k"] = (stale_data, time.time() - 2000)
 
-        # Simulate another worker thread holding the refresh lock
-        PostgresDatabase._stats_refresh_lock.acquire(blocking=True)
+        # Simulate another worker thread holding the 40k refresh lock
+        if not hasattr(PostgresDatabase, "_stats_refresh_locks"):
+            PostgresDatabase._stats_refresh_locks = {}
+        key_lock = PostgresDatabase._stats_refresh_locks.setdefault("40k", threading.Lock())
+        key_lock.acquire(blocking=True)
         try:
             res = PostgresDatabase.get_summary_stats(fake_db, "40k")
             self.assertEqual(res, stale_data)
             fake_db.get_connection.assert_not_called()
         finally:
-            PostgresDatabase._stats_refresh_lock.release()
+            key_lock.release()
 
     def test_get_summary_stats_persisted_system_settings_hit(self):
         """Verify cold container boot loads from system_settings table before heavy query."""
