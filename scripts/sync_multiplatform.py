@@ -1529,10 +1529,6 @@ def repair_melee_event_metadata(db: Any) -> Dict[str, Any]:
                     (start, sys_slug, eid, start, sys_slug),
                 )
                 m_updates += cur.rowcount or 0
-                cur.execute(
-                    "UPDATE event_participants SET game_system = %s WHERE event_id = %s AND game_system IS DISTINCT FROM %s;",
-                    (sys_slug, eid, sys_slug),
-                )
         conn.commit()
     deduped = dedupe_melee_matches(db, [eid for eid, _, _ in fixes])
     return {
