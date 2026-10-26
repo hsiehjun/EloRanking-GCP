@@ -1630,16 +1630,20 @@ class EloEngine:
             player_states: Dict[str, Dict[str, Any]] = {}
             player_factions: Dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
             # Per-player journey rows mirrored into rating_history so /api/player trajectories match player_ratings.
-            history_rows: List[Tuple[Any, ...]] = []
+            # Streamed straight to TSV (not tuples) to keep memory flat on 100k+ match systems.
+            history_buf = io.StringIO()
+            history_count = [0]
 
             def _hist(pid_h, m_h, old_h, new_h, opp_id_h, opp_name_h, opp_elo_h, res_h, fac_h, opp_fac_h, sc_h, opp_sc_h):
-                history_rows.append((
+                vals = (
                     _bound_id(pid_h), _bound_id(m_h.get("id") or ""), _bound_id(m_h.get("event_id") or "unknown_event"),
                     _safe_int_score(m_h.get("round")), m_h.get("match_date"),
                     old_h, new_h, round(new_h - old_h, 2),
                     _bound_id(opp_id_h or ""), _sanitize_name(opp_name_h, max_len=100), opp_elo_h, res_h,
                     fac_h or None, opp_fac_h or None, sc_h, opp_sc_h, sys_target,
-                ))
+                )
+                history_buf.write("\t".join(_format_tsv_field(v) for v in vals) + "\n")
+                history_count[0] += 1
 
             def _ensure_st(pid_val: str, mname_val: Optional[str]) -> Dict[str, Any]:
                 pid_c = _bound_id(pid_val)
@@ -1939,19 +1943,16 @@ class EloEngine:
                         "DELETE FROM rating_history WHERE player_id = ANY(%s) AND COALESCE(game_system, '40k') = %s;",
                         (hist_pid_list[idx_d:idx_d + 5000], sys_target),
                     )
-                if history_rows and hasattr(wcur, "copy_from"):
+                if history_count[0] and hasattr(wcur, "copy_from"):
                     hist_cols = (
                         "player_id", "match_id", "event_id", "round", "match_date",
                         "old_elo", "new_elo", "delta_elo", "opponent_id", "opponent_name",
                         "opponent_elo", "result", "player_faction", "opponent_faction",
                         "player_score", "opponent_score", "game_system",
                     )
-                    for idx_h in range(0, len(history_rows), 50000):
-                        buf = io.StringIO()
-                        for hv in history_rows[idx_h:idx_h + 50000]:
-                            buf.write("\t".join(_format_tsv_field(v) for v in hv) + "\n")
-                        buf.seek(0)
-                        wcur.copy_from(buf, "rating_history", columns=hist_cols, null="\\N")
+                    history_buf.seek(0)
+                    wcur.copy_from(history_buf, "rating_history", columns=hist_cols, null="\\N")
+                history_buf.close()
                 wcur.execute(
                     "DELETE FROM player_ratings WHERE ((%s != '40k' AND game_system = %s) OR (%s = '40k' AND COALESCE(game_system, '40k') = '40k'));",
                     (sys_target, sys_target, sys_target),
@@ -1970,7 +1971,7 @@ class EloEngine:
             "game_system": sys_target,
             "total_matches": len(all_matches),
             "total_players": len(ratings_rows),
-            "history_rows": len(history_rows),
+            "history_rows": history_count[0],
             "elapsed_seconds": round(time.time() - t0, 2),
         }
 
