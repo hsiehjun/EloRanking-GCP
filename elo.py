@@ -1496,6 +1496,16 @@ class EloEngine:
 
         sys_target = normalize_game_system(game_system or "mtg", default="mtg")
         t0 = time.time()
+        # The web instance has ~1 GiB; drop in-process read caches (they are invalidated after the rebuild
+        # anyway) so the replay state for 100k+ match systems fits in memory.
+        try:
+            import gc
+            self.invalidate_caches()
+            if hasattr(self.db, "invalidate_all_caches"):
+                self.db.invalidate_all_caches(purge_l2=False)
+            gc.collect()
+        except Exception:
+            pass
         # Literal (non-OR) system predicates so the planner can use idx_pg_matches_system_chrono /
         # player_ratings(game_system) instead of sequentially scanning every system's rows.
         m_sys_clause = "COALESCE(m.game_system, '40k') = '40k'" if sys_target == "40k" else "m.game_system = %s"
@@ -1615,16 +1625,21 @@ class EloEngine:
                                 authoritative_teams[pid_v] = clean_tm
 
                     if scoped_eids:
-                        acur.execute(
-                            """
+                        ep_sql = """
                             SELECT event_id, player_id, full_name, faction, team
                             FROM event_participants
                             WHERE event_id = ANY(%s)
                               AND player_id IS NOT NULL AND player_id != '';
-                            """,
-                            (scoped_eids,),
-                        )
-                        for epr in (acur.fetchall() or []):
+                            """
+                        if is_real_pg:
+                            ep_cur = conn.cursor(name=f"fast_recon_ep_{sys_target}")
+                            ep_cur.itersize = 10000
+                            ep_cur.execute(ep_sql, (scoped_eids,))
+                            ep_rows_iter = ep_cur
+                        else:
+                            acur.execute(ep_sql, (scoped_eids,))
+                            ep_rows_iter = acur.fetchall() or []
+                        for epr in ep_rows_iter:
                             eid_v = _bound_id(epr[0] if isinstance(epr, (list, tuple)) else epr.get("event_id"))
                             pid_raw = _bound_id(epr[1] if isinstance(epr, (list, tuple)) else epr.get("player_id"))
                             pid_v = _bound_id(alias_map.get(pid_raw, pid_raw))
@@ -1644,6 +1659,8 @@ class EloEngine:
                             clean_tm = _sanitize_team(tm_v)
                             if clean_tm and pid_v not in authoritative_teams:
                                 authoritative_teams[pid_v] = clean_tm
+                        if is_real_pg:
+                            ep_cur.close()
             except Exception:
                 try:
                     conn.rollback()
