@@ -365,6 +365,33 @@ def _fetch_ltcg_bundle_html(
     return details, standings, pairings
 
 
+_LIMITLESS_TID_RE = re.compile(r"^[0-9a-f]{24}$")
+
+
+def _is_valid_limitless_tid(raw_tid: Any) -> bool:
+    return bool(_LIMITLESS_TID_RE.match(str(raw_tid or "").strip().lower()))
+
+
+def purge_invalid_platform_events(db: Any) -> Dict[str, Any]:
+    """Deletes ltcg:* events whose id is not a real Limitless ObjectId (duplicate copies of other events)."""
+    removed: List[str] = []
+    with db.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM events WHERE id LIKE 'ltcg:%%';")
+            bad = []
+            for r in (cur.fetchall() or []):
+                eid = str(r[0] if isinstance(r, (list, tuple)) else r.get("id") or "")
+                if not _is_valid_limitless_tid(eid.split(":", 1)[1] if ":" in eid else eid):
+                    bad.append(eid)
+            for eid in bad:
+                cur.execute("DELETE FROM matches WHERE event_id = %s;", (eid,))
+                cur.execute("DELETE FROM event_participants WHERE event_id = %s;", (eid,))
+                cur.execute("DELETE FROM events WHERE id = %s;", (eid,))
+                removed.append(eid)
+        conn.commit()
+    return {"removed_events": removed}
+
+
 def import_live_limitless_tournaments(
     db: LocalSqliteDatabase,
     explicit_tournament_ids: Optional[List[Tuple[str, str]]] = None,
@@ -409,6 +436,9 @@ def import_live_limitless_tournaments(
             except TypeError:
                 target_db.invalidate_all_caches()
 
+    # Limitless tournament ids are 24-char hex ObjectIds; anything else (e.g. "decklists" scraped from a
+    # nav link) resolves to some other page and would import a duplicate copy of a real event.
+    targets = [t for t in targets if _is_valid_limitless_tid(t[1])]
     max_dl_per_event = 1 if len(targets) > 25 else 3
 
     def _fetch_ltcg_bundle(raw_tid: str, t_meta: Optional[Dict[str, Any]] = None):

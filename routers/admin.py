@@ -576,8 +576,15 @@ async def api_admin_repair_matches_elo(
         def _run_reconstruct_only():
             db_inst = get_database()
             melee_meta_res = None
+            purge_res = None
             systems_to_run = [x.strip().lower() for x in target_sys.split(",") if x.strip()]
             if body.repair_melee_metadata:
+                try:
+                    from scripts.sync_multiplatform import purge_invalid_platform_events
+                    purge_res = purge_invalid_platform_events(db_inst)
+                    logger.info(f"Purged invalid platform events: {purge_res}")
+                except Exception as pe_err:
+                    logger.warning(f"Notice purging invalid platform events: {pe_err}")
                 try:
                     from scripts.sync_multiplatform import repair_melee_event_metadata
                     melee_meta_res = repair_melee_event_metadata(db_inst)
@@ -594,6 +601,7 @@ async def api_admin_repair_matches_elo(
                 "mode": "reconstruct_only",
                 "game_system": target_sys,
                 "melee_metadata": melee_meta_res,
+                "purged_invalid_events": purge_res,
                 "systems": per_system,
             }
 
