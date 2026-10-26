@@ -800,10 +800,18 @@ def api_admin_data_coverage(request: Request, token: Optional[str] = Query(None)
                     "last_event": str(last_ev)[:10] if last_ev else None,
                     "matches": 0, "events_with_matches": 0,
                 }
+            # 40K/AoS are effectively all BCP: count them via idx_pg_matches_done_sys only.
+            cur.execute("SET LOCAL statement_timeout = '240s';")
+            cur.execute("SELECT game_system, COUNT(*) FROM matches WHERE is_done = TRUE AND game_system IN ('40k', 'aos') GROUP BY 1;")
+            for gs, n_m in cur.fetchall() or []:
+                rec = rows_out.setdefault(f"{gs}|bcp", {"game_system": gs, "platform": "bcp", "events": 0, "first_event": None, "last_event": None})
+                rec["matches"] = int(n_m or 0)
             cur.execute(f"""
-                SELECT COALESCE(game_system, '40k') AS gs, {m_platform_expr} AS platform,
+                SELECT game_system AS gs, {m_platform_expr} AS platform,
                        COUNT(*) AS matches, COUNT(DISTINCT event_id) AS ev_with_matches
-                FROM matches WHERE is_done = TRUE GROUP BY 1, 2;
+                FROM matches
+                WHERE is_done = TRUE AND game_system IS NOT NULL AND game_system NOT IN ('40k', 'aos')
+                GROUP BY 1, 2;
             """)
             for gs, plat, n_m, n_evm in cur.fetchall() or []:
                 rec = rows_out.setdefault(f"{gs}|{plat}", {"game_system": gs, "platform": plat, "events": 0, "first_event": None, "last_event": None})
