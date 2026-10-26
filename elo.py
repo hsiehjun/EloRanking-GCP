@@ -1651,6 +1651,7 @@ class EloEngine:
             # Streamed straight to TSV (not tuples) to keep memory flat on 100k+ match systems.
             history_buf = io.StringIO()
             history_count = [0]
+            flushed_at = [0]
 
             def _hist(pid_h, m_h, old_h, new_h, opp_id_h, opp_name_h, opp_elo_h, res_h, fac_h, opp_fac_h, sc_h, opp_sc_h):
                 vals = (
@@ -1683,7 +1684,45 @@ class EloEngine:
                     st["name"] = _sanitize_name(p_best, max_len=100)
                 return st
 
+            # Replace this system's journeys inside the same (uncommitted) transaction: delete old rows
+            # up front, then COPY new rows in 50k chunks during replay so memory stays flat.
+            hist_cols = (
+                "player_id", "match_id", "event_id", "round", "match_date",
+                "old_elo", "new_elo", "delta_elo", "opponent_id", "opponent_name",
+                "opponent_elo", "result", "player_faction", "opponent_faction",
+                "player_score", "opponent_score", "game_system",
+            )
+            hist_wcur = conn.cursor()
+            hist_wcur.execute("SET LOCAL synchronous_commit = OFF;")
+            hist_wcur.execute(
+                "SELECT player_id FROM player_ratings WHERE ((%s != '40k' AND game_system = %s) OR (%s = '40k' AND COALESCE(game_system, '40k') = '40k'));",
+                (sys_target, sys_target, sys_target),
+            )
+            hist_pids = set(scoped_pids)
+            for pr_row in (hist_wcur.fetchall() or []):
+                pr_pid = pr_row[0] if isinstance(pr_row, (list, tuple)) else (pr_row.get("player_id") if isinstance(pr_row, dict) else None)
+                if pr_pid:
+                    hist_pids.add(str(pr_pid)[:64])
+            hist_pid_list = sorted(hist_pids)
+            for idx_d in range(0, len(hist_pid_list), 5000):
+                hist_wcur.execute(
+                    "DELETE FROM rating_history WHERE player_id = ANY(%s) AND COALESCE(game_system, '40k') = %s;",
+                    (hist_pid_list[idx_d:idx_d + 5000], sys_target),
+                )
+            del hist_pid_list, hist_pids
+
+            def _flush_history():
+                nonlocal history_buf
+                if history_buf.tell() and hasattr(hist_wcur, "copy_from"):
+                    history_buf.seek(0)
+                    hist_wcur.copy_from(history_buf, "rating_history", columns=hist_cols, null="\\N")
+                history_buf.close()
+                history_buf = io.StringIO()
+
             for m in _iter_matches():
+                if history_count[0] - flushed_at[0] >= 50000:
+                    _flush_history()
+                    flushed_at[0] = history_count[0]
                 ev_id_b = _bound_id(m.get("event_id") or "")
                 m_date = m.get("match_date")
                 raw_obj = parsed_raw_by_mid.get(str(m.get("id") or "")) or {}
@@ -1945,32 +1984,7 @@ class EloEngine:
             """
             with conn.cursor() as wcur:
                 wcur.execute("SET LOCAL synchronous_commit = OFF;")
-                # Rewrite this system's rating_history (journeys) in the same transaction as player_ratings.
-                wcur.execute(
-                    "SELECT player_id FROM player_ratings WHERE ((%s != '40k' AND game_system = %s) OR (%s = '40k' AND COALESCE(game_system, '40k') = '40k'));",
-                    (sys_target, sys_target, sys_target),
-                )
-                hist_pids = set(scoped_pids) | set(player_states.keys())
-                for pr_row in (wcur.fetchall() or []):
-                    pr_pid = pr_row[0] if isinstance(pr_row, (list, tuple)) else (pr_row.get("player_id") if isinstance(pr_row, dict) else None)
-                    if pr_pid:
-                        hist_pids.add(str(pr_pid)[:64])
-                hist_pid_list = sorted(hist_pids)
-                for idx_d in range(0, len(hist_pid_list), 5000):
-                    wcur.execute(
-                        "DELETE FROM rating_history WHERE player_id = ANY(%s) AND COALESCE(game_system, '40k') = %s;",
-                        (hist_pid_list[idx_d:idx_d + 5000], sys_target),
-                    )
-                if history_count[0] and hasattr(wcur, "copy_from"):
-                    hist_cols = (
-                        "player_id", "match_id", "event_id", "round", "match_date",
-                        "old_elo", "new_elo", "delta_elo", "opponent_id", "opponent_name",
-                        "opponent_elo", "result", "player_faction", "opponent_faction",
-                        "player_score", "opponent_score", "game_system",
-                    )
-                    history_buf.seek(0)
-                    wcur.copy_from(history_buf, "rating_history", columns=hist_cols, null="\\N")
-                history_buf.close()
+                _flush_history()
                 wcur.execute(
                     "DELETE FROM player_ratings WHERE ((%s != '40k' AND game_system = %s) OR (%s = '40k' AND COALESCE(game_system, '40k') = '40k'));",
                     (sys_target, sys_target, sys_target),

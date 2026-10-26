@@ -1459,25 +1459,35 @@ def _melee_game_to_system(game_name: Optional[str]) -> Optional[str]:
     return _MELEE_GAME_NAME_TO_SYSTEM.get(str(game_name).strip().lower())
 
 
-def dedupe_melee_matches(db: Any) -> int:
-    """Removes Melee match rows duplicated under a full-length Guid when the canonical 12-char id exists."""
+def dedupe_melee_matches(db: Any, event_ids: Optional[List[str]] = None) -> int:
+    """Removes Melee match rows duplicated under a full-length Guid when the canonical 12-char id exists.
+
+    Runs per event so every statement is an indexed (idx_pg_matches_event) lookup instead of a
+    full self-join over the whole matches table.
+    """
     if not hasattr(db, "get_connection"):
         return 0
+    deleted = 0
     with db.get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                DELETE FROM matches a
-                USING matches b
-                WHERE a.event_id LIKE 'melee:%%'
-                  AND b.event_id = a.event_id
-                  AND b.round = a.round
-                  AND a.id <> b.id
-                  AND LENGTH(a.id) > LENGTH(b.id)
-                  AND LEFT(a.id, LENGTH(b.id)) = b.id;
-                """
-            )
-            deleted = cur.rowcount or 0
+            if event_ids is None:
+                cur.execute("SELECT id FROM events WHERE source_platform = 'melee' OR id LIKE 'melee:%%';")
+                event_ids = [r[0] if isinstance(r, (list, tuple)) else r.get("id") for r in (cur.fetchall() or [])]
+            for eid in event_ids:
+                cur.execute(
+                    """
+                    DELETE FROM matches a
+                    USING matches b
+                    WHERE a.event_id = %s
+                      AND b.event_id = %s
+                      AND b.round = a.round
+                      AND a.id <> b.id
+                      AND LENGTH(a.id) > LENGTH(b.id)
+                      AND LEFT(a.id, LENGTH(b.id)) = b.id;
+                    """,
+                    (eid, eid),
+                )
+                deleted += cur.rowcount or 0
         conn.commit()
     return int(deleted)
 
@@ -1525,7 +1535,7 @@ def repair_melee_event_metadata(db: Any) -> Dict[str, Any]:
                     (sys_slug, eid, sys_slug),
                 )
         conn.commit()
-    deduped = dedupe_melee_matches(db)
+    deduped = dedupe_melee_matches(db, [eid for eid, _, _ in fixes])
     return {
         "events_updated": ev_updates,
         "matches_updated": m_updates,
