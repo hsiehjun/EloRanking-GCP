@@ -1494,11 +1494,10 @@ def dedupe_melee_matches(db: Any, event_ids: Optional[List[str]] = None) -> int:
 
 def repair_melee_event_metadata(db: Any) -> Dict[str, Any]:
     """Backfills real Melee start dates & game systems from melee_live_cache.json.gz into events/matches/participants."""
-    import gzip
-
-    cache_gz_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "melee_live_cache.json.gz")
-    with gzip.open(cache_gz_path, "rt", encoding="utf-8") as gf:
-        cached = json.load(gf) or {}
+    # Small sidecar (tid -> start_date/game_system); the full live cache expands to hundreds of MB in memory.
+    meta_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "melee_event_meta.json")
+    with open(meta_path, "r", encoding="utf-8") as mf:
+        cached = json.load(mf) or {}
     fixes = []
     for tid, t in cached.items():
         start = str(t.get("start_date") or "").replace("Z", "")[:19]
