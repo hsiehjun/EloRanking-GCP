@@ -67,7 +67,16 @@ def deploy_or_update_job(
     script_arg: str,
     template_job: str = "elo-tournament-sync-job",
     execute_args: str = "",
+    memory: str = "",
+    cpu: str = "",
+    no_execute: bool = False,
+    task_timeout: str = "30m",
 ) -> int:
+    resource_flags = []
+    if memory:
+        resource_flags.append(f"--memory={memory}")
+    if cpu:
+        resource_flags.append(f"--cpu={cpu}")
     exec_cmd = ["gcloud", "run", "jobs", "execute", job_name, f"--region={region}", "--async"]
     if execute_args and str(execute_args).strip():
         exec_cmd.append(f"--args={execute_args.strip()}")
@@ -90,13 +99,14 @@ def deploy_or_update_job(
                 f"--region={region}",
                 f"--command={command}",
                 f"--args={script_arg}",
-                "--task-timeout=30m",
+                f"--task-timeout={task_timeout}",
+                *resource_flags,
             ],
             check=False,
         )
         sys.stdout.write(upd.stdout or "")
         sys.stderr.write(upd.stderr or "")
-        if upd.returncode == 0:
+        if upd.returncode == 0 and not no_execute:
             print(f"🚀 Triggering async execution for updated job '{job_name}'...", flush=True)
             _run_cmd(exec_cmd, check=False)
         return upd.returncode
@@ -117,7 +127,8 @@ def deploy_or_update_job(
         f"--args={script_arg}",
         "--tasks=1",
         "--max-retries=1",
-        "--task-timeout=30m",
+        f"--task-timeout={task_timeout}",
+        *resource_flags,
     ]
 
     ref_desc = _run_cmd(
@@ -143,7 +154,7 @@ def deploy_or_update_job(
     cr = _run_cmd(create_cmd, check=False)
     sys.stdout.write(cr.stdout or "")
     sys.stderr.write(cr.stderr or "")
-    if cr.returncode == 0:
+    if cr.returncode == 0 and not no_execute:
         print(f"🚀 Triggering initial async execution for newly created job '{job_name}'...", flush=True)
         _run_cmd(exec_cmd, check=False)
     return cr.returncode
@@ -269,6 +280,10 @@ def main() -> None:
     parser.add_argument("--schedule", default="", help="Cron schedule in America/Los_Angeles (e.g. '15 0 * * *')")
     parser.add_argument("--scheduler-name", default="", help="Cloud Scheduler job name (e.g. elo-melee-scheduler-job)")
     parser.add_argument("--description", default="", help="Cloud Scheduler job description")
+    parser.add_argument("--memory", default="", help="Optional job memory limit (e.g. 2Gi)")
+    parser.add_argument("--cpu", default="", help="Optional job CPU count (e.g. 2)")
+    parser.add_argument("--task-timeout", default="30m", help="Job task timeout (default 30m)")
+    parser.add_argument("--no-execute", action="store_true", help="Create/update only; do not trigger an execution")
     args = parser.parse_args()
 
     rc = deploy_or_update_job(
@@ -279,6 +294,10 @@ def main() -> None:
         script_arg=args.script_arg,
         template_job=args.template_job,
         execute_args=args.execute_args,
+        memory=args.memory,
+        cpu=args.cpu,
+        no_execute=args.no_execute,
+        task_timeout=args.task_timeout,
     )
     if rc == 0 and args.schedule:
         ensure_scheduler_job(

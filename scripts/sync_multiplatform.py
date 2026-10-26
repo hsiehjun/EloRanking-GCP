@@ -1552,6 +1552,12 @@ def repair_melee_event_metadata(db: Any) -> Dict[str, Any]:
                     "UPDATE events SET event_date = %s, end_date = %s, game_system = %s WHERE id = %s;",
                     (start, start, sys_slug, eid),
                 )
+                # Drop the fabricated "Seattle" location the old importer stamped on every Melee event.
+                cur.execute(
+                    "UPDATE events SET city = NULL, country = NULL, latitude = NULL, longitude = NULL, venue_name = 'Melee.gg' "
+                    "WHERE id = %s AND city = 'Seattle' AND venue_name = 'Melee.gg Official Tournament';",
+                    (eid,),
+                )
                 ev_updates += cur.rowcount or 0
                 cur.execute(
                     "UPDATE matches SET match_date = %s, game_system = %s "
@@ -2000,11 +2006,12 @@ main().catch(() => {
                 "game_system_id": gs_id,
                 "source_platform": "melee",
                 "external_event_id": raw_tid,
-                "city": "Seattle",
-                "country": "US",
-                "venue_name": "Melee.gg Official Tournament",
-                "latitude": 47.6062,
-                "longitude": -122.3321,
+                # Melee does not expose a reliable venue in the scraped payload; never fabricate one.
+                "city": None,
+                "country": None,
+                "venue_name": "Melee.gg",
+                "latitude": None,
+                "longitude": None,
                 "raw_json": {"platform": "melee", "tid": raw_tid, "title": title, "rounds": len(round_matches)},
             }
         )

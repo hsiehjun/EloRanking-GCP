@@ -304,6 +304,8 @@ def run_topdeck_sync(
 
 
 if __name__ == "__main__":
+    from scripts.job_status import install_job_recorder, record_job_run
+    install_job_recorder("topdeck_sync")
     parser = argparse.ArgumentParser(description="Cloud Run Job: TopDeck.gg tournament sync (4P FFA Pods & 1v1) & Elo recalculation")
     parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "mtg"), help="Game system (mtg, pokemon, one_piece, sw_unlimited, lorcana, etc.)")
     parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "14")), help="Days of past tournaments to scrape (default: 14; use 3650 for 10yr backfill)")
@@ -335,3 +337,4 @@ if __name__ == "__main__":
         end_date=args.end_date,
     )
     print(json.dumps(res, indent=2, default=str))
+    record_job_run("topdeck_sync", {"status": "SUCCESS", "result": res})

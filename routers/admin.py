@@ -531,6 +531,8 @@ class RepairMatchesEloPayload(BaseModel):
     force_reconstruct: bool = True
     reconstruct_only: bool = False
     repair_melee_metadata: bool = False
+    # Run heavy rebuilds in the dedicated `elo-rebuild-job` Cloud Run Job instead of the web instance.
+    use_job: bool = True
     game_system: Optional[str] = None
     batch_limit: int = 25000
     run_in_background: bool = False
@@ -572,6 +574,15 @@ async def api_admin_repair_matches_elo(
     if body.reconstruct_only:
         target_sys = (body.game_system or "mtg").strip()
         b_limit = max(1000, int(body.batch_limit or 25000))
+        if body.use_job and body.reconstruct:
+            job_args = ["scripts/rebuild_ratings.py", f"--game-system={target_sys}"]
+            if body.repair_melee_metadata:
+                job_args.append("--repair-melee-metadata")
+            try:
+                execution = await asyncio.to_thread(trigger_cloud_run_job, REBUILD_JOB_NAME, job_args)
+                return {"status": "job_started", "job": REBUILD_JOB_NAME, "execution": execution, "args": job_args}
+            except Exception as job_err:
+                logger.warning(f"Could not trigger {REBUILD_JOB_NAME}; falling back to in-process rebuild: {job_err}")
 
         def _run_reconstruct_only():
             db_inst = get_database()
@@ -678,6 +689,127 @@ async def api_admin_repair_matches_elo(
         force_reconstruct=body.force_reconstruct,
     )
     return res
+
+
+REBUILD_JOB_NAME = os.environ.get("ELO_REBUILD_JOB_NAME", "elo-rebuild-job")
+CLOUD_RUN_REGION = os.environ.get("CLOUD_RUN_REGION", "us-central1")
+PLATFORM_SYNC_JOBS = {
+    "melee": "elo-melee-sync-job",
+    "limitless": "elo-limitless-sync-job",
+    "longshanks": "elo-longshanks-sync-job",
+    "topdeck": "elo-topdeck-sync-job",
+    "rebuild": REBUILD_JOB_NAME,
+}
+
+
+def _metadata_get(path: str) -> str:
+    req = urllib.request.Request(
+        f"http://metadata.google.internal/computeMetadata/v1/{path}",
+        headers={"Metadata-Flavor": "Google"},
+    )
+    with urllib.request.urlopen(req, timeout=3) as resp:
+        return resp.read().decode("utf-8")
+
+
+def trigger_cloud_run_job(job_name: str, args: Optional[List[str]] = None) -> str:
+    """Starts a Cloud Run Job execution via the Run Admin API using the service's own identity."""
+    token = json.loads(_metadata_get("instance/service-accounts/default/token"))["access_token"]
+    project = _metadata_get("project/project-id")
+    body: Dict[str, Any] = {}
+    if args:
+        body = {"overrides": {"containerOverrides": [{"args": list(args)}]}}
+    req = urllib.request.Request(
+        f"https://run.googleapis.com/v2/projects/{project}/locations/{CLOUD_RUN_REGION}/jobs/{job_name}:run",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        op = json.loads(resp.read().decode("utf-8") or "{}")
+    return str((op.get("metadata") or {}).get("name") or op.get("name") or "")
+
+
+class RunJobPayload(BaseModel):
+    job: str
+    args: Optional[List[str]] = None
+    token: Optional[str] = None
+    secret: Optional[str] = None
+
+
+@router.post("/api/admin/run-job", summary="Trigger a platform sync / rebuild Cloud Run Job (Admin/Cron)")
+async def api_admin_run_job(request: Request, payload: RunJobPayload, token: Optional[str] = Query(None), secret: Optional[str] = Query(None)):
+    if not _is_admin_or_cron_request(request, token=payload.token or token, secret=payload.secret or secret):
+        raise HTTPException(status_code=403, detail="Admin session or valid X-Cron-Secret required.")
+    job_name = PLATFORM_SYNC_JOBS.get(payload.job, payload.job)
+    if job_name not in PLATFORM_SYNC_JOBS.values():
+        raise HTTPException(status_code=400, detail=f"Unknown job '{payload.job}'. Allowed: {sorted(PLATFORM_SYNC_JOBS)}")
+    try:
+        execution = await asyncio.to_thread(trigger_cloud_run_job, job_name, payload.args)
+    except Exception as err:
+        raise HTTPException(status_code=502, detail=f"Failed to start {job_name}: {err}")
+    return {"status": "job_started", "job": job_name, "execution": execution, "args": payload.args}
+
+
+@router.get("/api/admin/job-status", summary="Latest run summaries recorded by sync/rebuild Cloud Run Jobs (Admin/Cron)")
+def api_admin_job_status(request: Request, token: Optional[str] = Query(None), secret: Optional[str] = Query(None)):
+    if not _is_admin_or_cron_request(request, token=token, secret=secret):
+        raise HTTPException(status_code=403, detail="Admin session or valid X-Cron-Secret required.")
+    out: Dict[str, Any] = {}
+    with get_database().get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT key, value, updated_at FROM system_settings WHERE key LIKE 'job_run_%%' ORDER BY key;")
+            for row in cur.fetchall() or []:
+                key, val, upd = (row[0], row[1], row[2]) if isinstance(row, (list, tuple)) else (row["key"], row["value"], row["updated_at"])
+                try:
+                    parsed = json.loads(val)
+                except Exception:
+                    parsed = {"raw": str(val)[:500]}
+                parsed["updated_at"] = str(upd)
+                out[str(key)[len("job_run_"):]] = parsed
+    return out
+
+
+@router.get("/api/admin/data-coverage", summary="Per game system / platform event & match coverage (Admin/Cron)")
+def api_admin_data_coverage(request: Request, token: Optional[str] = Query(None), secret: Optional[str] = Query(None)):
+    if not _is_admin_or_cron_request(request, token=token, secret=secret):
+        raise HTTPException(status_code=403, detail="Admin session or valid X-Cron-Secret required.")
+    platform_expr = """
+        CASE
+            WHEN id LIKE 'melee:%%' THEN 'melee'
+            WHEN id LIKE 'ltcg:%%' THEN 'limitless'
+            WHEN id LIKE 'ls:%%' THEN 'longshanks'
+            WHEN id LIKE 'td:%%' THEN 'topdeck'
+            WHEN id LIKE 'ES-%%' THEN 'eventstudio'
+            ELSE 'bcp'
+        END
+    """
+    m_platform_expr = platform_expr.replace("id LIKE", "event_id LIKE")
+    rows_out: Dict[str, Dict[str, Any]] = {}
+    with get_database().get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL statement_timeout = '60s';")
+            cur.execute(f"""
+                SELECT COALESCE(game_system, '40k') AS gs, {platform_expr} AS platform,
+                       COUNT(*) AS events, MIN(event_date) AS first_event, MAX(event_date) AS last_event
+                FROM events GROUP BY 1, 2;
+            """)
+            for gs, plat, n_ev, first_ev, last_ev in cur.fetchall() or []:
+                rows_out[f"{gs}|{plat}"] = {
+                    "game_system": gs, "platform": plat, "events": int(n_ev or 0),
+                    "first_event": str(first_ev)[:10] if first_ev else None,
+                    "last_event": str(last_ev)[:10] if last_ev else None,
+                    "matches": 0, "events_with_matches": 0,
+                }
+            cur.execute(f"""
+                SELECT COALESCE(game_system, '40k') AS gs, {m_platform_expr} AS platform,
+                       COUNT(*) AS matches, COUNT(DISTINCT event_id) AS ev_with_matches
+                FROM matches WHERE is_done = TRUE GROUP BY 1, 2;
+            """)
+            for gs, plat, n_m, n_evm in cur.fetchall() or []:
+                rec = rows_out.setdefault(f"{gs}|{plat}", {"game_system": gs, "platform": plat, "events": 0, "first_event": None, "last_event": None})
+                rec["matches"] = int(n_m or 0)
+                rec["events_with_matches"] = int(n_evm or 0)
+    return sorted(rows_out.values(), key=lambda r: (-r.get("matches", 0), r["game_system"]))
 
 
 @router.get(

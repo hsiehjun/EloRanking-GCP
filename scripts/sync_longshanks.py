@@ -226,6 +226,8 @@ def run_longshanks_sync(
 
 
 if __name__ == "__main__":
+    from scripts.job_status import install_job_recorder, record_job_run
+    install_job_recorder("longshanks_sync")
     parser = argparse.ArgumentParser(description="Cloud Run Job: Longshanks tournament sync & Elo recalculation")
     parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "mcp"), help="Game system (mcp, aos, 40k, the_old_world, etc.)")
     parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "7")), help="Days of past tournaments to scrape (default: 7; use 3650 for 10yr backfill)")
@@ -257,3 +259,4 @@ if __name__ == "__main__":
         end_date=args.end_date,
     )
     print(json.dumps(res, indent=2, default=str))
+    record_job_run("longshanks_sync", {"status": "SUCCESS", "result": res})

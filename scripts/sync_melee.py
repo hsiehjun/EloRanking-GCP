@@ -540,6 +540,8 @@ def run_melee_sync(
 
 
 if __name__ == "__main__":
+    from scripts.job_status import install_job_recorder, record_job_run
+    install_job_recorder("melee_sync")
     parser = argparse.ArgumentParser(description="Cloud Run Job: Melee.gg tournament sync & Elo recalculation")
     parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="Game system (all, mtg, sw_unlimited, lorcana, flesh_and_blood)")
     parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "14")), help="Days of past tournaments to scrape (default: 14; use 3650 for 10yr backfill)")
@@ -571,3 +573,4 @@ if __name__ == "__main__":
         end_date=args.end_date,
     )
     print(json.dumps(res, indent=2, default=str))
+    record_job_run("melee_sync", {"status": "SUCCESS", "result": res})

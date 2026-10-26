@@ -293,6 +293,8 @@ def run_limitless_sync(
 
 
 if __name__ == "__main__":
+    from scripts.job_status import install_job_recorder, record_job_run
+    install_job_recorder("limitless_sync")
     parser = argparse.ArgumentParser(description="Cloud Run Job: Limitless TCG tournament sync & Elo recalculation")
     parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="Game system (all, pokemon, one_piece, digimon, sw_unlimited, lorcana)")
     parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "7")), help="Days of past tournaments to scrape (default: 7; use 3650 for 10yr backfill)")
@@ -324,3 +326,4 @@ if __name__ == "__main__":
         end_date=args.end_date,
     )
     print(json.dumps(res, indent=2, default=str))
+    record_job_run("limitless_sync", {"status": "SUCCESS", "result": res})
