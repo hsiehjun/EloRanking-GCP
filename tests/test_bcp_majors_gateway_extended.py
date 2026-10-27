@@ -20,13 +20,25 @@ from routers.community import (
     classify_tournament_tier,
     fetch_live_bcp_majors,
     get_fallback_majors,
-    _bcp_majors_cache
+    _bcp_majors_cache,
+    _bcp_majors_refreshing,
+)
+from scripts.platform_discovery import (
+    _melee_cache,
+    _limitless_cache,
+    _topdeck_cache,
+    discover_multiplatform_events,
+    fetch_live_multiplatform_event_preview,
 )
 
 class TestBcpMajorsGatewayExtended(unittest.TestCase):
 
     def setUp(self):
         _bcp_majors_cache.clear()
+        _bcp_majors_refreshing.clear()
+        _melee_cache.clear()
+        _limitless_cache.clear()
+        _topdeck_cache.clear()
 
     def test_concurrent_requests_thread_safety(self):
         """Verify multiple threads calling fetch_live_bcp_majors simultaneously populate cache cleanly."""
@@ -51,36 +63,61 @@ class TestBcpMajorsGatewayExtended(unittest.TestCase):
         self.assertEqual(len(_bcp_majors_cache["40k"][1]), first_len)
 
     def test_upstream_http_error_graceful_fallback(self):
-        """Verify upstream HTTP error (500/503) does not crash and returns fallback majors."""
+        """Verify upstream HTTP error (500/503) does not crash and injects ZERO synthetic/fake events."""
         with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError("http://bcp", 500, "Internal Server Error", {}, None)):
             majors = fetch_live_bcp_majors("40k")
             self.assertIsInstance(majors, list)
-            self.assertGreaterEqual(len(majors), 3)
-            # Verify fallback has expected premiere events
-            names = [m["name"] for m in majors]
-            self.assertTrue(any("Las Vegas Open" in n for n in names))
+            for m in majors:
+                self.assertFalse(str(m.get("id", "")).startswith("bcp_"), f"Synthetic event leaked: {m}")
 
     def test_upstream_timeout_graceful_fallback(self):
-        """Verify upstream connection timeout does not hang or raise an exception."""
+        """Verify upstream connection timeout does not hang, raise, or inject synthetic events."""
         with patch("urllib.request.urlopen", side_effect=TimeoutError("Connection timed out")):
             majors = fetch_live_bcp_majors("aos")
             self.assertIsInstance(majors, list)
-            self.assertGreaterEqual(len(majors), 3)
             for m in majors:
                 self.assertEqual(m["game_system"], "aos")
+                self.assertFalse(str(m.get("id", "")).startswith("bcp_"), f"Synthetic event leaked: {m}")
 
     def test_cache_ttl_invalidation(self):
-        """Verify cache expires after 2 hours (7200s) and triggers re-fetch."""
+        """Verify cache expires after 2 hours (7200s) and triggers background re-fetch."""
         # Prime cache with fake past timestamp
         fake_events = [{"id": "test_old", "name": "Old Event", "tier": "major", "game_system": "40k"}]
         _bcp_majors_cache["40k"] = (time.time() - 7250, fake_events)
 
-        # Fetching now should notice cache is > 7200s old and refresh
-        majors = fetch_live_bcp_majors("40k")
+        # Stale-while-revalidate returns stale immediately and refreshes in background
+        stale_ret = fetch_live_bcp_majors("40k")
+        self.assertIsInstance(stale_ret, list)
+        deadline = time.time() + 8.0
+        while time.time() < deadline and _bcp_majors_cache["40k"][1] == fake_events:
+            time.sleep(0.1)
+        majors = _bcp_majors_cache["40k"][1]
         self.assertNotEqual(majors, fake_events)
         # Cached timestamp should now be fresh
         new_ts = _bcp_majors_cache["40k"][0]
-        self.assertGreater(new_ts, time.time() - 10)
+        self.assertGreater(new_ts, time.time() - 15)
+
+    def test_multiplatform_majors_discovery_no_synthetic_events(self):
+        """Verify MTG and Pokemon majors discover real multi-platform events with zero synthetic bcp_* IDs."""
+        for sys_slug in ("mtg", "pokemon"):
+            majors = fetch_live_bcp_majors(sys_slug)
+            self.assertIsInstance(majors, list)
+            self.assertGreater(len(majors), 0, f"Expected real discovered majors for {sys_slug}")
+            for ev in majors:
+                eid = str(ev.get("id") or "")
+                self.assertFalse(eid.startswith("bcp_"), f"Fake synthetic ID found in {sys_slug}: {eid}")
+                self.assertEqual(ev.get("game_system"), sys_slug)
+                if ":" in eid:
+                    self.assertIn(eid.split(":", 1)[0], ("melee", "ltcg", "td", "ls"))
+
+            # Verify upcoming preview works cleanly for the first discovered multi-platform event
+            mp_candidates = [e for e in majors if ":" in str(e.get("id") or "") and not e.get("is_ended")]
+            if mp_candidates:
+                sample_eid = mp_candidates[0]["id"]
+                preview = fetch_live_multiplatform_event_preview(sample_eid, db=None)
+                self.assertIsNotNone(preview, f"Preview returned None for discovered event {sample_eid}")
+                self.assertEqual(preview["id"], sample_eid)
+                self.assertTrue(str(preview.get("event_url") or "").startswith("http"))
 
     def test_edge_case_parameters(self):
         """Verify extreme days_ahead and min_players parameters work gracefully."""

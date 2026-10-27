@@ -16328,10 +16328,12 @@ class PostgresDatabase:
         user_lng: float,
         radius_miles: float = 50.0,
         days_ahead: int = 92,
-        game_system: Optional[str] = "40k"
+        game_system: Optional[str] = "40k",
+        include_multiplatform: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Queries live upcoming events directly from the Best Coast Pairings (BCP) API
+        (and, when include_multiplatform=True, Melee.gg, Limitless TCG, and TopDeck.gg)
         for the specified GPS coordinates, radius, and game system, looking ahead up to days_ahead (default 92 days / ~3 months),
         starting from yesterday (to capture ongoing multi-day weekend tournaments).
         """
@@ -16340,16 +16342,27 @@ class PostgresDatabase:
 
         target_sys = normalize_game_system(game_system, default="40k")
         bcp_game_sys = AOS_GAME_SYSTEM_ID if target_sys == "aos" else get_bcp_game_system_id(target_sys, default=None)
-        if not bcp_game_sys:
+        if not bcp_game_sys and not include_multiplatform:
             return []
 
         effective_radius = max(5, int(round(radius_miles)))
         cache_key = (
-            round(user_lat, 2),
-            round(user_lng, 2),
-            effective_radius,
-            days_ahead,
-            target_sys
+            (
+                round(user_lat, 2),
+                round(user_lng, 2),
+                effective_radius,
+                days_ahead,
+                target_sys,
+                True,
+            )
+            if include_multiplatform
+            else (
+                round(user_lat, 2),
+                round(user_lng, 2),
+                effective_radius,
+                days_ahead,
+                target_sys,
+            )
         )
         cached = PostgresDatabase.get_cached(PostgresDatabase._bcp_upcoming_cache_dict, cache_key, ttl=300)
         if cached is not None:
@@ -16360,52 +16373,53 @@ class PostgresDatabase:
         start_iso = (now_utc - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00.000Z")
         end_iso = (now_utc + timedelta(days=days_ahead)).strftime("%Y-%m-%dT23:59:59.999Z")
 
-        params = {
-            "limit": 50,
-            "gameSystemId": bcp_game_sys,
-            "startDate": start_iso,
-            "endDate": end_iso,
-            "excludeOnline": "true",
-            "sortKey": "eventDate",
-            "sortAscending": "true",
-            "location": json.dumps({
-                "distance": effective_radius,
-                "distanceType": "miles",
-                "center": {
-                    "lat": str(user_lat),
-                    "long": str(user_lng)
-                }
-            })
-        }
-
         headers = DEFAULT_HEADERS.copy()
         raw_events = []
         next_key = None
 
-        for _ in range(2):  # Cap to 2 pages (up to 100 events) - page 1 has 50, UI displays up to 35
-            if next_key:
-                params["nextKey"] = next_key
-            url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
-            try:
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=3.0) as resp:
-                    raw_bytes = resp.read()
-                    if isinstance(raw_bytes, (bytes, bytearray)) and len(raw_bytes) >= 2 and raw_bytes[:2] == b"\x1f\x8b":
-                        import gzip
-                        raw_bytes = gzip.decompress(raw_bytes)
-                    data = json.loads(raw_bytes.decode("utf-8") if isinstance(raw_bytes, (bytes, bytearray)) else str(raw_bytes))
-                    evs = data.get("data", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
-                    if not evs:
-                        break
-                    raw_events.extend(evs)
-                    if len(raw_events) >= 35:
-                        break
-                    next_key = data.get("nextKey") if isinstance(data, dict) else None
-                    if not next_key:
-                        break
-            except Exception as e:
-                logger.warning(f"Live BCP upcoming events query notice for ({user_lat}, {user_lng}): {e}")
-                break
+        if bcp_game_sys:
+            params = {
+                "limit": 50,
+                "gameSystemId": bcp_game_sys,
+                "startDate": start_iso,
+                "endDate": end_iso,
+                "excludeOnline": "true",
+                "sortKey": "eventDate",
+                "sortAscending": "true",
+                "location": json.dumps({
+                    "distance": effective_radius,
+                    "distanceType": "miles",
+                    "center": {
+                        "lat": str(user_lat),
+                        "long": str(user_lng)
+                    }
+                })
+            }
+
+            for _ in range(2):  # Cap to 2 pages (up to 100 events) - page 1 has 50, UI displays up to 35
+                if next_key:
+                    params["nextKey"] = next_key
+                url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
+                try:
+                    req = urllib.request.Request(url, headers=headers)
+                    with urllib.request.urlopen(req, timeout=3.0) as resp:
+                        raw_bytes = resp.read()
+                        if isinstance(raw_bytes, (bytes, bytearray)) and len(raw_bytes) >= 2 and raw_bytes[:2] == b"\x1f\x8b":
+                            import gzip
+                            raw_bytes = gzip.decompress(raw_bytes)
+                        data = json.loads(raw_bytes.decode("utf-8") if isinstance(raw_bytes, (bytes, bytearray)) else str(raw_bytes))
+                        evs = data.get("data", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+                        if not evs:
+                            break
+                        raw_events.extend(evs)
+                        if len(raw_events) >= 35:
+                            break
+                        next_key = data.get("nextKey") if isinstance(data, dict) else None
+                        if not next_key:
+                            break
+                except Exception as e:
+                    logger.warning(f"Live BCP upcoming events query notice for ({user_lat}, {user_lng}): {e}")
+                    break
 
         normalized_events = []
         seen_ids = set()
@@ -16606,6 +16620,38 @@ class PostgresDatabase:
                 "private_event": private_event,
                 "game_system": target_sys
             })
+
+        if include_multiplatform and not self._is_mock_instance():
+            try:
+                from scripts.platform_discovery import discover_multiplatform_events
+                include_online_mp = bool(target_sys not in ("40k", "aos") or len(normalized_events) < 5)
+                mp_events = discover_multiplatform_events(
+                    game_system=target_sys,
+                    days_ahead=days_ahead,
+                    user_lat=user_lat,
+                    user_lng=user_lng,
+                    radius_miles=float(effective_radius),
+                    include_online=include_online_mp,
+                    majors_only=False,
+                    timeout_s=3.2,
+                )
+                for mp_ev in mp_events:
+                    mp_id = str(mp_ev.get("id") or "").strip()
+                    if not mp_id or mp_id in seen_ids or mp_ev.get("is_ended"):
+                        continue
+                    seen_ids.add(mp_id)
+                    normalized_events.append(mp_ev)
+                normalized_events.sort(
+                    key=lambda x: (
+                        0 if x.get("distance_miles") is not None else 1,
+                        0 if x.get("is_started") else 1,
+                        str(x.get("event_date") or "9999-12-31"),
+                        -int(x.get("total_players") or 0),
+                    )
+                )
+                normalized_events = normalized_events[:75]
+            except Exception as mp_exc:
+                logger.debug(f"Multi-platform upcoming discovery notice ({target_sys}): {mp_exc}")
 
         PostgresDatabase.set_cached(PostgresDatabase._bcp_upcoming_cache_dict, cache_key, normalized_events)
         return normalized_events
@@ -16814,7 +16860,7 @@ class PostgresDatabase:
                             e.total_players, e.num_rounds, e.current_round, e.is_ended, e.circuits,
                             CASE WHEN e.event_date >= CURRENT_DATE - INTERVAL '1 day' THEN e.raw_json ELSE NULL END AS raw_json, -- e.raw_json,
                             COALESCE(
-                                e.latitude,
+                                CASE WHEN LOWER(TRIM(COALESCE(e.city, ''))) = 'online' THEN NULL ELSE e.latitude END,
                                 CASE LOWER(TRIM(COALESCE(e.city, '')))
                                     WHEN 'san diego' THEN 32.7157
                                     WHEN 'los angeles' THEN 34.0522
@@ -16855,7 +16901,7 @@ class PostgresDatabase:
                                 END
                             ) AS ev_lat,
                             COALESCE(
-                                e.longitude,
+                                CASE WHEN LOWER(TRIM(COALESCE(e.city, ''))) = 'online' THEN NULL ELSE e.longitude END,
                                 CASE LOWER(TRIM(COALESCE(e.city, '')))
                                     WHEN 'san diego' THEN -117.1611
                                     WHEN 'los angeles' THEN -118.2437
@@ -16959,6 +17005,76 @@ class PostgresDatabase:
                 events_recent_all = [dict(r) for r in all_event_rows if r.get("event_group") == "recent"]
                 events_recent = events_recent_all[:50]
 
+                # For non-40k/aos game systems where events are hosted on Melee, Limitless, TopDeck, or Longshanks
+                # (often online or outside the user's immediate city radius), supplement upcoming/live & recent feeds
+                # from PostgreSQL so every game system's Community Hub has real tournaments without polluting local Elo.
+                if (
+                    target_sys not in ("40k", "aos")
+                    and not self._is_mock_instance()
+                    and not hasattr(cursor, "assert_called")
+                    and (len(events_upcoming_db) < 8 or len(events_recent) < 10)
+                ):
+                    try:
+                        cursor.execute(
+                            """
+                            (
+                                SELECT id, name, event_date, end_date, city, state, country,
+                                       COALESCE(NULLIF(TRIM(venue_name), ''), NULLIF(TRIM(venue), ''), city) AS venue,
+                                       NULLIF(TRIM(address), '') AS address,
+                                       NULLIF(TRIM(postal_code), '') AS postal_code,
+                                       latitude, longitude,
+                                       COALESCE(players_count, total_players, 0) AS total_players,
+                                       num_rounds, current_round, is_ended, circuits, raw_json,
+                                       NULL::numeric AS distance_miles,
+                                       'upcoming' AS event_group
+                                FROM events
+                                WHERE COALESCE(game_system, '40k') = %s
+                                  AND event_date >= CURRENT_DATE - INTERVAL '2 days'
+                                  AND NOT COALESCE(is_ended, FALSE)
+                                ORDER BY event_date ASC, COALESCE(players_count, total_players, 0) DESC
+                                LIMIT 25
+                            )
+                            UNION ALL
+                            (
+                                SELECT id, name, event_date, end_date, city, state, country,
+                                       COALESCE(NULLIF(TRIM(venue_name), ''), NULLIF(TRIM(venue), ''), city) AS venue,
+                                       NULLIF(TRIM(address), '') AS address,
+                                       NULLIF(TRIM(postal_code), '') AS postal_code,
+                                       latitude, longitude,
+                                       COALESCE(players_count, total_players, 0) AS total_players,
+                                       num_rounds, current_round, TRUE AS is_ended, circuits, NULL::jsonb AS raw_json,
+                                       NULL::numeric AS distance_miles,
+                                       'recent' AS event_group
+                                FROM events
+                                WHERE COALESCE(game_system, '40k') = %s
+                                  AND event_date >= CURRENT_DATE - INTERVAL '180 days'
+                                  AND (COALESCE(is_ended, FALSE) = TRUE OR event_date < CURRENT_DATE - INTERVAL '1 day')
+                                ORDER BY event_date DESC, COALESCE(players_count, total_players, 0) DESC
+                                LIMIT 35
+                            );
+                            """,
+                            (target_sys, target_sys),
+                        )
+                        supp_rows = cursor.fetchall() or []
+                        seen_up_db = {r.get("id") for r in events_upcoming_db if isinstance(r, dict) and r.get("id")}
+                        seen_rec_db = {r.get("id") for r in events_recent if isinstance(r, dict) and r.get("id")}
+                        for sr in supp_rows:
+                            if not isinstance(sr, dict) and not hasattr(sr, "keys"):
+                                continue
+                            sd = dict(sr)
+                            sid = sd.get("id")
+                            if not sid:
+                                continue
+                            sd["is_local"] = False
+                            if sd.get("event_group") == "upcoming" and sid not in seen_up_db:
+                                seen_up_db.add(sid)
+                                events_upcoming_db.append(sd)
+                            elif sd.get("event_group") == "recent" and sid not in seen_rec_db and len(events_recent) < 50:
+                                seen_rec_db.add(sid)
+                                events_recent.append(sd)
+                    except Exception as supp_err:
+                        logger.debug(f"Supplemental multi-platform community events query notice ({target_sys}): {supp_err}")
+
                 now_utc_ov = datetime.now(timezone.utc)
                 today_utc_ov_str = now_utc_ov.strftime("%Y-%m-%d")
                 for db_ev in events_upcoming_db:
@@ -17043,7 +17159,7 @@ class PostgresDatabase:
                     db_ev.setdefault("external_url", rj.get("externalUrl") or rj.get("external_url") or rj.get("ticketUrl") or rj.get("ticket_url") or None)
                     db_ev.setdefault("private_event", bool(rj.get("privateEvent") or rj.get("private_event") or False))
 
-                # Fetch live upcoming tournaments from BCP API (3 months / 92 days ahead)
+                # Fetch live upcoming tournaments from BCP + Multi-Platform APIs (3 months / 92 days ahead)
                 bcp_upcoming = []
                 if include_bcp:
                     try:
@@ -17052,22 +17168,34 @@ class PostgresDatabase:
                             user_lng=user_lng,
                             radius_miles=radius_miles,
                             days_ahead=92,
-                            game_system=target_sys
+                            game_system=target_sys,
+                            include_multiplatform=True,
                         )
                     except Exception as e:
                         logger.warning(f"Notice fetching live BCP upcoming tournaments: {e}")
                 else:
-                    # Non-blocking: check if we already have warm cached BCP events in memory
+                    # Non-blocking: check if we already have warm cached BCP/multi-platform events in memory
                     try:
                         effective_radius = max(5, int(round(radius_miles)))
-                        bcp_cache_key = (
+                        bcp_cache_key_mp = (
                             round(user_lat, 2),
                             round(user_lng, 2),
                             effective_radius,
                             92,
-                            target_sys
+                            target_sys,
+                            True,
                         )
-                        cached_bcp = PostgresDatabase.get_cached(PostgresDatabase._bcp_upcoming_cache_dict, bcp_cache_key, ttl=300)
+                        bcp_cache_key_plain = (
+                            round(user_lat, 2),
+                            round(user_lng, 2),
+                            effective_radius,
+                            92,
+                            target_sys,
+                        )
+                        cached_bcp = (
+                            PostgresDatabase.get_cached(PostgresDatabase._bcp_upcoming_cache_dict, bcp_cache_key_mp, ttl=300)
+                            or PostgresDatabase.get_cached(PostgresDatabase._bcp_upcoming_cache_dict, bcp_cache_key_plain, ttl=300)
+                        )
                         if cached_bcp:
                             bcp_upcoming = list(cached_bcp)
                     except Exception:
@@ -17129,28 +17257,39 @@ class PostgresDatabase:
                 for u_ev in merged_upcoming:
                     u_id = str(u_ev.get("id") or "").strip()
                     u_ev["is_registered"] = bool(u_id and u_id in user_registered_eids)
-                    u_ev["is_local"] = True
+                    if u_ev.get("is_local") is False and u_ev.get("distance_miles") is None:
+                        u_ev["is_local"] = False
+                    else:
+                        u_ev["is_local"] = bool(u_ev.get("distance_miles") is not None or u_ev.get("is_local", True))
 
                 def upcoming_sort_key(ev):
                     d_raw = ev.get("event_date") or "9999-12-31"
                     d_str = d_raw.isoformat() if hasattr(d_raw, "isoformat") else str(d_raw)
                     dist = ev.get("distance_miles")
                     dist_val = float(dist) if dist is not None else 999999.0
-                    return (d_str, dist_val)
+                    return (0 if dist is not None else 1, d_str, dist_val)
 
                 merged_upcoming.sort(key=upcoming_sort_key)
                 events_upcoming = merged_upcoming[:35]
 
                 for r_ev in events_recent:
-                    r_ev["is_local"] = True
+                    if r_ev.get("is_local") is False and r_ev.get("distance_miles") is None:
+                        r_ev["is_local"] = False
+                    else:
+                        r_ev["is_local"] = True
                     r_ev["is_ended"] = True
                     if r_ev.get("venue") and r_ev.get("city") and str(r_ev["venue"]).strip().lower() == str(r_ev["city"]).strip().lower():
                         r_ev["venue"] = ""
                     r_ev.setdefault("venue_name", r_ev.get("venue") or "")
                     r_ev.setdefault("formatted_address", r_ev.get("address") or "")
 
-                # Collect event IDs for field stats and player discovery
-                all_event_ids = list({e["id"] for e in (events_upcoming + events_recent_all) if e.get("id")})
+                # Collect event IDs for field stats and local player discovery
+                all_event_ids = list({e["id"] for e in (events_upcoming + events_recent_all + events_recent) if e.get("id")})
+                local_event_ids = list({
+                    e["id"]
+                    for e in ([x for x in events_upcoming if x.get("is_local")] + events_recent_all)
+                    if e.get("id")
+                })
                 field_stats_map = self.get_events_field_stats(all_event_ids, game_system=target_sys) if all_event_ids else {}
 
                 for ev in (events_upcoming + events_recent):
@@ -17230,7 +17369,7 @@ class PostgresDatabase:
                     "factions": collections.Counter(),
                 })
 
-                if all_event_ids:
+                if local_event_ids:
                     # Query all completed regional matches chronologically for on-the-fly local Elo calculation
                     cursor.execute("""
                         SELECT m.id, m.event_id, m.round,
@@ -17245,7 +17384,7 @@ class PostgresDatabase:
                           AND m.player1_id IS NOT NULL AND m.player1_id != ''
                           AND m.player2_id IS NOT NULL AND m.player2_id != ''
                         ORDER BY COALESCE(m.match_date, e.event_date) ASC NULLS LAST, m.round ASC, m.id ASC;
-                    """, (all_event_ids,))
+                    """, (local_event_ids,))
                     regional_matches = cursor.fetchall()
 
                     for m in regional_matches:

@@ -3274,8 +3274,8 @@ function renderHubEventCard(ev) {
         </div>
         <div style="display:flex; align-items:center; gap:0.5rem;">
           <span style="color:var(--text-muted); font-size:0.75rem;">View Roster & Pairings ⚔️</span>
-          <a href="https://www.bestcoastpairings.com/event/${ev.id}" target="_blank" onclick="event.stopPropagation()" class="hub-card-action-btn">
-            BCP ↗
+          <a href="${escapeHtml(ev.bcp_url || ((typeof getPlatformExternalEventUrl === 'function') ? getPlatformExternalEventUrl(ev.id, ev) : `https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}`))}" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="hub-card-action-btn">
+            ${escapeHtml((typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(ev.id, ev) : 'BCP')} ↗
           </a>
         </div>
       </div>

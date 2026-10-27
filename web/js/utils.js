@@ -1164,14 +1164,20 @@ function getPlatformExternalEventUrl(eventId, ev = null) {
   if (ev && ev.event_url && String(ev.event_url).startsWith("http")) {
     return String(ev.event_url);
   }
+  if (ev && ev.external_url && String(ev.external_url).startsWith("http") && String(eventId || (ev && ev.id) || "").includes(":")) {
+    return String(ev.external_url);
+  }
   const s = String(eventId || (ev && ev.id) || "").trim();
   if (!s) return "https://www.bestcoastpairings.com";
   const low = s.toLowerCase();
   const extId = (ev && ev.external_event_id) ? String(ev.external_event_id).trim() : (s.includes(":") ? s.split(":", 2)[1] : s);
   if (low.startsWith("melee:")) return `https://melee.gg/Tournament/View/${encodeURIComponent(extId)}`;
-  if (low.startsWith("ltcg:")) return `https://play.limitlesstcg.com/tournament/${encodeURIComponent(extId)}/standings`;
+  if (low.startsWith("ltcg:")) {
+    const subPath = (ev && ev.is_started === false && !ev.is_ended) ? "details" : "standings";
+    return `https://play.limitlesstcg.com/tournament/${encodeURIComponent(extId)}/${subPath}`;
+  }
   if (low.startsWith("ls:")) return `https://www.longshanks.org/event/${encodeURIComponent(extId)}/`;
-  if (low.startsWith("td:")) return `https://topdeck.gg/event/${encodeURIComponent(extId)}`;
+  if (low.startsWith("td:")) return `https://topdeck.gg/bracket/${encodeURIComponent(extId)}`;
   return `https://www.bestcoastpairings.com/event/${encodeURIComponent(s)}`;
 }
 

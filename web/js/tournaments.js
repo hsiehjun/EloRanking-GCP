@@ -1174,7 +1174,8 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       if (previewEv) {
         metaEl.innerHTML = buildEventModalMetaHtml(previewEv);
       } else {
-        metaEl.textContent = 'Syncing tournament metadata from Best Coast Pairings...';
+        const platLabel = (typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(eventId, previewEv) : 'Best Coast Pairings';
+        metaEl.textContent = `Syncing tournament metadata from ${platLabel === 'BCP' ? 'Best Coast Pairings' : platLabel}...`;
       }
     }
     const badgesEl = document.getElementById('modal-event-badges');
@@ -5290,7 +5291,19 @@ function renderQuickModalTable() {
   }
 
   if (players.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="padding:1.75rem;">No competitors match "${escapeHtml(quickModalSearchQuery)}"</td></tr>`;
+    if (!quickModalSearchQuery) {
+      const evObj = currentEventData || {};
+      const platName = (typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(evObj.id || '', evObj) : 'BCP';
+      const extHref = (typeof getPlatformExternalEventUrl === 'function') ? getPlatformExternalEventUrl(evObj.id || '', evObj) : '';
+      const enrolledCnt = Number(evObj.total_players || 0);
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="padding:2rem 1.25rem; text-align:center;">
+        <div style="font-weight:700; color:#e2e8f0; margin-bottom:0.35rem;">📅 Upcoming Tournament${enrolledCnt > 0 ? ` • ${enrolledCnt} Registered` : ''}</div>
+        <div style="font-size:0.82rem; color:var(--text-secondary); margin-bottom:0.65rem;">Individual competitor rosters &amp; Round 1 pairings will appear here once published on ${escapeHtml(platName)}.</div>
+        ${extHref ? `<a href="${escapeHtml(extHref)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.78rem; padding:0.38rem 0.85rem; text-decoration:none;">🔗 View / Register on ${escapeHtml(platName)} ↗</a>` : ''}
+      </td></tr>`;
+    } else {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="padding:1.75rem;">No competitors match "${escapeHtml(quickModalSearchQuery)}"</td></tr>`;
+    }
     return;
   }
 

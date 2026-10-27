@@ -223,10 +223,13 @@ def test_community_registration_endpoints():
     mock_db = MagicMock()
     mock_auth = MagicMock()
 
+    from datetime import datetime, timedelta, timezone
+    fut_date_str = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%dT10:00:00Z")
+
     free_event = {
         "id": "ev_free_101",
         "name": "Pacific Coast RTT",
-        "event_date": "2026-10-30T10:00:00Z",
+        "event_date": fut_date_str,
         "venue": "Warzone Studio",
         "city": "Carlsbad",
         "state": "CA",
@@ -242,7 +245,7 @@ def test_community_registration_endpoints():
     paid_event = {
         "id": "ev_paid_202",
         "name": "California Major Open",
-        "event_date": "2026-11-15T09:00:00Z",
+        "event_date": fut_date_str,
         "venue": "Convention Hall",
         "city": "Los Angeles",
         "state": "CA",
@@ -259,7 +262,7 @@ def test_community_registration_endpoints():
     sold_out_event = {
         "id": "ev_soldout_303",
         "name": "Full Bracket RTT",
-        "event_date": "2026-10-25T10:00:00Z",
+        "event_date": fut_date_str,
         "venue": "Local Shop",
         "city": "Oceanside",
         "total_players": 16,
@@ -273,7 +276,7 @@ def test_community_registration_endpoints():
     closed_event = {
         "id": "ev_closed_404",
         "name": "Private Club Invitational",
-        "event_date": "2026-12-01T10:00:00Z",
+        "event_date": fut_date_str,
         "venue": "Private Club",
         "total_players": 8,
         "raw_json": {

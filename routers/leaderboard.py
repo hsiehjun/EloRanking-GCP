@@ -749,6 +749,31 @@ def api_events_recommended(
         except Exception as e:
             logger.warning(f"Database query notice: {e}")
 
+    # Merge upcoming & live events from Melee.gg, Limitless TCG, and TopDeck.gg
+    is_mock_db_rec = bool(hasattr(db, "_is_mock_instance") and db._is_mock_instance())
+    if not is_mock_db_rec:
+        try:
+            from scripts.platform_discovery import discover_multiplatform_events
+            mp_discovered = discover_multiplatform_events(
+                game_system=target_sys,
+                days_ahead=days_ahead,
+                user_lat=user_lat,
+                user_lng=user_lng,
+                radius_miles=float(effective_radius) if radius_miles else None,
+                include_online=bool(target_sys not in ("40k", "aos") or len(bcp_events) < 5),
+                majors_only=False,
+                timeout_s=2.4,
+            )
+            seen_rec_ids = {str(e.get("id") or e.get("objectId")) for e in bcp_events if (e.get("id") or e.get("objectId"))}
+            for mp_ev in mp_discovered:
+                mp_id = str(mp_ev.get("id") or "").strip()
+                if not mp_id or mp_id in seen_rec_ids or mp_ev.get("is_ended"):
+                    continue
+                seen_rec_ids.add(mp_id)
+                bcp_events.append(mp_ev)
+        except Exception as mp_rec_err:
+            logger.debug(f"Multi-platform recommended events notice ({target_sys}): {mp_rec_err}")
+
     def haversine_miles(lat1, lon1, lat2, lon2):
         R = 3958.8
         dLat = math.radians(lat2 - lat1)
@@ -935,14 +960,17 @@ def api_events_recommended(
             except Exception:
                 pass
 
-        dist_val = None
-        ev_lat, ev_lng = None, None
-        if coord and isinstance(coord, list) and len(coord) == 2:
+        dist_val = ev.get("distance_miles")
+        ev_lat = ev.get("latitude")
+        ev_lng = ev.get("longitude")
+        if ev_city and ev_city.strip().lower() == "online":
+            ev_lat, ev_lng, dist_val = None, None, None
+        elif coord and isinstance(coord, list) and len(coord) == 2:
             ev_lng, ev_lat = coord[0], coord[1]
-        elif ev_city and ev_city.strip().lower() in KNOWN_CITIES:
+        elif (ev_lat is None or ev_lng is None) and ev_city and ev_city.strip().lower() in KNOWN_CITIES:
             ev_lat, ev_lng = KNOWN_CITIES[ev_city.strip().lower()]
 
-        if user_lat and user_lng and ev_lat and ev_lng:
+        if dist_val is None and user_lat and user_lng and ev_lat and ev_lng:
             try:
                 dist_val = haversine_miles(float(user_lat), float(user_lng), float(ev_lat), float(ev_lng))
             except Exception:
@@ -1069,19 +1097,33 @@ def api_events_recommended(
             "elo_delta": round(avg_elo_val - user_elo, 1) if user_elo else None,
             "skill_match_label": skill_label,
             "skill_match_badge": skill_badge,
+            "venue": ev.get("venue") or ev.get("venue_name") or "",
+            "source_platform": ev.get("source_platform") or (
+                "melee" if str(ev_id).startswith("melee:")
+                else ("limitless" if str(ev_id).startswith("ltcg:")
+                else ("topdeck" if str(ev_id).startswith("td:")
+                else ("longshanks" if str(ev_id).startswith("ls:") else "bcp")))
+            ),
+            "is_started": bool(ev.get("is_started", False)),
+            "is_ended": bool(ev.get("is_ended", False)),
+            "external_url": ev.get("external_url") or ev.get("event_url"),
             "bcp_url": (
-                f"https://melee.gg/Tournament/View/{str(ev_id).split(':', 1)[1]}"
-                if str(ev_id).startswith("melee:")
-                else (
-                    f"https://play.limitlesstcg.com/tournament/{str(ev_id).split(':', 1)[1]}/standings"
-                    if str(ev_id).startswith("ltcg:")
+                ev.get("external_url")
+                or ev.get("event_url")
+                or (
+                    f"https://melee.gg/Tournament/View/{str(ev_id).split(':', 1)[1]}"
+                    if str(ev_id).startswith("melee:")
                     else (
-                        f"https://topdeck.gg/event/{str(ev_id).split(':', 1)[1]}"
-                        if str(ev_id).startswith("td:")
+                        f"https://play.limitlesstcg.com/tournament/{str(ev_id).split(':', 1)[1]}/{'details' if ev.get('is_started') is False else 'standings'}"
+                        if str(ev_id).startswith("ltcg:")
                         else (
-                            f"https://www.longshanks.org/event/{str(ev_id).split(':', 1)[1]}/"
-                            if str(ev_id).startswith("ls:")
-                            else f"https://www.bestcoastpairings.com/event/{ev_id}"
+                            f"https://topdeck.gg/bracket/{str(ev_id).split(':', 1)[1]}"
+                            if str(ev_id).startswith("td:")
+                            else (
+                                f"https://www.longshanks.org/event/{str(ev_id).split(':', 1)[1]}/"
+                                if str(ev_id).startswith("ls:")
+                                else f"https://www.bestcoastpairings.com/event/{ev_id}"
+                            )
                         )
                     )
                 )
@@ -2971,6 +3013,15 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False, bypass_cach
             except Exception as ref_err:
                 logger.warning(f"[MultiPlatformLive] Post-refresh lookup warning for {event_id_str}: {ref_err}")
 
+        if not event_details and not is_mock_env:
+            try:
+                from scripts.platform_discovery import fetch_live_multiplatform_event_preview
+                preview_ev = fetch_live_multiplatform_event_preview(event_id_str, db=db)
+                if preview_ev:
+                    event_details = preview_ev
+            except Exception as prev_err:
+                logger.warning(f"[MultiPlatformLive] Upcoming preview notice for {event_id_str}: {prev_err}")
+
         if not event_details:
             raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found")
 
@@ -2983,9 +3034,11 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False, bypass_cach
         event_details["num_rounds"] = int(event_details.get("num_rounds") or 0)
         event_details["numberOfRounds"] = event_details["num_rounds"]
         is_ended_mp = bool(event_details.get("is_ended"))
+        is_started_mp = bool(is_ended_mp or event_details.get("is_started", True))
         event_details["is_ended"] = is_ended_mp
         event_details["ended"] = is_ended_mp
-        event_details["status"] = {"ended": is_ended_mp, "started": True}
+        event_details["is_started"] = is_started_mp
+        event_details["status"] = {"ended": is_ended_mp, "started": is_started_mp}
         for pl in (event_details.get("players") or []):
             if isinstance(pl, dict):
                 if pl.get("faction"):

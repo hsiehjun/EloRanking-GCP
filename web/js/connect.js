@@ -797,7 +797,7 @@ async function loadNearbyTournaments() {
   container.innerHTML = `
     <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: #94a3b8;">
       <div style="font-size: 2rem; margin-bottom: 0.5rem; animation: spin 1s linear infinite; display: inline-block;">🏆</div>
-      <div>Querying real-time tournament radar on Best Coast Pairings...</div>
+      <div>Querying real-time tournament radar across tournament platforms...</div>
     </div>
   `;
 
@@ -835,10 +835,15 @@ async function loadNearbyTournaments() {
     }
 
     container.innerHTML = events.map(ev => {
-      const dist = ev.distance_miles ? `${ev.distance_miles} mi away` : 'Nearby';
-      const venue = ev.venue_name || ev.venue || `${ev.city || ''}, ${ev.state || ''}`;
+      const dist = ev.distance_miles ? `${ev.distance_miles} mi away` : ((String(ev.city || '').toLowerCase() === 'online' || ev.is_online) ? 'Online' : (ev.city ? `${ev.city}${ev.state ? `, ${ev.state}` : ''}` : 'Circuit'));
+      const venue = ev.venue_name || ev.venue || `${ev.city || ''}${ev.state ? `, ${ev.state}` : ''}` || 'Tournament Venue';
       const dateStr = ev.event_date ? new Date(ev.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Upcoming';
-      const capStr = `${ev.total_players || 0} / ${ev.capacity || 32} Players`;
+      const capVal = Number(ev.max_capacity || ev.capacity || 0);
+      const capStr = capVal > Number(ev.total_players || 0) ? `${ev.total_players || 0} / ${capVal} Players` : `${ev.total_players || 0} Players`;
+      const extUrl = ev.bcp_url || ((typeof getPlatformExternalEventUrl === 'function') ? getPlatformExternalEventUrl(ev.id, ev) : `https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}`);
+      const platName = (typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(ev.id, ev) : 'BCP';
+      const platBadge = (typeof getPlatformBadgeHtml === 'function') ? getPlatformBadgeHtml(ev.id, ev) : '';
+      const isTabletopWargame = (typeof currentGameSystem === 'undefined' || !currentGameSystem || ['40k', 'aos'].includes(currentGameSystem));
       const avgElo = ev.avg_elo_display ? Math.round(ev.avg_elo_display) : (ev.avg_field_elo ? Math.round(ev.avg_field_elo) : 1550);
       const effectiveUserElo = myElo || ev.user_elo;
 
@@ -871,17 +876,20 @@ async function loadNearbyTournaments() {
       return `
         <div class="oc-player-card" style="display: flex; flex-direction: column; justify-content: space-between;">
           <div>
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
-              <span class="tier-badge ${tierBadge}" style="font-size: 0.72rem; padding: 0.2rem 0.55rem;">${escapeHtml(tierName)}</span>
-              <span style="font-size: 0.78rem; font-weight: 700; color: #10b981;">📍 ${dist}</span>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; gap: 6px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap;">
+                <span class="tier-badge ${tierBadge}" style="font-size: 0.72rem; padding: 0.2rem 0.55rem;">${escapeHtml(tierName)}</span>
+                ${platBadge}
+              </div>
+              <span style="font-size: 0.78rem; font-weight: 700; color: #10b981;">📍 ${escapeHtml(dist)}</span>
             </div>
 
-            <h4 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0 0 0.5rem; line-height: 1.35;">${escapeHtml(ev.name || '40k Tournament')}</h4>
+            <h4 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0 0 0.5rem; line-height: 1.35;">${escapeHtml(ev.name || 'Tournament')}</h4>
 
             <div style="font-size: 0.82rem; color: #94a3b8; margin-bottom: 0.75rem; display: flex; flex-direction: column; gap: 0.35rem;">
               <div>📅 <strong>${dateStr}</strong></div>
               <div>🏪 ${escapeHtml(venue)}</div>
-              <div>👥 ${capStr} • <strong>${ev.points || 2000} pts</strong></div>
+              <div>👥 ${capStr}${isTabletopWargame ? ` • <strong>${ev.points || 2000} pts</strong>` : ''}</div>
             </div>
 
             <!-- Field Avg Tactical Bar -->
@@ -897,11 +905,11 @@ async function loadNearbyTournaments() {
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: auto;">
-            <button onclick="openEventModal('${ev.id}', false)" class="btn" style="background: rgba(56,189,248,0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-size: 0.78rem; font-weight: 700; text-align: center; padding: 0.45rem;">
+            <button onclick="openEventModal('${escapeHtml(ev.id)}', false)" class="btn" style="background: rgba(56,189,248,0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-size: 0.78rem; font-weight: 700; text-align: center; padding: 0.45rem;">
               Roster & Details ⚔️
             </button>
-            <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; text-align: center; text-decoration: none; padding: 0.45rem;">
-              BCP ↗
+            <a href="${escapeHtml(extUrl)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; text-align: center; text-decoration: none; padding: 0.45rem;">
+              ${escapeHtml(platName)} ↗
             </a>
           </div>
         </div>

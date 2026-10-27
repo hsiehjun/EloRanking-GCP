@@ -81,7 +81,7 @@ def api_community_overview(
         game_system=game_system
     )
 
-@router.get("/api/community/bcp_upcoming", summary="Fetch live BCP upcoming tournaments asynchronously")
+@router.get("/api/community/bcp_upcoming", summary="Fetch live BCP & multi-platform upcoming tournaments asynchronously")
 def api_community_bcp_upcoming(
     lat: float = Query(...),
     lng: float = Query(...),
@@ -90,7 +90,14 @@ def api_community_bcp_upcoming(
     game_system: Optional[str] = Query("40k")
 ):
     db = get_database()
-    events = db.fetch_bcp_upcoming_events(user_lat=lat, user_lng=lng, radius_miles=radius_miles, days_ahead=days_ahead, game_system=game_system)
+    events = db.fetch_bcp_upcoming_events(
+        user_lat=lat,
+        user_lng=lng,
+        radius_miles=radius_miles,
+        days_ahead=days_ahead,
+        game_system=game_system,
+        include_multiplatform=True,
+    )
     return {"success": True, "events": events}
 
 
@@ -505,10 +512,31 @@ def _refresh_bcp_majors_sync(target_sys: str, days_ahead: int = 180, min_players
     past_end_iso = (now_utc - timedelta(days=2)).strftime("%Y-%m-%dT23:59:59.999Z")
 
     raw_events: List[Dict[str, Any]] = []
+    mp_majors: List[Dict[str, Any]] = []
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        from scripts.platform_discovery import discover_multiplatform_events
+    except Exception:
+        discover_multiplatform_events = None
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
             fut_up = pool.submit(_fetch_bcp_events_window, bcp_game_sys, upcoming_start_iso, upcoming_end_iso, 50, 2.5)
             fut_past = pool.submit(_fetch_bcp_events_window, bcp_game_sys, past_start_iso, past_end_iso, 45, 2.5)
+            fut_mp = (
+                pool.submit(
+                    discover_multiplatform_events,
+                    target_sys,
+                    days_ahead,
+                    None,
+                    None,
+                    None,
+                    True,
+                    True,
+                    2.4,
+                )
+                if discover_multiplatform_events is not None
+                else None
+            )
             for fut in (fut_up, fut_past):
                 try:
                     res_list = fut.result(timeout=2.8)
@@ -516,6 +544,13 @@ def _refresh_bcp_majors_sync(target_sys: str, days_ahead: int = 180, min_players
                         raw_events.extend(res_list)
                 except Exception as sub_err:
                     logger.debug(f"Notice during parallel BCP majors window fetch ({target_sys}): {sub_err}")
+            if fut_mp is not None:
+                try:
+                    mp_res = fut_mp.result(timeout=2.6)
+                    if isinstance(mp_res, list):
+                        mp_majors = mp_res
+                except Exception as mp_err:
+                    logger.debug(f"Notice during parallel multi-platform majors fetch ({target_sys}): {mp_err}")
     except Exception as e:
         logger.warning(f"Notice during live BCP majors query ({target_sys}): {e}")
 
@@ -666,27 +701,49 @@ def _refresh_bcp_majors_sync(target_sys: str, days_ahead: int = 180, min_players
             "external_url": ev.get("externalUrl") or ev.get("external_url") or f"https://www.bestcoastpairings.com/event/{eid}"
         })
 
-    # If BCP returned fewer than 3 upcoming events (or network failed in offline tests), provide graceful mock fallback
-    used_fallback = False
-    upcoming_cnt = sum(1 for x in normalized if not x.get("is_ended"))
-    if upcoming_cnt < 3:
-        used_fallback = True
-        fallback_events = get_fallback_majors(target_sys)
-        for fb in fallback_events:
-            if fb["id"] not in seen_ids:
-                normalized.append(fb)
+    # Merge real multi-platform premier/upcoming events (Melee.gg, Limitless TCG, TopDeck.gg)
+    # STRICT POLICY: Zero fake/mock/synthetic fallback events in production discovery.
+    for mp_ev in mp_majors:
+        mp_id = str(mp_ev.get("id") or "").strip()
+        if not mp_id or mp_id in seen_ids:
+            continue
+        seen_ids.add(mp_id)
+        mp_item = dict(mp_ev)
+        if not mp_item.get("countdown_label"):
+            is_end_mp = bool(mp_item.get("is_ended"))
+            try:
+                ev_dt_mp = datetime.fromisoformat(str(mp_item.get("event_date") or "").replace("Z", "+00:00"))
+                if ev_dt_mp.tzinfo is None:
+                    ev_dt_mp = ev_dt_mp.replace(tzinfo=timezone.utc)
+                delta_d = (ev_dt_mp.date() - now_utc.date()).days
+                if is_end_mp:
+                    mp_item["countdown_label"] = "Completed"
+                elif mp_item.get("is_started") or delta_d < 0:
+                    mp_item["countdown_label"] = "Live Now"
+                elif delta_d == 0:
+                    mp_item["countdown_label"] = "Today"
+                elif delta_d == 1:
+                    mp_item["countdown_label"] = "Tomorrow"
+                else:
+                    mp_item["countdown_label"] = f"in {delta_d}d"
+            except Exception:
+                mp_item["countdown_label"] = "Completed" if is_end_mp else ("Live Now" if mp_item.get("is_started") else "")
+        mp_item.setdefault("tier_color", "#f59e0b" if mp_item.get("tier") == "super_major" else ("#a855f7" if mp_item.get("tier") == "major" else "#38bdf8"))
+        mp_item["game_system"] = target_sys
+        mp_item["is_local"] = False
+        normalized.append(mp_item)
 
-    # Sort upcoming events before ended events, then by tier weight descending, player count descending, and date
+    # Sort upcoming/live events before ended events, then by tier weight descending, player count descending, and date
     normalized.sort(
         key=lambda x: (
             1 if x.get("is_ended") else 0,
-            -x.get("tier_weight", 0),
-            -x.get("total_players", 0),
-            x.get("event_date", "9999"),
+            -int(x.get("tier_weight") or 0),
+            -int(x.get("total_players") or 0),
+            str(x.get("event_date") or "9999"),
         )
     )
 
-    cache_ts = (now_ts - 7185) if used_fallback else now_ts
+    cache_ts = (now_ts - 7185) if not normalized else now_ts
     _bcp_majors_cache[target_sys] = (cache_ts, normalized)
     return normalized
 
@@ -742,6 +799,15 @@ _community_field_stats_cache: Dict[str, Dict[str, Any]] = {}
 
 def compute_live_bcp_field_stats(eid: str, db, game_system: Optional[str] = "40k") -> Dict[str, Any]:
     """Fetches live roster from BCP API and computes field avg / top seed Elo without mutating backend DB."""
+    if str(eid or "").startswith(("melee:", "ltcg:", "td:", "ls:", "ES-")):
+        return {
+            "event_id": eid,
+            "avg_field_elo": None,
+            "top_seed_elo": None,
+            "total_enrolled": 0,
+            "rated_players_count": 0,
+            "status": "empty"
+        }
     try:
         target_sys = normalize_game_system(game_system, default="40k")
         s = BestCoastPairingsScraper(db=db, request_delay=0.0)

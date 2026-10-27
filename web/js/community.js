@@ -1312,7 +1312,9 @@ function getAllDiscoveryTournaments() {
       if (!['super_major', 'major', 'gt'].includes(enriched.tier)) return;
       const totPlayers = Number(enriched.total_players || 0);
       const numTickets = Number(enriched.num_tickets || 0);
-      if (totPlayers < 28 && numTickets < 48) return;
+      const isNonBcpEv = (typeof isBcpEventId === 'function') ? !isBcpEventId(enriched.id) : String(enriched.id || '').includes(':');
+      const minCalPlayers = isNonBcpEv ? 8 : 28;
+      if (totPlayers < minCalPlayers && numTickets < (isNonBcpEv ? 16 : 48)) return;
     }
 
     map.set(enriched.id, enriched);
@@ -2228,8 +2230,9 @@ function renderTournamentCard(ev, isUpcomingSection, userElo) {
   const isSoldOut = numTickets > 0 && totalPlayers >= numTickets;
   let ticketPrice = Number(ev.ticket_price || 0);
   if (ticketPrice >= 100) ticketPrice = ticketPrice / 100;
-  const usingOnlineReg = ev.using_online_reg !== false;
-  const externalUrl = ev.external_url || null;
+  const isBcpEv = (typeof isBcpEventId === 'function') ? isBcpEventId(ev.id) : !String(ev.id || '').includes(':');
+  const usingOnlineReg = isBcpEv && (ev.using_online_reg !== false);
+  const externalUrl = ev.external_url || (!isBcpEv && typeof getPlatformExternalEventUrl === 'function' ? getPlatformExternalEventUrl(ev.id, ev) : null);
   const hasPrimaryGetTickets = isRegistrationOpen && !isRegistered && !isSoldOut && !usingOnlineReg && Boolean(externalUrl);
   const currentRound = Number(ev.current_round || ev.currentRound || 0);
 
@@ -2361,7 +2364,7 @@ function renderTournamentCard(ev, isUpcomingSection, userElo) {
           } else if (externalUrl) {
             return `
               <a href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener" class="btn btn-primary" style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; text-decoration: none; margin-bottom: 0.45rem; box-sizing: border-box;">
-                🎟️ Get Tickets ↗
+                ${isBcpEv ? '🎟️ Get Tickets ↗' : `🎟️ Register on ${escapeHtml(cardPlatName)} ↗`}
               </a>
             `;
           } else {
@@ -2388,7 +2391,7 @@ function renderTournamentCard(ev, isUpcomingSection, userElo) {
           <a href="${escapeHtml(cardExtUrl)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.65rem; color: #94a3b8;" title="View on ${escapeHtml(cardPlatName)}">
             🔗 ${escapeHtml(cardPlatName)}
           </a>
-          ${(externalUrl && !hasPrimaryGetTickets) ? `
+          ${(isBcpEv && externalUrl && !hasPrimaryGetTickets) ? `
             <a href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.65rem; color: #94a3b8;" title="Organizer Website / Tickets">
               🌐 Web
             </a>
@@ -2495,7 +2498,8 @@ let _activeBcpUpcomingKey = null;
  */
 async function fetchAndMergeBcpUpcoming(lat, lng, radiusMiles) {
   if (lat == null || lng == null) return;
-  const bcpKey = `${Number(lat).toFixed(4)}_${Number(lng).toFixed(4)}_${radiusMiles}`;
+  const gsSlug = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+  const bcpKey = `${gsSlug}_${Number(lat).toFixed(4)}_${Number(lng).toFixed(4)}_${radiusMiles}`;
   if (_activeBcpUpcomingPromise && _activeBcpUpcomingKey === bcpKey) {
     return _activeBcpUpcomingPromise;
   }
@@ -2552,7 +2556,7 @@ async function fetchAndMergeBcpUpcoming(lat, lng, radiusMiles) {
             hasNewOrUpdated = true;
           }
         } else {
-          bEv.is_local = true;
+          bEv.is_local = (bEv.distance_miles != null) ? true : Boolean(bEv.is_local);
           merged.push(bEv);
           existingMap.set(eid, bEv);
           hasNewOrUpdated = true;
@@ -4336,8 +4340,8 @@ function renderStoreTournamentsModalList(tournaments) {
           <button class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.42rem 0.8rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${escapeHtml(ev.id)}', false)">
             📋 View Bracket &amp; Roster
           </button>
-          <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.42rem 0.7rem; color: #94a3b8; display: inline-flex; align-items: center; gap: 4px;" title="Open this event on Best Coast Pairings">
-            <span>🔗 BCP</span>
+          <a href="${escapeHtml((typeof getPlatformExternalEventUrl === 'function') ? getPlatformExternalEventUrl(ev.id, ev) : `https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}`)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.42rem 0.7rem; color: #94a3b8; display: inline-flex; align-items: center; gap: 4px;" title="Open this event on ${escapeHtml((typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(ev.id, ev) : 'BCP')}">
+            <span>🔗 ${escapeHtml((typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(ev.id, ev) : 'BCP')}</span>
           </a>
         </div>
       </div>

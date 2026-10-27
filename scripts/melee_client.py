@@ -338,6 +338,12 @@ class MeleeClient:
                     "startDate": r.get("startDate"),
                     "enrolledPlayerCount": r.get("enrolledPlayerCount") or 0,
                     "status": r.get("status"),
+                    "organizationId": r.get("organizationId"),
+                    "organizationName": r.get("organizationName"),
+                    "formatString": r.get("formatString"),
+                    "entryFeeString": r.get("entryFeeString"),
+                    "registrationType": r.get("registrationType"),
+                    "tags": r.get("tags") or [],
                 }
             )
         return {"recordsFiltered": int((res or {}).get("recordsFiltered") or 0), "data": rows}
@@ -478,12 +484,29 @@ def parse_tournament_view(page_html: str, tid: str) -> Dict[str, Any]:
     game_name = html_lib.unescape(game_m.group(1)).replace("Game:", "").strip() if game_m else None
     status_m = re.search(r"fa-info-circle[^>]*></i>\s*([^|<]+)", page_html)
     status_str = html_lib.unescape(status_m.group(1)).strip() if status_m else None
+    org_m = re.search(r'id="tournament-headline-organization"[^>]*>.*?<a[^>]*>(.*?)</a>', page_html, re.S)
+    org_name = html_lib.unescape(re.sub(r"<[^>]+>", "", org_m.group(1))).strip() if org_m else None
+    venue_m = re.search(r'Event Venue:\s*<a[^>]*>(.*?)</a>', page_html, re.S)
+    venue_name = html_lib.unescape(re.sub(r"<[^>]+>", "", venue_m.group(1))).strip() if venue_m else None
+    plat_m = re.search(r'id="tournament-headline-platform"[^>]*>(.*?)</', page_html, re.S)
+    plat_type = html_lib.unescape(plat_m.group(1)).replace("Tournament Type:", "").strip() if plat_m else None
+    fmt_m = re.search(r"Format:\s*([^|<]+)", page_html)
+    format_name = html_lib.unescape(fmt_m.group(1)).strip() if fmt_m else None
+    enr_m = re.search(r"fa-user\b[^>]*></i>\s*(\d+)(?:\s+of\s+(\d+))?\s+Enrolled\s+Players", page_html, re.I)
+    enrolled_players = int(enr_m.group(1)) if enr_m else 0
+    player_cap = int(enr_m.group(2)) if (enr_m and enr_m.group(2)) else 0
     return {
         "tid": str(tid),
         "title": title or f"Melee Tournament {tid}",
         "start_date": start_m.group(1) if start_m else None,
         "game_name": game_name,
         "status": status_str,
+        "organization_name": org_name,
+        "venue_name": venue_name,
+        "platform_type": plat_type,
+        "format_name": format_name,
+        "enrolled_players": enrolled_players,
+        "player_cap": player_cap,
         "standing_rounds": _round_selectors(page_html, "standings-round-selector-container"),
         "pairing_rounds": _round_selectors(page_html, "pairings-round-selector-container"),
     }

@@ -932,8 +932,8 @@ def import_live_limitless_tournaments(
                 "city": "Online",
                 "country": "Global",
                 "venue_name": org_name or "Limitless TCG",
-                "latitude": 37.7749,
-                "longitude": -122.4194,
+                "latitude": None,
+                "longitude": None,
                 "raw_json": {"summary": t_meta, "details": details},
             }
         )
@@ -1990,6 +1990,20 @@ def import_live_topdeck_tournaments(
 
         any_unscored_td = any(not m.get("is_done", True) for m in m_batch)
         is_ended_td = bool(has_end_field or start_ts < time.time() - 5 * 86400 or (not any_unscored_td and start_ts < time.time() - 21600))
+        td_owner_uid = ""
+        for fk, fv in fields.items():
+            if fk.startswith("X:"):
+                role_s = str((((fv or {}).get("mapValue") or {}).get("fields") or {}).get("role", {}).get("stringValue") or "")
+                if role_s == "owner" or not td_owner_uid:
+                    td_owner_uid = fk[2:]
+        td_hub = {}
+        if td_owner_uid:
+            try:
+                from scripts.platform_discovery import get_topdeck_hubs_map
+                td_hub = (get_topdeck_hubs_map() or {}).get(td_owner_uid) or {}
+            except Exception:
+                td_hub = {}
+        is_online_td = any(w in (ev_name or "").lower() for w in ("webcam", "spelltable", "online", "discord"))
         db.upsert_event(
             {
                 "id": eid,
@@ -2006,11 +2020,11 @@ def import_live_topdeck_tournaments(
                 "game_system_id": get_bcp_game_system_id(sys_slug, default="FM1PYUZbsL"),
                 "source_platform": "topdeck",
                 "external_event_id": tid,
-                "city": None,
-                "country": None,
-                "venue_name": None,
-                "latitude": None,
-                "longitude": None,
+                "city": ("Online" if is_online_td else (td_hub.get("city") or None)),
+                "country": ("Global" if is_online_td else None),
+                "venue_name": td_hub.get("venue") or None,
+                "latitude": None if is_online_td else td_hub.get("lat"),
+                "longitude": None if is_online_td else td_hub.get("lng"),
                 "raw_json": {"platform": "topdeck", "tid": tid, "name": ev_name, "pods_count": len(pod_keys)},
             }
         )
