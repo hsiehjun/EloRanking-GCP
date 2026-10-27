@@ -17023,7 +17023,7 @@ class PostgresDatabase:
                                        NULLIF(TRIM(address), '') AS address,
                                        NULLIF(TRIM(postal_code), '') AS postal_code,
                                        latitude, longitude,
-                                       COALESCE(players_count, total_players, 0) AS total_players,
+                                       COALESCE(total_players, 0) AS total_players,
                                        num_rounds, current_round, is_ended, circuits, raw_json,
                                        NULL::numeric AS distance_miles,
                                        'upcoming' AS event_group
@@ -17031,7 +17031,7 @@ class PostgresDatabase:
                                 WHERE COALESCE(game_system, '40k') = %s
                                   AND event_date >= CURRENT_DATE - INTERVAL '2 days'
                                   AND NOT COALESCE(is_ended, FALSE)
-                                ORDER BY event_date ASC, COALESCE(players_count, total_players, 0) DESC
+                                ORDER BY event_date ASC, COALESCE(total_players, 0) DESC
                                 LIMIT 25
                             )
                             UNION ALL
@@ -17041,7 +17041,7 @@ class PostgresDatabase:
                                        NULLIF(TRIM(address), '') AS address,
                                        NULLIF(TRIM(postal_code), '') AS postal_code,
                                        latitude, longitude,
-                                       COALESCE(players_count, total_players, 0) AS total_players,
+                                       COALESCE(total_players, 0) AS total_players,
                                        num_rounds, current_round, TRUE AS is_ended, circuits, NULL::jsonb AS raw_json,
                                        NULL::numeric AS distance_miles,
                                        'recent' AS event_group
@@ -17049,7 +17049,7 @@ class PostgresDatabase:
                                 WHERE COALESCE(game_system, '40k') = %s
                                   AND event_date >= CURRENT_DATE - INTERVAL '180 days'
                                   AND (COALESCE(is_ended, FALSE) = TRUE OR event_date < CURRENT_DATE - INTERVAL '1 day')
-                                ORDER BY event_date DESC, COALESCE(players_count, total_players, 0) DESC
+                                ORDER BY event_date DESC, COALESCE(total_players, 0) DESC
                                 LIMIT 35
                             );
                             """,
@@ -17073,6 +17073,10 @@ class PostgresDatabase:
                                 seen_rec_db.add(sid)
                                 events_recent.append(sd)
                     except Exception as supp_err:
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
                         logger.debug(f"Supplemental multi-platform community events query notice ({target_sys}): {supp_err}")
 
                 now_utc_ov = datetime.now(timezone.utc)
