@@ -157,15 +157,20 @@ class TestAppPerformanceAndQueryIndexes(unittest.TestCase):
         """Ensure in-progress tournaments across Melee, Limitless, TopDeck, and Longshanks preserve is_ended=False and is_done=False on unreported matches."""
         import tempfile
         from scripts.local_sqlite_db import LocalSqliteDatabase
+        from datetime import datetime, timezone
         from scripts.sync_multiplatform import (
             _melee_write_tournament,
             _topdeck_table_winner,
             get_existing_platform_event_ids,
+            get_open_platform_event_targets,
         )
 
         ev_list_src = inspect.getsource(PostgresDatabase.get_events_list)
         self.assertIn("in_progress", ev_list_src)
-        self.assertIn("NOW() + INTERVAL '14 hours'", ev_list_src)
+        self.assertIn("e.event_date <= NOW() + INTERVAL '14 hours'", ev_list_src)
+
+        ev_det_src = inspect.getsource(PostgresDatabase.get_event_details)
+        self.assertIn("isinstance(raw_st_val, dict)", ev_det_src)
 
         # Unreported TopDeck table returns None; PointMode finished table returns winner
         self.assertIsNone(_topdeck_table_winner({"Es": {"arrayValue": {"values": [{"integerValue": "1"}, {"integerValue": "2"}]}}}, [1, 2]))
@@ -180,6 +185,7 @@ class TestAppPerformanceAndQueryIndexes(unittest.TestCase):
             7,
         )
 
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         with tempfile.TemporaryDirectory() as tmpdir:
             db = LocalSqliteDatabase(db_path=f"{tmpdir}/live_test.sqlite")
             _melee_write_tournament(
@@ -187,7 +193,7 @@ class TestAppPerformanceAndQueryIndexes(unittest.TestCase):
                 "999001",
                 {
                     "title": "Live Melee Test",
-                    "start_date": "2026-10-27T15:00:00Z",
+                    "start_date": now_iso,
                     "game_name": "Magic: The Gathering",
                     "status": "In Progress",
                     "standings": [],
@@ -222,7 +228,7 @@ class TestAppPerformanceAndQueryIndexes(unittest.TestCase):
                 "mtg",
             )
             conn = db._connect()
-            ev_row = conn.execute("SELECT is_ended, current_round FROM events WHERE id = 'melee:999001';").fetchone()
+            ev_row = conn.execute("SELECT is_ended, current_round, end_date FROM events WHERE id = 'melee:999001';").fetchone()
             self.assertEqual(ev_row["is_ended"], 0)
             self.assertEqual(ev_row["current_round"], 1)
 
@@ -237,13 +243,60 @@ class TestAppPerformanceAndQueryIndexes(unittest.TestCase):
             self.assertIsNone(m_rows[2]["winner_id"])
             self.assertIsNone(m_rows[2]["player1_score"])
 
-            # In-progress event must NOT be skipped by get_existing_platform_event_ids
+            # In-progress event must NOT be skipped by get_existing_platform_event_ids, and MUST be returned by get_open_platform_event_targets
             self.assertEqual(get_existing_platform_event_ids(db, "melee"), set())
+            self.assertEqual(get_open_platform_event_targets(db, "melee", game_system="mtg"), [("mtg", "999001")])
 
             # Elo reconstruction must rate ONLY the completed match (Table 1: Alice vs Bob), ignoring Table 2
             elo_res = db.reconstruct_elo_for_system("mtg")
             self.assertEqual(elo_res["matches_processed"], 1)
             self.assertEqual(elo_res["players_rated"], 2)
+
+            # Transition event to Ended once Table 2 reports
+            _melee_write_tournament(
+                db,
+                "999001",
+                {
+                    "title": "Live Melee Test",
+                    "start_date": now_iso,
+                    "game_name": "Magic: The Gathering",
+                    "status": "Ended",
+                    "standings": [],
+                    "roundMatches": [
+                        {
+                            "roundNum": 1,
+                            "matches": [
+                                {
+                                    "Guid": "aaaa1111bbbb",
+                                    "TableNumber": 1,
+                                    "ResultString": "Alice won 2-0-0",
+                                    "ByeReason": None,
+                                    "Competitors": [
+                                        {"Team": {"Players": [{"Username": "alice", "DisplayName": "Alice"}]}, "GameWins": 2, "GameWinsAndGameByes": 2},
+                                        {"Team": {"Players": [{"Username": "bob", "DisplayName": "Bob"}]}, "GameWins": 0, "GameWinsAndGameByes": 0},
+                                    ],
+                                },
+                                {
+                                    "Guid": "cccc2222dddd",
+                                    "TableNumber": 2,
+                                    "ResultString": "Carol won 2-1-0",
+                                    "ByeReason": None,
+                                    "Competitors": [
+                                        {"Team": {"Players": [{"Username": "carol", "DisplayName": "Carol"}]}, "GameWins": 2, "GameWinsAndGameByes": 2},
+                                        {"Team": {"Players": [{"Username": "dave", "DisplayName": "Dave"}]}, "GameWins": 1, "GameWinsAndGameByes": 1},
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                "mtg",
+            )
+            self.assertIn("999001", get_existing_platform_event_ids(db, "melee"))
+            self.assertEqual(get_open_platform_event_targets(db, "melee", game_system="mtg"), [])
+            elo_res2 = db.reconstruct_elo_for_system("mtg")
+            self.assertEqual(elo_res2["matches_processed"], 2)
+            self.assertEqual(elo_res2["players_rated"], 4)
 
 
 if __name__ == "__main__":

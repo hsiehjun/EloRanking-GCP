@@ -48,7 +48,7 @@ import sys
 import tempfile
 import time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -273,7 +273,7 @@ def _fetch_limitless_ongoing_catalog_html(
     if not sec_m:
         return []
     sec_html = sec_m.group(1)
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_epoch = time.time()
     out: List[Dict[str, Any]] = []
     for tr_m in re.finditer(r"<tr([^>]*)>(.*?)</tr>", sec_html, re.S):
         attrs, body = tr_m.group(1), tr_m.group(2)
@@ -287,11 +287,37 @@ def _fetch_limitless_ongoing_catalog_html(
         org_m = re.search(r'data-organizer="([^"]*)"', attrs)
         pl_m = re.search(r'data-players="(\d+)"', attrs)
         date_m = re.search(r'data-date="([^"]+)"', attrs)
+        tm_m = re.search(r'data-time="(\d+)"', body)
+        date_str = ""
+        if date_m:
+            date_str = date_m.group(1).strip()
+        elif tm_m:
+            try:
+                date_str = datetime.fromtimestamp(int(tm_m.group(1)) / 1000.0, tz=timezone.utc).isoformat()
+            except Exception:
+                date_str = ""
+        if date_str:
+            try:
+                ev_dt = datetime.fromisoformat(date_str[:19].replace("Z", "+00:00"))
+                if not ev_dt.tzinfo:
+                    ev_dt = ev_dt.replace(tzinfo=timezone.utc)
+                if ev_dt.timestamp() < now_epoch - 5 * 86400:
+                    continue
+            except Exception:
+                pass
+        elif re.match(r"^[0-9a-f]{24}$", tid.lower()):
+            # MongoDB ObjectId first 8 hex chars encode creation epoch; skip abandoned 2023-2025 zombie events.
+            try:
+                obj_created_ts = int(tid[:8], 16)
+                if obj_created_ts < now_epoch - 45 * 86400:
+                    continue
+            except Exception:
+                pass
         fmt_m = re.search(r'class="format[^"]*"[^>]*data-tooltip="([^"]+)"', body) or re.search(r'data-format="([^"]*)"', attrs)
         item = {
             "id": tid,
             "name": html.unescape(name_m.group(1)).strip() if name_m else tid,
-            "date": date_m.group(1).strip() if date_m else now_iso,
+            "date": date_str,
             "organizer": html.unescape(org_m.group(1)).strip() if org_m else "Limitless Online",
             "players": int(pl_m.group(1)) if pl_m else 0,
             "format": html.unescape(fmt_m.group(1)).strip() if fmt_m else "Standard",
@@ -380,6 +406,11 @@ def _fetch_ltcg_bundle_html(
             tm_m = re.search(r'data-time="(\d+)"', det_html)
             if tm_m:
                 ev_date = datetime.fromtimestamp(int(tm_m.group(1)) / 1000.0, tz=timezone.utc).isoformat()
+        except Exception:
+            pass
+    if not ev_date and re.match(r"^[0-9a-f]{24}$", str(canonical_tid or "").lower()):
+        try:
+            ev_date = datetime.fromtimestamp(int(str(canonical_tid)[:8], 16), tz=timezone.utc).isoformat()
         except Exception:
             pass
 
@@ -600,6 +631,7 @@ def import_live_limitless_tournaments(
     deadline: Optional[float] = None,
     max_workers: int = 8,
     progress_every: int = 50,
+    invalidate_caches: bool = True,
 ) -> Dict[str, Any]:
     """
     Fetches real live completed tournaments, standings, decklists, and round-by-round pairings
@@ -869,14 +901,22 @@ def import_live_limitless_tournaments(
             return 0, 0
 
         any_unscored = any(not m.get("is_done", True) for m in m_batch)
-        is_ended_ev = not (bool(details.get("is_ongoing")) or bool(t_meta.get("is_ongoing")) or any_unscored)
+        is_stale_ltcg = False
+        try:
+            ev_dt_chk = datetime.fromisoformat(str(ev_date)[:19].replace("Z", "+00:00"))
+            if not ev_dt_chk.tzinfo:
+                ev_dt_chk = ev_dt_chk.replace(tzinfo=timezone.utc)
+            is_stale_ltcg = ev_dt_chk < (datetime.now(timezone.utc) - timedelta(days=5))
+        except Exception:
+            pass
+        is_ended_ev = is_stale_ltcg or not (bool(details.get("is_ongoing")) or bool(t_meta.get("is_ongoing")) or any_unscored)
 
         db.upsert_event(
             {
                 "id": eid,
                 "name": details.get("name") or t_meta.get("name") or f"Limitless {sys_slug.upper()} Open",
                 "event_date": ev_date,
-                "end_date": ev_date,
+                "end_date": ev_date if is_ended_ev else None,
                 "players_count": int(details.get("players") or t_meta.get("players") or len(ep_batch)),
                 "num_rounds": max_rnd,
                 "current_round": max_rnd,
@@ -975,7 +1015,7 @@ def import_live_limitless_tournaments(
             f"(remaining tournaments will be picked up by the next run)."
         )
 
-    if events_imported > 0:
+    if invalidate_caches and events_imported > 0:
         _flush_db_caches_once(db)
 
     return {
@@ -1477,13 +1517,14 @@ def import_live_longshanks_tournaments(
         loc_region = str(ls_meta.get("region") or "").strip()
         cls_list = ls_meta.get("classes") or []
         any_unscored_ls = any(not m.get("is_done", True) for m in m_batch)
-        is_ended_ls = bool(("finished" in cls_list) or (not any_unscored_ls and "finished" in (cls_list or ["finished"])))
+        is_stale_ls = str(ev_date)[:10] < (datetime.now(timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%d")
+        is_ended_ls = bool(is_stale_ls or ("finished" in cls_list) or (not any_unscored_ls and "finished" in (cls_list or ["finished"])))
         db.upsert_event(
             {
                 "id": eid,
                 "name": raw_title,
                 "event_date": ev_date,
-                "end_date": ev_date,
+                "end_date": ev_date if is_ended_ls else None,
                 "players_count": len(ep_batch),
                 "num_rounds": max_rnd,
                 "current_round": max_rnd,
@@ -1948,13 +1989,13 @@ def import_live_topdeck_tournaments(
             continue
 
         any_unscored_td = any(not m.get("is_done", True) for m in m_batch)
-        is_ended_td = bool(has_end_field or (not any_unscored_td and start_ts < time.time() - 21600))
+        is_ended_td = bool(has_end_field or start_ts < time.time() - 5 * 86400 or (not any_unscored_td and start_ts < time.time() - 21600))
         db.upsert_event(
             {
                 "id": eid,
                 "name": ev_name,
                 "event_date": ev_date,
-                "end_date": ev_date,
+                "end_date": ev_date if is_ended_td else None,
                 "players_count": len(ep_batch),
                 "num_rounds": max_round_num,
                 "current_round": max_round_num,
@@ -2427,7 +2468,8 @@ def _melee_write_tournament(db: Any, raw_tid: str, t_data: Dict[str, Any], sys_h
 
     status_low = str(t_data.get("status") or "").strip().lower()
     any_unscored_melee = any(not m.get("is_done", True) for m in m_batch)
-    is_ended_melee = (status_low == "ended") or (
+    is_stale_melee = str(ev_date)[:10] < (datetime.now(timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%d")
+    is_ended_melee = is_stale_melee or (status_low == "ended") or (
         status_low not in ("in progress", "started", "active", "ongoing") and not any_unscored_melee
     )
     gs_id = get_bcp_game_system_id(sys_slug, default="FM1PYUZbsL")
@@ -2436,7 +2478,7 @@ def _melee_write_tournament(db: Any, raw_tid: str, t_data: Dict[str, Any], sys_h
             "id": eid,
             "name": title,
             "event_date": ev_date,
-            "end_date": ev_date,
+            "end_date": ev_date if is_ended_melee else None,
             "players_count": len(ep_batch),
             "num_rounds": len(round_matches),
             "current_round": len(round_matches),
@@ -2475,6 +2517,7 @@ def import_live_melee_tournaments(
     deadline: Optional[float] = None,
     max_workers: Optional[int] = None,
     progress_callback: Optional[Any] = None,
+    invalidate_caches: bool = True,
 ) -> Dict[str, Any]:
     """
     Fetches 100% REAL completed Melee.gg tournaments (`/Tournament/View/{tid}`), final standings
@@ -2592,7 +2635,7 @@ def import_live_melee_tournaments(
         except Exception as dd_err:
             logger.warning(f"[Melee.gg] Notice deduplicating Melee matches: {dd_err}")
 
-    if events_imported > 0 and hasattr(db, "invalidate_all_caches"):
+    if invalidate_caches and events_imported > 0 and hasattr(db, "invalidate_all_caches"):
         try:
             db.invalidate_all_caches(db_inst=db)
         except TypeError:
@@ -2872,6 +2915,102 @@ def get_existing_platform_event_ids(db: Any, prefix: str) -> set:
     except Exception as e:
         logger.debug(f"Notice checking existing {clean_p}: events: {e}")
     return existing
+
+
+def get_open_platform_event_targets(
+    db: Any,
+    prefix: str,
+    game_system: str = "all",
+    limit: int = 50,
+) -> List[Tuple[str, str]]:
+    """
+    Returns `[(game_system, raw_tid), ...]` for previously-imported events of `prefix:` whose
+    `is_ended` is currently FALSE so subsequent sync runs update live pairings and close finished events.
+    """
+    out: List[Tuple[str, str]] = []
+    if not db or not prefix:
+        return out
+    clean_p = prefix.rstrip(":")
+    like_pat = f"{clean_p}:%"
+    target_sys = (game_system or "all").strip().lower()
+    filter_sys = target_sys not in ("all", "other", "tcg", "*", "")
+    cap = max(1, int(limit or 50))
+    try:
+        if hasattr(db, "get_connection") and type(getattr(db, "get_connection", None)).__name__ != "MagicMock":
+            with db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    if filter_sys:
+                        cur.execute(
+                            """
+                            SELECT e.id, COALESCE(e.game_system, '40k'), e.external_event_id
+                            FROM events e
+                            WHERE e.id LIKE %s
+                              AND COALESCE(e.is_ended, FALSE) = FALSE
+                              AND COALESCE(e.game_system, '40k') = %s
+                            ORDER BY e.event_date DESC NULLS LAST
+                            LIMIT %s;
+                            """,
+                            (like_pat, target_sys, cap),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            SELECT e.id, COALESCE(e.game_system, '40k'), e.external_event_id
+                            FROM events e
+                            WHERE e.id LIKE %s
+                              AND COALESCE(e.is_ended, FALSE) = FALSE
+                            ORDER BY e.event_date DESC NULLS LAST
+                            LIMIT %s;
+                            """,
+                            (like_pat, cap),
+                        )
+                    for row in (cur.fetchall() or []):
+                        eid = str(row[0] if isinstance(row, (list, tuple)) else row.get("id") or "").strip()
+                        gs = str(row[1] if isinstance(row, (list, tuple)) else row.get("game_system") or "").strip().lower()
+                        ext = str(row[2] if isinstance(row, (list, tuple)) else row.get("external_event_id") or "").strip()
+                        raw_tid = ext or (eid[len(clean_p) + 1 :] if eid.startswith(f"{clean_p}:") else eid)
+                        if raw_tid and gs:
+                            out.append((gs, raw_tid))
+        elif hasattr(db, "_connect") and type(getattr(db, "_connect", None)).__name__ != "MagicMock":
+            conn = db._connect()
+            try:
+                if filter_sys:
+                    rows = conn.execute(
+                        """
+                        SELECT e.id, COALESCE(e.game_system, '40k'), e.external_event_id
+                        FROM events e
+                        WHERE e.id LIKE ?
+                          AND COALESCE(e.is_ended, 0) = 0
+                          AND COALESCE(e.game_system, '40k') = ?
+                        ORDER BY e.event_date DESC
+                        LIMIT ?;
+                        """,
+                        (like_pat, target_sys, cap),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT e.id, COALESCE(e.game_system, '40k'), e.external_event_id
+                        FROM events e
+                        WHERE e.id LIKE ?
+                          AND COALESCE(e.is_ended, 0) = 0
+                        ORDER BY e.event_date DESC
+                        LIMIT ?;
+                        """,
+                        (like_pat, cap),
+                    ).fetchall()
+                for row in (rows or []):
+                    eid = str(row[0] or "").strip()
+                    gs = str(row[1] or "").strip().lower()
+                    ext = str(row[2] or "").strip()
+                    raw_tid = ext or (eid[len(clean_p) + 1 :] if eid.startswith(f"{clean_p}:") else eid)
+                    if raw_tid and gs:
+                        out.append((gs, raw_tid))
+            finally:
+                conn.close()
+    except Exception as e:
+        logger.debug(f"Notice checking open {clean_p}: events: {e}")
+    return out
 
 
 def finalize_platform_sync(db: Any, touched_systems: List[str], platform_name: str = "platform") -> Dict[str, Any]:

@@ -2949,36 +2949,27 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False, bypass_cach
                         import_live_topdeck_tournaments,
                     )
                     if plat_prefix == "melee":
-                        res_mp = import_live_melee_tournaments(db, [(ev_gs_hint, raw_ext_id)], max_workers=1)
+                        import_live_melee_tournaments(db, [(ev_gs_hint, raw_ext_id)], max_workers=1, invalidate_caches=False)
                     elif plat_prefix == "ltcg":
-                        res_mp = import_live_limitless_tournaments(db, [(ev_gs_hint, raw_ext_id)], max_workers=1)
+                        import_live_limitless_tournaments(db, [(ev_gs_hint, raw_ext_id)], max_workers=1, invalidate_caches=False)
                     elif plat_prefix == "td":
-                        res_mp = import_live_topdeck_tournaments(db, [(ev_gs_hint, raw_ext_id)], invalidate_caches=True)
+                        import_live_topdeck_tournaments(db, [(ev_gs_hint, raw_ext_id)], invalidate_caches=False)
                     elif plat_prefix == "ls":
-                        res_mp = import_live_longshanks_tournaments(db, [(ev_gs_hint, raw_ext_id)], invalidate_caches=True)
-                    else:
-                        res_mp = {}
-                    if int((res_mp or {}).get("matches_imported") or 0) > 0:
-                        def _bg_inc_elo():
-                            try:
-                                eng = get_elo_engine()
-                                eng.reconstruct_incremental(game_system=ev_gs_hint)
-                                eng.invalidate_caches()
-                            except Exception as _e:
-                                logger.debug(f"[MultiPlatformLive] incremental Elo notice for {event_id_str}: {_e}")
-                        threading.Thread(target=_bg_inc_elo, daemon=True).start()
+                        import_live_longshanks_tournaments(db, [(ev_gs_hint, raw_ext_id)], invalidate_caches=False)
+                    PostgresDatabase._event_details_cache_dict.pop(event_id_str, None)
                 except Exception as mp_err:
                     logger.warning(f"[MultiPlatformLive] Refresh notice for {event_id_str}: {mp_err}")
 
             t_mp = threading.Thread(target=_do_mp_live_refresh, daemon=True)
             t_mp.start()
             t_mp.join(timeout=6.0 if (force_sync or event_details is None) else 2.5)
+            PostgresDatabase._event_details_cache_dict.pop(event_id_str, None)
             try:
                 refreshed_ev = db.get_event_details(event_id_str)
                 if refreshed_ev:
                     event_details = refreshed_ev
-            except Exception:
-                pass
+            except Exception as ref_err:
+                logger.warning(f"[MultiPlatformLive] Post-refresh lookup warning for {event_id_str}: {ref_err}")
 
         if not event_details:
             raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found")

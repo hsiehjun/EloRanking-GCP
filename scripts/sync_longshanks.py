@@ -50,6 +50,7 @@ from scripts.sync_multiplatform import (
     _ls_get_text,
     finalize_platform_sync,
     get_existing_platform_event_ids,
+    get_open_platform_event_targets,
     get_sync_db,
     import_live_longshanks_tournaments,
 )
@@ -366,7 +367,12 @@ def run_longshanks_sync(
             ][:max_ev]
 
     blocked_reason: Optional[str] = plan.get("blocked")
-    targets: List[Tuple[str, str]] = list(plan["targets"])
+    if not event_ids and not blocked_reason:
+        open_targets = get_open_platform_event_targets(db, "ls", game_system=game_system, limit=40)
+        seen_open = {t[1] for t in open_targets}
+        targets: List[Tuple[str, str]] = list(open_targets) + [t for t in plan["targets"] if t[1] not in seen_open]
+    else:
+        targets = list(plan["targets"])
     if blocked_reason:
         logger.error(
             "⛔ [LongshanksSync] Longshanks is serving its SiteGround bot challenge to this egress IP "

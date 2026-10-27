@@ -25,6 +25,7 @@ from scripts.sync_multiplatform import (
     _is_valid_limitless_tid,
     finalize_platform_sync,
     get_existing_platform_event_ids,
+    get_open_platform_event_targets,
     get_sync_db,
     import_live_limitless_tournaments,
 )
@@ -295,9 +296,10 @@ def run_limitless_sync(
     if event_ids:
         targets = list(event_ids)
     else:
+        open_targets = get_open_platform_event_targets(db, "ltcg", game_system=game_system, limit=50)
         # Discovery is cheap (one catalog page per 100 tournaments) but cap it to a fraction of the budget.
         disc_deadline = None if deadline is None else min(deadline, t0 + max(60.0, budget * 60.0 * 0.25))
-        targets = discover_limitless_targets(
+        disc_targets = discover_limitless_targets(
             game_system=game_system,
             days=days,
             max_events=max_events,
@@ -309,6 +311,8 @@ def run_limitless_sync(
             catalog_workers=workers,
             stats=discovery_stats,
         )
+        seen_open = {t[1] for t in open_targets}
+        targets = list(open_targets) + [t for t in disc_targets if t[1] not in seen_open]
     if not targets:
         logger.info("ℹ️ [LimitlessSync] No matching Limitless TCG tournaments found in window.")
         return {"platform": "limitless", "events_imported": 0, "matches_imported": 0, "discovery": discovery_stats}

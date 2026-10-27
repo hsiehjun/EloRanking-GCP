@@ -44,6 +44,7 @@ from scripts.sync_multiplatform import (
     _topdeck_table_winner,
     finalize_platform_sync,
     get_existing_platform_event_ids,
+    get_open_platform_event_targets,
     get_sync_db,
     import_live_topdeck_tournaments,
 )
@@ -335,7 +336,12 @@ def run_topdeck_sync(
                 if (target_sys in ("all", "other", "tcg") or s == target_sys) and not any(v in existing_ids for v in _known_variants(t))
             ][:max_ev]
 
-    targets: List[Tuple[str, str]] = list(plan["targets"])
+    if not event_ids:
+        open_targets = get_open_platform_event_targets(db, "td", game_system=game_system, limit=40)
+        seen_open = {t[1] for t in open_targets}
+        targets = list(open_targets) + [t for t in plan["targets"] if t[1] not in seen_open]
+    else:
+        targets = list(plan["targets"])
     run = budgeted_import(
         db, targets, import_live_topdeck_tournaments, budget, label="TopDeckSync",
         chunk_size=12, initial_event_s=1.5, import_kwargs={"invalidate_caches": False},

@@ -3613,6 +3613,9 @@ class PostgresDatabase:
                 max_dict_rd = max([int(k) for k in rounds_obj.keys() if str(k).isdigit()] or [0])
                 cur_rd_val = max(cur_rd_val, max_dict_rd)
 
+            src_plat_val = str(event_data.get("source_platform") or ("melee" if event_id.startswith("melee:") else ("limitless" if event_id.startswith("ltcg:") else ("topdeck" if event_id.startswith("td:") else ("longshanks" if event_id.startswith("ls:") else "bcp"))))).strip()[:32]
+            ext_eid_val = str(event_data.get("external_event_id") or (event_id.split(":", 1)[1] if ":" in event_id else event_id)).strip()[:128] or None
+
             with conn.cursor() as cursor:
                 cursor.execute("""
                 INSERT INTO events (
@@ -3620,8 +3623,8 @@ class PostgresDatabase:
                     total_players, num_rounds, current_round, is_ended,
                     game_system_id, raw_json, scraped_at,
                     venue_name, address, postal_code, latitude, longitude, place_id,
-                    game_system
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    game_system, source_platform, external_event_id
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     name = EXCLUDED.name,
                     event_date = EXCLUDED.event_date,
@@ -3642,7 +3645,9 @@ class PostgresDatabase:
                     latitude = COALESCE(EXCLUDED.latitude, events.latitude),
                     longitude = COALESCE(EXCLUDED.longitude, events.longitude),
                     place_id = COALESCE(EXCLUDED.place_id, events.place_id),
-                    game_system = COALESCE(EXCLUDED.game_system, events.game_system);
+                    game_system = COALESCE(EXCLUDED.game_system, events.game_system),
+                    source_platform = COALESCE(EXCLUDED.source_platform, events.source_platform),
+                    external_event_id = COALESCE(EXCLUDED.external_event_id, events.external_event_id);
                 """, (
                     event_id,
                     event_data.get("name") or "Unnamed Tournament",
@@ -3664,7 +3669,9 @@ class PostgresDatabase:
                     float(lat_val) if lat_val is not None else None,
                     float(lng_val) if lng_val is not None else None,
                     str(place_id_val).strip()[:128] if place_id_val is not None else None,
-                    str(game_sys or "40k").strip()[:16]
+                    str(game_sys or "40k").strip()[:16],
+                    src_plat_val,
+                    ext_eid_val,
                 ))
             conn.commit()
         PostgresDatabase._events_list_cache_dict.clear()
@@ -5382,6 +5389,7 @@ class PostgresDatabase:
                                    'numRounds', raw_json->'numRounds',
                                    'currentRound', raw_json->'currentRound',
                                    'activeRound', raw_json->'activeRound',
+                                   'has_active_round', raw_json->'has_active_round',
                                    'ended', raw_json->'ended',
                                    'isEnded', raw_json->'isEnded',
                                    'started', raw_json->'started',
@@ -6147,18 +6155,36 @@ class PostgresDatabase:
                 if cur_rd > 0:
                     res["current_round"] = cur_rd
 
-                status_meta = raw_meta.get("status") if isinstance(raw_meta, dict) and isinstance(raw_meta.get("status"), dict) else {}
-                has_active_round = any(isinstance(rv, dict) and rv.get("status") == "active" for rv in rounds_meta.values())
+                raw_st_val = raw_meta.get("status") if isinstance(raw_meta, dict) else None
+                status_meta = raw_st_val if isinstance(raw_st_val, dict) else {}
+                status_str_low = str(raw_st_val).strip().lower() if isinstance(raw_st_val, str) else ""
+                ev_dt_str_check = str(ev_dt).strip()[:10] if ev_dt is not None else ""
+                is_recent_window = (not ev_dt_str_check) or (ev_dt_str_check >= (now_utc - timedelta(days=5)).strftime("%Y-%m-%d"))
+                is_non_bcp_ev = str(event_id).startswith(("melee:", "ltcg:", "td:", "ls:"))
+                has_unreported_matches = any(not m.get("is_done", True) for m in matches)
+                has_active_round = bool(
+                    any(isinstance(rv, dict) and rv.get("status") == "active" for rv in rounds_meta.values())
+                    or (
+                        is_recent_window
+                        and (
+                            has_unreported_matches
+                            or bool(isinstance(raw_meta, dict) and raw_meta.get("has_active_round"))
+                            or status_str_low in ("in progress", "started", "active", "ongoing", "live")
+                            or (is_non_bcp_ev and res.get("is_ended") is False)
+                        )
+                    )
+                )
                 explicit_ended = bool(
                     (raw_meta.get("isEnded") if isinstance(raw_meta, dict) else False) or
                     (raw_meta.get("ended") if isinstance(raw_meta, dict) else False) or
                     status_meta.get("ended") or
-                    status_meta.get("isEnded")
+                    status_meta.get("isEnded") or
+                    status_str_low in ("ended", "completed", "finished")
                 )
                 computed_is_ended = bool(explicit_ended or (res.get("is_ended") and not has_active_round))
 
                 if not explicit_ended:
-                    if end_dt is not None:
+                    if end_dt is not None and not has_active_round:
                         if isinstance(end_dt, datetime):
                             computed_is_ended = end_dt < (now_utc - timedelta(hours=4))
                         else:
@@ -6187,7 +6213,7 @@ class PostgresDatabase:
                 res["is_ended"] = computed_is_ended
                 res["ended"] = computed_is_ended
                 if isinstance(raw_meta, dict):
-                    res_status = dict(raw_meta.get("status") or {})
+                    res_status = dict(raw_st_val) if isinstance(raw_st_val, dict) else ({"label": str(raw_st_val)} if raw_st_val else {})
                     res_status["ended"] = computed_is_ended
                     res_status["isEnded"] = computed_is_ended
                     res_status["started"] = bool(res.get("started") or computed_is_ended or res_status.get("started"))
@@ -7096,9 +7122,9 @@ class PostgresDatabase:
                 if status_norm == "completed":
                     where_clauses.append("(COALESCE(e.is_ended, FALSE) = TRUE OR (COALESCE(e.current_round, 0) = 0 AND COALESCE(e.end_date, e.event_date) < CURRENT_DATE - INTERVAL '2 days'))")
                 elif status_norm == "upcoming":
-                    where_clauses.append("(COALESCE(e.is_ended, FALSE) = FALSE AND COALESCE(e.current_round, 0) = 0 AND COALESCE(e.event_date, CURRENT_DATE) >= CURRENT_DATE)")
+                    where_clauses.append("(COALESCE(e.is_ended, FALSE) = FALSE AND ((COALESCE(e.current_round, 0) = 0 AND COALESCE(e.event_date, CURRENT_DATE) >= CURRENT_DATE) OR e.event_date > NOW() + INTERVAL '14 hours'))")
                 elif status_norm in ("live", "active", "in_progress", "ongoing"):
-                    where_clauses.append("(COALESCE(e.is_ended, FALSE) = FALSE AND ((COALESCE(e.current_round, 0) >= 1 AND COALESCE(e.event_date, NOW()) >= CURRENT_DATE - INTERVAL '7 days') OR (e.event_date <= NOW() + INTERVAL '14 hours' AND COALESCE(e.end_date, e.event_date) >= CURRENT_DATE - INTERVAL '3 days')))")
+                    where_clauses.append("(COALESCE(e.is_ended, FALSE) = FALSE AND e.event_date <= NOW() + INTERVAL '14 hours' AND ((COALESCE(e.current_round, 0) >= 1 AND e.event_date >= CURRENT_DATE - INTERVAL '5 days') OR COALESCE(e.end_date, e.event_date) >= CURRENT_DATE - INTERVAL '2 days'))")
 
                 if query:
                     where_clauses.append("(e.name ILIKE %s OR e.city ILIKE %s OR e.state ILIKE %s OR e.country ILIKE %s)")

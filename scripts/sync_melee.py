@@ -26,6 +26,7 @@ from scripts.sync_multiplatform import (
     _melee_game_to_system,
     finalize_platform_sync,
     get_existing_platform_event_ids,
+    get_open_platform_event_targets,
     get_sync_db,
     import_live_melee_tournaments,
 )
@@ -546,7 +547,8 @@ def run_melee_sync(
         logger.info(f"[MeleeSync] {len(existing_ids) // 2} Melee events already imported.")
         empty_skips = load_melee_cursor(db, MELEE_EMPTY_SKIP_KEY).get("tids") or {}
         existing_ids = set(existing_ids) | set(empty_skips.keys())
-        targets = discover_melee_targets(
+        open_targets = get_open_platform_event_targets(db, "melee", game_system=game_system, limit=50)
+        disc_targets = discover_melee_targets(
             game_system=game_system,
             days=days,
             max_events=max_events,
@@ -558,6 +560,8 @@ def run_melee_sync(
             deadline=deadline,
             plan=plan,
         )
+        seen_open = {str(t[1]) for t in open_targets}
+        targets = list(open_targets) + [t for t in disc_targets if str(t[1]) not in seen_open]
     discovery_s = round(time.time() - started, 1)
 
     if not targets:
