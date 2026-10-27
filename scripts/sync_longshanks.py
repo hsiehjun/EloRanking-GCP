@@ -114,9 +114,9 @@ def _history_url(sys_slug: str, date_from: str, date_to: str, page: int, min_pla
     return url
 
 
-def _is_importable_card(card: Dict[str, Any], min_players: int) -> bool:
+def _is_importable_card(card: Dict[str, Any], min_players: int, allow_in_progress: bool = False) -> bool:
     cls = card.get("classes") or []
-    if "finished" not in cls:
+    if not allow_in_progress and "finished" not in cls:
         return False  # upcoming / in progress / cancelled
     players = card.get("players")
     return players is None or players >= max(2, min_players)
@@ -130,6 +130,7 @@ def _scan_history(
     known: Set[str],
     min_players: int,
     max_pages: int = 400,
+    allow_in_progress: bool = False,
 ) -> Tuple[List[Dict[str, Any]], bool, int]:
     """
     Walks history pages (newest first) collecting up to `want` importable cards not in `known`.
@@ -156,7 +157,7 @@ def _scan_history(
                 continue
             seen.add(c["eid"])
             new_ids += 1
-            if c["eid"] in known or not _is_importable_card(c, min_players):
+            if c["eid"] in known or not _is_importable_card(c, min_players, allow_in_progress=allow_in_progress):
                 continue
             c["system"] = sys_slug
             out.append(c)
@@ -227,7 +228,9 @@ def discover_longshanks_targets(
         if blocked:
             return []  # one bot challenge means every further request from this IP will fail too
         try:
-            cands, _, fetched = _scan_history(sys_slug, recent_from, to_str, per_sys_want, known, min_players, max_pages=6)
+            cands, _, fetched = _scan_history(
+                sys_slug, recent_from, to_str, per_sys_want, known, min_players, max_pages=6, allow_in_progress=True
+            )
             stats["pages_fetched"] += fetched
             return cands
         except LongshanksBlockedError as e:

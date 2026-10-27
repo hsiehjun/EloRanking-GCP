@@ -153,6 +153,98 @@ class TestAppPerformanceAndQueryIndexes(unittest.TestCase):
         self.assertIn("_bcp_placings_inflight_locks", bcp_src)
         self.assertIn("_bcp_fetch_semaphore", bcp_src)
 
+    def test_in_progress_events_all_platforms(self):
+        """Ensure in-progress tournaments across Melee, Limitless, TopDeck, and Longshanks preserve is_ended=False and is_done=False on unreported matches."""
+        import tempfile
+        from scripts.local_sqlite_db import LocalSqliteDatabase
+        from scripts.sync_multiplatform import (
+            _melee_write_tournament,
+            _topdeck_table_winner,
+            get_existing_platform_event_ids,
+        )
+
+        ev_list_src = inspect.getsource(PostgresDatabase.get_events_list)
+        self.assertIn("in_progress", ev_list_src)
+        self.assertIn("NOW() + INTERVAL '14 hours'", ev_list_src)
+
+        # Unreported TopDeck table returns None; PointMode finished table returns winner
+        self.assertIsNone(_topdeck_table_winner({"Es": {"arrayValue": {"values": [{"integerValue": "1"}, {"integerValue": "2"}]}}}, [1, 2]))
+        self.assertEqual(
+            _topdeck_table_winner(
+                {
+                    "End": {"integerValue": "1793103931882"},
+                    "Points": {"arrayValue": {"values": [{"integerValue": "0"}, {"integerValue": "5"}]}},
+                },
+                [4, 7],
+            ),
+            7,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = LocalSqliteDatabase(db_path=f"{tmpdir}/live_test.sqlite")
+            _melee_write_tournament(
+                db,
+                "999001",
+                {
+                    "title": "Live Melee Test",
+                    "start_date": "2026-10-27T15:00:00Z",
+                    "game_name": "Magic: The Gathering",
+                    "status": "In Progress",
+                    "standings": [],
+                    "roundMatches": [
+                        {
+                            "roundNum": 1,
+                            "matches": [
+                                {
+                                    "Guid": "aaaa1111bbbb",
+                                    "TableNumber": 1,
+                                    "ResultString": "Alice won 2-0-0",
+                                    "ByeReason": None,
+                                    "Competitors": [
+                                        {"Team": {"Players": [{"Username": "alice", "DisplayName": "Alice"}]}, "GameWins": 2, "GameWinsAndGameByes": 2},
+                                        {"Team": {"Players": [{"Username": "bob", "DisplayName": "Bob"}]}, "GameWins": 0, "GameWinsAndGameByes": 0},
+                                    ],
+                                },
+                                {
+                                    "Guid": "cccc2222dddd",
+                                    "TableNumber": 2,
+                                    "ResultString": "Not reported",
+                                    "ByeReason": None,
+                                    "Competitors": [
+                                        {"Team": {"Players": [{"Username": "carol", "DisplayName": "Carol"}]}, "GameWins": None, "GameWinsAndGameByes": 0},
+                                        {"Team": {"Players": [{"Username": "dave", "DisplayName": "Dave"}]}, "GameWins": None, "GameWinsAndGameByes": 0},
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                "mtg",
+            )
+            conn = db._connect()
+            ev_row = conn.execute("SELECT is_ended, current_round FROM events WHERE id = 'melee:999001';").fetchone()
+            self.assertEqual(ev_row["is_ended"], 0)
+            self.assertEqual(ev_row["current_round"], 1)
+
+            m_rows = {
+                r["table_number"]: dict(r)
+                for r in conn.execute("SELECT table_number, winner_id, is_draw, is_done, player1_score FROM matches WHERE event_id = 'melee:999001';")
+            }
+            self.assertEqual(m_rows[1]["is_done"], 1)
+            self.assertEqual(m_rows[1]["winner_id"], "melee:alice")
+            self.assertEqual(m_rows[2]["is_done"], 0)
+            self.assertEqual(m_rows[2]["is_draw"], 0)
+            self.assertIsNone(m_rows[2]["winner_id"])
+            self.assertIsNone(m_rows[2]["player1_score"])
+
+            # In-progress event must NOT be skipped by get_existing_platform_event_ids
+            self.assertEqual(get_existing_platform_event_ids(db, "melee"), set())
+
+            # Elo reconstruction must rate ONLY the completed match (Table 1: Alice vs Bob), ignoring Table 2
+            elo_res = db.reconstruct_elo_for_system("mtg")
+            self.assertEqual(elo_res["matches_processed"], 1)
+            self.assertEqual(elo_res["players_rated"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

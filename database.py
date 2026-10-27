@@ -3586,7 +3586,11 @@ class PostgresDatabase:
             num_rds_val = int(raw_rds or 0)
 
             rounds_obj = event_data.get("rounds") if isinstance(event_data.get("rounds"), dict) else {}
-            has_active_round = any(isinstance(rv, dict) and rv.get("status") == "active" for rv in rounds_obj.values())
+            has_active_round = bool(
+                event_data.get("has_active_round")
+                or event_data.get("is_ongoing")
+                or any(isinstance(rv, dict) and rv.get("status") == "active" for rv in rounds_obj.values())
+            )
 
             if not is_ended_calc and not has_active_round:
                 if raw_end_val:
@@ -7090,11 +7094,11 @@ class PostgresDatabase:
 
                 status_norm = (status or "").strip().lower()
                 if status_norm == "completed":
-                    where_clauses.append("(COALESCE(e.is_ended, FALSE) = TRUE OR COALESCE(e.end_date, e.event_date) < CURRENT_DATE)")
+                    where_clauses.append("(COALESCE(e.is_ended, FALSE) = TRUE OR (COALESCE(e.current_round, 0) = 0 AND COALESCE(e.end_date, e.event_date) < CURRENT_DATE - INTERVAL '2 days'))")
                 elif status_norm == "upcoming":
-                    where_clauses.append("(COALESCE(e.is_ended, FALSE) = FALSE AND COALESCE(e.event_date, CURRENT_DATE) >= CURRENT_DATE)")
-                elif status_norm in ("live", "active"):
-                    where_clauses.append("(COALESCE(e.is_ended, FALSE) = FALSE AND e.event_date <= CURRENT_DATE AND COALESCE(e.end_date, e.event_date) >= CURRENT_DATE - INTERVAL '1 day')")
+                    where_clauses.append("(COALESCE(e.is_ended, FALSE) = FALSE AND COALESCE(e.current_round, 0) = 0 AND COALESCE(e.event_date, CURRENT_DATE) >= CURRENT_DATE)")
+                elif status_norm in ("live", "active", "in_progress", "ongoing"):
+                    where_clauses.append("(COALESCE(e.is_ended, FALSE) = FALSE AND ((COALESCE(e.current_round, 0) >= 1 AND COALESCE(e.event_date, NOW()) >= CURRENT_DATE - INTERVAL '7 days') OR (e.event_date <= NOW() + INTERVAL '14 hours' AND COALESCE(e.end_date, e.event_date) >= CURRENT_DATE - INTERVAL '3 days')))")
 
                 if query:
                     where_clauses.append("(e.name ILIKE %s OR e.city ILIKE %s OR e.state ILIKE %s OR e.country ILIKE %s)")
@@ -7127,7 +7131,8 @@ class PostgresDatabase:
                            COALESCE(NULLIF(TRIM(e.venue_name), ''), NULLIF(TRIM(e.venue), ''), NULLIF(TRIM(e.raw_json->>'locationName'), ''), NULLIF(TRIM(e.raw_json->>'venueName'), '')) as venue_name,
                            COALESCE(NULLIF(TRIM(e.address), ''), NULLIF(TRIM(e.raw_json->>'formatted_address'), ''), NULLIF(TRIM(e.raw_json->>'formattedAddress'), ''), NULLIF(TRIM(CONCAT_WS(' ', e.raw_json->>'streetNum', e.raw_json->>'streetName')), '')) as address,
                            e.postal_code, e.latitude, e.longitude,
-                           e.total_players, e.num_rounds, e.current_round, e.is_ended
+                           e.total_players, e.num_rounds, e.current_round, e.is_ended,
+                           COALESCE(e.game_system, '40k') as game_system
                     FROM events e
                     JOIN page_ids pi ON e.id = pi.id
                 )

@@ -400,7 +400,8 @@ class MeleeClient:
             standings = self.fetch_round_standings(rd["id"])
             if standings:
                 break
-        if not standings:
+        is_live_status = str(meta.get("status") or "").strip().lower() in ("in progress", "started", "active", "ongoing")
+        if not standings and not (is_live_status and meta.get("pairing_rounds")):
             meta.update({"standings": [], "roundMatches": [], "decklists": {}})
             return meta
         round_matches = []
@@ -475,11 +476,14 @@ def parse_tournament_view(page_html: str, tid: str) -> Dict[str, Any]:
     start_m = re.search(r'id="tournament-headline-start-date-field".*?data-value="([^"]+)"', page_html, re.S)
     game_m = re.search(r'id="tournament-headline-game"[^>]*>(.*?)</', page_html, re.S)
     game_name = html_lib.unescape(game_m.group(1)).replace("Game:", "").strip() if game_m else None
+    status_m = re.search(r"fa-info-circle[^>]*></i>\s*([^|<]+)", page_html)
+    status_str = html_lib.unescape(status_m.group(1)).strip() if status_m else None
     return {
         "tid": str(tid),
         "title": title or f"Melee Tournament {tid}",
         "start_date": start_m.group(1) if start_m else None,
         "game_name": game_name,
+        "status": status_str,
         "standing_rounds": _round_selectors(page_html, "standings-round-selector-container"),
         "pairing_rounds": _round_selectors(page_html, "pairings-round-selector-container"),
     }

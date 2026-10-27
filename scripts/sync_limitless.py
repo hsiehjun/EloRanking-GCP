@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts.sync_multiplatform import (
     LIMITLESS_GAME_MAP,
     _fetch_limitless_catalog_page,
+    _fetch_limitless_ongoing_catalog_html,
     _is_limitless_catalog_slug,
     _is_valid_limitless_tid,
     finalize_platform_sync,
@@ -152,6 +153,22 @@ def discover_limitless_targets(
             if deadline is not None and time.time() >= deadline:
                 logger.warning(f"⏱️ [LimitlessSync] Discovery deadline reached before {g_code}.")
                 break
+            try:
+                ongoing_items = _fetch_limitless_ongoing_catalog_html(game_code=g_code)
+            except Exception:
+                ongoing_items = []
+            live_cap_game = min(cap, max(4, cap // 2)) if cap is not None else 25
+            for item in ongoing_items:
+                tid = str(item.get("id") or "").strip().lower()
+                if not (_is_valid_limitless_tid(tid) or _is_limitless_catalog_slug(tid)) or tid in seen_tids:
+                    continue
+                if int(item.get("players") or 0) > 0 and int(item.get("players") or 0) < min_pl:
+                    continue
+                seen_tids.add(tid)
+                bucket.append((sys_slug, tid))
+                gs["new"] += 1
+                if len(bucket) >= live_cap_game:
+                    break
             _, first_items, max_page = _fetch(g_code, 1)
             if max_page < 0:
                 gs["page_errors"] += 1

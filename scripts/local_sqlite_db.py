@@ -278,6 +278,14 @@ class LocalSqliteDatabase:
                     cur.execute("ALTER TABLE rating_history ADD COLUMN raw_json TEXT;")
                 except Exception:
                     pass
+                try:
+                    cur.execute("ALTER TABLE events ADD COLUMN current_round INTEGER DEFAULT 0;")
+                except Exception:
+                    pass
+                try:
+                    cur.execute("ALTER TABLE matches ADD COLUMN is_done INTEGER DEFAULT 1;")
+                except Exception:
+                    pass
                 conn.commit()
             finally:
                 conn.close()
@@ -309,18 +317,19 @@ class LocalSqliteDatabase:
                 conn.execute(
                     """
                     INSERT INTO events (
-                        id, name, event_date, end_date, players_count, num_rounds,
+                        id, name, event_date, end_date, players_count, num_rounds, current_round,
                         is_ended, bcp_status, game_system, game_system_id,
                         source_platform, external_event_id, city, state, country,
                         venue_name, latitude, longitude, raw_json, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(id) DO UPDATE SET
                         name = COALESCE(excluded.name, events.name),
                         event_date = COALESCE(NULLIF(excluded.event_date, ''), events.event_date),
                         end_date = COALESCE(NULLIF(excluded.end_date, ''), events.end_date),
                         players_count = MAX(COALESCE(excluded.players_count, 0), COALESCE(events.players_count, 0)),
                         num_rounds = COALESCE(excluded.num_rounds, events.num_rounds),
-                        is_ended = COALESCE(excluded.is_ended, events.is_ended),
+                        current_round = MAX(COALESCE(excluded.current_round, 0), COALESCE(events.current_round, 0)),
+                        is_ended = excluded.is_ended,
                         bcp_status = COALESCE(excluded.bcp_status, events.bcp_status),
                         game_system = COALESCE(excluded.game_system, events.game_system),
                         game_system_id = COALESCE(excluded.game_system_id, events.game_system_id),
@@ -342,6 +351,7 @@ class LocalSqliteDatabase:
                         end_date,
                         int(event_data.get("players_count") or event_data.get("totalPlayers") or event_data.get("checkedInPlayers") or 0),
                         int(event_data.get("num_rounds") or event_data.get("numberOfRounds") or 5),
+                        int(event_data.get("current_round") or event_data.get("currentRound") or 0),
                         1 if is_ended else 0,
                         int(event_data.get("bcp_status") or 2),
                         gs,
@@ -492,15 +502,18 @@ class LocalSqliteDatabase:
                         raw_j = json.dumps(raw_j)
                     elif raw_j is None:
                         raw_j = json.dumps(m, default=str)
+                    is_done_val = m.get("is_done")
+                    if is_done_val is None:
+                        is_done_val = bool(m.get("is_bye") or m.get("winner_id") is not None or m.get("is_draw"))
                     conn.execute(
                         """
                         INSERT INTO matches (
                             id, event_id, round, table_number,
                             player1_id, player1_name, player1_faction, player1_detachment, player1_score,
                             player2_id, player2_name, player2_faction, player2_detachment, player2_score,
-                            winner_id, is_draw, is_bye, match_date, game_system,
+                            winner_id, is_draw, is_bye, is_done, match_date, game_system,
                             raw_player1_id, raw_player2_id, raw_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(id) DO UPDATE SET
                             event_id = COALESCE(NULLIF(excluded.event_id, ''), matches.event_id),
                             player1_score = excluded.player1_score,
@@ -508,6 +521,7 @@ class LocalSqliteDatabase:
                             winner_id = excluded.winner_id,
                             is_draw = excluded.is_draw,
                             is_bye = excluded.is_bye,
+                            is_done = excluded.is_done,
                             player1_faction = COALESCE(NULLIF(excluded.player1_faction, ''), matches.player1_faction),
                             player2_faction = COALESCE(NULLIF(excluded.player2_faction, ''), matches.player2_faction),
                             player1_detachment = COALESCE(NULLIF(excluded.player1_detachment, ''), matches.player1_detachment),
@@ -524,15 +538,16 @@ class LocalSqliteDatabase:
                             m.get("player1_name") or p1_id,
                             m.get("player1_faction") or "Unknown",
                             m.get("player1_detachment") or "",
-                            float(m.get("player1_score") or 0.0),
+                            float(m["player1_score"]) if m.get("player1_score") is not None else None,
                             p2_id,
                             m.get("player2_name") or (p2_id or "BYE"),
                             m.get("player2_faction") or "Unknown",
                             m.get("player2_detachment") or "",
-                            float(m.get("player2_score") or 0.0),
+                            float(m["player2_score"]) if m.get("player2_score") is not None else None,
                             m.get("winner_id"),
                             1 if m.get("is_draw") else 0,
                             1 if m.get("is_bye") else 0,
+                            1 if is_done_val else 0,
                             str(m.get("match_date") or "")[:19],
                             gs,
                             m.get("raw_player1_id") or p1_id,

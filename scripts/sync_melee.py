@@ -205,10 +205,10 @@ def _row_is_candidate(row: Dict[str, Any], systems: List[str], floor_iso: str, c
     return sys_slug
 
 
-def _search_filters(systems: List[str]) -> List[str]:
+def _search_filters(systems: List[str], status_filter: str = "Ended") -> List[str]:
     if len(systems) == 1 and systems[0] in MELEE_TAG_COMPLETE_SYSTEMS:
-        return ["Ended", MELEE_GAME_TAGS[systems[0]]]
-    return ["Ended"]
+        return [status_filter, MELEE_GAME_TAGS[systems[0]]]
+    return [status_filter]
 
 
 def _cursor_key(systems: List[str]) -> str:
@@ -250,6 +250,41 @@ def save_melee_cursor(db: Any, key: str, state: Dict[str, Any]) -> None:
             db.set_system_setting(key, json.dumps(state))
     except Exception as e:
         logger.warning(f"[MeleeSync] cursor save notice: {e}")
+
+
+def _discover_in_progress(
+    client: MeleeClient,
+    systems: List[str],
+    since_iso: str,
+    until_iso: str,
+    existing_set: set,
+    cap: int,
+    deadline: Optional[float],
+) -> List[Tuple[str, str, int, int]]:
+    """Discovers live in-progress Melee.gg tournaments (`Started` filter, newest startDate first)."""
+    out: List[Tuple[str, str, int, int]] = []
+    seen: set = set()
+    filters = _search_filters(systems, status_filter="Started")
+    for page in range(min(5, MELEE_MAX_RECENT_PAGES)):
+        if len(out) >= cap or (deadline and time.time() >= deadline):
+            break
+        res = client.search_tournaments(filters, page, order_by="startDate", order_dir="desc")
+        rows = res["data"]
+        if not rows:
+            break
+        for row in rows:
+            tid = str(row.get("id") or "")
+            sys_slug = _row_is_candidate(row, systems, since_iso, until_iso)
+            if not sys_slug or tid in seen or tid in existing_set or f"melee:{tid}" in existing_set:
+                continue
+            seen.add(tid)
+            out.append((sys_slug, tid, int(row.get("enrolledPlayerCount") or 0), int(row["id"])))
+            if len(out) >= cap:
+                break
+        oldest = min((str(r.get("startDate") or "9999") for r in rows if str(r.get("startDate") or "") <= until_iso), default="9999")
+        if oldest < since_iso:
+            break
+    return out
 
 
 def _discover_recent(
@@ -402,8 +437,19 @@ def discover_melee_targets(
     client = MeleeClient()
     targets: List[Tuple[str, str, int, int]] = []
     try:
+        t_live0 = time.time()
+        live_since = max((now_dt - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ"), floor_iso)
+        live_cap = min(cap, max(5, cap // 3))
+        in_progress = _discover_in_progress(client, systems, live_since, ceil_iso, existing_set, live_cap, deadline)
+        targets.extend(in_progress)
+        if in_progress:
+            logger.info(f"🔴 [MeleeSync] In-progress pass ({live_since[:10]}..{ceil_iso[:10]}): {len(in_progress)} live tournaments in {time.time() - t_live0:.1f}s")
         t0 = time.time()
-        recent = _discover_recent(client, systems, recent_since, ceil_iso, existing_set, cap, deadline)
+        seen_live = {t[1] for t in targets}
+        recent = [
+            r for r in _discover_recent(client, systems, recent_since, ceil_iso, existing_set | seen_live, max(0, cap - len(targets)), deadline)
+            if r[1] not in seen_live
+        ]
         targets.extend(recent)
         logger.info(f"🔎 [MeleeSync] Recent pass ({recent_since[:10]}..{ceil_iso[:10]}): {len(recent)} new tournaments in {time.time() - t0:.1f}s")
         if is_backfill and len(targets) < cap:

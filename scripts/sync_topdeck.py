@@ -139,7 +139,7 @@ def _known_variants(tid: str) -> Tuple[str, ...]:
 def _firestore_page(lo: int, hi: int, start_after: Optional[Tuple[int, str]], limit: int) -> List[Dict[str, Any]]:
     sq: Dict[str, Any] = {
         "from": [{"collectionId": "tournaments"}],
-        "select": {"fields": [{"fieldPath": f} for f in ("Name", "Game", "Format", "StartDate", "`S1:R1:T1`")]},
+        "select": {"fields": [{"fieldPath": f} for f in ("Name", "Game", "Format", "StartDate", "End", "`S1:R1:T1`")]},
         "where": {
             "compositeFilter": {
                 "op": "AND",
@@ -168,7 +168,7 @@ def _firestore_page(lo: int, hi: int, start_after: Optional[Tuple[int, str]], li
     raise last_err if last_err else RuntimeError("Firestore runQuery failed")
 
 
-def _doc_candidate(doc: Dict[str, Any], target_sys: str) -> Optional[Dict[str, Any]]:
+def _doc_candidate(doc: Dict[str, Any], target_sys: str, allow_in_progress: bool = False) -> Optional[Dict[str, Any]]:
     fields = doc.get("fields") or {}
     tid = str(doc.get("name") or "").split("/")[-1].strip()
     if not tid:
@@ -183,8 +183,10 @@ def _doc_candidate(doc: Dict[str, Any], target_sys: str) -> Optional[Dict[str, A
         return None
     t1 = ((fields.get("S1:R1:T1") or {}).get("mapValue") or {}).get("fields") or {}
     es = [int(x["integerValue"]) for x in ((t1.get("Es") or {}).get("arrayValue") or {}).get("values") or [] if "integerValue" in x]
-    if len(es) < 2 or _topdeck_table_winner(t1, es) is None:
-        return None  # never started / first table not reported
+    if len(es) < 2:
+        return None  # never started
+    if not allow_in_progress and _topdeck_table_winner(t1, es) is None:
+        return None  # first table not reported
     sd = int((fields.get("StartDate") or {}).get("integerValue") or 0)
     return {"tid": tid, "system": sys_slug, "name": name, "sd": sd, "ref": doc.get("name")}
 
@@ -198,6 +200,7 @@ def _scan_firestore(
     target_sys: str,
     max_pages: int,
     stats: Dict[str, int],
+    allow_in_progress: bool = False,
 ) -> Tuple[List[Dict[str, Any]], bool]:
     """Keyset-walks [lo, hi] newest first; returns (candidates, exhausted)."""
     out: List[Dict[str, Any]] = []
@@ -209,7 +212,7 @@ def _scan_firestore(
         if not docs:
             return out, True
         for doc in docs:
-            cand = _doc_candidate(doc, target_sys)
+            cand = _doc_candidate(doc, target_sys, allow_in_progress=allow_in_progress)
             if cand and not any(v in known for v in _known_variants(cand["tid"])):
                 out.append(cand)
                 if len(out) >= want:
@@ -232,7 +235,7 @@ def discover_topdeck_targets(
     recent_days: int = 10,
     settle_days: int = 2,
 ) -> Dict[str, Any]:
-    """Plans one run: recent tournaments first, then historical backfill from the persisted keyset cursor."""
+    """Plans one run: live in-progress tournaments first, then recent completed, then historical backfill from the persisted keyset cursor."""
     state = state if state is not None else {}
     target_sys = (game_system or "all").strip().lower()
     known: Set[str] = set(existing_ids or set()) | {str(x) for x in (state.get("skip_ids") or [])}
@@ -245,8 +248,17 @@ def discover_topdeck_targets(
     recent_lo = max(floor_s, hi - max(1, int(recent_days)) * 86400)
     stats: Dict[str, int] = {}
 
-    recent, _ = _scan_firestore(recent_lo, hi, None, max_events, known, target_sys, max_pages=40, stats=stats)
+    live_cands: List[Dict[str, Any]] = []
+    if not end_date and settle_days > 0:
+        live_want = min(max_events, max(3, max_events // 3))
+        live_cands, _ = _scan_firestore(
+            max(floor_s, settled_s), now_s + 3600, None, live_want, known, target_sys, max_pages=5, stats=stats, allow_in_progress=True
+        )
+    live_ids = {c["tid"] for c in live_cands}
+
+    recent, _ = _scan_firestore(recent_lo, hi, None, max(0, max_events - len(live_cands)), known | live_ids, target_sys, max_pages=40, stats=stats)
     recent.sort(key=lambda c: c["sd"])  # oldest first inside the recent window
+    recent = live_cands + recent
 
     bf = state.get("backfill") or {}
     bf_key = f"{target_sys}:{floor_s // 86400}"

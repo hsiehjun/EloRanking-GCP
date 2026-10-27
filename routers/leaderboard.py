@@ -776,7 +776,7 @@ def api_events_recommended(
     for ev in bcp_events[:4]:
         eid = str(ev.get("id") or ev.get("objectId") or "")
         enrolled_cnt = int(ev.get("totalPlayers") or ev.get("total_players") or ev.get("enrolled_count") or 0)
-        if not eid or enrolled_cnt <= 0:
+        if not eid or enrolled_cnt <= 0 or eid.startswith(("melee:", "ltcg:", "td:", "ls:", "ES-")):
             continue
 
         # Check in-memory roster cache first (15-min TTL)
@@ -1069,7 +1069,23 @@ def api_events_recommended(
             "elo_delta": round(avg_elo_val - user_elo, 1) if user_elo else None,
             "skill_match_label": skill_label,
             "skill_match_badge": skill_badge,
-            "bcp_url": f"https://www.bestcoastpairings.com/event/{ev_id}"
+            "bcp_url": (
+                f"https://melee.gg/Tournament/View/{str(ev_id).split(':', 1)[1]}"
+                if str(ev_id).startswith("melee:")
+                else (
+                    f"https://play.limitlesstcg.com/tournament/{str(ev_id).split(':', 1)[1]}/standings"
+                    if str(ev_id).startswith("ltcg:")
+                    else (
+                        f"https://topdeck.gg/event/{str(ev_id).split(':', 1)[1]}"
+                        if str(ev_id).startswith("td:")
+                        else (
+                            f"https://www.longshanks.org/event/{str(ev_id).split(':', 1)[1]}/"
+                            if str(ev_id).startswith("ls:")
+                            else f"https://www.bestcoastpairings.com/event/{ev_id}"
+                        )
+                    )
+                )
+            ),
         })
 
     # Filter by tier if specified
@@ -2832,7 +2848,8 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False, bypass_cach
             and (not is_team_ev_fast or plc_cached.get("teams_checked"))
         )
 
-        if (not has_bcp_roster_meta or not has_team_rosters) and not already_checked_bcp and hasattr(db, "fetch_and_cache_bcp_event_placings"):
+        is_non_bcp_platform = str(event_id_str).startswith(("melee:", "ltcg:", "td:", "ls:"))
+        if not is_non_bcp_platform and (not has_bcp_roster_meta or not has_team_rosters) and not already_checked_bcp and hasattr(db, "fetch_and_cache_bcp_event_placings"):
             holder = {"res": None, "raw_teams": None, "done": False}
 
             def _on_fast_teams(rt_list):
@@ -2900,6 +2917,101 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False, bypass_cach
             "timestamp": now_ts,
             "is_ended": True,
             "data": event_details
+        }
+        return event_details
+
+    if str(event_id_str).startswith(("melee:", "ltcg:", "td:", "ls:")):
+        if not hasattr(_sync_api_event_details, "_mp_sync_ts"):
+            _sync_api_event_details._mp_sync_ts = {}
+        last_mp_sync = float(_sync_api_event_details._mp_sync_ts.get(event_id_str, 0.0))
+        should_refresh_mp = bool(
+            not is_mock_env
+            and (
+                force_sync
+                or event_details is None
+                or (not event_details.get("is_ended") and (now_ts - last_mp_sync >= 60.0))
+            )
+        )
+        if should_refresh_mp:
+            _sync_api_event_details._mp_sync_ts[event_id_str] = now_ts
+            plat_prefix, raw_ext_id = str(event_id_str).split(":", 1)
+            ev_gs_hint = str(
+                (event_details or {}).get("game_system")
+                or ("pokemon" if plat_prefix == "ltcg" else ("xwing" if plat_prefix == "ls" else "mtg"))
+            ).strip().lower()
+
+            def _do_mp_live_refresh():
+                try:
+                    from scripts.sync_multiplatform import (
+                        import_live_limitless_tournaments,
+                        import_live_longshanks_tournaments,
+                        import_live_melee_tournaments,
+                        import_live_topdeck_tournaments,
+                    )
+                    if plat_prefix == "melee":
+                        res_mp = import_live_melee_tournaments(db, [(ev_gs_hint, raw_ext_id)], max_workers=1)
+                    elif plat_prefix == "ltcg":
+                        res_mp = import_live_limitless_tournaments(db, [(ev_gs_hint, raw_ext_id)], max_workers=1)
+                    elif plat_prefix == "td":
+                        res_mp = import_live_topdeck_tournaments(db, [(ev_gs_hint, raw_ext_id)], invalidate_caches=True)
+                    elif plat_prefix == "ls":
+                        res_mp = import_live_longshanks_tournaments(db, [(ev_gs_hint, raw_ext_id)], invalidate_caches=True)
+                    else:
+                        res_mp = {}
+                    if int((res_mp or {}).get("matches_imported") or 0) > 0:
+                        def _bg_inc_elo():
+                            try:
+                                eng = get_elo_engine()
+                                eng.reconstruct_incremental(game_system=ev_gs_hint)
+                                eng.invalidate_caches()
+                            except Exception as _e:
+                                logger.debug(f"[MultiPlatformLive] incremental Elo notice for {event_id_str}: {_e}")
+                        threading.Thread(target=_bg_inc_elo, daemon=True).start()
+                except Exception as mp_err:
+                    logger.warning(f"[MultiPlatformLive] Refresh notice for {event_id_str}: {mp_err}")
+
+            t_mp = threading.Thread(target=_do_mp_live_refresh, daemon=True)
+            t_mp.start()
+            t_mp.join(timeout=6.0 if (force_sync or event_details is None) else 2.5)
+            try:
+                refreshed_ev = db.get_event_details(event_id_str)
+                if refreshed_ev:
+                    event_details = refreshed_ev
+            except Exception:
+                pass
+
+        if not event_details:
+            raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found")
+
+        raw_ev_mp = event_details.get("raw_json") or {}
+        if isinstance(raw_ev_mp, str):
+            try:
+                raw_ev_mp = json.loads(raw_ev_mp)
+            except Exception:
+                raw_ev_mp = {}
+        event_details["num_rounds"] = int(event_details.get("num_rounds") or 0)
+        event_details["numberOfRounds"] = event_details["num_rounds"]
+        is_ended_mp = bool(event_details.get("is_ended"))
+        event_details["is_ended"] = is_ended_mp
+        event_details["ended"] = is_ended_mp
+        event_details["status"] = {"ended": is_ended_mp, "started": True}
+        for pl in (event_details.get("players") or []):
+            if isinstance(pl, dict):
+                if pl.get("faction"):
+                    pl["faction"] = sanitize_event_faction(pl["faction"])
+                lu = str(pl.get("list_url") or pl.get("listUrl") or "").strip()
+                pl["has_list"] = bool(pl.get("army_list") or lu or pl.get("list_id"))
+        if not is_mock_env and hasattr(db, "enrich_event_prediction_telemetry"):
+            try:
+                db.enrich_event_prediction_telemetry(event_details)
+            except Exception:
+                pass
+        event_details["sync_in_progress"] = False
+        _enrich_event_team_pairings(event_details, event_id_str)
+        _event_details_cache[event_id_str] = {
+            "timestamp": time.time(),
+            "is_ended": is_ended_mp,
+            "data": event_details,
         }
         return event_details
 

@@ -242,6 +242,67 @@ def _fetch_limitless_catalog_page(
     return out, max_page
 
 
+def _fetch_limitless_ongoing_catalog_html(
+    game_code: Optional[str] = None,
+    format_filter: str = "all",
+    type_filter: str = "all",
+    retries: int = 2,
+) -> List[Dict[str, Any]]:
+    """
+    Fetches live in-progress tournaments from `https://play.limitlesstcg.com/tournaments` (`In Progress` table).
+    """
+    q = []
+    if game_code:
+        q.append(f"game={game_code}")
+    if format_filter:
+        q.append(f"format={format_filter}")
+    if type_filter:
+        q.append(f"type={type_filter}")
+    url = "https://play.limitlesstcg.com/tournaments" + ("?" + "&".join(q) if q else "")
+    txt = ""
+    for attempt in range(max(1, retries + 1)):
+        try:
+            txt = _http_get_text(url, timeout=20)
+            break
+        except Exception:
+            if attempt >= retries:
+                return []
+            time.sleep(1.0 + attempt)
+    # Extract the "In Progress" section (before "Upcoming" or "Completed")
+    sec_m = re.search(r"In Progress(.*?)(?:Upcoming|Completed|</main>|$)", txt, re.S | re.I)
+    if not sec_m:
+        return []
+    sec_html = sec_m.group(1)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    out: List[Dict[str, Any]] = []
+    for tr_m in re.finditer(r"<tr([^>]*)>(.*?)</tr>", sec_html, re.S):
+        attrs, body = tr_m.group(1), tr_m.group(2)
+        tid_m = re.search(r'href="/tournament/([^/"?#]+)(?:/standings|/pairings|/details|")', body)
+        if not tid_m:
+            continue
+        tid = tid_m.group(1).strip()
+        if tid in ("completed", "upcoming", "help", "decks", "decklists"):
+            continue
+        name_m = re.search(r'data-name="([^"]*)"', attrs)
+        org_m = re.search(r'data-organizer="([^"]*)"', attrs)
+        pl_m = re.search(r'data-players="(\d+)"', attrs)
+        date_m = re.search(r'data-date="([^"]+)"', attrs)
+        fmt_m = re.search(r'class="format[^"]*"[^>]*data-tooltip="([^"]+)"', body) or re.search(r'data-format="([^"]*)"', attrs)
+        item = {
+            "id": tid,
+            "name": html.unescape(name_m.group(1)).strip() if name_m else tid,
+            "date": date_m.group(1).strip() if date_m else now_iso,
+            "organizer": html.unescape(org_m.group(1)).strip() if org_m else "Limitless Online",
+            "players": int(pl_m.group(1)) if pl_m else 0,
+            "format": html.unescape(fmt_m.group(1)).strip() if fmt_m else "Standard",
+            "game": (game_code or "PTCG").upper(),
+            "is_ongoing": True,
+        }
+        _LIMITLESS_CATALOG_CACHE[tid] = item
+        out.append(item)
+    return out
+
+
 def _fetch_ltcg_decklist_html(raw_tid: str, raw_pid: str) -> str:
     """Fetches a player's formatted decklist from `/tournament/{tid}/player/{pid}/decklist` HTML (zero rate limit)."""
     try:
@@ -364,6 +425,11 @@ def _fetch_ltcg_bundle_html(
         )
 
     pr_html = _ltcg_get_text(f"https://play.limitlesstcg.com/tournament/{raw_tid}/pairings", timeout=15)
+    is_ongoing = bool(
+        re.search(r'class="standings[^"]*\bongoing\b', st_html)
+        or re.search(r'class="pairings[^"]*\bongoing\b', pr_html)
+        or meta.get("is_ongoing")
+    )
     r_nums = sorted({int(x) for x in re.findall(r"/pairings\?round=(\d+)", pr_html)} or {1})
     act_m = re.search(r'<li class="active"><a href="/tournament/[^/]+/pairings\?round=(\d+)"', pr_html)
     act_r = int(act_m.group(1)) if act_m else max(r_nums)
@@ -386,38 +452,95 @@ def _fetch_ltcg_bundle_html(
                 r_pages[rn] = r_html
 
     pairings: List[Dict[str, Any]] = []
+    paired_player_names: Dict[str, str] = {}
     for rn in sorted(r_pages.keys()):
         rh = r_pages[rn]
         tbl_idx = 0
         for tr_m in re.finditer(r"<tr([^>]*)>(.*?)</tr>", rh, re.S):
             t_attrs, t_body = tr_m.group(1), tr_m.group(2)
-            p_cells = re.findall(r'<td class="player([^"]*)"[^>]*data-id="([^"]+)"', t_body)
+            p_cells = re.findall(r'<td class="player([^"]*)"[^>]*data-id="([^"]+)"[^>]*>(.*?)</td>', t_body, re.S)
             if not p_cells:
                 continue
+            for _, p_id_val, p_cell_html in p_cells:
+                if p_id_val and p_id_val not in paired_player_names:
+                    p_txt = html.unescape(re.sub(r"<[^>]+>", " ", p_cell_html)).strip()
+                    if p_txt:
+                        paired_player_names[p_id_val] = " ".join(p_txt.split())
             tbl_idx += 1
-            t_num_m = re.search(r"<td>\s*(\d+)\s*</td>", t_body)
+            t_num_m = re.search(r'<td class="table"[^>]*>\s*(\d+)\s*</td>', t_body) or re.search(r"<td>\s*(\d+)\s*</td>", t_body)
             t_num = int(t_num_m.group(1)) if t_num_m else tbl_idx
             w_attr = re.search(r'data-winner="([^"]*)"', t_attrs)
+            comp_attr = re.search(r'data-completed="(\d+)"', t_attrs)
+            is_comp = (comp_attr.group(1) == "1") if comp_attr else True
+            g_counts = [int(x) for x in re.findall(r'<td class="games[^"]*"[^>]*data-count="(\d+)"', t_body)]
             if len(p_cells) == 1:
                 pairings.append(
-                    {"round": rn, "table": t_num, "player1": p_cells[0][1], "player2": None, "winner": -1}
+                    {"round": rn, "table": t_num, "player1": p_cells[0][1], "player2": None, "winner": -1, "completed": True}
                 )
             else:
                 p1, p2 = p_cells[0][1], p_cells[1][1]
-                w_val = (
-                    w_attr.group(1)
-                    if w_attr
-                    else ("winner" in p_cells[0][0] and p1 or ("winner" in p_cells[1][0] and p2 or 0))
-                )
-                pairings.append({"round": rn, "table": t_num, "player1": p1, "player2": p2, "winner": w_val})
+                if not is_comp:
+                    pairings.append(
+                        {
+                            "round": rn,
+                            "table": t_num,
+                            "player1": p1,
+                            "player2": p2,
+                            "winner": None,
+                            "completed": False,
+                            "p1_score": float(g_counts[0]) if len(g_counts) >= 2 and (g_counts[0] > 0 or g_counts[1] > 0) else None,
+                            "p2_score": float(g_counts[1]) if len(g_counts) >= 2 and (g_counts[0] > 0 or g_counts[1] > 0) else None,
+                        }
+                    )
+                else:
+                    w_val = (
+                        w_attr.group(1)
+                        if w_attr
+                        else ("winner" in p_cells[0][0] and p1 or ("winner" in p_cells[1][0] and p2 or 0))
+                    )
+                    pairings.append(
+                        {
+                            "round": rn,
+                            "table": t_num,
+                            "player1": p1,
+                            "player2": p2,
+                            "winner": w_val,
+                            "completed": True,
+                            "p1_score": float(g_counts[0]) if len(g_counts) >= 2 else None,
+                            "p2_score": float(g_counts[1]) if len(g_counts) >= 2 else None,
+                        }
+                    )
         for bm in re.finditer(r'<div class="bracket-match"[^>]*>(.*?)</div>\s*</div>\s*</div>', rh, re.S):
             b_body = bm.group(1)
-            bp = re.findall(r'<div class="live-bracket-player([^"]*)"[^>]*data-id="([^"]+)"', b_body)
+            bp = re.findall(r'<div class="live-bracket-player([^"]*)"[^>]*data-id="([^"]+)"[^>]*>(.*?)</div>\s*</div>', b_body, re.S)
+            if not bp:
+                bp_simple = re.findall(r'<div class="live-bracket-player([^"]*)"[^>]*data-id="([^"]+)"', b_body)
+                bp = [(c, pid, "") for c, pid in bp_simple]
             if len(bp) >= 2:
                 tbl_idx += 1
                 p1, p2 = bp[0][1], bp[1][1]
-                w_val = p1 if "winner" in bp[0][0] else (p2 if "winner" in bp[1][0] else 0)
-                pairings.append({"round": rn, "table": tbl_idx, "player1": p1, "player2": p2, "winner": w_val})
+                has_w1 = "winner" in bp[0][0]
+                has_w2 = "winner" in bp[1][0]
+                is_b_comp = has_w1 or has_w2 or ("loser" in bp[0][0]) or ("loser" in bp[1][0])
+                w_val = p1 if has_w1 else (p2 if has_w2 else (0 if is_b_comp else None))
+                pairings.append(
+                    {"round": rn, "table": tbl_idx, "player1": p1, "player2": p2, "winner": w_val, "completed": is_b_comp}
+                )
+
+    if not standings and paired_player_names:
+        for idx_p, (raw_pid, pname_val) in enumerate(paired_player_names.items(), start=1):
+            standings.append(
+                {
+                    "player": raw_pid,
+                    "name": pname_val or raw_pid,
+                    "country": "",
+                    "placing": idx_p,
+                    "drop": None,
+                    "record": {"wins": 0, "losses": 0, "ties": 0},
+                    "deck": {"name": fmt},
+                    "decklist_text": "",
+                }
+            )
 
     details = {
         "id": canonical_tid,
@@ -428,6 +551,7 @@ def _fetch_ltcg_bundle_html(
         "game": str(meta.get("game") or ""),
         "players": len(standings) or int(meta.get("players") or 0),
         "organizer": {"name": org},
+        "is_ongoing": is_ongoing,
     }
     return details, standings, pairings
 
@@ -664,6 +788,7 @@ def import_live_limitless_tournaments(
                         "winner_id": p1_info["pid"],
                         "is_draw": False,
                         "is_bye": True,
+                        "is_done": True,
                         "match_date": ev_date,
                         "game_system": sys_slug,
                         "raw_player1_id": raw_p1,
@@ -682,20 +807,32 @@ def import_live_limitless_tournaments(
                     "detachment": "Standard",
                 },
             )
+            is_comp_match = pr.get("completed", True) is not False
             w_str = str(raw_winner or "").strip().lower()
-            is_draw = raw_winner in (0, "0", "tie", "draw", None, "")
-            if w_str == raw_p1:
-                winner_id = p1_info["pid"]
-                s1, s2 = 2.0, 0.0
-                is_draw = False
-            elif w_str == raw_p2:
-                winner_id = p2_info["pid"]
-                s1, s2 = 0.0, 2.0
-                is_draw = False
-            else:
+            if not is_comp_match:
                 winner_id = None
-                s1, s2 = 0.0, 0.0
-                is_draw = True
+                is_draw = False
+                is_done = False
+                s1 = pr.get("p1_score")
+                s2 = pr.get("p2_score")
+            else:
+                is_done = True
+                is_draw = raw_winner in (0, "0", "tie", "draw", None, "")
+                if w_str == raw_p1:
+                    winner_id = p1_info["pid"]
+                    s1 = float(pr["p1_score"]) if pr.get("p1_score") is not None else 2.0
+                    s2 = float(pr["p2_score"]) if pr.get("p2_score") is not None else 0.0
+                    is_draw = False
+                elif w_str == raw_p2:
+                    winner_id = p2_info["pid"]
+                    s1 = float(pr["p1_score"]) if pr.get("p1_score") is not None else 0.0
+                    s2 = float(pr["p2_score"]) if pr.get("p2_score") is not None else 2.0
+                    is_draw = False
+                else:
+                    winner_id = None
+                    s1 = float(pr["p1_score"]) if pr.get("p1_score") is not None else 0.0
+                    s2 = float(pr["p2_score"]) if pr.get("p2_score") is not None else 0.0
+                    is_draw = True
 
             m_batch.append(
                 {
@@ -716,6 +853,7 @@ def import_live_limitless_tournaments(
                     "winner_id": winner_id,
                     "is_draw": is_draw,
                     "is_bye": False,
+                    "is_done": is_done,
                     "match_date": ev_date,
                     "game_system": sys_slug,
                     "raw_player1_id": raw_p1,
@@ -730,6 +868,9 @@ def import_live_limitless_tournaments(
             )
             return 0, 0
 
+        any_unscored = any(not m.get("is_done", True) for m in m_batch)
+        is_ended_ev = not (bool(details.get("is_ongoing")) or bool(t_meta.get("is_ongoing")) or any_unscored)
+
         db.upsert_event(
             {
                 "id": eid,
@@ -738,8 +879,10 @@ def import_live_limitless_tournaments(
                 "end_date": ev_date,
                 "players_count": int(details.get("players") or t_meta.get("players") or len(ep_batch)),
                 "num_rounds": max_rnd,
-                "is_ended": True,
-                "bcp_status": 2,
+                "current_round": max_rnd,
+                "is_ended": is_ended_ev,
+                "has_active_round": not is_ended_ev,
+                "bcp_status": 2 if is_ended_ev else 1,
                 "game_system": sys_slug,
                 "game_system_id": g_code,
                 "source_platform": "limitless",
@@ -1223,10 +1366,10 @@ def import_live_longshanks_tournaments(
                 tbl_m = re.search(r"<span class=['\"]header['\"]>Table</span>&nbsp;(\d+)", gblk)
                 t_num = int(tbl_m.group(1)) if tbl_m else ((g_idx // 2) + 1)
 
-                p_parts = re.split(r"<div class=['\"]player (winner|loser|draw|tie)['\"]>", gblk)
+                p_parts = re.split(r"<div class=['\"]player(?:\s+(winner|loser|draw|tie))?['\"]>", gblk)
                 parsed_p = []
                 for j in range(1, len(p_parts), 2):
-                    outcome = p_parts[j]
+                    outcome = (p_parts[j] or "").strip().lower()
                     phtml = p_parts[j + 1]
                     pm = re.search(r"pop_user\((\d+),\d+\);['\"]>(.*?)</a>", phtml, re.DOTALL)
                     if not pm:
@@ -1268,6 +1411,7 @@ def import_live_longshanks_tournaments(
                             "winner_id": p1_id,
                             "is_draw": False,
                             "is_bye": True,
+                            "is_done": True,
                             "match_date": ev_date,
                             "game_system": sys_slug,
                             "raw_player1_id": p1_id,
@@ -1278,13 +1422,24 @@ def import_live_longshanks_tournaments(
                     continue
 
                 (o1, p1_id, p1_name, p1_fac, p1_vp), (o2, p2_id, p2_name, p2_fac, p2_vp) = parsed_p[0], parsed_p[1]
-                is_draw = (o1 in ("draw", "tie") or o2 in ("draw", "tie") or (o1 != "winner" and o2 != "winner" and p1_vp == p2_vp))
-                if o1 == "winner":
-                    winner_id = p1_id
-                elif o2 == "winner":
-                    winner_id = p2_id
-                else:
+                is_unreported_ls = (not o1 and not o2 and p1_vp == 0.0 and p2_vp == 0.0)
+                if is_unreported_ls:
+                    is_done_ls = False
+                    is_draw = False
                     winner_id = None
+                    s1_ls = None
+                    s2_ls = None
+                else:
+                    is_done_ls = True
+                    s1_ls = p1_vp
+                    s2_ls = p2_vp
+                    is_draw = (o1 in ("draw", "tie") or o2 in ("draw", "tie") or (o1 != "winner" and o2 != "winner" and p1_vp == p2_vp))
+                    if o1 == "winner":
+                        winner_id = p1_id
+                    elif o2 == "winner":
+                        winner_id = p2_id
+                    else:
+                        winner_id = None
 
                 m_batch.append(
                     {
@@ -1296,15 +1451,16 @@ def import_live_longshanks_tournaments(
                         "player1_name": p1_name,
                         "player1_faction": p1_fac,
                         "player1_detachment": player_lookup.get(p1_id, {}).get("detachment", ""),
-                        "player1_score": p1_vp,
+                        "player1_score": s1_ls,
                         "player2_id": p2_id,
                         "player2_name": p2_name,
                         "player2_faction": p2_fac,
                         "player2_detachment": player_lookup.get(p2_id, {}).get("detachment", ""),
-                        "player2_score": p2_vp,
+                        "player2_score": s2_ls,
                         "winner_id": winner_id,
                         "is_draw": is_draw,
                         "is_bye": False,
+                        "is_done": is_done_ls,
                         "match_date": ev_date,
                         "game_system": sys_slug,
                         "raw_player1_id": p1_id,
@@ -1319,6 +1475,9 @@ def import_live_longshanks_tournaments(
             continue
 
         loc_region = str(ls_meta.get("region") or "").strip()
+        cls_list = ls_meta.get("classes") or []
+        any_unscored_ls = any(not m.get("is_done", True) for m in m_batch)
+        is_ended_ls = bool(("finished" in cls_list) or (not any_unscored_ls and "finished" in (cls_list or ["finished"])))
         db.upsert_event(
             {
                 "id": eid,
@@ -1327,8 +1486,10 @@ def import_live_longshanks_tournaments(
                 "end_date": ev_date,
                 "players_count": len(ep_batch),
                 "num_rounds": max_rnd,
-                "is_ended": True,
-                "bcp_status": 2,
+                "current_round": max_rnd,
+                "is_ended": is_ended_ls,
+                "has_active_round": not is_ended_ls,
+                "bcp_status": 2 if is_ended_ls else 1,
                 "game_system": sys_slug,
                 "game_system_id": get_bcp_game_system_id(sys_slug, default="fQjQW821Cd"),
                 "source_platform": "longshanks",
@@ -1402,8 +1563,8 @@ def _extract_topdeck_commander(decklist_text: str) -> str:
 def _topdeck_table_winner(pf: Dict[str, Any], es: List[int]) -> Any:
     """
     Returns the winning entry number of a TopDeck table, `"_DRAW_"`, or None (not reported yet).
-    Commander pods store `Winner` (entry number or "_DRAW_"); 1v1 tables store per-seat game `Wins`
-    (+ `Draws`) aligned with `Es` instead.
+    Commander pods store `Winner` (entry number or "_DRAW_") or `Points` (PointMode pods);
+    1v1 tables store per-seat game `Wins` (+ `Draws`) aligned with `Es` instead.
     """
     w_obj = pf.get("Winner") or {}
     if "integerValue" in w_obj:
@@ -1411,15 +1572,23 @@ def _topdeck_table_winner(pf: Dict[str, Any], es: List[int]) -> Any:
     if "stringValue" in w_obj:
         return w_obj.get("stringValue")
     wins = [int(x.get("integerValue") or 0) for x in ((pf.get("Wins") or {}).get("arrayValue") or {}).get("values") or []]
-    if len(es) < 2 or len(wins) != len(es):
-        return None
-    draws = int((pf.get("Draws") or {}).get("integerValue") or 0)
-    top = max(wins)
-    if top == 0:
-        return "_DRAW_" if draws > 0 else None
-    if wins.count(top) > 1:
-        return "_DRAW_"
-    return es[wins.index(top)]
+    if len(es) >= 2 and len(wins) == len(es):
+        draws = int((pf.get("Draws") or {}).get("integerValue") or 0)
+        top = max(wins)
+        if top == 0:
+            return "_DRAW_" if (draws > 0 or "End" in pf) else None
+        if wins.count(top) > 1:
+            return "_DRAW_"
+        return es[wins.index(top)]
+    pts = [int(x.get("integerValue") or x.get("doubleValue") or 0) for x in ((pf.get("Points") or {}).get("arrayValue") or {}).get("values") or []]
+    if len(es) >= 2 and len(pts) == len(es):
+        top_pt = max(pts)
+        if top_pt == 0:
+            return "_DRAW_" if "End" in pf else None
+        if pts.count(top_pt) > 1:
+            return "_DRAW_"
+        return es[pts.index(top_pt)]
+    return None
 
 
 def import_live_topdeck_tournaments(
@@ -1619,6 +1788,8 @@ def import_live_topdeck_tournaments(
 
         mp_batch = []
         m_batch = []
+        has_end_field = bool("End" in fields)
+        is_recent_td = (start_ts >= time.time() - 3 * 86400)
         for pk in pod_keys:
             sec_num, rnd_num, tbl_num = [int(n) for n in re.findall(r"\d+", pk)]
             eff_rnd = rnd_num if sec_num == 1 else (swiss_rounds + rnd_num)
@@ -1628,17 +1799,21 @@ def import_live_topdeck_tournaments(
                 for x in ((pf.get("Es") or {}).get("arrayValue") or {}).get("values") or []
                 if "integerValue" in x
             ]
-            w_val = _topdeck_table_winner(pf, es)
-            if len(es) < 2 or w_val is None:
+            if len(es) < 2:
                 continue
+            w_val = _topdeck_table_winner(pf, es)
+            is_table_done = w_val is not None
+            if not is_table_done:
+                if has_end_field or not is_recent_td or eff_rnd < max_round_num:
+                    continue
 
             pod_uids = [entry_to_uid.get(e_num) for e_num in es if entry_to_uid.get(e_num) in uid_info]
             if len(pod_uids) < 2:
                 continue
 
             pod_mid = _bound_id(f"td:{tid}-s{sec_num}-r{rnd_num}-t{tbl_num}")
-            is_pod_draw = w_val == "_DRAW_"
-            winner_uid = entry_to_uid.get(w_val) if isinstance(w_val, int) else None
+            is_pod_draw = bool(is_table_done and w_val == "_DRAW_")
+            winner_uid = entry_to_uid.get(w_val) if (is_table_done and isinstance(w_val, int)) else None
 
             if len(pod_uids) == 2 and not is_ffa_tournament:
                 # 1v1 match on TopDeck.gg
@@ -1647,6 +1822,12 @@ def import_live_topdeck_tournaments(
                 w_meta = uid_info.get(winner_uid) if winner_uid else None
                 raw_wins = [int(x.get("integerValue") or 0) for x in ((pf.get("Wins") or {}).get("arrayValue") or {}).get("values") or []]
                 game_wins = raw_wins if (len(raw_wins) == 2 and len(es) == 2 and entry_to_uid.get(es[0]) == pod_uids[0]) else None
+                if not is_table_done:
+                    p1_sc = None
+                    p2_sc = None
+                else:
+                    p1_sc = float(game_wins[0]) if game_wins else (2.0 if (w_meta and w_meta["pid"] == p1_meta["pid"]) else (1.0 if is_pod_draw else 0.0))
+                    p2_sc = float(game_wins[1]) if game_wins else (2.0 if (w_meta and w_meta["pid"] == p2_meta["pid"]) else (1.0 if is_pod_draw else 0.0))
                 m_batch.append(
                     {
                         "id": pod_mid,
@@ -1657,27 +1838,28 @@ def import_live_topdeck_tournaments(
                         "player1_name": p1_meta["name"],
                         "player1_faction": p1_meta["faction"],
                         "player1_detachment": default_detachment,
-                        "player1_score": float(game_wins[0]) if game_wins else (2.0 if (w_meta and w_meta["pid"] == p1_meta["pid"]) else (1.0 if is_pod_draw else 0.0)),
+                        "player1_score": p1_sc,
                         "player2_id": p2_meta["pid"],
                         "player2_name": p2_meta["name"],
                         "player2_faction": p2_meta["faction"],
                         "player2_detachment": default_detachment,
-                        "player2_score": float(game_wins[1]) if game_wins else (2.0 if (w_meta and w_meta["pid"] == p2_meta["pid"]) else (1.0 if is_pod_draw else 0.0)),
+                        "player2_score": p2_sc,
                         "winner_id": w_meta["pid"] if w_meta else None,
                         "is_draw": is_pod_draw,
                         "is_bye": False,
+                        "is_done": is_table_done,
                         "match_date": ev_date,
                         "game_system": sys_slug,
                         "raw_player1_id": pod_uids[0],
                         "raw_player2_id": pod_uids[1],
-                        "raw_json": {"match_format": "1v1", "is_ffa": False, "pod_key": pk, "winner": w_val},
+                        "raw_json": {"match_format": "1v1", "is_ffa": False, "pod_key": pk, "winner": w_val, "is_done": is_table_done},
                     }
                 )
                 continue
 
             for seat_idx, p_uid in enumerate(pod_uids, start=1):
                 p_meta = uid_info[p_uid]
-                is_win = bool(winner_uid and p_uid == winner_uid)
+                is_win = bool(is_table_done and winner_uid and p_uid == winner_uid)
                 mp_batch.append(
                     {
                         "match_id": pod_mid,
@@ -1685,14 +1867,14 @@ def import_live_topdeck_tournaments(
                         "raw_player_id": p_uid,
                         "player_name": p_meta["name"],
                         "seat_order": seat_idx,
-                        "placement": 1 if is_win else (2 if not is_pod_draw else 1),
-                        "score": 5.0 if is_win else (1.0 if is_pod_draw else 0.0),
+                        "placement": (1 if is_win else (2 if not is_pod_draw else 1)) if is_table_done else None,
+                        "score": (5.0 if is_win else (1.0 if is_pod_draw else 0.0)) if is_table_done else 0.0,
                         "is_winner": is_win,
                         "is_draw": is_pod_draw,
                         "faction": p_meta["faction"],
                         "detachment": "cEDH Pod",
                         "game_system": sys_slug,
-                        "raw_json": {"pod_key": pk, "seat": seat_idx, "entries": es, "winner": w_val},
+                        "raw_json": {"pod_key": pk, "seat": seat_idx, "entries": es, "winner": w_val, "is_done": is_table_done},
                     }
                 )
             pods_imported += 1
@@ -1703,7 +1885,7 @@ def import_live_topdeck_tournaments(
             pod_parts_meta = []
             for seat_idx, p_uid in enumerate(pod_uids, start=1):
                 pm = uid_info[p_uid]
-                is_w = bool(winner_uid and p_uid == winner_uid)
+                is_w = bool(is_table_done and winner_uid and p_uid == winner_uid)
                 pod_parts_meta.append(
                     {
                         "player_id": pm["pid"],
@@ -1712,8 +1894,8 @@ def import_live_topdeck_tournaments(
                         "faction": pm["faction"],
                         "detachment": "cEDH Pod",
                         "seat_order": seat_idx,
-                        "placement": 1 if is_w else (2 if not is_pod_draw else 1),
-                        "score": 5.0 if is_w else (1.0 if is_pod_draw else 0.0),
+                        "placement": (1 if is_w else (2 if not is_pod_draw else 1)) if is_table_done else None,
+                        "score": (5.0 if is_w else (1.0 if is_pod_draw else 0.0)) if is_table_done else 0.0,
                         "is_winner": is_w,
                         "is_draw": is_pod_draw,
                     }
@@ -1732,15 +1914,16 @@ def import_live_topdeck_tournaments(
                     "player1_name": p1_row["name"],
                     "player1_faction": p1_row["faction"],
                     "player1_detachment": "cEDH Pod",
-                    "player1_score": 5.0 if w_meta else 1.0,
+                    "player1_score": (5.0 if w_meta else 1.0) if is_table_done else None,
                     "player2_id": uid_info[pod_uids[1]]["pid"] if len(pod_uids) > 1 else "POD",
                     "player2_name": f"Pod ({others_names})" if others_names else uid_info[pod_uids[1]]["name"],
                     "player2_faction": "Commander Pod",
                     "player2_detachment": f"{len(pod_uids)}-Player FFA Pod",
-                    "player2_score": 1.0 if is_pod_draw else 0.0,
+                    "player2_score": (1.0 if is_pod_draw else 0.0) if is_table_done else None,
                     "winner_id": w_meta["pid"] if w_meta else None,
                     "is_draw": is_pod_draw,
                     "is_bye": False,
+                    "is_done": is_table_done,
                     "match_date": ev_date,
                     "game_system": sys_slug,
                     "raw_player1_id": winner_uid or pod_uids[0],
@@ -1751,6 +1934,7 @@ def import_live_topdeck_tournaments(
                         "pod_key": pk,
                         "pod_size": len(pod_uids),
                         "is_pod_draw": is_pod_draw,
+                        "is_done": is_table_done,
                         "pod_participants": pod_parts_meta,
                     },
                 }
@@ -1763,6 +1947,8 @@ def import_live_topdeck_tournaments(
             )
             continue
 
+        any_unscored_td = any(not m.get("is_done", True) for m in m_batch)
+        is_ended_td = bool(has_end_field or (not any_unscored_td and start_ts < time.time() - 21600))
         db.upsert_event(
             {
                 "id": eid,
@@ -1771,8 +1957,10 @@ def import_live_topdeck_tournaments(
                 "end_date": ev_date,
                 "players_count": len(ep_batch),
                 "num_rounds": max_round_num,
-                "is_ended": True,
-                "bcp_status": 2,
+                "current_round": max_round_num,
+                "is_ended": is_ended_td,
+                "has_active_round": not is_ended_td,
+                "bcp_status": 2 if is_ended_td else 1,
                 "game_system": sys_slug,
                 "game_system_id": get_bcp_game_system_id(sys_slug, default="FM1PYUZbsL"),
                 "source_platform": "topdeck",
@@ -1942,7 +2130,7 @@ def repair_melee_event_metadata(db: Any) -> Dict[str, Any]:
 
 def _melee_write_tournament(db: Any, raw_tid: str, t_data: Dict[str, Any], sys_hint: Optional[str]) -> Optional[Dict[str, Any]]:
     """Maps one scraped Melee.gg tournament payload onto events / players / participants / matches rows."""
-    if not t_data or not t_data.get("standings"):
+    if not t_data or (not t_data.get("standings") and not t_data.get("roundMatches")):
         return None
 
     sys_slug = normalize_game_system(
@@ -1963,7 +2151,11 @@ def _melee_write_tournament(db: Any, raw_tid: str, t_data: Dict[str, Any], sys_h
         or "2026-05-23T15:30:00Z"
     ).replace("Z", "")
     ev_date = raw_dt[:19] if len(raw_dt) >= 19 else "2026-05-23T15:30:00"
-    fmt_name = str(standings[0].get("FormatName") or standings[0].get("FormatDescription") or "Constructed")
+    fmt_name = (
+        str(standings[0].get("FormatName") or standings[0].get("FormatDescription") or "Constructed")
+        if standings
+        else "Constructed"
+    )
 
     players_batch = []
     ep_batch = []
@@ -2034,6 +2226,68 @@ def _melee_write_tournament(db: Any, raw_tid: str, t_data: Dict[str, Any], sys_h
             }
         )
 
+    if not standings and round_matches:
+        # Round 1 live tournament before Round 1 standings exist: synthesize participants from Round 1 pairings.
+        synth_idx = 0
+        for rm in round_matches:
+            for m_obj in (rm.get("matches") or []):
+                for c_obj in (m_obj.get("Competitors") or []):
+                    pl = ((c_obj.get("Team") or {}).get("Players") or [{}])[0]
+                    raw_uname = str(pl.get("Username") or pl.get("ID") or "").strip().lower()
+                    if not raw_uname:
+                        continue
+                    pid = _bound_id(f"melee:{raw_uname}")
+                    if pid in seen_pids:
+                        continue
+                    seen_pids.add(pid)
+                    synth_idx += 1
+                    pname = str(pl.get("DisplayName") or raw_uname).strip()
+                    c_dks = c_obj.get("Decklists") or []
+                    c_chosen = next((dk for dk in c_dks if dk.get("DecklistName") and dk.get("DecklistName") != "Decklist"), c_dks[0] if c_dks else {})
+                    arch_name = str(c_chosen.get("DecklistName") or "").strip()
+                    if not arch_name or arch_name == "Decklist":
+                        arch_name = resolve_canonical_faction("Standard Deck" if sys_slug == "mtg" else "Premier Deck", sys_slug, pid)
+                    else:
+                        arch_name = resolve_canonical_faction(arch_name, sys_slug, pid)
+                    deck_guid = str(c_chosen.get("DecklistId") or "").strip()
+                    dl_url = f"https://melee.gg/Decklist/View/{deck_guid}" if deck_guid else f"https://melee.gg/Tournament/View/{raw_tid}"
+                    player_lookup[raw_uname] = {
+                        "pid": pid,
+                        "name": pname,
+                        "faction": arch_name,
+                        "detachment": fmt_name,
+                    }
+                    players_batch.append(
+                        {
+                            "id": pid,
+                            "name": pname,
+                            "first_name": pname.split(" ")[0],
+                            "last_name": " ".join(pname.split(" ")[1:]),
+                            "team": "",
+                            "primary_faction": arch_name,
+                        }
+                    )
+                    ep_batch.append(
+                        {
+                            "event_id": eid,
+                            "player_id": pid,
+                            "player_name": pname,
+                            "faction": arch_name,
+                            "detachment": fmt_name,
+                            "team": "",
+                            "placement": synth_idx,
+                            "wins": 0,
+                            "losses": 0,
+                            "draws": 0,
+                            "battle_points": 0.0,
+                            "dropped": False,
+                            "army_list_text": "",
+                            "army_list_url": dl_url,
+                            "game_system": sys_slug,
+                            "raw_json": c_obj,
+                        }
+                    )
+
     def _parse_comp(c_obj: Dict[str, Any]) -> Tuple[str, str, str, str, float]:
         pl = ((c_obj.get("Team") or {}).get("Players") or [{}])[0]
         un = str(pl.get("Username") or pl.get("ID") or "unknown").strip().lower()
@@ -2092,6 +2346,7 @@ def _melee_write_tournament(db: Any, raw_tid: str, t_data: Dict[str, Any], sys_h
                         "winner_id": p1_id,
                         "is_draw": False,
                         "is_bye": True,
+                        "is_done": True,
                         "match_date": ev_date,
                         "game_system": sys_slug,
                         "raw_player1_id": u1,
@@ -2103,15 +2358,38 @@ def _melee_write_tournament(db: Any, raw_tid: str, t_data: Dict[str, Any], sys_h
 
             u1, p1_id, p1_name, p1_fac, p1_gw = _parse_comp(comps[0])
             u2, p2_id, p2_name, p2_fac, p2_gw = _parse_comp(comps[1])
-            res_str = str(m_obj.get("ResultString") or "").lower()
-            is_draw = (p1_gw == p2_gw) or ("draw" in res_str)
-            if p1_gw > p2_gw and not is_draw:
-                winner_id = p1_id
-            elif p2_gw > p1_gw and not is_draw:
-                winner_id = p2_id
-            else:
+            has_gw = (
+                comps[0].get("GameWins") is not None
+                or comps[1].get("GameWins") is not None
+                or int(comps[0].get("GameWinsAndGameByes") or 0) > 0
+                or int(comps[1].get("GameWinsAndGameByes") or 0) > 0
+            )
+            res_str = str(m_obj.get("ResultString") or "").strip().lower()
+            is_unreported = (
+                "not reported" in res_str
+                or "in progress" in res_str
+                or "pending" in res_str
+                or "awaiting" in res_str
+                or (not has_gw and not res_str)
+            )
+            if is_unreported:
                 winner_id = None
-                is_draw = True
+                is_draw = False
+                is_done = False
+                s1_val = None
+                s2_val = None
+            else:
+                is_done = True
+                s1_val = p1_gw
+                s2_val = p2_gw
+                is_draw = (p1_gw == p2_gw) or ("draw" in res_str)
+                if p1_gw > p2_gw and not is_draw:
+                    winner_id = p1_id
+                elif p2_gw > p1_gw and not is_draw:
+                    winner_id = p2_id
+                else:
+                    winner_id = None
+                    is_draw = True
 
             m_batch.append(
                 {
@@ -2123,15 +2401,16 @@ def _melee_write_tournament(db: Any, raw_tid: str, t_data: Dict[str, Any], sys_h
                     "player1_name": p1_name,
                     "player1_faction": p1_fac,
                     "player1_detachment": fmt_name,
-                    "player1_score": p1_gw,
+                    "player1_score": s1_val,
                     "player2_id": p2_id,
                     "player2_name": p2_name,
                     "player2_faction": p2_fac,
                     "player2_detachment": fmt_name,
-                    "player2_score": p2_gw,
+                    "player2_score": s2_val,
                     "winner_id": winner_id,
                     "is_draw": is_draw,
                     "is_bye": False,
+                    "is_done": is_done,
                     "match_date": ev_date,
                     "game_system": sys_slug,
                     "raw_player1_id": u1,
@@ -2146,6 +2425,11 @@ def _melee_write_tournament(db: Any, raw_tid: str, t_data: Dict[str, Any], sys_h
         )
         return None
 
+    status_low = str(t_data.get("status") or "").strip().lower()
+    any_unscored_melee = any(not m.get("is_done", True) for m in m_batch)
+    is_ended_melee = (status_low == "ended") or (
+        status_low not in ("in progress", "started", "active", "ongoing") and not any_unscored_melee
+    )
     gs_id = get_bcp_game_system_id(sys_slug, default="FM1PYUZbsL")
     db.upsert_event(
         {
@@ -2155,8 +2439,10 @@ def _melee_write_tournament(db: Any, raw_tid: str, t_data: Dict[str, Any], sys_h
             "end_date": ev_date,
             "players_count": len(ep_batch),
             "num_rounds": len(round_matches),
-            "is_ended": True,
-            "bcp_status": 2,
+            "current_round": len(round_matches),
+            "is_ended": is_ended_melee,
+            "has_active_round": not is_ended_melee,
+            "bcp_status": 2 if is_ended_melee else 1,
             "game_system": sys_slug,
             "game_system_id": gs_id,
             "source_platform": "melee",
@@ -2167,7 +2453,7 @@ def _melee_write_tournament(db: Any, raw_tid: str, t_data: Dict[str, Any], sys_h
             "venue_name": "Melee.gg",
             "latitude": None,
             "longitude": None,
-            "raw_json": {"platform": "melee", "tid": raw_tid, "title": title, "rounds": len(round_matches)},
+            "raw_json": {"platform": "melee", "tid": raw_tid, "title": title, "rounds": len(round_matches), "status": t_data.get("status")},
         }
     )
     db.upsert_players_batch(players_batch)
@@ -2264,7 +2550,7 @@ def import_live_melee_tournaments(
                     t_data_ok = False
                     logger.warning(f"[Melee.gg] Fetch failed for {raw_tid}: {fetch_err}")
                     t_data = None
-                if t_data is not None and not t_data.get("standings"):
+                if t_data is not None and not t_data.get("standings") and not t_data.get("roundMatches"):
                     logger.info(
                         f"ℹ️ [Melee.gg] Skipping {raw_tid} '{t_data.get('title')}': no published standings "
                         f"({len(t_data.get('standing_rounds') or [])} rounds)."
@@ -2543,6 +2829,7 @@ def get_existing_platform_event_ids(db: Any, prefix: str) -> set:
                         SELECT e.id, e.external_event_id
                         FROM events e
                         WHERE e.id LIKE %s
+                          AND COALESCE(e.is_ended, TRUE) = TRUE
                           AND EXISTS (SELECT 1 FROM matches m WHERE m.event_id = e.id LIMIT 1);
                         """,
                         (like_pat,),
@@ -2565,6 +2852,7 @@ def get_existing_platform_event_ids(db: Any, prefix: str) -> set:
                     SELECT e.id, e.external_event_id
                     FROM events e
                     WHERE e.id LIKE ?
+                      AND COALESCE(e.is_ended, 1) = 1
                       AND EXISTS (SELECT 1 FROM matches m WHERE m.event_id = e.id LIMIT 1);
                     """,
                     (like_pat,),
