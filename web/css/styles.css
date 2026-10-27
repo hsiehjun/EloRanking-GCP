@@ -18360,6 +18360,45 @@ table.desktop-only,
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
+.fmodal-matches-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 0.6rem 0.9rem;
+  background: rgba(15, 23, 42, 0.78);
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.fmodal-matches-footer-status {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+}
+
+.fmodal-load-more-btn {
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0.35rem 0.85rem;
+  border-radius: 6px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--accent);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fmodal-load-more-btn:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.22);
+  border-color: rgba(56, 189, 248, 0.55);
+  color: #fff;
+}
+
+.fmodal-load-more-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 .fmodal-section-title {
   margin: 0;
   font-size: 0.95rem;

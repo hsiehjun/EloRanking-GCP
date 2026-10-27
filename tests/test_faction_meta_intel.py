@@ -620,6 +620,45 @@ class TestFactionMetaIntel(unittest.TestCase):
         self.assertEqual(reconciled["total_matches"], 82197)
         self.assertEqual(len(reconciled["matchups"]), 2)
 
+    def test_faction_matches_offset_pagination_and_ui_wiring(self):
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        executed = []
+
+        class MockCursor:
+            def __init__(self):
+                self.connection = None
+            def execute(self, query, params=None):
+                executed.append((query, params))
+            def fetchall(self):
+                return []
+
+        mock_cur = MockCursor()
+        db._query_faction_recent_matches(
+            "Orks", 350, ["40k"], " AND COALESCE(matches.game_system, '40k') = %s",
+            " AND matches.match_date >= %s", date_params=["2026-07-27"], cursor=mock_cur, offset=350
+        )
+        self.assertEqual(len(executed), 1)
+        sql_unfiltered, params_unfiltered = executed[0]
+        self.assertIn("OFFSET %s", sql_unfiltered)
+        self.assertEqual(params_unfiltered[-2:], (350, 350))
+
+        db._query_faction_recent_matches(
+            "Orks", 350, ["40k"], " AND COALESCE(matches.game_system, '40k') = %s",
+            " AND matches.match_date >= %s", date_params=["2026-07-27"], cursor=mock_cur, search_query="lvo", offset=350
+        )
+        self.assertEqual(len(executed), 2)
+        sql_search, params_search = executed[1]
+        self.assertIn("OFFSET %s", sql_search)
+        self.assertEqual(params_search[-2:], (350, 350))
+
+        app_html = (self.root_dir / "web" / "app.html").read_text(encoding="utf-8")
+        self.assertIn("fmodal-matches-footer", app_html)
+        self.assertIn("loadMoreFactionMatches()", app_html)
+
+        bundle_js = (self.root_dir / "web" / "js" / "app.bundle.min.js").read_text(encoding="utf-8")
+        self.assertIn("loadMoreFactionMatches", bundle_js)
+        self.assertIn("fmodal-load-more-btn", bundle_js)
+
 
 if __name__ == "__main__":
     unittest.main()

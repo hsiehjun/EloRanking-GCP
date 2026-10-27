@@ -1102,6 +1102,9 @@ function updateFactionModalTfButtons() {
 
 async function changeFactionModalTimeframe(tf) {
   currentFactionTimeframe = tf || '1yr';
+  currentFactionSearchHasMore = false;
+  currentFactionSearchNextOffset = 0;
+  _factionMatchSearchLastKey = '';
   updateFactionModalTfButtons();
   if (currentFactionName) {
     await loadFactionModalData(currentFactionName, currentFactionTimeframe);
@@ -1373,6 +1376,13 @@ function prefetchRemainingModalTimeframes(factionName, sys, activeTf) {
 }
 
 let currentFactionStats = {};
+let currentFactionMatchesScopeKey = '';
+let currentFactionTotalMatches = 0;
+let currentFactionMatchesNextOffset = 0;
+let currentFactionHasMoreMatches = false;
+let currentFactionLoadingMore = false;
+let currentFactionSearchHasMore = false;
+let currentFactionSearchNextOffset = 0;
 let fmodalMatchupVerdictFilter = 'ALL';
 let fmodalMatchOutcomeFilter = 'ALL';
 
@@ -1645,7 +1655,48 @@ function applyFactionModalData(data, sys, tf) {
     : (sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K');
 
   const totalGamesInMatchups = matchups.reduce((acc, m) => acc + (Number(m.total_matches) || 0), 0);
-  const totalMatchesCount = mergedStats.total_matches || mergedData.total_matches || totalGamesInMatchups || matches.length;
+  const totalMatchesCount = Number(mergedStats.total_matches || mergedData.total_matches || totalGamesInMatchups || matches.length || 0);
+
+  const scopeFacNorm = String((data && data.faction) || currentFactionName || '').trim().toLowerCase();
+  const scopeKey = `${scopeFacNorm}_${sys}_${tf}`;
+  let effectiveMatches = matches;
+  let nextOffset = Number(data._nextOffset || matches.length || 0);
+  let hasMore = typeof data.has_more_matches === 'boolean'
+    ? data.has_more_matches
+    : (matches.length >= 150 && totalMatchesCount > matches.length);
+
+  if (
+    !data._instantMetaOnly &&
+    scopeKey === currentFactionMatchesScopeKey &&
+    Array.isArray(currentFactionMatches) &&
+    currentFactionMatches.length > matches.length &&
+    currentFactionMatchesNextOffset > nextOffset
+  ) {
+    const byId = new Map();
+    matches.forEach(m => {
+      const mid = m && m.id !== undefined ? String(m.id) : `${m.event_id}_${m.round}_${m.player_id}`;
+      byId.set(mid, m);
+    });
+    currentFactionMatches.forEach(m => {
+      const mid = m && m.id !== undefined ? String(m.id) : `${m.event_id}_${m.round}_${m.player_id}`;
+      if (!byId.has(mid)) byId.set(mid, m);
+    });
+    effectiveMatches = Array.from(byId.values()).sort((a, b) => {
+      const da = String(a.match_date || '');
+      const db = String(b.match_date || '');
+      if (da !== db) return db.localeCompare(da);
+      return (Number(b.round) || 0) - (Number(a.round) || 0);
+    });
+    nextOffset = currentFactionMatchesNextOffset;
+    hasMore = currentFactionHasMoreMatches;
+  }
+
+  currentFactionMatchesScopeKey = scopeKey;
+  currentFactionMatches = effectiveMatches;
+  currentFactionTotalMatches = totalMatchesCount;
+  currentFactionMatchesNextOffset = nextOffset;
+  currentFactionHasMoreMatches = hasMore;
+  currentFactionLoadingMore = false;
 
   const subEl = document.getElementById('modal-faction-subtitle');
   if (subEl) {
@@ -1653,7 +1704,8 @@ function applyFactionModalData(data, sys, tf) {
   }
 
   const mCount = document.getElementById('faction-tab-matches-count');
-  if (mCount) mCount.innerText = matches.length > 0 ? matches.length.toLocaleString() : (data._instantMetaOnly ? '...' : '0');
+  const pillTotal = Math.max(effectiveMatches.length, totalMatchesCount);
+  if (mCount) mCount.innerText = pillTotal > 0 ? pillTotal.toLocaleString() : (data._instantMetaOnly ? '...' : '0');
   const pCount = document.getElementById('faction-tab-players-count');
   if (pCount) pCount.innerText = topPlayers.length;
   const muCount = document.getElementById('faction-tab-matchups-count');
@@ -1662,7 +1714,10 @@ function applyFactionModalData(data, sys, tf) {
   renderFactionModalKpis(mergedData, sys, tf);
   renderFactionMatchupsRows(matchups);
   if (!data._instantMetaOnly) {
-    renderFactionMatchesRows(matches);
+    renderFactionMatchesRows(effectiveMatches);
+  } else {
+    const footerEl = document.getElementById('fmodal-matches-footer');
+    if (footerEl) footerEl.style.display = 'none';
   }
 }
 
@@ -1745,11 +1800,17 @@ async function openFactionModal(factionName, initialTf = null, initialSubtab = n
     currentFactionMatches = [];
     currentFactionPlayers = [];
     currentFactionMatchups = [];
+    currentFactionTotalMatches = 0;
+    currentFactionMatchesNextOffset = 0;
+    currentFactionHasMoreMatches = false;
   }
 
   fmodalMatchupVerdictFilter = 'ALL';
   fmodalMatchOutcomeFilter = 'ALL';
   _factionMatchSearchLastKey = '';
+  currentFactionSearchHasMore = false;
+  currentFactionSearchNextOffset = 0;
+  currentFactionLoadingMore = false;
   if (_factionMatchSearchDebounce) {
     clearTimeout(_factionMatchSearchDebounce);
     _factionMatchSearchDebounce = null;
@@ -1831,10 +1892,14 @@ function setFactionModalMatchOutcomeFilter(outcome) {
 window.setFactionModalMatchOutcomeFilter = setFactionModalMatchOutcomeFilter;
 
 function onFactionModalMatchControlChange() {
-  renderFactionMatchesRows(currentFactionMatches);
-
   const searchInput = document.getElementById('fmodal-matches-search');
   const q = searchInput ? String(searchInput.value || '').trim() : '';
+  if (q.length < 2) {
+    currentFactionSearchHasMore = false;
+    currentFactionSearchNextOffset = 0;
+  }
+  renderFactionMatchesRows(currentFactionMatches);
+
   if (_factionMatchSearchDebounce) {
     clearTimeout(_factionMatchSearchDebounce);
     _factionMatchSearchDebounce = null;
@@ -1849,14 +1914,17 @@ function onFactionModalMatchControlChange() {
 
   _factionMatchSearchDebounce = setTimeout(async () => {
     try {
-      const res = await window.api.getFactionDetails(reqFac, 350, sys, tf, { search: q });
+      const res = await window.api.getFactionDetails(reqFac, 350, sys, tf, { search: q, offset: 0 });
       if (currentFactionName !== reqFac || currentFactionTimeframe !== tf) return;
       _factionMatchSearchLastKey = searchKey;
       const remoteMatches = (res && Array.isArray(res.matches)) ? res.matches : [];
+      currentFactionSearchNextOffset = remoteMatches.length;
+      currentFactionSearchHasMore = Boolean(res && res.has_more_matches) && remoteMatches.length > 0;
       if (remoteMatches.length > 0) {
         const byId = new Map();
         (currentFactionMatches || []).forEach(m => {
-          if (m && m.id !== undefined) byId.set(String(m.id), m);
+          const mid = m && m.id !== undefined ? String(m.id) : `${m.event_id}_${m.round}_${m.player_id}`;
+          byId.set(mid, m);
         });
         let added = 0;
         remoteMatches.forEach(m => {
@@ -1873,13 +1941,147 @@ function onFactionModalMatchControlChange() {
             if (da !== db) return db.localeCompare(da);
             return (Number(b.round) || 0) - (Number(a.round) || 0);
           });
-          renderFactionMatchesRows(currentFactionMatches);
         }
       }
+      renderFactionMatchesRows(currentFactionMatches);
     } catch (e) {}
   }, 180);
 }
 window.onFactionModalMatchControlChange = onFactionModalMatchControlChange;
+
+async function loadMoreFactionMatches() {
+  if (currentFactionLoadingMore || !currentFactionName) return;
+  const searchInput = document.getElementById('fmodal-matches-search');
+  const q = searchInput ? String(searchInput.value || '').trim() : '';
+  const isSearchMode = q.length >= 2;
+  const canLoad = isSearchMode ? currentFactionSearchHasMore : currentFactionHasMoreMatches;
+  if (!canLoad) return;
+
+  const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+  const tf = currentFactionTimeframe || '1yr';
+  const reqFac = currentFactionName;
+  const offsetToFetch = isSearchMode ? currentFactionSearchNextOffset : currentFactionMatchesNextOffset;
+  const pageSize = 350;
+
+  currentFactionLoadingMore = true;
+  updateFactionMatchesFooter(
+    Array.isArray(currentFactionMatches) ? currentFactionMatches.length : 0,
+    null,
+    q
+  );
+
+  try {
+    const opts = isSearchMode ? { search: q, offset: offsetToFetch } : { offset: offsetToFetch };
+    const res = await window.api.getFactionDetails(reqFac, pageSize, sys, tf, opts);
+    if (currentFactionName !== reqFac || currentFactionTimeframe !== tf) return;
+
+    const remoteMatches = (res && Array.isArray(res.matches)) ? res.matches : [];
+    const moreAvail = Boolean(res && res.has_more_matches) && remoteMatches.length > 0;
+    if (isSearchMode) {
+      currentFactionSearchNextOffset = offsetToFetch + remoteMatches.length;
+      currentFactionSearchHasMore = moreAvail;
+    } else {
+      currentFactionMatchesNextOffset = offsetToFetch + remoteMatches.length;
+      currentFactionHasMoreMatches = moreAvail;
+    }
+
+    if (remoteMatches.length > 0) {
+      const byId = new Map();
+      (currentFactionMatches || []).forEach(m => {
+        const mid = m && m.id !== undefined ? String(m.id) : `${m.event_id}_${m.round}_${m.player_id}`;
+        byId.set(mid, m);
+      });
+      remoteMatches.forEach(m => {
+        const mid = m && m.id !== undefined ? String(m.id) : `${m.event_id}_${m.round}_${m.player_id}`;
+        if (!byId.has(mid)) byId.set(mid, m);
+      });
+      currentFactionMatches = Array.from(byId.values()).sort((a, b) => {
+        const da = String(a.match_date || '');
+        const db = String(b.match_date || '');
+        if (da !== db) return db.localeCompare(da);
+        return (Number(b.round) || 0) - (Number(a.round) || 0);
+      });
+
+      if (!isSearchMode) {
+        const ck = `${reqFac.trim().toLowerCase()}_${sys}_${tf}`;
+        const existing = factionModalDataCache.get(ck);
+        if (existing && existing.data) {
+          existing.data = {
+            ...existing.data,
+            matches: currentFactionMatches,
+            has_more_matches: currentFactionHasMoreMatches,
+            _nextOffset: currentFactionMatchesNextOffset
+          };
+        }
+      }
+    }
+
+    currentFactionLoadingMore = false;
+    const scrollWrap = document.querySelector('#faction-view-matches .fmodal-table-scroll');
+    const prevScroll = scrollWrap ? scrollWrap.scrollTop : 0;
+    renderFactionMatchesRows(currentFactionMatches);
+    if (scrollWrap && prevScroll > 0) {
+      scrollWrap.scrollTop = prevScroll;
+    }
+  } catch (err) {
+    console.warn('Notice loading more faction matches:', err);
+    currentFactionLoadingMore = false;
+    updateFactionMatchesFooter(
+      Array.isArray(currentFactionMatches) ? currentFactionMatches.length : 0,
+      null,
+      q
+    );
+  }
+}
+window.loadMoreFactionMatches = loadMoreFactionMatches;
+
+function updateFactionMatchesFooter(loadedCount, filteredCount, searchQuery = '') {
+  const footerEl = document.getElementById('fmodal-matches-footer');
+  const statusEl = document.getElementById('fmodal-matches-footer-status');
+  const btnEl = document.getElementById('fmodal-load-more-btn');
+  if (!footerEl || !statusEl || !btnEl) return;
+
+  const q = String(searchQuery || '').trim();
+  const isSearchMode = q.length >= 2;
+  const hasFilter = Boolean(q) || fmodalMatchOutcomeFilter !== 'ALL';
+  const canLoadMore = isSearchMode ? currentFactionSearchHasMore : currentFactionHasMoreMatches;
+  const totalKnown = Math.max(loadedCount, Number(currentFactionTotalMatches || 0));
+
+  if (loadedCount === 0 && !canLoadMore) {
+    footerEl.style.display = 'none';
+    return;
+  }
+
+  if (!canLoadMore && totalKnown <= 350 && !hasFilter) {
+    footerEl.style.display = 'none';
+    return;
+  }
+
+  footerEl.style.display = 'flex';
+  if (hasFilter) {
+    const shown = filteredCount !== null && filteredCount !== undefined ? filteredCount : loadedCount;
+    statusEl.innerHTML = `Showing <strong>${Number(shown).toLocaleString()}</strong> matching games (from ${Number(loadedCount).toLocaleString()} loaded)`;
+  } else if (totalKnown > loadedCount) {
+    statusEl.innerHTML = `Showing <strong>${Number(loadedCount).toLocaleString()}</strong> of <strong>${Number(totalKnown).toLocaleString()}</strong> tournament games`;
+  } else {
+    statusEl.innerHTML = `All <strong>${Number(loadedCount).toLocaleString()}</strong> tournament games loaded`;
+  }
+
+  if (canLoadMore) {
+    btnEl.style.display = '';
+    btnEl.disabled = Boolean(currentFactionLoadingMore);
+    if (currentFactionLoadingMore) {
+      btnEl.innerText = 'Loading games...';
+    } else if (!hasFilter && totalKnown > loadedCount) {
+      const nextStep = Math.min(350, Math.max(1, totalKnown - loadedCount));
+      btnEl.innerText = `Load More Games (+${nextStep.toLocaleString()})`;
+    } else {
+      btnEl.innerText = 'Load More Games (+350)';
+    }
+  } else {
+    btnEl.style.display = 'none';
+  }
+}
 
 function renderFactionMatchesRows(matches) {
   const tbody = document.getElementById('faction-matches-body');
@@ -1900,9 +2102,10 @@ function renderFactionMatchesRows(matches) {
     return true;
   });
 
+  const totalKnown = Math.max(allMatches.length, Number(currentFactionTotalMatches || 0));
   const mCount = document.getElementById('faction-tab-matches-count');
   if (mCount) {
-    mCount.innerText = (hasActiveFilter ? filtered.length : allMatches.length).toLocaleString();
+    mCount.innerText = (hasActiveFilter ? filtered.length : totalKnown).toLocaleString();
   }
 
   const summaryEl = document.getElementById('fmodal-recent-summary-pill');
@@ -1913,12 +2116,19 @@ function renderFactionMatchesRows(matches) {
       const l = targetPool.filter(m => m.outcome === 'L').length;
       const d = targetPool.filter(m => m.outcome === 'D').length;
       const wr = ((w / targetPool.length) * 100).toFixed(1);
-      const labelPrefix = hasActiveFilter ? `Matching Filter (${targetPool.length})` : `Sample Record (${targetPool.length})`;
-      summaryEl.innerHTML = `• ${labelPrefix}: <strong style="color:var(--win);">${w}W</strong>-<strong style="color:var(--loss);">${l}L</strong>${d ? `-${d}D` : ''} (<strong>${wr}%</strong>)`;
+      if (hasActiveFilter) {
+        summaryEl.innerHTML = `• Matching Filter (${targetPool.length.toLocaleString()}): <strong style="color:var(--win);">${w}W</strong>-<strong style="color:var(--loss);">${l}L</strong>${d ? `-${d}D` : ''} (<strong>${wr}%</strong>)`;
+      } else if (totalKnown > allMatches.length) {
+        summaryEl.innerHTML = `• Showing <strong>${allMatches.length.toLocaleString()}</strong> of <strong>${totalKnown.toLocaleString()}</strong> • Loaded: <strong style="color:var(--win);">${w}W</strong>-<strong style="color:var(--loss);">${l}L</strong>${d ? `-${d}D` : ''} (<strong>${wr}%</strong>)`;
+      } else {
+        summaryEl.innerHTML = `• Loaded (${targetPool.length.toLocaleString()}): <strong style="color:var(--win);">${w}W</strong>-<strong style="color:var(--loss);">${l}L</strong>${d ? `-${d}D` : ''} (<strong>${wr}%</strong>)`;
+      }
     } else {
       summaryEl.innerHTML = '';
     }
   }
+
+  updateFactionMatchesFooter(allMatches.length, filtered.length, q);
 
   if (filtered.length === 0) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No recent games match the selected filter in this timeframe.</td></tr>';

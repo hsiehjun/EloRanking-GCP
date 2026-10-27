@@ -4745,10 +4745,12 @@ class LocalSqliteDatabase:
         timeframe: str = "1yr",
         search: Optional[str] = None,
         limit: int = 150,
+        offset: int = 0,
     ) -> Optional[Dict[str, Any]]:
         """Computes faction/deck/commander detailed analytics, top pilots, matchups, and recent matches."""
         norm_sys = normalize_game_system(game_system, default="40k")
         f_clean = str(faction_name or "").strip()
+        eff_offset = max(0, int(offset or 0))
         if not f_clean:
             return {
                 "faction": "",
@@ -4756,6 +4758,8 @@ class LocalSqliteDatabase:
                 "timeframe": timeframe,
                 "stats": {},
                 "total_matches": 0,
+                "matches_offset": eff_offset,
+                "has_more_matches": False,
                 "top_players": [],
                 "matches": [],
                 "matchups": [],
@@ -4806,7 +4810,10 @@ class LocalSqliteDatabase:
                 if sq
                 in f"{m.get('event_name', '')} {m.get('player_name', '')} {m.get('opponent_name', '')} {m.get('opponent_faction', '')}".lower()
             ]
-        out["matches"] = matches_list[: max(1, int(limit or 150))]
+        page_lim = max(1, int(limit or 150))
+        out["matches"] = matches_list[eff_offset : eff_offset + page_lim]
+        out["matches_offset"] = eff_offset
+        out["has_more_matches"] = (eff_offset + len(out["matches"])) < len(matches_list)
         stats_copy = dict(out.get("stats") or {})
         stats_copy["total_recent_sample"] = len(out["matches"])
         stats_copy["recent_wins"] = sum(1 for m in out["matches"] if m.get("outcome") == "W")

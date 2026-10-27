@@ -6,7 +6,7 @@
   <title>OmniTactica • Tactical Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=087c833658">
+  <link rel="manifest" href="/manifest.json?v=4336e8fd27">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=087c833658">
-  <link rel="stylesheet" href="/css/styles.min.css?v=087c833658">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=087c833658">
-  <link rel="preload" href="/js/app.bundle.min.js?v=087c833658" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=4336e8fd27">
+  <link rel="stylesheet" href="/css/styles.min.css?v=4336e8fd27">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=4336e8fd27">
+  <link rel="preload" href="/js/app.bundle.min.js?v=4336e8fd27" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "087c833658";</script>
+  <script>window.APP_VERSION = "4336e8fd27";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -3868,6 +3868,12 @@
               <tbody id="faction-matches-body"></tbody>
             </table>
           </div>
+          <div id="fmodal-matches-footer" class="fmodal-matches-footer" style="display: none;">
+            <span id="fmodal-matches-footer-status" class="fmodal-matches-footer-status"></span>
+            <button type="button" id="fmodal-load-more-btn" class="btn btn-secondary btn-sm fmodal-load-more-btn" onclick="loadMoreFactionMatches()">
+              Load More Games (+350)
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -3876,7 +3882,7 @@
   </div> <!-- #app-shell -->
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=087c833658"></script>
+  <script src="/js/app.bundle.min.js?v=4336e8fd27"></script>
 
   <!-- Cloud Firestore Compat SDK for Real-time Matchmaking & Push Chat -->
   <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>

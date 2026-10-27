@@ -4302,20 +4302,27 @@ async def api_faction_meta(
 async def api_faction_details(
     faction_name: str,
     limit: int = Query(350, ge=1, le=500),
+    offset: int = Query(0, ge=0, le=50000),
     game_system: Optional[str] = Query("40k"),
     timeframe: Optional[str] = Query("1yr"),
     search: Optional[str] = Query(None),
     refresh: bool = Query(False)
 ):
+    raw_limit = limit.default if hasattr(limit, "default") else limit
+    raw_offset = offset.default if hasattr(offset, "default") else offset
+    raw_sys = game_system.default if hasattr(game_system, "default") else game_system
+    raw_tf = timeframe.default if hasattr(timeframe, "default") else timeframe
+    raw_search = search.default if hasattr(search, "default") else search
     raw_refresh = refresh.default if hasattr(refresh, "default") else refresh
     return await asyncio.to_thread(
         get_database().get_faction_details,
         faction_name.strip(),
-        limit=limit,
-        game_system=game_system,
-        timeframe=timeframe,
-        search=search.strip() if search else None,
-        _force_refresh=bool(raw_refresh)
+        limit=int(raw_limit or 350),
+        game_system=raw_sys,
+        timeframe=raw_tf,
+        search=raw_search.strip() if raw_search else None,
+        _force_refresh=bool(raw_refresh),
+        offset=max(0, int(raw_offset or 0))
     )
 
 # API: Match Win Probability Predictor

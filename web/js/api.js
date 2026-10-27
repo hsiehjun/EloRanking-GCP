@@ -876,6 +876,7 @@ window.api = {
     if (sys) params.set('game_system', sys);
     if (tf) params.set('timeframe', tf);
     if (options && options.search) params.set('search', String(options.search).trim());
+    if (options && Number(options.offset) > 0) params.set('offset', String(Math.floor(Number(options.offset))));
 
     return this._fetchJson(`/api/faction/${encodeURIComponent(factionName)}?${params.toString()}`, options);
   },

@@ -8802,6 +8802,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             tf_val = (query_params.get("timeframe") or ["1yr"])[0]
             search_q_early = ((query_params.get("search") or [""])[0] or "").strip()
             limit_val = int((query_params.get("limit") or ["150"])[0] or 150)
+            offset_val = max(0, int((query_params.get("offset") or ["0"])[0] or 0))
             sql_fac_detail = (
                 local_db.get_faction_details(
                     fname,
@@ -8809,6 +8810,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     timeframe=tf_val,
                     search=search_q_early,
                     limit=limit_val,
+                    offset=offset_val,
                 )
                 if local_db
                 else None
