@@ -404,7 +404,7 @@ def _fetch_ltcg_bundle_html(
         try:
             det_html = _ltcg_get_text(f"https://play.limitlesstcg.com/tournament/{raw_tid}/details", timeout=12)
             tm_m = re.search(r'data-time="(\d+)"', det_html)
-            if tm_m:
+            if tm_m and int(tm_m.group(1)) > 0:
                 ev_date = datetime.fromtimestamp(int(tm_m.group(1)) / 1000.0, tz=timezone.utc).isoformat()
         except Exception:
             pass
@@ -2878,8 +2878,8 @@ def get_existing_platform_event_ids(db: Any, prefix: str) -> set:
                         (like_pat,),
                     )
                     for row in (cur.fetchall() or []):
-                        eid = str(row[0] if isinstance(row, (list, tuple)) else row.get("id") or "").strip()
-                        ext = str(row[1] if isinstance(row, (list, tuple)) else row.get("external_event_id") or "").strip()
+                        eid = str((row[0] if isinstance(row, (list, tuple)) else row.get("id")) or "").strip()
+                        ext = str((row[1] if isinstance(row, (list, tuple)) else row.get("external_event_id")) or "").strip()
                         if eid:
                             existing.add(eid)
                             if eid.startswith(f"{clean_p}:"):
@@ -2965,11 +2965,11 @@ def get_open_platform_event_targets(
                             (like_pat, cap),
                         )
                     for row in (cur.fetchall() or []):
-                        eid = str(row[0] if isinstance(row, (list, tuple)) else row.get("id") or "").strip()
-                        gs = str(row[1] if isinstance(row, (list, tuple)) else row.get("game_system") or "").strip().lower()
-                        ext = str(row[2] if isinstance(row, (list, tuple)) else row.get("external_event_id") or "").strip()
+                        eid = str((row[0] if isinstance(row, (list, tuple)) else row.get("id")) or "").strip()
+                        gs = str((row[1] if isinstance(row, (list, tuple)) else row.get("game_system")) or "").strip().lower()
+                        ext = str((row[2] if isinstance(row, (list, tuple)) else row.get("external_event_id")) or "").strip()
                         raw_tid = ext or (eid[len(clean_p) + 1 :] if eid.startswith(f"{clean_p}:") else eid)
-                        if raw_tid and gs:
+                        if raw_tid and raw_tid != "None" and gs:
                             out.append((gs, raw_tid))
         elif hasattr(db, "_connect") and type(getattr(db, "_connect", None)).__name__ != "MagicMock":
             conn = db._connect()
