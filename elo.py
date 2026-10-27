@@ -1568,9 +1568,24 @@ class EloEngine:
                         for r in (cur.fetchall() or []):
                             yield dict(r)
 
-            total_match_count = 0
-            parsed_raw_by_mid: Dict[str, Dict[str, Any]] = {}
+            def _parse_multi_seat_raw(raw_val: Any) -> Dict[str, Any]:
+                if not raw_val:
+                    return {}
+                if isinstance(raw_val, dict):
+                    return raw_val
+                if isinstance(raw_val, str):
+                    s_raw = raw_val.strip()
+                    if s_raw.startswith("{") and (
+                        "pod_participants" in s_raw or "team1_players" in s_raw or "team2_players" in s_raw
+                    ):
+                        try:
+                            obj = json.loads(s_raw)
+                            return obj if isinstance(obj, dict) else {}
+                        except Exception:
+                            return {}
+                return {}
 
+            total_match_count = 0
             candidate_pids_set = set()
             scoped_eids_set = set()
             for nm in _iter_matches():
@@ -1581,18 +1596,8 @@ class EloEngine:
                     candidate_pids_set.add(_bound_id(nm["player1_id"]))
                 if nm.get("player2_id") and str(nm["player2_id"]).strip().upper() != "BYE":
                     candidate_pids_set.add(_bound_id(nm["player2_id"]))
-                raw_val = nm.get("raw_json")
-                if raw_val:
-                    raw_obj: Dict[str, Any] = {}
-                    if isinstance(raw_val, dict):
-                        raw_obj = raw_val
-                    elif isinstance(raw_val, str) and raw_val.strip().startswith("{"):
-                        try:
-                            raw_obj = json.loads(raw_val)
-                        except Exception:
-                            raw_obj = {}
-                    if raw_obj:
-                        parsed_raw_by_mid[str(nm.get("id") or "")] = raw_obj
+                raw_obj = _parse_multi_seat_raw(nm.get("raw_json"))
+                if raw_obj:
                     for list_k in ("pod_participants", "team1_players", "team2_players"):
                         for p_item in (raw_obj.get(list_k) or []):
                             if isinstance(p_item, dict) and p_item.get("player_id"):
@@ -1765,7 +1770,7 @@ class EloEngine:
                     flushed_at[0] = history_count[0]
                 ev_id_b = _bound_id(m.get("event_id") or "")
                 m_date = m.get("match_date")
-                raw_obj = parsed_raw_by_mid.get(str(m.get("id") or "")) or {}
+                raw_obj = _parse_multi_seat_raw(m.get("raw_json"))
 
                 # --- BRANCH A: 2v2 Doubles / Team Match ---
                 t1_list = raw_obj.get("team1_players")
