@@ -1124,26 +1124,36 @@ LONGSHANKS_UNLISTED_SYSTEMS: List[str] = [
     "malediction", "takkure", "freeblades", "dropfleet", "shroudfall", "wot",
 ]
 
-LONGSHANKS_MAX_CONCURRENCY = max(1, int(os.getenv("LONGSHANKS_MAX_CONCURRENCY", "3") or 3))
+LONGSHANKS_MAX_CONCURRENCY = max(1, int(os.getenv("LONGSHANKS_MAX_CONCURRENCY", "6") or 6))
 _LONGSHANKS_HTTP_SEMAPHORE = None
 _LONGSHANKS_OPENER = None
+_LONGSHANKS_COOKIE_JAR = None
+_LONGSHANKS_POW_LOCK = None
+_LONGSHANKS_LAST_POW_TS: float = 0.0
+_LONGSHANKS_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
 
 class LongshanksBlockedError(RuntimeError):
-    """Raised when Longshanks (SiteGround) answers with its `sgcaptcha` bot challenge instead of content."""
+    """Raised when Longshanks (SiteGround) answers with an unsolvable bot challenge instead of content."""
 
 
 def _longshanks_opener():
-    """urllib opener honoring `LONGSHANKS_PROXY_URL` (falls back to HTTPS_PROXY/HTTP_PROXY env)."""
-    global _LONGSHANKS_OPENER
+    """Shared urllib opener with `.longshanks.org` CookieJar (`_I_` PoW cookie) + optional `LONGSHANKS_PROXY_URL`."""
+    import http.cookiejar
+
+    global _LONGSHANKS_OPENER, _LONGSHANKS_COOKIE_JAR
+    if _LONGSHANKS_COOKIE_JAR is None:
+        _LONGSHANKS_COOKIE_JAR = http.cookiejar.CookieJar()
     if _LONGSHANKS_OPENER is None:
+        cookie_handler = urllib.request.HTTPCookieProcessor(_LONGSHANKS_COOKIE_JAR)
         proxy = (os.getenv("LONGSHANKS_PROXY_URL") or "").strip()
         if proxy:
             _LONGSHANKS_OPENER = urllib.request.build_opener(
-                urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+                urllib.request.ProxyHandler({"http": proxy, "https": proxy}),
+                cookie_handler,
             )
         else:
-            _LONGSHANKS_OPENER = urllib.request.build_opener()  # default ProxyHandler reads *_PROXY env
+            _LONGSHANKS_OPENER = urllib.request.build_opener(cookie_handler)
     return _LONGSHANKS_OPENER
 
 
@@ -1151,11 +1161,122 @@ def _is_longshanks_challenge(status: int, body: str) -> bool:
     return status == 202 or "sgcaptcha" in body[:2000] or ".well-known/sgcaptcha" in body[:2000]
 
 
+def _solve_siteground_pow(challenge: str) -> Tuple[str, int, int]:
+    """Solves SiteGround's SHA-1 Hashcash PoW (`const sgchallenge = "21:..."`) at ~1M+ H/s with zero per-hash allocations."""
+    import base64 as _b64
+
+    t0 = time.time()
+    comp = int(challenge.split(":", 1)[0])
+    shift = 32 - comp
+    ch_bytes = challenge.encode("utf-8")
+    n = len(ch_bytes)
+    buf = bytearray(ch_bytes + b"\x00\x00\x00\x00")
+    _sha1 = hashlib.sha1
+    need_two_zero = comp >= 16
+    hashes = 0
+
+    for b0 in range(1, 256):
+        buf[n] = b0
+        for b1 in range(256):
+            buf[n + 1] = b1
+            for b2 in range(256):
+                buf[n + 2] = b2
+                for b3 in range(256):
+                    buf[n + 3] = b3
+                    d = _sha1(buf).digest()
+                    if need_two_zero and (d[0] or d[1]):
+                        continue
+                    w0 = int.from_bytes(d[:4], "big")
+                    if w0 and (w0 >> shift) == 0:
+                        hashes = ((b0 - 1) << 24) + (b1 << 16) + (b2 << 8) + b3 + 1
+                        sol = _b64.b64encode(bytes(buf)).decode("ascii")
+                        dt_ms = max(1, int((time.time() - t0) * 1000))
+                        return sol, dt_ms, hashes
+
+    dt_ms = max(1, int((time.time() - t0) * 1000))
+    return "", dt_ms, max(1, hashes)
+
+
+def _bypass_longshanks_sgcaptcha(url: str, initial_body: str, timeout: int = 20) -> bool:
+    """
+    Single-flight solver for SiteGround's `/.well-known/sgcaptcha/` HTTP 202 PoW challenge.
+    Mints the wildcard `.longshanks.org` `_I_` bypass cookie into `_LONGSHANKS_COOKIE_JAR`.
+    """
+    import gzip as _gzip
+    import threading
+    import urllib.parse
+
+    global _LONGSHANKS_POW_LOCK, _LONGSHANKS_LAST_POW_TS
+    if _LONGSHANKS_POW_LOCK is None:
+        _LONGSHANKS_POW_LOCK = threading.Lock()
+
+    with _LONGSHANKS_POW_LOCK:
+        # If another worker solved the `.longshanks.org` challenge moments ago, reuse its `_I_` cookie.
+        if time.time() - _LONGSHANKS_LAST_POW_TS < 4.0:
+            return True
+
+        parsed_u = urllib.parse.urlparse(url)
+        origin = f"{parsed_u.scheme or 'https'}://{parsed_u.netloc}"
+
+        def _raw_open(target_url: str) -> str:
+            r_req = urllib.request.Request(
+                target_url,
+                headers={
+                    "User-Agent": _LONGSHANKS_UA,
+                    "Accept": "text/html,application/xhtml+xml,*/*",
+                    "Accept-Encoding": "gzip",
+                },
+            )
+            with _longshanks_opener().open(r_req, timeout=timeout) as r_resp:
+                raw_b = r_resp.read()
+                if "gzip" in str(r_resp.headers.get("Content-Encoding") or "").lower():
+                    try:
+                        raw_b = _gzip.decompress(raw_b)
+                    except Exception:
+                        pass
+                return raw_b.decode("utf-8", errors="ignore")
+
+        body_src = initial_body or ""
+        idx = body_src.find("/.well-known/sgcaptcha/")
+        if idx < 0:
+            body_src = _raw_open(url)
+            idx = body_src.find("/.well-known/sgcaptcha/")
+            if idx < 0 and not _is_longshanks_challenge(200, body_src):
+                _LONGSHANKS_LAST_POW_TS = time.time()
+                return True
+        if idx < 0:
+            return False
+
+        end_q = body_src.find('"', idx)
+        end_sq = body_src.find("'", idx)
+        candidates = [x for x in (end_q, end_sq) if x > idx]
+        if not candidates:
+            return False
+        ch_path = body_src[idx : min(candidates)].replace("&amp;", "&")
+        ch_html = _raw_open(origin + ch_path)
+
+        m_ch = re.search(r'sgchallenge="([^"]+)"', ch_html)
+        m_sub = re.search(r'sgsubmit_url="([^"]+)"', ch_html)
+        if not m_ch or not m_sub:
+            return False
+
+        sol, dt_ms, hashes = _solve_siteground_pow(m_ch.group(1))
+        if not sol:
+            return False
+
+        sub_path = m_sub.group(1).replace("&amp;", "&")
+        sep = "&" if "?" in sub_path else "?"
+        submit_url = f"{origin}{sub_path}{sep}sol={urllib.parse.quote(sol, safe='')}&s={dt_ms}:{hashes}"
+        _raw_open(submit_url)
+        _LONGSHANKS_LAST_POW_TS = time.time()
+        logger.info(f"🔓 [Longshanks] Solved SiteGround sgcaptcha PoW in {dt_ms}ms ({hashes:,} hashes) for {origin}")
+        return True
+
+
 def _ls_get_text(url: str, timeout: int = 20, retries: int = 2) -> str:
     """
     Polite Longshanks GET: global concurrency cap (`LONGSHANKS_MAX_CONCURRENCY`), optional egress proxy,
-    retry with backoff on transient errors, and loud `LongshanksBlockedError` on the SiteGround captcha
-    (served to GCP / datacenter IPs as HTTP 202 + meta refresh to `/.well-known/sgcaptcha/`).
+    automatic SiteGround `sgcaptcha` SHA-1 PoW cookie solver for Cloud Run IPs, and retry with backoff.
     """
     import gzip as _gzip
     import threading
@@ -1164,27 +1285,34 @@ def _ls_get_text(url: str, timeout: int = 20, retries: int = 2) -> str:
     global _LONGSHANKS_HTTP_SEMAPHORE
     if _LONGSHANKS_HTTP_SEMAPHORE is None:
         _LONGSHANKS_HTTP_SEMAPHORE = threading.BoundedSemaphore(LONGSHANKS_MAX_CONCURRENCY)
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,*/*",
-            "Accept-Encoding": "gzip",
-        },
-    )
+
+    def _do_single_get() -> Tuple[int, str]:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": _LONGSHANKS_UA,
+                "Accept": "text/html,application/xhtml+xml,*/*",
+                "Accept-Encoding": "gzip",
+            },
+        )
+        with _LONGSHANKS_HTTP_SEMAPHORE:
+            with _longshanks_opener().open(req, timeout=timeout) as resp:
+                st = int(getattr(resp, "status", 200) or 200)
+                raw = resp.read()
+                if "gzip" in str(resp.headers.get("Content-Encoding") or "").lower():
+                    try:
+                        raw = _gzip.decompress(raw)
+                    except Exception:
+                        pass
+        return st, raw.decode("utf-8", errors="ignore")
+
     last_err: Optional[Exception] = None
     for attempt in range(retries + 1):
         try:
-            with _LONGSHANKS_HTTP_SEMAPHORE:
-                with _longshanks_opener().open(req, timeout=timeout) as resp:
-                    status = int(getattr(resp, "status", 200) or 200)
-                    raw = resp.read()
-                    if "gzip" in str(resp.headers.get("Content-Encoding") or "").lower():
-                        try:
-                            raw = _gzip.decompress(raw)
-                        except Exception:
-                            pass
-            body = raw.decode("utf-8", errors="ignore")
+            status, body = _do_single_get()
+            if _is_longshanks_challenge(status, body):
+                if _bypass_longshanks_sgcaptcha(url, body, timeout=timeout):
+                    status, body = _do_single_get()
             if _is_longshanks_challenge(status, body):
                 raise LongshanksBlockedError(
                     f"Longshanks bot challenge (HTTP {status}, {len(body)} bytes) for {url}: {body[:160]!r}"
@@ -1199,6 +1327,9 @@ def _ls_get_text(url: str, timeout: int = 20, retries: int = 2) -> str:
                     snippet = e.read()[:400].decode("utf-8", errors="ignore")
                 except Exception:
                     snippet = ""
+                if "sgcaptcha" in snippet:
+                    if _bypass_longshanks_sgcaptcha(url, snippet, timeout=timeout):
+                        continue
                 if "sgcaptcha" in snippet or e.code == 403:
                     raise LongshanksBlockedError(f"Longshanks HTTP {e.code} for {url}: {snippet[:160]!r}")
             elif e.code == 404:

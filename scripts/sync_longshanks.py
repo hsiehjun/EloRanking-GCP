@@ -14,10 +14,10 @@ Resumable full-history backfill (designed for nightly Cloud Run Job runs, 60-min
   * `--max-events` caps imports per run; `--time-budget-minutes` (default 50) stops importing early
     enough to leave time for `finalize_platform_sync` (Elo rebuild + Meta Intel) of every touched system,
     using per-system finalize timings measured on previous runs.
-  * Longshanks is hosted on SiteGround, which serves an `sgcaptcha` bot challenge (HTTP 202) to
-    datacenter IPs such as Cloud Run egress. That is detected and reported as `status: BLOCKED`
-    (instead of silently importing 0 events). Set `LONGSHANKS_PROXY_URL` to route Longshanks traffic
-    through a non-datacenter egress proxy.
+  * Longshanks is hosted on SiteGround, which serves an `sgcaptcha` SHA-1 Proof-of-Work challenge
+    (HTTP 202) to datacenter IPs such as Cloud Run egress. `_ls_get_text` automatically solves that
+    PoW in ~80–900ms and reuses the wildcard `.longshanks.org` `_I_` cookie across all subdomains
+    (optional `LONGSHANKS_PROXY_URL` is also supported if ever needed).
 """
 
 import argparse

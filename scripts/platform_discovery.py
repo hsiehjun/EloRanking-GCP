@@ -5,6 +5,7 @@ Discovers 100% real upcoming, live (in-progress), and premier recent tournaments
   - Melee.gg (`melee:{tid}`)
   - Limitless TCG (`ltcg:{tid}`)
   - TopDeck.gg (`td:{tid}`) — including store venue/city/state/GPS enrichment via Firestore `hubs`
+  - Longshanks (`ls:{tid}`) — live ongoing & upcoming tabletop/miniature wargame events via `_ls_get_text` (with SiteGround PoW bypass)
 
 All discovery queries use thread-safe in-memory caching (15-minute TTL, stale-while-revalidate)
 and bounded HTTP timeouts so web endpoints remain fast (<500ms warm, <2.5s cold) with zero DB writes.
@@ -99,6 +100,7 @@ _discovery_lock = threading.Lock()
 _melee_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
 _limitless_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
 _topdeck_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+_longshanks_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
 _topdeck_hubs_cache: Tuple[float, Dict[str, Dict[str, Any]]] = (0.0, {})
 _refreshing_keys: set = set()
 
@@ -653,6 +655,160 @@ def _fetch_topdeck_all_upcoming_and_live(days_ahead: int = 180) -> List[Dict[str
 
 
 # =============================================================================
+# 3b. Longshanks Live (Ongoing) + Upcoming Discovery
+# =============================================================================
+
+LONGSHANKS_DISCOVERY_ALL_SYSTEMS: Tuple[str, ...] = (
+    "mcp",
+    "sw_legion",
+    "shatterpoint",
+    "x_wing",
+    "guild_ball",
+    "warmachine",
+    "malifaux",
+    "infinity",
+    "conquest",
+)
+
+_LS_BLOCK_RE = re.compile(r'<div class="event_display ([^"]*)">')
+_LS_LINK_RE = re.compile(r'href="/event/(\d+)/">([^<]*)</a>')
+_LS_DATE_RE = re.compile(r"event_date\.png[^>]*/?></td>\s*<td>\s*(\d{4}-\d{2}-\d{2})")
+_LS_SIZE_RE = re.compile(r"event_size\.png[^>]*/?></td>\s*<td>\s*(\d+)(?:\s*of\s*(\d+))?")
+_LS_LOC_RE = re.compile(r"event_location\.png[^>]*/?></td>\s*<td>(.*?)<br\s*/?>", re.S)
+_LS_FLAG_RE = re.compile(r'class="flag" title="([^"]*)"')
+
+
+def _fetch_longshanks_for_system(target_sys: str, days_ahead: int = 180) -> List[Dict[str, Any]]:
+    from scripts.sync_multiplatform import LONGSHANKS_HOST_BY_SYSTEM, _ls_get_text
+
+    host = LONGSHANKS_HOST_BY_SYSTEM.get(target_sys)
+    if not host:
+        return []
+
+    now_utc = datetime.now(timezone.utc)
+    min_live_day = (now_utc - timedelta(days=7)).strftime("%Y-%m-%d")
+    today_day = (now_utc - timedelta(hours=12)).strftime("%Y-%m-%d")
+    max_future_day = (now_utc + timedelta(days=max(30, int(days_ahead or 180)))).strftime("%Y-%m-%d")
+
+    pages_html: List[str] = []
+    try:
+        pages_html.append(_ls_get_text(f"{host}/events/", timeout=4.5, retries=1))
+    except Exception as exc:
+        logger.debug(f"[Longshanks] Discovery /events/ notice ({target_sys}): {exc}")
+        return []
+
+    out: List[Dict[str, Any]] = []
+    seen_ids: set = set()
+
+    for page_html in pages_html:
+        parts = _LS_BLOCK_RE.split(page_html or "")
+        for i in range(1, len(parts) - 1, 2):
+            classes = set((parts[i] or "").split())
+            blk = parts[i + 1]
+            link_m = _LS_LINK_RE.search(blk)
+            if not link_m:
+                continue
+            tid = link_m.group(1).strip()
+            eid = f"ls:{tid}"
+            if eid in seen_ids:
+                continue
+
+            name = html_lib.unescape(link_m.group(2)).strip()
+            if not name or _TEST_EVENT_NAME_RE.search(name):
+                continue
+
+            date_m = _LS_DATE_RE.search(blk)
+            ev_day = date_m.group(1) if date_m else ""
+            if not ev_day:
+                continue
+
+            size_m = _LS_SIZE_RE.search(blk)
+            players = int(size_m.group(1)) if size_m else 0
+            cap = int(size_m.group(2)) if (size_m and size_m.group(2)) else 0
+
+            is_ended = "finished" in classes
+            is_started = ("ongoing" in classes) or is_ended
+            if is_ended:
+                if players < 24:
+                    continue
+            elif is_started:
+                if ev_day < min_live_day:
+                    continue
+            else:
+                if ev_day < today_day or ev_day > max_future_day:
+                    continue
+
+            loc_m = _LS_LOC_RE.search(blk)
+            raw_venue = (
+                " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", loc_m.group(1))).split())[:140]
+                if loc_m
+                else ""
+            )
+            flag_m = _LS_FLAG_RE.search(blk)
+            region = html_lib.unescape(flag_m.group(1)).strip() if flag_m else ""
+            is_online = region.lower() == "virtual" or raw_venue.lower().startswith("virtual ")
+            if is_online:
+                city, state, country = "Online", "", "Global"
+                venue = "Longshanks Virtual"
+            else:
+                reg_parts = [p.strip() for p in region.split(",") if p.strip()]
+                country = reg_parts[-1] if reg_parts else ""
+                state = reg_parts[0] if len(reg_parts) >= 2 else ""
+                city = ""
+                venue = raw_venue or "Longshanks"
+
+            seen_ids.add(eid)
+            tier_meta = _classify_tier(name, total_players=players, num_tickets=cap)
+            ext_url = f"{host}/event/{tid}/"
+            ev_iso = f"{ev_day}T12:00:00Z"
+
+            out.append(
+                {
+                    "id": eid,
+                    "name": name,
+                    "event_date": ev_iso,
+                    "end_date": ev_iso if is_ended else None,
+                    "city": city,
+                    "state": state,
+                    "country": country,
+                    "venue": venue,
+                    "venue_name": venue,
+                    "address": "" if is_online else raw_venue,
+                    "formatted_address": "" if is_online else raw_venue,
+                    "street_address": "",
+                    "postal_code": "",
+                    "latitude": None,
+                    "longitude": None,
+                    "total_players": players,
+                    "num_rounds": _estimate_swiss_rounds(max(players, cap)),
+                    "current_round": 1 if (is_started and not is_ended) else 0,
+                    "is_started": is_started,
+                    "is_ended": is_ended,
+                    "is_online": is_online,
+                    "tier": tier_meta["tier"],
+                    "tier_badge": tier_meta["tier_badge"],
+                    "tier_weight": tier_meta["tier_weight"],
+                    "is_major": tier_meta["tier"] in ("super_major", "major", "gt"),
+                    "circuits": ["Teams"] if "team" in classes else [],
+                    "distance_miles": None,
+                    "event_group": "recent" if is_ended else "upcoming",
+                    "using_online_reg": "open" in classes,
+                    "ticket_price": 0.0,
+                    "ticket_currency": "usd",
+                    "num_tickets": cap,
+                    "external_url": ext_url,
+                    "event_url": ext_url,
+                    "private_event": "locked" in classes and "open" not in classes,
+                    "source_platform": "longshanks",
+                    "external_event_id": tid,
+                    "game_system": target_sys,
+                }
+            )
+
+    return out
+
+
+# =============================================================================
 # 4. Unified Discovery Aggregator (Cached + Bounded Parallel Execution)
 # =============================================================================
 
@@ -714,9 +870,17 @@ def discover_multiplatform_events(
     Discovers real upcoming, live, and premier tournaments across Melee.gg, Limitless TCG, and TopDeck.gg
     for `game_system` (or `"all"`). Zero DB reads/writes.
     """
+    from scripts.sync_multiplatform import LONGSHANKS_HOST_BY_SYSTEM
+
     raw_gs = str(game_system or "40k").strip().lower()
     if raw_gs == "all":
-        systems = sorted({"mtg", "pokemon", "one_piece", "lorcana", "sw_unlimited", "digimon", "gundam_tcg", "flesh_blood", "riftbound", "yugioh", "40k", "aos", "mcp"})
+        systems = sorted(
+            {
+                "mtg", "pokemon", "one_piece", "lorcana", "sw_unlimited", "digimon",
+                "gundam_tcg", "flesh_blood", "riftbound", "yugioh", "40k", "aos", "mcp",
+                *LONGSHANKS_DISCOVERY_ALL_SYSTEMS,
+            }
+        )
     else:
         systems = [normalize_game_system(raw_gs, default="40k")]
 
@@ -726,6 +890,8 @@ def discover_multiplatform_events(
             tasks.append(("melee", sys_slug))
         if sys_slug in LIMITLESS_SYSTEM_TO_CODE:
             tasks.append(("limitless", sys_slug))
+        if sys_slug in LONGSHANKS_HOST_BY_SYSTEM and (raw_gs != "all" or sys_slug in LONGSHANKS_DISCOVERY_ALL_SYSTEMS):
+            tasks.append(("longshanks", sys_slug))
     tasks.append(("topdeck", raw_gs))
 
     collected: List[Dict[str, Any]] = []
@@ -744,6 +910,13 @@ def discover_multiplatform_events(
                 _limitless_cache,
                 f"ltcg:{s_slug}",
                 lambda: _fetch_limitless_for_system(s_slug, days_ahead=days_ahead),
+                timeout_s=timeout_s,
+            )
+        if kind == "longshanks":
+            return _get_cached_or_fetch(
+                _longshanks_cache,
+                f"ls:{s_slug}",
+                lambda: _fetch_longshanks_for_system(s_slug, days_ahead=days_ahead),
                 timeout_s=timeout_s,
             )
         # TopDeck single shared Firestore query
@@ -1108,6 +1281,77 @@ def fetch_live_multiplatform_event_preview(event_id: str, db: Optional[Any] = No
             }
         except Exception as e:
             logger.debug(f"[PlatformDiscovery] TopDeck preview failed for {eid}: {e}")
+            return None
+
+    # 4. Longshanks Upcoming / Ongoing Preview
+    if prefix == "ls" and raw_tid.isdigit():
+        try:
+            from scripts.sync_multiplatform import LONGSHANKS_HOST_BY_SYSTEM, _ls_get_text
+
+            ev_html = _ls_get_text(f"https://www.longshanks.org/event/{raw_tid}/", timeout=5.0, retries=1)
+            title_m = re.search(r"<title>([^<]+)</title>", ev_html)
+            raw_title = html_lib.unescape(title_m.group(1)).split("•")[0].strip() if title_m else ""
+            if not raw_title or "not found" in raw_title.lower():
+                return None
+
+            sys_slug = "mcp"
+            host_to_sys = {v.lower(): k for k, v in LONGSHANKS_HOST_BY_SYSTEM.items() if k != "mesbg"}
+            for m_sub in re.findall(r"https://([a-z0-9-]+)\.longshanks\.org", ev_html.lower()):
+                cand_host = f"https://{m_sub}.longshanks.org"
+                if cand_host in host_to_sys:
+                    sys_slug = host_to_sys[cand_host]
+                    break
+
+            dt_m = _LS_DATE_RE.search(ev_html)
+            ev_date = f"{dt_m.group(1)}T12:00:00Z" if dt_m else ""
+            sz_m = _LS_SIZE_RE.search(ev_html)
+            enrolled = int(sz_m.group(1)) if sz_m else 0
+            cap = int(sz_m.group(2)) if (sz_m and sz_m.group(2)) else 0
+            loc_m = _LS_LOC_RE.search(ev_html)
+            venue = (
+                " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", loc_m.group(1))).split())[:140]
+                if loc_m
+                else "Longshanks"
+            )
+            flag_m = _LS_FLAG_RE.search(ev_html)
+            region = html_lib.unescape(flag_m.group(1)).strip() if flag_m else ""
+            is_online = region.lower() == "virtual" or venue.lower().startswith("virtual ")
+            host_url = LONGSHANKS_HOST_BY_SYSTEM.get(sys_slug, "https://www.longshanks.org")
+            ext_url = f"{host_url}/event/{raw_tid}/"
+
+            return {
+                "id": eid,
+                "name": raw_title,
+                "event_date": ev_date,
+                "end_date": None,
+                "city": "Online" if is_online else "",
+                "state": "",
+                "country": "Global" if is_online else region,
+                "venue": "Longshanks Virtual" if is_online else (venue or "Longshanks"),
+                "venue_name": "Longshanks Virtual" if is_online else (venue or "Longshanks"),
+                "total_players": enrolled,
+                "num_tickets": cap,
+                "num_rounds": _estimate_swiss_rounds(max(enrolled, cap)),
+                "numberOfRounds": _estimate_swiss_rounds(max(enrolled, cap)),
+                "current_round": 0,
+                "is_started": False,
+                "is_ended": False,
+                "ended": False,
+                "status": {"ended": False, "started": False},
+                "source_platform": "longshanks",
+                "external_event_id": raw_tid,
+                "event_url": ext_url,
+                "external_url": ext_url,
+                "using_online_reg": True,
+                "game_system": sys_slug,
+                "players": [],
+                "matches": [],
+                "teams": [],
+                "sync_in_progress": False,
+                "raw_json": {"platform": "longshanks", "tid": raw_tid, "name": raw_title, "region": region},
+            }
+        except Exception as e:
+            logger.debug(f"[PlatformDiscovery] Longshanks preview failed for {eid}: {e}")
             return None
 
     return None
