@@ -141,6 +141,17 @@ class TestEventClassifierAccuracy(unittest.TestCase):
         self.assertEqual(s_tag, "ffa_pod")
         self.assertEqual(f_tag, "commander")
 
+        # 40K / AoS multi-seat game must NEVER get `commander` format tag
+        s_w, f_w, _is_lg_w = classify_event_structure_and_format(
+            event_id="bcp_ev_mp",
+            name="40K Apocalypse Multi-Player Pod",
+            game_system="40k",
+            points=2000,
+            has_ffa_matches=True,
+        )
+        self.assertEqual(s_w, "ffa_pod")
+        self.assertEqual(f_w, "standard_2000")
+
     def test_multi_system_formats_and_location_normalization(self):
         # 40K 1000pt Incursion
         _s, f_1k, _l = classify_event_structure_and_format(

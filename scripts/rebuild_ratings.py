@@ -273,6 +273,7 @@ def run_rebuild(game_systems, repair_melee_metadata: bool = False, prewarm_meta:
         record_job_run("rebuild", {"status": "RUNNING", "result": out})
     _clear_pending_finalize_for_systems(db, completed_ok)
     if mutated_systems and hasattr(db, "refresh_meta_event_rollups"):
+        from datetime import datetime, timedelta, timezone
         inc_cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).strftime("%Y-%m-%d")
         for sys_one in game_systems:
             if mode != "full" and sys_one not in mutated_systems:
@@ -319,13 +320,15 @@ if __name__ == "__main__":
     parser.add_argument("--repair-melee-metadata", action="store_true")
     parser.add_argument("--skip-prewarm-meta", action="store_true")
     parser.add_argument("--backfill-meta-rollups", action="store_true", help="Backfill Meta Event Rollups across target systems without re-running Elo replay")
-    parser.add_argument("--batch-size", type=int, default=1500)
+    parser.add_argument("--only-pending", action="store_true", help="Only classify/rollup events with meta_classified_at IS NULL")
+    parser.add_argument("--batch-size", type=int, default=400)
     args, _ = parser.parse_known_args()
     if args.backfill_meta_rollups:
         from scripts.backfill_meta_event_rollups import run_meta_rollup_backfill
         bf_res = run_meta_rollup_backfill(
             game_system=args.game_system,
             batch_size=args.batch_size,
+            only_pending=args.only_pending,
             prewarm_meta=not args.skip_prewarm_meta,
         )
         print(json.dumps(bf_res, indent=2, default=str))

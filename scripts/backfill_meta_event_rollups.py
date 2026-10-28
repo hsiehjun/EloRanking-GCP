@@ -52,7 +52,7 @@ def run_meta_rollup_backfill(
     game_system: str = "all",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    batch_size: int = 1500,
+    batch_size: int = 400,
     only_pending: bool = False,
     prewarm_meta: bool = True,
 ) -> Dict[str, Any]:
@@ -99,10 +99,24 @@ def run_meta_rollup_backfill(
             f"{rn_c:,} run rows in {time.time() - s_t0:.1f}s"
         )
 
-    if raw_arg in ("all", "*") and hasattr(db, "get_connection") and not only_pending and not start_date:
+    if raw_arg in ("all", "*") and hasattr(db, "get_connection") and not start_date:
         try:
             with db.get_connection() as conn:
                 with conn.cursor() as cur:
+                    # Clean up any wargame events previously tagged 'commander' before wargame format priority fix
+                    cur.execute(
+                        """
+                        UPDATE events
+                        SET format_tag = CASE
+                            WHEN COALESCE(points, 2000) BETWEEN 250 AND 1500 THEN 'incursion_1000'
+                            ELSE 'standard_2000'
+                        END
+                        WHERE COALESCE(game_system, '40k') IN (
+                            '40k', 'aos', 'the_old_world', 'horus_heresy', 'kings_of_war', 'conquest', 'bolt_action'
+                        )
+                          AND format_tag = 'commander';
+                        """
+                    )
                     cur.execute(
                         """
                         INSERT INTO system_settings (key, value, updated_at)
@@ -110,10 +124,17 @@ def run_meta_rollup_backfill(
                         ON CONFLICT (key) DO UPDATE SET value = 'ready', updated_at = NOW();
                         """
                     )
-                    cur.execute("ANALYZE events;")
-                    cur.execute("ANALYZE meta_event_matchups;")
-                    cur.execute("ANALYZE meta_event_runs;")
                 conn.commit()
+                old_autocommit = getattr(conn, "autocommit", False)
+                try:
+                    conn.autocommit = True
+                    with conn.cursor() as vcur:
+                        logger.info("🧹 Running VACUUM ANALYZE on events, meta_event_matchups, and meta_event_runs for instant Index-Only Scans...")
+                        vcur.execute("VACUUM ANALYZE events;")
+                        vcur.execute("VACUUM ANALYZE meta_event_matchups;")
+                        vcur.execute("VACUUM ANALYZE meta_event_runs;")
+                finally:
+                    conn.autocommit = old_autocommit
             if hasattr(db, "invalidate_all_caches"):
                 db.invalidate_all_caches(purge_l2=True)
         except Exception as mark_err:
@@ -150,7 +171,7 @@ if __name__ == "__main__":
     parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"))
     parser.add_argument("--start-date", default=None)
     parser.add_argument("--end-date", default=None)
-    parser.add_argument("--batch-size", type=int, default=1500)
+    parser.add_argument("--batch-size", type=int, default=400)
     parser.add_argument("--only-pending", action="store_true")
     parser.add_argument("--skip-prewarm-meta", action="store_true")
     args, _ = parser.parse_known_args()

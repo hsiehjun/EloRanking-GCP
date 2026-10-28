@@ -1225,7 +1225,7 @@ class PostgresDatabase:
                 with conn.cursor() as cur:
                     if hasattr(cur, "_mock_name") or type(cur).__module__.startswith("unittest.mock"):
                         return
-                    cur.execute("SELECT value FROM system_settings WHERE key = 'meta_event_rollup_schema_v1';")
+                    cur.execute("SELECT value FROM system_settings WHERE key = 'meta_event_rollup_schema_v2';")
                     row = cur.fetchone()
                     if row and (row[0] if isinstance(row, (list, tuple)) else row.get("value")) == "ready":
                         return
@@ -1235,7 +1235,7 @@ class PostgresDatabase:
                     cur.execute(
                         """
                         INSERT INTO system_settings (key, value, updated_at)
-                        VALUES ('meta_event_rollup_schema_v1', 'ready', NOW())
+                        VALUES ('meta_event_rollup_schema_v2', 'ready', NOW())
                         ON CONFLICT (key) DO UPDATE SET value = 'ready', updated_at = NOW();
                         """
                     )
@@ -1328,7 +1328,9 @@ class PostgresDatabase:
                 PRIMARY KEY (event_id, is_non_1v1, fac)
             );
             """,
-            "CREATE INDEX IF NOT EXISTS idx_events_meta_filter_v1 ON events (COALESCE(game_system, '40k'), event_date DESC) INCLUDE (id, effective_players, effective_rounds, is_online, is_league, structure_tag, format_tag, region_code, country_code, state_code);",
+            "CREATE INDEX IF NOT EXISTS idx_events_meta_filter_v2 ON events (COALESCE(game_system, '40k'), event_date DESC) INCLUDE (id, effective_players, total_players, effective_rounds, num_rounds, is_online, is_league, structure_tag, format_tag, region_code, country_code, state_code);",
+            "CREATE INDEX IF NOT EXISTS idx_events_id_meta_v2 ON events (id) INCLUDE (effective_players, total_players, effective_rounds, num_rounds, is_online, is_league, structure_tag, format_tag, region_code, country_code, state_code);",
+            "CREATE INDEX IF NOT EXISTS idx_match_participants_match_id ON match_participants (match_id);",
             "CREATE INDEX IF NOT EXISTS idx_meta_ev_mu_sys_day ON meta_event_matchups (game_system, is_non_1v1, match_day DESC);",
             "CREATE INDEX IF NOT EXISTS idx_meta_ev_runs_sys_date ON meta_event_runs (game_system, is_non_1v1, event_date DESC);",
         )
@@ -10995,13 +10997,13 @@ class PostgresDatabase:
         clauses: List[str] = []
         params: List[Any] = []
         if mf.min_players > 0:
-            clauses.append(f"COALESCE({ev_alias}.effective_players, {ev_alias}.total_players, 0) >= %s")
+            clauses.append(f"COALESCE(NULLIF({ev_alias}.effective_players, 0), {ev_alias}.total_players, 0) >= %s")
             params.append(int(mf.min_players))
         if mf.max_players > 0:
-            clauses.append(f"COALESCE({ev_alias}.effective_players, {ev_alias}.total_players, 0) <= %s")
+            clauses.append(f"COALESCE(NULLIF({ev_alias}.effective_players, 0), {ev_alias}.total_players, 0) <= %s")
             params.append(int(mf.max_players))
         if mf.min_rounds > 0:
-            clauses.append(f"COALESCE({ev_alias}.effective_rounds, {ev_alias}.num_rounds, 0) >= %s")
+            clauses.append(f"COALESCE(NULLIF({ev_alias}.effective_rounds, 0), {ev_alias}.num_rounds, 0) >= %s")
             params.append(int(mf.min_rounds))
         if mf.venue_mode == "in_person":
             clauses.append(f"COALESCE({ev_alias}.is_online, FALSE) = FALSE")
@@ -11090,8 +11092,8 @@ class PostgresDatabase:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                     if type(cur).__module__.startswith("unittest.mock"):
                         return empty_opts
-                    cur.execute("SET LOCAL statement_timeout = '1500ms';")
-                    w_clauses = ["COALESCE(e.effective_players, e.total_players, 0) > 0"]
+                    cur.execute("SET LOCAL statement_timeout = '5000ms';")
+                    w_clauses = ["COALESCE(NULLIF(e.effective_players, 0), e.total_players, 0) > 0"]
                     w_params: List[Any] = []
                     if sys_norm != "all":
                         w_clauses.append("COALESCE(e.game_system, '40k') = %s")
@@ -11191,7 +11193,8 @@ class PostgresDatabase:
                     for k, v in sorted(fmt_acc.items(), key=lambda x: (-x[1], x[0]))
                 ],
             }
-            PostgresDatabase.set_cached(PostgresDatabase._meta_filter_options_cache_dict, opt_key, opts, max_size=300)
+            if total_ev > 0:
+                PostgresDatabase.set_cached(PostgresDatabase._meta_filter_options_cache_dict, opt_key, opts, max_size=300)
             return opts
         except Exception as e:
             logger.debug(f"get_meta_filter_options notice ({sys_norm}): {e}")
@@ -11203,7 +11206,7 @@ class PostgresDatabase:
         game_system: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        batch_size: int = 1500,
+        batch_size: int = 400,
         mark_ready: bool = False,
         only_pending: bool = False,
     ) -> Dict[str, Any]:
@@ -11232,7 +11235,7 @@ class PostgresDatabase:
                             seen.add(s_eid)
                             target_ids.append(s_eid)
                 else:
-                    include_unlinked = not only_pending
+                    include_unlinked = (not only_pending) or mark_ready
                     ev_w: List[str] = []
                     ev_p: List[Any] = []
                     if sys_norm:
@@ -11259,21 +11262,37 @@ class PostgresDatabase:
         events_updated = 0
         mu_rows_written = 0
         run_rows_written = 0
-        eff_batch = max(100, int(batch_size or 1500))
+        eff_batch = max(100, int(batch_size or 400))
+        total_targets = len(target_ids)
 
-        for idx in range(0, len(target_ids), eff_batch):
+        for idx in range(0, total_targets, eff_batch):
             chunk_ids = target_ids[idx: idx + eff_batch]
             if not chunk_ids:
                 continue
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                    cur.execute("SET LOCAL statement_timeout = '180000ms'; SET LOCAL work_mem = '64MB';")
+                    cur.execute("SET LOCAL statement_timeout = '180000ms'; SET LOCAL work_mem = '256MB';")
 
                     # 1. Classify batch of events combining native metadata + actual played match topology
                     cur.execute(
                         """
-                        WITH batch_ids AS (
+                        WITH batch_ids AS MATERIALIZED (
                             SELECT UNNEST(%s::varchar[]) AS eid
+                        ),
+                        batch_matches AS MATERIALIZED (
+                            SELECT
+                                m.id,
+                                m.event_id,
+                                m.round,
+                                m.match_date,
+                                m.player1_id,
+                                m.player2_id,
+                                m.player1_faction,
+                                m.player2_faction,
+                                m.is_bye
+                            FROM matches m
+                            WHERE m.event_id = ANY(%s)
+                              AND m.is_done = TRUE
                         ),
                         m_stats AS (
                             SELECT
@@ -11285,29 +11304,26 @@ class PostgresDatabase:
                                 MIN(m.match_date) AS first_match_ts,
                                 BOOL_OR(LEFT(LOWER(TRIM(COALESCE(m.player1_faction, ''))), 5) = 'pod (' OR m.player2_id = 'POD') AS has_ffa,
                                 BOOL_OR(POSITION('+' IN COALESCE(m.player1_faction, '')) > 0 OR POSITION('+' IN COALESCE(m.player2_faction, '')) > 0) AS has_doubles
-                            FROM matches m
-                            JOIN batch_ids b ON b.eid = m.event_id
+                            FROM batch_matches m
                             CROSS JOIN LATERAL (
                                 VALUES (m.player1_id), (CASE WHEN m.is_bye IS NOT TRUE THEN m.player2_id ELSE NULL END)
                             ) AS p(pid)
-                            WHERE m.is_done = TRUE
                             GROUP BY m.event_id
                         ),
                         mp_stats AS (
                             SELECT
-                                m.event_id,
+                                bm.event_id,
                                 COUNT(DISTINCT mp.player_id) AS mp_players,
                                 BOOL_OR(COALESCE(mp.placement, 0) > 0 OR COALESCE(mp.seat_order, 1) >= 3) AS mp_has_ffa
-                            FROM match_participants mp
-                            JOIN matches m ON m.id = mp.match_id
-                            JOIN batch_ids b ON b.eid = m.event_id
-                            GROUP BY m.event_id
+                            FROM batch_matches bm
+                            JOIN match_participants mp ON mp.match_id = bm.id
+                            GROUP BY bm.event_id
                         ),
                         ep_pods AS (
                             SELECT ep.event_id, TRUE AS has_pods
                             FROM event_participants ep
-                            JOIN batch_ids b ON b.eid = ep.event_id
-                            WHERE ep.pod_num IS NOT NULL
+                            WHERE ep.event_id = ANY(%s)
+                              AND ep.pod_num IS NOT NULL
                             GROUP BY ep.event_id
                         )
                         SELECT
@@ -11329,7 +11345,7 @@ class PostgresDatabase:
                         LEFT JOIN mp_stats mps ON mps.event_id = e.id
                         LEFT JOIN ep_pods epp ON epp.event_id = e.id;
                         """,
-                        (chunk_ids,),
+                        (chunk_ids, chunk_ids, chunk_ids),
                     )
                     ev_rows = cur.fetchall() or []
                     cls_updates: List[tuple] = []
@@ -11418,257 +11434,82 @@ class PostgresDatabase:
                         )
                         events_updated += len(cls_updates)
 
-                    # 2. Rebuild `meta_event_matchups` for chunk_ids (1v1 + Doubles + FFA Pods)
-                    cur.execute("DELETE FROM meta_event_matchups WHERE event_id = ANY(%s);", (chunk_ids,))
-                    cur.execute(
-                        """
-                        INSERT INTO meta_event_matchups (
-                            event_id, match_day, is_non_1v1, p1_fac, p2_fac, game_system,
-                            match_cnt, p1_wins, p1_losses, draws, p2_wins, p2_losses,
-                            p1_score_sum, p1_score_cnt, p2_score_sum, p2_score_cnt, p1_margin_sum, margin_cnt,
-                            exp_match_cnt, exp_p1_wins, exp_p1_losses, exp_draws, exp_p2_wins, exp_p2_losses,
-                            exp_p1_score_sum, exp_p1_score_cnt, exp_p2_score_sum, exp_p2_score_cnt, exp_p1_margin_sum, exp_margin_cnt,
-                            vet_match_cnt, vet_p1_wins, vet_p1_losses, vet_draws, vet_p2_wins, vet_p2_losses,
-                            vet_p1_score_sum, vet_p1_score_cnt, vet_p2_score_sum, vet_p2_score_cnt, vet_p1_margin_sum, vet_margin_cnt
-                        )
-                        SELECT
-                            m.event_id,
-                            m.match_date::date AS match_day,
-                            FALSE AS is_non_1v1,
-                            COALESCE(m.player1_faction, '') AS p1_fac,
-                            COALESCE(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL THEN m.player2_faction ELSE '' END, '') AS p2_fac,
-                            MAX(COALESCE(m.game_system, '40k')) AS game_system,
-                            COUNT(*) AS match_cnt,
-                            SUM(CASE WHEN m.winner_id = m.player1_id THEN 1 ELSE 0 END) AS p1_wins,
-                            SUM(CASE WHEN m.loser_id = m.player1_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player2_id AND m.is_draw IS NOT TRUE) THEN 1 ELSE 0 END) AS p1_losses,
-                            SUM(CASE WHEN m.is_draw IS TRUE THEN 1 ELSE 0 END) AS draws,
-                            SUM(CASE WHEN m.winner_id = m.player2_id AND m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_wins,
-                            SUM(CASE WHEN (m.loser_id = m.player2_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player1_id AND m.is_draw IS NOT TRUE)) AND m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_losses,
-                            SUM(CASE WHEN m.player1_score IS NOT NULL AND m.player1_score > 0 THEN m.player1_score ELSE 0 END) AS p1_score_sum,
-                            COUNT(*) FILTER (WHERE m.player1_score IS NOT NULL AND m.player1_score > 0) AS p1_score_cnt,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND m.player2_score IS NOT NULL AND m.player2_score > 0 THEN m.player2_score ELSE 0 END) AS p2_score_sum,
-                            COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND m.player2_score IS NOT NULL AND m.player2_score > 0) AS p2_score_cnt,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0) THEN (m.player1_score - m.player2_score) ELSE 0 END) AS p1_margin_sum,
-                            COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0)) AS margin_cnt,
-                            COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550) AS exp_match_cnt,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.winner_id = m.player1_id THEN 1 ELSE 0 END) AS exp_p1_wins,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND (m.loser_id = m.player1_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player2_id AND m.is_draw IS NOT TRUE)) THEN 1 ELSE 0 END) AS exp_p1_losses,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.is_draw IS TRUE THEN 1 ELSE 0 END) AS exp_draws,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.winner_id = m.player2_id THEN 1 ELSE 0 END) AS exp_p2_wins,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND (m.loser_id = m.player2_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player1_id AND m.is_draw IS NOT TRUE)) THEN 1 ELSE 0 END) AS exp_p2_losses,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.player1_score IS NOT NULL AND m.player1_score > 0 THEN m.player1_score ELSE 0 END) AS exp_p1_score_sum,
-                            COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.player1_score IS NOT NULL AND m.player1_score > 0) AS exp_p1_score_cnt,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.player2_score IS NOT NULL AND m.player2_score > 0 THEN m.player2_score ELSE 0 END) AS exp_p2_score_sum,
-                            COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.player2_score IS NOT NULL AND m.player2_score > 0) AS exp_p2_score_cnt,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0) THEN (m.player1_score - m.player2_score) ELSE 0 END) AS exp_p1_margin_sum,
-                            COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0)) AS exp_margin_cnt,
-                            COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650) AS vet_match_cnt,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.winner_id = m.player1_id THEN 1 ELSE 0 END) AS vet_p1_wins,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND (m.loser_id = m.player1_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player2_id AND m.is_draw IS NOT TRUE)) THEN 1 ELSE 0 END) AS vet_p1_losses,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.is_draw IS TRUE THEN 1 ELSE 0 END) AS vet_draws,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.winner_id = m.player2_id THEN 1 ELSE 0 END) AS vet_p2_wins,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND (m.loser_id = m.player2_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player1_id AND m.is_draw IS NOT TRUE)) THEN 1 ELSE 0 END) AS vet_p2_losses,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.player1_score IS NOT NULL AND m.player1_score > 0 THEN m.player1_score ELSE 0 END) AS vet_p1_score_sum,
-                            COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.player1_score IS NOT NULL AND m.player1_score > 0) AS vet_p1_score_cnt,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.player2_score IS NOT NULL AND m.player2_score > 0 THEN m.player2_score ELSE 0 END) AS vet_p2_score_sum,
-                            COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.player2_score IS NOT NULL AND m.player2_score > 0) AS vet_p2_score_cnt,
-                            SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0) THEN (m.player1_score - m.player2_score) ELSE 0 END) AS vet_p1_margin_sum,
-                            COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0)) AS vet_margin_cnt
-                        FROM matches m
-                        LEFT JOIN rating_history rh
-                          ON rh.match_id = m.id
-                         AND rh.player_id = m.player1_id
-                        WHERE m.event_id = ANY(%s)
-                          AND m.is_done = TRUE
-                          AND m.match_date IS NOT NULL
-                          AND POSITION('+' IN COALESCE(m.player1_faction, '')) = 0
-                          AND POSITION('+' IN COALESCE(m.player2_faction, '')) = 0
-                          AND LEFT(LOWER(TRIM(COALESCE(m.player1_faction, ''))), 5) != 'pod ('
-                          AND LEFT(LOWER(TRIM(COALESCE(m.player2_faction, ''))), 5) != 'pod ('
-                        GROUP BY 1, 2, 3, 4, 5
-                        ON CONFLICT (event_id, match_day, is_non_1v1, p1_fac, p2_fac) DO UPDATE SET
-                            match_cnt = EXCLUDED.match_cnt,
-                            p1_wins = EXCLUDED.p1_wins,
-                            p1_losses = EXCLUDED.p1_losses,
-                            draws = EXCLUDED.draws,
-                            p2_wins = EXCLUDED.p2_wins,
-                            p2_losses = EXCLUDED.p2_losses,
-                            p1_score_sum = EXCLUDED.p1_score_sum,
-                            p1_score_cnt = EXCLUDED.p1_score_cnt,
-                            p2_score_sum = EXCLUDED.p2_score_sum,
-                            p2_score_cnt = EXCLUDED.p2_score_cnt,
-                            p1_margin_sum = EXCLUDED.p1_margin_sum,
-                            margin_cnt = EXCLUDED.margin_cnt,
-                            exp_match_cnt = EXCLUDED.exp_match_cnt,
-                            exp_p1_wins = EXCLUDED.exp_p1_wins,
-                            exp_p1_losses = EXCLUDED.exp_p1_losses,
-                            exp_draws = EXCLUDED.exp_draws,
-                            exp_p2_wins = EXCLUDED.exp_p2_wins,
-                            exp_p2_losses = EXCLUDED.exp_p2_losses,
-                            exp_p1_score_sum = EXCLUDED.exp_p1_score_sum,
-                            exp_p1_score_cnt = EXCLUDED.exp_p1_score_cnt,
-                            exp_p2_score_sum = EXCLUDED.exp_p2_score_sum,
-                            exp_p2_score_cnt = EXCLUDED.exp_p2_score_cnt,
-                            exp_p1_margin_sum = EXCLUDED.exp_p1_margin_sum,
-                            exp_margin_cnt = EXCLUDED.exp_margin_cnt,
-                            vet_match_cnt = EXCLUDED.vet_match_cnt,
-                            vet_p1_wins = EXCLUDED.vet_p1_wins,
-                            vet_p1_losses = EXCLUDED.vet_p1_losses,
-                            vet_draws = EXCLUDED.vet_draws,
-                            vet_p2_wins = EXCLUDED.vet_p2_wins,
-                            vet_p2_losses = EXCLUDED.vet_p2_losses,
-                            vet_p1_score_sum = EXCLUDED.vet_p1_score_sum,
-                            vet_p1_score_cnt = EXCLUDED.vet_p1_score_cnt,
-                            vet_p2_score_sum = EXCLUDED.vet_p2_score_sum,
-                            vet_p2_score_cnt = EXCLUDED.vet_p2_score_cnt,
-                            vet_p1_margin_sum = EXCLUDED.vet_p1_margin_sum,
-                            vet_margin_cnt = EXCLUDED.vet_margin_cnt;
-                        """,
-                        (chunk_ids,),
-                    )
-                    mu_rows_written += int(cur.rowcount or 0)
+                    active_chunk_ids = [
+                        str(er.get("id"))
+                        for er in ev_rows
+                        if int(er.get("played_players") or 0) > 0 or int(er.get("mp_players") or 0) > 0
+                    ]
+                    non_1v1_chunk_ids = [
+                        str(er.get("id"))
+                        for er in ev_rows
+                        if bool(er.get("has_ffa")) or bool(er.get("has_doubles"))
+                    ]
 
-                    # 2b. Expand FFA Pod seats (`match_participants`) and 2v2 Doubles (`+`) into `is_non_1v1 = TRUE`
-                    cur.execute(
-                        """
-                        WITH non_1v1_seats AS (
+                    # 2. Rebuild `meta_event_matchups` for active_chunk_ids (1v1 + Doubles + FFA Pods)
+                    if not only_pending:
+                        cur.execute("DELETE FROM meta_event_matchups WHERE event_id = ANY(%s);", (chunk_ids,))
+                    elif active_chunk_ids:
+                        cur.execute("DELETE FROM meta_event_matchups WHERE event_id = ANY(%s);", (active_chunk_ids,))
+
+                    if active_chunk_ids:
+                        cur.execute(
+                            """
+                            INSERT INTO meta_event_matchups (
+                                event_id, match_day, is_non_1v1, p1_fac, p2_fac, game_system,
+                                match_cnt, p1_wins, p1_losses, draws, p2_wins, p2_losses,
+                                p1_score_sum, p1_score_cnt, p2_score_sum, p2_score_cnt, p1_margin_sum, margin_cnt,
+                                exp_match_cnt, exp_p1_wins, exp_p1_losses, exp_draws, exp_p2_wins, exp_p2_losses,
+                                exp_p1_score_sum, exp_p1_score_cnt, exp_p2_score_sum, exp_p2_score_cnt, exp_p1_margin_sum, exp_margin_cnt,
+                                vet_match_cnt, vet_p1_wins, vet_p1_losses, vet_draws, vet_p2_wins, vet_p2_losses,
+                                vet_p1_score_sum, vet_p1_score_cnt, vet_p2_score_sum, vet_p2_score_cnt, vet_p1_margin_sum, vet_margin_cnt
+                            )
                             SELECT
                                 m.event_id,
                                 m.match_date::date AS match_day,
-                                COALESCE(m.game_system, '40k') AS game_system,
-                                TRIM(mp.faction) AS seat_fac,
-                                CASE WHEN mp.is_winner IS TRUE OR UPPER(COALESCE(mp.result, '')) = 'W' THEN 1 ELSE 0 END AS is_w,
-                                CASE WHEN mp.is_winner IS NOT TRUE AND UPPER(COALESCE(mp.result, '')) = 'L' THEN 1 ELSE 0 END AS is_l,
-                                CASE WHEN UPPER(COALESCE(mp.result, '')) = 'D' OR m.is_draw IS TRUE THEN 1 ELSE 0 END AS is_d,
-                                COALESCE(rh.old_elo, 0) AS seat_elo
-                            FROM match_participants mp
-                            JOIN matches m ON m.id = mp.match_id
-                            LEFT JOIN rating_history rh ON rh.match_id = m.id AND rh.player_id = mp.player_id
-                            WHERE m.event_id = ANY(%s)
-                              AND m.is_done = TRUE
-                              AND m.match_date IS NOT NULL
-                              AND mp.faction IS NOT NULL
-                              AND TRIM(mp.faction) != ''
-                              AND POSITION('+' IN mp.faction) = 0
-                            UNION ALL
-                            SELECT
-                                m.event_id,
-                                m.match_date::date AS match_day,
-                                COALESCE(m.game_system, '40k') AS game_system,
-                                TRIM(part_fac) AS seat_fac,
-                                s.is_w,
-                                s.is_l,
-                                s.is_d,
-                                0 AS seat_elo
-                            FROM matches m
-                            CROSS JOIN LATERAL (
-                                VALUES
-                                    (
-                                        m.player1_faction,
-                                        CASE WHEN m.winner_id = m.player1_id THEN 1 ELSE 0 END,
-                                        CASE WHEN m.loser_id = m.player1_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player2_id AND m.is_draw IS NOT TRUE) THEN 1 ELSE 0 END,
-                                        CASE WHEN m.is_draw IS TRUE THEN 1 ELSE 0 END
-                                    ),
-                                    (
-                                        CASE WHEN m.is_bye IS NOT TRUE THEN m.player2_faction ELSE NULL END,
-                                        CASE WHEN m.is_bye IS NOT TRUE AND m.winner_id = m.player2_id THEN 1 ELSE 0 END,
-                                        CASE WHEN m.is_bye IS NOT TRUE AND (m.loser_id = m.player2_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player1_id AND m.is_draw IS NOT TRUE)) THEN 1 ELSE 0 END,
-                                        CASE WHEN m.is_bye IS NOT TRUE AND m.is_draw IS TRUE THEN 1 ELSE 0 END
-                                    )
-                            ) AS s(raw_fac, is_w, is_l, is_d)
-                            CROSS JOIN LATERAL UNNEST(STRING_TO_ARRAY(COALESCE(s.raw_fac, ''), '+')) AS part_fac
-                            WHERE m.event_id = ANY(%s)
-                              AND m.is_done = TRUE
-                              AND m.match_date IS NOT NULL
-                              AND (POSITION('+' IN COALESCE(m.player1_faction, '')) > 0 OR POSITION('+' IN COALESCE(m.player2_faction, '')) > 0)
-                              AND NOT EXISTS (SELECT 1 FROM match_participants mp2 WHERE mp2.match_id = m.id)
-                              AND TRIM(part_fac) != ''
-                        )
-                        INSERT INTO meta_event_matchups (
-                            event_id, match_day, is_non_1v1, p1_fac, p2_fac, game_system,
-                            match_cnt, p1_wins, p1_losses, draws,
-                            exp_match_cnt, exp_p1_wins, exp_p1_losses, exp_draws,
-                            vet_match_cnt, vet_p1_wins, vet_p1_losses, vet_draws
-                        )
-                        SELECT
-                            event_id,
-                            match_day,
-                            TRUE AS is_non_1v1,
-                            seat_fac AS p1_fac,
-                            '' AS p2_fac,
-                            MAX(game_system) AS game_system,
-                            COUNT(*) AS match_cnt,
-                            SUM(is_w) AS p1_wins,
-                            SUM(is_l) AS p1_losses,
-                            SUM(is_d) AS draws,
-                            COUNT(*) FILTER (WHERE seat_elo >= 1550) AS exp_match_cnt,
-                            SUM(CASE WHEN seat_elo >= 1550 THEN is_w ELSE 0 END) AS exp_p1_wins,
-                            SUM(CASE WHEN seat_elo >= 1550 THEN is_l ELSE 0 END) AS exp_p1_losses,
-                            SUM(CASE WHEN seat_elo >= 1550 THEN is_d ELSE 0 END) AS exp_draws,
-                            COUNT(*) FILTER (WHERE seat_elo >= 1650) AS vet_match_cnt,
-                            SUM(CASE WHEN seat_elo >= 1650 THEN is_w ELSE 0 END) AS vet_p1_wins,
-                            SUM(CASE WHEN seat_elo >= 1650 THEN is_l ELSE 0 END) AS vet_p1_losses,
-                            SUM(CASE WHEN seat_elo >= 1650 THEN is_d ELSE 0 END) AS vet_draws
-                        FROM non_1v1_seats
-                        GROUP BY 1, 2, 3, 4, 5
-                        ON CONFLICT (event_id, match_day, is_non_1v1, p1_fac, p2_fac) DO UPDATE SET
-                            match_cnt = EXCLUDED.match_cnt,
-                            p1_wins = EXCLUDED.p1_wins,
-                            p1_losses = EXCLUDED.p1_losses,
-                            draws = EXCLUDED.draws,
-                            exp_match_cnt = EXCLUDED.exp_match_cnt,
-                            exp_p1_wins = EXCLUDED.exp_p1_wins,
-                            exp_p1_losses = EXCLUDED.exp_p1_losses,
-                            exp_draws = EXCLUDED.exp_draws,
-                            vet_match_cnt = EXCLUDED.vet_match_cnt,
-                            vet_p1_wins = EXCLUDED.vet_p1_wins,
-                            vet_p1_losses = EXCLUDED.vet_p1_losses,
-                            vet_draws = EXCLUDED.vet_draws;
-                        """,
-                        (chunk_ids, chunk_ids),
-                    )
-                    mu_rows_written += int(cur.rowcount or 0)
-
-                    # 3. Rebuild `meta_event_runs` for chunk_ids
-                    cur.execute("DELETE FROM meta_event_runs WHERE event_id = ANY(%s);", (chunk_ids,))
-                    cur.execute(
-                        """
-                        WITH pilot_runs AS (
-                            SELECT
-                                m.event_id,
                                 FALSE AS is_non_1v1,
-                                s.player_id,
-                                s.fac,
-                                MAX(COALESCE(m.game_system, '40k')) AS gs,
-                                MIN(m.match_date)::date AS ev_date,
-                                COUNT(*) AS games_in_event,
-                                SUM(s.w) AS wins_in_event,
-                                SUM(s.l) AS losses_in_event,
-                                SUM(s.d) AS draws_in_event,
-                                MAX(COALESCE(s.pre_elo, 0)) AS max_pre_elo
+                                COALESCE(m.player1_faction, '') AS p1_fac,
+                                COALESCE(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL THEN m.player2_faction ELSE '' END, '') AS p2_fac,
+                                MAX(COALESCE(m.game_system, '40k')) AS game_system,
+                                COUNT(*) AS match_cnt,
+                                SUM(CASE WHEN m.winner_id = m.player1_id THEN 1 ELSE 0 END) AS p1_wins,
+                                SUM(CASE WHEN m.loser_id = m.player1_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player2_id AND m.is_draw IS NOT TRUE) THEN 1 ELSE 0 END) AS p1_losses,
+                                SUM(CASE WHEN m.is_draw IS TRUE THEN 1 ELSE 0 END) AS draws,
+                                SUM(CASE WHEN m.winner_id = m.player2_id AND m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_wins,
+                                SUM(CASE WHEN (m.loser_id = m.player2_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player1_id AND m.is_draw IS NOT TRUE)) AND m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL THEN 1 ELSE 0 END) AS p2_losses,
+                                SUM(CASE WHEN m.player1_score IS NOT NULL AND m.player1_score > 0 THEN m.player1_score ELSE 0 END) AS p1_score_sum,
+                                COUNT(*) FILTER (WHERE m.player1_score IS NOT NULL AND m.player1_score > 0) AS p1_score_cnt,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND m.player2_score IS NOT NULL AND m.player2_score > 0 THEN m.player2_score ELSE 0 END) AS p2_score_sum,
+                                COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND m.player2_score IS NOT NULL AND m.player2_score > 0) AS p2_score_cnt,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0) THEN (m.player1_score - m.player2_score) ELSE 0 END) AS p1_margin_sum,
+                                COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0)) AS margin_cnt,
+                                COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550) AS exp_match_cnt,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.winner_id = m.player1_id THEN 1 ELSE 0 END) AS exp_p1_wins,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND (m.loser_id = m.player1_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player2_id AND m.is_draw IS NOT TRUE)) THEN 1 ELSE 0 END) AS exp_p1_losses,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.is_draw IS TRUE THEN 1 ELSE 0 END) AS exp_draws,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.winner_id = m.player2_id THEN 1 ELSE 0 END) AS exp_p2_wins,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND (m.loser_id = m.player2_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player1_id AND m.is_draw IS NOT TRUE)) THEN 1 ELSE 0 END) AS exp_p2_losses,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.player1_score IS NOT NULL AND m.player1_score > 0 THEN m.player1_score ELSE 0 END) AS exp_p1_score_sum,
+                                COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.player1_score IS NOT NULL AND m.player1_score > 0) AS exp_p1_score_cnt,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.player2_score IS NOT NULL AND m.player2_score > 0 THEN m.player2_score ELSE 0 END) AS exp_p2_score_sum,
+                                COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.player2_score IS NOT NULL AND m.player2_score > 0) AS exp_p2_score_cnt,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0) THEN (m.player1_score - m.player2_score) ELSE 0 END) AS exp_p1_margin_sum,
+                                COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1550 AND COALESCE(rh.opponent_elo, 0) >= 1550 AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0)) AS exp_margin_cnt,
+                                COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650) AS vet_match_cnt,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.winner_id = m.player1_id THEN 1 ELSE 0 END) AS vet_p1_wins,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND (m.loser_id = m.player1_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player2_id AND m.is_draw IS NOT TRUE)) THEN 1 ELSE 0 END) AS vet_p1_losses,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.is_draw IS TRUE THEN 1 ELSE 0 END) AS vet_draws,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.winner_id = m.player2_id THEN 1 ELSE 0 END) AS vet_p2_wins,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND (m.loser_id = m.player2_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player1_id AND m.is_draw IS NOT TRUE)) THEN 1 ELSE 0 END) AS vet_p2_losses,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.player1_score IS NOT NULL AND m.player1_score > 0 THEN m.player1_score ELSE 0 END) AS vet_p1_score_sum,
+                                COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.player1_score IS NOT NULL AND m.player1_score > 0) AS vet_p1_score_cnt,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.player2_score IS NOT NULL AND m.player2_score > 0 THEN m.player2_score ELSE 0 END) AS vet_p2_score_sum,
+                                COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.player2_score IS NOT NULL AND m.player2_score > 0) AS vet_p2_score_cnt,
+                                SUM(CASE WHEN m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0) THEN (m.player1_score - m.player2_score) ELSE 0 END) AS vet_p1_margin_sum,
+                                COUNT(*) FILTER (WHERE m.is_bye IS NOT TRUE AND m.player2_id IS NOT NULL AND COALESCE(rh.old_elo, 0) >= 1650 AND COALESCE(rh.opponent_elo, 0) >= 1650 AND m.player1_score IS NOT NULL AND m.player2_score IS NOT NULL AND (m.player1_score > 0 OR m.player2_score > 0)) AS vet_margin_cnt
                             FROM matches m
                             LEFT JOIN rating_history rh
                               ON rh.match_id = m.id
                              AND rh.player_id = m.player1_id
-                            CROSS JOIN LATERAL (
-                                VALUES
-                                    (
-                                        m.player1_id,
-                                        m.player1_faction,
-                                        CASE WHEN m.winner_id = m.player1_id THEN 1 ELSE 0 END,
-                                        CASE WHEN m.loser_id = m.player1_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player2_id AND m.is_draw IS NOT TRUE) THEN 1 ELSE 0 END,
-                                        CASE WHEN m.is_draw IS TRUE THEN 1 ELSE 0 END,
-                                        rh.old_elo
-                                    ),
-                                    (
-                                        CASE WHEN m.is_bye IS NOT TRUE THEN m.player2_id ELSE NULL END,
-                                        m.player2_faction,
-                                        CASE WHEN m.is_bye IS NOT TRUE AND m.winner_id = m.player2_id THEN 1 ELSE 0 END,
-                                        CASE WHEN m.is_bye IS NOT TRUE AND (m.loser_id = m.player2_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player1_id AND m.is_draw IS NOT TRUE)) THEN 1 ELSE 0 END,
-                                        CASE WHEN m.is_bye IS NOT TRUE AND m.is_draw IS TRUE THEN 1 ELSE 0 END,
-                                        rh.opponent_elo
-                                    )
-                            ) AS s(player_id, fac, w, l, d, pre_elo)
                             WHERE m.event_id = ANY(%s)
                               AND m.is_done = TRUE
                               AND m.match_date IS NOT NULL
@@ -11676,62 +11517,264 @@ class PostgresDatabase:
                               AND POSITION('+' IN COALESCE(m.player2_faction, '')) = 0
                               AND LEFT(LOWER(TRIM(COALESCE(m.player1_faction, ''))), 5) != 'pod ('
                               AND LEFT(LOWER(TRIM(COALESCE(m.player2_faction, ''))), 5) != 'pod ('
-                              AND s.player_id IS NOT NULL AND s.player_id != ''
-                              AND s.fac IS NOT NULL AND s.fac != ''
-                            GROUP BY 1, 2, 3, 4
+                            GROUP BY 1, 2, 3, 4, 5
+                            ON CONFLICT (event_id, match_day, is_non_1v1, p1_fac, p2_fac) DO UPDATE SET
+                                match_cnt = EXCLUDED.match_cnt,
+                                p1_wins = EXCLUDED.p1_wins,
+                                p1_losses = EXCLUDED.p1_losses,
+                                draws = EXCLUDED.draws,
+                                p2_wins = EXCLUDED.p2_wins,
+                                p2_losses = EXCLUDED.p2_losses,
+                                p1_score_sum = EXCLUDED.p1_score_sum,
+                                p1_score_cnt = EXCLUDED.p1_score_cnt,
+                                p2_score_sum = EXCLUDED.p2_score_sum,
+                                p2_score_cnt = EXCLUDED.p2_score_cnt,
+                                p1_margin_sum = EXCLUDED.p1_margin_sum,
+                                margin_cnt = EXCLUDED.margin_cnt,
+                                exp_match_cnt = EXCLUDED.exp_match_cnt,
+                                exp_p1_wins = EXCLUDED.exp_p1_wins,
+                                exp_p1_losses = EXCLUDED.exp_p1_losses,
+                                exp_draws = EXCLUDED.exp_draws,
+                                exp_p2_wins = EXCLUDED.exp_p2_wins,
+                                exp_p2_losses = EXCLUDED.exp_p2_losses,
+                                exp_p1_score_sum = EXCLUDED.exp_p1_score_sum,
+                                exp_p1_score_cnt = EXCLUDED.exp_p1_score_cnt,
+                                exp_p2_score_sum = EXCLUDED.exp_p2_score_sum,
+                                exp_p2_score_cnt = EXCLUDED.exp_p2_score_cnt,
+                                exp_p1_margin_sum = EXCLUDED.exp_p1_margin_sum,
+                                exp_margin_cnt = EXCLUDED.exp_margin_cnt,
+                                vet_match_cnt = EXCLUDED.vet_match_cnt,
+                                vet_p1_wins = EXCLUDED.vet_p1_wins,
+                                vet_p1_losses = EXCLUDED.vet_p1_losses,
+                                vet_draws = EXCLUDED.vet_draws,
+                                vet_p2_wins = EXCLUDED.vet_p2_wins,
+                                vet_p2_losses = EXCLUDED.vet_p2_losses,
+                                vet_p1_score_sum = EXCLUDED.vet_p1_score_sum,
+                                vet_p1_score_cnt = EXCLUDED.vet_p1_score_cnt,
+                                vet_p2_score_sum = EXCLUDED.vet_p2_score_sum,
+                                vet_p2_score_cnt = EXCLUDED.vet_p2_score_cnt,
+                                vet_p1_margin_sum = EXCLUDED.vet_p1_margin_sum,
+                                vet_margin_cnt = EXCLUDED.vet_margin_cnt;
+                            """,
+                            (active_chunk_ids,),
                         )
-                        INSERT INTO meta_event_runs (
-                            event_id, is_non_1v1, fac, game_system, event_date,
-                            pilots_cnt, runs_cnt, x0_runs, x1_runs, pilot_hashes,
-                            exp_pilots_cnt, exp_runs_cnt, exp_x0_runs, exp_x1_runs, exp_pilot_hashes,
-                            vet_pilots_cnt, vet_runs_cnt, vet_x0_runs, vet_x1_runs, vet_pilot_hashes
+                        mu_rows_written += int(cur.rowcount or 0)
+
+                    # 2b. Expand FFA Pod seats (`match_participants`) and 2v2 Doubles (`+`) into `is_non_1v1 = TRUE`
+                    if non_1v1_chunk_ids:
+                        cur.execute(
+                            """
+                            WITH non_1v1_seats AS (
+                                SELECT
+                                    m.event_id,
+                                    m.match_date::date AS match_day,
+                                    COALESCE(m.game_system, '40k') AS game_system,
+                                    TRIM(mp.faction) AS seat_fac,
+                                    CASE WHEN mp.is_winner IS TRUE OR UPPER(COALESCE(mp.result, '')) = 'W' THEN 1 ELSE 0 END AS is_w,
+                                    CASE WHEN mp.is_winner IS NOT TRUE AND UPPER(COALESCE(mp.result, '')) = 'L' THEN 1 ELSE 0 END AS is_l,
+                                    CASE WHEN UPPER(COALESCE(mp.result, '')) = 'D' OR m.is_draw IS TRUE THEN 1 ELSE 0 END AS is_d,
+                                    COALESCE(rh.old_elo, 0) AS seat_elo
+                                FROM matches m
+                                JOIN match_participants mp ON mp.match_id = m.id
+                                LEFT JOIN rating_history rh ON rh.match_id = m.id AND rh.player_id = mp.player_id
+                                WHERE m.event_id = ANY(%s)
+                                  AND m.is_done = TRUE
+                                  AND m.match_date IS NOT NULL
+                                  AND mp.faction IS NOT NULL
+                                  AND TRIM(mp.faction) != ''
+                                  AND POSITION('+' IN mp.faction) = 0
+                                UNION ALL
+                                SELECT
+                                    m.event_id,
+                                    m.match_date::date AS match_day,
+                                    COALESCE(m.game_system, '40k') AS game_system,
+                                    TRIM(part_fac) AS seat_fac,
+                                    s.is_w,
+                                    s.is_l,
+                                    s.is_d,
+                                    0 AS seat_elo
+                                FROM matches m
+                                CROSS JOIN LATERAL (
+                                    VALUES
+                                        (
+                                            m.player1_faction,
+                                            CASE WHEN m.winner_id = m.player1_id THEN 1 ELSE 0 END,
+                                            CASE WHEN m.loser_id = m.player1_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player2_id AND m.is_draw IS NOT TRUE) THEN 1 ELSE 0 END,
+                                            CASE WHEN m.is_draw IS TRUE THEN 1 ELSE 0 END
+                                        ),
+                                        (
+                                            CASE WHEN m.is_bye IS NOT TRUE THEN m.player2_faction ELSE NULL END,
+                                            CASE WHEN m.is_bye IS NOT TRUE AND m.winner_id = m.player2_id THEN 1 ELSE 0 END,
+                                            CASE WHEN m.is_bye IS NOT TRUE AND (m.loser_id = m.player2_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player1_id AND m.is_draw IS NOT TRUE)) THEN 1 ELSE 0 END,
+                                            CASE WHEN m.is_bye IS NOT TRUE AND m.is_draw IS TRUE THEN 1 ELSE 0 END
+                                        )
+                                ) AS s(raw_fac, is_w, is_l, is_d)
+                                CROSS JOIN LATERAL UNNEST(STRING_TO_ARRAY(COALESCE(s.raw_fac, ''), '+')) AS part_fac
+                                WHERE m.event_id = ANY(%s)
+                                  AND m.is_done = TRUE
+                                  AND m.match_date IS NOT NULL
+                                  AND (POSITION('+' IN COALESCE(m.player1_faction, '')) > 0 OR POSITION('+' IN COALESCE(m.player2_faction, '')) > 0)
+                                  AND NOT EXISTS (SELECT 1 FROM match_participants mp2 WHERE mp2.match_id = m.id)
+                                  AND TRIM(part_fac) != ''
+                            )
+                            INSERT INTO meta_event_matchups (
+                                event_id, match_day, is_non_1v1, p1_fac, p2_fac, game_system,
+                                match_cnt, p1_wins, p1_losses, draws,
+                                exp_match_cnt, exp_p1_wins, exp_p1_losses, exp_draws,
+                                vet_match_cnt, vet_p1_wins, vet_p1_losses, vet_draws
+                            )
+                            SELECT
+                                event_id,
+                                match_day,
+                                TRUE AS is_non_1v1,
+                                seat_fac AS p1_fac,
+                                '' AS p2_fac,
+                                MAX(game_system) AS game_system,
+                                COUNT(*) AS match_cnt,
+                                SUM(is_w) AS p1_wins,
+                                SUM(is_l) AS p1_losses,
+                                SUM(is_d) AS draws,
+                                COUNT(*) FILTER (WHERE seat_elo >= 1550) AS exp_match_cnt,
+                                SUM(CASE WHEN seat_elo >= 1550 THEN is_w ELSE 0 END) AS exp_p1_wins,
+                                SUM(CASE WHEN seat_elo >= 1550 THEN is_l ELSE 0 END) AS exp_p1_losses,
+                                SUM(CASE WHEN seat_elo >= 1550 THEN is_d ELSE 0 END) AS exp_draws,
+                                COUNT(*) FILTER (WHERE seat_elo >= 1650) AS vet_match_cnt,
+                                SUM(CASE WHEN seat_elo >= 1650 THEN is_w ELSE 0 END) AS vet_p1_wins,
+                                SUM(CASE WHEN seat_elo >= 1650 THEN is_l ELSE 0 END) AS vet_p1_losses,
+                                SUM(CASE WHEN seat_elo >= 1650 THEN is_d ELSE 0 END) AS vet_draws
+                            FROM non_1v1_seats
+                            GROUP BY 1, 2, 3, 4, 5
+                            ON CONFLICT (event_id, match_day, is_non_1v1, p1_fac, p2_fac) DO UPDATE SET
+                                match_cnt = EXCLUDED.match_cnt,
+                                p1_wins = EXCLUDED.p1_wins,
+                                p1_losses = EXCLUDED.p1_losses,
+                                draws = EXCLUDED.draws,
+                                exp_match_cnt = EXCLUDED.exp_match_cnt,
+                                exp_p1_wins = EXCLUDED.exp_p1_wins,
+                                exp_p1_losses = EXCLUDED.exp_p1_losses,
+                                exp_draws = EXCLUDED.exp_draws,
+                                vet_match_cnt = EXCLUDED.vet_match_cnt,
+                                vet_p1_wins = EXCLUDED.vet_p1_wins,
+                                vet_p1_losses = EXCLUDED.vet_p1_losses,
+                                vet_draws = EXCLUDED.vet_draws;
+                            """,
+                            (non_1v1_chunk_ids, non_1v1_chunk_ids),
                         )
-                        SELECT
-                            event_id,
-                            is_non_1v1,
-                            fac,
-                            MAX(gs) AS game_system,
-                            MIN(ev_date) AS event_date,
-                            COUNT(DISTINCT player_id) AS pilots_cnt,
-                            COUNT(*) FILTER (WHERE games_in_event >= 3) AS runs_cnt,
-                            COUNT(*) FILTER (WHERE wins_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 4 ELSE 3 END) AND losses_in_event = 0 AND draws_in_event = 0) AS x0_runs,
-                            COUNT(*) FILTER (WHERE games_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 4 ELSE 3 END) AND losses_in_event <= 1 AND wins_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 3 ELSE 2 END)) AS x1_runs,
-                            ARRAY_AGG(DISTINCT hashtext(player_id)) AS pilot_hashes,
-                            COUNT(DISTINCT player_id) FILTER (WHERE max_pre_elo >= 1550) AS exp_pilots_cnt,
-                            COUNT(*) FILTER (WHERE max_pre_elo >= 1550 AND games_in_event >= 3) AS exp_runs_cnt,
-                            COUNT(*) FILTER (WHERE max_pre_elo >= 1550 AND wins_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 4 ELSE 3 END) AND losses_in_event = 0 AND draws_in_event = 0) AS exp_x0_runs,
-                            COUNT(*) FILTER (WHERE max_pre_elo >= 1550 AND games_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 4 ELSE 3 END) AND losses_in_event <= 1 AND wins_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 3 ELSE 2 END)) AS exp_x1_runs,
-                            ARRAY_AGG(DISTINCT hashtext(player_id)) FILTER (WHERE max_pre_elo >= 1550) AS exp_pilot_hashes,
-                            COUNT(DISTINCT player_id) FILTER (WHERE max_pre_elo >= 1650) AS vet_pilots_cnt,
-                            COUNT(*) FILTER (WHERE max_pre_elo >= 1650 AND games_in_event >= 3) AS vet_runs_cnt,
-                            COUNT(*) FILTER (WHERE max_pre_elo >= 1650 AND wins_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 4 ELSE 3 END) AND losses_in_event = 0 AND draws_in_event = 0) AS vet_x0_runs,
-                            COUNT(*) FILTER (WHERE max_pre_elo >= 1650 AND games_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 4 ELSE 3 END) AND losses_in_event <= 1 AND wins_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 3 ELSE 2 END)) AS vet_x1_runs,
-                            ARRAY_AGG(DISTINCT hashtext(player_id)) FILTER (WHERE max_pre_elo >= 1650) AS vet_pilot_hashes
-                        FROM pilot_runs
-                        GROUP BY 1, 2, 3
-                        ON CONFLICT (event_id, is_non_1v1, fac) DO UPDATE SET
-                            game_system = EXCLUDED.game_system,
-                            event_date = EXCLUDED.event_date,
-                            pilots_cnt = EXCLUDED.pilots_cnt,
-                            runs_cnt = EXCLUDED.runs_cnt,
-                            x0_runs = EXCLUDED.x0_runs,
-                            x1_runs = EXCLUDED.x1_runs,
-                            pilot_hashes = EXCLUDED.pilot_hashes,
-                            exp_pilots_cnt = EXCLUDED.exp_pilots_cnt,
-                            exp_runs_cnt = EXCLUDED.exp_runs_cnt,
-                            exp_x0_runs = EXCLUDED.exp_x0_runs,
-                            exp_x1_runs = EXCLUDED.exp_x1_runs,
-                            exp_pilot_hashes = EXCLUDED.exp_pilot_hashes,
-                            vet_pilots_cnt = EXCLUDED.vet_pilots_cnt,
-                            vet_runs_cnt = EXCLUDED.vet_runs_cnt,
-                            vet_x0_runs = EXCLUDED.vet_x0_runs,
-                            vet_x1_runs = EXCLUDED.vet_x1_runs,
-                            vet_pilot_hashes = EXCLUDED.vet_pilot_hashes;
-                        """,
-                        (chunk_ids,),
-                    )
-                    run_rows_written += int(cur.rowcount or 0)
+                        mu_rows_written += int(cur.rowcount or 0)
+
+                    # 3. Rebuild `meta_event_runs` for active_chunk_ids
+                    if not only_pending:
+                        cur.execute("DELETE FROM meta_event_runs WHERE event_id = ANY(%s);", (chunk_ids,))
+                    elif active_chunk_ids:
+                        cur.execute("DELETE FROM meta_event_runs WHERE event_id = ANY(%s);", (active_chunk_ids,))
+
+                    if active_chunk_ids:
+                        cur.execute(
+                            """
+                            WITH pilot_runs AS (
+                                SELECT
+                                    m.event_id,
+                                    FALSE AS is_non_1v1,
+                                    s.player_id,
+                                    s.fac,
+                                    MAX(COALESCE(m.game_system, '40k')) AS gs,
+                                    MIN(m.match_date)::date AS ev_date,
+                                    COUNT(*) AS games_in_event,
+                                    SUM(s.w) AS wins_in_event,
+                                    SUM(s.l) AS losses_in_event,
+                                    SUM(s.d) AS draws_in_event,
+                                    MAX(COALESCE(s.pre_elo, 0)) AS max_pre_elo
+                                FROM matches m
+                                LEFT JOIN rating_history rh
+                                  ON rh.match_id = m.id
+                                 AND rh.player_id = m.player1_id
+                                CROSS JOIN LATERAL (
+                                    VALUES
+                                        (
+                                            m.player1_id,
+                                            m.player1_faction,
+                                            CASE WHEN m.winner_id = m.player1_id THEN 1 ELSE 0 END,
+                                            CASE WHEN m.loser_id = m.player1_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player2_id AND m.is_draw IS NOT TRUE) THEN 1 ELSE 0 END,
+                                            CASE WHEN m.is_draw IS TRUE THEN 1 ELSE 0 END,
+                                            rh.old_elo
+                                        ),
+                                        (
+                                            CASE WHEN m.is_bye IS NOT TRUE THEN m.player2_id ELSE NULL END,
+                                            m.player2_faction,
+                                            CASE WHEN m.is_bye IS NOT TRUE AND m.winner_id = m.player2_id THEN 1 ELSE 0 END,
+                                            CASE WHEN m.is_bye IS NOT TRUE AND (m.loser_id = m.player2_id OR (m.loser_id IS NULL AND m.winner_id IS NOT NULL AND m.winner_id = m.player1_id AND m.is_draw IS NOT TRUE)) THEN 1 ELSE 0 END,
+                                            CASE WHEN m.is_bye IS NOT TRUE AND m.is_draw IS TRUE THEN 1 ELSE 0 END,
+                                            rh.opponent_elo
+                                        )
+                                ) AS s(player_id, fac, w, l, d, pre_elo)
+                                WHERE m.event_id = ANY(%s)
+                                  AND m.is_done = TRUE
+                                  AND m.match_date IS NOT NULL
+                                  AND POSITION('+' IN COALESCE(m.player1_faction, '')) = 0
+                                  AND POSITION('+' IN COALESCE(m.player2_faction, '')) = 0
+                                  AND LEFT(LOWER(TRIM(COALESCE(m.player1_faction, ''))), 5) != 'pod ('
+                                  AND LEFT(LOWER(TRIM(COALESCE(m.player2_faction, ''))), 5) != 'pod ('
+                                  AND s.player_id IS NOT NULL AND s.player_id != ''
+                                  AND s.fac IS NOT NULL AND s.fac != ''
+                                GROUP BY 1, 2, 3, 4
+                            )
+                            INSERT INTO meta_event_runs (
+                                event_id, is_non_1v1, fac, game_system, event_date,
+                                pilots_cnt, runs_cnt, x0_runs, x1_runs, pilot_hashes,
+                                exp_pilots_cnt, exp_runs_cnt, exp_x0_runs, exp_x1_runs, exp_pilot_hashes,
+                                vet_pilots_cnt, vet_runs_cnt, vet_x0_runs, vet_x1_runs, vet_pilot_hashes
+                            )
+                            SELECT
+                                event_id,
+                                is_non_1v1,
+                                fac,
+                                MAX(gs) AS game_system,
+                                MIN(ev_date) AS event_date,
+                                COUNT(DISTINCT player_id) AS pilots_cnt,
+                                COUNT(*) FILTER (WHERE games_in_event >= 3) AS runs_cnt,
+                                COUNT(*) FILTER (WHERE wins_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 4 ELSE 3 END) AND losses_in_event = 0 AND draws_in_event = 0) AS x0_runs,
+                                COUNT(*) FILTER (WHERE games_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 4 ELSE 3 END) AND losses_in_event <= 1 AND wins_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 3 ELSE 2 END)) AS x1_runs,
+                                ARRAY_AGG(DISTINCT hashtext(player_id)) AS pilot_hashes,
+                                COUNT(DISTINCT player_id) FILTER (WHERE max_pre_elo >= 1550) AS exp_pilots_cnt,
+                                COUNT(*) FILTER (WHERE max_pre_elo >= 1550 AND games_in_event >= 3) AS exp_runs_cnt,
+                                COUNT(*) FILTER (WHERE max_pre_elo >= 1550 AND wins_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 4 ELSE 3 END) AND losses_in_event = 0 AND draws_in_event = 0) AS exp_x0_runs,
+                                COUNT(*) FILTER (WHERE max_pre_elo >= 1550 AND games_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 4 ELSE 3 END) AND losses_in_event <= 1 AND wins_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 3 ELSE 2 END)) AS exp_x1_runs,
+                                ARRAY_AGG(DISTINCT hashtext(player_id)) FILTER (WHERE max_pre_elo >= 1550) AS exp_pilot_hashes,
+                                COUNT(DISTINCT player_id) FILTER (WHERE max_pre_elo >= 1650) AS vet_pilots_cnt,
+                                COUNT(*) FILTER (WHERE max_pre_elo >= 1650 AND games_in_event >= 3) AS vet_runs_cnt,
+                                COUNT(*) FILTER (WHERE max_pre_elo >= 1650 AND wins_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 4 ELSE 3 END) AND losses_in_event = 0 AND draws_in_event = 0) AS vet_x0_runs,
+                                COUNT(*) FILTER (WHERE max_pre_elo >= 1650 AND games_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 4 ELSE 3 END) AND losses_in_event <= 1 AND wins_in_event >= (CASE WHEN gs IN ('40k', 'aos') THEN 3 ELSE 2 END)) AS vet_x1_runs,
+                                ARRAY_AGG(DISTINCT hashtext(player_id)) FILTER (WHERE max_pre_elo >= 1650) AS vet_pilot_hashes
+                            FROM pilot_runs
+                            GROUP BY 1, 2, 3
+                            ON CONFLICT (event_id, is_non_1v1, fac) DO UPDATE SET
+                                game_system = EXCLUDED.game_system,
+                                event_date = EXCLUDED.event_date,
+                                pilots_cnt = EXCLUDED.pilots_cnt,
+                                runs_cnt = EXCLUDED.runs_cnt,
+                                x0_runs = EXCLUDED.x0_runs,
+                                x1_runs = EXCLUDED.x1_runs,
+                                pilot_hashes = EXCLUDED.pilot_hashes,
+                                exp_pilots_cnt = EXCLUDED.exp_pilots_cnt,
+                                exp_runs_cnt = EXCLUDED.exp_runs_cnt,
+                                exp_x0_runs = EXCLUDED.exp_x0_runs,
+                                exp_x1_runs = EXCLUDED.exp_x1_runs,
+                                exp_pilot_hashes = EXCLUDED.exp_pilot_hashes,
+                                vet_pilots_cnt = EXCLUDED.vet_pilots_cnt,
+                                vet_runs_cnt = EXCLUDED.vet_runs_cnt,
+                                vet_x0_runs = EXCLUDED.vet_x0_runs,
+                                vet_x1_runs = EXCLUDED.vet_x1_runs,
+                                vet_pilot_hashes = EXCLUDED.vet_pilot_hashes;
+                            """,
+                            (active_chunk_ids,),
+                        )
+                        run_rows_written += int(cur.rowcount or 0)
                 conn.commit()
+            if total_targets >= 2000 and ((idx // eff_batch) % 10 == 0):
+                logger.info(
+                    f"   [{sys_norm or 'all'}] Rollup chunk {idx + len(chunk_ids):,}/{total_targets:,} events "
+                    f"(+{len(active_chunk_ids)} active, {mu_rows_written:,} mu rows, {time.time() - t0:.1f}s)"
+                )
 
         # 4. Also rollup any unlinked/orphan matches (no row in `events`) so unfiltered `All Events` has 100% match parity
         if include_unlinked:

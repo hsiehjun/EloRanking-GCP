@@ -444,16 +444,16 @@ def _normalize_format_slug(raw_fmt: str, game_system: str, structure_tag: str, p
     f_low = (raw_fmt or "").strip().lower()
     t_low = (title or "").strip().lower()
 
-    if structure_tag == "ffa_pod":
-        return "commander"
-
-    # Wargames (40k, AoS, etc.)
+    # Wargames (40k, AoS, etc.) never use TCG 'commander' format slug
     if sys_l in ("40k", "aos", "the_old_world", "horus_heresy", "kings_of_war", "conquest", "bolt_action"):
         if points_val >= 1750:
             return "standard_2000"
         if (250 <= points_val <= 1500) or _SMALL_PTS_RE.search(t_low):
             return "incursion_1000"
         return "standard_2000"
+
+    if structure_tag == "ffa_pod":
+        return "commander"
 
     if not f_low and t_low:
         for kw, slug in (
