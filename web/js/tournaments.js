@@ -8362,8 +8362,8 @@ async function renderPlayerStation(ev, userRegData) {
                 📋 Opponent Roster
               </button>
             ` : ''}
-            <a href="https://web.bestcoastpairings.com/event.php?eventId=${encodeURIComponent(eventId)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.82rem; font-weight:700; padding:0.65rem 1.1rem; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.08); text-decoration:none; display:inline-flex; align-items:center; gap:0.4rem; border-radius:8px;">
-              📱 Submit on BCP ↗
+            <a href="${escapeHtml((typeof getPlatformExternalEventUrl === 'function') ? getPlatformExternalEventUrl(eventId, ev) : `https://web.bestcoastpairings.com/event.php?eventId=${encodeURIComponent(eventId)}`)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.82rem; font-weight:700; padding:0.65rem 1.1rem; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.08); text-decoration:none; display:inline-flex; align-items:center; gap:0.4rem; border-radius:8px;">
+              📱 ${((typeof getEventPlatform === 'function' ? getEventPlatform(eventId, ev) : 'bcp') === 'bcp') ? 'Submit on BCP' : `Open on ${(typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(eventId, ev) : 'Platform'}`} ↗
             </a>
             <button type="button" class="btn btn-outline" onclick="openScorecardModal('${matchId}')" style="font-size:0.82rem; font-weight:600; padding:0.65rem 1rem; color:#cbd5e1; border-color:rgba(255,255,255,0.15); background:rgba(255,255,255,0.04); cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem; border-radius:8px;">
               📄 View Scorecard

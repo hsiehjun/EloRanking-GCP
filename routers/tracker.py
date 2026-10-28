@@ -3065,8 +3065,8 @@ def _api_get_scorecard_sync(match_id: str):
                         if m_tok_disambig:
                             cur.execute("""
                                 SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
-                                       m.player1_id, m.player1_name, m.player1_faction, m.player1_detachment, m.player1_score,
-                                       m.player2_id, m.player2_name, m.player2_faction, m.player2_detachment, m.player2_score,
+                                       m.player1_id, m.player1_name, m.player1_faction, (m.raw_json->>'player1_detachment') AS player1_detachment, m.player1_score,
+                                       m.player2_id, m.player2_name, m.player2_faction, (m.raw_json->>'player2_detachment') AS player2_detachment, m.player2_score,
                                        m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
                                        m.game_system, m.raw_json,
                                        e.name AS event_name, e.is_ended AS event_is_ended, e.source_platform,
@@ -3088,8 +3088,8 @@ def _api_get_scorecard_sync(match_id: str):
                         if not row:
                             cur.execute("""
                                 SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
-                                       m.player1_id, m.player1_name, m.player1_faction, m.player1_detachment, m.player1_score,
-                                       m.player2_id, m.player2_name, m.player2_faction, m.player2_detachment, m.player2_score,
+                                       m.player1_id, m.player1_name, m.player1_faction, (m.raw_json->>'player1_detachment') AS player1_detachment, m.player1_score,
+                                       m.player2_id, m.player2_name, m.player2_faction, (m.raw_json->>'player2_detachment') AS player2_detachment, m.player2_score,
                                        m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
                                        m.game_system, m.raw_json,
                                        e.name AS event_name, e.is_ended AS event_is_ended, e.source_platform,
@@ -3107,8 +3107,8 @@ def _api_get_scorecard_sync(match_id: str):
                         p_tok = urllib.parse.unquote(m_player_pat.group(3)).strip()
                         cur.execute("""
                             SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
-                                   m.player1_id, m.player1_name, m.player1_faction, m.player1_detachment, m.player1_score,
-                                   m.player2_id, m.player2_name, m.player2_faction, m.player2_detachment, m.player2_score,
+                                   m.player1_id, m.player1_name, m.player1_faction, (m.raw_json->>'player1_detachment') AS player1_detachment, m.player1_score,
+                                   m.player2_id, m.player2_name, m.player2_faction, (m.raw_json->>'player2_detachment') AS player2_detachment, m.player2_score,
                                    m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
                                    m.game_system, m.raw_json,
                                    e.name AS event_name, e.is_ended AS event_is_ended, e.source_platform,
@@ -3131,8 +3131,8 @@ def _api_get_scorecard_sync(match_id: str):
                         raw_mid_lookup = match_id.strip()
                         cur.execute("""
                             SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
-                                   m.player1_id, m.player1_name, m.player1_faction, m.player1_detachment, m.player1_score,
-                                   m.player2_id, m.player2_name, m.player2_faction, m.player2_detachment, m.player2_score,
+                                   m.player1_id, m.player1_name, m.player1_faction, (m.raw_json->>'player1_detachment') AS player1_detachment, m.player1_score,
+                                   m.player2_id, m.player2_name, m.player2_faction, (m.raw_json->>'player2_detachment') AS player2_detachment, m.player2_score,
                                    m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
                                    m.game_system, m.raw_json,
                                    e.name AS event_name, e.is_ended AS event_is_ended, e.source_platform,

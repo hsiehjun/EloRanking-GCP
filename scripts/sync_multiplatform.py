@@ -1454,9 +1454,11 @@ def import_live_longshanks_tournaments(
             except Exception:
                 rounds_map[eff_by_opt[opt_v]] = ""
         ev_h = st_h
-        if not re.search(r"<span class=['\"]header['\"]>Date</span>&nbsp;([0-9-]+)", gm_r1_h) and not (
-            meta_by_eid.get(raw_eid_in) or {}
-        ).get("date"):
+        meta_item = meta_by_eid.get(raw_eid_in) or {}
+        if not meta_item.get("classes") or (
+            not re.search(r"<span class=['\"]header['\"]>Date</span>&nbsp;([0-9-]+)", gm_r1_h)
+            and not meta_item.get("date")
+        ):
             try:
                 ev_h = _ls_get_text(f"{host}/event/{raw_eid_in}/")
             except LongshanksBlockedError:
@@ -1709,7 +1711,14 @@ def import_live_longshanks_tournaments(
             continue
 
         loc_region = str(ls_meta.get("region") or "").strip()
-        cls_list = ls_meta.get("classes") or []
+        cls_list = list(ls_meta.get("classes") or [])
+        if not cls_list and ev_html:
+            st_badge_m = re.search(r"event_status_icon[^>]*></div>\s*<div class=['\"]text['\"]>(.*?)</div>", ev_html, re.S | re.I)
+            st_badge_low = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", st_badge_m.group(1))).split()).strip().lower() if st_badge_m else ""
+            if "finished" in st_badge_low or "ended" in st_badge_low:
+                cls_list = ["finished"]
+            elif "in progress" in st_badge_low or "round " in st_badge_low:
+                cls_list = ["ongoing"]
         any_unscored_ls = any(not m.get("is_done", True) for m in m_batch)
         is_stale_ls = str(ev_date)[:10] < (datetime.now(timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%d")
         is_ended_ls = bool(is_stale_ls or ("finished" in cls_list) or (not any_unscored_ls and "finished" in (cls_list or ["finished"])))

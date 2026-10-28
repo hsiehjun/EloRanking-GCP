@@ -1202,28 +1202,24 @@ def fetch_live_multiplatform_event_preview(
     if prefix == "ltcg":
         tid = raw_tid.lower() if _HEX24_RE.match(raw_tid.lower()) else raw_tid
         try:
-            with ThreadPoolExecutor(max_workers=2 if include_standings else 1) as pool:
-                f_det = pool.submit(
-                    _http_get_text,
-                    f"https://play.limitlesstcg.com/tournament/{urllib.parse.quote(tid)}/details",
-                    4.5,
-                )
-                f_reg = (
-                    pool.submit(
-                        _http_get_text,
+            det_html = _http_get_text(
+                f"https://play.limitlesstcg.com/tournament/{urllib.parse.quote(tid)}/details",
+                4.5,
+            )
+            low_html_pre = det_html.lower()
+            has_started_nav_pre = (
+                f"/tournament/{tid.lower()}/standings" in low_html_pre
+                or f"/tournament/{tid.lower()}/pairings" in low_html_pre
+            )
+            reg_html = ""
+            if include_standings and not has_started_nav_pre:
+                try:
+                    reg_html = _http_get_text(
                         f"https://play.limitlesstcg.com/tournament/{urllib.parse.quote(tid)}/registrations",
                         4.0,
                     )
-                    if include_standings
-                    else None
-                )
-                det_html = f_det.result()
-                reg_html = ""
-                if f_reg is not None:
-                    try:
-                        reg_html = f_reg.result()
-                    except Exception:
-                        reg_html = ""
+                except Exception:
+                    reg_html = ""
 
             title_m = re.search(r"<title>(?:Details:\s*)?(.*?)\s*\|\s*Limitless</title>", det_html, re.S)
             title = html_lib.unescape(title_m.group(1)).strip() if title_m else ""
@@ -1333,8 +1329,11 @@ def fetch_live_multiplatform_event_preview(
                     )
                 players_out.sort(key=lambda x: -float(x.get("current_elo") or 1500.0))
 
-            has_standings_nav = f"/tournament/{tid}/standings" in low_html
-            is_started = bool(has_standings_nav and not reg_entries)
+            has_standings_nav = (
+                f"/tournament/{tid.lower()}/standings" in low_html
+                or f"/tournament/{tid.lower()}/pairings" in low_html
+            )
+            is_started = bool(has_standings_nav)
             ext_url = f"https://play.limitlesstcg.com/tournament/{urllib.parse.quote(tid)}/{'standings' if is_started else 'details'}"
             raw_meta_ltcg = {
                 "platform": "limitless",

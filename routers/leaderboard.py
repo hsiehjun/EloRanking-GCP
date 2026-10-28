@@ -4111,8 +4111,8 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False, bypass_cach
                                             SET current_round = GREATEST(COALESCE(current_round, 0), %s),
                                                 num_rounds = GREATEST(COALESCE(num_rounds, 0), %s),
                                                 raw_json = CASE
-                                                    WHEN raw_json IS NOT NULL AND (raw_json::jsonb ? 'matches')
-                                                    THEN (raw_json::jsonb - 'matches')::json
+                                                    WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json) = 'object' AND (raw_json ? 'matches')
+                                                    THEN (raw_json - 'matches')
                                                     ELSE raw_json
                                                 END
                                             WHERE id = %s;

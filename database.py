@@ -5410,8 +5410,9 @@ class PostgresDatabase:
                        venue, venue_name, address, postal_code, latitude, longitude, place_id,
                        total_players, num_rounds, current_round, is_ended,
                        COALESCE(game_system, '40k') as game_system,
+                       source_platform, external_event_id,
                        CASE
-                           WHEN id LIKE '%:%' AND raw_json IS NOT NULL AND jsonb_typeof(raw_json) = 'object' THEN
+                           WHEN POSITION(':' IN id) > 0 AND raw_json IS NOT NULL AND jsonb_typeof(raw_json) = 'object' THEN
                                (raw_json - 'players' - 'pairings' - 'matches' - 'standings' - 'roundMatches' - 'decklists')
                            WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json) = 'object' THEN
                                jsonb_build_object(
@@ -5491,6 +5492,23 @@ class PostgresDatabase:
                 if not event_row:
                     return None
                 res = dict(event_row)
+                ev_id_str = str(res.get("id") or event_id).strip()
+                if ":" in ev_id_str:
+                    plat_pfx, raw_ext = ev_id_str.split(":", 1)
+                    plat_map = {"melee": "melee", "ltcg": "limitless", "td": "topdeck", "ls": "longshanks"}
+                    res["source_platform"] = str(res.get("source_platform") or plat_map.get(plat_pfx, plat_pfx)).strip()
+                    res["external_event_id"] = str(res.get("external_event_id") or raw_ext).strip()
+                    if not res.get("event_url"):
+                        if plat_pfx == "melee":
+                            res["event_url"] = f"https://melee.gg/Tournament/View/{raw_ext}"
+                        elif plat_pfx == "ltcg":
+                            res["event_url"] = f"https://play.limitlesstcg.com/tournament/{raw_ext}/standings"
+                        elif plat_pfx == "td":
+                            res["event_url"] = f"https://topdeck.gg/bracket/{raw_ext}"
+                        elif plat_pfx == "ls":
+                            res["event_url"] = f"https://www.longshanks.org/event/{raw_ext}/"
+                    if not res.get("external_url"):
+                        res["external_url"] = res.get("event_url")
                 raw_meta = res.get("raw_json") if isinstance(res.get("raw_json"), dict) else {}
                 raw_loc = raw_meta.get("location") if isinstance(raw_meta.get("location"), dict) else {}
                 if not res.get("city"):

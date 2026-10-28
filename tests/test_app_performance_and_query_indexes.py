@@ -298,6 +298,38 @@ class TestAppPerformanceAndQueryIndexes(unittest.TestCase):
             self.assertEqual(elo_res2["matches_processed"], 2)
             self.assertEqual(elo_res2["players_rated"], 4)
 
+    def test_no_unescaped_percent_in_parameterized_postgres_sql(self):
+        """Prevents psycopg2 IndexError ('tuple index out of range') from unescaped % in parameterized SQL."""
+        from pathlib import Path
+        import ast
+        import re
+
+        repo_root = Path(__file__).resolve().parents[1]
+        targets = [repo_root / "database.py"] + sorted((repo_root / "routers").glob("*.py"))
+        offenders = []
+        for path in targets:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in ("execute", "executemany")
+                    and len(node.args) >= 2
+                ):
+                    arg0 = node.args[0]
+                    sql_str = None
+                    if isinstance(arg0, ast.Constant) and isinstance(arg0.value, str):
+                        sql_str = arg0.value
+                    elif isinstance(arg0, ast.JoinedStr):
+                        sql_str = "".join(
+                            v.value for v in arg0.values if isinstance(v, ast.Constant) and isinstance(v.value, str)
+                        )
+                    if sql_str:
+                        cleaned = re.sub(r"%%|%s|%\([a-zA-Z0-9_]+\)s", "", sql_str)
+                        if "%" in cleaned:
+                            offenders.append(f"{path.name}:{node.lineno}")
+        self.assertEqual(offenders, [], f"Unescaped '%' in parameterized SQL: {offenders}")
+
 
 if __name__ == "__main__":
     unittest.main()
