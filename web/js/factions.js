@@ -332,6 +332,25 @@ function renderFactionMetaKpis() {
     ? `${Number(topEventWinner.over_rep_ratio).toFixed(2)}x TiWP`
     : `${Number(topEventWinner ? topEventWinner.win_rate || 0 : 0).toFixed(1)}% WR`;
 
+  const bestExMirror = factions.slice().sort((a, b) => (Number(b.non_mirror_win_rate ?? b.win_rate) || 0) - (Number(a.non_mirror_win_rate ?? a.win_rate) || 0))[0] || highestWr;
+  const exmName = bestExMirror ? (bestExMirror.faction || '-') : '-';
+  const exmWr = bestExMirror ? Number(bestExMirror.non_mirror_win_rate ?? bestExMirror.win_rate ?? 0).toFixed(1) : '0.0';
+  const exmGames = bestExMirror ? formatNumber(bestExMirror.non_mirror_matches || bestExMirror.total_matches || 0) : '0';
+
+  const fifthKpiHtml = (evX0 > 0 || evX1 > 0)
+    ? `
+    <div class="meta-kpi-card clickable" onclick="openFactionModal('${escapeHtml(String(evName).replace(/'/g, "\\'"))}')">
+      <div class="meta-kpi-label">🏆 Undefeated Finisher</div>
+      <div class="meta-kpi-val meta-kpi-value meta-kpi-faction">${escapeHtml(evName)}</div>
+      <div class="meta-kpi-sub"><b style="color:var(--win);">${formatNumber(evX0)} X-0 Runs</b> • ${formatNumber(evX1)} Podiums (${escapeHtml(evOverRep)})</div>
+    </div>`
+    : `
+    <div class="meta-kpi-card clickable" onclick="openFactionModal('${escapeHtml(String(exmName).replace(/'/g, "\\'"))}')">
+      <div class="meta-kpi-label">🛡️ Ex-Mirror Leader</div>
+      <div class="meta-kpi-val meta-kpi-value meta-kpi-faction">${escapeHtml(exmName)}</div>
+      <div class="meta-kpi-sub"><b style="color:var(--win);">${exmWr}% Ex-Mirror</b> • ${exmGames} non-mirror games</div>
+    </div>`;
+
   const vpName = highestMargin ? (highestMargin.faction || '-') : '-';
   const vpMarginNum = highestMargin ? Number(highestMargin.avg_margin || 0) : 0;
   const vpMarginStr = `${vpMarginNum >= 0 ? '+' : ''}${vpMarginNum.toFixed(1)} VP`;
@@ -364,11 +383,7 @@ function renderFactionMetaKpis() {
       <div class="meta-kpi-sub"><b style="color:#a855f7;">${hwrVal}% WR</b> (${hwrNm}% ex-mirror • ${hwrGames}g)</div>
     </div>
 
-    <div class="meta-kpi-card clickable" onclick="openFactionModal('${escapeHtml(String(evName).replace(/'/g, "\\'"))}')">
-      <div class="meta-kpi-label">🏆 Undefeated Finisher</div>
-      <div class="meta-kpi-val meta-kpi-value meta-kpi-faction">${escapeHtml(evName)}</div>
-      <div class="meta-kpi-sub"><b style="color:var(--win);">${evX0} X-0 Runs</b> • ${evX1} Podiums (${escapeHtml(evOverRep)})</div>
-    </div>
+    ${fifthKpiHtml}
 
     <div class="meta-kpi-card clickable" onclick="openFactionModal('${escapeHtml(String(vpName).replace(/'/g, "\\'"))}')">
       <div class="meta-kpi-label">⚡ VP Differential Leader</div>
@@ -456,14 +471,34 @@ function renderFactionMetaRows() {
     const avgMargin = Number(f.avg_margin) || 0;
     const facColor = getFactionColor(f.faction);
 
-    let overRepBadge = '';
-    if (overRep > 0) {
-      const repColor = overRep >= 1.25 ? 'var(--win)' : (overRep >= 0.85 ? '#38bdf8' : 'var(--text-muted)');
-      overRepBadge = `<span style="font-size:0.72rem; color:${repColor}; font-weight:700;">${overRep.toFixed(2)}x TiWP</span>`;
+    let x0CellHtml = '';
+    if (x0Runs > 0) {
+      let overRepBadge = '';
+      if (overRep > 0) {
+        const repColor = overRep >= 1.25 ? 'var(--win)' : (overRep >= 0.85 ? '#38bdf8' : 'var(--text-muted)');
+        overRepBadge = `<span style="font-size:0.72rem; color:${repColor}; font-weight:700;">${overRep.toFixed(2)}x TiWP</span>`;
+      } else if (x1Runs > 0) {
+        overRepBadge = `<span style="font-size:0.72rem; color:var(--text-secondary);">${formatNumber(x1Runs)} X-1 cuts</span>`;
+      }
+      x0CellHtml = `
+        <div class="meta-x0-wrap" style="display:flex; align-items:center; gap:0.35rem;">
+          <span class="badge" style="background:rgba(34,197,94,0.14); color:#4ade80; border:1px solid rgba(34,197,94,0.3); font-size:0.75rem; font-weight:700;">
+            🏆 ${formatNumber(x0Runs)} X-0
+          </span>
+        </div>
+        ${overRepBadge ? `<div class="meta-tiwp-wrap" style="margin-top:0.2rem;">${overRepBadge}</div>` : ''}
+      `;
     } else if (x1Runs > 0) {
-      overRepBadge = `<span style="font-size:0.72rem; color:var(--text-secondary);">${x1Runs} X-1 cuts</span>`;
+      x0CellHtml = `
+        <div class="meta-x0-wrap" style="display:flex; align-items:center; gap:0.35rem;">
+          <span class="badge" style="background:rgba(148,163,184,0.1); color:var(--text-secondary); border:1px solid rgba(148,163,184,0.22); font-size:0.73rem; font-weight:600;">
+            ${formatNumber(x1Runs)} X-1 cuts
+          </span>
+        </div>
+        ${overRep > 0 ? `<div class="meta-tiwp-wrap" style="margin-top:0.2rem;"><span style="font-size:0.71rem; color:var(--text-muted);">${overRep.toFixed(2)}x podium</span></div>` : ''}
+      `;
     } else {
-      overRepBadge = `<span class="meta-tiwp-dash" style="font-size:0.72rem; color:var(--text-muted);">—</span>`;
+      x0CellHtml = `<span class="meta-tiwp-dash" style="font-size:0.82rem; color:var(--text-muted);" title="No undefeated tournament runs in this timeframe">—</span>`;
     }
 
     let matchupHtml = '<span style="color:var(--text-muted); font-size:0.75rem;">—</span>';
@@ -527,12 +562,7 @@ function renderFactionMetaRows() {
         <div class="meta-mirrors-lbl" style="font-size:0.68rem; color:var(--text-muted); margin-top:0.12rem;">${mirrors > 0 ? `${formatNumber(mirrors)} mirror games` : '0 mirrors'}</div>
       </td>
       <td class="meta-td-x0" style="font-family:var(--font-mono);">
-        <div class="meta-x0-wrap" style="display:flex; align-items:center; gap:0.35rem;">
-          <span class="badge" style="background:${x0Runs > 0 ? 'rgba(34,197,94,0.14)' : 'rgba(148,163,184,0.1)'}; color:${x0Runs > 0 ? '#4ade80' : 'var(--text-secondary)'}; border:1px solid ${x0Runs > 0 ? 'rgba(34,197,94,0.3)' : 'rgba(148,163,184,0.2)'}; font-size:0.75rem; font-weight:700;">
-            🏆 ${x0Runs} X-0
-          </span>
-        </div>
-        <div class="meta-tiwp-wrap" style="margin-top:0.2rem;">${overRepBadge}</div>
+        ${x0CellHtml}
       </td>
       <td class="meta-td-record" style="font-family:var(--font-mono); font-size:0.84rem; white-space:nowrap;">
         <span style="color:var(--win); font-weight:700;">${formatNumber(f.wins)}W</span> -

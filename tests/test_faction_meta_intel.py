@@ -659,6 +659,69 @@ class TestFactionMetaIntel(unittest.TestCase):
         self.assertIn("loadMoreFactionMatches", bundle_js)
         self.assertIn("fmodal-load-more-btn", bundle_js)
 
+    def test_single_pass_x0_event_runs_and_ui_zero_suppression(self):
+        import inspect
+        meta_src = inspect.getsource(PostgresDatabase.get_faction_meta_stats)
+        self.assertIn("CROSS JOIN LATERAL", meta_src)
+        self.assertIn("meta_evchunk_v2_", meta_src)
+        self.assertNotIn("q1_elapsed_ms < 2200.0", meta_src)
+
+        factions_js = (self.root_dir / "web" / "js" / "factions.js").read_text(encoding="utf-8")
+        self.assertIn("Ex-Mirror Leader", factions_js)
+        self.assertIn("No undefeated tournament runs in this timeframe", factions_js)
+
+        # Verify modal cache reconciliation updates x0_runs when Meta Intel updates x0_runs from 0 -> non-zero
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        db.connection_pool = True
+        PostgresDatabase._faction_details_cache_dict = {}
+        PostgresDatabase._faction_meta_cache_dict = {}
+        PostgresDatabase.set_cached(
+            PostgresDatabase._faction_details_cache_dict,
+            ("orks", "40k", "3mo", 350),
+            {
+                "faction": "Orks",
+                "game_system": "40k",
+                "timeframe": "3mo",
+                "stats": {"total_matches": 17170, "win_rate": 53.5, "x0_runs": 0, "x1_runs": 0},
+                "total_matches": 17170,
+                "matches": [{"match_id": "m1", "outcome": "W"}],
+                "matchups": [{"opponent_faction": "Space Marines", "total_matches": 900, "wins": 500, "losses": 380, "draws": 20, "win_rate": 55.6}],
+                "top_players": [],
+            },
+        )
+        PostgresDatabase.set_cached(
+            PostgresDatabase._faction_meta_cache_dict,
+            "preset_90d_40k",
+            {
+                "factions": [
+                    {
+                        "faction": "Orks",
+                        "total_matches": 17170,
+                        "wins": 9181,
+                        "losses": 7428,
+                        "draws": 561,
+                        "win_rate": 53.5,
+                        "non_mirror_win_rate": 53.9,
+                        "meta_share": 8.06,
+                        "unique_pilots": 3066,
+                        "x0_runs": 125,
+                        "x1_runs": 542,
+                        "tiwp_rate": 3.0,
+                        "over_rep_ratio": 1.48,
+                    }
+                ],
+                "matchups_by_faction": {
+                    "Orks": [
+                        {"opponent_faction": "Space Marines", "matches": 900, "wins": 500, "losses": 380, "draws": 20, "win_rate": 55.6, "avg_margin": 4.2}
+                    ]
+                },
+            },
+        )
+        reconciled = db.get_faction_details("Orks", limit=350, game_system="40k", timeframe="90d")
+        self.assertEqual(reconciled["stats"]["x0_runs"], 125)
+        self.assertEqual(reconciled["stats"]["x1_runs"], 542)
+        self.assertEqual(reconciled["stats"]["over_rep_ratio"], 1.48)
+
 
 if __name__ == "__main__":
     unittest.main()
