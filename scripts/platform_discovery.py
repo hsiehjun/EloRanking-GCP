@@ -1029,10 +1029,19 @@ def _lookup_existing_player_ratings(db: Any, pids: Sequence[str], game_system: s
     return out
 
 
-def fetch_live_multiplatform_event_preview(event_id: str, db: Optional[Any] = None) -> Optional[Dict[str, Any]]:
+_preview_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_PREVIEW_TTL_SECONDS = 90.0
+
+
+def fetch_live_multiplatform_event_preview(
+    event_id: str,
+    db: Optional[Any] = None,
+    force_refresh: bool = False,
+    include_standings: bool = True,
+) -> Optional[Dict[str, Any]]:
     """
     Fetches live tournament metadata (and pre-registered competitor roster when published) for
-    upcoming / unstarted `melee:`, `ltcg:`, and `td:` tournaments that have 0 matches in PostgreSQL.
+    `melee:`, `ltcg:`, `td:`, and `ls:` tournaments.
     Makes ZERO database writes so Elo ratings are never polluted by unplayed events.
     """
     eid = str(event_id or "").strip()
@@ -1044,77 +1053,179 @@ def fetch_live_multiplatform_event_preview(event_id: str, db: Optional[Any] = No
     if not raw_tid:
         return None
 
-    # 1. Melee.gg Upcoming Preview
+    cache_key = f"{eid}:{'db' if db is not None else 'nodb'}:{'st' if include_standings else 'meta'}"
+    now_ts = time.time()
+    if not force_refresh:
+        cached_prev = _preview_cache.get(cache_key)
+        if cached_prev and (now_ts - cached_prev[0]) < _PREVIEW_TTL_SECONDS:
+            return dict(cached_prev[1])
+
+    def _cache_and_return(payload: Dict[str, Any]) -> Dict[str, Any]:
+        _preview_cache[cache_key] = (time.time(), dict(payload))
+        return payload
+
+    # 1. Melee.gg Preview & Rich Details
     if prefix == "melee":
         try:
-            from scripts.melee_client import MeleeClient, _HttpTransport
+            from scripts.melee_client import MeleeClient, _HttpTransport, parse_tournament_view
 
             mc = MeleeClient(transport="http")
             if isinstance(mc._transport, _HttpTransport):
                 mc._transport.timeout = 4.5
                 mc._transport.retries = 1
+            live_standings: List[Dict[str, Any]] = []
             try:
                 page_html = mc.get_text(f"/Tournament/View/{urllib.parse.quote(raw_tid)}")
-                from scripts.melee_client import parse_tournament_view
-
                 meta = parse_tournament_view(page_html, raw_tid)
+                if include_standings:
+                    for rd in reversed(meta.get("standing_rounds") or []):
+                        try:
+                            live_standings = mc.fetch_round_standings(rd["id"])
+                            if live_standings:
+                                break
+                        except Exception:
+                            pass
             finally:
                 mc.close()
 
             g_low = str(meta.get("game_name") or "").strip().lower()
             sys_slug = MELEE_DESC_TO_SYSTEM.get(g_low, "mtg")
-            status_low = str(meta.get("status") or "").strip().lower()
+            status_str = str(meta.get("status") or "").strip()
+            status_low = status_str.lower()
             is_ended = status_low in ("ended", "completed", "complete", "closed")
-            is_started = status_low in ("in progress", "started", "active")
+            is_started = status_low in ("in progress", "started", "active", "ongoing")
             enrolled = int(meta.get("enrolled_players") or 0)
             cap = int(meta.get("player_cap") or 0)
-            is_online = str(meta.get("platform_type") or "").strip().lower() in ("online", "mtgo", "mtg arena", "digital")
-            venue = meta.get("venue_name") or meta.get("organization_name") or "Melee.gg"
+            plat_type = str(meta.get("platform_type") or "").strip()
+            is_online = plat_type.lower() in ("online", "mtgo", "mtg arena", "digital", "discord", "webcam")
+            org_name = str(meta.get("organization_name") or "").strip()
+            raw_venue = str(meta.get("venue_name") or "").strip()
+            venue = raw_venue or org_name or "Melee.gg"
             ext_url = f"https://melee.gg/Tournament/View/{urllib.parse.quote(raw_tid)}"
 
-            return {
-                "id": eid,
-                "name": meta.get("title") or f"Melee Tournament {raw_tid}",
-                "event_date": meta.get("start_date") or "",
-                "end_date": None,
-                "city": "Online" if is_online else "",
-                "state": "",
-                "country": "Global" if is_online else "",
-                "venue": venue,
-                "venue_name": venue,
-                "total_players": enrolled,
-                "num_tickets": cap,
-                "num_rounds": max(len(meta.get("pairing_rounds") or []), _estimate_swiss_rounds(enrolled)),
-                "numberOfRounds": max(len(meta.get("pairing_rounds") or []), _estimate_swiss_rounds(enrolled)),
-                "current_round": len(meta.get("pairing_rounds") or []) if is_started else 0,
-                "is_started": is_started,
-                "is_ended": is_ended,
-                "ended": is_ended,
-                "status": {"ended": is_ended, "started": is_started},
-                "source_platform": "melee",
-                "external_event_id": raw_tid,
-                "event_url": ext_url,
-                "external_url": ext_url,
-                "using_online_reg": False,
-                "game_system": sys_slug,
-                "players": [],
-                "matches": [],
-                "teams": [],
-                "sync_in_progress": False,
-                "raw_json": meta,
-            }
+            players_out: List[Dict[str, Any]] = []
+            if live_standings:
+                cand_pids: List[str] = []
+                parsed_st: List[Tuple[str, str, str, int, int, int, int, float]] = []
+                for idx_s, st in enumerate(live_standings, start=1):
+                    t_players = ((st.get("Team") or {}).get("Players") or [])
+                    p0 = t_players[0] if t_players else {}
+                    uname = str(p0.get("Username") or p0.get("ID") or f"p{idx_s}").strip()
+                    dname = str(p0.get("DisplayName") or uname).strip()
+                    pid = f"melee:{uname}"[:64]
+                    dks = st.get("Decklists") or []
+                    dk_name = next(
+                        (str(d.get("DecklistName")).strip() for d in dks if d.get("DecklistName") and d.get("DecklistName") != "Decklist"),
+                        str(meta.get("format_name") or "Registered"),
+                    )
+                    rk = int(st.get("Rank") or idx_s)
+                    mw = int(st.get("MatchWins") or 0)
+                    ml = int(st.get("MatchLosses") or 0)
+                    md = int(st.get("MatchDraws") or 0)
+                    pts = float(st.get("Points") or (mw * 3 + md))
+                    cand_pids.append(pid)
+                    parsed_st.append((pid, dname, dk_name, rk, mw, ml, md, pts))
+                elo_map = _lookup_existing_player_ratings(db, cand_pids, sys_slug)
+                for pid, dname, dk_name, rk, mw, ml, md, pts in parsed_st:
+                    players_out.append(
+                        {
+                            "player_id": pid,
+                            "id": pid,
+                            "full_name": dname,
+                            "first_name": dname.split(" ")[0],
+                            "last_name": " ".join(dname.split(" ")[1:]),
+                            "faction": dk_name,
+                            "detachment": str(meta.get("format_name") or ""),
+                            "current_elo": elo_map.get(pid, 1500.0),
+                            "placement": rk if (is_ended or mw + ml + md > 0) else None,
+                            "checked_in": True,
+                            "event_wins": mw,
+                            "event_losses": ml,
+                            "event_draws": md,
+                            "event_battle_points": pts,
+                            "has_list": False,
+                        }
+                    )
+                enrolled = max(enrolled, len(players_out))
+
+            eff_rounds = max(len(meta.get("pairing_rounds") or []), _estimate_swiss_rounds(max(enrolled, min(cap, 8) if cap else 0)))
+            return _cache_and_return(
+                {
+                    "id": eid,
+                    "name": meta.get("title") or f"Melee Tournament {raw_tid}",
+                    "event_date": meta.get("start_date") or "",
+                    "end_date": (meta.get("start_date") or None) if is_ended else None,
+                    "city": "Online" if is_online else "",
+                    "state": "",
+                    "country": "Global" if is_online else "",
+                    "venue": venue,
+                    "venue_name": venue,
+                    "organizer_name": org_name or None,
+                    "organizer_url": meta.get("organization_url"),
+                    "format_name": meta.get("format_name"),
+                    "platform_type": plat_type or ("Online" if is_online else "Tabletop"),
+                    "registration_status": status_str or None,
+                    "registration_type": meta.get("registration_type"),
+                    "entry_fee": meta.get("entry_fee"),
+                    "decklists_required": meta.get("decklists_enabled"),
+                    "description": meta.get("description"),
+                    "prizes_html": meta.get("prizes_html"),
+                    "total_players": enrolled,
+                    "enrolled_players": enrolled,
+                    "player_cap": cap,
+                    "num_tickets": cap,
+                    "num_rounds": eff_rounds,
+                    "numberOfRounds": eff_rounds,
+                    "current_round": len(meta.get("pairing_rounds") or []) if is_started else 0,
+                    "is_started": is_started,
+                    "is_ended": is_ended,
+                    "ended": is_ended,
+                    "status": {"ended": is_ended, "started": is_started, "label": status_str or "Registration"},
+                    "source_platform": "melee",
+                    "external_event_id": raw_tid,
+                    "event_url": ext_url,
+                    "external_url": ext_url,
+                    "using_online_reg": True,
+                    "game_system": sys_slug,
+                    "players": players_out,
+                    "matches": [],
+                    "teams": [],
+                    "sync_in_progress": False,
+                    "raw_json": meta,
+                }
+            )
         except Exception as e:
             logger.debug(f"[PlatformDiscovery] Melee preview failed for {eid}: {e}")
             return None
 
-    # 2. Limitless TCG Upcoming Preview
+    # 2. Limitless TCG Preview & Pre-Registered Roster
     if prefix == "ltcg":
-        if not _HEX24_RE.match(raw_tid.lower()):
-            return None
-        tid = raw_tid.lower()
+        tid = raw_tid.lower() if _HEX24_RE.match(raw_tid.lower()) else raw_tid
         try:
-            det_html = _http_get_text(f"https://play.limitlesstcg.com/tournament/{tid}/details", timeout=4.5)
-            title_m = re.search(r"<title>(.*?)\s*\|\s*Limitless</title>", det_html, re.S)
+            with ThreadPoolExecutor(max_workers=2 if include_standings else 1) as pool:
+                f_det = pool.submit(
+                    _http_get_text,
+                    f"https://play.limitlesstcg.com/tournament/{urllib.parse.quote(tid)}/details",
+                    4.5,
+                )
+                f_reg = (
+                    pool.submit(
+                        _http_get_text,
+                        f"https://play.limitlesstcg.com/tournament/{urllib.parse.quote(tid)}/registrations",
+                        4.0,
+                    )
+                    if include_standings
+                    else None
+                )
+                det_html = f_det.result()
+                reg_html = ""
+                if f_reg is not None:
+                    try:
+                        reg_html = f_reg.result()
+                    except Exception:
+                        reg_html = ""
+
+            title_m = re.search(r"<title>(?:Details:\s*)?(.*?)\s*\|\s*Limitless</title>", det_html, re.S)
             title = html_lib.unescape(title_m.group(1)).strip() if title_m else ""
             if not title or "not found" in title.lower():
                 return None
@@ -1122,67 +1233,193 @@ def fetch_live_multiplatform_event_preview(event_id: str, db: Optional[Any] = No
             tm_m = re.search(r'data-time="(\d+)"', det_html)
             if tm_m and int(tm_m.group(1)) > 0:
                 ev_date = datetime.fromtimestamp(int(tm_m.group(1)) / 1000.0, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            else:
+            elif _HEX24_RE.match(tid):
                 ev_date = datetime.fromtimestamp(int(tid[:8], 16), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            else:
+                ev_date = ""
 
-            org_m = re.search(r"by\s*<a[^>]*href=\"/organizer/[^\"]*\"[^>]*>(.*?)</a>", det_html, re.S)
-            org_name = html_lib.unescape(re.sub(r"<[^>]+>", "", org_m.group(1))).strip() if org_m else "Limitless TCG"
-            pl_m = re.search(r"(\d+)\s+players?\s+registered", det_html, re.I) or re.search(r"(\d+)\s+players?", det_html, re.I)
-            enrolled = int(pl_m.group(1)) if pl_m else 0
+            meta_desc_m = re.search(r'<meta name="description" content="([^"]+)">', det_html)
+            meta_parts = [p.strip() for p in (meta_desc_m.group(1).split(" - ") if meta_desc_m else [])]
+            fmt_name = (
+                meta_parts[1].replace(" format", "").strip()
+                if len(meta_parts) >= 2
+                else ""
+            )
+            fmt_row_m = re.search(
+                r'<tr[^>]*class="format"[^>]*>(?:(?!</tr).)*?<td[^>]*>([^<]+)</td>\s*</tr>',
+                det_html,
+                re.S | re.I,
+            )
+            if fmt_row_m:
+                parsed_fmt = html_lib.unescape(fmt_row_m.group(1)).replace(" format", "").strip()
+                if parsed_fmt:
+                    fmt_name = parsed_fmt
+
+            org_m = re.search(r'<a[^>]*href="(/organizer/[^"]+)"[^>]*>(.*?)</a>', det_html, re.S | re.I)
+            org_name = (
+                html_lib.unescape(re.sub(r"<[^>]+>", "", org_m.group(2))).strip()
+                if org_m
+                else (meta_parts[2] if len(meta_parts) >= 3 else "Limitless TCG")
+            )
+            org_url = f"https://play.limitlesstcg.com{org_m.group(1).strip()}" if org_m else None
+
+            plat_m = re.search(r'<img[^>]*class="platform"[^>]*>\s*</td>\s*<td[^>]*>(.*?)</td>', det_html, re.S | re.I)
+            plat_type = html_lib.unescape(re.sub(r"<[^>]+>", "", plat_m.group(1))).strip() if plat_m else "Online"
+            is_online = plat_type.lower() != "tabletop"
+
+            disc_m = re.search(r'href="(https?://(?:discord\.gg|discord\.com/invite)/[^"]+)"', det_html, re.I)
+            discord_url = disc_m.group(1).strip() if disc_m else None
+
+            desc_html = ""
+            desc_div_m = re.search(r'<div class="description">(.*?)</div>\s*</div>\s*</div>', det_html, re.S | re.I)
+            if not desc_div_m:
+                desc_div_m = re.search(r'<div class="description">(.*?)</div>\s*(?:<script|</div)', det_html, re.S | re.I)
+            if desc_div_m:
+                desc_html = re.sub(r"<script\b[^>]*>.*?</script>", "", desc_div_m.group(1), flags=re.S | re.I).strip()
 
             sys_slug = "pokemon"
             low_html = det_html.lower()
             for slug, code in LIMITLESS_SYSTEM_TO_CODE.items():
-                if f"game={code.lower()}" in low_html or f"/{code.lower()}/" in low_html:
+                if f"game={code.lower()}" in low_html or f"/{code.lower()}/" in low_html or f"/platforms/{code.lower()}/" in low_html:
                     sys_slug = slug
                     break
 
-            ext_url = f"https://play.limitlesstcg.com/tournament/{tid}/details"
-            return {
-                "id": eid,
+            reg_entries: List[Tuple[str, str, str, bool, bool]] = []
+            if reg_html:
+                for tr_m in re.finditer(r'<tr[^>]*data-uid="([^"]+)"[^>]*>(.*?)</tr>', reg_html, re.S | re.I):
+                    uid = tr_m.group(1).strip()
+                    tds = re.findall(r"<td([^>]*)>(.*?)</td>", tr_m.group(2), re.S | re.I)
+                    if not uid or not tds:
+                        continue
+                    raw_nm = html_lib.unescape(re.sub(r"<[^>]+>", "", tds[0][1])).strip()
+                    cc_m = re.search(r"\s*\[([A-Z]{2,3})\]\s*$", raw_nm)
+                    country_code = cc_m.group(1) if cc_m else ""
+                    clean_nm = raw_nm[: cc_m.start()].strip() if cc_m else raw_nm
+                    ci_yes = bool(len(tds) >= 3 and 'data-tooltip="yes"' in f"{tds[2][0]} {tds[2][1]}".lower())
+                    dl_yes = bool(len(tds) >= 4 and 'data-tooltip="yes"' in f"{tds[3][0]} {tds[3][1]}".lower())
+                    reg_entries.append((uid, clean_nm or uid, country_code, ci_yes, dl_yes))
+
+            pl_m = (
+                re.search(r"(\d+)\s+registrations?", reg_html or "", re.I)
+                or re.search(r"(\d+)\s+players?\s+registered", det_html, re.I)
+                or re.search(r"(\d+)\s+players?", det_html, re.I)
+            )
+            enrolled = max(len(reg_entries), int(pl_m.group(1)) if pl_m else 0)
+
+            players_out = []
+            if reg_entries:
+                pids = [f"ltcg:{u}"[:64] for u, _, _, _, _ in reg_entries]
+                elo_map = _lookup_existing_player_ratings(db, pids, sys_slug)
+                for uid, clean_nm, country_code, ci_yes, dl_yes in reg_entries:
+                    pid = f"ltcg:{uid}"[:64]
+                    players_out.append(
+                        {
+                            "player_id": pid,
+                            "id": pid,
+                            "full_name": clean_nm,
+                            "first_name": clean_nm.split(" ")[0],
+                            "last_name": " ".join(clean_nm.split(" ")[1:]),
+                            "faction": fmt_name or "Registered",
+                            "detachment": plat_type if plat_type and plat_type != "Online" else "",
+                            "team": country_code,
+                            "current_elo": elo_map.get(pid, 1500.0),
+                            "placement": None,
+                            "checked_in": ci_yes,
+                            "event_wins": 0,
+                            "event_losses": 0,
+                            "event_draws": 0,
+                            "has_list": dl_yes,
+                        }
+                    )
+                players_out.sort(key=lambda x: -float(x.get("current_elo") or 1500.0))
+
+            has_standings_nav = f"/tournament/{tid}/standings" in low_html
+            is_started = bool(has_standings_nav and not reg_entries)
+            ext_url = f"https://play.limitlesstcg.com/tournament/{urllib.parse.quote(tid)}/{'standings' if is_started else 'details'}"
+            raw_meta_ltcg = {
+                "platform": "limitless",
+                "id": tid,
                 "name": title,
-                "event_date": ev_date,
-                "end_date": None,
-                "city": "Online",
-                "state": "",
-                "country": "Global",
-                "venue": org_name,
-                "venue_name": org_name,
-                "total_players": enrolled,
-                "num_rounds": _estimate_swiss_rounds(enrolled),
-                "numberOfRounds": _estimate_swiss_rounds(enrolled),
-                "current_round": 0,
-                "is_started": False,
-                "is_ended": False,
-                "ended": False,
-                "status": {"ended": False, "started": False},
-                "source_platform": "limitless",
-                "external_event_id": tid,
-                "event_url": ext_url,
-                "external_url": ext_url,
-                "using_online_reg": False,
-                "game_system": sys_slug,
-                "players": [],
-                "matches": [],
-                "teams": [],
-                "sync_in_progress": False,
-                "raw_json": {"id": tid, "name": title, "organizer": org_name, "players": enrolled},
+                "organizer": org_name,
+                "organizer_name": org_name,
+                "organizer_url": org_url,
+                "format": fmt_name or None,
+                "format_name": fmt_name or None,
+                "platform_type": plat_type,
+                "discord_url": discord_url,
+                "players": enrolled,
+                "description": desc_html or None,
+                "description_html": desc_html or None,
             }
+            return _cache_and_return(
+                {
+                    "id": eid,
+                    "name": title,
+                    "event_date": ev_date,
+                    "end_date": None,
+                    "city": "Online" if is_online else "",
+                    "state": "",
+                    "country": "Global" if is_online else "",
+                    "venue": org_name,
+                    "venue_name": org_name,
+                    "organizer_name": org_name,
+                    "organizer_url": org_url,
+                    "format_name": fmt_name or None,
+                    "platform_type": plat_type,
+                    "registration_status": "In Progress" if is_started else "Registration Open",
+                    "discord_url": discord_url,
+                    "description": desc_html or None,
+                    "total_players": enrolled,
+                    "enrolled_players": enrolled,
+                    "num_rounds": _estimate_swiss_rounds(enrolled),
+                    "numberOfRounds": _estimate_swiss_rounds(enrolled),
+                    "current_round": 1 if is_started else 0,
+                    "is_started": is_started,
+                    "is_ended": False,
+                    "ended": False,
+                    "status": {"ended": False, "started": is_started},
+                    "source_platform": "limitless",
+                    "external_event_id": tid,
+                    "event_url": ext_url,
+                    "external_url": ext_url,
+                    "using_online_reg": True,
+                    "game_system": sys_slug,
+                    "players": players_out,
+                    "matches": [],
+                    "teams": [],
+                    "sync_in_progress": False,
+                    "raw_json": raw_meta_ltcg,
+                }
+            )
         except Exception as e:
             logger.debug(f"[PlatformDiscovery] Limitless preview failed for {eid}: {e}")
             return None
 
-    # 3. TopDeck.gg Upcoming Preview (with Pre-Registered Roster + Elo Lookup!)
+    # 3. TopDeck.gg Preview (with Pre-Registered Roster + Elo Lookup + Rules Metadata)
     if prefix == "td":
         try:
-            doc_url = f"{FIRESTORE_BASE_URL}/tournaments/{urllib.parse.quote(raw_tid)}"
-            fs_doc = json.loads(_http_get_text(doc_url, timeout=4.0))
+            with ThreadPoolExecutor(max_workers=2 if include_standings else 1) as pool:
+                f_doc = pool.submit(_http_get_text, f"{FIRESTORE_BASE_URL}/tournaments/{urllib.parse.quote(raw_tid)}", 4.0)
+                f_pd = (
+                    pool.submit(_http_get_text, f"https://topdeck.gg/PublicPData/{urllib.parse.quote(raw_tid)}", 3.5)
+                    if include_standings
+                    else None
+                )
+                fs_doc = json.loads(f_doc.result())
+                pdata = {}
+                if f_pd is not None:
+                    try:
+                        pdata = json.loads(f_pd.result()) or {}
+                    except Exception:
+                        pdata = {}
+
             flds = fs_doc.get("fields") or {}
             if not flds:
                 return None
 
             name = str((flds.get("Name") or {}).get("stringValue") or raw_tid).strip()
-            sys_slug = _map_topdeck_game((flds.get("Game") or {}).get("stringValue")) or "mtg"
+            game_raw = str((flds.get("Game") or {}).get("stringValue") or "").strip()
+            sys_slug = _map_topdeck_game(game_raw) or "mtg"
             fmt_str = str((flds.get("Format") or {}).get("stringValue") or "").strip()
             is_ffa = fmt_str.upper() in ("EDH", "CEDH", "COMMANDER")
             sd_raw = int((flds.get("StartDate") or {}).get("integerValue") or 0)
@@ -1190,32 +1427,62 @@ def fetch_live_multiplatform_event_preview(event_id: str, db: Optional[Any] = No
                 sd_raw //= 1000
             ev_date = datetime.fromtimestamp(sd_raw, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if sd_raw > 0 else ""
 
+            round_time = int((flds.get("C:RoundTime") or {}).get("integerValue") or 0)
+            best_of = int((flds.get("C:BestOf") or {}).get("integerValue") or 0)
+            win_pts = (flds.get("C:WinPoints") or {}).get("integerValue")
+            draw_pts = (flds.get("C:DrawPoints") or {}).get("integerValue")
+            pairing_type = str((flds.get("S1:R1:C:Type") or {}).get("stringValue") or "").strip()
+            cap_val = int(
+                (flds.get("PlayerCap") or flds.get("MaxPlayers") or flds.get("C:MaxPlayers") or {}).get("integerValue")
+                or 0
+            )
+            custom_desc = ""
+            for dk in ("Description", "Info", "Rules", "Details", "Notes"):
+                cand_d = str((flds.get(dk) or {}).get("stringValue") or "").strip()
+                if cand_d:
+                    custom_desc = cand_d
+                    break
+
+            scoring_bits: List[str] = []
+            if pairing_type:
+                scoring_bits.append(pairing_type)
+            if best_of > 0:
+                scoring_bits.append(f"Best of {best_of}")
+            if round_time > 0:
+                scoring_bits.append(f"{round_time}m Rounds")
+            if win_pts is not None:
+                scoring_bits.append(f"Win {win_pts} pts" + (f" / Draw {draw_pts} pts" if draw_pts is not None else ""))
+            scoring_summary = " • ".join(scoring_bits)
+
             owner_uid = ""
             enrolled_uids: List[str] = []
+            has_started_round = False
             for k, v in flds.items():
                 if re.match(r"^E\d+:P1$", k):
                     uval = str((v or {}).get("stringValue") or "").strip()
                     if uval and uval != "_x_":
                         enrolled_uids.append(uval)
-                elif k.startswith("X:") and not owner_uid:
-                    owner_uid = k[2:]
-
-            pdata: Dict[str, Any] = {}
-            try:
-                pdata = json.loads(_http_get_text(f"https://topdeck.gg/PublicPData/{urllib.parse.quote(raw_tid)}", timeout=3.5)) or {}
-            except Exception:
-                pdata = {}
+                elif k.startswith("X:"):
+                    role_s = str((((v or {}).get("mapValue") or {}).get("fields") or {}).get("role", {}).get("stringValue") or "")
+                    if role_s == "owner" or not owner_uid:
+                        owner_uid = k[2:]
+                elif k == "S1:R1:Start":
+                    has_started_round = True
 
             all_uids = list(dict.fromkeys(enrolled_uids + [k for k in pdata.keys() if isinstance(pdata, dict)]))
             pids = [f"td:{u}"[:64] for u in all_uids]
             elo_map = _lookup_existing_player_ratings(db, pids, sys_slug)
 
-            players_out: List[Dict[str, Any]] = []
+            from scripts.sync_multiplatform import _extract_topdeck_commander
+
+            players_out = []
             for idx, uid in enumerate(all_uids, start=1):
                 p_obj = pdata.get(uid) if isinstance(pdata, dict) and isinstance(pdata.get(uid), dict) else {}
                 pname = str(p_obj.get("name") or p_obj.get("username") or f"Competitor {idx}").strip()
                 pid = f"td:{uid}"[:64]
                 dl_raw = str(p_obj.get("decklist") or "").strip()
+                cmdr_name = _extract_topdeck_commander(dl_raw) if (is_ffa and dl_raw) else ""
+                fac_label = cmdr_name or fmt_str or ("Commander Deck" if is_ffa else "Registered")
                 cur_elo = elo_map.get(pid, 1500.0)
                 players_out.append(
                     {
@@ -1224,8 +1491,8 @@ def fetch_live_multiplatform_event_preview(event_id: str, db: Optional[Any] = No
                         "full_name": pname,
                         "first_name": pname.split(" ")[0],
                         "last_name": " ".join(pname.split(" ")[1:]),
-                        "faction": fmt_str or ("Commander Deck" if is_ffa else "Registered"),
-                        "detachment": "cEDH Pod" if is_ffa else (fmt_str or "Constructed"),
+                        "faction": fac_label,
+                        "detachment": "4P FFA Pod" if is_ffa else (fmt_str or "Constructed"),
                         "current_elo": cur_elo,
                         "placement": None,
                         "checked_in": True,
@@ -1240,55 +1507,108 @@ def fetch_live_multiplatform_event_preview(event_id: str, db: Optional[Any] = No
             players_out.sort(key=lambda x: -float(x.get("current_elo") or 1500.0))
 
             hub = (get_topdeck_hubs_map() or {}).get(owner_uid) or {}
+            is_online_td = any(w in (name or "").lower() for w in ("webcam", "spelltable", "online", "discord"))
             ext_url = f"https://topdeck.gg/bracket/{urllib.parse.quote(raw_tid)}"
             has_end = "End" in flds
             tot_p = len(players_out)
+            venue_str = "Online / SpellTable" if is_online_td else (hub.get("venue") or hub.get("name") or "TopDeck.gg")
+            org_str = hub.get("name") or hub.get("venue") or None
 
-            return {
-                "id": eid,
+            raw_meta_td = {
+                "platform": "topdeck",
+                "tid": raw_tid,
                 "name": name,
-                "event_date": ev_date,
-                "end_date": ev_date if has_end else None,
-                "city": hub.get("city") or "",
-                "state": hub.get("state") or "",
-                "country": "",
-                "venue": hub.get("venue") or "TopDeck.gg",
-                "venue_name": hub.get("venue") or "TopDeck.gg",
-                "address": hub.get("address") or "",
-                "latitude": hub.get("lat"),
-                "longitude": hub.get("lng"),
-                "total_players": tot_p,
-                "num_rounds": _estimate_swiss_rounds(tot_p),
-                "numberOfRounds": _estimate_swiss_rounds(tot_p),
-                "current_round": 0,
-                "is_started": False,
-                "is_ended": has_end,
-                "ended": has_end,
-                "is_ffa_event": is_ffa,
-                "match_format": "ffa" if is_ffa else "1v1",
-                "status": {"ended": has_end, "started": False},
-                "source_platform": "topdeck",
-                "external_event_id": raw_tid,
-                "event_url": ext_url,
-                "external_url": ext_url,
-                "using_online_reg": False,
-                "game_system": sys_slug,
-                "players": players_out,
-                "matches": [],
-                "teams": [],
-                "sync_in_progress": False,
-                "raw_json": {"platform": "topdeck", "tid": raw_tid, "name": name, "format": fmt_str},
+                "game_name": game_raw or None,
+                "format": fmt_str or None,
+                "format_name": fmt_str or None,
+                "organizer_name": org_str,
+                "platform_type": "Online" if is_online_td else "Tabletop",
+                "round_time_minutes": round_time or None,
+                "best_of": best_of or None,
+                "pairing_type": pairing_type or None,
+                "scoring_summary": scoring_summary or None,
+                "player_cap": cap_val or None,
+                "description": custom_desc or None,
             }
+
+            return _cache_and_return(
+                {
+                    "id": eid,
+                    "name": name,
+                    "event_date": ev_date,
+                    "end_date": ev_date if has_end else None,
+                    "city": "Online" if is_online_td else (hub.get("city") or ""),
+                    "state": "" if is_online_td else (hub.get("state") or ""),
+                    "country": "Global" if is_online_td else "",
+                    "venue": venue_str,
+                    "venue_name": venue_str,
+                    "address": "" if is_online_td else (hub.get("address") or ""),
+                    "latitude": None if is_online_td else hub.get("lat"),
+                    "longitude": None if is_online_td else hub.get("lng"),
+                    "organizer_name": org_str,
+                    "format_name": fmt_str or ("4P FFA Commander" if is_ffa else None),
+                    "platform_type": "Online" if is_online_td else "Tabletop",
+                    "registration_status": "Ended" if has_end else ("In Progress" if has_started_round else "Registration Open"),
+                    "round_time_minutes": round_time or None,
+                    "best_of": best_of or None,
+                    "scoring_summary": scoring_summary or None,
+                    "description": custom_desc or None,
+                    "total_players": tot_p,
+                    "enrolled_players": tot_p,
+                    "player_cap": cap_val,
+                    "num_tickets": cap_val,
+                    "num_rounds": _estimate_swiss_rounds(tot_p),
+                    "numberOfRounds": _estimate_swiss_rounds(tot_p),
+                    "current_round": 1 if (has_started_round and not has_end) else 0,
+                    "is_started": has_started_round and not has_end,
+                    "is_ended": has_end,
+                    "ended": has_end,
+                    "is_ffa_event": is_ffa,
+                    "match_format": "ffa" if is_ffa else "1v1",
+                    "status": {"ended": has_end, "started": has_started_round},
+                    "source_platform": "topdeck",
+                    "external_event_id": raw_tid,
+                    "event_url": ext_url,
+                    "external_url": ext_url,
+                    "using_online_reg": True,
+                    "game_system": sys_slug,
+                    "players": players_out,
+                    "matches": [],
+                    "teams": [],
+                    "sync_in_progress": False,
+                    "raw_json": raw_meta_td,
+                }
+            )
         except Exception as e:
             logger.debug(f"[PlatformDiscovery] TopDeck preview failed for {eid}: {e}")
             return None
 
-    # 4. Longshanks Upcoming / Ongoing Preview
+    # 4. Longshanks Preview & Pre-Registered Roster
     if prefix == "ls" and raw_tid.isdigit():
         try:
+            from config import resolve_canonical_faction
             from scripts.sync_multiplatform import LONGSHANKS_HOST_BY_SYSTEM, _ls_get_text
 
-            ev_html = _ls_get_text(f"https://www.longshanks.org/event/{raw_tid}/", timeout=5.0, retries=1)
+            with ThreadPoolExecutor(max_workers=2 if include_standings else 1) as pool:
+                f_ev = pool.submit(_ls_get_text, f"https://www.longshanks.org/event/{raw_tid}/", 5.0, 1)
+                f_st = (
+                    pool.submit(
+                        _ls_get_text,
+                        f"https://www.longshanks.org/events/detail/panel_standings.php?event={raw_tid}&section=player",
+                        4.5,
+                        1,
+                    )
+                    if include_standings
+                    else None
+                )
+                ev_html = f_ev.result()
+                st_html = ""
+                if f_st is not None:
+                    try:
+                        st_html = f_st.result()
+                    except Exception:
+                        st_html = ""
+
             title_m = re.search(r"<title>([^<]+)</title>", ev_html)
             raw_title = html_lib.unescape(title_m.group(1)).split("•")[0].strip() if title_m else ""
             if not raw_title or "not found" in raw_title.lower():
@@ -1301,55 +1621,209 @@ def fetch_live_multiplatform_event_preview(event_id: str, db: Optional[Any] = No
                 if cand_host in host_to_sys:
                     sys_slug = host_to_sys[cand_host]
                     break
+            sys_img_m = re.search(r'/systems/([a-z0-9_-]+)/logo\.png"\s+title="([^"]+)"', ev_html, re.I)
+            game_display_name = html_lib.unescape(sys_img_m.group(2)).strip() if sys_img_m else ""
 
             dt_m = _LS_DATE_RE.search(ev_html)
             ev_date = f"{dt_m.group(1)}T12:00:00Z" if dt_m else ""
-            sz_m = _LS_SIZE_RE.search(ev_html)
-            enrolled = int(sz_m.group(1)) if sz_m else 0
-            cap = int(sz_m.group(2)) if (sz_m and sz_m.group(2)) else 0
-            loc_m = _LS_LOC_RE.search(ev_html)
-            venue = (
-                " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", loc_m.group(1))).split())[:140]
-                if loc_m
-                else "Longshanks"
-            )
+
+            # Parse Event Size: supports "20 of 20 players", "14 players", or "8 teams (23 players)"
+            sz_cell_m = re.search(r"event_size\.png[^>]*></td>\s*<td>(.*?)</td>", ev_html, re.S | re.I)
+            sz_text = " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", sz_cell_m.group(1))).split()) if sz_cell_m else ""
+            enrolled = 0
+            cap = 0
+            total_teams = 0
+            tm_sz = re.search(r"(\d+)\s+teams?\s*\((\d+)\s+players?\)", sz_text, re.I)
+            if tm_sz:
+                total_teams = int(tm_sz.group(1))
+                enrolled = int(tm_sz.group(2))
+            else:
+                sz_m = _LS_SIZE_RE.search(ev_html)
+                if sz_m:
+                    enrolled = int(sz_m.group(1))
+                    cap = int(sz_m.group(2)) if sz_m.group(2) else 0
+
+            # Parse Location: cell often has "Venue Name<br />City/State, Country <div class='flag'...>"
             flag_m = _LS_FLAG_RE.search(ev_html)
             region = html_lib.unescape(flag_m.group(1)).strip() if flag_m else ""
-            is_online = region.lower() == "virtual" or venue.lower().startswith("virtual ")
+            loc_m = _LS_LOC_RE.search(ev_html)
+            venue = "Longshanks"
+            city_str = ""
+            country_str = ""
+            if loc_m:
+                loc_lines = [
+                    " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", ln)).split()).strip()
+                    for ln in re.split(r"<br\s*/?>", loc_m.group(1), flags=re.I)
+                ]
+                loc_lines = [ln for ln in loc_lines if ln]
+                if len(loc_lines) >= 2:
+                    venue = loc_lines[0][:140]
+                    reg_line = region or loc_lines[1]
+                    reg_parts = [p.strip() for p in reg_line.split(",") if p.strip()]
+                    if len(reg_parts) >= 2:
+                        city_str = ", ".join(reg_parts[:-1])
+                        country_str = reg_parts[-1]
+                    elif reg_parts:
+                        country_str = reg_parts[0]
+                elif len(loc_lines) == 1:
+                    only_ln = loc_lines[0][:140]
+                    if region and only_ln.lower() != region.lower():
+                        venue = only_ln
+                        reg_parts = [p.strip() for p in region.split(",") if p.strip()]
+                        if len(reg_parts) >= 2:
+                            city_str = ", ".join(reg_parts[:-1])
+                            country_str = reg_parts[-1]
+                        else:
+                            city_str = only_ln
+                            country_str = region
+                    else:
+                        venue = only_ln
+                        country_str = region
+
+            is_online = region.lower() == "virtual" or venue.lower().startswith("virtual")
+
+            # Parse Host / Organizer(s)
+            host_cell_m = re.search(r"event_host\.png[^>]*></td>\s*<td>(.*?)</td>", ev_html, re.S | re.I)
+            hosts: List[str] = []
+            if host_cell_m:
+                for hm in re.finditer(r"<a[^>]*class=['\"]player_link['\"][^>]*>(.*?)</a>", host_cell_m.group(1), re.S | re.I):
+                    h_raw = re.sub(r"<span class=['\"]nickname['\"]>.*?</span>", "", hm.group(1), flags=re.S | re.I)
+                    h_clean = " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", h_raw)).split()).strip()
+                    if h_clean and h_clean not in hosts:
+                        hosts.append(h_clean)
+            org_name = ", ".join(hosts[:3]) if hosts else None
+
+            # Parse Event Type & Registration Status badges
+            type_m = re.search(r"event_type_icon[^>]*></div>\s*<div class=['\"]text['\"]>(.*?)</div>", ev_html, re.S | re.I)
+            ev_type_str = " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", type_m.group(1))).split()).strip() if type_m else ""
+            reg_st_m = re.search(r"event_status_icon[^>]*></div>\s*<div class=['\"]text['\"]>(.*?)</div>", ev_html, re.S | re.I)
+            reg_status_str = " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", reg_st_m.group(1))).split()).strip() if reg_st_m else ""
+
+            pair_method_m = re.search(r"<th>Pairing method</th>\s*<td>(.*?)</td>", ev_html, re.S | re.I)
+            pair_method = " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", pair_method_m.group(1))).split()).strip() if pair_method_m else ""
+            fmt_detail_m = re.search(r"<th>Format</th>\s*<td>(.*?)</td>", ev_html, re.S | re.I)
+            fmt_detail = " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", fmt_detail_m.group(1))).split()).strip() if fmt_detail_m else ""
+            tb_rows = re.findall(r"<tr>\s*<th>(1st|2nd|3rd)</th>\s*<td>(.*?)</td>\s*</tr>", ev_html, re.S | re.I)
+            tb_summary = ", ".join(
+                f"{rk}: {' '.join(html_lib.unescape(re.sub(r'<[^>]+>', ' ', tb)).split())}"
+                for rk, tb in tb_rows
+            )
+
+            format_label = " • ".join(p for p in (ev_type_str or fmt_detail, pair_method) if p) or "Swiss Tournament"
+            desc_lines: List[str] = []
+            if ev_type_str or pair_method:
+                desc_lines.append(f"<p><strong>Event Format:</strong> {html_lib.escape(format_label)}</p>")
+            if sz_text:
+                desc_lines.append(f"<p><strong>Field Size:</strong> {html_lib.escape(sz_text)}</p>")
+            if tb_summary:
+                desc_lines.append(f"<p><strong>Tiebreakers:</strong> {html_lib.escape(tb_summary)}</p>")
+            ls_desc_html = "\n".join(desc_lines) or None
+
+            # Parse Pre-Registered Players from panel_standings.php?section=player
+            players_out = []
+            if st_html:
+                p_blocks = re.split(r'<div class="player" id="player_(\d+)">', st_html)
+                raw_rows: List[Tuple[str, str, str, str, str]] = []
+                for idx_b in range(1, len(p_blocks), 2):
+                    r_pid = p_blocks[idx_b]
+                    blk = p_blocks[idx_b + 1]
+                    pid = f"ls:{r_pid}"[:64]
+                    nm_m = re.search(r"pop_user\(" + re.escape(r_pid) + r",\d+\);['\"]>(.*?)</a>", blk, re.S)
+                    r_nm = re.sub(r"<span class=['\"]nickname['\"]>.*?</span>", "", nm_m.group(1)) if nm_m else r_pid
+                    clean_nm = " ".join(html_lib.unescape(re.sub(r"<[^>]+>", "", r_nm)).split()).strip() or f"Player {r_pid}"
+                    comm_m = re.search(r"pop_community\(\d+\);['\"]>([^<]+)</a>", blk)
+                    team_nm = html_lib.unescape(comm_m.group(1)).strip() if comm_m else ""
+                    facs = re.findall(r'/systems/[a-z0-9_-]+/factions/[^"]+" title="([^"]+)"', blk)
+                    fac_label = resolve_canonical_faction(facs[0], sys_slug, pid, resolve_placeholders=True) if facs else "Registered"
+                    sec_fac = facs[1] if len(facs) > 1 else ""
+                    raw_rows.append((pid, clean_nm, fac_label, sec_fac, team_nm))
+                if raw_rows:
+                    elo_map = _lookup_existing_player_ratings(db, [r[0] for r in raw_rows], sys_slug)
+                    for pid, clean_nm, fac_label, sec_fac, team_nm in raw_rows:
+                        players_out.append(
+                            {
+                                "player_id": pid,
+                                "id": pid,
+                                "full_name": clean_nm,
+                                "first_name": clean_nm.split(" ")[0],
+                                "last_name": " ".join(clean_nm.split(" ")[1:]),
+                                "faction": fac_label,
+                                "detachment": sec_fac,
+                                "team": team_nm,
+                                "current_elo": elo_map.get(pid, 1500.0),
+                                "placement": None,
+                                "checked_in": True,
+                                "event_wins": 0,
+                                "event_losses": 0,
+                                "event_draws": 0,
+                                "has_list": False,
+                            }
+                        )
+                    players_out.sort(key=lambda x: -float(x.get("current_elo") or 1500.0))
+                    enrolled = max(enrolled, len(players_out))
+
+            is_ended_ls = "finished" in reg_status_str.lower() or "ended" in reg_status_str.lower()
+            is_started_ls = "in progress" in reg_status_str.lower() or "round " in reg_status_str.lower()
             host_url = LONGSHANKS_HOST_BY_SYSTEM.get(sys_slug, "https://www.longshanks.org")
             ext_url = f"{host_url}/event/{raw_tid}/"
-
-            return {
-                "id": eid,
+            raw_meta_ls = {
+                "platform": "longshanks",
+                "tid": raw_tid,
                 "name": raw_title,
-                "event_date": ev_date,
-                "end_date": None,
-                "city": "Online" if is_online else "",
-                "state": "",
-                "country": "Global" if is_online else region,
-                "venue": "Longshanks Virtual" if is_online else (venue or "Longshanks"),
+                "game_name": game_display_name or None,
+                "region": region or None,
+                "organizer_name": org_name,
                 "venue_name": "Longshanks Virtual" if is_online else (venue or "Longshanks"),
-                "total_players": enrolled,
-                "num_tickets": cap,
-                "num_rounds": _estimate_swiss_rounds(max(enrolled, cap)),
-                "numberOfRounds": _estimate_swiss_rounds(max(enrolled, cap)),
-                "current_round": 0,
-                "is_started": False,
-                "is_ended": False,
-                "ended": False,
-                "status": {"ended": False, "started": False},
-                "source_platform": "longshanks",
-                "external_event_id": raw_tid,
-                "event_url": ext_url,
-                "external_url": ext_url,
-                "using_online_reg": True,
-                "game_system": sys_slug,
-                "players": [],
-                "matches": [],
-                "teams": [],
-                "sync_in_progress": False,
-                "raw_json": {"platform": "longshanks", "tid": raw_tid, "name": raw_title, "region": region},
+                "format_name": format_label,
+                "platform_type": "Online" if is_online else "Tabletop",
+                "registration_status": reg_status_str or None,
+                "enrolled_players": enrolled,
+                "player_cap": cap or None,
+                "description": ls_desc_html,
             }
+
+            return _cache_and_return(
+                {
+                    "id": eid,
+                    "name": raw_title,
+                    "event_date": ev_date,
+                    "end_date": ev_date if is_ended_ls else None,
+                    "city": "Online" if is_online else city_str,
+                    "state": "",
+                    "country": "Global" if is_online else (country_str or region),
+                    "venue": "Longshanks Virtual" if is_online else (venue or "Longshanks"),
+                    "venue_name": "Longshanks Virtual" if is_online else (venue or "Longshanks"),
+                    "organizer_name": org_name,
+                    "format_name": format_label,
+                    "platform_type": "Online" if is_online else "Tabletop",
+                    "registration_status": reg_status_str or "Registration Open",
+                    "description": ls_desc_html,
+                    "total_players": enrolled,
+                    "enrolled_players": enrolled,
+                    "total_teams": total_teams,
+                    "is_team_event": bool(total_teams > 0 or "team" in ev_type_str.lower()),
+                    "player_cap": cap,
+                    "num_tickets": cap,
+                    "num_rounds": _estimate_swiss_rounds(max(enrolled, cap)),
+                    "numberOfRounds": _estimate_swiss_rounds(max(enrolled, cap)),
+                    "current_round": 1 if is_started_ls else 0,
+                    "is_started": is_started_ls,
+                    "is_ended": is_ended_ls,
+                    "ended": is_ended_ls,
+                    "status": {"ended": is_ended_ls, "started": is_started_ls},
+                    "source_platform": "longshanks",
+                    "external_event_id": raw_tid,
+                    "event_url": ext_url,
+                    "external_url": ext_url,
+                    "using_online_reg": True,
+                    "game_system": sys_slug,
+                    "players": players_out,
+                    "matches": [],
+                    "teams": [],
+                    "sync_in_progress": False,
+                    "raw_json": raw_meta_ls,
+                }
+            )
         except Exception as e:
             logger.debug(f"[PlatformDiscovery] Longshanks preview failed for {eid}: {e}")
             return None

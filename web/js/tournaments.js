@@ -394,12 +394,308 @@ function resolveEventObjById(eventIdOrObj) {
 }
 window.resolveEventObjById = resolveEventObjById;
 
+function extractEventRichDetails(ev) {
+  const obj = (ev && typeof ev === 'object') ? ev : {};
+  const rj = (obj.raw_json && typeof obj.raw_json === 'object') ? obj.raw_json : {};
+  const det = (rj.details && typeof rj.details === 'object') ? rj.details : {};
+  const listing = (rj.listing && typeof rj.listing === 'object') ? rj.listing : {};
+  const eventId = String(obj.id || obj.event_id || currentOpenEventId || '').trim();
+  const platform = (typeof getEventPlatform === 'function')
+    ? getEventPlatform(eventId, obj)
+    : (eventId.includes(':') ? eventId.split(':', 1)[0].toLowerCase() : 'bcp');
+  const rawPlatName = (typeof getPlatformDisplayName === 'function')
+    ? getPlatformDisplayName(eventId, obj)
+    : 'BCP';
+  const platformFullName = rawPlatName === 'BCP' ? 'Best Coast Pairings' : rawPlatName;
+  const platformUrl = (typeof getPlatformExternalEventUrl === 'function')
+    ? getPlatformExternalEventUrl(eventId, obj)
+    : `https://www.bestcoastpairings.com/event/${encodeURIComponent(eventId)}`;
+
+  const bcpOwnerName = [rj.ownerFirstName, rj.ownerLastName].filter(Boolean).join(' ').trim();
+  const detOrgName = (det.organizer && typeof det.organizer === 'object') ? det.organizer.name : det.organizer;
+  const organizerName = String(
+    obj.organizer_name ||
+    rj.organization_name ||
+    rj.organizer_name ||
+    det.organizer_name ||
+    detOrgName ||
+    (typeof rj.organizer === 'string' ? rj.organizer : '') ||
+    bcpOwnerName ||
+    ''
+  ).trim();
+  const organizerUrl = String(
+    obj.organizer_url ||
+    rj.organization_url ||
+    rj.organizer_url ||
+    det.organizer_url ||
+    ((det.organizer && typeof det.organizer === 'object') ? (det.organizer.url || '') : '') ||
+    ''
+  ).trim();
+
+  const formatName = String(
+    obj.format_name ||
+    rj.format_name ||
+    rj.format ||
+    det.format_name ||
+    det.format ||
+    (obj.is_ffa_event ? '4P FFA Commander Pod' : '') ||
+    ''
+  ).trim();
+
+  const platformType = String(
+    obj.platform_type ||
+    rj.platform_type ||
+    det.platform_type ||
+    (String(obj.city || '').toLowerCase() === 'online' ? 'Online' : '') ||
+    ''
+  ).trim();
+
+  const registrationStatus = String(
+    obj.registration_status ||
+    (typeof rj.status === 'string' ? rj.status : '') ||
+    (obj.status && typeof obj.status === 'object' && obj.status.label ? obj.status.label : '') ||
+    ''
+  ).trim();
+
+  const registrationType = String(
+    obj.registration_type ||
+    rj.registration_type ||
+    ''
+  ).trim();
+
+  let entryFee = String(obj.entry_fee || rj.entry_fee || '').trim();
+  if (!entryFee) {
+    const rawPrice = Number(obj.ticket_price ?? rj.ticketPrice ?? 0);
+    if (!Number.isNaN(rawPrice) && rawPrice > 0) {
+      const curr = String(obj.ticket_currency || rj.ticketCurrency || 'USD').toUpperCase();
+      entryFee = curr === 'USD' ? `$${rawPrice.toFixed(2)}` : `${rawPrice.toFixed(2)} ${curr}`;
+    }
+  }
+
+  const playerCap = Number(
+    obj.player_cap ||
+    obj.num_tickets ||
+    rj.player_cap ||
+    rj.numTickets ||
+    rj.capacity ||
+    listing.player_cap ||
+    0
+  ) || 0;
+  const enrolledPlayers = Number(
+    obj.enrolled_players ??
+    obj.total_players ??
+    rj.enrolled_players ??
+    (Array.isArray(obj.players) ? obj.players.length : 0) ??
+    0
+  ) || 0;
+
+  const discordUrl = String(
+    obj.discord_url ||
+    rj.discord_url ||
+    det.discord_url ||
+    ''
+  ).trim();
+
+  const dlReqRaw = obj.decklists_required ?? rj.decklists_enabled;
+  const decklistsRequired = (dlReqRaw === true || dlReqRaw === false) ? dlReqRaw : null;
+
+  const roundTimeMinutes = Number(
+    obj.round_time_minutes ||
+    rj.round_time_minutes ||
+    rj.defaultRoundLength ||
+    0
+  ) || 0;
+  const bestOf = Number(obj.best_of || rj.best_of || 0) || 0;
+  const scoringSummary = String(obj.scoring_summary || rj.scoring_summary || '').trim();
+
+  let startTimeLabel = '';
+  const rawDate = String(obj.event_date || obj.start_date || rj.start_date || rj.startDate || '').trim();
+  if (rawDate && rawDate.includes('T')) {
+    const dt = new Date(rawDate);
+    if (!Number.isNaN(dt.getTime())) {
+      const hasNonNoonUtc = !(dt.getUTCHours() === 0 && dt.getUTCMinutes() === 0);
+      if (hasNonNoonUtc) {
+        try {
+          startTimeLabel = dt.toLocaleString(undefined, {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+          });
+        } catch (_) {
+          startTimeLabel = rawDate.slice(0, 16).replace('T', ' ') + ' UTC';
+        }
+      }
+    }
+  }
+
+  const descriptionRaw = String(
+    obj.description ||
+    obj.event_description ||
+    rj.description ||
+    rj.description_html ||
+    rj.eventDescription ||
+    det.description ||
+    det.description_html ||
+    ''
+  ).trim();
+  const prizesRaw = String(obj.prizes_html || rj.prizes_html || '').trim();
+
+  return {
+    eventId,
+    platform,
+    platformShortName: rawPlatName,
+    platformFullName,
+    platformUrl,
+    organizerName,
+    organizerUrl,
+    formatName,
+    platformType,
+    registrationStatus,
+    registrationType,
+    entryFee,
+    playerCap,
+    enrolledPlayers,
+    discordUrl,
+    decklistsRequired,
+    roundTimeMinutes,
+    bestOf,
+    scoringSummary,
+    startTimeLabel,
+    descriptionRaw,
+    prizesRaw
+  };
+}
+window.extractEventRichDetails = extractEventRichDetails;
+
+function buildEventRichDetailsCardHtml(ev, opts = {}) {
+  const eventObj = ev || currentEventData || {};
+  const rich = extractEventRichDetails(eventObj);
+  const locInfo = extractEventLocationDetails(eventObj);
+  const mode = opts.mode || 'modal'; // 'modal' | 'hub-results' | 'news-specs'
+  const dStr = rich.startTimeLabel ||
+    ((typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(eventObj) : '') ||
+    (eventObj.event_date || '').slice(0, 10) ||
+    'Date TBD');
+  const numRounds = Number(eventObj.num_rounds || eventObj.numberOfRounds || 0);
+  const isEnded = Boolean(eventObj.is_ended || eventObj.ended || eventObj.status?.ended);
+
+  const specItems = [];
+  if (rich.organizerName) {
+    const orgHtml = rich.organizerUrl
+      ? `<a href="${escapeHtml(rich.organizerUrl)}" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:none; font-weight:700;">${escapeHtml(rich.organizerName)} ↗</a>`
+      : escapeHtml(rich.organizerName);
+    specItems.push({ label: '🏛️ Organizer / Host', valueHtml: orgHtml });
+  }
+  const venueDisplay = (locInfo && locInfo.fullDisplay && locInfo.fullDisplay !== 'Online / Unspecified')
+    ? locInfo.fullDisplay
+    : (rich.platformType || 'Online');
+  specItems.push({
+    label: '📍 Venue & Mode',
+    valueHtml: `${escapeHtml(venueDisplay)}${rich.platformType && !venueDisplay.toLowerCase().includes(rich.platformType.toLowerCase()) ? ` <span style="color:#38bdf8; font-weight:600;">• ${escapeHtml(rich.platformType)}</span>` : ''}`
+  });
+  if (rich.formatName || numRounds > 0) {
+    const fmtParts = [];
+    if (rich.formatName) fmtParts.push(rich.formatName);
+    if (numRounds > 0) fmtParts.push(`${numRounds} Rounds`);
+    specItems.push({ label: '🎯 Format & Structure', valueHtml: escapeHtml(fmtParts.join(' • ')) });
+  }
+  const capParts = [];
+  if (rich.playerCap > 0) {
+    const spotsLeft = Math.max(0, rich.playerCap - rich.enrolledPlayers);
+    capParts.push(`${rich.enrolledPlayers} / ${rich.playerCap} Enrolled${!isEnded ? ` (${spotsLeft} spots open)` : ''}`);
+  } else {
+    capParts.push(`${rich.enrolledPlayers} Enrolled`);
+  }
+  if (rich.registrationType) capParts.push(rich.registrationType);
+  else if (rich.registrationStatus) capParts.push(rich.registrationStatus);
+  specItems.push({ label: '👥 Capacity & Registration', valueHtml: escapeHtml(capParts.join(' • ')) });
+
+  if (rich.entryFee || rich.decklistsRequired !== null) {
+    const entParts = [];
+    if (rich.entryFee) entParts.push(rich.entryFee);
+    if (rich.decklistsRequired === true) entParts.push('Decklists Required');
+    else if (rich.decklistsRequired === false) entParts.push('Decklists Optional');
+    if (entParts.length > 0) {
+      specItems.push({ label: '🎟️ Entry & Decklists', valueHtml: escapeHtml(entParts.join(' • ')) });
+    }
+  }
+  if (rich.scoringSummary || rich.roundTimeMinutes > 0 || rich.bestOf > 0) {
+    const ruleText = rich.scoringSummary || [
+      rich.bestOf > 0 ? `Best of ${rich.bestOf}` : '',
+      rich.roundTimeMinutes > 0 ? `${rich.roundTimeMinutes}m Rounds` : ''
+    ].filter(Boolean).join(' • ');
+    if (ruleText) {
+      specItems.push({ label: '⚖️ Match Rules', valueHtml: escapeHtml(ruleText) });
+    }
+  }
+  specItems.push({ label: '🕒 Start Date & Time', valueHtml: escapeHtml(dStr) });
+
+  const specsGridHtml = `
+    <div class="event-rich-specs-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:0.6rem; text-align:left;">
+      ${specItems.map(it => `
+        <div style="padding:0.6rem 0.75rem; background:rgba(15,23,42,0.78); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+          <div style="font-size:0.66rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">${it.label}</div>
+          <div style="font-size:0.84rem; font-weight:700; color:#f1f5f9; line-height:1.35; overflow-wrap:break-word;">${it.valueHtml}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+
+  if (mode === 'news-specs') {
+    return specsGridHtml;
+  }
+
+  const descHtml = (typeof sanitizeEventDescriptionHtml === 'function')
+    ? sanitizeEventDescriptionHtml(rich.descriptionRaw)
+    : '';
+  const descBlockHtml = descHtml ? `
+    <div style="margin-top:0.75rem; padding:0.8rem 0.95rem; background:rgba(15,23,42,0.65); border:1px solid rgba(56,189,248,0.18); border-radius:8px; text-align:left; max-height:${mode === 'modal' ? '160px' : '320px'}; overflow-y:auto;">
+      <div style="font-size:0.7rem; font-weight:800; text-transform:uppercase; letter-spacing:0.05em; color:#38bdf8; margin-bottom:0.35rem;">📜 Event Details &amp; Organizer Notes</div>
+      <div class="event-bcp-description-body" style="font-size:0.83rem; color:#cbd5e1; line-height:1.55; overflow-wrap:break-word;">${descHtml}</div>
+    </div>
+  ` : '';
+
+  const rosterStatusNote = isEnded
+    ? `Individual competitor standings were not published publicly on ${escapeHtml(rich.platformFullName)} for this event.`
+    : (rich.enrolledPlayers > 0
+      ? `${rich.enrolledPlayers} competitor${rich.enrolledPlayers === 1 ? ' is' : 's are'} currently enrolled. ${escapeHtml(rich.platformFullName)} keeps individual entrant names &amp; decklists private until Round 1 pairings go live.`
+      : `Registration is open on ${escapeHtml(rich.platformFullName)}${rich.playerCap > 0 ? ` (${rich.playerCap} player capacity)` : ''}. Individual competitors &amp; Round 1 pairings will appear here automatically once published.`);
+
+  return `
+    <div class="event-rich-briefing-panel" style="padding:${mode === 'modal' ? '0.95rem 1.05rem' : '1.15rem 1.25rem'}; text-align:left; background:linear-gradient(180deg, rgba(15,23,42,0.55), rgba(15,23,42,0.85)); border-radius:10px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+        <div>
+          <div style="font-size:0.95rem; font-weight:800; color:#f8fafc;">📋 Tournament Overview &amp; Registration Details</div>
+          <div style="font-size:0.79rem; color:var(--text-secondary); margin-top:0.15rem;">${rosterStatusNote}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+          ${rich.discordUrl ? `<a href="${escapeHtml(rich.discordUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.76rem; font-weight:700; padding:0.38rem 0.8rem; border-color:rgba(129,140,248,0.45); color:#a5b4fc; background:rgba(99,102,241,0.12); text-decoration:none;">💬 Discord ↗</a>` : ''}
+          ${mode === 'hub-results' ? `<button type="button" class="btn btn-outline" onclick="switchEventModalTab('news')" style="font-size:0.76rem; font-weight:700; padding:0.38rem 0.8rem; cursor:pointer;">📰 News &amp; Full Info</button>` : ''}
+          ${rich.platformUrl ? `<a href="${escapeHtml(rich.platformUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="font-size:0.78rem; font-weight:700; padding:0.4rem 0.9rem; text-decoration:none;">🔗 ${isEnded ? 'View' : 'View / Register'} on ${escapeHtml(rich.platformShortName)} ↗</a>` : ''}
+        </div>
+      </div>
+      ${specsGridHtml}
+      ${descBlockHtml}
+    </div>
+  `;
+}
+window.buildEventRichDetailsCardHtml = buildEventRichDetailsCardHtml;
+
 function buildEventModalMetaHtml(ev, numRounds = 0) {
   if (!ev) return '';
   const locInfo = extractEventLocationDetails(ev);
-  const dStr = (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(ev) : '') || (ev.event_date || ev.start_date || '').slice(0, 10) || 'Date TBD';
+  const rich = extractEventRichDetails(ev);
+  const dStr = rich.startTimeLabel || (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(ev) : '') || (ev.event_date || ev.start_date || '').slice(0, 10) || 'Date TBD';
   const rdsNum = Number(numRounds || ev.num_rounds || ev.numberOfRounds || 0);
   const rdsPart = rdsNum > 0 ? `<span>•</span><span>🔄 ${rdsNum} Rounds</span>` : '';
+  const orgPart = (rich.organizerName && rich.organizerName.toLowerCase() !== String(locInfo.venue || '').toLowerCase() && rich.organizerName.toLowerCase() !== String(locInfo.fullDisplay || '').toLowerCase())
+    ? `<span>•</span><span title="Organizer">🏛️ ${escapeHtml(rich.organizerName)}</span>`
+    : '';
+  const fmtPart = rich.formatName ? `<span>•</span><span style="color:#38bdf8; font-weight:600;">🎯 ${escapeHtml(rich.formatName)}</span>` : '';
+  const feePart = rich.entryFee ? `<span>•</span><span style="color:#4ade80; font-weight:600;">🎟️ ${escapeHtml(rich.entryFee)}</span>` : '';
   const eidSafe = escapeHtml(String(ev.id || ev.event_id || currentOpenEventId || '').replace(/'/g, "\\'"));
   const mapBtns = locInfo.hasMapTarget ? `
     <button type="button" onclick="event.stopPropagation(); openEventVenueMapModal('${eidSafe}')" style="display:inline-flex; align-items:center; gap:3px; font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:6px; background:rgba(56,189,248,0.14); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); cursor:pointer;" title="View venue address & interactive map">
@@ -415,6 +711,9 @@ function buildEventModalMetaHtml(ev, numRounds = 0) {
       <span>•</span>
       <span style="color:#e2e8f0; font-weight:600;" title="${escapeHtml(locInfo.fullDisplay)}">📍 ${escapeHtml(locInfo.fullDisplay)}</span>
       ${mapBtns}
+      ${orgPart}
+      ${fmtPart}
+      ${feePart}
       ${rdsPart}
     </span>
   `;
@@ -1280,9 +1579,10 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       if (ebody) ebody.style.opacity = '0.6';
       if (pbody) pbody.style.opacity = '0.6';
     } else if (!hasCachedRows) {
+      const platSpinName = (typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(eventId, previewEv) : 'BCP';
       if (rbody) rbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading placings & results...</div></td></tr>';
       if (ebody) ebody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading participant ratings...</div></td></tr>';
-      if (pbody) pbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Syncing live round pairings from BCP...</div></td></tr>';
+      if (pbody) pbody.innerHTML = `<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Syncing live round pairings from ${escapeHtml(platSpinName === 'BCP' ? 'Best Coast Pairings' : platSpinName)}...</div></td></tr>`;
     }
   }
 
@@ -2695,7 +2995,11 @@ function renderEventResultsRows() {
   if (!tbody) return;
 
   if (!eventPlayersCache || eventPlayersCache.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No registered competitors found for this tournament yet.</td></tr>';
+    if (currentEventData && typeof buildEventRichDetailsCardHtml === 'function') {
+      tbody.innerHTML = `<tr><td colspan="7" style="padding:0.85rem 0.5rem; border:none;">${buildEventRichDetailsCardHtml(currentEventData, { mode: 'hub-results' })}</td></tr>`;
+    } else {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No registered competitors found for this tournament yet.</td></tr>';
+    }
     return;
   }
 
@@ -5065,23 +5369,20 @@ function renderQuickEventModal(ev, userRegData) {
   ensureEventSearchIndex();
 
   const kpi = getEventKpiSummary(ev);
+  const rich = extractEventRichDetails(ev);
   const nameEl = document.getElementById('modal-event-name');
   if (nameEl) nameEl.textContent = ev.name || ev.event_name || 'Tournament Details';
   const bcpLink = document.getElementById('modal-event-bcp-link');
   if (bcpLink && ev.id) {
-    bcpLink.href = (typeof getPlatformExternalEventUrl === 'function')
-      ? getPlatformExternalEventUrl(ev.id, ev)
-      : `https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}`;
-    const platName = (typeof getPlatformDisplayName === 'function')
-      ? getPlatformDisplayName(ev.id, ev)
-      : 'BCP';
-    bcpLink.textContent = `${platName} ↗`;
+    bcpLink.href = rich.platformUrl;
+    bcpLink.textContent = `${rich.platformShortName} ↗`;
   }
   const metaEl = document.getElementById('modal-event-meta');
   if (metaEl) {
     metaEl.innerHTML = buildEventModalMetaHtml(ev, kpi.numRounds);
   }
-  const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k').toLowerCase();
+  const rawSys = String(ev.game_system || (typeof currentGameSystem !== 'undefined' && currentGameSystem && currentGameSystem !== 'all' ? currentGameSystem : '40k')).toLowerCase();
+  const sys = rawSys === 'all' ? '40k' : rawSys;
   const sysIcon = (typeof getGameSystemIcon === 'function') ? getGameSystemIcon(sys) : (sys === 'aos' ? '⚡' : '⚔️');
   const sysLabel = (typeof getGameSystemLabel === 'function') ? getGameSystemLabel(sys) : (sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K');
   const sysBadge = sys === 'aos'
@@ -5100,10 +5401,13 @@ function renderQuickEventModal(ev, userRegData) {
     : (kpi.isTeamEvent
       ? `<span class="badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35); font-size:0.72rem; font-weight:700;">${kpi.isDoublesEvent ? '👥 2v2 DOUBLES' : '🛡️ TEAM TOURNAMENT'}</span>`
       : `<span class="badge" style="background:rgba(255,255,255,0.06); color:#cbd5e1; border:1px solid rgba(255,255,255,0.15); font-size:0.72rem; font-weight:600;">👤 SINGLES</span>`);
+  const modeBadge = rich.platformType
+    ? `<span class="badge" style="background:rgba(99,102,241,0.14); color:#a5b4fc; border:1px solid rgba(99,102,241,0.32); font-size:0.72rem; font-weight:600;">${rich.platformType.toLowerCase().includes('online') ? '🌐' : '🪑'} ${escapeHtml(rich.platformType)}</span>`
+    : '';
 
   const badgesEl = document.getElementById('modal-event-badges');
   if (badgesEl) {
-    badgesEl.innerHTML = `${getEventTierBadgeHtml(kpi.totalPlayers, ev.name || ev.event_name || '', kpi.numRounds)} ${platBadge} ${sysBadge} ${statusBadge} ${formatBadge}`;
+    badgesEl.innerHTML = `${getEventTierBadgeHtml(kpi.totalPlayers, ev.name || ev.event_name || '', kpi.numRounds)} ${platBadge} ${sysBadge} ${statusBadge} ${formatBadge} ${modeBadge}`;
   }
 
   // Personal Registration State (used to default to Player Station / My Results tab when opening Event Hub)
@@ -5111,43 +5415,120 @@ function renderQuickEventModal(ev, userRegData) {
   currentEventRegistration = (userRegData && userRegData.is_registered) ? userRegData : null;
   const regBanner = document.getElementById('modal-quick-reg-banner');
   if (regBanner) {
-    regBanner.style.display = 'none';
-    regBanner.innerHTML = '';
+    const hasRosterRows = (kpi.players && kpi.players.length > 0) || (kpi.teams && kpi.teams.length > 0);
+    const hasRichMeta = Boolean(
+      rich.organizerName ||
+      rich.formatName ||
+      rich.entryFee ||
+      rich.discordUrl ||
+      rich.scoringSummary ||
+      rich.descriptionRaw ||
+      rich.playerCap > 0 ||
+      rich.decklistsRequired !== null
+    );
+    if (hasRosterRows && hasRichMeta) {
+      const chips = [];
+      if (rich.organizerName) {
+        chips.push(rich.organizerUrl
+          ? `<span>🏛️ <b>Host:</b> <a href="${escapeHtml(rich.organizerUrl)}" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:none; font-weight:700;">${escapeHtml(rich.organizerName)} ↗</a></span>`
+          : `<span>🏛️ <b>Host:</b> ${escapeHtml(rich.organizerName)}</span>`);
+      }
+      if (rich.formatName) chips.push(`<span>🎯 <b>Format:</b> ${escapeHtml(rich.formatName)}</span>`);
+      if (rich.playerCap > 0) {
+        const spots = Math.max(0, rich.playerCap - kpi.totalPlayers);
+        chips.push(`<span>👥 <b>Cap:</b> ${kpi.totalPlayers}/${rich.playerCap}${!kpi.ended ? ` (${spots} open)` : ''}</span>`);
+      }
+      if (rich.entryFee) chips.push(`<span>🎟️ <b>Entry:</b> ${escapeHtml(rich.entryFee)}</span>`);
+      if (rich.decklistsRequired === true) chips.push(`<span>📋 Decklists Required</span>`);
+      else if (rich.decklistsRequired === false) chips.push(`<span>📋 Decklists Optional</span>`);
+      if (rich.scoringSummary) chips.push(`<span>⚖️ ${escapeHtml(rich.scoringSummary)}</span>`);
+      if (rich.discordUrl) {
+        chips.push(`<a href="${escapeHtml(rich.discordUrl)}" target="_blank" rel="noopener noreferrer" style="color:#a5b4fc; font-weight:700; text-decoration:none;">💬 Discord ↗</a>`);
+      }
+      const cleanDesc = (typeof sanitizeEventDescriptionHtml === 'function')
+        ? sanitizeEventDescriptionHtml(rich.descriptionRaw)
+        : '';
+      const descAccordion = cleanDesc ? `
+        <details style="margin-top:${chips.length > 0 ? '0.45rem' : '0'};">
+          <summary style="cursor:pointer; font-size:0.76rem; font-weight:700; color:#38bdf8; user-select:none;">📜 View Event Description, Rules &amp; Prizes</summary>
+          <div class="event-bcp-description-body" style="margin-top:0.45rem; padding:0.65rem 0.8rem; background:rgba(15,23,42,0.85); border:1px solid rgba(255,255,255,0.08); border-radius:6px; font-size:0.8rem; color:#cbd5e1; line-height:1.5; max-height:140px; overflow-y:auto; overflow-wrap:break-word;">${cleanDesc}</div>
+        </details>
+      ` : '';
+      if (chips.length > 0 || descAccordion) {
+        regBanner.style.display = 'block';
+        regBanner.innerHTML = `
+          <div style="padding:0.55rem 0.8rem; background:rgba(15,23,42,0.68); border:1px solid rgba(56,189,248,0.2); border-radius:8px;">
+            ${chips.length > 0 ? `<div style="display:flex; align-items:center; gap:0.45rem 0.85rem; flex-wrap:wrap; font-size:0.76rem; color:#cbd5e1;">${chips.join('<span style="color:rgba(255,255,255,0.2);">•</span>')}</div>` : ''}
+            ${descAccordion}
+          </div>
+        `;
+      } else {
+        regBanner.style.display = 'none';
+        regBanner.innerHTML = '';
+      }
+    } else {
+      regBanner.style.display = 'none';
+      regBanner.innerHTML = '';
+    }
   }
 
   // 4-Card Quick KPI Strip
   const kpisEl = document.getElementById('modal-quick-kpis');
   if (kpisEl) {
+    const hasRoster = kpi.players.length > 0 || kpi.teams.length > 0;
     const compPrimary = kpi.isTeamEvent && kpi.totalTeams > 0
       ? `${kpi.totalTeams} ${kpi.isDoublesEvent ? 'Pairs' : 'Teams'}`
-      : `${kpi.totalPlayers} Players`;
+      : (rich.playerCap > 0 && !kpi.ended ? `${kpi.totalPlayers} / ${rich.playerCap} Cap` : `${kpi.totalPlayers} Players`);
     const compSub = kpi.isTeamEvent && kpi.totalTeams > 0
       ? `${kpi.totalPlayers} Competitors`
-      : `${kpi.players.filter(p => p.checked_in).length || kpi.totalPlayers} Active`;
+      : (rich.playerCap > 0 && !kpi.ended
+          ? `${Math.max(0, rich.playerCap - kpi.totalPlayers)} spots open`
+          : (kpi.players.length > 0
+              ? `${kpi.players.filter(p => p.checked_in).length || kpi.totalPlayers} Active`
+              : (rich.registrationStatus || rich.registrationType || (kpi.ended ? 'Completed' : 'Enrolled'))));
+
+    const formatSubParts = [];
+    if (rich.formatName) formatSubParts.push(rich.formatName);
+    else formatSubParts.push(kpi.isTeamEvent ? 'Team Format' : (kpi.isFfaEvent ? '4P FFA Pods' : 'Singles Format'));
+    if (kpi.matches.length > 0) formatSubParts.push(`${kpi.matches.length} Matches`);
+    else if (rich.platformType) formatSubParts.push(rich.platformType);
+    const formatSubText = formatSubParts.join(' • ');
 
     const topSeedName = kpi.topSeedPlayer ? (kpi.topSeedPlayer.full_name || 'Player') : '-';
     const topSeedElo = kpi.topSeedPlayer ? Number(kpi.topSeedPlayer.current_elo || 1500).toFixed(1) : '-';
+    const fieldPrimary = hasRoster ? `${kpi.avgElo.toFixed(1)} Avg Elo` : 'Pending Roster';
+    const fieldSub = hasRoster
+      ? `#1: ${topSeedName} (${topSeedElo})`
+      : (rich.organizerName ? `Host: ${rich.organizerName}` : `Rosters publish on ${rich.platformShortName}`);
+
+    const card4Title = (!hasRoster && !kpi.ended) ? '📋 Registration' : kpi.leaderTitle;
+    const card4Primary = (!hasRoster && !kpi.ended)
+      ? (rich.registrationType || rich.registrationStatus || 'Open')
+      : kpi.leaderName;
+    const card4Sub = (!hasRoster && !kpi.ended)
+      ? (rich.entryFee || (rich.decklistsRequired === true ? 'Decklists Required' : 'Awaiting Round 1'))
+      : kpi.leaderSub;
 
     kpisEl.innerHTML = `
       <div class="card" style="padding:0.7rem 0.85rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
         <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">👥 Competitors</div>
         <div style="font-size:1.05rem; font-weight:800; color:#fff; font-family:var(--font-mono);">${escapeHtml(compPrimary)}</div>
-        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(compSub)}</div>
+        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(compSub)}">${escapeHtml(compSub)}</div>
       </div>
       <div class="card" style="padding:0.7rem 0.85rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
         <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">🎲 Format & Rounds</div>
         <div style="font-size:1.05rem; font-weight:800; color:#38bdf8; font-family:var(--font-mono);">${kpi.numRounds} Rounds</div>
-        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${kpi.isTeamEvent ? 'Team Format' : 'Singles Format'} • ${kpi.matches.length} Matches</div>
+        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(formatSubText)}">${escapeHtml(formatSubText)}</div>
       </div>
       <div class="card" style="padding:0.7rem 0.85rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
         <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">⚡ Field Strength</div>
-        <div style="font-size:1.05rem; font-weight:800; color:#facc15; font-family:var(--font-mono);">${kpi.avgElo.toFixed(1)} Avg Elo</div>
-        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="Top Seed: ${escapeHtml(topSeedName)} (${topSeedElo})">#1: ${escapeHtml(topSeedName)} (${topSeedElo})</div>
+        <div style="font-size:${hasRoster ? '1.05rem' : '0.96rem'}; font-weight:800; color:#facc15; font-family:var(--font-mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(fieldPrimary)}</div>
+        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(fieldSub)}">${escapeHtml(fieldSub)}</div>
       </div>
       <div class="card" style="padding:0.7rem 0.85rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
-        <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">${kpi.leaderTitle}</div>
-        <div style="font-size:0.98rem; font-weight:800; color:#4ade80; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(kpi.leaderName)}">${escapeHtml(kpi.leaderName)}</div>
-        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(kpi.leaderSub)}</div>
+        <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">${escapeHtml(card4Title)}</div>
+        <div style="font-size:0.98rem; font-weight:800; color:#4ade80; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(card4Primary)}">${escapeHtml(card4Primary)}</div>
+        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(card4Sub)}">${escapeHtml(card4Sub)}</div>
       </div>
     `;
   }
@@ -5212,9 +5593,15 @@ function renderQuickModalTable() {
   const thead = document.getElementById('modal-quick-thead');
   const tbody = document.getElementById('modal-quick-tbody');
   if (!thead || !tbody) return;
+  const toolbar = document.getElementById('modal-quick-toolbar');
 
   ensureEventSearchIndex();
   const kpi = getEventKpiSummary(currentEventData);
+
+  if (toolbar) {
+    const showToolbar = Boolean(kpi.players.length > 0 || kpi.teams.length > 0 || quickModalSearchQuery);
+    toolbar.style.display = showToolbar ? 'flex' : 'none';
+  }
 
   if (quickModalViewMode === 'teams' && kpi.teams.length > 0) {
     thead.innerHTML = `
@@ -5252,18 +5639,6 @@ function renderQuickModalTable() {
     return;
   }
 
-  // Default: Players Standings / Roster view
-  thead.innerHTML = `
-    <tr>
-      <th style="width:50px; text-align:center; padding:0.55rem 0.5rem;">Rank</th>
-      <th style="width:28%; padding:0.55rem 0.6rem;">Competitor</th>
-      <th style="width:22%; padding:0.55rem 0.6rem;">Faction</th>
-      <th style="width:110px; text-align:center; padding:0.55rem 0.5rem;">Record / Status</th>
-      <th style="width:130px; text-align:center; padding:0.55rem 0.5rem;">Elo & Net Δ</th>
-      <th style="width:74px; text-align:right; padding:0.55rem 0.6rem;">List</th>
-    </tr>
-  `;
-
   let sortedPlayers;
   if (currentEventData && Array.isArray(currentEventData._quickSortedPlayers) && currentEventData._quickSortedPlayers.length === kpi.players.length) {
     sortedPlayers = currentEventData._quickSortedPlayers;
@@ -5293,19 +5668,35 @@ function renderQuickModalTable() {
   if (players.length === 0) {
     if (!quickModalSearchQuery) {
       const evObj = currentEventData || {};
-      const platName = (typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(evObj.id || '', evObj) : 'BCP';
-      const extHref = (typeof getPlatformExternalEventUrl === 'function') ? getPlatformExternalEventUrl(evObj.id || '', evObj) : '';
-      const enrolledCnt = Number(evObj.total_players || 0);
-      tbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="padding:2rem 1.25rem; text-align:center;">
-        <div style="font-weight:700; color:#e2e8f0; margin-bottom:0.35rem;">📅 Upcoming Tournament${enrolledCnt > 0 ? ` • ${enrolledCnt} Registered` : ''}</div>
-        <div style="font-size:0.82rem; color:var(--text-secondary); margin-bottom:0.65rem;">Individual competitor rosters &amp; Round 1 pairings will appear here once published on ${escapeHtml(platName)}.</div>
-        ${extHref ? `<a href="${escapeHtml(extHref)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.78rem; padding:0.38rem 0.85rem; text-decoration:none;">🔗 View / Register on ${escapeHtml(platName)} ↗</a>` : ''}
-      </td></tr>`;
+      thead.innerHTML = '';
+      tbody.innerHTML = `<tr><td colspan="6" style="padding:0; border:none;">${buildEventRichDetailsCardHtml(evObj, { mode: 'modal' })}</td></tr>`;
     } else {
+      thead.innerHTML = `
+        <tr>
+          <th style="width:50px; text-align:center; padding:0.55rem 0.5rem;">Rank</th>
+          <th style="width:28%; padding:0.55rem 0.6rem;">Competitor</th>
+          <th style="width:22%; padding:0.55rem 0.6rem;">Faction</th>
+          <th style="width:110px; text-align:center; padding:0.55rem 0.5rem;">Record / Status</th>
+          <th style="width:130px; text-align:center; padding:0.55rem 0.5rem;">Elo & Net Δ</th>
+          <th style="width:74px; text-align:right; padding:0.55rem 0.6rem;">List</th>
+        </tr>
+      `;
       tbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="padding:1.75rem;">No competitors match "${escapeHtml(quickModalSearchQuery)}"</td></tr>`;
     }
     return;
   }
+
+  // Default: Players Standings / Roster view
+  thead.innerHTML = `
+    <tr>
+      <th style="width:50px; text-align:center; padding:0.55rem 0.5rem;">Rank</th>
+      <th style="width:28%; padding:0.55rem 0.6rem;">Competitor</th>
+      <th style="width:22%; padding:0.55rem 0.6rem;">Faction</th>
+      <th style="width:110px; text-align:center; padding:0.55rem 0.5rem;">Record / Status</th>
+      <th style="width:130px; text-align:center; padding:0.55rem 0.5rem;">Elo & Net Δ</th>
+      <th style="width:74px; text-align:right; padding:0.55rem 0.6rem;">List</th>
+    </tr>
+  `;
 
   tbody.innerHTML = players.map((p, idx) => {
     const safePid = String(p.player_id || p.id || '').trim();
@@ -5372,7 +5763,8 @@ function openEventHubFromModal(explicitTab = null) {
     }
   }
 
-  const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k').toLowerCase();
+  const rawSys = String((currentEventData && currentEventData.game_system) || (typeof currentGameSystem !== 'undefined' && currentGameSystem && currentGameSystem !== 'all' ? currentGameSystem : '40k')).toLowerCase();
+  const sys = rawSys === 'all' ? '40k' : rawSys;
   const ended = isEventEnded(currentEventData, currentEventRegistration);
   const isRegistered = Boolean(currentEventRegistration && currentEventRegistration.is_registered);
   const isTeam = Boolean(currentEventData && ((currentEventData.teams && currentEventData.teams.length > 0) || (currentEventData.team_standings && currentEventData.team_standings.length > 0)));
@@ -5479,11 +5871,14 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
   const hasCached = Boolean(!options.forceSync && !returningFromWtcRoom && candidateCached && !isCandidateIncomplete);
 
   if (!hasCached && heroSection) {
+    const platLoadLabel = (typeof getPlatformDisplayName === 'function')
+      ? getPlatformDisplayName(eventId, candidateCached)
+      : 'BCP';
     heroSection.innerHTML = `
       <div class="profile-hero-card" style="padding: 2.5rem 1.5rem; text-align: center; margin-bottom: 1.25rem;">
         <div class="spinner"></div>
         <div style="margin-top: 0.85rem; font-weight: 600; color: var(--text-secondary);">
-          Loading ${(typeof getGameSystemShortLabel === 'function') ? getGameSystemShortLabel(targetSys) : (targetSys === 'aos' ? 'AoS' : '40K')} Event Hub & BCP Standings...
+          Loading ${(typeof getGameSystemShortLabel === 'function') ? getGameSystemShortLabel(targetSys) : (targetSys === 'aos' ? 'AoS' : '40K')} Event Hub &amp; ${escapeHtml(platLoadLabel)} Standings...
         </div>
       </div>
     `;
@@ -5656,12 +6051,16 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
   if (!heroSection || !ev) return;
 
   const kpi = getEventKpiSummary(ev);
-  const sys = (gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
+  const rich = extractEventRichDetails(ev);
+  const rawSys = String(ev.game_system || gameSystem || (typeof currentGameSystem !== 'undefined' && currentGameSystem !== 'all' ? currentGameSystem : '40k')).toLowerCase();
+  const sys = rawSys === 'all' ? '40k' : rawSys;
   const eventId = ev.id || currentOpenEventId || '';
   const eventName = ev.name || ev.raw_json?.name || ev.event_name || 'Tournament Hub';
   const locInfo = extractEventLocationDetails(ev);
-  const loc = locInfo.displayLabel || 'Online / Unspecified';
-  const dStr = (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(ev) : '') || (ev.event_date || '').slice(0, 10);
+  const loc = (locInfo.displayLabel && locInfo.displayLabel !== 'Online / Unspecified')
+    ? locInfo.displayLabel
+    : (rich.platformType || 'Online / Unspecified');
+  const dStr = rich.startTimeLabel || (typeof formatEventDateRangeLabel === 'function' ? formatEventDateRangeLabel(ev) : '') || (ev.event_date || '').slice(0, 10);
 
   const sysIconHero = (typeof getGameSystemIcon === 'function') ? getGameSystemIcon(sys) : (sys === 'aos' ? '⚡' : '⚔️');
   const sysLabelHero = (typeof getGameSystemLabel === 'function') ? getGameSystemLabel(sys) : (sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K');
@@ -5681,6 +6080,9 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
     : (kpi.isTeamEvent
       ? `<span class="badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35); font-size:0.75rem; font-weight:700;">${kpi.isDoublesEvent ? '👥 2v2 DOUBLES' : '🛡️ TEAM TOURNAMENT'}</span>`
       : `<span class="badge" style="background:rgba(255,255,255,0.06); color:#cbd5e1; border:1px solid rgba(255,255,255,0.15); font-size:0.75rem; font-weight:600;">👤 SINGLES</span>`);
+  const modeBadgeHero = rich.platformType
+    ? `<span class="badge" style="background:rgba(99,102,241,0.14); color:#a5b4fc; border:1px solid rgba(99,102,241,0.32); font-size:0.75rem; font-weight:600;">${rich.platformType.toLowerCase().includes('online') ? '🌐' : '🪑'} ${escapeHtml(rich.platformType)}</span>`
+    : '';
 
   // Meta Snapshot calculations
   const facCounts = new Map();
@@ -5698,27 +6100,59 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
     st.games += (w + l + d);
   });
 
+  const hasRoster = kpi.players.length > 0 || kpi.teams.length > 0;
+  let card4Label = '📊 Meta Snapshot';
   let mostPlayedFac = 'Various';
-  let mostPlayedSub = 'Balanced Field';
+  let metaCardSub = 'Balanced Field';
   if (facCounts.size > 0) {
     const sortedFacs = Array.from(facCounts.entries()).sort((a, b) => b[1] - a[1]);
     const [topFac, topCount] = sortedFacs[0];
     const pct = Math.round((topCount / Math.max(1, kpi.totalPlayers)) * 100);
     mostPlayedFac = topFac;
-    mostPlayedSub = `${topCount} Players (${pct}% of field)`;
-  }
-
-  let bestWrSub = 'Top Meta Contender';
-  const eligibleWrFacs = Array.from(facStats.entries()).filter(([_, st]) => st.games >= 3);
-  if (eligibleWrFacs.length > 0) {
-    eligibleWrFacs.sort((a, b) => (b[1].wins / b[1].games) - (a[1].wins / a[1].games));
-    const [bestFac, bestSt] = eligibleWrFacs[0];
-    const wrPct = Math.round((bestSt.wins / bestSt.games) * 100);
-    bestWrSub = `Best WR: ${bestFac} (${wrPct}% WR)`;
+    metaCardSub = `${topCount} Players (${pct}% of field)`;
+    const eligibleWrFacs = Array.from(facStats.entries()).filter(([_, st]) => st.games >= 3);
+    if (eligibleWrFacs.length > 0) {
+      eligibleWrFacs.sort((a, b) => (b[1].wins / b[1].games) - (a[1].wins / a[1].games));
+      const [bestFac, bestSt] = eligibleWrFacs[0];
+      const wrPct = Math.round((bestSt.wins / bestSt.games) * 100);
+      metaCardSub = `Best WR: ${bestFac} (${wrPct}% WR)`;
+    }
+  } else {
+    card4Label = '🎯 Format & Rules';
+    mostPlayedFac = rich.formatName || rich.platformType || (kpi.isFfaEvent ? '4P FFA Pods' : 'Standard');
+    metaCardSub = rich.scoringSummary ||
+      (rich.decklistsRequired === true ? 'Decklists Required' :
+      (rich.decklistsRequired === false ? 'Decklists Optional' :
+      `Synced via ${rich.platformFullName}`));
   }
 
   const topSeedName = kpi.topSeedPlayer ? (kpi.topSeedPlayer.full_name || 'Competitor') : '-';
   const topSeedElo = kpi.topSeedPlayer ? Number(kpi.topSeedPlayer.current_elo || 1500).toFixed(1) : '-';
+
+  const fieldValueHtml = kpi.isTeamEvent && kpi.totalTeams > 0
+    ? `${kpi.totalTeams} ${kpi.isDoublesEvent ? 'Duos' : 'Teams'}`
+    : (rich.playerCap > 0 && !kpi.ended ? `${kpi.totalPlayers} / ${rich.playerCap} Players` : `${kpi.totalPlayers} Players`);
+  const fieldSubParts = [`${kpi.numRounds} Rounds`];
+  if (rich.formatName) fieldSubParts.push(rich.formatName);
+  else fieldSubParts.push(kpi.isFfaEvent ? '4P FFA Pods' : (kpi.isTeamEvent ? `${kpi.totalPlayers} Players` : 'Singles'));
+  if (kpi.matches.length > 0) fieldSubParts.push(`${kpi.matches.length} ${kpi.isFfaEvent ? 'Pods' : 'Matches'}`);
+  else if (rich.platformType) fieldSubParts.push(rich.platformType);
+  else if (rich.playerCap > 0 && !kpi.ended) fieldSubParts.push(`${Math.max(0, rich.playerCap - kpi.totalPlayers)} spots open`);
+
+  const strengthValueHtml = hasRoster
+    ? `${kpi.avgElo.toFixed(1)} <span style="font-size:0.8rem; font-weight:600;">Avg Elo</span>`
+    : `<span style="font-size:1.05rem;">Pending Roster</span>`;
+  const strengthSubText = hasRoster
+    ? `Top Seed: #1 ${topSeedName} (${topSeedElo})`
+    : (rich.organizerName ? `Host: ${rich.organizerName}` : `Rosters publish on ${rich.platformShortName}`);
+
+  const card3Label = (!hasRoster && !kpi.ended) ? '📋 Registration' : kpi.leaderTitle;
+  const card3Value = (!hasRoster && !kpi.ended)
+    ? (rich.registrationType || rich.registrationStatus || 'Open')
+    : kpi.leaderName;
+  const card3Sub = (!hasRoster && !kpi.ended)
+    ? (rich.entryFee || (rich.playerCap > 0 ? `${Math.max(0, rich.playerCap - kpi.totalPlayers)} spots available` : `On ${rich.platformFullName}`))
+    : kpi.leaderSub;
 
   const mapButtonsHtml = locInfo.hasLocation ? `
     <button type="button" class="btn-sm btn-outline event-hero-map-btn" onclick="event.stopPropagation(); openEventVenueMapModal('${escapeHtml(eventId)}')" style="font-size:0.74rem; padding:3px 9px; border-radius:999px; border-color:rgba(56,189,248,0.45); color:#38bdf8; background:rgba(56,189,248,0.12); cursor:pointer; display:inline-flex; align-items:center; gap:4px; font-weight:700;" title="Open interactive venue map pop-up">
@@ -5728,6 +6162,15 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
       🏪 Game Stores Hub
     </button>
   ` : '';
+
+  const orgMetaHtml = (rich.organizerName && rich.organizerName.toLowerCase() !== loc.toLowerCase())
+    ? `<span>•</span><span>🏛️ ${rich.organizerUrl ? `<a href="${escapeHtml(rich.organizerUrl)}" target="_blank" rel="noopener noreferrer" style="color:#38bdf8; text-decoration:none; font-weight:600;">${escapeHtml(rich.organizerName)} ↗</a>` : escapeHtml(rich.organizerName)}</span>`
+    : '';
+  const fmtMetaHtml = rich.formatName ? `<span>•</span><span style="color:#38bdf8; font-weight:600;">🎯 ${escapeHtml(rich.formatName)}</span>` : '';
+  const feeMetaHtml = rich.entryFee ? `<span>•</span><span style="color:#4ade80; font-weight:600;">🎟️ ${escapeHtml(rich.entryFee)}</span>` : '';
+  const discordMetaHtml = rich.discordUrl
+    ? `<a href="${escapeHtml(rich.discordUrl)}" target="_blank" rel="noopener noreferrer" class="btn-sm btn-outline" style="font-size:0.74rem; padding:3px 9px; border-radius:999px; border-color:rgba(129,140,248,0.45); color:#a5b4fc; background:rgba(99,102,241,0.12); text-decoration:none; font-weight:700;">💬 Discord ↗</a>`
+    : '';
 
   heroSection.innerHTML = `
     <div class="profile-hero-card event-hub-hero-card" style="margin-bottom: 1.25rem;">
@@ -5743,6 +6186,7 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
               ${sysBadge}
               ${statusBadge}
               ${formatBadge}
+              ${modeBadgeHero}
             </div>
             <h1 id="event-hub-title" class="profile-name-title" style="font-size: 1.5rem; margin: 0 0 0.3rem 0;">${escapeHtml(eventName)}</h1>
             <div id="event-hub-meta-line" style="font-size: 0.85rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
@@ -5750,8 +6194,12 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
               <span>•</span>
               <span title="${escapeHtml(locInfo.fullAddressLine || loc)}">📍 ${escapeHtml(loc)}</span>
               ${mapButtonsHtml}
+              ${orgMetaHtml}
+              ${fmtMetaHtml}
+              ${feeMetaHtml}
               <span>•</span>
               <span>🔄 ${kpi.numRounds} Rounds</span>
+              ${discordMetaHtml}
             </div>
           </div>
         </div>
@@ -5762,13 +6210,18 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
               🎭 ${(typeof currentUser !== 'undefined' && currentUser && currentUser.is_mock_player) ? 'Mocking: ' + escapeHtml(currentUser.display_name || currentUser.full_name || 'Player') : 'Mock Player'}
             </button>
           ` : ''}
+          ${(hasRoster && (rich.descriptionRaw || rich.scoringSummary)) ? `
+            <button type="button" class="btn btn-outline" onclick="switchEventModalTab('news')" style="font-weight: 700; font-size: 0.82rem; padding: 0.48rem 0.95rem; border-color: rgba(56,189,248,0.4); color: #38bdf8; cursor: pointer;">
+              📜 Event Info &amp; Rules
+            </button>
+          ` : ''}
           <button type="button" class="btn btn-outline" onclick="copyEventHubLink('${escapeHtml(eventId)}', '${sys}')" style="font-weight: 600; font-size: 0.82rem; padding: 0.48rem 0.95rem; cursor: pointer;">
             <span class="btn-text-desktop">🔗 Share Event Link</span>
             <span class="btn-text-mobile">🔗 Share</span>
           </button>
-          <a href="${escapeHtml((typeof getPlatformExternalEventUrl === 'function') ? getPlatformExternalEventUrl(eventId, ev) : `https://www.bestcoastpairings.com/event/${encodeURIComponent(eventId)}`)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-weight: 600; font-size: 0.82rem; padding: 0.48rem 0.95rem; text-decoration: none;">
-            <span class="btn-text-desktop">Listing on ${escapeHtml((typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(eventId, ev) : 'BCP')} ↗</span>
-            <span class="btn-text-mobile">${escapeHtml((typeof getPlatformDisplayName === 'function') ? getPlatformDisplayName(eventId, ev) : 'BCP')} ↗</span>
+          <a href="${escapeHtml(rich.platformUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-weight: 600; font-size: 0.82rem; padding: 0.48rem 0.95rem; text-decoration: none;">
+            <span class="btn-text-desktop">Listing on ${escapeHtml(rich.platformShortName)} ↗</span>
+            <span class="btn-text-mobile">${escapeHtml(rich.platformShortName)} ↗</span>
           </a>
           <button type="button" class="btn btn-primary" onclick="openEventHubPage('${escapeHtml(eventId)}', '${sys}', { forceSync: true })" style="font-weight: 700; font-size: 0.82rem; padding: 0.48rem 1rem; cursor: pointer;">
             🔄 Refresh
@@ -5780,23 +6233,23 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
       <div id="event-hub-kpis-grid" class="profile-kpi-grid event-hub-kpi-grid" style="margin-top: 1.2rem;">
         <div class="profile-kpi-card">
           <div class="profile-kpi-label">👥 Field & Format</div>
-          <div class="profile-kpi-value">${kpi.isTeamEvent && kpi.totalTeams > 0 ? `${kpi.totalTeams} ${kpi.isDoublesEvent ? 'Duos' : 'Teams'}` : `${kpi.totalPlayers} Players`}</div>
-          <div class="profile-kpi-sub">${kpi.numRounds} Rounds • ${kpi.isFfaEvent ? '4P FFA Pods' : (kpi.isTeamEvent ? `${kpi.totalPlayers} Players` : 'Singles')} • ${kpi.matches.length} ${kpi.isFfaEvent ? 'Pods' : 'Matches'}</div>
+          <div class="profile-kpi-value">${escapeHtml(fieldValueHtml)}</div>
+          <div class="profile-kpi-sub" title="${escapeHtml(fieldSubParts.join(' • '))}">${escapeHtml(fieldSubParts.join(' • '))}</div>
         </div>
         <div class="profile-kpi-card">
           <div class="profile-kpi-label">⚡ Field Strength</div>
-          <div class="profile-kpi-value" style="color: #facc15;">${kpi.avgElo.toFixed(1)} <span style="font-size:0.8rem; font-weight:600;">Avg Elo</span></div>
-          <div class="profile-kpi-sub" title="Top Seed: ${escapeHtml(topSeedName)} (${topSeedElo})">Top Seed: #1 ${escapeHtml(topSeedName)} (${topSeedElo})</div>
+          <div class="profile-kpi-value" style="color: #facc15;">${strengthValueHtml}</div>
+          <div class="profile-kpi-sub" title="${escapeHtml(strengthSubText)}">${escapeHtml(strengthSubText)}</div>
         </div>
         <div class="profile-kpi-card">
-          <div class="profile-kpi-label">${kpi.leaderTitle}</div>
-          <div class="profile-kpi-value" style="color: #4ade80; font-size: 1.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(kpi.leaderName)}">${escapeHtml(kpi.leaderName)}</div>
-          <div class="profile-kpi-sub">${escapeHtml(kpi.leaderSub)}</div>
+          <div class="profile-kpi-label">${escapeHtml(card3Label)}</div>
+          <div class="profile-kpi-value" style="color: #4ade80; font-size: 1.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(card3Value)}">${escapeHtml(card3Value)}</div>
+          <div class="profile-kpi-sub" title="${escapeHtml(card3Sub)}">${escapeHtml(card3Sub)}</div>
         </div>
         <div class="profile-kpi-card">
-          <div class="profile-kpi-label">📊 Meta Snapshot</div>
-          <div class="profile-kpi-value" style="color: #38bdf8; font-size: 1.12rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Most Played: ${escapeHtml(mostPlayedFac)}">${escapeHtml(mostPlayedFac)}</div>
-          <div class="profile-kpi-sub">${escapeHtml(bestWrSub || mostPlayedSub)}</div>
+          <div class="profile-kpi-label">${escapeHtml(card4Label)}</div>
+          <div class="profile-kpi-value" style="color: #38bdf8; font-size: 1.12rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(mostPlayedFac)}">${escapeHtml(mostPlayedFac)}</div>
+          <div class="profile-kpi-sub" title="${escapeHtml(metaCardSub)}">${escapeHtml(metaCardSub)}</div>
         </div>
       </div>
     </div>
@@ -8273,10 +8726,23 @@ function openEventPlayerListModal(playerIdentifier, directPlayerObj = null, thir
     targetUrl = p.bcp_url || p.bcpUrl;
   }
 
+  const evRichForList = extractEventRichDetails(currentEventData || {});
+  const isExternalNonBcpUrl = Boolean(
+    !listInfo.listId &&
+    targetUrl &&
+    !targetUrl.toLowerCase().includes('bestcoastpairings.com') &&
+    evRichForList.platform !== 'bcp'
+  );
+
   if (btnBcpLink) {
     if (targetUrl) {
       btnBcpLink.href = targetUrl;
       btnBcpLink.style.display = 'inline-flex';
+      if (evRichForList.platform !== 'bcp' && !targetUrl.toLowerCase().includes('bestcoastpairings.com')) {
+        btnBcpLink.textContent = `🔗 ${evRichForList.platformShortName} Decklist ↗`;
+      } else {
+        btnBcpLink.textContent = '🔗 Open on BCP ↗';
+      }
     } else {
       btnBcpLink.style.display = 'none';
     }
@@ -8296,6 +8762,23 @@ function openEventPlayerListModal(playerIdentifier, directPlayerObj = null, thir
     if (toggleWrap) toggleWrap.style.display = 'inline-flex';
     if (btnCopy) btnCopy.style.display = 'inline-flex';
     setEventArmyListViewMode(currentEventArmyListViewMode || 'text');
+  } else if (isExternalNonBcpUrl) {
+    if (toggleWrap) toggleWrap.style.display = 'none';
+    if (btnCopy) btnCopy.style.display = 'none';
+    if (contentEl) {
+      contentEl.innerHTML = `
+        <div style="text-align:center; padding:3rem 1.5rem; margin:auto; max-width:480px;">
+          <div style="font-size:2.5rem; margin-bottom:0.75rem;">📋</div>
+          <div style="font-size:1.1rem; font-weight:700; color:#38bdf8; margin-bottom:0.45rem;">${escapeHtml(evRichForList.platformFullName)} Decklist</div>
+          <div style="font-size:0.85rem; color:var(--text-secondary); line-height:1.5; margin-bottom:1.25rem;">
+            View ${escapeHtml(p?.full_name || 'this competitor')}&rsquo;s official submitted decklist directly on ${escapeHtml(evRichForList.platformFullName)}.
+          </div>
+          <a href="${escapeHtml(targetUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.5rem; font-weight:700; font-size:0.85rem; padding:0.6rem 1.25rem; text-decoration:none; background:#0284c7; border:1px solid #38bdf8; color:#fff; border-radius:6px;">
+            📄 Open Decklist on ${escapeHtml(evRichForList.platformFullName)} ↗
+          </a>
+        </div>
+      `;
+    }
   } else if (listInfo.listId || listInfo.url) {
     if (toggleWrap) toggleWrap.style.display = 'none';
     if (btnCopy) btnCopy.style.display = 'none';
@@ -8303,8 +8786,8 @@ function openEventPlayerListModal(playerIdentifier, directPlayerObj = null, thir
       contentEl.innerHTML = `
         <div style="text-align:center; padding:3.5rem 1.5rem; margin:auto;">
           <div class="spinner-mini" style="display:inline-block; width:38px; height:38px; border:3px solid rgba(56,189,248,0.2); border-top-color:#38bdf8; border-radius:50%; animation:spin 0.8s linear infinite; margin-bottom:1rem;"></div>
-          <div style="font-size:1.1rem; font-weight:700; color:#38bdf8; margin-bottom:0.35rem;">Fetching Roster from Best Coast Pairings...</div>
-          <div style="font-size:0.84rem; color:var(--text-muted);">Connecting to official Best Coast Pairings roster</div>
+          <div style="font-size:1.1rem; font-weight:700; color:#38bdf8; margin-bottom:0.35rem;">Fetching Roster from ${escapeHtml(evRichForList.platformFullName)}...</div>
+          <div style="font-size:0.84rem; color:var(--text-muted);">Connecting to official ${escapeHtml(evRichForList.platformFullName)} roster</div>
         </div>
       `;
     }
@@ -8335,13 +8818,13 @@ function openEventPlayerListModal(playerIdentifier, directPlayerObj = null, thir
             contentEl.innerHTML = `
               <div style="text-align:center; padding:3rem 1.5rem; margin:auto; max-width:480px;">
                 <div style="font-size:2.5rem; margin-bottom:0.75rem;">📋</div>
-                <div style="font-size:1.1rem; font-weight:700; color:#38bdf8; margin-bottom:0.45rem;">Best Coast Pairings Roster</div>
+                <div style="font-size:1.1rem; font-weight:700; color:#38bdf8; margin-bottom:0.45rem;">${escapeHtml(evRichForList.platformFullName)} Roster</div>
                 <div style="font-size:0.85rem; color:var(--text-secondary); line-height:1.5; margin-bottom:1.25rem;">
                   ${escapeHtml(res?.error || 'Full roster text could not be loaded automatically.')}
                 </div>
                 ${targetUrl ? `
                   <a href="${escapeHtml(targetUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.5rem; font-weight:700; font-size:0.85rem; padding:0.6rem 1.25rem; text-decoration:none; background:#0284c7; border:1px solid #38bdf8; color:#fff; border-radius:6px;">
-                    📄 Open on Best Coast Pairings ↗
+                    📄 Open on ${escapeHtml(evRichForList.platformFullName)} ↗
                   </a>
                 ` : ''}
               </div>
@@ -8366,7 +8849,7 @@ function openEventPlayerListModal(playerIdentifier, directPlayerObj = null, thir
           <div style="font-size:2.5rem; margin-bottom:0.75rem;">📄</div>
           <div style="font-size:1.05rem; font-weight:700; color:#fff; margin-bottom:0.45rem;">No Roster Submitted</div>
           <div style="font-size:0.84rem; line-height:1.5; max-width:400px; margin:0 auto;">
-            No army list text or link has been published on Best Coast Pairings for ${escapeHtml(p?.full_name || 'this competitor')} yet.
+            No army list or decklist has been published on ${escapeHtml(evRichForList.platformFullName)} for ${escapeHtml(p?.full_name || 'this competitor')} yet.
           </div>
         </div>
       `;
@@ -15064,9 +15547,14 @@ async function renderEventNewsHub(ev, skipFetch = false) {
   const activeBroadcast = state.active_broadcast && state.active_broadcast.message ? state.active_broadcast : null;
   const newsPosts = Array.isArray(state.news_posts) ? state.news_posts : [];
 
-  const externalUrl = String(raw.externalUrl || eventObj.external_url || '').trim();
-  const descriptionRaw = raw.description || raw.eventDescription || eventObj.description || '';
+  const rich = extractEventRichDetails(eventObj);
+  const rawExternalUrl = String(raw.externalUrl || eventObj.external_url || '').trim();
+  const externalUrl = (rawExternalUrl && rawExternalUrl !== rich.platformUrl) ? rawExternalUrl : '';
+  const descriptionRaw = rich.descriptionRaw || raw.description || raw.eventDescription || eventObj.description || '';
   const descriptionHtml = sanitizeEventDescriptionHtml(descriptionRaw);
+  const prizesHtml = (rich.prizesRaw && (!descriptionRaw || !descriptionRaw.includes(rich.prizesRaw.slice(0, 40))))
+    ? sanitizeEventDescriptionHtml(rich.prizesRaw)
+    : '';
 
   const broadcastBannerHtml = activeBroadcast ? (() => {
     const lvl = String(activeBroadcast.level || 'info').toLowerCase();
@@ -15178,23 +15666,36 @@ async function renderEventNewsHub(ev, skipFetch = false) {
       ${broadcastBannerHtml}
       ${venueCardHtml}
 
-      <!-- Official BCP Event Description & Rules Pack (On Top) -->
+      <!-- Official Platform Event Description, Specs & Rules Pack (On Top) -->
       <div class="card" style="padding:1.15rem 1.25rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:10px; margin-bottom:1.15rem;">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.75rem; padding-bottom:0.65rem; border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.85rem; padding-bottom:0.65rem; border-bottom:1px solid rgba(255,255,255,0.08);">
           <div>
-            <h3 style="margin:0; font-size:1.02rem; font-weight:800; color:#f8fafc;">📜 Official Event Details & Player Pack Information</h3>
-            <span style="font-size:0.72rem; color:var(--text-muted);">Synced from Best Coast Pairings</span>
+            <h3 style="margin:0; font-size:1.02rem; font-weight:800; color:#f8fafc;">📜 Official Event Details &amp; Player Pack Information</h3>
+            <span style="font-size:0.72rem; color:var(--text-muted);">Synced from ${escapeHtml(rich.platformFullName)}${rich.organizerName ? ` • Hosted by ${escapeHtml(rich.organizerName)}` : ''}</span>
           </div>
           <div style="display:flex; align-items:center; gap:0.55rem; flex-wrap:wrap;">
+            ${rich.discordUrl ? `
+              <a href="${escapeHtml(rich.discordUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.78rem; font-weight:700; padding:0.42rem 0.85rem; border-color:rgba(129,140,248,0.45); color:#a5b4fc; background:rgba(99,102,241,0.12); text-decoration:none;">
+                💬 Event Discord ↗
+              </a>
+            ` : ''}
+            ${rich.organizerUrl ? `
+              <a href="${escapeHtml(rich.organizerUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.78rem; font-weight:600; padding:0.42rem 0.85rem; text-decoration:none;">
+                🏛️ Organizer Page ↗
+              </a>
+            ` : ''}
             ${externalUrl ? `
               <a href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="font-size:0.78rem; font-weight:700; padding:0.42rem 0.85rem; text-decoration:none;">
                 📘 Official Player Pack / Rules Doc ↗
               </a>
             ` : ''}
-            <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(eventId)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.78rem; font-weight:600; padding:0.42rem 0.85rem; text-decoration:none;">
-              🔗 BCP Event Page ↗
+            <a href="${escapeHtml(rich.platformUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.78rem; font-weight:600; padding:0.42rem 0.85rem; text-decoration:none;">
+              🔗 ${escapeHtml(rich.platformShortName)} Event Page ↗
             </a>
           </div>
+        </div>
+        <div style="margin-bottom:0.95rem;">
+          ${buildEventRichDetailsCardHtml(eventObj, { mode: 'news-specs' })}
         </div>
         ${descriptionHtml ? `
           <div class="event-bcp-description-body" style="font-size:0.88rem; color:#cbd5e1; line-height:1.65; overflow-wrap:break-word;">
@@ -15202,9 +15703,17 @@ async function renderEventNewsHub(ev, skipFetch = false) {
           </div>
         ` : `
           <div style="font-size:0.85rem; color:var(--text-muted);">
-            No additional text description provided on Best Coast Pairings. Use the links above to open the official BCP event page or player pack.
+            No additional text description provided on ${escapeHtml(rich.platformFullName)}. Use the links above to open the official ${escapeHtml(rich.platformShortName)} event page${externalUrl ? ' or player pack' : ''}.
           </div>
         `}
+        ${prizesHtml ? `
+          <div style="margin-top:0.95rem; padding-top:0.85rem; border-top:1px solid rgba(255,255,255,0.08);">
+            <h4 style="margin:0 0 0.45rem 0; font-size:0.9rem; font-weight:800; color:#facc15;">🏆 Prize Structure</h4>
+            <div class="event-bcp-description-body" style="font-size:0.86rem; color:#cbd5e1; line-height:1.6; overflow-wrap:break-word;">
+              ${prizesHtml}
+            </div>
+          </div>
+        ` : ''}
       </div>
 
       <!-- TO News & Bulletins Feed -->

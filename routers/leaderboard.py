@@ -2745,6 +2745,7 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False, bypass_cach
     if (
         not is_mock_env
         and not force_sync
+        and not str(event_id_str).startswith(("melee:", "ltcg:", "td:", "ls:"))
         and event_details
         and event_details.get("is_ended")
         and len(event_details.get("players") or []) > 0
@@ -2965,9 +2966,27 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False, bypass_cach
     if str(event_id_str).startswith(("melee:", "ltcg:", "td:", "ls:")):
         if not hasattr(_sync_api_event_details, "_mp_sync_ts"):
             _sync_api_event_details._mp_sync_ts = {}
+        plat_prefix, raw_ext_id = str(event_id_str).split(":", 1)
+        preview_ev = None
+
+        # Fast-path for unstarted upcoming events not yet in DB: fetch preview first so we don't double-scrape
+        if event_details is None and not is_mock_env:
+            try:
+                from scripts.platform_discovery import fetch_live_multiplatform_event_preview
+                preview_ev = fetch_live_multiplatform_event_preview(event_id_str, db=db, force_refresh=bool(force_sync))
+            except Exception as prev_err:
+                logger.warning(f"[MultiPlatformLive] Initial preview notice for {event_id_str}: {prev_err}")
+
+        preview_is_unstarted = bool(
+            preview_ev
+            and not preview_ev.get("is_started")
+            and not preview_ev.get("is_ended")
+        )
+
         last_mp_sync = float(_sync_api_event_details._mp_sync_ts.get(event_id_str, 0.0))
         should_refresh_mp = bool(
             not is_mock_env
+            and not preview_is_unstarted
             and (
                 force_sync
                 or event_details is None
@@ -2976,9 +2995,8 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False, bypass_cach
         )
         if should_refresh_mp:
             _sync_api_event_details._mp_sync_ts[event_id_str] = now_ts
-            plat_prefix, raw_ext_id = str(event_id_str).split(":", 1)
             ev_gs_hint = str(
-                (event_details or {}).get("game_system")
+                (event_details or preview_ev or {}).get("game_system")
                 or ("pokemon" if plat_prefix == "ltcg" else ("xwing" if plat_prefix == "ls" else "mtg"))
             ).strip().lower()
 
@@ -3013,14 +3031,8 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False, bypass_cach
             except Exception as ref_err:
                 logger.warning(f"[MultiPlatformLive] Post-refresh lookup warning for {event_id_str}: {ref_err}")
 
-        if not event_details and not is_mock_env:
-            try:
-                from scripts.platform_discovery import fetch_live_multiplatform_event_preview
-                preview_ev = fetch_live_multiplatform_event_preview(event_id_str, db=db)
-                if preview_ev:
-                    event_details = preview_ev
-            except Exception as prev_err:
-                logger.warning(f"[MultiPlatformLive] Upcoming preview notice for {event_id_str}: {prev_err}")
+        if not event_details and preview_ev:
+            event_details = preview_ev
 
         if not event_details:
             raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found")
@@ -3031,10 +3043,179 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False, bypass_cach
                 raw_ev_mp = json.loads(raw_ev_mp)
             except Exception:
                 raw_ev_mp = {}
+        if not isinstance(raw_ev_mp, dict):
+            raw_ev_mp = {}
+
+        # Enrich stored multi-platform events whose historical DB row lacks rich metadata or pre-R1 roster
+        ltcg_det = raw_ev_mp.get("details") if isinstance(raw_ev_mp.get("details"), dict) else {}
+        ls_listing = raw_ev_mp.get("listing") if isinstance(raw_ev_mp.get("listing"), dict) else {}
+        has_rich_mp_meta = bool(
+            event_details.get("description")
+            or raw_ev_mp.get("description")
+            or raw_ev_mp.get("description_html")
+            or ltcg_det.get("description")
+            or raw_ev_mp.get("format_name")
+            or raw_ev_mp.get("organization_name")
+            or raw_ev_mp.get("organizer_name")
+            or raw_ev_mp.get("scoring_summary")
+        )
+        needs_meta_enrich = bool(
+            not is_mock_env
+            and event_details is not preview_ev
+            and (
+                not has_rich_mp_meta
+                or (not event_details.get("is_ended") and len(event_details.get("players") or []) == 0)
+            )
+        )
+        if needs_meta_enrich and preview_ev is None:
+            try:
+                from scripts.platform_discovery import fetch_live_multiplatform_event_preview
+                need_players = len(event_details.get("players") or []) == 0
+                preview_ev = fetch_live_multiplatform_event_preview(
+                    event_id_str,
+                    db=db,
+                    force_refresh=bool(force_sync),
+                    include_standings=need_players,
+                )
+            except Exception as enrich_err:
+                logger.debug(f"[MultiPlatformLive] Metadata enrich notice for {event_id_str}: {enrich_err}")
+
+        if preview_ev and event_details is not preview_ev:
+            prev_raw = preview_ev.get("raw_json") if isinstance(preview_ev.get("raw_json"), dict) else {}
+            if prev_raw:
+                merged_raw = dict(prev_raw)
+                for rk, rv in raw_ev_mp.items():
+                    if rv is not None and rv != "" and rv != {} and rv != []:
+                        merged_raw[rk] = rv
+                raw_ev_mp = merged_raw
+                event_details["raw_json"] = raw_ev_mp
+            cur_venue = str(event_details.get("venue_name") or event_details.get("venue") or "").strip()
+            prev_venue = str(preview_ev.get("venue_name") or preview_ev.get("venue") or "").strip()
+            if prev_venue and (not cur_venue or cur_venue.lower() in ("melee.gg", "topdeck.gg", "longshanks", "limitless tcg")):
+                event_details["venue_name"] = prev_venue
+                event_details["venue"] = prev_venue
+            for loc_k in ("city", "state", "country", "address", "latitude", "longitude"):
+                if not event_details.get(loc_k) and preview_ev.get(loc_k):
+                    event_details[loc_k] = preview_ev[loc_k]
+            for meta_k in (
+                "organizer_name",
+                "organizer_url",
+                "format_name",
+                "platform_type",
+                "registration_status",
+                "registration_type",
+                "entry_fee",
+                "decklists_required",
+                "discord_url",
+                "description",
+                "prizes_html",
+                "round_time_minutes",
+                "best_of",
+                "scoring_summary",
+                "player_cap",
+                "num_tickets",
+                "event_url",
+                "external_url",
+            ):
+                if not event_details.get(meta_k) and preview_ev.get(meta_k) is not None:
+                    event_details[meta_k] = preview_ev[meta_k]
+            if not (event_details.get("players") or []) and (preview_ev.get("players") or []):
+                event_details["players"] = preview_ev["players"]
+                event_details["total_players"] = max(
+                    int(event_details.get("total_players") or 0),
+                    len(preview_ev["players"]),
+                )
+
+        plat_map = {"melee": "melee", "ltcg": "limitless", "td": "topdeck", "ls": "longshanks"}
+        src_plat = str(event_details.get("source_platform") or plat_map.get(plat_prefix, plat_prefix)).strip()
+        event_details["source_platform"] = src_plat
+        event_details["external_event_id"] = str(event_details.get("external_event_id") or raw_ext_id).strip()
+        if not event_details.get("event_url"):
+            if plat_prefix == "melee":
+                event_details["event_url"] = f"https://melee.gg/Tournament/View/{raw_ext_id}"
+            elif plat_prefix == "ltcg":
+                event_details["event_url"] = f"https://play.limitlesstcg.com/tournament/{raw_ext_id}/standings"
+            elif plat_prefix == "td":
+                event_details["event_url"] = f"https://topdeck.gg/bracket/{raw_ext_id}"
+            elif plat_prefix == "ls":
+                event_details["event_url"] = f"https://www.longshanks.org/event/{raw_ext_id}/"
+        if not event_details.get("external_url"):
+            event_details["external_url"] = event_details.get("event_url")
+
+        org_resolved = (
+            event_details.get("organizer_name")
+            or raw_ev_mp.get("organization_name")
+            or raw_ev_mp.get("organizer_name")
+            or (ltcg_det.get("organizer", {}).get("name") if isinstance(ltcg_det.get("organizer"), dict) else ltcg_det.get("organizer"))
+            or (raw_ev_mp.get("organizer") if isinstance(raw_ev_mp.get("organizer"), str) else None)
+        )
+        if org_resolved:
+            event_details["organizer_name"] = str(org_resolved).strip()
+        if not event_details.get("organizer_url"):
+            org_u = (
+                raw_ev_mp.get("organization_url")
+                or raw_ev_mp.get("organizer_url")
+                or ltcg_det.get("organizer_url")
+                or (ltcg_det.get("organizer", {}).get("url") if isinstance(ltcg_det.get("organizer"), dict) else None)
+            )
+            if org_u:
+                event_details["organizer_url"] = str(org_u).strip()
+        if not event_details.get("format_name"):
+            fmt_res = (
+                raw_ev_mp.get("format_name")
+                or raw_ev_mp.get("format")
+                or ltcg_det.get("format_name")
+                or ltcg_det.get("format")
+            )
+            if fmt_res:
+                event_details["format_name"] = str(fmt_res).strip()
+        if not event_details.get("platform_type"):
+            pt_res = (
+                raw_ev_mp.get("platform_type")
+                or ltcg_det.get("platform_type")
+                or ("Online" if str(event_details.get("city") or "").lower() == "online" else None)
+            )
+            if pt_res:
+                event_details["platform_type"] = str(pt_res).strip()
+        if not event_details.get("description"):
+            desc_res = (
+                raw_ev_mp.get("description")
+                or raw_ev_mp.get("description_html")
+                or ltcg_det.get("description")
+                or ltcg_det.get("description_html")
+            )
+            if desc_res:
+                event_details["description"] = str(desc_res).strip()
+        if not event_details.get("discord_url"):
+            disc_res = raw_ev_mp.get("discord_url") or ltcg_det.get("discord_url")
+            if disc_res:
+                event_details["discord_url"] = str(disc_res).strip()
+        if not event_details.get("entry_fee") and raw_ev_mp.get("entry_fee"):
+            event_details["entry_fee"] = str(raw_ev_mp["entry_fee"]).strip()
+        if not event_details.get("registration_type") and raw_ev_mp.get("registration_type"):
+            event_details["registration_type"] = str(raw_ev_mp["registration_type"]).strip()
+        if not event_details.get("registration_status") and isinstance(raw_ev_mp.get("status"), str):
+            event_details["registration_status"] = str(raw_ev_mp["status"]).strip()
+        cap_resolved = int(
+            event_details.get("player_cap")
+            or event_details.get("num_tickets")
+            or raw_ev_mp.get("player_cap")
+            or ls_listing.get("player_cap")
+            or 0
+        )
+        if cap_resolved > 0:
+            event_details["player_cap"] = cap_resolved
+            event_details["num_tickets"] = cap_resolved
+
         event_details["num_rounds"] = int(event_details.get("num_rounds") or 0)
         event_details["numberOfRounds"] = event_details["num_rounds"]
         is_ended_mp = bool(event_details.get("is_ended"))
-        is_started_mp = bool(is_ended_mp or event_details.get("is_started", True))
+        has_any_matches_mp = bool(event_details.get("matches"))
+        is_started_mp = bool(
+            is_ended_mp
+            or has_any_matches_mp
+            or event_details.get("is_started", False)
+        )
         event_details["is_ended"] = is_ended_mp
         event_details["ended"] = is_ended_mp
         event_details["is_started"] = is_started_mp
@@ -3044,7 +3225,7 @@ def _sync_api_event_details(event_id: str, force_sync: bool = False, bypass_cach
                 if pl.get("faction"):
                     pl["faction"] = sanitize_event_faction(pl["faction"])
                 lu = str(pl.get("list_url") or pl.get("listUrl") or "").strip()
-                pl["has_list"] = bool(pl.get("army_list") or lu or pl.get("list_id"))
+                pl["has_list"] = bool(pl.get("army_list") or lu or pl.get("list_id") or pl.get("has_list"))
         if not is_mock_env and hasattr(db, "enrich_event_prediction_telemetry"):
             try:
                 db.enrich_event_prediction_telemetry(event_details)

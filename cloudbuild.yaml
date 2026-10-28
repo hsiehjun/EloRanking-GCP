@@ -233,6 +233,8 @@ steps:
       - '2'
       - '--task-timeout'
       - '180m'
+      - '--max-retries'
+      - '0'
       - '--no-execute'
 
   # 12. Run Sequential Production Endpoint & DB Latency Gate (<1000ms budget)

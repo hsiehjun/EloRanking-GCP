@@ -15,7 +15,7 @@ import argparse
 import json
 import subprocess
 import sys
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def _run_cmd(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess:
@@ -71,12 +71,15 @@ def deploy_or_update_job(
     cpu: str = "",
     no_execute: bool = False,
     task_timeout: str = "30m",
+    max_retries: Optional[int] = None,
 ) -> int:
     resource_flags = []
     if memory:
         resource_flags.append(f"--memory={memory}")
     if cpu:
         resource_flags.append(f"--cpu={cpu}")
+    if max_retries is not None:
+        resource_flags.append(f"--max-retries={int(max_retries)}")
     exec_cmd = ["gcloud", "run", "jobs", "execute", job_name, f"--region={region}", "--async"]
     if execute_args and str(execute_args).strip():
         exec_cmd.append(f"--args={execute_args.strip()}")
@@ -283,6 +286,7 @@ def main() -> None:
     parser.add_argument("--memory", default="", help="Optional job memory limit (e.g. 2Gi)")
     parser.add_argument("--cpu", default="", help="Optional job CPU count (e.g. 2)")
     parser.add_argument("--task-timeout", default="30m", help="Job task timeout (default 30m)")
+    parser.add_argument("--max-retries", type=int, default=None, help="Optional max retries per task")
     parser.add_argument("--no-execute", action="store_true", help="Create/update only; do not trigger an execution")
     args = parser.parse_args()
 
@@ -298,6 +302,7 @@ def main() -> None:
         cpu=args.cpu,
         no_execute=args.no_execute,
         task_timeout=args.task_timeout,
+        max_retries=args.max_retries,
     )
     if rc == 0 and args.schedule:
         ensure_scheduler_job(

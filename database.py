@@ -5383,6 +5383,8 @@ class PostgresDatabase:
                        total_players, num_rounds, current_round, is_ended,
                        COALESCE(game_system, '40k') as game_system,
                        CASE
+                           WHEN id LIKE '%:%' AND raw_json IS NOT NULL AND jsonb_typeof(raw_json) = 'object' THEN
+                               (raw_json - 'players' - 'pairings' - 'matches' - 'standings' - 'roundMatches' - 'decklists')
                            WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json) = 'object' THEN
                                jsonb_build_object(
                                    'placingMetrics', COALESCE(raw_json->'placingMetrics', '[]'::jsonb),

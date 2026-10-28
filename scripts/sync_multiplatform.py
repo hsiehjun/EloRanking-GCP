@@ -400,19 +400,47 @@ def _fetch_ltcg_bundle_html(
     )
 
     ev_date = str(meta.get("date") or "").strip()
-    if not ev_date:
+    det_html = ""
+    if not ev_date or max_decklists > 0:
         try:
-            det_html = _ltcg_get_text(f"https://play.limitlesstcg.com/tournament/{raw_tid}/details", timeout=12)
-            tm_m = re.search(r'data-time="(\d+)"', det_html)
-            if tm_m and int(tm_m.group(1)) > 0:
-                ev_date = datetime.fromtimestamp(int(tm_m.group(1)) / 1000.0, tz=timezone.utc).isoformat()
+            det_html = _ltcg_get_text(f"https://play.limitlesstcg.com/tournament/{raw_tid}/details", timeout=10)
+            if not ev_date:
+                tm_m = re.search(r'data-time="(\d+)"', det_html)
+                if tm_m and int(tm_m.group(1)) > 0:
+                    ev_date = datetime.fromtimestamp(int(tm_m.group(1)) / 1000.0, tz=timezone.utc).isoformat()
         except Exception:
-            pass
+            det_html = ""
     if not ev_date and re.match(r"^[0-9a-f]{24}$", str(canonical_tid or "").lower()):
         try:
             ev_date = datetime.fromtimestamp(int(str(canonical_tid)[:8], 16), tz=timezone.utc).isoformat()
         except Exception:
             pass
+
+    ltcg_desc_html = ""
+    ltcg_plat_type = "Online"
+    ltcg_discord_url = ""
+    ltcg_org_url = ""
+    if det_html:
+        org_link_m = re.search(r'<a[^>]*class="organizer"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', det_html, re.S | re.I)
+        if org_link_m:
+            raw_oh = org_link_m.group(1).strip()
+            ltcg_org_url = raw_oh if raw_oh.startswith("http") else f"https://play.limitlesstcg.com{raw_oh}"
+            parsed_org = html.unescape(re.sub(r"<[^>]+>", "", org_link_m.group(2))).strip()
+            if parsed_org:
+                org = parsed_org
+        plat_m = re.search(r'<img[^>]*class="platform"[^>]*>\s*</td>\s*<td[^>]*>(.*?)</td>', det_html, re.S | re.I)
+        if plat_m:
+            parsed_plat = html.unescape(re.sub(r"<[^>]+>", "", plat_m.group(1))).strip()
+            if parsed_plat:
+                ltcg_plat_type = parsed_plat
+        disc_m = re.search(r'href="(https?://(?:discord\.gg|discord\.com/invite)/[^"]+)"', det_html, re.I)
+        if disc_m:
+            ltcg_discord_url = disc_m.group(1).strip()
+        desc_div_m = re.search(r'<div class="description">(.*?)</div>\s*</div>\s*</div>', det_html, re.S | re.I)
+        if not desc_div_m:
+            desc_div_m = re.search(r'<div class="description">(.*?)</div>\s*(?:<script|</div)', det_html, re.S | re.I)
+        if desc_div_m:
+            ltcg_desc_html = re.sub(r"<script\b[^>]*>.*?</script>", "", desc_div_m.group(1), flags=re.S | re.I).strip()
 
     standings: List[Dict[str, Any]] = []
     decklist_fetched = 0
@@ -579,9 +607,16 @@ def _fetch_ltcg_bundle_html(
         "name": title,
         "date": ev_date or datetime.now(timezone.utc).isoformat(),
         "format": fmt,
+        "format_name": fmt,
+        "platform_type": ltcg_plat_type,
+        "discord_url": ltcg_discord_url or None,
+        "organizer_url": ltcg_org_url or None,
+        "description": ltcg_desc_html or None,
+        "description_html": ltcg_desc_html or None,
         "game": str(meta.get("game") or ""),
         "players": len(standings) or int(meta.get("players") or 0),
-        "organizer": {"name": org},
+        "organizer": {"name": org, "url": ltcg_org_url or None},
+        "organizer_name": org,
         "is_ongoing": is_ongoing,
     }
     return details, standings, pairings
@@ -2618,6 +2653,9 @@ def _melee_write_tournament(db: Any, raw_tid: str, t_data: Dict[str, Any], sys_h
         status_low not in ("in progress", "started", "active", "ongoing") and not any_unscored_melee
     )
     gs_id = get_bcp_game_system_id(sys_slug, default="FM1PYUZbsL")
+    plat_type_str = str(t_data.get("platform_type") or "").strip()
+    is_online_melee = plat_type_str.lower() in ("online", "mtgo", "mtg arena", "digital", "discord", "webcam")
+    real_venue_melee = str(t_data.get("venue_name") or t_data.get("organization_name") or "Melee.gg").strip()
     db.upsert_event(
         {
             "id": eid,
@@ -2634,13 +2672,32 @@ def _melee_write_tournament(db: Any, raw_tid: str, t_data: Dict[str, Any], sys_h
             "game_system_id": gs_id,
             "source_platform": "melee",
             "external_event_id": raw_tid,
-            # Melee does not expose a reliable venue in the scraped payload; never fabricate one.
-            "city": None,
-            "country": None,
-            "venue_name": "Melee.gg",
+            "city": "Online" if is_online_melee else None,
+            "country": "Global" if is_online_melee else None,
+            "venue_name": real_venue_melee,
             "latitude": None,
             "longitude": None,
-            "raw_json": {"platform": "melee", "tid": raw_tid, "title": title, "rounds": len(round_matches), "status": t_data.get("status")},
+            "raw_json": {
+                "platform": "melee",
+                "tid": raw_tid,
+                "title": title,
+                "rounds": len(round_matches),
+                "status": t_data.get("status"),
+                "game_name": t_data.get("game_name"),
+                "organization_name": t_data.get("organization_name"),
+                "organization_url": t_data.get("organization_url"),
+                "venue_name": t_data.get("venue_name"),
+                "platform_type": plat_type_str or None,
+                "format_name": t_data.get("format_name"),
+                "entry_fee": t_data.get("entry_fee"),
+                "registration_type": t_data.get("registration_type"),
+                "decklists_enabled": t_data.get("decklists_enabled"),
+                "enrolled_players": int(t_data.get("enrolled_players") or len(ep_batch)),
+                "player_cap": int(t_data.get("player_cap") or 0) or None,
+                "description": t_data.get("description"),
+                "description_html": t_data.get("description_html"),
+                "prizes_html": t_data.get("prizes_html"),
+            },
         }
     )
     db.upsert_players_batch(players_batch)

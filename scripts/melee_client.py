@@ -471,6 +471,22 @@ def _round_selectors(page_html: str, container_id: str) -> List[Dict[str, str]]:
     return [{"id": rid, "name": html_lib.unescape(name)} for rid, name in _ROUND_RE.findall(m.group(1))]
 
 
+def _extract_tab_inner_html(page_html: str, tab_id: str) -> str:
+    """Extracts sanitized inner HTML from a Bootstrap tab-pane (`#tournament-description-tab`, `#tournament-prizes-tab`)."""
+    m = re.search(
+        r'<div[^>]*\bid="%s"[^>]*>(.*?)</div>\s*(?=<div[^>]*\bid="tournament-[a-z0-9-]+-tab"|</div>\s*</div>|<div[^>]*\bid="standings-round-selector|</body)'
+        % re.escape(tab_id),
+        page_html,
+        re.S | re.I,
+    )
+    if not m:
+        return ""
+    raw = m.group(1)
+    raw = re.sub(r"<script\b[^>]*>.*?</script>", "", raw, flags=re.S | re.I)
+    raw = re.sub(r"<style\b[^>]*>.*?</style>", "", raw, flags=re.S | re.I)
+    return raw.strip()
+
+
 def parse_tournament_view(page_html: str, tid: str) -> Dict[str, Any]:
     title_m = re.search(r"<title>(.*?)</title>", page_html, re.S)
     title = html_lib.unescape(title_m.group(1)).split("|")[0].strip() if title_m else ""
@@ -480,21 +496,81 @@ def parse_tournament_view(page_html: str, tid: str) -> Dict[str, Any]:
         if h3_m:
             title = html_lib.unescape(re.sub(r"<[^>]+>", "", h3_m.group(1))).strip()
     start_m = re.search(r'id="tournament-headline-start-date-field".*?data-value="([^"]+)"', page_html, re.S)
+    game_val_m = re.search(r'id="tournament-headline-game"[^>]*\bdata-value="([^"]+)"', page_html, re.S | re.I)
     game_m = re.search(r'id="tournament-headline-game"[^>]*>(.*?)</', page_html, re.S)
-    game_name = html_lib.unescape(game_m.group(1)).replace("Game:", "").strip() if game_m else None
+    game_name = (
+        html_lib.unescape(game_val_m.group(1)).strip()
+        if (game_val_m and game_val_m.group(1).strip())
+        else (html_lib.unescape(game_m.group(1)).replace("Game:", "").strip() if game_m else None)
+    )
     status_m = re.search(r"fa-info-circle[^>]*></i>\s*([^|<]+)", page_html)
     status_str = html_lib.unescape(status_m.group(1)).strip() if status_m else None
-    org_m = re.search(r'id="tournament-headline-organization"[^>]*>.*?<a[^>]*>(.*?)</a>', page_html, re.S)
-    org_name = html_lib.unescape(re.sub(r"<[^>]+>", "", org_m.group(1))).strip() if org_m else None
+    org_m = re.search(r'id="tournament-headline-organization"[^>]*>.*?<a([^>]*)>(.*?)</a>', page_html, re.S)
+    if not org_m:
+        org_m = re.search(r'<a([^>]*\bid="tournament-headline-organization-name-field"[^>]*)>(.*?)</a>', page_html, re.S)
+    org_name = html_lib.unescape(re.sub(r"<[^>]+>", "", org_m.group(2))).strip() if org_m else None
+    org_url = None
+    if org_m:
+        href_m = re.search(r'href="([^"]+)"', org_m.group(1))
+        if href_m and href_m.group(1).strip():
+            raw_href = href_m.group(1).strip()
+            org_url = raw_href if raw_href.startswith("http") else f"{MELEE_BASE}{raw_href}"
     venue_m = re.search(r'Event Venue:\s*<a[^>]*>(.*?)</a>', page_html, re.S)
     venue_name = html_lib.unescape(re.sub(r"<[^>]+>", "", venue_m.group(1))).strip() if venue_m else None
     plat_m = re.search(r'id="tournament-headline-platform"[^>]*>(.*?)</', page_html, re.S)
     plat_type = html_lib.unescape(plat_m.group(1)).replace("Tournament Type:", "").strip() if plat_m else None
     fmt_m = re.search(r"Format:\s*([^|<]+)", page_html)
     format_name = html_lib.unescape(fmt_m.group(1)).strip() if fmt_m else None
-    enr_m = re.search(r"fa-user\b[^>]*></i>\s*(\d+)(?:\s+of\s+(\d+))?\s+Enrolled\s+Players", page_html, re.I)
+    enr_m = re.search(r"(?:fa-user\b[^>]*></i>\s*)?(\d+)(?:\s+of\s+(\d+))?\s+Enrolled\s+Players", page_html, re.I)
     enrolled_players = int(enr_m.group(1)) if enr_m else 0
     player_cap = int(enr_m.group(2)) if (enr_m and enr_m.group(2)) else 0
+    if not player_cap:
+        cap_inp_m = re.search(r'id="tournament-player-cap-value"[^>]*value="(\d+)"', page_html, re.I)
+        if cap_inp_m:
+            player_cap = int(cap_inp_m.group(1))
+
+    entry_fee = None
+    registration_type = None
+    reg_line_m = re.search(r'id="tournament-headline-registration"[^>]*>(.*?)</p>', page_html, re.S | re.I)
+    if reg_line_m:
+        reg_parts = [
+            " ".join(html_lib.unescape(re.sub(r"<[^>]+>", " ", seg)).split()).strip()
+            for seg in reg_line_m.group(1).split("|")
+        ]
+        reg_parts = [p for p in reg_parts if p]
+        for idx_p, part in enumerate(reg_parts):
+            low_p = part.lower()
+            if low_p.startswith("format:") or "enrolled player" in low_p:
+                continue
+            if status_str and low_p == status_str.strip().lower():
+                continue
+            if any(k in low_p for k in ("open registration", "invite only", "closed registration", "password", "passcode")):
+                if not registration_type:
+                    registration_type = part
+                continue
+            if idx_p == 0 and not entry_fee:
+                entry_fee = part
+
+    dl_m = re.search(r'id="DecklistEnabled"[^>]*value="(true|false)"', page_html, re.I)
+    decklists_enabled = (dl_m.group(1).lower() == "true") if dl_m else None
+
+    img_m = re.search(r'id="tournament-headline-brand-image"[^>]*src="([^"]+)"', page_html, re.I)
+    brand_img = img_m.group(1).strip() if img_m else ""
+    if "blankbrandimage" in brand_img.lower():
+        brand_img = ""
+
+    desc_html = _extract_tab_inner_html(page_html, "tournament-description-tab")
+    prizes_html = _extract_tab_inner_html(page_html, "tournament-prizes-tab")
+
+    combined_desc_parts: List[str] = []
+    if desc_html:
+        combined_desc_parts.append(desc_html)
+    if prizes_html and "agreed to pay out prizes in 60 days" not in prizes_html.lower():
+        combined_desc_parts.append(f"<h4>Prizes</h4>\n{prizes_html}")
+    elif prizes_html and not desc_html:
+        combined_desc_parts.append(prizes_html)
+    combined_description = "\n".join(combined_desc_parts).strip() or None
+
     return {
         "tid": str(tid),
         "title": title or f"Melee Tournament {tid}",
@@ -502,9 +578,17 @@ def parse_tournament_view(page_html: str, tid: str) -> Dict[str, Any]:
         "game_name": game_name,
         "status": status_str,
         "organization_name": org_name,
+        "organization_url": org_url,
         "venue_name": venue_name,
         "platform_type": plat_type,
         "format_name": format_name,
+        "entry_fee": entry_fee,
+        "registration_type": registration_type,
+        "decklists_enabled": decklists_enabled,
+        "brand_image_url": brand_img or None,
+        "description_html": desc_html or None,
+        "prizes_html": prizes_html or None,
+        "description": combined_description,
         "enrolled_players": enrolled_players,
         "player_cap": player_cap,
         "standing_rounds": _round_selectors(page_html, "standings-round-selector-container"),
