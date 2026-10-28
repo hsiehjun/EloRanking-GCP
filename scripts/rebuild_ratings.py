@@ -58,7 +58,121 @@ def _resolve_multiplatform_systems(db) -> list:
     return discovered
 
 
-def run_rebuild(game_systems, repair_melee_metadata: bool = False, prewarm_meta: bool = True) -> dict:
+def _parse_dt_utc(val):
+    if not val:
+        return None
+    if hasattr(val, "timestamp"):
+        from datetime import timezone
+        return val if getattr(val, "tzinfo", None) else val.replace(tzinfo=timezone.utc)
+    from datetime import datetime, timezone
+    s = str(val).strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s[:25] if "+" in s[10:] else s[:19])
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def _choose_rebuild_strategy(db, sys_one: str, requested_mode: str = "auto") -> tuple:
+    """
+    Returns (strategy, meta_dict) where strategy in {'skip', 'incremental', 'full'}.
+    - 'full': replays entire match history chronologically (`reconstruct_system_ratings_fast`).
+      Used when explicitly requested (`--mode=full`), when ratings are empty, when >25k unranked
+      matches accumulated, or when historical backfill inserted matches >14 days older than
+      existing rated history.
+    - 'incremental': fast-path incremental Elo update (`reconstruct_incremental`) in seconds for
+      normal daily sync appends.
+    - 'skip': 0 unranked matches and ratings already populated -> skip in <100ms.
+    """
+    mode_norm = (requested_mode or "auto").strip().lower()
+    if mode_norm == "full":
+        return "full", {"reason": "explicit_full"}
+    if mode_norm == "incremental":
+        return "incremental", {"reason": "explicit_incremental"}
+
+    pr_cnt = 0
+    max_rated_dt = None
+    total_done_sample = 0
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM (SELECT 1 FROM player_ratings WHERE game_system = %s LIMIT 10) t;",
+                    (sys_one,),
+                )
+                r0 = cur.fetchone()
+                pr_cnt = int((r0[0] if isinstance(r0, (list, tuple)) else r0.get("count", 0)) or 0) if r0 else 0
+                cur.execute(
+                    "SELECT MAX(last_active_date) FROM player_ratings WHERE game_system = %s;",
+                    (sys_one,),
+                )
+                r1 = cur.fetchone()
+                raw_max = (r1[0] if isinstance(r1, (list, tuple)) else r1.get("max")) if r1 else None
+                max_rated_dt = _parse_dt_utc(raw_max)
+                if pr_cnt == 0:
+                    cur.execute(
+                        "SELECT COUNT(*) FROM (SELECT 1 FROM matches WHERE is_done = TRUE AND game_system = %s LIMIT 5) t;",
+                        (sys_one,),
+                    )
+                    r2 = cur.fetchone()
+                    total_done_sample = int((r2[0] if isinstance(r2, (list, tuple)) else r2.get("count", 0)) or 0) if r2 else 0
+    except Exception as exc:
+        logger.warning(f"Notice inspecting rating state for {sys_one}, falling back to full: {exc}")
+        return "full", {"reason": "inspect_error"}
+
+    if pr_cnt == 0 and total_done_sample == 0:
+        return "skip", {"reason": "no_matches", "unranked_count": 0}
+    if pr_cnt < 10 and total_done_sample > 0:
+        return "full", {"reason": "sparse_or_empty_ratings", "pr_cnt": pr_cnt}
+
+    try:
+        unranked = db.get_unranked_matches(limit=25001, game_system=sys_one)
+    except Exception as exc:
+        logger.warning(f"Notice checking unranked matches for {sys_one}, falling back to full: {exc}")
+        return "full", {"reason": "unranked_query_error"}
+
+    n_unranked = len(unranked)
+    if n_unranked == 0:
+        return "skip", {"reason": "zero_unranked_matches", "unranked_count": 0}
+    if n_unranked > 25000:
+        return "full", {"reason": "large_unranked_backlog", "unranked_count": n_unranked}
+
+    # Check if historical backfill inserted out-of-order matches older than (max_rated_dt - 14 days)
+    min_unranked_dt = None
+    for um in unranked[:25]:
+        dt_u = _parse_dt_utc(um.get("match_date"))
+        if dt_u is not None and (min_unranked_dt is None or dt_u < min_unranked_dt):
+            min_unranked_dt = dt_u
+    if max_rated_dt is not None and min_unranked_dt is not None:
+        from datetime import timedelta
+        if min_unranked_dt < (max_rated_dt - timedelta(days=14)):
+            return "full", {
+                "reason": "historical_out_of_order_backfill",
+                "unranked_count": n_unranked,
+                "min_unranked_date": min_unranked_dt.isoformat(),
+                "max_rated_date": max_rated_dt.isoformat(),
+            }
+
+    return "incremental", {"reason": "recent_append", "unranked_count": n_unranked}
+
+
+def _clear_pending_finalize_for_systems(db, completed_systems: set) -> None:
+    if not completed_systems:
+        return
+    try:
+        from scripts.platform_sync_state import load_sync_state, save_sync_state
+        for st_key in ("sync_state_topdeck", "sync_state_longshanks", "sync_state_melee", "sync_state_limitless"):
+            st = load_sync_state(db, st_key)
+            if isinstance(st, dict) and st.get("pending_finalize"):
+                rem = [s for s in st["pending_finalize"] if s not in completed_systems]
+                if rem != st["pending_finalize"]:
+                    st["pending_finalize"] = rem
+                    save_sync_state(db, st_key, st)
+    except Exception:
+        pass
+
+
+def run_rebuild(game_systems, repair_melee_metadata: bool = False, prewarm_meta: bool = True, mode: str = "auto") -> dict:
     from database import get_database
     from elo import get_elo_engine
     from scripts.job_status import record_job_run
@@ -75,40 +189,78 @@ def run_rebuild(game_systems, repair_melee_metadata: bool = False, prewarm_meta:
             resolved_systems.append(s_tok)
     game_systems = resolved_systems
 
-    out = {"systems": {}, "repair": None, "purge": None}
+    out = {"systems": {}, "repair": None, "purge": None, "mode": mode}
+    repaired_systems = set()
     if repair_melee_metadata:
         from scripts.sync_multiplatform import purge_invalid_platform_events, repair_melee_event_metadata
         out["purge"] = purge_invalid_platform_events(db)
         out["repair"] = repair_melee_event_metadata(db)
         for t_sys in (out["repair"] or {}).get("touched_systems") or []:
-            if t_sys and t_sys not in game_systems:
-                game_systems.append(t_sys)
+            if t_sys:
+                repaired_systems.add(t_sys)
+                if t_sys not in game_systems:
+                    game_systems.append(t_sys)
+    mutated_systems = set()
+    completed_ok = set()
     for sys_one in game_systems:
         t0 = time.time()
+        eff_mode = "full" if sys_one in repaired_systems else mode
+        strategy, strat_meta = _choose_rebuild_strategy(db, sys_one, requested_mode=eff_mode)
         try:
-            if sys_one in FULL_ENGINE_SYSTEMS:
-                # Multi-million-match systems use the chunked streaming engine (bounded memory).
-                res = engine.reconstruct_all_rankings(game_system=sys_one)
+            if strategy == "skip":
+                res = {
+                    "status": "UP_TO_DATE",
+                    "strategy": "skip",
+                    "game_system": sys_one,
+                    **strat_meta,
+                }
+                completed_ok.add(sys_one)
+            elif sys_one in FULL_ENGINE_SYSTEMS:
+                if strategy == "incremental":
+                    res = engine.reconstruct_incremental(batch_limit=50000, game_system=sys_one)
+                else:
+                    res = engine.reconstruct_all_rankings(game_system=sys_one)
+                mutated_systems.add(sys_one)
+                completed_ok.add(sys_one)
+            elif strategy == "incremental":
+                inc_res = engine.reconstruct_incremental(batch_limit=50000, game_system=sys_one)
+                res = {
+                    "status": inc_res.get("status", "SUCCESS"),
+                    "strategy": "incremental",
+                    **strat_meta,
+                    **(inc_res if isinstance(inc_res, dict) else {}),
+                }
+                if int((inc_res or {}).get("total_new_matches", 0) or 0) > 0 or (inc_res or {}).get("self_healed"):
+                    mutated_systems.add(sys_one)
+                completed_ok.add(sys_one)
             else:
                 res = engine.reconstruct_system_ratings_fast(game_system=sys_one)
+                if isinstance(res, dict):
+                    res = {"strategy": "full", **strat_meta, **res}
+                if not isinstance(res, dict) or res.get("status") != "NO_MATCHES":
+                    mutated_systems.add(sys_one)
+                completed_ok.add(sys_one)
             if not isinstance(res, dict):
                 res = {"status": "SUCCESS", "result": str(res)[:500]}
         except Exception as err:
             logger.exception(f"Rebuild failed for {sys_one}")
-            res = {"status": "FAILED", "error": str(err)}
+            res = {"status": "FAILED", "strategy": strategy, "error": str(err)}
         res["wall_seconds"] = round(time.time() - t0, 1)
         out["systems"][sys_one] = res
-        logger.info(f"Rebuilt {sys_one}: {res}")
+        logger.info(f"Rebuild[{strategy}] {sys_one}: {res}")
         gc.collect()
         # Progress checkpoint so long multi-system runs are observable from /api/admin/job-status.
         record_job_run("rebuild", {"status": "RUNNING", "result": out})
-    try:
-        if hasattr(db, "invalidate_all_caches"):
-            db.invalidate_all_caches(purge_l2=True)
-    except Exception:
-        pass
+    _clear_pending_finalize_for_systems(db, completed_ok)
+    if mutated_systems:
+        try:
+            if hasattr(db, "invalidate_all_caches"):
+                db.invalidate_all_caches(purge_l2=True)
+        except Exception:
+            pass
     if prewarm_meta and hasattr(db, "prewarm_meta_intel_presets"):
-        for sys_one in game_systems:
+        targets_to_warm = [s for s in game_systems if (mode == "full" or s in mutated_systems)]
+        for sys_one in targets_to_warm:
             sys_res = out["systems"].get(sys_one) or {}
             if sys_res.get("status") in ("FAILED", "NO_MATCHES"):
                 continue
@@ -125,6 +277,7 @@ if __name__ == "__main__":
     install_job_recorder("rebuild")
     parser = argparse.ArgumentParser(description="Rebuild Elo ratings & journeys for game systems")
     parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "mtg"))
+    parser.add_argument("--mode", choices=["auto", "incremental", "full"], default=os.getenv("REBUILD_MODE", "auto"))
     parser.add_argument("--repair-melee-metadata", action="store_true")
     parser.add_argument("--skip-prewarm-meta", action="store_true")
     args, _ = parser.parse_known_args()
@@ -134,6 +287,7 @@ if __name__ == "__main__":
         systems,
         repair_melee_metadata=args.repair_melee_metadata,
         prewarm_meta=not args.skip_prewarm_meta,
+        mode=args.mode,
     )
     print(json.dumps(result, indent=2, default=str))
     failed = [k for k, v in result["systems"].items() if v.get("status") == "FAILED"]

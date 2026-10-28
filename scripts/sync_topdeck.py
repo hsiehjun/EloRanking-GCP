@@ -202,8 +202,8 @@ def _scan_firestore(
     max_pages: int,
     stats: Dict[str, int],
     allow_in_progress: bool = False,
-) -> Tuple[List[Dict[str, Any]], bool]:
-    """Keyset-walks [lo, hi] newest first; returns (candidates, exhausted)."""
+) -> Tuple[List[Dict[str, Any]], bool, Optional[Tuple[int, str]]]:
+    """Keyset-walks [lo, hi] newest first; returns (candidates, exhausted, next_scan_cursor)."""
     out: List[Dict[str, Any]] = []
     cursor = start_after
     for _ in range(max_pages):
@@ -211,18 +211,21 @@ def _scan_firestore(
         stats["pages"] = stats.get("pages", 0) + 1
         stats["docs"] = stats.get("docs", 0) + len(docs)
         if not docs:
-            return out, True
-        for doc in docs:
+            return out, True, cursor
+        for d_idx, doc in enumerate(docs):
+            doc_sd = int(((doc.get("fields") or {}).get("StartDate") or {}).get("integerValue") or 0)
+            doc_cursor = (doc_sd, str(doc.get("name") or ""))
             cand = _doc_candidate(doc, target_sys, allow_in_progress=allow_in_progress)
             if cand and not any(v in known for v in _known_variants(cand["tid"])):
                 out.append(cand)
                 if len(out) >= want:
-                    return out, False
+                    exhausted_here = (d_idx == len(docs) - 1) and (len(docs) < FIRESTORE_PAGE_SIZE)
+                    return out, exhausted_here, doc_cursor
         last = docs[-1]
-        cursor = (int(((last.get("fields") or {}).get("StartDate") or {}).get("integerValue") or 0), last.get("name"))
+        cursor = (int(((last.get("fields") or {}).get("StartDate") or {}).get("integerValue") or 0), str(last.get("name") or ""))
         if len(docs) < FIRESTORE_PAGE_SIZE:
-            return out, True
-    return out, False
+            return out, True, cursor
+    return out, False, cursor
 
 
 def discover_topdeck_targets(
@@ -252,28 +255,34 @@ def discover_topdeck_targets(
     live_cands: List[Dict[str, Any]] = []
     if not end_date and settle_days > 0:
         live_want = min(max_events, max(3, max_events // 3))
-        live_cands, _ = _scan_firestore(
+        live_cands, _, _ = _scan_firestore(
             max(floor_s, settled_s), now_s + 3600, None, live_want, known, target_sys, max_pages=5, stats=stats, allow_in_progress=True
         )
     live_ids = {c["tid"] for c in live_cands}
 
-    recent, _ = _scan_firestore(recent_lo, hi, None, max(0, max_events - len(live_cands)), known | live_ids, target_sys, max_pages=40, stats=stats)
+    recent, _, _ = _scan_firestore(recent_lo, hi, None, max(0, max_events - len(live_cands)), known | live_ids, target_sys, max_pages=40, stats=stats)
     recent.sort(key=lambda c: c["sd"])  # oldest first inside the recent window
     recent = live_cands + recent
 
     bf = state.get("backfill") or {}
-    bf_key = f"{target_sys}:{floor_s // 86400}"
+    if start_date and str(start_date).strip():
+        bf_key = f"{target_sys}:from:{str(start_date).strip()[:10]}"
+    elif int(days or 3650) >= 3650:
+        bf_key = f"{target_sys}:full_10y"
+    else:
+        bf_key = f"{target_sys}:days:{int(days)}"
     backfill: List[Dict[str, Any]] = []
     exhausted = bool(bf.get("done")) and bf.get("key") == bf_key
     bf_cursor: Optional[Tuple[int, str]] = None
     if bf.get("key") == bf_key and bf.get("sd") and bf.get("ref"):
         bf_cursor = (int(bf["sd"]), str(bf["ref"]))
+    scan_cursor: Optional[Tuple[int, str]] = bf_cursor
     if not exhausted:
         recent_ids = {c["tid"] for c in recent}
         want = max(0, max_events - len(recent))
         if want:
-            backfill, exhausted = _scan_firestore(
-                floor_s, hi, bf_cursor, want, known | recent_ids, target_sys, max_pages=120, stats=stats
+            backfill, exhausted, scan_cursor = _scan_firestore(
+                floor_s, hi, bf_cursor, want, known | recent_ids, target_sys, max_pages=220, stats=stats
             )
 
     targets = [(c["system"], c["tid"]) for c in recent + backfill][:max_events]
@@ -282,6 +291,7 @@ def discover_topdeck_targets(
         "recent": recent,
         "backfill": backfill,
         "backfill_exhausted": exhausted,
+        "backfill_scan_cursor": scan_cursor,
         "backfill_key": bf_key,
         "pages_fetched": stats.get("pages", 0),
         "docs_scanned": stats.get("docs", 0),
@@ -365,39 +375,57 @@ def run_topdeck_sync(
 
     backfill_summary: Dict[str, Any] = {}
     if not event_ids and plan.get("backfill_key"):
-        processed = update_resume_state(state, imported, skipped, failed, max_fails=MAX_FAILS_BEFORE_SKIP)
+        latest_state = load_sync_state(db, STATE_KEY) or {}
         if end_date:
-            plan["backfill"], plan["backfill_exhausted"] = [], False  # ad-hoc window: keep the nightly cursor untouched
-        bf_cands = plan.get("backfill") or []
-        prefix = 0
-        while prefix < len(bf_cands) and bf_cands[prefix]["tid"] in processed:
-            prefix += 1
-        bf_state = state.get("backfill") or {}
-        if bf_state.get("key") != plan["backfill_key"]:
-            bf_state = {"key": plan["backfill_key"]}
-        if prefix == len(bf_cands) and plan.get("backfill_exhausted"):
-            bf_state["done"] = True
-        elif prefix > 0:
-            last = bf_cands[prefix - 1]
-            bf_state.update({"sd": last["sd"], "ref": last["ref"], "done": False})
-        state["backfill"] = bf_state
-        if touched and not defer_finalize:
-            update_finalize_estimates(state, touched, finalize_res, finalize_elapsed)
-        if defer_finalize and touched:
-            state["pending_finalize"] = sorted(set(state.get("pending_finalize") or []) | set(touched))
-        state["last_run"] = {
-            "at": datetime.now(timezone.utc).isoformat(),
-            "imported": totals["events_imported"],
-            "skipped": len(skipped),
-            "failed": len(failed),
-        }
-        save_sync_state(db, STATE_KEY, state)
-        backfill_summary = {
-            "cursor_start_date": datetime.fromtimestamp(int(bf_state["sd"]), tz=timezone.utc).strftime("%Y-%m-%d") if bf_state.get("sd") else None,
-            "done": bool(bf_state.get("done")),
-            "processed": prefix,
-            "planned": len(bf_cands),
-        }
+            # Ad-hoc bounded date-window shard: preserve nightly backfill cursor, merge skip/fail/pending_finalize
+            processed = update_resume_state(latest_state, imported, skipped, failed, max_fails=MAX_FAILS_BEFORE_SKIP)
+            if defer_finalize and touched:
+                latest_state["pending_finalize"] = sorted(set(latest_state.get("pending_finalize") or []) | set(touched))
+            save_sync_state(db, STATE_KEY, latest_state)
+            bf_state = latest_state.get("backfill") or {}
+            backfill_summary = {
+                "cursor_start_date": datetime.fromtimestamp(int(bf_state["sd"]), tz=timezone.utc).strftime("%Y-%m-%d") if bf_state.get("sd") else None,
+                "done": bool(bf_state.get("done")),
+                "processed": len(imported) + len(skipped),
+                "planned": len(plan.get("backfill") or []),
+                "windowed_shard": True,
+            }
+        else:
+            processed = update_resume_state(state, imported, skipped, failed, max_fails=MAX_FAILS_BEFORE_SKIP)
+            bf_cands = plan.get("backfill") or []
+            prefix = 0
+            while prefix < len(bf_cands) and bf_cands[prefix]["tid"] in processed:
+                prefix += 1
+            bf_state = state.get("backfill") or {}
+            if bf_state.get("key") != plan["backfill_key"]:
+                bf_state = {"key": plan["backfill_key"]}
+            scan_cur = plan.get("backfill_scan_cursor")
+            if prefix == len(bf_cands) and plan.get("backfill_exhausted"):
+                bf_state["done"] = True
+            elif prefix == len(bf_cands) and scan_cur and scan_cur[0] and scan_cur[1]:
+                bf_state.update({"sd": int(scan_cur[0]), "ref": str(scan_cur[1]), "done": False})
+            elif prefix > 0:
+                last = bf_cands[prefix - 1]
+                bf_state.update({"sd": last["sd"], "ref": last["ref"], "done": False})
+            state["backfill"] = bf_state
+            if touched and not defer_finalize:
+                update_finalize_estimates(state, touched, finalize_res, finalize_elapsed)
+            if defer_finalize and touched:
+                merged_pf = set(latest_state.get("pending_finalize") or []) | set(state.get("pending_finalize") or []) | set(touched)
+                state["pending_finalize"] = sorted(merged_pf)
+            state["last_run"] = {
+                "at": datetime.now(timezone.utc).isoformat(),
+                "imported": totals["events_imported"],
+                "skipped": len(skipped),
+                "failed": len(failed),
+            }
+            save_sync_state(db, STATE_KEY, state)
+            backfill_summary = {
+                "cursor_start_date": datetime.fromtimestamp(int(bf_state["sd"]), tz=timezone.utc).strftime("%Y-%m-%d") if bf_state.get("sd") else None,
+                "done": bool(bf_state.get("done")),
+                "processed": prefix,
+                "planned": len(bf_cands),
+            }
 
     return {
         **totals,

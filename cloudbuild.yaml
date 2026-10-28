@@ -189,7 +189,7 @@ steps:
       - '--command'
       - 'python3'
       - '--args'
-      - 'scripts/sync_topdeck.py,--game-system=all,--max-events=2000,--time-budget-minutes=45,--defer-finalize'
+      - 'scripts/sync_topdeck.py,--game-system=all,--days=3650,--start-date=2016-01-01,--max-events=2500,--time-budget-minutes=45,--defer-finalize'
       - '--memory'
       - '4Gi'
       - '--cpu'
@@ -204,8 +204,7 @@ steps:
       - '--description'
       - 'Scrapes TopDeck.gg tournaments (4-player FFA Commander pods & MTG) and recalculates Elo once a day via Cloud Run Job'
 
-  # 11b. Create or Update Cloud Run Job: elo-rebuild-job (heavy per-system Elo + journey rebuilds,
-  #      triggered on demand by /api/admin/repair-matches-elo and /api/admin/run-job; never auto-executed)
+  # 11b. Create or Update Cloud Run Job: elo-rebuild-job (auto incremental for daily appends, full chronological for historical backfills)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'update-rebuild-job'
     entrypoint: python3
@@ -220,7 +219,7 @@ steps:
       - '--command'
       - 'python3'
       - '--args'
-      - 'scripts/rebuild_ratings.py,--game-system=all_multiplatform'
+      - 'scripts/rebuild_ratings.py,--game-system=all_multiplatform,--mode=auto'
       - '--scheduler-name'
       - 'elo-rebuild-scheduler-job'
       - '--schedule'
@@ -232,7 +231,7 @@ steps:
       - '--cpu'
       - '2'
       - '--task-timeout'
-      - '180m'
+      - '720m'
       - '--max-retries'
       - '0'
       - '--no-execute'

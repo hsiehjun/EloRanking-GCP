@@ -4760,7 +4760,7 @@ class PostgresDatabase:
                         m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
                         m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
                         m.winner_id, m.is_draw, m.is_bye,
-                        CASE WHEN m.player1_faction = 'Commander Pod' OR m.player2_faction = 'Commander Pod' OR m.player1_name LIKE '%%&%%' OR m.player2_name LIKE '%%&%%' THEN m.raw_json ELSE NULL END as raw_json,
+                        CASE WHEN m.player1_faction = 'Commander Pod' OR m.player2_faction = 'Commander Pod' OR m.player1_name LIKE '%%Pod (%%' OR m.player2_name LIKE '%%Pod (%%' OR m.player1_name LIKE '%%&%%' OR m.player2_name LIKE '%%&%%' OR m.id LIKE 'td:%%' THEN m.raw_json ELSE NULL END as raw_json,
                         COALESCE(m.game_system, '40k') as game_system
                     FROM matches m
                     WHERE m.is_done = TRUE

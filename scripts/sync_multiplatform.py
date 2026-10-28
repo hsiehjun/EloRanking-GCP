@@ -91,26 +91,54 @@ _LIMITLESS_CATALOG_CACHE: Dict[str, Dict[str, Any]] = {}
 _TOPDECK_FIRESTORE_DOC_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
-def _http_get_text(url: str, timeout: int = 15) -> str:
+def _http_get_text(url: str, timeout: int = 15, max_attempts: int = 4) -> str:
     import gzip as _gzip
+    import random as _random
+    import urllib.error as _urlerr
 
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/json,*/*",
-            "Accept-Encoding": "gzip",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
-        enc = str(resp.headers.get("Content-Encoding") or "").lower()
-        if "gzip" in enc:
-            try:
-                raw = _gzip.decompress(raw)
-            except Exception:
-                pass
-        return raw.decode("utf-8", errors="ignore")
+    last_err: Optional[Exception] = None
+    for attempt in range(max(1, int(max_attempts))):
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/json,*/*",
+                "Accept-Encoding": "gzip",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read()
+                enc = str(resp.headers.get("Content-Encoding") or "").lower()
+                if "gzip" in enc:
+                    try:
+                        raw = _gzip.decompress(raw)
+                    except Exception:
+                        pass
+                return raw.decode("utf-8", errors="ignore")
+        except _urlerr.HTTPError as he:
+            last_err = he
+            if he.code in (429, 500, 502, 503, 504) and attempt + 1 < max_attempts:
+                retry_after = 0.0
+                try:
+                    ra_hdr = he.headers.get("Retry-After") if he.headers else None
+                    if ra_hdr:
+                        retry_after = float(ra_hdr)
+                except Exception:
+                    retry_after = 0.0
+                backoff = max(retry_after, (1.5 * (2 ** attempt)) + _random.uniform(0.1, 0.7))
+                time.sleep(min(backoff, 15.0))
+                continue
+            raise
+        except (_urlerr.URLError, TimeoutError, OSError) as ue:
+            last_err = ue
+            if attempt + 1 < max_attempts:
+                time.sleep((1.2 * (2 ** attempt)) + _random.uniform(0.1, 0.5))
+                continue
+            raise
+    if last_err:
+        raise last_err
+    return ""
 
 
 def _http_get_json(url: str, timeout: int = 15) -> Any:
