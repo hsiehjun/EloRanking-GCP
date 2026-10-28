@@ -142,9 +142,9 @@ def _is_guest_seat_id(val: Any) -> bool:
 
 
 def is_room_tournament(room_dict: Optional[Dict[str, Any]], match_id: str = "", payload: Optional[Any] = None) -> bool:
-    """Return True if the room is a tournament table match (BCP-... / ES-... or event_id present)."""
+    """Return True if the room is a tournament table match (BCP-... / ES-... / MELEE-... / LTCG-... / TD-... / LS-... or event_id present)."""
     mid = str(match_id or "").strip().upper()
-    if mid.startswith("BCP-") or mid.startswith("ES-") or re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-", mid):
+    if mid.startswith(("BCP-", "ES-", "MELEE-", "LTCG-", "TD-", "LS-")) or re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES|MELEE|LTCG|TD|LS)-", mid):
         return True
     if payload and getattr(payload, "event_id", None):
         return True
@@ -388,10 +388,10 @@ def init_tracker_room_from_chat(match_id: str, chat_info: Dict[str, Any], fs_eng
     return room
 
 def extract_event_id_from_match_id(match_id: str) -> Optional[str]:
-    """Extracts the event/tournament ID from standard match IDs like BCP-xyz-R1-T2 or ES-xyz-R1-T2."""
+    """Extracts the event/tournament ID from standard match IDs like BCP-xyz-R1-T2 or MELEE-melee:123-R1-T2."""
     if not match_id:
         return None
-    m = re.match(r"^(?:WH40K-)?(?:AOS-)?(?:BCP|ES)-(.+)-R\d+-T\d+$", str(match_id).strip(), re.IGNORECASE)
+    m = re.match(r"^(?:WH40K-)?(?:AOS-)?(?:BCP|ES|MELEE|LTCG|TD|LS)-(.+?)-R\d+-T\d+(?:-(?:M|P)-.+)?$", str(match_id).strip(), re.IGNORECASE)
     if m:
         return m.group(1)
     return None
@@ -618,7 +618,7 @@ def is_room_owner(
 
 def init_tracker_room_from_tournament(match_id: str, fs_engine, db) -> Dict[str, Any]:
     """Auto-provisions a tournament match room when accessed directly via match_id."""
-    m = re.match(r"^(?:WH40K-)?(?:AOS-)?(BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id, re.IGNORECASE)
+    m = re.match(r"^(?:WH40K-)?(?:AOS-)?(BCP|ES|MELEE|LTCG|TD|LS)-(.+?)-R(\d+)-T(\d+)(?:-(?:M|P)-.+)?$", match_id, re.IGNORECASE)
     event_id = m.group(2) if m else None
     round_num = int(m.group(3)) if m else 1
     table_num = int(m.group(4)) if m else 1
@@ -2134,7 +2134,7 @@ def api_tracker_get_state(match_id: str):
     if not ev_id and fs_doc:
         ev_id = fs_doc.get("eventId") or fs_doc.get("event_id") or fs_doc.get("tournament_id")
     if not ev_id:
-        m_ev = re.match(r'^(?:WH40K-)?(?:BCP|ES)-([A-Za-z0-9_-]+)-R\d+', match_id, re.IGNORECASE)
+        m_ev = re.match(r'^(?:WH40K-)?(?:AOS-)?(?:BCP|ES|MELEE|LTCG|TD|LS)-([A-Za-z0-9:_-]+?)-R\d+', match_id, re.IGNORECASE)
         if m_ev and m_ev.group(1):
             ev_id = m_ev.group(1)
 
@@ -3010,8 +3010,8 @@ def _api_get_scorecard_sync(match_id: str):
     # 1. Check PostgreSQL tracker_games first (submitted & finalized scorecards in our backend DB)
     # Note: db.get_tracker_game(match_id) already checks all candidate IDs and (event_id, round_num, table_num) in a single indexed query!
     game_rec = None
-    m_pat = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+?)-R(\d+)-T(\d+)(?:-(?:M|P)-(.+))?$", match_id.strip(), re.IGNORECASE)
-    m_player_pat = None if m_pat else re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+)-R(\d+)-P-(.+)$", match_id.strip(), re.IGNORECASE)
+    m_pat = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES|MELEE|LTCG|TD|LS)-(.+?)-R(\d+)-T(\d+)(?:-(?:M|P)-(.+))?$", match_id.strip(), re.IGNORECASE)
+    m_player_pat = None if m_pat else re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES|MELEE|LTCG|TD|LS)-(.+)-R(\d+)-P-(.+)$", match_id.strip(), re.IGNORECASE)
     m_tok_disambig = urllib.parse.unquote(m_pat.group(4)).strip() if (m_pat and m_pat.group(4)) else None
 
     if db and hasattr(db, "get_tracker_game"):

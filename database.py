@@ -13641,7 +13641,7 @@ class PostgresDatabase:
         def do_select():
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                    m_evt = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES)-(.+?)-R(\d+)-T(\d+)(?:-(?:M|P)-(.+))?$", match_id, re.IGNORECASE)
+                    m_evt = re.match(r"^(?:WH40K-|AOS-)?(?:BCP|ES|MELEE|LTCG|TD|LS)-(.+?)-R(\d+)-T(\d+)(?:-(?:M|P)-(.+))?$", match_id, re.IGNORECASE)
                     if m_evt:
                         ev_id, r_num, t_num = m_evt.group(1), int(m_evt.group(2)), int(m_evt.group(3))
                         alt_bcp = f"BCP-{ev_id.upper()}-R{r_num}-T{t_num}"
