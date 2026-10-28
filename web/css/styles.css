@@ -19200,4 +19200,155 @@ table.desktop-only,
   }
 }
 
+/* ==========================================================================
+   Tournament Scope & Competitive Filters Bar (Meta Intel)
+   ========================================================================== */
+.meta-scope-filter-panel {
+  margin-top: 0.7rem;
+  padding: 0.75rem 0.95rem;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(56, 189, 248, 0.16);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.meta-scope-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem 1.05rem;
+}
+
+.meta-scope-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+}
+
+.meta-scope-label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #cbd5e1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.meta-custom-num-input {
+  width: 68px;
+  padding: 0.24rem 0.45rem;
+  font-size: 0.73rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: #f8fafc;
+  background: rgba(7, 11, 20, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.meta-custom-num-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.18);
+}
+
+.meta-scope-select {
+  padding: 0.26rem 0.55rem !important;
+  font-size: 0.74rem !important;
+  height: auto !important;
+  min-width: 128px;
+  max-width: 195px;
+  background: rgba(7, 11, 20, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.meta-league-toggle {
+  font-size: 0.72rem !important;
+  padding: 0.22rem 0.48rem !important;
+}
+
+.meta-active-scope-bar {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.meta-active-scope-badges {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.meta-scope-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.16rem 0.48rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: rgba(56, 189, 248, 0.15);
+  color: #7dd3fc;
+  border: 1px solid rgba(56, 189, 248, 0.32);
+}
+
+.meta-reset-filters-btn {
+  padding: 0.22rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.14);
+  border: 1px solid rgba(244, 63, 94, 0.32);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.meta-reset-filters-btn:hover {
+  background: rgba(244, 63, 94, 0.26);
+  color: #fff;
+}
+
+.fmodal-filter-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.8rem;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  font-size: 0.76rem;
+  color: #e2e8f0;
+}
+
+@media (max-width: 768px) {
+  .meta-scope-filter-panel {
+    padding: 0.65rem 0.7rem;
+  }
+  .meta-scope-row {
+    gap: 0.5rem 0.65rem;
+  }
+  .meta-scope-select {
+    min-width: 112px;
+    max-width: 165px;
+  }
+  .meta-active-scope-bar {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+
 

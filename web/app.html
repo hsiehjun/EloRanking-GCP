@@ -6,7 +6,7 @@
   <title>OmniTactica • Tactical Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=29c38bc793">
+  <link rel="manifest" href="/manifest.json?v=d11a82ec6c">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=29c38bc793">
-  <link rel="stylesheet" href="/css/styles.min.css?v=29c38bc793">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=29c38bc793">
-  <link rel="preload" href="/js/app.bundle.min.js?v=29c38bc793" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=d11a82ec6c">
+  <link rel="stylesheet" href="/css/styles.min.css?v=d11a82ec6c">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=d11a82ec6c">
+  <link rel="preload" href="/js/app.bundle.min.js?v=d11a82ec6c" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "29c38bc793";</script>
+  <script>window.APP_VERSION = "d11a82ec6c";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -1384,9 +1384,7 @@
 
           <div class="meta-view-modes-bar" style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
             <button id="faction-mode-btn-table" class="subtab-btn active" onclick="setFactionViewMode('table')"><span class="meta-lbl-desktop">📋 Tier &amp; Stats</span><span class="meta-lbl-mobile">📋 Tiers</span></button>
-            <button id="faction-mode-btn-quadrant" class="subtab-btn" onclick="setFactionViewMode('quadrant')"><span class="meta-lbl-desktop">🎯 Meta Quadrant</span><span class="meta-lbl-mobile">🎯 Quadrant</span></button>
             <button id="faction-mode-btn-matrix" class="subtab-btn" onclick="setFactionViewMode('matrix')"><span class="meta-lbl-desktop">🔥 Matchup Matrix</span><span class="meta-lbl-mobile">🔥 Matrix</span></button>
-            <button id="faction-mode-btn-chart" class="subtab-btn" onclick="setFactionViewMode('chart')"><span class="meta-lbl-desktop">📈 Meta Timeline</span><span class="meta-lbl-mobile">📈 Timeline</span></button>
           </div>
         </div>
 
@@ -1426,6 +1424,102 @@
 
           <div class="date-help-tip">
             <span>📅 Tap calendar icon or anywhere on date to open calendar picker</span>
+          </div>
+        </div>
+
+        <!-- Tournament Scope & Competitive Filters Bar (Default: All Events) -->
+        <div id="meta-scope-filter-panel" class="meta-scope-filter-panel">
+          <div class="meta-scope-row">
+            <div class="meta-scope-group">
+              <span class="meta-scope-label" title="Filter tournaments by minimum active player count">👥 Players:</span>
+              <div class="meta-tier-pills meta-players-pills" role="group" aria-label="Minimum tournament players">
+                <button type="button" class="meta-pill-btn active" data-min-players="0" onclick="setMetaMinPlayers(0)">All</button>
+                <button type="button" class="meta-pill-btn" data-min-players="8" onclick="setMetaMinPlayers(8)">8+</button>
+                <button type="button" class="meta-pill-btn" data-min-players="16" onclick="setMetaMinPlayers(16)">16+</button>
+                <button type="button" class="meta-pill-btn" data-min-players="28" onclick="setMetaMinPlayers(28)">28+</button>
+                <button type="button" class="meta-pill-btn" data-min-players="32" onclick="setMetaMinPlayers(32)">32+</button>
+                <button type="button" class="meta-pill-btn" data-min-players="64" onclick="setMetaMinPlayers(64)">64+</button>
+                <button type="button" class="meta-pill-btn" data-min-players="100" onclick="setMetaMinPlayers(100)">100+</button>
+              </div>
+              <input type="number" id="meta-custom-min-players" class="meta-custom-num-input" min="0" max="5000" step="1" placeholder="Min #" title="Custom minimum player count" onchange="onMetaCustomPlayersChange(this.value)">
+            </div>
+
+            <div class="meta-scope-group">
+              <span class="meta-scope-label" title="Filter tournaments by minimum played Swiss/bracket rounds">🔄 Rounds:</span>
+              <div class="meta-tier-pills meta-rounds-pills" role="group" aria-label="Minimum tournament rounds">
+                <button type="button" class="meta-pill-btn active" data-min-rounds="0" onclick="setMetaMinRounds(0)">All</button>
+                <button type="button" class="meta-pill-btn" data-min-rounds="3" onclick="setMetaMinRounds(3)">3+</button>
+                <button type="button" class="meta-pill-btn" data-min-rounds="4" onclick="setMetaMinRounds(4)">4+</button>
+                <button type="button" class="meta-pill-btn" data-min-rounds="5" onclick="setMetaMinRounds(5)">5+</button>
+                <button type="button" class="meta-pill-btn" data-min-rounds="6" onclick="setMetaMinRounds(6)">6+</button>
+              </div>
+              <label class="meta-toggle-label meta-league-toggle" title="Exclude multi-week casual store leagues (e.g. 6-8 week escalation leagues)">
+                <input type="checkbox" id="meta-exclude-leagues-toggle" onchange="toggleMetaExcludeLeagues(this.checked)">
+                <span>Excl. Leagues</span>
+              </label>
+            </div>
+
+            <div class="meta-scope-group">
+              <span class="meta-scope-label" title="Filter by physical tabletop venue vs online/webcam/TTS/SpellTable/MTGO">🏛️ Venue:</span>
+              <div class="meta-tier-pills meta-venue-pills" role="group" aria-label="Tournament venue mode">
+                <button type="button" class="meta-pill-btn active" data-venue="all" onclick="setMetaVenueMode('all')">All</button>
+                <button type="button" class="meta-pill-btn" data-venue="in_person" onclick="setMetaVenueMode('in_person')">In-Person</button>
+                <button type="button" class="meta-pill-btn" data-venue="online" onclick="setMetaVenueMode('online')">Online</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="meta-scope-row">
+            <div class="meta-scope-group">
+              <span class="meta-scope-label" title="Filter by tournament structure (Singles 1v1, Multi-player Teams, 2v2 Doubles, or Multiplayer FFA Pods)">⚔️ Structure:</span>
+              <div class="meta-tier-pills meta-structure-pills" role="group" aria-label="Tournament structure">
+                <button type="button" class="meta-pill-btn active" data-structure="all" onclick="setMetaEventStructure('all')">All</button>
+                <button type="button" class="meta-pill-btn" data-structure="singles" onclick="setMetaEventStructure('singles')">Singles</button>
+                <button type="button" class="meta-pill-btn" data-structure="teams" onclick="setMetaEventStructure('teams')">Teams</button>
+                <button type="button" class="meta-pill-btn" data-structure="doubles" onclick="setMetaEventStructure('doubles')">Doubles</button>
+                <button type="button" class="meta-pill-btn" data-structure="ffa_pod" onclick="setMetaEventStructure('ffa_pod')">Pods</button>
+              </div>
+            </div>
+
+            <div id="meta-format-select-wrap" class="meta-scope-group" style="display: none;">
+              <span class="meta-scope-label" title="Filter by game-specific ruleset or format">📜 Format:</span>
+              <select id="meta-format-select" class="select-input meta-scope-select" onchange="setMetaEventFormat(this.value)">
+                <option value="all">All Formats</option>
+              </select>
+            </div>
+
+            <div id="meta-location-group" class="meta-scope-group">
+              <span class="meta-scope-label" title="Filter in-person tournaments by region, country, or US state">🌍 Location:</span>
+              <select id="meta-region-select" class="select-input meta-scope-select" onchange="onMetaRegionChange(this.value)">
+                <option value="all">Global (All Regions)</option>
+                <option value="NA">North America</option>
+                <option value="UK_IE">UK &amp; Ireland</option>
+                <option value="EU">Continental Europe</option>
+                <option value="OCE">Oceania (AU / NZ)</option>
+                <option value="ASIA">Asia</option>
+                <option value="LATAM">Latin America</option>
+              </select>
+              <select id="meta-country-select" class="select-input meta-scope-select" onchange="onMetaCountryChange(this.value)">
+                <option value="all">All Countries</option>
+              </select>
+              <select id="meta-state-select" class="select-input meta-scope-select" style="display: none;" onchange="onMetaStateChange(this.value)">
+                <option value="all">All US States</option>
+              </select>
+            </div>
+
+            <div class="meta-scope-group">
+              <span class="meta-scope-label" title="Require BOTH players in each game to hold at least this pre-match Elo rating">🎖️ Pilot Elo:</span>
+              <div class="meta-tier-pills meta-elo-pills" role="group" aria-label="Minimum pilot Elo">
+                <button type="button" class="meta-pill-btn active" data-elo="0" onclick="setMetaEloFloor(0)">All Pilots</button>
+                <button type="button" class="meta-pill-btn" data-elo="1550" onclick="setMetaEloFloor(1550)">1550+</button>
+                <button type="button" class="meta-pill-btn" data-elo="1650" onclick="setMetaEloFloor(1650)">1650+</button>
+              </div>
+            </div>
+
+            <div id="meta-active-scope-bar" class="meta-active-scope-bar" style="display: none;">
+              <span id="meta-active-scope-badges" class="meta-active-scope-badges"></span>
+              <button type="button" id="meta-reset-filters-btn" class="meta-reset-filters-btn" onclick="resetMetaEventFilters()">✕ Reset to All Events</button>
+            </div>
           </div>
         </div>
 
@@ -1498,29 +1592,7 @@
           </div>
         </div>
 
-        <!-- Faction View 2: StatCheck Meta Quadrant (Popularity vs. Win Rate 2D Scatter) -->
-        <div id="faction-view-quadrant-container" style="display: none; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.25rem;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
-            <div>
-              <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.2rem;">🎯 Competitive Meta Quadrant: Popularity vs. Win Rate</h3>
-              <div style="font-size: 0.8rem; color: var(--text-secondary);">
-                Plots <b>Field Meta Share % (X-Axis)</b> against <b>Win Rate % (Y-Axis)</b>. Bubble size scales with games played; click any bubble to inspect top pilots &amp; matchups.
-              </div>
-            </div>
-            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-              <span style="font-size: 0.75rem; color: var(--text-secondary);">Y-Axis Metric:</span>
-              <button type="button" id="quadrant-metric-overall" class="faction-quick-btn active" onclick="setQuadrantMetric('overall')">Overall WR %</button>
-              <button type="button" id="quadrant-metric-nonmirror" class="faction-quick-btn" onclick="setQuadrantMetric('non_mirror')">Non-Mirror WR %</button>
-              <button type="button" id="quadrant-metric-margin" class="faction-quick-btn" onclick="setQuadrantMetric('margin')">Avg VP Margin (+/-)</button>
-            </div>
-          </div>
-          <div style="overflow-x: hidden; position: relative;">
-            <svg id="faction-quadrant-svg" style="width: 100%; height: 440px; display: block;"></svg>
-            <div id="faction-quadrant-tooltip" class="meta-floating-tooltip" style="display: none;"></div>
-          </div>
-        </div>
-
-        <!-- Faction View 3: StatCheck N×N Faction Matchup Matrix Heatmap -->
+        <!-- Faction View 2: StatCheck N×N Faction Matchup Matrix Heatmap -->
         <div id="faction-view-matrix-container" style="display: none; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.25rem;">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
             <div>
@@ -1537,37 +1609,6 @@
             </div>
           </div>
           <div id="faction-matrix-grid-wrap" style="overflow-x: hidden; position: relative;"></div>
-        </div>
-
-        <!-- Faction View 4: Chart Timeline -->
-        <div id="faction-view-chart-container" style="display: none; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.25rem;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
-            <div>
-              <h3 id="faction-chart-title" style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.2rem;">📈 Faction Win Rate Trends Over Time</h3>
-              <div id="faction-chart-subtitle" style="font-size: 0.8rem; color: var(--text-secondary);">Monthly win rate trajectory of competitive armies relative to the 45%-55% balance window</div>
-            </div>
-            <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
-              <div style="display: inline-flex; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border-color); border-radius: 6px; padding: 2px;">
-                <button type="button" id="timeline-metric-wr" class="faction-quick-btn active" style="border: none;" onclick="setTimelineMetric('win_rate')">Win Rate %</button>
-                <button type="button" id="timeline-metric-share" class="faction-quick-btn" style="border: none;" onclick="setTimelineMetric('meta_share')">Meta Share %</button>
-              </div>
-              <div class="faction-quick-btns">
-                <button class="faction-quick-btn" onclick="selectFactionPreset('top8')">Top 8</button>
-                <button class="faction-quick-btn" onclick="selectFactionPreset('top15')">Top 15</button>
-                <button class="faction-quick-btn" onclick="selectFactionPreset('all')">Select All</button>
-                <button class="faction-quick-btn" onclick="selectFactionPreset('none')">Clear All</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Interactive Faction Toggle Chips -->
-          <div id="faction-toggle-chips" class="faction-chip-container"></div>
-
-          <div style="overflow-x: hidden; position: relative;">
-            <svg id="faction-trend-svg" style="width: 100%; height: 310px;"></svg>
-            <div id="faction-chart-tooltip" style="position: absolute; display: none; background: #0f172a; border: 1px solid var(--accent); padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.78rem; pointer-events: none; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></div>
-          </div>
-          <div id="faction-trend-legend" style="display: flex; flex-wrap: wrap; gap: 0.85rem; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);"></div>
         </div>
       </div>
 
@@ -3781,6 +3822,9 @@
       </div>
 
       <div class="modal-body fmodal-unified-body">
+        <!-- Active Tournament Filter Scope Banner (when Meta Intel filters are active) -->
+        <div id="faction-modal-filter-banner" class="fmodal-filter-banner" style="display: none;"></div>
+
         <!-- Period Performance & Matchup Insights Strip -->
         <div id="faction-modal-kpis" class="fmodal-kpi-grid"></div>
 
@@ -3882,7 +3926,7 @@
   </div> <!-- #app-shell -->
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=29c38bc793"></script>
+  <script src="/js/app.bundle.min.js?v=d11a82ec6c"></script>
 
   <!-- Cloud Firestore Compat SDK for Real-time Matchmaking & Push Chat -->
   <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>

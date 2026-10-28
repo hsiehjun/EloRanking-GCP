@@ -1112,20 +1112,85 @@ async function changeFactionModalTimeframe(tf) {
 }
 window.changeFactionModalTimeframe = changeFactionModalTimeframe;
 
-const FACTION_MODAL_STORAGE_KEY = 'omni_faction_modal_cache_v7';
+const FACTION_MODAL_STORAGE_KEY = 'omni_faction_modal_cache_v8';
 const factionModalDataCache = new Map();
 const factionModalInflightPromises = new Map();
 let factionModalAbortController = null;
+let currentFactionModalUseMetaFilters = true;
+
+function _isMetaIntelTabActive() {
+  const tabEl = document.getElementById('tab-meta-intel');
+  return Boolean(tabEl && tabEl.classList.contains('active'));
+}
+
+function _getModalEffectiveFilters() {
+  if (!currentFactionModalUseMetaFilters) return null;
+  if (typeof window.getActiveMetaEventFilters !== 'function' || typeof window.isMetaEventFiltersDefault !== 'function') {
+    return null;
+  }
+  const f = window.getActiveMetaEventFilters();
+  return window.isMetaEventFiltersDefault(f) ? null : f;
+}
+
+function _getModalFilterCacheSuffix() {
+  const f = _getModalEffectiveFilters();
+  if (!f || typeof window.getMetaEventFilterCacheKey !== 'function') return '';
+  return window.getMetaEventFilterCacheKey(f) || '';
+}
+
+function toggleFactionModalFilterScope() {
+  currentFactionModalUseMetaFilters = !currentFactionModalUseMetaFilters;
+  if (currentFactionName) {
+    loadFactionModalData(currentFactionName, currentFactionTimeframe || '1yr');
+  }
+}
+window.toggleFactionModalFilterScope = toggleFactionModalFilterScope;
+
+function _renderFactionModalFilterBanner() {
+  const bannerEl = document.getElementById('faction-modal-filter-banner');
+  if (!bannerEl) return;
+  const hasGlobalMetaFilters = (
+    typeof window.getActiveMetaEventFilters === 'function' &&
+    typeof window.isMetaEventFiltersDefault === 'function' &&
+    !window.isMetaEventFiltersDefault(window.getActiveMetaEventFilters())
+  );
+  if (!hasGlobalMetaFilters) {
+    bannerEl.style.display = 'none';
+    bannerEl.innerHTML = '';
+    return;
+  }
+  const chips = (typeof window.getMetaEventFilterSummaryChips === 'function')
+    ? window.getMetaEventFilterSummaryChips(window.getActiveMetaEventFilters())
+    : [];
+  bannerEl.style.display = 'flex';
+  if (currentFactionModalUseMetaFilters) {
+    const chipsHtml = chips.map(c => `<span class="meta-scope-chip">${escapeHtml(c)}</span>`).join(' ');
+    bannerEl.innerHTML = `
+      <div style="display:flex; align-items:center; flex-wrap:wrap; gap:0.35rem;">
+        <b style="color:#38bdf8;">🎯 Filtered Scope:</b> ${chipsHtml}
+      </div>
+      <button type="button" class="faction-quick-btn" onclick="toggleFactionModalFilterScope()">View All Events</button>
+    `;
+  } else {
+    bannerEl.innerHTML = `
+      <div style="color:var(--text-secondary);">
+        Showing <b>All Events</b> (unfiltered). Active Meta Intel filters: ${escapeHtml(chips.join(' • '))}
+      </div>
+      <button type="button" class="faction-quick-btn active" onclick="toggleFactionModalFilterScope()">Re-apply Meta Filter</button>
+    `;
+  }
+}
 
 function isValidFactionModalPayload(data) {
   if (!data || typeof data !== 'object') return false;
+  const isFiltered = Boolean(data.filter && data.filter.is_filtered);
   const tm = Number((data.stats && data.stats.total_matches) || data.total_matches || 0);
   const matches = Array.isArray(data.matches) ? data.matches : [];
   const matchups = Array.isArray(data.matchups) ? data.matchups : [];
-  if (tm > 0 && (matches.length === 0 || (tm > 1 && matchups.length === 0))) {
+  if (tm > 0 && (matches.length === 0 || (tm > 1 && matchups.length === 0 && !isFiltered))) {
     return false;
   }
-  if (tm === 0 && matches.length === 0 && matchups.length === 0) {
+  if (tm === 0 && !isFiltered && matches.length === 0 && matchups.length === 0) {
     return false;
   }
   return true;
@@ -1133,7 +1198,7 @@ function isValidFactionModalPayload(data) {
 
 function clearFactionModalClientCache() {
   factionModalDataCache.clear();
-  ['omni_faction_modal_cache_v3', 'omni_faction_modal_cache_v4', 'omni_faction_modal_cache_v5', 'omni_faction_modal_cache_v6', FACTION_MODAL_STORAGE_KEY].forEach(k => {
+  ['omni_faction_modal_cache_v3', 'omni_faction_modal_cache_v4', 'omni_faction_modal_cache_v5', 'omni_faction_modal_cache_v6', 'omni_faction_modal_cache_v7', FACTION_MODAL_STORAGE_KEY].forEach(k => {
     try { sessionStorage.removeItem(k); } catch (e) {}
     try { localStorage.removeItem(k); } catch (e) {}
   });
@@ -1182,6 +1247,7 @@ function setFactionModalCacheEntry(cacheKey, data) {
 }
 
 function deriveFactionModalFromCachedSuperset(factionName, sys, targetTf) {
+  if (_getModalFilterCacheSuffix()) return null;
   const facNorm = (factionName || '').trim().toLowerCase();
   const tfDaysMap = { '30d': 30, '3mo': 90, '6mo': 180, '1yr': 365, 'all': 36500 };
   const targetDays = tfDaysMap[targetTf] || 365;
@@ -1227,9 +1293,10 @@ function deriveFactionModalFromCachedSuperset(factionName, sys, targetTf) {
 function deriveInstantFactionMetaSnapshot(factionName, sys, targetTf) {
   const facNorm = (factionName || '').trim().toLowerCase();
   if (!facNorm) return null;
+  const fKey = _getModalFilterCacheSuffix();
   const presetMap = { '30d': '30d', '3mo': '90d', '6mo': '180d', '1yr': '1yr', 'all': 'all' };
   const mappedPreset = presetMap[targetTf] || targetTf;
-  const metaKey = `${sys}_preset_${mappedPreset}`;
+  const metaKey = `${sys}_preset_${mappedPreset}${fKey}`;
 
   let metaSource = null;
   try {
@@ -1239,6 +1306,7 @@ function deriveInstantFactionMetaSnapshot(factionName, sys, targetTf) {
       typeof factionMetaData !== 'undefined' &&
       factionMetaData &&
       Array.isArray(factionMetaData.factions) &&
+      ((typeof window.getMetaEventFilterCacheKey === 'function' ? window.getMetaEventFilterCacheKey() : '') === fKey) &&
       ((factionMetaData.filter && factionMetaData.filter.preset === mappedPreset) ||
         (typeof factionTimeframe !== 'undefined' && factionTimeframe === mappedPreset))
     ) {
@@ -1254,7 +1322,7 @@ function deriveInstantFactionMetaSnapshot(factionName, sys, targetTf) {
     const matchKey = Object.keys(muDict).find(k => String(k).trim().toLowerCase() === facNorm);
     if (matchKey) rawMu = muDict[matchKey];
   }
-  if (!facEntry && (!Array.isArray(rawMu) || rawMu.length === 0)) return null;
+  if (!facEntry && (!Array.isArray(rawMu) || rawMu.length === 0) && !fKey) return null;
 
   const matchups = Array.isArray(rawMu)
     ? rawMu.map(m => ({
@@ -1304,11 +1372,14 @@ function deriveInstantFactionMetaSnapshot(factionName, sys, targetTf) {
 
 function fetchFactionDetailsShared(factionName, sys, tf) {
   const facNorm = (factionName || '').trim().toLowerCase();
-  const cacheKey = `${facNorm}_${sys}_${tf}`;
+  const fKey = _getModalFilterCacheSuffix();
+  const effFilters = _getModalEffectiveFilters();
+  const cacheKey = `${facNorm}_${sys}_${tf}${fKey}`;
   if (factionModalInflightPromises.has(cacheKey)) {
     return factionModalInflightPromises.get(cacheKey);
   }
-  const p = window.api.getFactionDetails(factionName, 350, sys, tf)
+  const reqOpts = effFilters ? { filters: effFilters } : {};
+  const p = window.api.getFactionDetails(factionName, 350, sys, tf, reqOpts)
     .then(data => {
       factionModalInflightPromises.delete(cacheKey);
       if (data && !data.error && !data.aborted) {
@@ -1330,19 +1401,26 @@ function prefetchFactionModalData(factionName, sysOverride = null) {
   const sys = sysOverride || (typeof currentGameSystem !== 'undefined' && currentGameSystem ? currentGameSystem : '40k');
   const facNorm = factionName.trim().toLowerCase();
   const activeTf = currentFactionTimeframe || '1yr';
-  const hoverKey = `${facNorm}_${sys}_${activeTf}`;
+  const prevUse = currentFactionModalUseMetaFilters;
+  currentFactionModalUseMetaFilters = _isMetaIntelTabActive();
+  const fKey = _getModalFilterCacheSuffix();
+  currentFactionModalUseMetaFilters = prevUse;
+  const hoverKey = `${facNorm}_${sys}_${activeTf}${fKey}`;
   if (_lastHoveredFactionPrefetch === hoverKey) return;
   _lastHoveredFactionPrefetch = hoverKey;
 
-  const ck = `${facNorm}_${sys}_${activeTf}`;
-  const existing = factionModalDataCache.get(ck);
+  const existing = factionModalDataCache.get(hoverKey);
   if (existing && (Date.now() - existing.timestamp < 1800000)) return;
+  const savedUse = currentFactionModalUseMetaFilters;
+  currentFactionModalUseMetaFilters = _isMetaIntelTabActive();
   fetchFactionDetailsShared(factionName, sys, activeTf).catch(() => {});
+  currentFactionModalUseMetaFilters = savedUse;
 }
 window.prefetchFactionModalData = prefetchFactionModalData;
 
 function prefetchTopFactionsModalCache(factionsList, sysOverride = null) {
   if (!Array.isArray(factionsList) || factionsList.length === 0) return;
+  if (_getModalFilterCacheSuffix()) return;
   const sys = sysOverride || (typeof currentGameSystem !== 'undefined' && currentGameSystem ? currentGameSystem : '40k');
   const mapFromMeta = { '30d': '30d', '60d': '3mo', '90d': '3mo', '180d': '6mo', 'ytd': '6mo', '1yr': '1yr', 'all': 'all' };
   const targetTf = (typeof factionTimeframe !== 'undefined' && mapFromMeta[factionTimeframe]) ? mapFromMeta[factionTimeframe] : '3mo';
@@ -1362,7 +1440,7 @@ function prefetchTopFactionsModalCache(factionsList, sysOverride = null) {
 window.prefetchTopFactionsModalCache = prefetchTopFactionsModalCache;
 
 function prefetchRemainingModalTimeframes(factionName, sys, activeTf) {
-  if (!factionName) return;
+  if (!factionName || _getModalFilterCacheSuffix()) return;
   const facNorm = factionName.trim().toLowerCase();
   const fallbackTf = activeTf === '1yr' ? '3mo' : '1yr';
   setTimeout(async () => {
@@ -1658,7 +1736,9 @@ function applyFactionModalData(data, sys, tf) {
   const totalMatchesCount = Number(mergedStats.total_matches || mergedData.total_matches || totalGamesInMatchups || matches.length || 0);
 
   const scopeFacNorm = String((data && data.faction) || currentFactionName || '').trim().toLowerCase();
-  const scopeKey = `${scopeFacNorm}_${sys}_${tf}`;
+  const scopeFilterSuffix = _getModalFilterCacheSuffix();
+  const scopeKey = `${scopeFacNorm}_${sys}_${tf}${scopeFilterSuffix}`;
+  _renderFactionModalFilterBanner();
   let effectiveMatches = matches;
   let nextOffset = Number(data._nextOffset || matches.length || 0);
   let hasMore = typeof data.has_more_matches === 'boolean'
@@ -1724,7 +1804,8 @@ function applyFactionModalData(data, sys, tf) {
 async function loadFactionModalData(factionName, tf = '1yr') {
   const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
   const facNorm = (factionName || '').trim().toLowerCase();
-  const cacheKey = `${facNorm}_${sys}_${tf}`;
+  const reqFilterKey = _getModalFilterCacheSuffix();
+  const cacheKey = `${facNorm}_${sys}_${tf}${reqFilterKey}`;
   const cachedEntry = factionModalDataCache.get(cacheKey);
   const now = Date.now();
   const isFresh = cachedEntry && !cachedEntry.fromStorage && (now - cachedEntry.timestamp < 120000); // 2 min in-session fresh; storage/older entries render in 0ms + background revalidate
@@ -1732,9 +1813,11 @@ async function loadFactionModalData(factionName, tf = '1yr') {
   const reqFaction = factionName;
   const reqTf = tf;
   factionModalAbortController = new AbortController();
+  _renderFactionModalFilterBanner();
 
-  const hasExistingData = (currentFactionMatches && currentFactionMatches.length > 0) ||
-                          (currentFactionMatchups && currentFactionMatchups.length > 0);
+  const hasExistingData = ((currentFactionMatches && currentFactionMatches.length > 0) ||
+                          (currentFactionMatchups && currentFactionMatchups.length > 0)) &&
+                          currentFactionMatchesScopeKey === cacheKey;
 
   if (cachedEntry) {
     applyFactionModalData(cachedEntry.data, sys, tf);
@@ -1765,7 +1848,7 @@ async function loadFactionModalData(factionName, tf = '1yr') {
 
   try {
     const data = await fetchFactionDetailsShared(factionName, sys, tf);
-    if (currentFactionName !== reqFaction || currentFactionTimeframe !== reqTf) return;
+    if (currentFactionName !== reqFaction || currentFactionTimeframe !== reqTf || _getModalFilterCacheSuffix() !== reqFilterKey) return;
     if (data && !data.error && !data.aborted) {
       applyFactionModalData(data, sys, tf);
       prefetchRemainingModalTimeframes(factionName, sys, tf);
@@ -1773,7 +1856,7 @@ async function loadFactionModalData(factionName, tf = '1yr') {
       throw new Error(data.error);
     }
   } catch (err) {
-    if (currentFactionName !== reqFaction || currentFactionTimeframe !== reqTf) return;
+    if (currentFactionName !== reqFaction || currentFactionTimeframe !== reqTf || _getModalFilterCacheSuffix() !== reqFilterKey) return;
     console.warn("Notice loading faction modal data:", err);
     if (!cachedEntry && !hasExistingData) {
       const errMsg = err && err.message ? err.message : 'Request timed out';
@@ -1794,6 +1877,10 @@ let _factionMatchSearchLastKey = '';
 async function openFactionModal(factionName, initialTf = null, initialSubtab = null) {
   const modal = document.getElementById('faction-modal');
   if (!modal) return;
+  const wasAlreadyOpen = modal.classList.contains('open') || modal.style.display === 'flex';
+  if (!wasAlreadyOpen) {
+    currentFactionModalUseMetaFilters = _isMetaIntelTabActive();
+  }
   bringModalToFront(modal);
 
   if (currentFactionName !== factionName) {
@@ -1909,13 +1996,16 @@ function onFactionModalMatchControlChange() {
   const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
   const tf = currentFactionTimeframe || '1yr';
   const reqFac = currentFactionName;
-  const searchKey = `${reqFac.toLowerCase()}_${sys}_${tf}_${q.toLowerCase()}`;
+  const fKey = _getModalFilterCacheSuffix();
+  const effFilters = _getModalEffectiveFilters();
+  const searchKey = `${reqFac.toLowerCase()}_${sys}_${tf}${fKey}_${q.toLowerCase()}`;
   if (_factionMatchSearchLastKey === searchKey) return;
 
   _factionMatchSearchDebounce = setTimeout(async () => {
     try {
-      const res = await window.api.getFactionDetails(reqFac, 350, sys, tf, { search: q, offset: 0 });
-      if (currentFactionName !== reqFac || currentFactionTimeframe !== tf) return;
+      const searchOpts = effFilters ? { search: q, offset: 0, filters: effFilters } : { search: q, offset: 0 };
+      const res = await window.api.getFactionDetails(reqFac, 350, sys, tf, searchOpts);
+      if (currentFactionName !== reqFac || currentFactionTimeframe !== tf || _getModalFilterCacheSuffix() !== fKey) return;
       _factionMatchSearchLastKey = searchKey;
       const remoteMatches = (res && Array.isArray(res.matches)) ? res.matches : [];
       currentFactionSearchNextOffset = remoteMatches.length;
@@ -1971,9 +2061,13 @@ async function loadMoreFactionMatches() {
   );
 
   try {
-    const opts = isSearchMode ? { search: q, offset: offsetToFetch } : { offset: offsetToFetch };
+    const fKey = _getModalFilterCacheSuffix();
+    const effFilters = _getModalEffectiveFilters();
+    const opts = isSearchMode
+      ? (effFilters ? { search: q, offset: offsetToFetch, filters: effFilters } : { search: q, offset: offsetToFetch })
+      : (effFilters ? { offset: offsetToFetch, filters: effFilters } : { offset: offsetToFetch });
     const res = await window.api.getFactionDetails(reqFac, pageSize, sys, tf, opts);
-    if (currentFactionName !== reqFac || currentFactionTimeframe !== tf) return;
+    if (currentFactionName !== reqFac || currentFactionTimeframe !== tf || _getModalFilterCacheSuffix() !== fKey) return;
 
     const remoteMatches = (res && Array.isArray(res.matches)) ? res.matches : [];
     const moreAvail = Boolean(res && res.has_more_matches) && remoteMatches.length > 0;
@@ -2003,7 +2097,7 @@ async function loadMoreFactionMatches() {
       });
 
       if (!isSearchMode) {
-        const ck = `${reqFac.trim().toLowerCase()}_${sys}_${tf}`;
+        const ck = `${reqFac.trim().toLowerCase()}_${sys}_${tf}${fKey}`;
         const existing = factionModalDataCache.get(ck);
         if (existing && existing.data) {
           existing.data = {

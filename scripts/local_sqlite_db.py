@@ -35,6 +35,17 @@ from config import (
     resolve_canonical_faction,
     resolve_event_game_system,
 )
+from meta_event_classifier import (
+    COUNTRY_DISPLAY_NAMES,
+    FORMAT_DISPLAY_LABELS,
+    MetaFilterSpec,
+    REGION_DISPLAY_NAMES,
+    US_STATE_NAMES,
+    classify_event_structure_and_format,
+    classify_is_online,
+    normalize_country_and_region,
+    parse_meta_filters,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -4096,6 +4107,7 @@ class LocalSqliteDatabase:
         timeframe_key: str = "90d",
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        ev_map: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Single source of truth for both `get_faction_meta_stats` and `get_faction_details`.
@@ -4110,6 +4122,12 @@ class LocalSqliteDatabase:
         matches_by_fac: Dict[str, List[Dict[str, Any]]] = {}
         trend_buckets: Dict[str, Dict[str, Dict[str, int]]] = {}
         distinct_match_ids = set()
+
+        if isinstance(ev_map, dict):
+            for k_eid, v_em in ev_map.items():
+                er_cnt = int(v_em.get("effective_rounds") or 0)
+                if er_cnt > 0:
+                    event_max_rounds[str(k_eid)] = er_cnt
 
         for r in rh_rows:
             ev_id = str(r.get("event_id") or "ev")
@@ -4640,8 +4658,13 @@ class LocalSqliteDatabase:
         all_pilots_union = set()
         for fa in fac_agg.values():
             all_pilots_union.update(fa["pilots"])
-        total_pilots = max(1, len(all_pilots_union))
-        raw_match_count = len(distinct_match_ids) if distinct_match_ids else max(1, total_appearances // 2)
+        raw_appearances_sum = sum(fa["total_matches"] for fa in fac_agg.values())
+        total_pilots = len(all_pilots_union) if raw_appearances_sum == 0 else max(1, len(all_pilots_union))
+        raw_match_count = (
+            0
+            if raw_appearances_sum == 0
+            else (len(distinct_match_ids) if distinct_match_ids else max(1, raw_appearances_sum // 2))
+        )
 
         most_popular = factions_out[0] if factions_out else None
         highest_wr = max(factions_out, key=lambda x: (x["win_rate"], x["total_matches"])) if factions_out else None
@@ -4651,7 +4674,7 @@ class LocalSqliteDatabase:
 
         summary_kpis = {
             "total_matches": raw_match_count,
-            "total_appearances": total_appearances,
+            "total_appearances": raw_appearances_sum,
             "total_pilots": total_pilots,
             "active_factions": active_factions,
             "goldilocks_count": goldilocks_count,
@@ -4686,6 +4709,302 @@ class LocalSqliteDatabase:
             "_details_by_faction": details_by_faction,
         }
 
+    def _classify_sqlite_events_for_system(
+        self,
+        norm_sys: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Classifies SQLite events using `meta_event_classifier` for exact parity with PostgreSQL."""
+        conn = self._connect()
+        try:
+            where_ev = ["COALESCE(e.game_system, '40k') = ?"]
+            ev_params: List[Any] = [norm_sys]
+            if start_date:
+                where_ev.append("(e.event_date IS NULL OR SUBSTR(e.event_date, 1, 10) >= ?)")
+                ev_params.append(str(start_date)[:10])
+            if end_date:
+                where_ev.append("(e.event_date IS NULL OR SUBSTR(e.event_date, 1, 10) <= ?)")
+                ev_params.append(str(end_date)[:10])
+            ev_rows = [
+                dict(r)
+                for r in conn.execute(
+                    f"SELECT * FROM events e WHERE {' AND '.join(where_ev)};",
+                    tuple(ev_params),
+                ).fetchall()
+            ]
+            if not ev_rows:
+                return {}
+
+            m_rows = conn.execute(
+                """
+                SELECT
+                    event_id,
+                    round,
+                    table_number,
+                    player1_id,
+                    player2_id,
+                    player1_name,
+                    player2_name,
+                    player1_faction,
+                    player2_faction,
+                    match_date,
+                    raw_json
+                FROM matches
+                WHERE COALESCE(game_system, '40k') = ? AND event_id IS NOT NULL;
+                """,
+                (norm_sys,),
+            ).fetchall()
+            m_stats: Dict[str, Dict[str, Any]] = {}
+            for mr in m_rows:
+                eid = str(mr["event_id"] or "")
+                if not eid:
+                    continue
+                st = m_stats.setdefault(
+                    eid,
+                    {
+                        "pids": set(),
+                        "max_round": 0,
+                        "min_day": None,
+                        "max_day": None,
+                        "has_ffa": False,
+                        "has_doubles": False,
+                        "has_team_pods": False,
+                    },
+                )
+                if mr["player1_id"]:
+                    st["pids"].add(str(mr["player1_id"]))
+                if mr["player2_id"]:
+                    st["pids"].add(str(mr["player2_id"]))
+                rnd = int(mr["round"] or 0)
+                if rnd > st["max_round"]:
+                    st["max_round"] = rnd
+                mday = str(mr["match_date"] or "")[:10]
+                if len(mday) == 10:
+                    if st["min_day"] is None or mday < st["min_day"]:
+                        st["min_day"] = mday
+                    if st["max_day"] is None or mday > st["max_day"]:
+                        st["max_day"] = mday
+                tbl_s = str(mr["table_number"] or "").lower()
+                p1n = str(mr["player1_name"] or "")
+                p2n = str(mr["player2_name"] or "")
+                p1f = str(mr["player1_faction"] or "")
+                p2f = str(mr["player2_faction"] or "")
+                if tbl_s.startswith("pod ("):
+                    st["has_ffa"] = True
+                if " + " in p1n or " + " in p2n or "+" in p1f or "+" in p2f:
+                    st["has_doubles"] = True
+                raw_m = mr["raw_json"]
+                if raw_m and isinstance(raw_m, str):
+                    if '"is_ffa": true' in raw_m.lower() or '"pod_opponents"' in raw_m:
+                        st["has_ffa"] = True
+                    if '"is_2v2": true' in raw_m.lower():
+                        st["has_doubles"] = True
+                    if '"team_pod"' in raw_m or '"team_match"' in raw_m:
+                        st["has_team_pods"] = True
+
+            out: Dict[str, Dict[str, Any]] = {}
+            for er in ev_rows:
+                eid = str(er.get("id") or "")
+                ms = m_stats.get(eid) or {}
+                obs_p = len(ms.get("pids") or ())
+                obs_r = int(ms.get("max_round") or 0)
+                eff_p = max(int(er.get("players_count") or 0), obs_p)
+                raw_nr = int(er.get("num_rounds") or 0)
+                eff_r = max(raw_nr if raw_nr <= 20 else 0, obs_r)
+                span_days = 0
+                if ms.get("min_day") and ms.get("max_day"):
+                    try:
+                        d0 = datetime.strptime(ms["min_day"], "%Y-%m-%d").date()
+                        d1 = datetime.strptime(ms["max_day"], "%Y-%m-%d").date()
+                        span_days = max(0, (d1 - d0).days)
+                    except Exception:
+                        span_days = 0
+                raw_j = er.get("raw_json")
+                parsed_rj = {}
+                if isinstance(raw_j, str) and raw_j.strip():
+                    try:
+                        parsed_rj = json.loads(raw_j)
+                    except Exception:
+                        parsed_rj = {}
+                elif isinstance(raw_j, dict):
+                    parsed_rj = raw_j
+
+                is_onl = classify_is_online(
+                    event_id=eid,
+                    name=er.get("name"),
+                    venue_name=er.get("venue_name"),
+                    address=parsed_rj.get("address") if isinstance(parsed_rj, dict) else None,
+                    city=er.get("city"),
+                    country=er.get("country"),
+                    latitude=er.get("latitude"),
+                    longitude=er.get("longitude"),
+                    raw_json=parsed_rj,
+                    source_platform=er.get("source_platform"),
+                )
+                cc_val, sc_val, rg_val = normalize_country_and_region(
+                    country=er.get("country"),
+                    state=er.get("state"),
+                    city=er.get("city"),
+                    address=parsed_rj.get("address") if isinstance(parsed_rj, dict) else None,
+                    latitude=er.get("latitude"),
+                    longitude=er.get("longitude"),
+                    raw_json=parsed_rj,
+                    is_online=is_onl,
+                )
+                s_tag, f_tag, is_lg = classify_event_structure_and_format(
+                    event_id=eid,
+                    name=er.get("name"),
+                    event_date=er.get("event_date") or ms.get("min_day"),
+                    end_date=er.get("end_date") or ms.get("max_day"),
+                    event_type=parsed_rj.get("event_type") if isinstance(parsed_rj, dict) else None,
+                    team_size=parsed_rj.get("team_size") if isinstance(parsed_rj, dict) else None,
+                    points=parsed_rj.get("points") if isinstance(parsed_rj, dict) else None,
+                    game_system=norm_sys,
+                    raw_json=parsed_rj,
+                    has_ffa_matches=bool(ms.get("has_ffa")),
+                    has_doubles_matches=bool(ms.get("has_doubles")),
+                    has_team_pods=bool(ms.get("has_team_pods")),
+                    match_span_days=span_days,
+                )
+                ev_day = str(er.get("event_date") or ms.get("min_day") or "")[:10]
+                out[eid] = {
+                    "id": eid,
+                    "effective_players": eff_p,
+                    "effective_rounds": eff_r,
+                    "is_online": bool(is_onl),
+                    "is_league": bool(is_lg),
+                    "structure_tag": s_tag,
+                    "format_tag": f_tag,
+                    "country_code": cc_val,
+                    "state_code": sc_val,
+                    "region_code": rg_val,
+                    "event_day": ev_day,
+                }
+            return out
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _event_matches_meta_filter(ev_meta: Optional[Dict[str, Any]], mf: MetaFilterSpec) -> bool:
+        if not mf.has_event_filters():
+            return True
+        if not ev_meta:
+            return False
+        eff_p = int(ev_meta.get("effective_players") or 0)
+        eff_r = int(ev_meta.get("effective_rounds") or 0)
+        if mf.min_players > 0 and eff_p < mf.min_players:
+            return False
+        if mf.max_players > 0 and eff_p > mf.max_players:
+            return False
+        if mf.min_rounds > 0 and eff_r < mf.min_rounds:
+            return False
+        if mf.exclude_leagues and bool(ev_meta.get("is_league")):
+            return False
+        if mf.venue_mode == "online" and not bool(ev_meta.get("is_online")):
+            return False
+        if mf.venue_mode == "in_person" and bool(ev_meta.get("is_online")):
+            return False
+        if mf.event_structure != "all" and str(ev_meta.get("structure_tag") or "singles") != mf.event_structure:
+            return False
+        if mf.event_format != "all" and str(ev_meta.get("format_tag") or "standard") != mf.event_format:
+            return False
+        if mf.region != "all":
+            if bool(ev_meta.get("is_online")):
+                return False
+            if str(ev_meta.get("region_code") or "") != mf.region:
+                return False
+        if mf.country != "all":
+            if bool(ev_meta.get("is_online")):
+                return False
+            if str(ev_meta.get("country_code") or "") != mf.country:
+                return False
+        if mf.state != "all":
+            if bool(ev_meta.get("is_online")):
+                return False
+            if str(ev_meta.get("state_code") or "") != mf.state:
+                return False
+        return True
+
+    def get_meta_filter_options(
+        self,
+        game_system: str = "40k",
+        timeframe: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        norm_sys = normalize_game_system(game_system, default="40k")
+        _tf_key, eff_start, eff_end = self._resolve_meta_timeframe_window(timeframe, start_date, end_date)
+        ev_map = self._classify_sqlite_events_for_system(norm_sys, start_date=eff_start, end_date=eff_end)
+        cc_counts: Dict[str, int] = {}
+        st_counts: Dict[str, int] = {}
+        rg_counts: Dict[str, int] = {}
+        str_counts: Dict[str, int] = {}
+        fmt_counts: Dict[str, int] = {}
+        onl_cnt = 0
+        inp_cnt = 0
+        for em in ev_map.values():
+            if em.get("is_online"):
+                onl_cnt += 1
+            else:
+                inp_cnt += 1
+                cc = em.get("country_code")
+                if cc:
+                    cc_counts[cc] = cc_counts.get(cc, 0) + 1
+                if cc == "US" and em.get("state_code"):
+                    sc = em["state_code"]
+                    st_counts[sc] = st_counts.get(sc, 0) + 1
+                rg = em.get("region_code")
+                if rg and rg not in ("online", "all"):
+                    rg_counts[rg] = rg_counts.get(rg, 0) + 1
+            stag = em.get("structure_tag") or "singles"
+            str_counts[stag] = str_counts.get(stag, 0) + 1
+            ftag = em.get("format_tag") or "standard"
+            fmt_counts[ftag] = fmt_counts.get(ftag, 0) + 1
+
+        return {
+            "game_system": norm_sys,
+            "total_events": len(ev_map),
+            "online_events": onl_cnt,
+            "in_person_events": inp_cnt,
+            "countries": [
+                {"code": k, "name": COUNTRY_DISPLAY_NAMES.get(k, k), "count": v}
+                for k, v in sorted(cc_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            ],
+            "us_states": [
+                {"code": k, "name": US_STATE_NAMES.get(k, k), "count": v}
+                for k, v in sorted(st_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            ],
+            "regions": [
+                {"code": k, "name": REGION_DISPLAY_NAMES.get(k, k), "count": v}
+                for k, v in sorted(rg_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            ],
+            "structures": [
+                {"code": k, "count": v}
+                for k, v in sorted(str_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            ],
+            "formats": [
+                {"code": k, "label": FORMAT_DISPLAY_LABELS.get(k, k.replace("_", " ").title()), "count": v}
+                for k, v in sorted(fmt_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            ],
+        }
+
+    def refresh_meta_event_rollups(
+        self,
+        game_system: Optional[str] = None,
+        event_ids: Optional[List[str]] = None,
+        **_kwargs: Any,
+    ) -> Dict[str, Any]:
+        """Invalidates in-memory SQLite Meta Intel caches after tournament syncs or rating rebuilds."""
+        if hasattr(self, "_meta_computed_cache") and isinstance(self._meta_computed_cache, dict):
+            self._meta_computed_cache.clear()
+        norm_sys = normalize_game_system(game_system, default="40k") if game_system and game_system != "all" else "40k"
+        ev_map = self._classify_sqlite_events_for_system(norm_sys)
+        return {
+            "status": "ok",
+            "events_classified": len(event_ids) if event_ids is not None else len(ev_map),
+        }
+
     def _get_or_compute_system_meta(
         self,
         norm_sys: str,
@@ -4694,17 +5013,98 @@ class LocalSqliteDatabase:
         eff_end: Optional[str],
         query_start: Optional[str] = None,
         query_end: Optional[str] = None,
+        meta_filters: Optional[MetaFilterSpec] = None,
     ) -> Dict[str, Any]:
+        mf = meta_filters if isinstance(meta_filters, MetaFilterSpec) else MetaFilterSpec()
+        f_suffix = mf.cache_suffix()
         if not hasattr(self, "_meta_computed_cache") or not isinstance(self._meta_computed_cache, dict):
             self._meta_computed_cache = {}
-        cache_key = (norm_sys, query_start, query_end)
+        cache_key = (norm_sys, query_start, query_end, f_suffix)
         cached = self._meta_computed_cache.get(cache_key)
         if cached is not None:
             return cached
-        rh_rows, pr_map = self._load_effective_rh_rows(norm_sys, query_start, query_end)
+
+        ev_map = self._classify_sqlite_events_for_system(norm_sys, start_date=query_start, end_date=query_end)
+        if mf.is_default():
+            rh_rows, pr_map = self._load_effective_rh_rows(norm_sys, query_start, query_end)
+            matched_ev_ids = {
+                str(r.get("event_id") or "")
+                for r in rh_rows
+                if r.get("event_id") and str(r.get("event_id")) in ev_map
+            } or set(ev_map.keys())
+        else:
+            conn = self._connect()
+            try:
+                pr_map = {
+                    str(pr["player_id"]): dict(pr)
+                    for pr in conn.execute(
+                        "SELECT * FROM player_ratings WHERE COALESCE(game_system, '40k') = ?;",
+                        (norm_sys,),
+                    ).fetchall()
+                }
+                where_rh = ["COALESCE(rh.game_system, '40k') = ?"]
+                rh_params: List[Any] = [norm_sys]
+                if query_start:
+                    where_rh.append("SUBSTR(COALESCE(rh.match_date, ''), 1, 10) >= ?")
+                    rh_params.append(str(query_start)[:10])
+                if query_end:
+                    where_rh.append("SUBSTR(COALESCE(rh.match_date, ''), 1, 10) <= ?")
+                    rh_params.append(str(query_end)[:10])
+                raw_rh = [
+                    dict(r)
+                    for r in conn.execute(
+                        f"""
+                        SELECT rh.*, e.name AS event_title
+                        FROM rating_history rh
+                        LEFT JOIN events e ON e.id = rh.event_id
+                        WHERE {' AND '.join(where_rh)}
+                        ORDER BY rh.match_date DESC, rh.id DESC;
+                        """,
+                        tuple(rh_params),
+                    ).fetchall()
+                ]
+            finally:
+                conn.close()
+
+            allow_non_1v1 = mf.event_structure in ("doubles", "ffa_pod") or mf.event_format == "commander"
+            rh_rows = []
+            matched_ev_ids = set()
+            for r in raw_rh:
+                eid = str(r.get("event_id") or "")
+                if mf.has_event_filters() and not self._event_matches_meta_filter(ev_map.get(eid), mf):
+                    continue
+                if mf.elo_floor > 0:
+                    opp_id = str(r.get("opponent_id") or "").strip()
+                    if not opp_id:
+                        continue
+                    if float(r.get("old_elo") or 0.0) < mf.elo_floor or float(r.get("opponent_elo") or 0.0) < mf.elo_floor:
+                        continue
+                if not allow_non_1v1:
+                    raw_rj = r.get("raw_json")
+                    rj_d = {}
+                    if isinstance(raw_rj, str) and raw_rj.strip():
+                        try:
+                            rj_d = json.loads(raw_rj)
+                        except Exception:
+                            rj_d = {}
+                    elif isinstance(raw_rj, dict):
+                        rj_d = raw_rj
+                    if rj_d.get("is_ffa") or rj_d.get("is_2v2") or "+" in str(r.get("opponent_faction") or ""):
+                        continue
+                rh_rows.append(r)
+                if eid:
+                    matched_ev_ids.add(eid)
+
         computed = self._compute_system_meta_from_rh_rows(
-            norm_sys, rh_rows, pr_map, timeframe_key=tf_key, start_date=eff_start, end_date=eff_end
+            norm_sys,
+            rh_rows,
+            pr_map,
+            timeframe_key=tf_key,
+            start_date=eff_start,
+            end_date=eff_end,
+            ev_map=ev_map if not mf.is_default() else None,
         )
+        computed["summary_kpis"]["matched_events"] = len(matched_ev_ids)
         self._meta_computed_cache[cache_key] = computed
         return computed
 
@@ -4715,25 +5115,70 @@ class LocalSqliteDatabase:
         end_date: Optional[str] = None,
         timeframe: Optional[str] = None,
         _persist_setting: bool = False,
+        _force_refresh: bool = False,
+        meta_filters: Optional[MetaFilterSpec] = None,
+        min_players: int = 0,
+        max_players: int = 0,
+        min_rounds: int = 0,
+        venue_mode: Optional[str] = None,
+        event_structure: Optional[str] = None,
+        event_format: Optional[str] = None,
+        exclude_leagues: bool = False,
+        region: Optional[str] = None,
+        country: Optional[str] = None,
+        state: Optional[str] = None,
+        elo_floor: int = 0,
+        include_trends: bool = True,
     ) -> Dict[str, Any]:
         """Returns comprehensive StatCheck-style Meta Intel for any of the 118 game systems."""
+        mf = meta_filters if isinstance(meta_filters, MetaFilterSpec) else parse_meta_filters(
+            min_players=min_players,
+            max_players=max_players,
+            min_rounds=min_rounds,
+            venue_mode=venue_mode,
+            event_structure=event_structure,
+            event_format=event_format,
+            exclude_leagues=exclude_leagues,
+            region=region,
+            country=country,
+            state=state,
+            elo_floor=elo_floor,
+        )
         norm_sys = normalize_game_system(game_system, default="40k")
         tf_key, eff_start, eff_end = self._resolve_meta_timeframe_window(timeframe, start_date, end_date)
         query_start = eff_start if (start_date or end_date) else None
         query_end = eff_end if (start_date or end_date) else None
+        if _force_refresh and hasattr(self, "_meta_computed_cache") and isinstance(self._meta_computed_cache, dict):
+            self._meta_computed_cache.clear()
         computed = self._get_or_compute_system_meta(
-            norm_sys, tf_key, eff_start, eff_end, query_start=query_start, query_end=query_end
+            norm_sys,
+            tf_key,
+            eff_start,
+            eff_end,
+            query_start=query_start,
+            query_end=query_end,
+            meta_filters=mf,
         )
         result = {k: v for k, v in computed.items() if k != "_details_by_faction"}
+        if not include_trends:
+            result["monthly_trends"] = []
+            result["trends"] = []
         result["timeframe"] = tf_key
+        result["available_filters"] = self.get_meta_filter_options(
+            game_system=norm_sys,
+            timeframe=timeframe,
+            start_date=query_start,
+            end_date=query_end,
+        )
         result["filter"] = {
             "game_system": norm_sys,
             "timeframe": tf_key,
             "start_date": eff_start,
             "end_date": eff_end,
             "granularity": "Monthly",
+            **mf.to_dict(),
         }
-        if _persist_setting:
+        if _persist_setting and mf.is_default():
             for preset in ("90", "all", "36500"):
                 self.set_system_setting(f"meta_intel_v5_{norm_sys}_{preset}", result)
         return result
@@ -4741,13 +5186,41 @@ class LocalSqliteDatabase:
     def get_faction_details(
         self,
         faction_name: str,
+        limit: int = 150,
         game_system: str = "40k",
         timeframe: str = "1yr",
+        _from_bg_warm: bool = False,
+        include_top_players: bool = True,
         search: Optional[str] = None,
-        limit: int = 150,
+        _force_refresh: bool = False,
         offset: int = 0,
+        meta_filters: Optional[MetaFilterSpec] = None,
+        min_players: int = 0,
+        max_players: int = 0,
+        min_rounds: int = 0,
+        venue_mode: Optional[str] = None,
+        event_structure: Optional[str] = None,
+        event_format: Optional[str] = None,
+        exclude_leagues: bool = False,
+        region: Optional[str] = None,
+        country: Optional[str] = None,
+        state: Optional[str] = None,
+        elo_floor: int = 0,
     ) -> Optional[Dict[str, Any]]:
         """Computes faction/deck/commander detailed analytics, top pilots, matchups, and recent matches."""
+        mf = meta_filters if isinstance(meta_filters, MetaFilterSpec) else parse_meta_filters(
+            min_players=min_players,
+            max_players=max_players,
+            min_rounds=min_rounds,
+            venue_mode=venue_mode,
+            event_structure=event_structure,
+            event_format=event_format,
+            exclude_leagues=exclude_leagues,
+            region=region,
+            country=country,
+            state=state,
+            elo_floor=elo_floor,
+        )
         norm_sys = normalize_game_system(game_system, default="40k")
         f_clean = str(faction_name or "").strip()
         eff_offset = max(0, int(offset or 0))
@@ -4756,6 +5229,7 @@ class LocalSqliteDatabase:
                 "faction": "",
                 "game_system": norm_sys,
                 "timeframe": timeframe,
+                "filter": mf.to_dict(),
                 "stats": {},
                 "total_matches": 0,
                 "matches_offset": eff_offset,
@@ -4767,7 +5241,13 @@ class LocalSqliteDatabase:
 
         tf_key, eff_start, eff_end = self._resolve_meta_timeframe_window(timeframe)
         computed = self._get_or_compute_system_meta(
-            norm_sys, tf_key, eff_start, eff_end, query_start=None, query_end=None
+            norm_sys,
+            tf_key,
+            eff_start,
+            eff_end,
+            query_start=None,
+            query_end=None,
+            meta_filters=mf,
         )
         details_map: Dict[str, Dict[str, Any]] = computed.get("_details_by_faction", {})
 
@@ -4784,6 +5264,51 @@ class LocalSqliteDatabase:
         if not matched_detail:
             if is_placeholder_faction(f_clean, norm_sys):
                 return None
+            if not mf.is_default():
+                return {
+                    "faction": canon_target,
+                    "game_system": norm_sys,
+                    "timeframe": timeframe,
+                    "filter": mf.to_dict(),
+                    "matched_events": int((computed.get("summary_kpis") or {}).get("matched_events") or 0),
+                    "stats": {
+                        "total_matches": 0,
+                        "total_wins": 0,
+                        "total_losses": 0,
+                        "total_draws": 0,
+                        "win_rate": 0.0,
+                        "non_mirror_win_rate": 0.0,
+                        "avg_score": 0.0,
+                        "avg_opp_score": 0.0,
+                        "avg_margin": 0.0,
+                        "meta_share": 0.0,
+                        "unique_pilots": 0,
+                        "x0_runs": 0,
+                        "x1_runs": 0,
+                        "tiwp_rate": 0.0,
+                        "over_rep_ratio": 0.0,
+                        "tier": "C",
+                        "tier_label": "Underperforming (<45%)",
+                        "opponent_factions_count": 0,
+                        "favored_matchups_count": 0,
+                        "even_matchups_count": 0,
+                        "unfavored_matchups_count": 0,
+                        "best_matchup": None,
+                        "worst_matchup": None,
+                        "total_recent_sample": 0,
+                        "recent_wins": 0,
+                        "recent_losses": 0,
+                        "recent_draws": 0,
+                        "recent_win_rate": 0.0,
+                        "top_player_count": 0,
+                    },
+                    "total_matches": 0,
+                    "matches_offset": eff_offset,
+                    "has_more_matches": False,
+                    "top_players": [],
+                    "matches": [],
+                    "matchups": [],
+                }
             # Valid faction queried directly (e.g. 'Orks' or 'Aeldari' in 40k) that wasn't in the current local event slice:
             # generate deterministic symmetric virtual rows against the active factions of `norm_sys`.
             rh_rows, pr_map = self._load_effective_rh_rows(norm_sys, None, None)
@@ -4801,6 +5326,10 @@ class LocalSqliteDatabase:
 
         out = dict(matched_detail)
         out["timeframe"] = timeframe
+        out["filter"] = mf.to_dict()
+        out["matched_events"] = int((computed.get("summary_kpis") or {}).get("matched_events") or 0)
+        if not include_top_players:
+            out["top_players"] = []
         matches_list = list(out.get("matches") or [])
         if search and str(search).strip():
             sq = str(search).strip().lower()

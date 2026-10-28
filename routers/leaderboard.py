@@ -4384,6 +4384,47 @@ async def api_factions(game_system: Optional[str] = Query("40k"), grouped: Optio
         return stats.get("factions", [])
     return await asyncio.to_thread(_run_factions)
 
+def _unwrap_query_arg(val: Any) -> Any:
+    return val.default if hasattr(val, "default") else val
+
+
+# API: Faction Meta Filter Options
+@router.get("/api/factions/meta/filters", summary="Get available countries, states, formats, and structures for Meta Intel")
+async def api_faction_meta_filters(
+    game_system: Optional[str] = Query("40k"),
+    timeframe: Optional[str] = Query("90d"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+):
+    raw_sys = _unwrap_query_arg(game_system) or "40k"
+    raw_tf = _unwrap_query_arg(timeframe)
+    raw_start = _unwrap_query_arg(start_date)
+    raw_end = _unwrap_query_arg(end_date)
+
+    def _fetch_opts():
+        db = get_database()
+        if hasattr(db, "get_meta_filter_options"):
+            return db.get_meta_filter_options(
+                game_system=raw_sys,
+                timeframe=raw_tf,
+                start_date=raw_start,
+                end_date=raw_end,
+            )
+        return {
+            "game_system": raw_sys,
+            "total_events": 0,
+            "online_events": 0,
+            "in_person_events": 0,
+            "countries": [],
+            "us_states": [],
+            "regions": [],
+            "structures": [],
+            "formats": [],
+        }
+
+    return await asyncio.to_thread(_fetch_opts)
+
+
 # API: Faction Meta & Balance Analytics
 @router.get("/api/factions/meta", summary="Get global faction win rates and balance tier ratings")
 async def api_faction_meta(
@@ -4391,15 +4432,44 @@ async def api_faction_meta(
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     timeframe: Optional[str] = Query(None, description="Timeframe preset: '30d', '60d', '90d', '180d', '1yr', 'ytd', 'all', 'custom'"),
     game_system: Optional[str] = Query("40k"),
-    refresh: bool = Query(False)
+    refresh: bool = Query(False),
+    min_players: int = Query(0, ge=0, le=5000, description="Minimum tournament player count"),
+    max_players: int = Query(0, ge=0, le=5000, description="Optional maximum tournament player count (0 = unbounded)"),
+    min_rounds: int = Query(0, ge=0, le=30, description="Minimum tournament round count"),
+    venue_mode: Optional[str] = Query(None, description="Venue filter: 'all', 'in_person', or 'online'"),
+    event_structure: Optional[str] = Query(None, description="Structure filter: 'all', 'singles', 'teams', 'doubles', 'ffa_pod'"),
+    event_format: Optional[str] = Query(None, description="Format filter (e.g. 'standard', 'modern', 'commander', 'limited')"),
+    exclude_leagues: bool = Query(False, description="Exclude multi-week casual store leagues"),
+    region: Optional[str] = Query(None, description="Geographic region filter (NA, UK_IE, EU, OCE, ASIA, LATAM)"),
+    country: Optional[str] = Query(None, description="2-letter ISO country code (e.g. US, GB, CA, AU, DE)"),
+    state: Optional[str] = Query(None, description="2-letter US state code when country=US"),
+    elo_floor: int = Query(0, ge=0, le=3000, description="Minimum pre-match Elo for both players (e.g. 0, 1550, 1650)"),
+    include_trends: bool = Query(True, description="Include monthly/weekly trend series"),
 ):
     try:
-        raw_start = start_date.default if hasattr(start_date, "default") else start_date
-        raw_end = end_date.default if hasattr(end_date, "default") else end_date
-        raw_tf = timeframe.default if hasattr(timeframe, "default") else timeframe
-        raw_sys = game_system.default if hasattr(game_system, "default") else game_system
-        raw_refresh = refresh.default if hasattr(refresh, "default") else refresh
+        from meta_event_classifier import parse_meta_filters
+
+        raw_start = _unwrap_query_arg(start_date)
+        raw_end = _unwrap_query_arg(end_date)
+        raw_tf = _unwrap_query_arg(timeframe)
+        raw_sys = _unwrap_query_arg(game_system)
+        raw_refresh = _unwrap_query_arg(refresh)
+        raw_inc_trends = _unwrap_query_arg(include_trends)
         sys_val = raw_sys or "40k"
+
+        mf = parse_meta_filters(
+            min_players=_unwrap_query_arg(min_players),
+            max_players=_unwrap_query_arg(max_players),
+            min_rounds=_unwrap_query_arg(min_rounds),
+            venue_mode=_unwrap_query_arg(venue_mode),
+            event_structure=_unwrap_query_arg(event_structure),
+            event_format=_unwrap_query_arg(event_format),
+            exclude_leagues=_unwrap_query_arg(exclude_leagues),
+            region=_unwrap_query_arg(region),
+            country=_unwrap_query_arg(country),
+            state=_unwrap_query_arg(state),
+            elo_floor=_unwrap_query_arg(elo_floor),
+        )
 
         resolved_start = raw_start
         resolved_end = raw_end
@@ -4430,19 +4500,27 @@ async def api_faction_meta(
             resolved_end = today_str
 
         def _fetch_meta():
+            extra_kw: Dict[str, Any] = {}
+            if not mf.is_default():
+                extra_kw["meta_filters"] = mf
+            if raw_inc_trends is False:
+                extra_kw["include_trends"] = False
             return get_database().get_faction_meta_stats(
                 start_date=resolved_start,
                 end_date=resolved_end,
                 game_system=sys_val,
                 timeframe=tf_norm or None,
-                _force_refresh=bool(raw_refresh)
+                _force_refresh=bool(raw_refresh),
+                **extra_kw,
             )
+
         try:
             return await asyncio.wait_for(asyncio.to_thread(_fetch_meta), timeout=16.0)
         except asyncio.TimeoutError:
             from database import PostgresDatabase
             sys_norm = (sys_val or "40k").strip().lower()
-            exact_key = f"preset_{tf_norm}_{sys_norm}" if tf_norm else f"custom_{resolved_start}_{resolved_end}_{sys_norm}"
+            f_suffix = mf.cache_suffix()
+            exact_key = f"preset_{tf_norm}_{sys_norm}{f_suffix}" if tf_norm else f"custom_{resolved_start}_{resolved_end}_{sys_norm}{f_suffix}"
             fb_entry = PostgresDatabase._faction_meta_cache_dict.get(exact_key)
             if fb_entry and isinstance(fb_entry[0], dict) and "summary_kpis" in fb_entry[0] and fb_entry[0].get("factions"):
                 return fb_entry[0]
@@ -4453,6 +4531,7 @@ async def api_faction_meta(
                 "matchups_by_faction": {},
                 "summary_kpis": {
                     "total_matches": 0,
+                    "matched_events": 0,
                     "total_appearances": 0,
                     "total_pilots": 0,
                     "total_x0_runs": 0,
@@ -4472,11 +4551,13 @@ async def api_faction_meta(
                     "end_date": resolved_end,
                     "is_short_window": False,
                     "granularity": "Monthly",
+                    **mf.to_dict(),
                 },
             }
     except Exception as e:
         logger.error(f"Error in /api/factions/meta: {e}")
         return {"factions": [], "monthly_trends": [], "error": str(e)}
+
 
 # API: Faction Details & Match History
 @router.get("/api/faction/{faction_name:path}", summary="Get faction detailed metrics, top players, and match history")
@@ -4487,14 +4568,43 @@ async def api_faction_details(
     game_system: Optional[str] = Query("40k"),
     timeframe: Optional[str] = Query("1yr"),
     search: Optional[str] = Query(None),
-    refresh: bool = Query(False)
+    refresh: bool = Query(False),
+    min_players: int = Query(0, ge=0, le=5000),
+    max_players: int = Query(0, ge=0, le=5000),
+    min_rounds: int = Query(0, ge=0, le=30),
+    venue_mode: Optional[str] = Query(None),
+    event_structure: Optional[str] = Query(None),
+    event_format: Optional[str] = Query(None),
+    exclude_leagues: bool = Query(False),
+    region: Optional[str] = Query(None),
+    country: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    elo_floor: int = Query(0, ge=0, le=3000),
 ):
-    raw_limit = limit.default if hasattr(limit, "default") else limit
-    raw_offset = offset.default if hasattr(offset, "default") else offset
-    raw_sys = game_system.default if hasattr(game_system, "default") else game_system
-    raw_tf = timeframe.default if hasattr(timeframe, "default") else timeframe
-    raw_search = search.default if hasattr(search, "default") else search
-    raw_refresh = refresh.default if hasattr(refresh, "default") else refresh
+    from meta_event_classifier import parse_meta_filters
+
+    raw_limit = _unwrap_query_arg(limit)
+    raw_offset = _unwrap_query_arg(offset)
+    raw_sys = _unwrap_query_arg(game_system)
+    raw_tf = _unwrap_query_arg(timeframe)
+    raw_search = _unwrap_query_arg(search)
+    raw_refresh = _unwrap_query_arg(refresh)
+    mf = parse_meta_filters(
+        min_players=_unwrap_query_arg(min_players),
+        max_players=_unwrap_query_arg(max_players),
+        min_rounds=_unwrap_query_arg(min_rounds),
+        venue_mode=_unwrap_query_arg(venue_mode),
+        event_structure=_unwrap_query_arg(event_structure),
+        event_format=_unwrap_query_arg(event_format),
+        exclude_leagues=_unwrap_query_arg(exclude_leagues),
+        region=_unwrap_query_arg(region),
+        country=_unwrap_query_arg(country),
+        state=_unwrap_query_arg(state),
+        elo_floor=_unwrap_query_arg(elo_floor),
+    )
+    extra_kw: Dict[str, Any] = {}
+    if not mf.is_default():
+        extra_kw["meta_filters"] = mf
     return await asyncio.to_thread(
         get_database().get_faction_details,
         faction_name.strip(),
@@ -4503,7 +4613,8 @@ async def api_faction_details(
         timeframe=raw_tf,
         search=raw_search.strip() if raw_search else None,
         _force_refresh=bool(raw_refresh),
-        offset=max(0, int(raw_offset or 0))
+        offset=max(0, int(raw_offset or 0)),
+        **extra_kw,
     )
 
 # API: Match Win Probability Predictor

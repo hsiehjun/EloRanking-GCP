@@ -1,5 +1,5 @@
 /* ==========================================================================
-   FACTIONS.JS - Competitive Meta Intel, StatCheck Quadrant, Matchup Matrix & Timeline
+   FACTIONS.JS - Competitive Meta Intel, Tournament Scope Filters & Matchup Matrix
    ========================================================================== */
 
 const _initNow = new Date();
@@ -8,16 +8,29 @@ let factionMetaData = null;
 let factionTimeframe = '90d';
 let factionCustomStart = _init90d.toISOString().substring(0, 10);
 let factionCustomEnd = _initNow.toISOString().substring(0, 10);
-let factionViewMode = 'table'; // 'table' | 'quadrant' | 'matrix' | 'chart'
+let factionViewMode = 'table'; // 'table' | 'matrix'
 let factionTierFilter = 'ALL';
-let factionQuadrantMetric = 'overall'; // 'overall' | 'non_mirror' | 'margin'
 let factionMatrixSize = 14; // 10 | 14 | 16
-let factionTimelineMetric = 'win_rate'; // 'win_rate' | 'meta_share'
-let selectedFactions = new Set();
-let allAvailableFactions = [];
-let highlightedFaction = null;
 
-// Client-side L1 cache for instant 0ms switching across 1M / 2M / 3M / 6M / 1Y / YTD / All Time
+const DEFAULT_META_EVENT_FILTERS = Object.freeze({
+  min_players: 0,
+  max_players: 0,
+  min_rounds: 0,
+  exclude_leagues: false,
+  venue_mode: 'all',
+  event_structure: 'all',
+  event_format: 'all',
+  region: 'all',
+  country: 'all',
+  state: 'all',
+  elo_floor: 0
+});
+
+// Initial default on page load: All Events
+let factionEventFilters = { ...DEFAULT_META_EVENT_FILTERS };
+let _metaLoadSeq = 0;
+
+// Client-side L1 cache for instant 0ms switching across timeframes and filter presets
 const factionMetaClientCache = new Map();
 let _factionPrefetchScheduled = new Set();
 
@@ -26,6 +39,22 @@ const FACTION_PALETTE = [
   '#ef4444', '#10b981', '#6366f1', '#eab308', '#d946ef', '#14b8a6', '#84cc16', '#f43f5e',
   '#8b5cf6', '#3b82f6', '#2dd4bf', '#fb923c', '#94a3b8', '#fdba74', '#c084fc', '#4ade80'
 ];
+
+const _META_REGION_LABELS = {
+  NA: 'North America',
+  UK_IE: 'UK & Ireland',
+  EU: 'Continental Europe',
+  OCE: 'Oceania',
+  ASIA: 'Asia',
+  LATAM: 'Latin America'
+};
+
+const _META_STRUCTURE_LABELS = {
+  singles: 'Singles (1v1)',
+  teams: 'Teams',
+  doubles: 'Doubles (2v2)',
+  ffa_pod: 'Pods (FFA)'
+};
 
 function getFactionColor(fac) {
   const s = String(fac || '');
@@ -48,6 +77,317 @@ function getTimeframeDisplayLabel(tf) {
     'custom': `${factionCustomStart || 'Start'} to ${factionCustomEnd || 'Now'}`
   };
   return map[tf] || 'Last 90 Days';
+}
+
+function getActiveMetaEventFilters() {
+  return { ...factionEventFilters };
+}
+
+function isMetaEventFiltersDefault(f = factionEventFilters) {
+  if (!f || typeof f !== 'object') return true;
+  return (
+    (Number(f.min_players) || 0) <= 0 &&
+    (Number(f.max_players) || 0) <= 0 &&
+    (Number(f.min_rounds) || 0) <= 0 &&
+    !f.exclude_leagues &&
+    (!f.venue_mode || f.venue_mode === 'all') &&
+    (!f.event_structure || f.event_structure === 'all') &&
+    (!f.event_format || f.event_format === 'all') &&
+    (!f.region || f.region === 'all') &&
+    (!f.country || f.country === 'all') &&
+    (!f.state || f.state === 'all') &&
+    (Number(f.elo_floor) || 0) <= 0
+  );
+}
+
+function getMetaEventFilterCacheKey(f = factionEventFilters) {
+  if (isMetaEventFiltersDefault(f)) return '';
+  const parts = [];
+  if (Number(f.min_players) > 0) parts.push(`mp${Math.floor(Number(f.min_players))}`);
+  if (Number(f.max_players) > 0) parts.push(`xp${Math.floor(Number(f.max_players))}`);
+  if (Number(f.min_rounds) > 0) parts.push(`mr${Math.floor(Number(f.min_rounds))}`);
+  if (f.exclude_leagues) parts.push('xl1');
+  if (f.venue_mode && f.venue_mode !== 'all') parts.push(`vm_${f.venue_mode}`);
+  if (f.event_structure && f.event_structure !== 'all') parts.push(`st_${f.event_structure}`);
+  if (f.event_format && f.event_format !== 'all') parts.push(`fm_${f.event_format}`);
+  if (f.region && f.region !== 'all') parts.push(`rg_${f.region}`);
+  if (f.country && f.country !== 'all') parts.push(`cc_${f.country}`);
+  if (f.state && f.state !== 'all') parts.push(`sc_${f.state}`);
+  if (Number(f.elo_floor) > 0) parts.push(`ef${Math.floor(Number(f.elo_floor))}`);
+  return parts.length > 0 ? `__${parts.join('_')}` : '';
+}
+
+function getMetaEventFilterSummaryChips(f = factionEventFilters) {
+  if (isMetaEventFiltersDefault(f)) return [];
+  const chips = [];
+  if (Number(f.min_players) > 0) chips.push(`${Math.floor(Number(f.min_players))}+ Players`);
+  if (Number(f.max_players) > 0) chips.push(`≤${Math.floor(Number(f.max_players))} Players`);
+  if (Number(f.min_rounds) > 0) chips.push(`${Math.floor(Number(f.min_rounds))}+ Rounds`);
+  if (f.exclude_leagues) chips.push('Excl. Leagues');
+  if (f.venue_mode === 'in_person') chips.push('In-Person');
+  else if (f.venue_mode === 'online') chips.push('Online');
+  if (f.event_structure && f.event_structure !== 'all') {
+    chips.push(_META_STRUCTURE_LABELS[f.event_structure] || f.event_structure);
+  }
+  if (f.event_format && f.event_format !== 'all') {
+    const fmtEl = document.getElementById('meta-format-select');
+    let fmtLabel = f.event_format.replace(/_/g, ' ');
+    if (fmtEl && fmtEl.options) {
+      for (let i = 0; i < fmtEl.options.length; i++) {
+        if (fmtEl.options[i].value === f.event_format) {
+          fmtLabel = fmtEl.options[i].getAttribute('data-clean-label') || fmtEl.options[i].textContent.replace(/\s*\([^)]*\)\s*$/, '');
+          break;
+        }
+      }
+    }
+    chips.push(fmtLabel);
+  }
+  if (f.country && f.country !== 'all') {
+    chips.push(f.state && f.state !== 'all' ? `${f.country} • ${f.state}` : f.country);
+  } else if (f.region && f.region !== 'all') {
+    chips.push(_META_REGION_LABELS[f.region] || f.region);
+  }
+  if (Number(f.elo_floor) > 0) chips.push(`${Math.floor(Number(f.elo_floor))}+ Elo`);
+  return chips;
+}
+
+function syncMetaScopeFilterControlsUI() {
+  const f = factionEventFilters;
+  const presetPlayerVals = new Set([0, 8, 16, 28, 32, 64, 100]);
+  const mp = Number(f.min_players) || 0;
+  document.querySelectorAll('.meta-players-pills .meta-pill-btn').forEach(btn => {
+    const val = Number(btn.getAttribute('data-min-players') || 0);
+    btn.classList.toggle('active', val === mp);
+  });
+  const customPlayersInput = document.getElementById('meta-custom-min-players');
+  if (customPlayersInput) {
+    customPlayersInput.value = (mp > 0 && !presetPlayerVals.has(mp)) ? String(mp) : (mp > 0 ? String(mp) : '');
+  }
+
+  const mr = Number(f.min_rounds) || 0;
+  document.querySelectorAll('.meta-rounds-pills .meta-pill-btn').forEach(btn => {
+    const val = Number(btn.getAttribute('data-min-rounds') || 0);
+    btn.classList.toggle('active', val === mr);
+  });
+
+  const exclLgEl = document.getElementById('meta-exclude-leagues-toggle');
+  if (exclLgEl) exclLgEl.checked = Boolean(f.exclude_leagues);
+
+  document.querySelectorAll('.meta-venue-pills .meta-pill-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-venue') === (f.venue_mode || 'all'));
+  });
+
+  document.querySelectorAll('.meta-structure-pills .meta-pill-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-structure') === (f.event_structure || 'all'));
+  });
+
+  const fmtSel = document.getElementById('meta-format-select');
+  if (fmtSel) fmtSel.value = f.event_format || 'all';
+
+  const locGroup = document.getElementById('meta-location-group');
+  if (locGroup) {
+    locGroup.style.opacity = f.venue_mode === 'online' ? '0.45' : '1';
+  }
+  const rgSel = document.getElementById('meta-region-select');
+  if (rgSel) {
+    rgSel.value = f.region || 'all';
+    rgSel.disabled = f.venue_mode === 'online';
+  }
+  const ccSel = document.getElementById('meta-country-select');
+  if (ccSel) {
+    ccSel.value = f.country || 'all';
+    ccSel.disabled = f.venue_mode === 'online';
+  }
+  const stSel = document.getElementById('meta-state-select');
+  if (stSel) {
+    stSel.style.display = (f.country === 'US' && f.venue_mode !== 'online') ? '' : 'none';
+    stSel.value = f.state || 'all';
+  }
+
+  const ef = Number(f.elo_floor) || 0;
+  document.querySelectorAll('.meta-elo-pills .meta-pill-btn').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.getAttribute('data-elo') || 0) === ef);
+  });
+
+  const activeBar = document.getElementById('meta-active-scope-bar');
+  const badgesWrap = document.getElementById('meta-active-scope-badges');
+  const chips = getMetaEventFilterSummaryChips(f);
+  if (activeBar && badgesWrap) {
+    if (chips.length > 0) {
+      activeBar.style.display = 'inline-flex';
+      badgesWrap.innerHTML = chips.map(c => `<span class="meta-scope-chip">${escapeHtml(c)}</span>`).join('');
+    } else {
+      activeBar.style.display = 'none';
+      badgesWrap.innerHTML = '';
+    }
+  }
+}
+
+function syncMetaFilterOptionsUI(avail) {
+  if (!avail || typeof avail !== 'object') return;
+
+  const ccSel = document.getElementById('meta-country-select');
+  if (ccSel && Array.isArray(avail.countries)) {
+    const curCc = factionEventFilters.country || 'all';
+    let html = '<option value="all">All Countries</option>';
+    let seenCur = (curCc === 'all');
+    avail.countries.forEach(item => {
+      if (!item || !item.code) return;
+      if (item.code === curCc) seenCur = true;
+      const cnt = Number(item.count || 0);
+      html += `<option value="${escapeHtml(item.code)}">${escapeHtml(item.name || item.code)} (${formatNumber(cnt)})</option>`;
+    });
+    if (!seenCur && curCc !== 'all') {
+      html += `<option value="${escapeHtml(curCc)}">${escapeHtml(curCc)}</option>`;
+    }
+    ccSel.innerHTML = html;
+    ccSel.value = curCc;
+  }
+
+  const stSel = document.getElementById('meta-state-select');
+  if (stSel && Array.isArray(avail.us_states)) {
+    const curSt = factionEventFilters.state || 'all';
+    let html = '<option value="all">All US States</option>';
+    let seenSt = (curSt === 'all');
+    avail.us_states.forEach(item => {
+      if (!item || !item.code) return;
+      if (item.code === curSt) seenSt = true;
+      const cnt = Number(item.count || 0);
+      html += `<option value="${escapeHtml(item.code)}">${escapeHtml(item.code)} — ${escapeHtml(item.name || item.code)} (${formatNumber(cnt)})</option>`;
+    });
+    if (!seenSt && curSt !== 'all') {
+      html += `<option value="${escapeHtml(curSt)}">${escapeHtml(curSt)}</option>`;
+    }
+    stSel.innerHTML = html;
+    stSel.value = curSt;
+    stSel.style.display = (factionEventFilters.country === 'US' && factionEventFilters.venue_mode !== 'online') ? '' : 'none';
+  }
+
+  const fmtWrap = document.getElementById('meta-format-select-wrap');
+  const fmtSel = document.getElementById('meta-format-select');
+  if (fmtWrap && fmtSel && Array.isArray(avail.formats)) {
+    const curFmt = factionEventFilters.event_format || 'all';
+    const nonEmptyFmts = avail.formats.filter(x => x && x.code && Number(x.count || 0) > 0);
+    const hasMeaningfulVariety = nonEmptyFmts.length > 1 || nonEmptyFmts.some(x => x.code !== 'standard') || curFmt !== 'all';
+    if (hasMeaningfulVariety) {
+      let html = '<option value="all">All Formats</option>';
+      let seenFmt = (curFmt === 'all');
+      nonEmptyFmts.forEach(item => {
+        if (item.code === curFmt) seenFmt = true;
+        const lbl = item.label || item.code;
+        html += `<option value="${escapeHtml(item.code)}" data-clean-label="${escapeHtml(lbl)}">${escapeHtml(lbl)} (${formatNumber(item.count)})</option>`;
+      });
+      if (!seenFmt && curFmt !== 'all') {
+        html += `<option value="${escapeHtml(curFmt)}" data-clean-label="${escapeHtml(curFmt)}">${escapeHtml(curFmt)}</option>`;
+      }
+      fmtSel.innerHTML = html;
+      fmtSel.value = curFmt;
+      fmtWrap.style.display = 'inline-flex';
+    } else {
+      fmtWrap.style.display = 'none';
+    }
+  }
+}
+
+function setMetaMinPlayers(val) {
+  const n = Math.max(0, Math.min(5000, Math.floor(Number(val) || 0)));
+  factionEventFilters.min_players = n;
+  syncMetaScopeFilterControlsUI();
+  loadFactionMeta();
+}
+
+function onMetaCustomPlayersChange(val) {
+  const n = Math.max(0, Math.min(5000, Math.floor(Number(val) || 0)));
+  factionEventFilters.min_players = n;
+  syncMetaScopeFilterControlsUI();
+  loadFactionMeta();
+}
+
+function setMetaMinRounds(val) {
+  const r = Math.max(0, Math.min(30, Math.floor(Number(val) || 0)));
+  factionEventFilters.min_rounds = r;
+  syncMetaScopeFilterControlsUI();
+  loadFactionMeta();
+}
+
+function toggleMetaExcludeLeagues(checked) {
+  factionEventFilters.exclude_leagues = Boolean(checked);
+  syncMetaScopeFilterControlsUI();
+  loadFactionMeta();
+}
+
+function setMetaVenueMode(mode) {
+  const m = (mode === 'in_person' || mode === 'online') ? mode : 'all';
+  factionEventFilters.venue_mode = m;
+  if (m === 'online') {
+    factionEventFilters.region = 'all';
+    factionEventFilters.country = 'all';
+    factionEventFilters.state = 'all';
+  }
+  syncMetaScopeFilterControlsUI();
+  loadFactionMeta();
+}
+
+function setMetaEventStructure(st) {
+  const allowed = new Set(['all', 'singles', 'teams', 'doubles', 'ffa_pod']);
+  factionEventFilters.event_structure = allowed.has(st) ? st : 'all';
+  syncMetaScopeFilterControlsUI();
+  loadFactionMeta();
+}
+
+function setMetaEventFormat(fmt) {
+  factionEventFilters.event_format = (fmt && fmt !== 'all') ? String(fmt) : 'all';
+  syncMetaScopeFilterControlsUI();
+  loadFactionMeta();
+}
+
+function onMetaRegionChange(val) {
+  const rg = (val && val !== 'all') ? String(val) : 'all';
+  factionEventFilters.region = rg;
+  if (rg !== 'all') {
+    factionEventFilters.country = 'all';
+    factionEventFilters.state = 'all';
+    if (factionEventFilters.venue_mode === 'online') factionEventFilters.venue_mode = 'in_person';
+  }
+  syncMetaScopeFilterControlsUI();
+  loadFactionMeta();
+}
+
+function onMetaCountryChange(val) {
+  const cc = (val && val !== 'all') ? String(val) : 'all';
+  factionEventFilters.country = cc;
+  if (cc !== 'US') {
+    factionEventFilters.state = 'all';
+  }
+  if (cc !== 'all' && factionEventFilters.venue_mode === 'online') {
+    factionEventFilters.venue_mode = 'in_person';
+  }
+  syncMetaScopeFilterControlsUI();
+  loadFactionMeta();
+}
+
+function onMetaStateChange(val) {
+  const st = (val && val !== 'all') ? String(val) : 'all';
+  factionEventFilters.state = st;
+  if (st !== 'all') {
+    factionEventFilters.country = 'US';
+    if (factionEventFilters.venue_mode === 'online') factionEventFilters.venue_mode = 'in_person';
+  }
+  syncMetaScopeFilterControlsUI();
+  loadFactionMeta();
+}
+
+function setMetaEloFloor(val) {
+  const ef = Math.max(0, Math.min(3000, Math.floor(Number(val) || 0)));
+  factionEventFilters.elo_floor = ef;
+  syncMetaScopeFilterControlsUI();
+  loadFactionMeta();
+}
+
+function resetMetaEventFilters() {
+  factionEventFilters = { ...DEFAULT_META_EVENT_FILTERS };
+  syncMetaScopeFilterControlsUI();
+  loadFactionMeta();
 }
 
 function setFactionTimeframe(preset) {
@@ -95,22 +435,18 @@ function applyCustomFactionDateFilter() {
 }
 
 function setFactionViewMode(mode) {
-  factionViewMode = mode;
-  const modes = ['table', 'quadrant', 'matrix', 'chart'];
+  factionViewMode = (mode === 'matrix') ? 'matrix' : 'table';
+  const modes = ['table', 'matrix'];
   modes.forEach(m => {
     const btn = document.getElementById(`faction-mode-btn-${m}`);
     const container = document.getElementById(`faction-view-${m}-container`);
-    if (btn) btn.classList.toggle('active', m === mode);
-    if (container) container.style.display = (m === mode) ? 'block' : 'none';
+    if (btn) btn.classList.toggle('active', m === factionViewMode);
+    if (container) container.style.display = (m === factionViewMode) ? 'block' : 'none';
   });
 
   if (!factionMetaData) return;
-  if (mode === 'quadrant') {
-    renderFactionQuadrantChart();
-  } else if (mode === 'matrix') {
+  if (factionViewMode === 'matrix') {
     renderFactionMatchupMatrix();
-  } else if (mode === 'chart') {
-    renderFactionTrendChart(factionMetaData.monthly_trends || []);
   }
 }
 
@@ -126,20 +462,6 @@ function onFactionTableFilterChange() {
   renderFactionMetaRows();
 }
 
-function setQuadrantMetric(metric) {
-  factionQuadrantMetric = metric || 'overall';
-  const map = {
-    'overall': 'quadrant-metric-overall',
-    'non_mirror': 'quadrant-metric-nonmirror',
-    'margin': 'quadrant-metric-margin'
-  };
-  Object.keys(map).forEach(k => {
-    const btn = document.getElementById(map[k]);
-    if (btn) btn.classList.toggle('active', k === factionQuadrantMetric);
-  });
-  renderFactionQuadrantChart();
-}
-
 function setMatchupMatrixSize(size) {
   factionMatrixSize = Number(size) || 14;
   [10, 14, 16].forEach(n => {
@@ -149,56 +471,26 @@ function setMatchupMatrixSize(size) {
   renderFactionMatchupMatrix();
 }
 
-function setTimelineMetric(metric) {
-  factionTimelineMetric = metric || 'win_rate';
-  const btnWr = document.getElementById('timeline-metric-wr');
-  const btnShare = document.getElementById('timeline-metric-share');
-  if (btnWr) btnWr.classList.toggle('active', factionTimelineMetric === 'win_rate');
-  if (btnShare) btnShare.classList.toggle('active', factionTimelineMetric === 'meta_share');
-  if (factionMetaData) {
-    renderFactionTrendChart(factionMetaData.monthly_trends || []);
-  }
-}
-
 function _applyFactionMetaDataToUI(data) {
   if (data && Array.isArray(data.factions)) {
     data.factions = data.factions.filter(f => f && f.faction && !String(f.faction).includes('+'));
   }
   factionMetaData = data;
-
-  if (data && data.monthly_trends && data.monthly_trends.length > 0) {
-    const counts = {};
-    data.monthly_trends.forEach(t => {
-      counts[t.faction] = (counts[t.faction] || 0) + Number(t.matches_in_month || 1);
-    });
-    allAvailableFactions = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
-  } else if (data && data.factions) {
-    allAvailableFactions = data.factions
-      .slice()
-      .sort((a, b) => (Number(b.total_matches) || 0) - (Number(a.total_matches) || 0))
-      .map(f => f.faction);
+  if (data && data.available_filters) {
+    syncMetaFilterOptionsUI(data.available_filters);
   }
-
-  const hasOverlap = allAvailableFactions.some(f => selectedFactions.has(f));
-  if ((selectedFactions.size === 0 || !hasOverlap) && allAvailableFactions.length > 0) {
-    selectedFactions.clear();
-    allAvailableFactions.slice(0, 8).forEach(f => selectedFactions.add(f));
-  }
-
+  syncMetaScopeFilterControlsUI();
   renderFactionMetaKpis();
   renderFactionMetaRows();
   renderFactionDistribution();
-  if (factionViewMode === 'quadrant') {
-    renderFactionQuadrantChart();
-  } else if (factionViewMode === 'matrix') {
+  if (factionViewMode === 'matrix') {
     renderFactionMatchupMatrix();
-  } else if (factionViewMode === 'chart') {
-    renderFactionTrendChart(factionMetaData.monthly_trends || []);
   }
 }
 
 function scheduleFactionPresetsPrefetch(sys) {
   const sysKey = sys || '40k';
+  if (!isMetaEventFiltersDefault(factionEventFilters)) return;
   if (_factionPrefetchScheduled.has(sysKey)) return;
   _factionPrefetchScheduled.add(sysKey);
 
@@ -208,7 +500,7 @@ function scheduleFactionPresetsPrefetch(sys) {
       const ck = `${sysKey}_preset_${p}`;
       if (factionMetaClientCache.has(ck)) continue;
       try {
-        const res = await window.api.getFactionMeta(null, null, p, sysKey);
+        const res = await window.api.getFactionMeta(null, null, p, sysKey, { include_trends: false });
         if (res && Array.isArray(res.factions) && res.factions.length > 0) {
           factionMetaClientCache.set(ck, { timestamp: Date.now(), data: res });
         }
@@ -216,7 +508,6 @@ function scheduleFactionPresetsPrefetch(sys) {
         // Silent background warm
       }
     }
-    // Also warm top factions' 1yr modal details in background for instant modal open
     if (typeof window.prefetchTopFactionsModalCache === 'function' && factionMetaData && Array.isArray(factionMetaData.factions)) {
       const topFacNames = factionMetaData.factions.slice(0, 8).map(f => f.faction).filter(Boolean);
       window.prefetchTopFactionsModalCache(topFacNames, sysKey);
@@ -244,26 +535,34 @@ async function loadFactionMeta() {
   const tbody = document.getElementById('faction-meta-body');
   const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
   const isCustom = (factionTimeframe === 'custom');
+  const activeFilters = getActiveMetaEventFilters();
+  const isFiltered = !isMetaEventFiltersDefault(activeFilters);
+  const filterKey = getMetaEventFilterCacheKey(activeFilters);
   const cacheKey = isCustom
-    ? `${sys}_custom_${factionCustomStart}_${factionCustomEnd}`
-    : `${sys}_preset_${factionTimeframe}`;
+    ? `${sys}_custom_${factionCustomStart}_${factionCustomEnd}${filterKey}`
+    : `${sys}_preset_${factionTimeframe}${filterKey}`;
+  const reqSeq = ++_metaLoadSeq;
 
   const cached = factionMetaClientCache.get(cacheKey);
   const now = Date.now();
-  const cachedHasFactions = Boolean(cached && cached.data && Array.isArray(cached.data.factions) && cached.data.factions.length > 0);
-  if (cachedHasFactions && (now - cached.timestamp) < 600000) {
+  const cachedValid = Boolean(
+    cached &&
+    cached.data &&
+    Array.isArray(cached.data.factions) &&
+    (cached.data.factions.length > 0 || isFiltered)
+  );
+  if (cachedValid && (now - cached.timestamp) < 600000) {
     _applyFactionMetaDataToUI(cached.data);
     scheduleFactionPresetsPrefetch(sys);
-    // If cached entry is older than 60s, silently revalidate in the background so newly ingested tournaments show up
     if ((now - cached.timestamp) >= 60000) {
       const reqStartBg = isCustom ? factionCustomStart : null;
       const reqEndBg = isCustom ? factionCustomEnd : null;
       const reqTfBg = factionTimeframe;
-      window.api.getFactionMeta(reqStartBg, reqEndBg, reqTfBg, sys).then((freshData) => {
-        if (freshData && Array.isArray(freshData.factions) && freshData.factions.length > 0) {
+      window.api.getFactionMeta(reqStartBg, reqEndBg, reqTfBg, sys, { ...activeFilters, include_trends: false }).then((freshData) => {
+        if (freshData && Array.isArray(freshData.factions) && (freshData.factions.length > 0 || isFiltered)) {
           factionMetaClientCache.set(cacheKey, { timestamp: Date.now(), data: freshData });
           const changed = _checkAndInvalidateModalCacheOnMetaChange(cacheKey, freshData);
-          if (changed && factionTimeframe === reqTfBg) {
+          if (changed && factionTimeframe === reqTfBg && getMetaEventFilterCacheKey() === filterKey) {
             _applyFactionMetaDataToUI(freshData);
           }
         }
@@ -272,35 +571,54 @@ async function loadFactionMeta() {
     return;
   }
 
-  if (tbody && (!factionMetaData || !factionMetaData.factions || factionMetaData.factions.length === 0)) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Analyzing competitive faction meta...</div></td></tr>';
+  if (tbody) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Analyzing competitive tournament meta...</div></td></tr>';
   }
 
   try {
     const reqStart = isCustom ? factionCustomStart : null;
     const reqEnd = isCustom ? factionCustomEnd : null;
-    const data = await window.api.getFactionMeta(reqStart, reqEnd, factionTimeframe, sys);
-    if (data && Array.isArray(data.factions) && data.factions.length > 0) {
+    const data = await window.api.getFactionMeta(reqStart, reqEnd, factionTimeframe, sys, { ...activeFilters, include_trends: false });
+    if (reqSeq !== _metaLoadSeq) return;
+    if (data && Array.isArray(data.factions) && (data.factions.length > 0 || isFiltered)) {
       factionMetaClientCache.set(cacheKey, { timestamp: Date.now(), data });
       _checkAndInvalidateModalCacheOnMetaChange(cacheKey, data);
     }
     _applyFactionMetaDataToUI(data);
     scheduleFactionPresetsPrefetch(sys);
   } catch (err) {
+    if (reqSeq !== _metaLoadSeq) return;
     if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="empty-state" style="color:var(--loss);">Error loading faction meta: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
 function renderFactionMetaKpis() {
   const strip = document.getElementById('faction-meta-kpis-strip');
-  if (!strip || !factionMetaData || !factionMetaData.factions) return;
+  if (!strip || !factionMetaData || !Array.isArray(factionMetaData.factions)) return;
 
   const factions = factionMetaData.factions || [];
   const kpis = factionMetaData.summary_kpis || {};
   const totalAppearances = Number(kpis.total_appearances) || factions.reduce((acc, f) => acc + (Number(f.total_matches) || 0), 0);
-  const totalMatches = Number(kpis.total_matches) || Math.round(totalAppearances / 2);
-  const totalPilots = Number(kpis.total_pilots) || factions.reduce((acc, f) => acc + (Number(f.unique_pilots) || 0), 0);
+  const totalMatches = kpis.total_matches != null ? Number(kpis.total_matches) : Math.round(totalAppearances / 2);
+  const matchedEvents = kpis.matched_events != null ? Number(kpis.matched_events) : null;
+  const totalPilots = kpis.total_pilots != null ? Number(kpis.total_pilots) : factions.reduce((acc, f) => acc + (Number(f.unique_pilots) || 0), 0);
   const activeFactions = factions.length;
+  const isFiltered = !isMetaEventFiltersDefault(factionEventFilters);
+
+  const sampleSubLine = matchedEvents != null
+    ? `<b style="color:#38bdf8;">${formatNumber(matchedEvents)} ${matchedEvents === 1 ? 'event' : 'events'}</b> • ${formatNumber(totalPilots)} pilots`
+    : `${formatNumber(totalAppearances)} army entries • ${formatNumber(totalPilots)} pilots`;
+
+  if (activeFactions === 0) {
+    strip.innerHTML = `
+      <div class="meta-kpi-card" style="grid-column: 1 / -1;">
+        <div class="meta-kpi-label">📊 Field Sample (${escapeHtml(factionTimeframe.toUpperCase())}${isFiltered ? ' • FILTERED' : ''})</div>
+        <div class="meta-kpi-val meta-kpi-value">0 <span style="font-size:0.78rem; font-weight:600; color:var(--text-secondary);">games matched</span></div>
+        <div class="meta-kpi-sub">${sampleSubLine} — Try broadening your player/round/location filters or <a href="javascript:void(0)" onclick="resetMetaEventFilters()" style="color:#38bdf8; font-weight:700;">reset to All Events</a>.</div>
+      </div>
+    `;
+    return;
+  }
 
   const goldilocksCount = kpis.goldilocks_count != null
     ? Number(kpis.goldilocks_count)
@@ -358,9 +676,9 @@ function renderFactionMetaKpis() {
 
   strip.innerHTML = `
     <div class="meta-kpi-card">
-      <div class="meta-kpi-label">📊 Field Sample (${escapeHtml(factionTimeframe.toUpperCase())})</div>
+      <div class="meta-kpi-label">📊 Field Sample (${escapeHtml(factionTimeframe.toUpperCase())}${isFiltered ? ' • FILTERED' : ''})</div>
       <div class="meta-kpi-val meta-kpi-value">${formatNumber(totalMatches)} <span style="font-size:0.78rem; font-weight:600; color:var(--text-secondary);">games</span></div>
-      <div class="meta-kpi-sub">${formatNumber(totalAppearances)} army entries • ${formatNumber(totalPilots)} pilots</div>
+      <div class="meta-kpi-sub">${sampleSubLine}</div>
     </div>
 
     <div class="meta-kpi-card">
@@ -404,7 +722,10 @@ function renderFactionMetaRows() {
 
   const allFactions = factionMetaData.factions || [];
   if (allFactions.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No match data available for this timeframe.</td></tr>';
+    const isFiltered = !isMetaEventFiltersDefault(factionEventFilters);
+    tbody.innerHTML = isFiltered
+      ? '<tr><td colspan="9" class="empty-state">No tournaments matched your active scope filters in this timeframe. <button type="button" class="meta-reset-filters-btn" style="margin-left:0.5rem;" onclick="resetMetaEventFilters()">Reset to All Events</button></td></tr>'
+      : '<tr><td colspan="9" class="empty-state">No match data available for this timeframe.</td></tr>';
     return;
   }
 
@@ -430,7 +751,7 @@ function renderFactionMetaRows() {
   });
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No factions match your active filters.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No factions match your active table filters.</td></tr>';
     return;
   }
 
@@ -603,210 +924,6 @@ function renderFactionDistribution() {
   `;
 }
 
-function renderFactionQuadrantChart() {
-  const svg = document.getElementById('faction-quadrant-svg');
-  const tooltip = document.getElementById('faction-quadrant-tooltip');
-  if (!svg || !factionMetaData || !factionMetaData.factions) return;
-
-  const factions = (factionMetaData.factions || []).filter(f => (Number(f.total_matches) || 0) >= 1);
-  if (factions.length === 0) {
-    svg.innerHTML = '';
-    return;
-  }
-
-  const w = svg.clientWidth || 920;
-  const h = 440;
-  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-  svg.innerHTML = '';
-
-  const padL = 64;
-  const padR = 40;
-  const padT = 34;
-  const padB = 48;
-  const plotW = w - padL - padR;
-  const plotH = h - padT - padB;
-
-  const totalAppearances = factions.reduce((acc, f) => acc + (Number(f.total_matches) || 0), 0) || 1;
-  const shares = factions.map(f => f.meta_share != null ? Number(f.meta_share) : ((Number(f.total_matches) || 0) * 100 / totalAppearances));
-  const maxShare = Math.max(10, Math.ceil(Math.max(...shares, 8) * 1.15));
-  const avgShare = 100.0 / Math.max(1, factions.length);
-
-  const isMarginMode = (factionQuadrantMetric === 'margin');
-  const yValues = factions.map(f => {
-    if (factionQuadrantMetric === 'margin') return Number(f.avg_margin) || 0;
-    if (factionQuadrantMetric === 'non_mirror') return Number(f.non_mirror_win_rate != null ? f.non_mirror_win_rate : f.win_rate) || 0;
-    return Number(f.win_rate) || 0;
-  });
-
-  const minY = isMarginMode ? Math.min(-15, Math.floor(Math.min(...yValues, -10) - 2)) : 32;
-  const maxY = isMarginMode ? Math.max(15, Math.ceil(Math.max(...yValues, 10) + 2)) : 68;
-  const rangeY = Math.max(1, maxY - minY);
-
-  const toX = (share) => padL + (Math.max(0, Math.min(maxShare, share)) / maxShare) * plotW;
-  const toY = (val) => padT + plotH - ((Math.max(minY, Math.min(maxY, val)) - minY) / rangeY) * plotH;
-
-  // Goldilocks Band (45% - 55% WR or -5 to +5 VP Margin)
-  const bandLow = isMarginMode ? -4 : 45;
-  const bandHigh = isMarginMode ? 4 : 55;
-  const yBandTop = toY(bandHigh);
-  const yBandBot = toY(bandLow);
-  const bandRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  bandRect.setAttribute('x', padL);
-  bandRect.setAttribute('y', yBandTop);
-  bandRect.setAttribute('width', plotW);
-  bandRect.setAttribute('height', Math.max(2, yBandBot - yBandTop));
-  bandRect.setAttribute('fill', 'rgba(34, 197, 94, 0.07)');
-  bandRect.setAttribute('stroke', 'rgba(34, 197, 94, 0.22)');
-  bandRect.setAttribute('stroke-dasharray', '4,4');
-  svg.appendChild(bandRect);
-
-  // Horizontal Midline (50% WR or 0 VP)
-  const yMid = toY(isMarginMode ? 0 : 50);
-  const midLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  midLine.setAttribute('x1', padL);
-  midLine.setAttribute('y1', yMid);
-  midLine.setAttribute('x2', w - padR);
-  midLine.setAttribute('y2', yMid);
-  midLine.setAttribute('stroke', 'rgba(255,255,255,0.28)');
-  midLine.setAttribute('stroke-width', '1.2');
-  svg.appendChild(midLine);
-
-  // Vertical Average Popularity Line
-  const xAvg = toX(avgShare);
-  const vLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  vLine.setAttribute('x1', xAvg);
-  vLine.setAttribute('y1', padT);
-  vLine.setAttribute('x2', xAvg);
-  vLine.setAttribute('y2', h - padB);
-  vLine.setAttribute('stroke', 'rgba(56, 189, 248, 0.28)');
-  vLine.setAttribute('stroke-width', '1.2');
-  vLine.setAttribute('stroke-dasharray', '5,5');
-  svg.appendChild(vLine);
-
-  // Quadrant Watermark Labels
-  const quadLabels = [
-    { x: w - padR - 12, y: padT + 20, anchor: 'end', text: '👑 APEX META (High Play • High Win)', color: '#a855f7' },
-    { x: padL + 12, y: padT + 20, anchor: 'start', text: '💎 SLEEPER PICKS (Low Play • High Win)', color: '#22c55e' },
-    { x: w - padR - 12, y: h - padB - 12, anchor: 'end', text: '⚔️ POPULAR WORKHORSES (High Play • Sub-50%)', color: '#38bdf8' },
-    { x: padL + 12, y: h - padB - 12, anchor: 'start', text: '🛡️ UNDERDOGS (Low Play • Sub-50%)', color: '#94a3b8' }
-  ];
-  quadLabels.forEach(ql => {
-    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    t.setAttribute('x', ql.x);
-    t.setAttribute('y', ql.y);
-    t.setAttribute('text-anchor', ql.anchor);
-    t.setAttribute('fill', ql.color);
-    t.setAttribute('opacity', '0.65');
-    t.setAttribute('font-size', '10.5');
-    t.setAttribute('font-weight', '700');
-    t.textContent = ql.text;
-    svg.appendChild(t);
-  });
-
-  // Y-Axis Ticks
-  const yTicks = isMarginMode ? [-15, -10, -5, 0, 5, 10, 15] : [35, 40, 45, 50, 55, 60, 65];
-  yTicks.forEach(val => {
-    if (val < minY || val > maxY) return;
-    const y = toY(val);
-    const grid = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    grid.setAttribute('x1', padL);
-    grid.setAttribute('y1', y);
-    grid.setAttribute('x2', w - padR);
-    grid.setAttribute('y2', y);
-    grid.setAttribute('stroke', 'rgba(255,255,255,0.05)');
-    svg.appendChild(grid);
-
-    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    txt.setAttribute('x', padL - 10);
-    txt.setAttribute('y', y + 4);
-    txt.setAttribute('text-anchor', 'end');
-    txt.setAttribute('fill', (val === 50 || val === 0) ? '#fff' : '#64748b');
-    txt.setAttribute('font-size', '10');
-    txt.setAttribute('font-family', 'monospace');
-    txt.textContent = isMarginMode ? `${val >= 0 ? '+' : ''}${val} VP` : `${val}%`;
-    svg.appendChild(txt);
-  });
-
-  // X-Axis Ticks
-  const xStep = maxShare <= 12 ? 2 : (maxShare <= 20 ? 3 : 4);
-  for (let s = 0; s <= maxShare; s += xStep) {
-    const x = toX(s);
-    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    txt.setAttribute('x', x);
-    txt.setAttribute('y', h - 16);
-    txt.setAttribute('text-anchor', 'middle');
-    txt.setAttribute('fill', '#94a3b8');
-    txt.setAttribute('font-size', '10');
-    txt.setAttribute('font-family', 'monospace');
-    txt.textContent = `${s}%`;
-    svg.appendChild(txt);
-  }
-
-  const maxGames = Math.max(1, ...factions.map(f => Number(f.total_matches) || 1));
-
-  factions.forEach((f, idx) => {
-    const share = f.meta_share != null ? Number(f.meta_share) : ((Number(f.total_matches) || 0) * 100 / totalAppearances);
-    const yVal = yValues[idx];
-    const cx = toX(share);
-    const cy = toY(yVal);
-    const games = Number(f.total_matches) || 1;
-    const radius = 5.5 + Math.sqrt(games / maxGames) * 11.5;
-    const col = getFactionColor(f.faction);
-
-    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    g.style.cursor = 'pointer';
-
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('cx', cx);
-    circle.setAttribute('cy', cy);
-    circle.setAttribute('r', radius.toFixed(1));
-    circle.setAttribute('fill', col);
-    circle.setAttribute('fill-opacity', '0.78');
-    circle.setAttribute('stroke', '#fff');
-    circle.setAttribute('stroke-width', '1.4');
-    g.appendChild(circle);
-
-    const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    lbl.setAttribute('x', cx);
-    lbl.setAttribute('y', cy - radius - 4);
-    lbl.setAttribute('text-anchor', 'middle');
-    lbl.setAttribute('fill', '#e2e8f0');
-    lbl.setAttribute('font-size', '10');
-    lbl.setAttribute('font-weight', '600');
-    lbl.textContent = f.faction;
-    g.appendChild(lbl);
-
-    g.onclick = () => openFactionModal(f.faction);
-    g.onmouseenter = () => {
-      circle.setAttribute('fill-opacity', '1');
-      circle.setAttribute('stroke-width', '2.4');
-      if (tooltip) {
-        tooltip.style.display = 'block';
-        const leftPos = Math.min(w - 230, Math.max(12, cx + 14));
-        const topPos = Math.max(12, cy - 45);
-        tooltip.style.left = `${leftPos}px`;
-        tooltip.style.top = `${topPos}px`;
-        const nmWr = Number(f.non_mirror_win_rate != null ? f.non_mirror_win_rate : f.win_rate || 0).toFixed(1);
-        const mgn = Number(f.avg_margin || 0);
-        tooltip.innerHTML = `
-          <div style="font-weight:800; color:${col}; font-size:0.86rem; margin-bottom:0.2rem;">${escapeHtml(f.faction)}</div>
-          <div><b>Overall WR:</b> ${Number(f.win_rate || 0).toFixed(1)}% <span style="color:#94a3b8;">(Ex-Mirror: ${nmWr}%)</span></div>
-          <div><b>Meta Share:</b> ${share.toFixed(2)}% (${formatNumber(games)} games)</div>
-          <div><b>Event X-0 Runs:</b> ${Number(f.x0_runs || 0)} undefeated • ${Number(f.x1_runs || 0)} podiums</div>
-          <div><b>Avg VP Margin:</b> ${mgn >= 0 ? '+' : ''}${mgn.toFixed(1)} VP/g (${Number(f.avg_score || 0).toFixed(1)} avg)</div>
-        `;
-      }
-    };
-    g.onmouseleave = () => {
-      circle.setAttribute('fill-opacity', '0.78');
-      circle.setAttribute('stroke-width', '1.4');
-      if (tooltip) tooltip.style.display = 'none';
-    };
-
-    svg.appendChild(g);
-  });
-}
-
 function _getShortFactionHeader(name) {
   const s = String(name || '').trim();
   const abbrevMap = {
@@ -870,7 +987,7 @@ function renderFactionMatchupMatrix() {
   const cells = matrix.cells || {};
 
   if (factions.length === 0) {
-    wrap.innerHTML = '<div class="empty-state" style="padding:2rem;">No head-to-head matchup matrix data available for this timeframe.</div>';
+    wrap.innerHTML = '<div class="empty-state" style="padding:2rem;">No head-to-head matchup matrix data available for this scope and timeframe.</div>';
     return;
   }
 
@@ -915,284 +1032,36 @@ function renderFactionMatchupMatrix() {
   wrap.innerHTML = html;
 }
 
-function toggleFaction(fac) {
-  if (selectedFactions.has(fac)) {
-    selectedFactions.delete(fac);
-  } else {
-    selectedFactions.add(fac);
-  }
-  renderFactionTrendChart(factionMetaData ? factionMetaData.monthly_trends || [] : []);
-}
-
-function selectFactionPreset(preset) {
-  selectedFactions.clear();
-  if (preset === 'top8') {
-    allAvailableFactions.slice(0, 8).forEach(f => selectedFactions.add(f));
-  } else if (preset === 'top15') {
-    allAvailableFactions.slice(0, 15).forEach(f => selectedFactions.add(f));
-  } else if (preset === 'all') {
-    allAvailableFactions.forEach(f => selectedFactions.add(f));
-  }
-  renderFactionTrendChart(factionMetaData ? factionMetaData.monthly_trends || [] : []);
-}
-
-function setHoverFaction(fac) {
-  highlightedFaction = fac;
-  const svg = document.getElementById('faction-trend-svg');
-  if (!svg) return;
-
-  const paths = svg.querySelectorAll('.faction-line');
-  paths.forEach(p => {
-    const f = p.getAttribute('data-faction');
-    if (!fac) {
-      p.classList.remove('svg-line-hovered', 'svg-line-dimmed');
-    } else if (f === fac) {
-      p.classList.add('svg-line-hovered');
-      p.classList.remove('svg-line-dimmed');
-    } else {
-      p.classList.add('svg-line-dimmed');
-      p.classList.remove('svg-line-hovered');
-    }
-  });
-}
-
-function renderFactionTrendChart(trends) {
-  const isShareMode = (factionTimelineMetric === 'meta_share');
-  const chartTitle = document.getElementById('faction-chart-title');
-  const chartSub = document.getElementById('faction-chart-subtitle');
-  const gran = (factionMetaData && factionMetaData.filter && factionMetaData.filter.granularity) ? factionMetaData.filter.granularity : 'Monthly';
-  const tfLabel = getTimeframeDisplayLabel(factionTimeframe);
-
-  if (chartTitle) {
-    chartTitle.innerText = isShareMode
-      ? '📈 Faction Meta Share (Popularity) Trends Over Time'
-      : '📈 Faction Win Rate Trends Over Time';
-  }
-  if (chartSub) {
-    chartSub.innerText = isShareMode
-      ? `${gran} Field Representation % (${tfLabel}) across competitive tournaments`
-      : `${gran} Win Rate Trajectories (${tfLabel}) vs 45%-55% Goldilocks Balance Band`;
-  }
-
-  const chipsContainer = document.getElementById('faction-toggle-chips');
-  if (chipsContainer) {
-    chipsContainer.innerHTML = '';
-    allAvailableFactions.forEach(fac => {
-      const isAct = selectedFactions.has(fac);
-      const col = getFactionColor(fac);
-      const chip = document.createElement('div');
-      chip.className = `faction-chip ${isAct ? 'active' : ''}`;
-      chip.style.borderColor = isAct ? col : 'var(--border-color)';
-      chip.onmouseenter = () => setHoverFaction(fac);
-      chip.onmouseleave = () => setHoverFaction(null);
-      chip.onclick = () => toggleFaction(fac);
-      chip.innerHTML = `<span class="dot" style="background:${col}; opacity:${isAct ? 1 : 0.4};"></span><span>${escapeHtml(fac)}</span>`;
-      chipsContainer.appendChild(chip);
-    });
-  }
-
-  const svg = document.getElementById('faction-trend-svg');
-  const legendContainer = document.getElementById('faction-trend-legend');
-  const tooltip = document.getElementById('faction-chart-tooltip');
-  if (!svg || !trends || trends.length === 0) return;
-
-  const monthsSet = new Set();
-  const factionMap = {};
-  const periodTotals = {};
-
-  trends.forEach(t => {
-    monthsSet.add(t.month);
-    periodTotals[t.month] = (periodTotals[t.month] || 0) + (Number(t.matches_in_month) || 0);
-  });
-
-  trends.forEach(t => {
-    if (!factionMap[t.faction]) factionMap[t.faction] = {};
-    const shareVal = t.meta_share != null
-      ? Number(t.meta_share)
-      : (periodTotals[t.month] > 0 ? ((Number(t.matches_in_month) || 0) * 100 / periodTotals[t.month]) : 0);
-    factionMap[t.faction][t.month] = {
-      win_rate: Number(t.win_rate) || 0,
-      meta_share: shareVal,
-      matches: Number(t.matches_in_month) || 0
-    };
-  });
-
-  const months = Array.from(monthsSet).sort();
-  if (months.length === 0) return;
-
-  const activeFactions = allAvailableFactions.filter(f => selectedFactions.has(f));
-
-  const w = svg.clientWidth || 850;
-  const h = 310;
-  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-  svg.innerHTML = '';
-
-  const padX = 60;
-  const padY = 30;
-  const plotW = w - padX * 2;
-  const plotH = h - padY * 2;
-
-  let minVal = 35;
-  let maxVal = 65;
-  if (isShareMode) {
-    minVal = 0;
-    let maxObs = 12;
-    activeFactions.forEach(fac => {
-      months.forEach(m => {
-        const entry = factionMap[fac] ? factionMap[fac][m] : null;
-        if (entry && entry.meta_share > maxObs) maxObs = entry.meta_share;
-      });
-    });
-    maxVal = Math.ceil(maxObs * 1.15);
-  }
-  const range = Math.max(1, maxVal - minVal);
-
-  if (!isShareMode) {
-    // Goldilocks Balance Band (45% - 55%)
-    const y45 = padY + plotH - ((45 - minVal) / range) * plotH;
-    const y55 = padY + plotH - ((55 - minVal) / range) * plotH;
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.setAttribute('x', padX);
-    rect.setAttribute('y', y55);
-    rect.setAttribute('width', plotW);
-    rect.setAttribute('height', y45 - y55);
-    rect.setAttribute('fill', 'rgba(34, 197, 94, 0.08)');
-    rect.setAttribute('stroke', 'rgba(34, 197, 94, 0.25)');
-    rect.setAttribute('stroke-dasharray', '4,4');
-    svg.appendChild(rect);
-
-    const y50 = padY + plotH - ((50 - minVal) / range) * plotH;
-    const line50 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line50.setAttribute('x1', padX);
-    line50.setAttribute('y1', y50);
-    line50.setAttribute('x2', w - padX);
-    line50.setAttribute('y2', y50);
-    line50.setAttribute('stroke', 'rgba(255,255,255,0.2)');
-    svg.appendChild(line50);
-  }
-
-  const yTicks = isShareMode
-    ? [0, Math.round(maxVal * 0.25), Math.round(maxVal * 0.5), Math.round(maxVal * 0.75), maxVal]
-    : [35, 45, 50, 55, 65];
-  yTicks.forEach(val => {
-    const y = padY + plotH - ((val - minVal) / range) * plotH;
-    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    txt.setAttribute('x', padX - 8);
-    txt.setAttribute('y', y + 4);
-    txt.setAttribute('fill', (!isShareMode && val === 50) ? '#fff' : '#64748b');
-    txt.setAttribute('font-size', '10');
-    txt.setAttribute('font-family', 'monospace');
-    txt.setAttribute('text-anchor', 'end');
-    txt.textContent = `${val}%`;
-    svg.appendChild(txt);
-  });
-
-  const labelStep = months.length > 14 ? Math.ceil(months.length / 10) : 1;
-  months.forEach((m, idx) => {
-    if (idx % labelStep !== 0 && idx !== months.length - 1) return;
-    const x = padX + (idx / (months.length - 1 || 1)) * plotW;
-    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    txt.setAttribute('x', x);
-    txt.setAttribute('y', h - 8);
-    txt.setAttribute('fill', '#94a3b8');
-    txt.setAttribute('font-size', '10');
-    txt.setAttribute('font-family', 'monospace');
-    txt.setAttribute('text-anchor', 'middle');
-    txt.textContent = m;
-    svg.appendChild(txt);
-  });
-
-  activeFactions.forEach(fac => {
-    const color = getFactionColor(fac);
-    const pts = [];
-
-    months.forEach((m, mIdx) => {
-      const entry = factionMap[fac] ? factionMap[fac][m] : undefined;
-      if (entry !== undefined) {
-        const rawVal = isShareMode ? entry.meta_share : entry.win_rate;
-        const x = padX + (mIdx / (months.length - 1 || 1)) * plotW;
-        const clamped = Math.max(minVal, Math.min(maxVal, rawVal));
-        const y = padY + plotH - ((clamped - minVal) / range) * plotH;
-        pts.push({ x, y, val: rawVal, wr: entry.win_rate, share: entry.meta_share, matches: entry.matches, month: m, faction: fac });
-      }
-    });
-
-    if (pts.length > 1) {
-      let dStr = `M ${pts[0].x} ${pts[0].y}`;
-      for (let i = 1; i < pts.length; i++) {
-        dStr += ` L ${pts[i].x} ${pts[i].y}`;
-      }
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', dStr);
-      path.setAttribute('fill', 'none');
-      path.setAttribute('stroke', color);
-      path.setAttribute('stroke-width', '2.2');
-      path.setAttribute('stroke-linecap', 'round');
-      path.setAttribute('data-faction', fac);
-      path.classList.add('faction-line');
-      svg.appendChild(path);
-    }
-
-    pts.forEach(pt => {
-      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      circle.setAttribute('cx', pt.x);
-      circle.setAttribute('cy', pt.y);
-      circle.setAttribute('r', '4');
-      circle.setAttribute('fill', color);
-      circle.setAttribute('stroke', '#0a0c10');
-      circle.setAttribute('stroke-width', '1.5');
-      circle.style.cursor = 'pointer';
-      circle.onclick = () => openFactionModal(pt.faction);
-
-      if (tooltip) {
-        circle.onmouseenter = () => {
-          setHoverFaction(fac);
-          tooltip.style.display = 'block';
-          tooltip.style.left = `${Math.min(w - 200, pt.x + 10)}px`;
-          tooltip.style.top = `${Math.max(8, pt.y - 38)}px`;
-          tooltip.innerHTML = `
-            <b style="color:${color};">${escapeHtml(pt.faction)}</b><br>
-            <span style="color:#94a3b8;">${pt.month}:</span> <b>${pt.wr.toFixed(1)}% WR</b> • <b>${pt.share.toFixed(1)}% Share</b> (${pt.matches}g)
-          `;
-        };
-        circle.onmouseleave = () => {
-          setHoverFaction(null);
-          tooltip.style.display = 'none';
-        };
-      }
-      svg.appendChild(circle);
-    });
-  });
-
-  if (legendContainer) {
-    legendContainer.innerHTML = '';
-    activeFactions.forEach(fac => {
-      const color = getFactionColor(fac);
-      const div = document.createElement('div');
-      div.style.cssText = 'display:flex; align-items:center; gap:0.35rem; font-size:0.78rem; font-weight:600; cursor:pointer;';
-      div.onmouseenter = () => setHoverFaction(fac);
-      div.onmouseleave = () => setHoverFaction(null);
-      div.onclick = () => openFactionModal(fac);
-      div.innerHTML = `<span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color};"></span> <span class="player-link">${escapeHtml(fac)}</span>`;
-      legendContainer.appendChild(div);
-    });
-  }
-}
-
 if (typeof window !== 'undefined') {
   window.setFactionTimeframe = setFactionTimeframe;
   window.applyCustomFactionDateFilter = applyCustomFactionDateFilter;
   window.setFactionViewMode = setFactionViewMode;
   window.setFactionTierFilter = setFactionTierFilter;
   window.onFactionTableFilterChange = onFactionTableFilterChange;
-  window.setQuadrantMetric = setQuadrantMetric;
   window.setMatchupMatrixSize = setMatchupMatrixSize;
-  window.setTimelineMetric = setTimelineMetric;
   window.renderFactionMeta = renderFactionMeta;
   window.openDatePicker = openDatePicker;
+  window.getActiveMetaEventFilters = getActiveMetaEventFilters;
+  window.isMetaEventFiltersDefault = isMetaEventFiltersDefault;
+  window.getMetaEventFilterCacheKey = getMetaEventFilterCacheKey;
+  window.getMetaEventFilterSummaryChips = getMetaEventFilterSummaryChips;
+  window.setMetaMinPlayers = setMetaMinPlayers;
+  window.onMetaCustomPlayersChange = onMetaCustomPlayersChange;
+  window.setMetaMinRounds = setMetaMinRounds;
+  window.toggleMetaExcludeLeagues = toggleMetaExcludeLeagues;
+  window.setMetaVenueMode = setMetaVenueMode;
+  window.setMetaEventStructure = setMetaEventStructure;
+  window.setMetaEventFormat = setMetaEventFormat;
+  window.onMetaRegionChange = onMetaRegionChange;
+  window.onMetaCountryChange = onMetaCountryChange;
+  window.onMetaStateChange = onMetaStateChange;
+  window.setMetaEloFloor = setMetaEloFloor;
+  window.resetMetaEventFilters = resetMetaEventFilters;
   window.resetFactionState = function() {
     factionMetaData = null;
-    selectedFactions.clear();
-    allAvailableFactions = [];
+    if (factionEventFilters.event_format !== 'all') {
+      factionEventFilters.event_format = 'all';
+    }
+    syncMetaScopeFilterControlsUI();
   };
 }

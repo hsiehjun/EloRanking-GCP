@@ -841,14 +841,31 @@ window.api = {
     });
   },
 
-  // Faction Meta & Dynamic Timeline Trends
-  async getFactionMeta(startDate = null, endDate = null, timeframe = null, gameSystem = '') {
+  _appendMetaEventFilters(params, filters) {
+    if (!filters || typeof filters !== 'object') return;
+    if (Number(filters.min_players) > 0) params.set('min_players', String(Math.floor(Number(filters.min_players))));
+    if (Number(filters.max_players) > 0) params.set('max_players', String(Math.floor(Number(filters.max_players))));
+    if (Number(filters.min_rounds) > 0) params.set('min_rounds', String(Math.floor(Number(filters.min_rounds))));
+    if (filters.exclude_leagues) params.set('exclude_leagues', 'true');
+    if (filters.venue_mode && filters.venue_mode !== 'all') params.set('venue_mode', String(filters.venue_mode));
+    if (filters.event_structure && filters.event_structure !== 'all') params.set('event_structure', String(filters.event_structure));
+    if (filters.event_format && filters.event_format !== 'all') params.set('event_format', String(filters.event_format));
+    if (filters.region && filters.region !== 'all') params.set('region', String(filters.region));
+    if (filters.country && filters.country !== 'all') params.set('country', String(filters.country));
+    if (filters.state && filters.state !== 'all') params.set('state', String(filters.state));
+    if (Number(filters.elo_floor) > 0) params.set('elo_floor', String(Math.floor(Number(filters.elo_floor))));
+    if (filters.include_trends === false) params.set('include_trends', 'false');
+  },
+
+  // Faction Meta & Competitive Tournament Filters
+  async getFactionMeta(startDate = null, endDate = null, timeframe = null, gameSystem = '', filters = null) {
     const params = new URLSearchParams();
     if (timeframe) params.append('timeframe', timeframe);
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
     const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     if (currentSys) params.append('game_system', currentSys);
+    this._appendMetaEventFilters(params, filters);
     const url = params.toString() ? `/api/factions/meta?${params}` : '/api/factions/meta';
     return this._fetchJson(url);
   },
@@ -877,6 +894,7 @@ window.api = {
     if (tf) params.set('timeframe', tf);
     if (options && options.search) params.set('search', String(options.search).trim());
     if (options && Number(options.offset) > 0) params.set('offset', String(Math.floor(Number(options.offset))));
+    if (options && options.filters) this._appendMetaEventFilters(params, options.filters);
 
     return this._fetchJson(`/api/faction/${encodeURIComponent(factionName)}?${params.toString()}`, options);
   },

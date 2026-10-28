@@ -122,6 +122,27 @@ def run_tournament_sync(
     recon_res = engine.reconstruct_incremental(game_system=target_sys)
     logger.info(f"🏆 Elo Reconstruction complete: {recon_res}")
 
+    # Refresh pre-aggregated Meta Event Rollups (events classification + meta_event_matchups + meta_event_runs)
+    try:
+        if hasattr(db, "refresh_meta_event_rollups") and type(db).__name__ != "MagicMock":
+            rollup_cutoff = (datetime.now(timezone.utc) - timedelta(days=max(days + 7, 14))).strftime("%Y-%m-%d")
+            if target_sys in ("other", "others", "non_40k_aos", "all_other"):
+                rollup_systems = list((recon_res.get("other_systems") or {}).keys())
+            elif target_sys == "all":
+                rollup_systems = ["40k", "aos"] + list((recon_res.get("other_systems") or {}).keys())
+            else:
+                rollup_systems = [target_sys]
+            for sys_r in rollup_systems:
+                r_stats = db.refresh_meta_event_rollups(
+                    game_system=sys_r,
+                    start_date=rollup_cutoff,
+                    only_pending=True,
+                    mark_ready=True,
+                )
+                logger.info(f"📊 Refreshed Meta Event Rollups for {sys_r.upper()}: {r_stats}")
+    except Exception as rollup_err:
+        logger.warning(f"Notice during Meta Event Rollup refresh: {rollup_err}")
+
     # Refresh L2 persistent Meta Intel (90d / rolling windows) in system_settings so web instances serve fresh 3-month stats
     try:
         if hasattr(db, "prewarm_meta_intel_presets"):

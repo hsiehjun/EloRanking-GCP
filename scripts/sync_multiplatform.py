@@ -3286,6 +3286,18 @@ def finalize_platform_sync(db: Any, touched_systems: List[str], platform_name: s
         else:
             csv_systems = ",".join(unique_systems)
             recon_summary = engine.reconstruct_incremental(game_system=csv_systems)
+        if hasattr(db, "refresh_meta_event_rollups"):
+            recent_cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).strftime("%Y-%m-%d")
+            for sys_slug in unique_systems:
+                try:
+                    db.refresh_meta_event_rollups(
+                        game_system=sys_slug,
+                        start_date=recent_cutoff,
+                        only_pending=True,
+                        mark_ready=True,
+                    )
+                except Exception as rollup_err:
+                    logger.warning(f"[{platform_name}] Notice refreshing Meta Event Rollups for {sys_slug}: {rollup_err}")
         if hasattr(db, "prewarm_meta_intel_presets"):
             target_presets = ["90d", "all"] if len(unique_systems) > 2 else None
             for sys_slug in unique_systems:

@@ -272,6 +272,24 @@ def run_rebuild(game_systems, repair_melee_metadata: bool = False, prewarm_meta:
         # Progress checkpoint so long multi-system runs are observable from /api/admin/job-status.
         record_job_run("rebuild", {"status": "RUNNING", "result": out})
     _clear_pending_finalize_for_systems(db, completed_ok)
+    if mutated_systems and hasattr(db, "refresh_meta_event_rollups"):
+        inc_cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).strftime("%Y-%m-%d")
+        for sys_one in game_systems:
+            if mode != "full" and sys_one not in mutated_systems:
+                continue
+            sys_res = out["systems"].get(sys_one) or {}
+            if sys_res.get("status") in ("FAILED", "NO_MATCHES"):
+                continue
+            try:
+                r_res = db.refresh_meta_event_rollups(
+                    game_system=sys_one,
+                    start_date=inc_cutoff if mode == "incremental" else None,
+                    only_pending=(mode == "incremental"),
+                    mark_ready=True,
+                )
+                logger.info(f"Refreshed Meta Event Rollups for {sys_one}: {r_res}")
+            except Exception as rollup_err:
+                logger.warning(f"Notice refreshing Meta Event Rollups for {sys_one}: {rollup_err}")
     if mutated_systems:
         try:
             if hasattr(db, "invalidate_all_caches"):
@@ -300,7 +318,19 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=["auto", "incremental", "full"], default=os.getenv("REBUILD_MODE", "auto"))
     parser.add_argument("--repair-melee-metadata", action="store_true")
     parser.add_argument("--skip-prewarm-meta", action="store_true")
+    parser.add_argument("--backfill-meta-rollups", action="store_true", help="Backfill Meta Event Rollups across target systems without re-running Elo replay")
+    parser.add_argument("--batch-size", type=int, default=1500)
     args, _ = parser.parse_known_args()
+    if args.backfill_meta_rollups:
+        from scripts.backfill_meta_event_rollups import run_meta_rollup_backfill
+        bf_res = run_meta_rollup_backfill(
+            game_system=args.game_system,
+            batch_size=args.batch_size,
+            prewarm_meta=not args.skip_prewarm_meta,
+        )
+        print(json.dumps(bf_res, indent=2, default=str))
+        record_job_run("rebuild", {"status": "SUCCESS", "mode": "backfill_meta_rollups", "result": bf_res})
+        sys.exit(0)
     # "+" separates systems too, because Cloud Run job --args are themselves comma-separated.
     systems = [s.strip().lower() for s in re.split(r"[,+]", args.game_system) if s.strip()]
     result = run_rebuild(
