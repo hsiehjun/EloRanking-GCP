@@ -289,13 +289,14 @@ def test_find_placeholder_player_ids_and_parameter_safety():
 
 
 def test_cloudbuild_includes_player_sync_job():
-    """Verify cloudbuild.yaml has update step for player-sync-job."""
+    """Verify cloudbuild.yaml omits deprecated one-off player-sync-job backfill step while keeping active sync jobs."""
     cb_path = root_dir / "cloudbuild.yaml"
     with open(cb_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    assert "player-sync-job" in content
-    assert "id: 'update-player-sync-job'" in content
+    assert "player-sync-job" not in content
+    assert "elo-historical-scrape" not in content
+    assert "elo-tournament-sync-job" in content
     print("✅ test_cloudbuild_includes_player_sync_job passed")
 
 

@@ -167,30 +167,31 @@ def test_main_cli_multigame_support():
 
 
 def test_cloudbuild_deployment_pipeline():
-    """Verify cloudbuild.yaml has update steps for all active Cloud Run jobs including separate platform sync jobs."""
+    """Verify cloudbuild.yaml updates all active daily sync & rebuild Cloud Run jobs and omits deprecated backfill jobs."""
     with open(ROOT_DIR / "cloudbuild.yaml", "r", encoding="utf-8") as f:
         cb_src = f.read()
 
     assert "elo-tournament-sync-job" in cb_src
-    assert "elo-historical-scrape" in cb_src
-    assert "player-sync-job" in cb_src
     assert "elo-melee-sync-job" in cb_src
     assert "elo-limitless-sync-job" in cb_src
     assert "elo-longshanks-sync-job" in cb_src
     assert "elo-topdeck-sync-job" in cb_src
+    assert "elo-rebuild-job" in cb_src
     assert "scripts/sync_melee.py" in cb_src
     assert "scripts/sync_limitless.py" in cb_src
     assert "scripts/sync_longshanks.py" in cb_src
     assert "scripts/sync_topdeck.py" in cb_src
+    assert "elo-historical-scrape" not in cb_src
+    assert "player-sync-job" not in cb_src
     assert "wahapedia-sync-job" not in cb_src
     assert "cleanup-nr-relay" not in cb_src
+    assert "--days=3650" not in cb_src
     assert "id: 'update-tournament-job'" in cb_src
-    assert "id: 'update-historical-scrape-job'" in cb_src
-    assert "id: 'update-player-sync-job'" in cb_src
     assert "id: 'update-melee-sync-job'" in cb_src
     assert "id: 'update-limitless-sync-job'" in cb_src
     assert "id: 'update-longshanks-sync-job'" in cb_src
     assert "id: 'update-topdeck-sync-job'" in cb_src
+    assert "id: 'update-rebuild-job'" in cb_src
 
     print("✅ test_cloudbuild_deployment_pipeline passed")
 

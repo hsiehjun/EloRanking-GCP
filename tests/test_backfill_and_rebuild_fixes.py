@@ -50,14 +50,35 @@ class TestBackfillAndRebuildFixes(unittest.TestCase):
             self.assertEqual(next_cur[0], 1760000000 - (sync_topdeck.FIRESTORE_PAGE_SIZE - 1))
             self.assertTrue(next_cur[1].endswith(f"t_{sync_topdeck.FIRESTORE_PAGE_SIZE - 1}"))
 
-    def test_topdeck_bf_key_stable_across_days(self):
+    def test_topdeck_bf_key_stable_across_days_and_rolling_mode_skips_backfill(self):
         from scripts import sync_topdeck
 
-        with patch.object(sync_topdeck, "_scan_firestore", return_value=([], True, None)):
+        with patch.object(sync_topdeck, "_scan_firestore", return_value=([], True, None)) as m_scan:
             p1 = sync_topdeck.discover_topdeck_targets(game_system="all", days=3650, max_events=10)
             p2 = sync_topdeck.discover_topdeck_targets(game_system="all", days=3650, start_date="2016-01-01", max_events=10)
+            p_roll = sync_topdeck.discover_topdeck_targets(
+                game_system="all", days=14, recent_days=14, max_events=10,
+                state={"backfill": {"key": "all:from:2016-01-01", "done": True}},
+            )
             self.assertEqual(p1["backfill_key"], "all:full_10y")
             self.assertEqual(p2["backfill_key"], "all:from:2016-01-01")
+            self.assertIsNone(p_roll["backfill_key"])
+            self.assertTrue(p_roll["backfill_exhausted"])
+
+    def test_longshanks_zero_backfill_systems_disables_historical_scan(self):
+        from scripts import sync_longshanks
+
+        with patch.object(sync_longshanks, "_scan_history", return_value=([], True, 1)):
+            plan = sync_longshanks.discover_longshanks_targets(
+                game_system="mcp,sw_legion",
+                days=21,
+                recent_days=21,
+                max_backfill_systems=0,
+                max_events=20,
+                state={},
+            )
+            self.assertEqual(plan["backfill_systems"], [])
+            self.assertEqual(plan["backfill"], {})
 
     def test_http_get_text_retries_on_429(self):
         from scripts import sync_multiplatform
@@ -100,21 +121,32 @@ class TestBackfillAndRebuildFixes(unittest.TestCase):
             db.get_unranked_matches.return_value = unranked_list
             return db
 
-        # 1. Zero unranked matches -> skip
+        # 1. Zero unranked matches -> skip (bounded by since_date = max_rated_date - 30d)
         db_skip = make_mock_db(10, "2026-10-27T12:00:00Z", [])
         strat, meta = _choose_rebuild_strategy(db_skip, "pokemon", "auto")
         self.assertEqual(strat, "skip")
+        self.assertEqual(meta["since_date"], "2026-09-27T00:00:00+00:00")
+        db_skip.get_unranked_matches.assert_called_once_with(
+            limit=25001, game_system="pokemon", since_date="2026-09-27T00:00:00+00:00"
+        )
 
-        # 2. Recent unranked matches within 14d -> incremental
+        # 2. Recent unranked matches -> incremental with matching since_date
         db_inc = make_mock_db(10, "2026-10-27T12:00:00Z", [{"id": "m1", "match_date": "2026-10-26T10:00:00Z"}])
         strat2, meta2 = _choose_rebuild_strategy(db_inc, "pokemon", "auto")
         self.assertEqual(strat2, "incremental")
+        self.assertEqual(meta2["since_date"], "2026-09-27T00:00:00+00:00")
 
-        # 3. Historical out-of-order backfill (>14d older than max_rated_date) -> full
-        db_full = make_mock_db(10, "2026-10-27T12:00:00Z", [{"id": "m_old", "match_date": "2024-05-10T10:00:00Z"}])
-        strat3, meta3 = _choose_rebuild_strategy(db_full, "mtg", "auto")
+        # 3. Pending historical backfill flagged by sync job -> full
+        db_full = make_mock_db(10, "2026-10-27T12:00:00Z", [])
+        strat3, meta3 = _choose_rebuild_strategy(db_full, "mtg", "auto", pending_full={"mtg"})
         self.assertEqual(strat3, "full")
-        self.assertEqual(meta3["reason"], "historical_out_of_order_backfill")
+        self.assertEqual(meta3["reason"], "pending_historical_backfill")
+
+        # 4. Empty ratings with existing matches -> full
+        db_empty = make_mock_db(0, None, [])
+        strat4, meta4 = _choose_rebuild_strategy(db_empty, "new_tcg", "auto")
+        self.assertEqual(strat4, "full")
+        self.assertEqual(meta4["reason"], "sparse_or_empty_ratings")
 
 
 if __name__ == "__main__":

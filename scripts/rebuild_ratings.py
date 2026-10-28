@@ -73,22 +73,40 @@ def _parse_dt_utc(val):
         return None
 
 
-def _choose_rebuild_strategy(db, sys_one: str, requested_mode: str = "auto") -> tuple:
+def _load_pending_full_rebuild_systems(db) -> set:
+    pending_full = set()
+    try:
+        from scripts.platform_sync_state import load_sync_state
+        for st_key in ("sync_state_topdeck", "sync_state_longshanks", "sync_state_melee", "sync_state_limitless"):
+            st = load_sync_state(db, st_key)
+            if isinstance(st, dict) and st.get("pending_full_rebuild"):
+                for sys_s in st["pending_full_rebuild"]:
+                    if sys_s:
+                        pending_full.add(str(sys_s).strip().lower())
+    except Exception:
+        pass
+    return pending_full
+
+
+def _choose_rebuild_strategy(db, sys_one: str, requested_mode: str = "auto", pending_full: set = None) -> tuple:
     """
     Returns (strategy, meta_dict) where strategy in {'skip', 'incremental', 'full'}.
     - 'full': replays entire match history chronologically (`reconstruct_system_ratings_fast`).
       Used when explicitly requested (`--mode=full`), when ratings are empty, when >25k unranked
-      matches accumulated, or when historical backfill inserted matches >14 days older than
-      existing rated history.
+      matches accumulated, or when a sync job flagged `pending_full_rebuild` after importing
+      historical backfill events.
     - 'incremental': fast-path incremental Elo update (`reconstruct_incremental`) in seconds for
-      normal daily sync appends.
-    - 'skip': 0 unranked matches and ratings already populated -> skip in <100ms.
+      normal daily rolling-window sync appends (bounded by `since_date = max_rated_date - 30d`
+      so PostgreSQL scans only recent tail rows via `idx_pg_matches_system_chrono`).
+    - 'skip': 0 recent unranked matches and ratings already populated -> skip in <50ms.
     """
     mode_norm = (requested_mode or "auto").strip().lower()
     if mode_norm == "full":
         return "full", {"reason": "explicit_full"}
     if mode_norm == "incremental":
         return "incremental", {"reason": "explicit_incremental"}
+    if pending_full and sys_one in pending_full:
+        return "full", {"reason": "pending_historical_backfill"}
 
     pr_cnt = 0
     max_rated_dt = None
@@ -125,35 +143,27 @@ def _choose_rebuild_strategy(db, sys_one: str, requested_mode: str = "auto") -> 
     if pr_cnt < 10 and total_done_sample > 0:
         return "full", {"reason": "sparse_or_empty_ratings", "pr_cnt": pr_cnt}
 
+    since_iso = None
+    if max_rated_dt is not None:
+        from datetime import timedelta
+        since_iso = (max_rated_dt - timedelta(days=30)).strftime("%Y-%m-%dT00:00:00+00:00")
+
     try:
-        unranked = db.get_unranked_matches(limit=25001, game_system=sys_one)
+        try:
+            unranked = db.get_unranked_matches(limit=25001, game_system=sys_one, since_date=since_iso)
+        except TypeError:
+            unranked = db.get_unranked_matches(limit=25001, game_system=sys_one)
     except Exception as exc:
         logger.warning(f"Notice checking unranked matches for {sys_one}, falling back to full: {exc}")
         return "full", {"reason": "unranked_query_error"}
 
     n_unranked = len(unranked)
     if n_unranked == 0:
-        return "skip", {"reason": "zero_unranked_matches", "unranked_count": 0}
+        return "skip", {"reason": "zero_unranked_matches", "unranked_count": 0, "since_date": since_iso}
     if n_unranked > 25000:
         return "full", {"reason": "large_unranked_backlog", "unranked_count": n_unranked}
 
-    # Check if historical backfill inserted out-of-order matches older than (max_rated_dt - 14 days)
-    min_unranked_dt = None
-    for um in unranked[:25]:
-        dt_u = _parse_dt_utc(um.get("match_date"))
-        if dt_u is not None and (min_unranked_dt is None or dt_u < min_unranked_dt):
-            min_unranked_dt = dt_u
-    if max_rated_dt is not None and min_unranked_dt is not None:
-        from datetime import timedelta
-        if min_unranked_dt < (max_rated_dt - timedelta(days=14)):
-            return "full", {
-                "reason": "historical_out_of_order_backfill",
-                "unranked_count": n_unranked,
-                "min_unranked_date": min_unranked_dt.isoformat(),
-                "max_rated_date": max_rated_dt.isoformat(),
-            }
-
-    return "incremental", {"reason": "recent_append", "unranked_count": n_unranked}
+    return "incremental", {"reason": "recent_append", "unranked_count": n_unranked, "since_date": since_iso}
 
 
 def _clear_pending_finalize_for_systems(db, completed_systems: set) -> None:
@@ -163,11 +173,17 @@ def _clear_pending_finalize_for_systems(db, completed_systems: set) -> None:
         from scripts.platform_sync_state import load_sync_state, save_sync_state
         for st_key in ("sync_state_topdeck", "sync_state_longshanks", "sync_state_melee", "sync_state_limitless"):
             st = load_sync_state(db, st_key)
-            if isinstance(st, dict) and st.get("pending_finalize"):
-                rem = [s for s in st["pending_finalize"] if s not in completed_systems]
-                if rem != st["pending_finalize"]:
-                    st["pending_finalize"] = rem
-                    save_sync_state(db, st_key, st)
+            if not isinstance(st, dict):
+                continue
+            changed = False
+            for fld in ("pending_finalize", "pending_full_rebuild"):
+                if st.get(fld):
+                    rem = [s for s in st[fld] if s not in completed_systems]
+                    if rem != st[fld]:
+                        st[fld] = rem
+                        changed = True
+            if changed:
+                save_sync_state(db, st_key, st)
     except Exception:
         pass
 
@@ -200,12 +216,16 @@ def run_rebuild(game_systems, repair_melee_metadata: bool = False, prewarm_meta:
                 repaired_systems.add(t_sys)
                 if t_sys not in game_systems:
                     game_systems.append(t_sys)
+    pending_full = _load_pending_full_rebuild_systems(db)
     mutated_systems = set()
     completed_ok = set()
     for sys_one in game_systems:
         t0 = time.time()
         eff_mode = "full" if sys_one in repaired_systems else mode
-        strategy, strat_meta = _choose_rebuild_strategy(db, sys_one, requested_mode=eff_mode)
+        strategy, strat_meta = _choose_rebuild_strategy(
+            db, sys_one, requested_mode=eff_mode, pending_full=pending_full
+        )
+        since_arg = strat_meta.get("since_date")
         try:
             if strategy == "skip":
                 res = {
@@ -217,13 +237,13 @@ def run_rebuild(game_systems, repair_melee_metadata: bool = False, prewarm_meta:
                 completed_ok.add(sys_one)
             elif sys_one in FULL_ENGINE_SYSTEMS:
                 if strategy == "incremental":
-                    res = engine.reconstruct_incremental(batch_limit=50000, game_system=sys_one)
+                    res = engine.reconstruct_incremental(batch_limit=50000, game_system=sys_one, since_date=since_arg)
                 else:
                     res = engine.reconstruct_all_rankings(game_system=sys_one)
                 mutated_systems.add(sys_one)
                 completed_ok.add(sys_one)
             elif strategy == "incremental":
-                inc_res = engine.reconstruct_incremental(batch_limit=50000, game_system=sys_one)
+                inc_res = engine.reconstruct_incremental(batch_limit=50000, game_system=sys_one, since_date=since_arg)
                 res = {
                     "status": inc_res.get("status", "SUCCESS"),
                     "strategy": "incremental",

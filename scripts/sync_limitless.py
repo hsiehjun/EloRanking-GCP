@@ -326,9 +326,18 @@ def run_limitless_sync(
     if touched_systems is None:
         touched_systems = sorted({t[0] for t in targets})
     finalize_res: Dict[str, Any] = {}
-    if skip_finalize and touched_systems:
+    if skip_finalize and touched_systems and int(import_res.get("events_imported") or 0) > 0:
         # Ratings for touched systems are rebuilt by the nightly elo-rebuild-job instead.
         finalize_res = {"finalize_deferred": sorted(touched_systems)}
+        try:
+            from scripts.platform_sync_state import load_sync_state, save_sync_state
+            st_l = load_sync_state(db, "sync_state_limitless") or {}
+            st_l["pending_finalize"] = sorted(set(st_l.get("pending_finalize") or []) | set(touched_systems))
+            if bool((days or 7) >= 365 or start_date):
+                st_l["pending_full_rebuild"] = sorted(set(st_l.get("pending_full_rebuild") or []) | set(touched_systems))
+            save_sync_state(db, "sync_state_limitless", st_l)
+        except Exception:
+            pass
     elif touched_systems and int(import_res.get("events_imported") or 0) > 0:
         t_fin = time.time()
         finalize_res = finalize_platform_sync(db, sorted(touched_systems), platform_name="LimitlessTCG")

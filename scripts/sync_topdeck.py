@@ -265,25 +265,35 @@ def discover_topdeck_targets(
     recent = live_cands + recent
 
     bf = state.get("backfill") or {}
-    if start_date and str(start_date).strip():
-        bf_key = f"{target_sys}:from:{str(start_date).strip()[:10]}"
-    elif int(days or 3650) >= 3650:
-        bf_key = f"{target_sys}:full_10y"
+    is_backfill = bool(
+        (start_date and str(start_date).strip())
+        or int(days or 14) > (max(1, int(recent_days)) + max(0, int(settle_days)) + 1)
+    )
+    if not is_backfill:
+        bf_key = None
+        backfill = []
+        exhausted = bool(bf.get("done"))
+        scan_cursor = None
     else:
-        bf_key = f"{target_sys}:days:{int(days)}"
-    backfill: List[Dict[str, Any]] = []
-    exhausted = bool(bf.get("done")) and bf.get("key") == bf_key
-    bf_cursor: Optional[Tuple[int, str]] = None
-    if bf.get("key") == bf_key and bf.get("sd") and bf.get("ref"):
-        bf_cursor = (int(bf["sd"]), str(bf["ref"]))
-    scan_cursor: Optional[Tuple[int, str]] = bf_cursor
-    if not exhausted:
-        recent_ids = {c["tid"] for c in recent}
-        want = max(0, max_events - len(recent))
-        if want:
-            backfill, exhausted, scan_cursor = _scan_firestore(
-                floor_s, hi, bf_cursor, want, known | recent_ids, target_sys, max_pages=220, stats=stats
-            )
+        if start_date and str(start_date).strip():
+            bf_key = f"{target_sys}:from:{str(start_date).strip()[:10]}"
+        elif int(days or 3650) >= 3650:
+            bf_key = f"{target_sys}:full_10y"
+        else:
+            bf_key = f"{target_sys}:days:{int(days)}"
+        backfill = []
+        exhausted = bool(bf.get("done")) and bf.get("key") == bf_key
+        bf_cursor: Optional[Tuple[int, str]] = None
+        if bf.get("key") == bf_key and bf.get("sd") and bf.get("ref"):
+            bf_cursor = (int(bf["sd"]), str(bf["ref"]))
+        scan_cursor = bf_cursor
+        if not exhausted:
+            recent_ids = {c["tid"] for c in recent}
+            want = max(0, max_events - len(recent))
+            if want:
+                backfill, exhausted, scan_cursor = _scan_firestore(
+                    floor_s, hi, bf_cursor, want, known | recent_ids, target_sys, max_pages=220, stats=stats
+                )
 
     targets = [(c["system"], c["tid"]) for c in recent + backfill][:max_events]
     return {
@@ -374,21 +384,30 @@ def run_topdeck_sync(
     finalize_elapsed = time.time() - finalize_t0
 
     backfill_summary: Dict[str, Any] = {}
-    if not event_ids and plan.get("backfill_key"):
+    if not event_ids:
         latest_state = load_sync_state(db, STATE_KEY) or {}
-        if end_date:
-            # Ad-hoc bounded date-window shard: preserve nightly backfill cursor, merge skip/fail/pending_finalize
+        if end_date or not plan.get("backfill_key"):
+            # Steady-state daily rolling-window sync OR ad-hoc bounded date-window shard:
+            # preserve persisted 10-year backfill cursor/completion state while updating resume & pending_finalize state.
             processed = update_resume_state(latest_state, imported, skipped, failed, max_fails=MAX_FAILS_BEFORE_SKIP)
+            if touched and not defer_finalize:
+                update_finalize_estimates(latest_state, touched, finalize_res, finalize_elapsed)
             if defer_finalize and touched:
                 latest_state["pending_finalize"] = sorted(set(latest_state.get("pending_finalize") or []) | set(touched))
+            latest_state["last_run"] = {
+                "at": datetime.now(timezone.utc).isoformat(),
+                "imported": totals["events_imported"],
+                "skipped": len(skipped),
+                "failed": len(failed),
+            }
             save_sync_state(db, STATE_KEY, latest_state)
             bf_state = latest_state.get("backfill") or {}
             backfill_summary = {
                 "cursor_start_date": datetime.fromtimestamp(int(bf_state["sd"]), tz=timezone.utc).strftime("%Y-%m-%d") if bf_state.get("sd") else None,
-                "done": bool(bf_state.get("done")),
+                "done": bool(bf_state.get("done", True if not plan.get("backfill_key") else False)),
                 "processed": len(imported) + len(skipped),
                 "planned": len(plan.get("backfill") or []),
-                "windowed_shard": True,
+                "rolling_only": not bool(plan.get("backfill_key")),
             }
         else:
             processed = update_resume_state(state, imported, skipped, failed, max_fails=MAX_FAILS_BEFORE_SKIP)
@@ -413,6 +432,9 @@ def run_topdeck_sync(
             if defer_finalize and touched:
                 merged_pf = set(latest_state.get("pending_finalize") or []) | set(state.get("pending_finalize") or []) | set(touched)
                 state["pending_finalize"] = sorted(merged_pf)
+                if bf_cands and any(c["tid"] in set(imported) for c in bf_cands):
+                    merged_full = set(latest_state.get("pending_full_rebuild") or []) | set(state.get("pending_full_rebuild") or []) | set(touched)
+                    state["pending_full_rebuild"] = sorted(merged_full)
             state["last_run"] = {
                 "at": datetime.now(timezone.utc).isoformat(),
                 "imported": totals["events_imported"],
@@ -449,12 +471,12 @@ if __name__ == "__main__":
     install_job_recorder("topdeck_sync")
     parser = argparse.ArgumentParser(description="Cloud Run Job: TopDeck.gg tournament sync (4P FFA Pods & 1v1) & Elo recalculation")
     parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="all | mtg | pokemon | one_piece | yugioh | sw_unlimited | ...")
-    parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "3650")), help="History floor in days when --start-date is not set (default: 3650)")
-    parser.add_argument("--start-date", "--from", dest="start_date", default=os.getenv("START_DATE"), help="History floor (YYYY-MM-DD or ISO8601)")
+    parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "14")), help="Rolling sync window in days when --start-date is not set (default: 14)")
+    parser.add_argument("--start-date", "--from", dest="start_date", default=os.getenv("START_DATE"), help="Optional history floor (YYYY-MM-DD or ISO8601)")
     parser.add_argument("--end-date", "--to", dest="end_date", default=os.getenv("END_DATE"), help="Optional end date (YYYY-MM-DD or ISO8601)")
-    parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS", "1500")), help="Max tournaments to import per run")
-    parser.add_argument("--time-budget-minutes", type=float, default=float(os.getenv("TIME_BUDGET_MINUTES", "50")), help="Wall-clock budget incl. finalize (default: 50)")
-    parser.add_argument("--recent-days", type=int, default=int(os.getenv("RECENT_DAYS", "10")), help="Recent window scanned first every run")
+    parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS", "500")), help="Max tournaments to import per run")
+    parser.add_argument("--time-budget-minutes", type=float, default=float(os.getenv("TIME_BUDGET_MINUTES", "30")), help="Wall-clock budget incl. finalize (default: 30)")
+    parser.add_argument("--recent-days", type=int, default=int(os.getenv("RECENT_DAYS", "14")), help="Recent window scanned first every run")
     parser.add_argument("--settle-days", type=int, default=int(os.getenv("SETTLE_DAYS", "2")), help="Only import tournaments that started at least N days ago")
     parser.add_argument("--defer-finalize", action="store_true", default=os.getenv("DEFER_FINALIZE", "") == "1", help="Skip Elo/Meta refresh (leave it to elo-rebuild-job)")
     parser.add_argument("--event-ids", default="", help="Optional comma-separated sys:tid pairs (e.g. mtg:PuntCity3)")

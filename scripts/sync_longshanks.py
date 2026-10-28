@@ -219,7 +219,7 @@ def discover_longshanks_targets(
     pending = [s for s in systems if not (sys_state.get(s) or {}).get("done") or (sys_state.get(s) or {}).get("floor", floor_str) > floor_str]
     offset = int(state.get("rotation_offset") or 0) % max(1, len(pending)) if pending else 0
     rotated = pending[offset:] + pending[:offset]
-    backfill_systems = rotated[: max(1, int(max_backfill_systems))] if pending else []
+    backfill_systems = rotated[: max(0, int(max_backfill_systems))] if (pending and int(max_backfill_systems or 0) > 0) else []
     per_sys_want = max(4, int(max_events))
 
     blocked: List[str] = []
@@ -412,6 +412,8 @@ def run_longshanks_sync(
             update_finalize_estimates(state, touched, finalize_res, finalize_elapsed)
         if defer_finalize and touched:
             state["pending_finalize"] = sorted(set(state.get("pending_finalize") or []) | set(touched))
+            if plan.get("backfill_systems") and totals["events_imported"] > 0:
+                state["pending_full_rebuild"] = sorted(set(state.get("pending_full_rebuild") or []) | set(touched))
         state["last_run"] = {
             "at": datetime.now(timezone.utc).isoformat(),
             "imported": totals["events_imported"],
@@ -446,12 +448,12 @@ if __name__ == "__main__":
     install_job_recorder("longshanks_sync")
     parser = argparse.ArgumentParser(description="Cloud Run Job: Longshanks tournament sync & Elo recalculation")
     parser.add_argument("--game-system", default=os.getenv("GAME_SYSTEM", "all"), help="all | everything | comma list of slugs (mcp, sw_legion, guild_ball, ...)")
-    parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "3650")), help="History floor in days when --start-date is not set (default: 3650)")
-    parser.add_argument("--start-date", "--from", dest="start_date", default=os.getenv("START_DATE"), help="History floor (YYYY-MM-DD)")
+    parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "21")), help="Rolling sync window in days when --start-date is not set (default: 21)")
+    parser.add_argument("--start-date", "--from", dest="start_date", default=os.getenv("START_DATE"), help="Optional history floor (YYYY-MM-DD)")
     parser.add_argument("--end-date", "--to", dest="end_date", default=os.getenv("END_DATE"), help="Optional end date (YYYY-MM-DD)")
-    parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS", "400")), help="Max tournaments to import per run")
-    parser.add_argument("--time-budget-minutes", type=float, default=float(os.getenv("TIME_BUDGET_MINUTES", "50")), help="Wall-clock budget incl. finalize (default: 50)")
-    parser.add_argument("--max-backfill-systems", type=int, default=int(os.getenv("MAX_BACKFILL_SYSTEMS", "6")), help="Systems that get historical backfill per run (rotates)")
+    parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS", "300")), help="Max tournaments to import per run")
+    parser.add_argument("--time-budget-minutes", type=float, default=float(os.getenv("TIME_BUDGET_MINUTES", "30")), help="Wall-clock budget incl. finalize (default: 30)")
+    parser.add_argument("--max-backfill-systems", type=int, default=int(os.getenv("MAX_BACKFILL_SYSTEMS", "0")), help="Systems that get historical backfill per run (default: 0 in steady state)")
     parser.add_argument("--recent-days", type=int, default=int(os.getenv("RECENT_DAYS", "21")), help="Recent window scanned for every system each run")
     parser.add_argument("--min-players", type=int, default=int(os.getenv("MIN_PLAYERS", "2")), help="Minimum event size (default: 2 = all sizes)")
     parser.add_argument("--include-unlisted-systems", action="store_true", default=os.getenv("INCLUDE_UNLISTED_SYSTEMS", "") == "1", help="Also sync Longshanks games missing from config (bushido, judgement, ...)")

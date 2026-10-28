@@ -586,7 +586,18 @@ def run_melee_sync(
 
     touched_systems = sorted(import_res.get("systems_touched") or {t[0] for t in targets})
     finalize_res: Dict[str, Any] = {}
-    if touched_systems and not skip_finalize:
+    if skip_finalize and touched_systems and int(import_res.get("events_imported") or 0) > 0:
+        finalize_res = {"finalize_deferred": touched_systems}
+        try:
+            from scripts.platform_sync_state import load_sync_state, save_sync_state
+            st_m = load_sync_state(db, "sync_state_melee") or {}
+            st_m["pending_finalize"] = sorted(set(st_m.get("pending_finalize") or []) | set(touched_systems))
+            if bool((days or 14) >= 365 or start_date):
+                st_m["pending_full_rebuild"] = sorted(set(st_m.get("pending_full_rebuild") or []) | set(touched_systems))
+            save_sync_state(db, "sync_state_melee", st_m)
+        except Exception:
+            pass
+    elif touched_systems and not skip_finalize:
         t_fin = time.time()
         finalize_res = finalize_platform_sync(db, touched_systems, platform_name="Melee.gg")
         finalize_res["finalize_seconds"] = round(time.time() - t_fin, 1)

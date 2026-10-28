@@ -4698,9 +4698,23 @@ class PostgresDatabase:
                     WHERE m.is_done = TRUE
                       AND m.player1_id IS NOT NULL AND m.player1_id != ''
                       AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                      AND (m.player1_id != m.player2_id OR UPPER(m.player1_id) = 'BYE')
                       AND (
                           m.is_bye = TRUE
-                          OR (m.winner_id IS NOT NULL AND m.winner_id != '')
+                          OR UPPER(m.player1_id) = 'BYE'
+                          OR UPPER(m.player2_id) = 'BYE'
+                          OR (
+                              m.winner_id IS NOT NULL AND m.winner_id != ''
+                              AND (
+                                  m.winner_id = m.player1_id
+                                  OR m.winner_id = m.player2_id
+                                  OR m.player1_faction = 'Commander Pod'
+                                  OR m.player2_faction = 'Commander Pod'
+                                  OR m.player1_name LIKE '%%Pod (%%'
+                                  OR m.player2_name LIKE '%%Pod (%%'
+                                  OR m.id LIKE 'td:%%'
+                              )
+                          )
                           OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0 OR m.id LIKE 'melee:%%' OR m.id LIKE 'ltcg:%%' OR m.id LIKE 'ls:%%' OR m.id LIKE 'td:%%'))
                       )
                       {where_extra}
@@ -4766,9 +4780,23 @@ class PostgresDatabase:
                     WHERE m.is_done = TRUE
                       AND m.player1_id IS NOT NULL AND m.player1_id != ''
                       AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                      AND (m.player1_id != m.player2_id OR UPPER(m.player1_id) = 'BYE')
                       AND (
                           m.is_bye = TRUE
-                          OR (m.winner_id IS NOT NULL AND m.winner_id != '')
+                          OR UPPER(m.player1_id) = 'BYE'
+                          OR UPPER(m.player2_id) = 'BYE'
+                          OR (
+                              m.winner_id IS NOT NULL AND m.winner_id != ''
+                              AND (
+                                  m.winner_id = m.player1_id
+                                  OR m.winner_id = m.player2_id
+                                  OR m.player1_faction = 'Commander Pod'
+                                  OR m.player2_faction = 'Commander Pod'
+                                  OR m.player1_name LIKE '%%Pod (%%'
+                                  OR m.player2_name LIKE '%%Pod (%%'
+                                  OR m.id LIKE 'td:%%'
+                              )
+                          )
                           OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0 OR m.id LIKE 'melee:%%' OR m.id LIKE 'ltcg:%%' OR m.id LIKE 'ls:%%' OR m.id LIKE 'td:%%'))
                       )
                       AND NOT EXISTS (

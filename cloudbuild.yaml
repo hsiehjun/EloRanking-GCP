@@ -42,7 +42,7 @@ steps:
       - '--memory'
       - '2Gi'
 
-  # 4. Update Cloud Run Job: elo-tournament-sync-job
+  # 4. Update Cloud Run Job: elo-tournament-sync-job (BCP daily rolling-window sync)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'update-tournament-job'
     entrypoint: gcloud
@@ -56,35 +56,7 @@ steps:
       - '--region'
       - 'us-central1'
 
-  # 5. Update Cloud Run Job: elo-historical-scrape
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'update-historical-scrape-job'
-    entrypoint: gcloud
-    args:
-      - 'run'
-      - 'jobs'
-      - 'update'
-      - 'elo-historical-scrape'
-      - '--image'
-      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
-      - '--region'
-      - 'us-central1'
-
-  # 7. Update Cloud Run Job: player-sync-job
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'update-player-sync-job'
-    entrypoint: gcloud
-    args:
-      - 'run'
-      - 'jobs'
-      - 'update'
-      - 'player-sync-job'
-      - '--image'
-      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
-      - '--region'
-      - 'us-central1'
-
-  # 8. Create or Update Cloud Run Job + Cloud Scheduler: elo-melee-sync-job (Melee.gg TCG Sync + 10yr Backfill Execution)
+  # 5. Create or Update Cloud Run Job + Cloud Scheduler: elo-melee-sync-job (Daily 14-day Rolling Sync)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'update-melee-sync-job'
     entrypoint: python3
@@ -99,7 +71,7 @@ steps:
       - '--command'
       - 'python3'
       - '--args'
-      - 'scripts/sync_melee.py,--game-system=all,--days=3650,--max-events=6000,--time-budget-minutes=40,--skip-finalize'
+      - 'scripts/sync_melee.py,--game-system=all,--days=14,--max-events=500,--time-budget-minutes=30,--skip-finalize'
       - '--memory'
       - '4Gi'
       - '--cpu'
@@ -112,9 +84,9 @@ steps:
       - '--schedule'
       - '15 0 * * *'
       - '--description'
-      - 'Scrapes Melee.gg tournaments (MTG, Star Wars Unlimited, Flesh and Blood, Lorcana) and recalculates Elo once a day via Cloud Run Job'
+      - 'Scrapes recent Melee.gg tournaments (MTG, Star Wars Unlimited, Flesh and Blood, Lorcana, Riftbound) once a day via Cloud Run Job'
 
-  # 9. Create or Update Cloud Run Job + Cloud Scheduler: elo-limitless-sync-job (Limitless TCG Sync + 10yr Backfill Execution)
+  # 6. Create or Update Cloud Run Job + Cloud Scheduler: elo-limitless-sync-job (Daily 14-day Rolling Sync)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'update-limitless-sync-job'
     entrypoint: python3
@@ -129,7 +101,7 @@ steps:
       - '--command'
       - 'python3'
       - '--args'
-      - 'scripts/sync_limitless.py,--game-system=all,--days=3650,--start-date=2016-01-01,--max-events=4000,--time-budget-minutes=45,--skip-finalize'
+      - 'scripts/sync_limitless.py,--game-system=all,--days=14,--max-events=500,--time-budget-minutes=30,--skip-finalize'
       - '--memory'
       - '4Gi'
       - '--cpu'
@@ -142,9 +114,9 @@ steps:
       - '--schedule'
       - '15 1 * * *'
       - '--description'
-      - 'Scrapes LimitlessTCG tournaments (Pokemon, One Piece, Digimon, Lorcana, Star Wars Unlimited) and recalculates Elo once a day via Cloud Run Job'
+      - 'Scrapes recent LimitlessTCG tournaments (Pokemon, One Piece, Digimon, Gundam, Lorcana, Star Wars Unlimited, Riftbound) once a day via Cloud Run Job'
 
-  # 10. Create or Update Cloud Run Job + Cloud Scheduler: elo-longshanks-sync-job (Longshanks Tabletop Sync + 10yr Backfill Execution)
+  # 7. Create or Update Cloud Run Job + Cloud Scheduler: elo-longshanks-sync-job (Daily 21-day Rolling Sync)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'update-longshanks-sync-job'
     entrypoint: python3
@@ -159,7 +131,7 @@ steps:
       - '--command'
       - 'python3'
       - '--args'
-      - 'scripts/sync_longshanks.py,--game-system=all,--max-events=500,--time-budget-minutes=45,--defer-finalize'
+      - 'scripts/sync_longshanks.py,--game-system=all,--days=21,--recent-days=21,--max-backfill-systems=0,--max-events=300,--time-budget-minutes=30,--defer-finalize'
       - '--memory'
       - '4Gi'
       - '--cpu'
@@ -172,9 +144,9 @@ steps:
       - '--schedule'
       - '15 3 * * *'
       - '--description'
-      - 'Scrapes Longshanks tabletop tournaments (MCP, Star Wars Legion, Shatterpoint, X-Wing, Armada, Guild Ball, Warmachine, Malifaux, Infinity, Conquest, Bolt Action, Kings of War) and recalculates Elo once a day via Cloud Run Job'
+      - 'Scrapes recent Longshanks tabletop tournaments across all miniature wargames once a day via Cloud Run Job'
 
-  # 11. Create or Update Cloud Run Job + Cloud Scheduler: elo-topdeck-sync-job (TopDeck.gg 4P FFA Pod & MTG Sync + 10yr Backfill Execution)
+  # 8. Create or Update Cloud Run Job + Cloud Scheduler: elo-topdeck-sync-job (Daily 14-day Rolling Sync)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'update-topdeck-sync-job'
     entrypoint: python3
@@ -189,7 +161,7 @@ steps:
       - '--command'
       - 'python3'
       - '--args'
-      - 'scripts/sync_topdeck.py,--game-system=all,--days=3650,--start-date=2016-01-01,--max-events=2500,--time-budget-minutes=45,--defer-finalize'
+      - 'scripts/sync_topdeck.py,--game-system=all,--days=14,--recent-days=14,--max-events=500,--time-budget-minutes=30,--defer-finalize'
       - '--memory'
       - '4Gi'
       - '--cpu'
@@ -202,7 +174,7 @@ steps:
       - '--schedule'
       - '15 2 * * *'
       - '--description'
-      - 'Scrapes TopDeck.gg tournaments (4-player FFA Commander pods & MTG) and recalculates Elo once a day via Cloud Run Job'
+      - 'Scrapes recent TopDeck.gg tournaments (4-player FFA Commander pods & TCGs) once a day via Cloud Run Job'
 
   # 11b. Create or Update Cloud Run Job: elo-rebuild-job (auto incremental for daily appends, full chronological for historical backfills)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
