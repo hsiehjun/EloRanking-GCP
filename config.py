@@ -45,7 +45,7 @@ DEFAULT_HEADERS = {
     "Referer": "https://www.bestcoastpairings.com/",
 }
 
-# Canonical BCP Game Systems Catalog (All 118 BCP systems sorted by popularity)
+# Canonical Game Systems Catalog (All 120 supported BCP & multi-platform systems sorted by popularity)
 BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
     {
         "slug": "40k",
@@ -54,7 +54,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Warhammer 40,000",
         "bcp_name": "Warhammer 40,000",
         "manufacturer": "Games Workshop",
-        "icon": "\u2694\ufe0f",
+        "icon": "⚔️",
         "has_tracker": True,
         "popularity_rank": 1
     },
@@ -65,7 +65,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Age of Sigmar",
         "bcp_name": "Age of Sigmar",
         "manufacturer": "Games Workshop",
-        "icon": "\u26a1",
+        "icon": "⚡",
         "has_tracker": True,
         "popularity_rank": 2
     },
@@ -76,7 +76,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Warhammer 40K: Kill Team",
         "bcp_name": "Kill Team",
         "manufacturer": "Games Workshop",
-        "icon": "\ud83c\udfaf",
+        "icon": "🎯",
         "has_tracker": False,
         "popularity_rank": 3
     },
@@ -87,7 +87,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Warhammer: The Old World",
         "bcp_name": "Warhammer The Old World",
         "manufacturer": "Games Workshop",
-        "icon": "\ud83d\udee1\ufe0f",
+        "icon": "🛡️",
         "has_tracker": False,
         "popularity_rank": 4
     },
@@ -98,7 +98,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Warhammer: The Horus Heresy",
         "bcp_name": "Horus Heresy",
         "manufacturer": "Games Workshop",
-        "icon": "\ud83e\udd85",
+        "icon": "🦅",
         "has_tracker": False,
         "popularity_rank": 5
     },
@@ -109,7 +109,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Age of Sigmar: Spearhead",
         "bcp_name": "Age of Sigmar: Spearhead",
         "manufacturer": "Games Workshop",
-        "icon": "\ud83d\udde1\ufe0f",
+        "icon": "🗡️",
         "has_tracker": False,
         "popularity_rank": 6
     },
@@ -120,7 +120,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Blood Bowl",
         "bcp_name": "Blood Bowl",
         "manufacturer": "Games Workshop",
-        "icon": "\ud83c\udfc8",
+        "icon": "🏈",
         "has_tracker": False,
         "popularity_rank": 7
     },
@@ -131,7 +131,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Middle-earth SBG",
         "bcp_name": "Middle Earth",
         "manufacturer": "Games Workshop",
-        "icon": "\ud83d\udc8d",
+        "icon": "💍",
         "has_tracker": False,
         "popularity_rank": 8
     },
@@ -142,7 +142,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Warhammer Underworlds",
         "bcp_name": "Warhammer Underworlds",
         "manufacturer": "Games Workshop",
-        "icon": "\ud83d\udc8e",
+        "icon": "💎",
         "has_tracker": False,
         "popularity_rank": 9
     },
@@ -153,7 +153,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Warcry",
         "bcp_name": "Warcry",
         "manufacturer": "Games Workshop",
-        "icon": "\ud83d\udd25",
+        "icon": "🔥",
         "has_tracker": False,
         "popularity_rank": 10
     },
@@ -164,7 +164,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Necromunda",
         "bcp_name": "Necromunda",
         "manufacturer": "Games Workshop",
-        "icon": "\u2623\ufe0f",
+        "icon": "☣️",
         "has_tracker": False,
         "popularity_rank": 11
     },
@@ -175,7 +175,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Legions Imperialis",
         "bcp_name": "Legions Imperialis",
         "manufacturer": "Games Workshop",
-        "icon": "\ud83c\udfdb\ufe0f",
+        "icon": "🏛️",
         "has_tracker": False,
         "popularity_rank": 12
     },
@@ -186,7 +186,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Bolt Action",
         "bcp_name": "Bolt Action",
         "manufacturer": "Warlord Games",
-        "icon": "\ud83e\ude96",
+        "icon": "🪖",
         "has_tracker": False,
         "popularity_rank": 13
     },
@@ -197,7 +197,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Marvel: Crisis Protocol",
         "bcp_name": "Crisis Protocol",
         "manufacturer": "Atomic Mass Games",
-        "icon": "\ud83e\uddb8",
+        "icon": "🦸",
         "has_tracker": False,
         "popularity_rank": 14
     },
@@ -208,7 +208,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Star Wars: Legion",
         "bcp_name": "Star Wars Legion",
         "manufacturer": "Fantasy Flight Games",
-        "icon": "\ud83e\ude90",
+        "icon": "🪐",
         "has_tracker": False,
         "popularity_rank": 15
     },
@@ -219,7 +219,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Star Wars: Shatterpoint",
         "bcp_name": "Shatterpoint",
         "manufacturer": "Atomic Mass Games",
-        "icon": "\ud83e\ude90",
+        "icon": "🪐",
         "has_tracker": False,
         "popularity_rank": 16
     },
@@ -230,7 +230,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Trench Crusade",
         "bcp_name": "Trench Crusade",
         "manufacturer": "Trench Crusade",
-        "icon": "\u271d\ufe0f",
+        "icon": "✝️",
         "has_tracker": False,
         "popularity_rank": 17
     },
@@ -241,7 +241,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "BattleTech: Alpha Strike",
         "bcp_name": "Battletech Alpha Strike",
         "manufacturer": "Catalyst",
-        "icon": "\ud83e\uddbf",
+        "icon": "🦿",
         "has_tracker": False,
         "popularity_rank": 18
     },
@@ -252,7 +252,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Classic BattleTech",
         "bcp_name": "Classic Battletech",
         "manufacturer": "Catalyst",
-        "icon": "\ud83e\uddbf",
+        "icon": "🦿",
         "has_tracker": False,
         "popularity_rank": 19
     },
@@ -263,7 +263,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Conquest: Last Argument of Kings",
         "bcp_name": "Conquest",
         "manufacturer": "Para Bellum",
-        "icon": "\u2694\ufe0f",
+        "icon": "⚔️",
         "has_tracker": False,
         "popularity_rank": 20
     },
@@ -274,7 +274,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Warmachine",
         "bcp_name": "Warmachine",
         "manufacturer": "Steamforged Games",
-        "icon": "\u2699\ufe0f",
+        "icon": "⚙️",
         "has_tracker": False,
         "popularity_rank": 21
     },
@@ -285,7 +285,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Infinity",
         "bcp_name": "Infinity",
         "manufacturer": "Corvus Belli",
-        "icon": "\ud83d\udef0\ufe0f",
+        "icon": "🛰️",
         "has_tracker": False,
         "popularity_rank": 22
     },
@@ -296,7 +296,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Malifaux",
         "bcp_name": "Malifaux",
         "manufacturer": "Wyrd",
-        "icon": "\ud83c\udfa9",
+        "icon": "🎩",
         "has_tracker": False,
         "popularity_rank": 23
     },
@@ -307,7 +307,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "A Song of Ice and Fire TMG",
         "bcp_name": "Song of Fire and Ice",
         "manufacturer": "CMON",
-        "icon": "\ud83d\udc3a",
+        "icon": "🐺",
         "has_tracker": False,
         "popularity_rank": 24
     },
@@ -318,7 +318,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Flames of War",
         "bcp_name": "Flames of War",
         "manufacturer": "Battlefront Miniatures",
-        "icon": "\ud83c\udf96\ufe0f",
+        "icon": "🎖️",
         "has_tracker": False,
         "popularity_rank": 25
     },
@@ -329,7 +329,7 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Grimdark Future (OPR)",
         "bcp_name": "Grim Dark Future",
         "manufacturer": "One Page Rules",
-        "icon": "\ud83c\udf0c",
+        "icon": "🌌",
         "has_tracker": False,
         "popularity_rank": 26
     },
@@ -340,9 +340,20 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Halo: Flashpoint",
         "bcp_name": "Halo: Flashpoint",
         "manufacturer": "Mantic Games",
-        "icon": "\ud83e\ude96",
+        "icon": "🪖",
         "has_tracker": False,
         "popularity_rank": 27
+    },
+    {
+        "slug": "guild_ball",
+        "bcp_id": "ext_guild_ball",
+        "short_name": "Guild Ball",
+        "name": "Guild Ball",
+        "bcp_name": "Guild Ball",
+        "manufacturer": "Steamforged Games",
+        "icon": "⚽",
+        "has_tracker": False,
+        "popularity_rank": 28
     },
     {
         "slug": "one_piece",
@@ -351,9 +362,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "One Piece Card Game",
         "bcp_name": "One Piece",
         "manufacturer": "Bandai",
-        "icon": "\ud83c\udff4\u200d\u2620\ufe0f",
+        "icon": "🏴‍☠️",
         "has_tracker": False,
-        "popularity_rank": 28
+        "popularity_rank": 29
     },
     {
         "slug": "yugioh",
@@ -362,9 +373,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Yu-Gi-Oh! TCG",
         "bcp_name": "Yu-Gi-Oh!",
         "manufacturer": "Konami",
-        "icon": "\ud83d\udd2e",
+        "icon": "🔮",
         "has_tracker": False,
-        "popularity_rank": 29
+        "popularity_rank": 30
     },
     {
         "slug": "mtg",
@@ -373,9 +384,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Magic: The Gathering",
         "bcp_name": "Magic the Gathering",
         "manufacturer": "Wizards of the Coast",
-        "icon": "\ud83d\udd25",
+        "icon": "🔥",
         "has_tracker": False,
-        "popularity_rank": 30
+        "popularity_rank": 31
     },
     {
         "slug": "commander",
@@ -384,20 +395,20 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "MTG: Commander",
         "bcp_name": "Commander",
         "manufacturer": "Wizards of the Coast",
-        "icon": "\ud83e\uddd9",
+        "icon": "🧙",
         "has_tracker": False,
-        "popularity_rank": 31
+        "popularity_rank": 32
     },
     {
         "slug": "pokemon",
         "bcp_id": "Y9lj1TOc6A",
-        "short_name": "Pok\u00e9mon",
-        "name": "Pok\u00e9mon TCG",
-        "bcp_name": "Pok\u00e9mon",
+        "short_name": "Pokémon",
+        "name": "Pokémon TCG",
+        "bcp_name": "Pokémon",
         "manufacturer": "Nintendo",
-        "icon": "\u26a1",
+        "icon": "⚡",
         "has_tracker": False,
-        "popularity_rank": 32
+        "popularity_rank": 33
     },
     {
         "slug": "lorcana",
@@ -406,9 +417,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Disney Lorcana",
         "bcp_name": "Lorcana",
         "manufacturer": "Ravensburger",
-        "icon": "\u2728",
+        "icon": "✨",
         "has_tracker": False,
-        "popularity_rank": 33
+        "popularity_rank": 34
     },
     {
         "slug": "digimon",
@@ -417,9 +428,20 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Digimon Card Game",
         "bcp_name": "Digimon Card Game",
         "manufacturer": "Bandai",
-        "icon": "\ud83e\udd96",
+        "icon": "🦖",
         "has_tracker": False,
-        "popularity_rank": 34
+        "popularity_rank": 35
+    },
+    {
+        "slug": "riftbound",
+        "bcp_id": "ext_riftbound",
+        "short_name": "Riftbound",
+        "name": "Riftbound: League of Legends TCG",
+        "bcp_name": "Riftbound",
+        "manufacturer": "Riot Games",
+        "icon": "🌀",
+        "has_tracker": False,
+        "popularity_rank": 36
     },
     {
         "slug": "gundam_tcg",
@@ -428,9 +450,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Gundam Card Game",
         "bcp_name": "Gundam TCG",
         "manufacturer": "Bandai",
-        "icon": "\ud83e\udd16",
+        "icon": "🤖",
         "has_tracker": False,
-        "popularity_rank": 35
+        "popularity_rank": 37
     },
     {
         "slug": "flesh_blood",
@@ -439,9 +461,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Flesh and Blood TCG",
         "bcp_name": "Flesh And Blood",
         "manufacturer": "Legend Story Studio",
-        "icon": "\ud83e\ude78",
+        "icon": "🩸",
         "has_tracker": False,
-        "popularity_rank": 36
+        "popularity_rank": 38
     },
     {
         "slug": "sw_unlimited",
@@ -450,9 +472,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Star Wars: Unlimited",
         "bcp_name": "Star Wars Unlimited",
         "manufacturer": "Fantasy Flight Games",
-        "icon": "\ud83e\ude90",
+        "icon": "🪐",
         "has_tracker": False,
-        "popularity_rank": 37
+        "popularity_rank": 39
     },
     {
         "slug": "generic",
@@ -461,9 +483,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Generic / Other Tabletop",
         "bcp_name": "Generic",
         "manufacturer": "Generic",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 38
+        "popularity_rank": 40
     },
     {
         "slug": "catan_champ",
@@ -472,9 +494,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "CATAN Championship",
         "bcp_name": "CATAN Championship",
         "manufacturer": "CATAN",
-        "icon": "\ud83c\udfc6",
+        "icon": "🏆",
         "has_tracker": False,
-        "popularity_rank": 39
+        "popularity_rank": 41
     },
     {
         "slug": "shard_bugs_tcg",
@@ -483,9 +505,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Shard Bugs TCG",
         "bcp_name": "Shard Bugs TCG",
         "manufacturer": "Shard Bugs",
-        "icon": "\ud83c\udfb4",
+        "icon": "🎴",
         "has_tracker": False,
-        "popularity_rank": 40
+        "popularity_rank": 42
     },
     {
         "slug": "soul_masters_t",
@@ -494,9 +516,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Soul Masters TCG",
         "bcp_name": "Soul Masters TCG",
         "manufacturer": "Soul Masters",
-        "icon": "\ud83c\udfb4",
+        "icon": "🎴",
         "has_tracker": False,
-        "popularity_rank": 41
+        "popularity_rank": 43
     },
     {
         "slug": "catan",
@@ -505,9 +527,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "CATAN",
         "bcp_name": "CATAN",
         "manufacturer": "CATAN",
-        "icon": "\ud83c\udfdd\ufe0f",
+        "icon": "🏝️",
         "has_tracker": False,
-        "popularity_rank": 42
+        "popularity_rank": 44
     },
     {
         "slug": "dbs_fusion",
@@ -516,9 +538,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Dragon Ball Super: Fusion World",
         "bcp_name": "DBS Fusion World",
         "manufacturer": "Bandai",
-        "icon": "\ud83d\udc09",
+        "icon": "🐉",
         "has_tracker": False,
-        "popularity_rank": 43
+        "popularity_rank": 45
     },
     {
         "slug": "dbs",
@@ -527,9 +549,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Dragon Ball Super Card Game",
         "bcp_name": "Dragon Ball Super",
         "manufacturer": "Bandai",
-        "icon": "\ud83d\udc09",
+        "icon": "🐉",
         "has_tracker": False,
-        "popularity_rank": 44
+        "popularity_rank": 46
     },
     {
         "slug": "union_arena",
@@ -538,9 +560,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Union Arena TCG",
         "bcp_name": "Union Arena",
         "manufacturer": "Bandai",
-        "icon": "\ud83c\udfb4",
+        "icon": "🎴",
         "has_tracker": False,
-        "popularity_rank": 45
+        "popularity_rank": 47
     },
     {
         "slug": "primal_tcg",
@@ -549,20 +571,20 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Primal TCG",
         "bcp_name": "Primal TCG",
         "manufacturer": "Dattebayo Labs",
-        "icon": "\ud83c\udfb4",
+        "icon": "🎴",
         "has_tracker": False,
-        "popularity_rank": 46
+        "popularity_rank": 48
     },
     {
         "slug": "final_fantasy_",
         "bcp_id": "8GFaZ0y25D",
-        "short_name": "Final Fantasy T\u2026",
+        "short_name": "Final Fantasy T…",
         "name": "Final Fantasy TCG",
         "bcp_name": "Final Fantasy TCG",
         "manufacturer": "SQUARE ENIX",
-        "icon": "\ud83c\udfb4",
+        "icon": "🎴",
         "has_tracker": False,
-        "popularity_rank": 47
+        "popularity_rank": 49
     },
     {
         "slug": "force_of_will",
@@ -571,9 +593,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Force of Will",
         "bcp_name": "Force of Will",
         "manufacturer": "Force of Will",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 48
+        "popularity_rank": 50
     },
     {
         "slug": "ww3_team_yanke",
@@ -582,9 +604,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "WW3 Team Yankee",
         "bcp_name": "WW3 Team Yankee",
         "manufacturer": "Battlefront Miniatures",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 49
+        "popularity_rank": 51
     },
     {
         "slug": "aof_opr",
@@ -593,9 +615,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Age of Fantasy (OPR)",
         "bcp_name": "Age of Fantasy",
         "manufacturer": "One Page Rules",
-        "icon": "\ud83d\udc09",
+        "icon": "🐉",
         "has_tracker": False,
-        "popularity_rank": 50
+        "popularity_rank": 52
     },
     {
         "slug": "battletech_tw",
@@ -604,31 +626,31 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "BattleTech: Total Warfare",
         "bcp_name": "Battletech Total Warfare",
         "manufacturer": "Catalyst",
-        "icon": "\ud83e\uddbf",
+        "icon": "🦿",
         "has_tracker": False,
-        "popularity_rank": 51
+        "popularity_rank": 53
     },
     {
         "slug": "cardfight_vang",
         "bcp_id": "6O28cKLVdN",
-        "short_name": "Cardfight! Vang\u2026",
+        "short_name": "Cardfight! Vang…",
         "name": "Cardfight! Vangaurd",
         "bcp_name": "Cardfight! Vangaurd",
         "manufacturer": "Bushiroad",
-        "icon": "\ud83c\udfb4",
+        "icon": "🎴",
         "has_tracker": False,
-        "popularity_rank": 52
+        "popularity_rank": 54
     },
     {
         "slug": "marcher_empire",
         "bcp_id": "kJ5tCtljRK85",
-        "short_name": "Marcher: Empire\u2026",
+        "short_name": "Marcher: Empire…",
         "name": "Marcher: Empires at War",
         "bcp_name": "Marcher: Empires at War",
         "manufacturer": "Golden Dragon Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 53
+        "popularity_rank": 55
     },
     {
         "slug": "mordheim",
@@ -637,9 +659,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Mordheim",
         "bcp_name": "Mordheim",
         "manufacturer": "Games Workshop",
-        "icon": "\ud83d\udd6f\ufe0f",
+        "icon": "🕯️",
         "has_tracker": False,
-        "popularity_rank": 54
+        "popularity_rank": 56
     },
     {
         "slug": "saga",
@@ -648,9 +670,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "SAGA",
         "bcp_name": "Saga",
         "manufacturer": "Studio Tomahawk",
-        "icon": "\ud83d\udee1\ufe0f",
+        "icon": "🛡️",
         "has_tracker": False,
-        "popularity_rank": 55
+        "popularity_rank": 57
     },
     {
         "slug": "team_yankee",
@@ -659,9 +681,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Team Yankee",
         "bcp_name": "Team Yankee",
         "manufacturer": "Battlefront Miniatures",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 56
+        "popularity_rank": 58
     },
     {
         "slug": "ticket_to_ride",
@@ -670,9 +692,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Ticket to Ride",
         "bcp_name": "Ticket to Ride",
         "manufacturer": "Asmodee",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 57
+        "popularity_rank": 59
     },
     {
         "slug": "wartide",
@@ -681,9 +703,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Wartide",
         "bcp_name": "Wartide",
         "manufacturer": "Wartide",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 58
+        "popularity_rank": 60
     },
     {
         "slug": "x_wing",
@@ -692,9 +714,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Star Wars: X-Wing",
         "bcp_name": "X-Wing",
         "manufacturer": "Fantasy Flight Games",
-        "icon": "\ud83d\ude80",
+        "icon": "🚀",
         "has_tracker": False,
-        "popularity_rank": 59
+        "popularity_rank": 61
     },
     {
         "slug": "aeronautica",
@@ -703,20 +725,20 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Aeronautica Imperialis",
         "bcp_name": "Aeronautica",
         "manufacturer": "Games Workshop",
-        "icon": "\u2708\ufe0f",
+        "icon": "✈️",
         "has_tracker": False,
-        "popularity_rank": 60
+        "popularity_rank": 62
     },
     {
         "slug": "age_of_fantasy",
         "bcp_id": "B8m83OPe8OnU",
-        "short_name": "Age of Fantasy\u2026",
+        "short_name": "Age of Fantasy…",
         "name": "Age of Fantasy Skirmish",
         "bcp_name": "Age of Fantasy Skirmish",
         "manufacturer": "One Page Rules",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 61
+        "popularity_rank": 63
     },
     {
         "slug": "aos_champions",
@@ -725,9 +747,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Age of Sigmar: Champions",
         "bcp_name": "Age of Sigmar: Champions",
         "manufacturer": "Play Fusion",
-        "icon": "\ud83c\udccf",
+        "icon": "🃏",
         "has_tracker": False,
-        "popularity_rank": 62
+        "popularity_rank": 64
     },
     {
         "slug": "annapurna",
@@ -736,9 +758,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "AnnaPurna",
         "bcp_name": "AnnaPurna",
         "manufacturer": "Fiat Lucre",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 63
+        "popularity_rank": 65
     },
     {
         "slug": "argent_saga",
@@ -747,9 +769,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Argent Saga",
         "bcp_name": "Argent Saga",
         "manufacturer": "Amikon Entertainment",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 64
+        "popularity_rank": 66
     },
     {
         "slug": "batman_tmg",
@@ -758,20 +780,20 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Batman : TMG",
         "bcp_name": "Batman : TMG",
         "manufacturer": "Knight Models",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 65
+        "popularity_rank": 67
     },
     {
         "slug": "battle_spirits",
         "bcp_id": "Z9MvTncufZ",
-        "short_name": "Battle Spirits\u2026",
+        "short_name": "Battle Spirits…",
         "name": "Battle Spirits Saga",
         "bcp_name": "Battle Spirits Saga",
         "manufacturer": "Bandai",
-        "icon": "\ud83c\udfb4",
+        "icon": "🎴",
         "has_tracker": False,
-        "popularity_rank": 66
+        "popularity_rank": 68
     },
     {
         "slug": "beyblade",
@@ -780,20 +802,20 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Beyblade",
         "bcp_name": "Beyblade",
         "manufacturer": "Beyblade",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 67
+        "popularity_rank": 69
     },
     {
         "slug": "bi_ho",
         "bcp_id": "65fb7934cdaa32a59a1d4b89",
-        "short_name": "Bi\u00f1ho",
-        "name": "Bi\u00f1ho",
-        "bcp_name": "Bi\u00f1ho",
+        "short_name": "Biñho",
+        "name": "Biñho",
+        "bcp_name": "Biñho",
         "manufacturer": "Binho Board",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 68
+        "popularity_rank": 70
     },
     {
         "slug": "blkout",
@@ -802,20 +824,20 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "BLKOUT",
         "bcp_name": "BLKOUT",
         "manufacturer": "BLKOUT",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 69
+        "popularity_rank": 71
     },
     {
         "slug": "blood_and_plun",
         "bcp_id": "66db6045abc0360803e9a3a2",
-        "short_name": "Blood and Plund\u2026",
+        "short_name": "Blood and Plund…",
         "name": "Blood and Plunder",
         "bcp_name": "Blood and Plunder",
         "manufacturer": "Firelock Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 70
+        "popularity_rank": 72
     },
     {
         "slug": "blood_fields",
@@ -824,9 +846,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Blood Fields",
         "bcp_name": "Blood Fields",
         "manufacturer": "Titan Forge",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 71
+        "popularity_rank": 73
     },
     {
         "slug": "blood_red_skie",
@@ -835,9 +857,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Blood Red Skies",
         "bcp_name": "Blood Red Skies",
         "manufacturer": "Warlord Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 72
+        "popularity_rank": 74
     },
     {
         "slug": "chrono_core",
@@ -846,9 +868,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Chrono Core",
         "bcp_name": "Chrono Core",
         "manufacturer": "Chrono Core Studios",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 73
+        "popularity_rank": 75
     },
     {
         "slug": "chrono_core_tc",
@@ -857,9 +879,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Chrono Core TCG",
         "bcp_name": "Chrono Core TCG",
         "manufacturer": "Chrono Core",
-        "icon": "\ud83c\udfb4",
+        "icon": "🎴",
         "has_tracker": False,
-        "popularity_rank": 74
+        "popularity_rank": 76
     },
     {
         "slug": "doomtown",
@@ -868,9 +890,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Doomtown",
         "bcp_name": "Doomtown",
         "manufacturer": "Pine Box Entertainment",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 75
+        "popularity_rank": 77
     },
     {
         "slug": "epic",
@@ -879,53 +901,53 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Epic",
         "bcp_name": "Epic",
         "manufacturer": "White Wizard Games",
-        "icon": "\ud83c\udfb2",
-        "has_tracker": False,
-        "popularity_rank": 76
-    },
-    {
-        "slug": "flex_nba_battl",
-        "bcp_id": "4ugzUcccmW",
-        "short_name": "Flex NBA Battle\u2026",
-        "name": "Flex NBA Battle Series",
-        "bcp_name": "Flex NBA Battle Series",
-        "manufacturer": "Sequoia Games Inc.",
-        "icon": "\ud83c\udfb2",
-        "has_tracker": False,
-        "popularity_rank": 77
-    },
-    {
-        "slug": "future_card_bu",
-        "bcp_id": "7jbbuBKD24",
-        "short_name": "Future Card Bud\u2026",
-        "name": "Future Card Buddyfight",
-        "bcp_name": "Future Card Buddyfight",
-        "manufacturer": "Bushiroad",
-        "icon": "\ud83c\udfb4",
+        "icon": "🎲",
         "has_tracker": False,
         "popularity_rank": 78
     },
     {
-        "slug": "game_of_throne",
-        "bcp_id": "EdhBk0q4c4",
-        "short_name": "Game of Thrones\u2026",
-        "name": "Game of Thrones the Card Game",
-        "bcp_name": "Game of Thrones the Card Game",
-        "manufacturer": "Fantasy Flight Games",
-        "icon": "\ud83c\udfb4",
+        "slug": "flex_nba_battl",
+        "bcp_id": "4ugzUcccmW",
+        "short_name": "Flex NBA Battle…",
+        "name": "Flex NBA Battle Series",
+        "bcp_name": "Flex NBA Battle Series",
+        "manufacturer": "Sequoia Games Inc.",
+        "icon": "🎲",
         "has_tracker": False,
         "popularity_rank": 79
     },
     {
+        "slug": "future_card_bu",
+        "bcp_id": "7jbbuBKD24",
+        "short_name": "Future Card Bud…",
+        "name": "Future Card Buddyfight",
+        "bcp_name": "Future Card Buddyfight",
+        "manufacturer": "Bushiroad",
+        "icon": "🎴",
+        "has_tracker": False,
+        "popularity_rank": 80
+    },
+    {
+        "slug": "game_of_throne",
+        "bcp_id": "EdhBk0q4c4",
+        "short_name": "Game of Thrones…",
+        "name": "Game of Thrones the Card Game",
+        "bcp_name": "Game of Thrones the Card Game",
+        "manufacturer": "Fantasy Flight Games",
+        "icon": "🎴",
+        "has_tracker": False,
+        "popularity_rank": 81
+    },
+    {
         "slug": "genesis_battle",
         "bcp_id": "662a8fbc7d069d1a9e33efe9",
-        "short_name": "Genesis: Battle\u2026",
+        "short_name": "Genesis: Battle…",
         "name": "Genesis: Battle of Champtions",
         "bcp_name": "Genesis: Battle of Champtions",
         "manufacturer": "Edge of Exile Entertainment Inc.",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 80
+        "popularity_rank": 82
     },
     {
         "slug": "godsforge",
@@ -934,9 +956,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Godsforge",
         "bcp_name": "Godsforge",
         "manufacturer": "Atlas Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 81
+        "popularity_rank": 83
     },
     {
         "slug": "grand_archive",
@@ -945,9 +967,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Grand Archive",
         "bcp_name": "Grand Archive",
         "manufacturer": "Weebs of the Shore",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 82
+        "popularity_rank": 84
     },
     {
         "slug": "hero_realms",
@@ -956,9 +978,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Hero Realms",
         "bcp_name": "Hero Realms",
         "manufacturer": "White Wizard Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 83
+        "popularity_rank": 85
     },
     {
         "slug": "heroclix",
@@ -967,9 +989,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "HeroClix",
         "bcp_name": "HeroClix",
         "manufacturer": "Wizkids",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 84
+        "popularity_rank": 86
     },
     {
         "slug": "imperial_assau",
@@ -978,9 +1000,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Imperial Assault",
         "bcp_name": "Imperial Assault",
         "manufacturer": "Fantasy Flight Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 85
+        "popularity_rank": 87
     },
     {
         "slug": "keyforge",
@@ -989,9 +1011,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Keyforge",
         "bcp_name": "Keyforge",
         "manufacturer": "Fantasy Flight Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 86
+        "popularity_rank": 88
     },
     {
         "slug": "king_of_tokyo",
@@ -1000,9 +1022,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "King of Tokyo",
         "bcp_name": "King of Tokyo",
         "manufacturer": "iello",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 87
+        "popularity_rank": 89
     },
     {
         "slug": "kings_of_war",
@@ -1011,9 +1033,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Kings of War",
         "bcp_name": "Kings of War",
         "manufacturer": "Mantic Games",
-        "icon": "\ud83c\udff0",
+        "icon": "🏰",
         "has_tracker": False,
-        "popularity_rank": 88
+        "popularity_rank": 90
     },
     {
         "slug": "konflikt_47",
@@ -1022,20 +1044,20 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Konflikt '47",
         "bcp_name": "Konflict '47",
         "manufacturer": "Warlord Games",
-        "icon": "\u2622\ufe0f",
+        "icon": "☢️",
         "has_tracker": False,
-        "popularity_rank": 89
+        "popularity_rank": 91
     },
     {
         "slug": "legend_of_the_",
         "bcp_id": "p8aUEX6mDs",
-        "short_name": "Legend of the F\u2026",
+        "short_name": "Legend of the F…",
         "name": "Legend of the Five Rings",
         "bcp_name": "Legend of the Five Rings",
         "manufacturer": "Fantasy Flight Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 90
+        "popularity_rank": 92
     },
     {
         "slug": "metazoo",
@@ -1044,9 +1066,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Metazoo",
         "bcp_name": "Metazoo",
         "manufacturer": "Metazoo Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 91
+        "popularity_rank": 93
     },
     {
         "slug": "monsterpocalyp",
@@ -1055,9 +1077,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Monsterpocalypse",
         "bcp_name": "Monsterpocalypse",
         "manufacturer": "Privateer Press",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 92
+        "popularity_rank": 94
     },
     {
         "slug": "naruto",
@@ -1066,9 +1088,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Naruto",
         "bcp_name": "Naruto",
         "manufacturer": "Bandai",
-        "icon": "\ud83c\udfb4",
+        "icon": "🎴",
         "has_tracker": False,
-        "popularity_rank": 93
+        "popularity_rank": 95
     },
     {
         "slug": "onslaught",
@@ -1077,9 +1099,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "ONSLAUGHT",
         "bcp_name": "ONSLAUGHT",
         "manufacturer": "Whiz Kids",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 94
+        "popularity_rank": 96
     },
     {
         "slug": "outward_realms",
@@ -1088,9 +1110,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Outward Realms",
         "bcp_name": "Outward Realms",
         "manufacturer": "Outward Realms",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 95
+        "popularity_rank": 97
     },
     {
         "slug": "rivals",
@@ -1099,9 +1121,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Rivals",
         "bcp_name": "Rivals",
         "manufacturer": "CATAN",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 96
+        "popularity_rank": 98
     },
     {
         "slug": "roba",
@@ -1110,9 +1132,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "ROBA",
         "bcp_name": "ROBA",
         "manufacturer": "Heel Turn Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 97
+        "popularity_rank": 99
     },
     {
         "slug": "smash_bros",
@@ -1121,9 +1143,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Smash Bros",
         "bcp_name": "Smash Bros",
         "manufacturer": "Nintendo",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 98
+        "popularity_rank": 100
     },
     {
         "slug": "star_realms",
@@ -1132,9 +1154,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Star Realms",
         "bcp_name": "Star Realms",
         "manufacturer": "White Wizard Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 99
+        "popularity_rank": 101
     },
     {
         "slug": "sw_armada",
@@ -1143,53 +1165,53 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Star Wars: Armada",
         "bcp_name": "Star Wars Armada",
         "manufacturer": "Fantasy Flight Games",
-        "icon": "\ud83d\ude80",
-        "has_tracker": False,
-        "popularity_rank": 100
-    },
-    {
-        "slug": "star_wars_dest",
-        "bcp_id": "NPyZIKwtCl",
-        "short_name": "Star Wars Desti\u2026",
-        "name": "Star Wars Destiny",
-        "bcp_name": "Star Wars Destiny",
-        "manufacturer": "Fantasy Flight Games",
-        "icon": "\ud83c\udfb2",
-        "has_tracker": False,
-        "popularity_rank": 101
-    },
-    {
-        "slug": "star_wars_unli",
-        "bcp_id": "maCXHs5gaX",
-        "short_name": "Star Wars Unlim\u2026",
-        "name": "Star Wars Unlimited - Casual",
-        "bcp_name": "Star Wars Unlimited - Casual",
-        "manufacturer": "Fantasy Flight Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🚀",
         "has_tracker": False,
         "popularity_rank": 102
     },
     {
-        "slug": "star_wars_unli_2",
-        "bcp_id": "kwl9ZSdevH",
-        "short_name": "Star Wars Unlim\u2026",
-        "name": "Star Wars Unlimited : Twin Suns",
-        "bcp_name": "Star Wars Unlimited : Twin Suns",
+        "slug": "star_wars_dest",
+        "bcp_id": "NPyZIKwtCl",
+        "short_name": "Star Wars Desti…",
+        "name": "Star Wars Destiny",
+        "bcp_name": "Star Wars Destiny",
         "manufacturer": "Fantasy Flight Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
         "popularity_rank": 103
     },
     {
+        "slug": "star_wars_unli",
+        "bcp_id": "maCXHs5gaX",
+        "short_name": "Star Wars Unlim…",
+        "name": "Star Wars Unlimited - Casual",
+        "bcp_name": "Star Wars Unlimited - Casual",
+        "manufacturer": "Fantasy Flight Games",
+        "icon": "🎲",
+        "has_tracker": False,
+        "popularity_rank": 104
+    },
+    {
+        "slug": "star_wars_unli_2",
+        "bcp_id": "kwl9ZSdevH",
+        "short_name": "Star Wars Unlim…",
+        "name": "Star Wars Unlimited : Twin Suns",
+        "bcp_name": "Star Wars Unlimited : Twin Suns",
+        "manufacturer": "Fantasy Flight Games",
+        "icon": "🎲",
+        "has_tracker": False,
+        "popularity_rank": 105
+    },
+    {
         "slug": "starcraft_tabl",
         "bcp_id": "HqgiM2fMCAoN",
-        "short_name": "StarCraft Table\u2026",
+        "short_name": "StarCraft Table…",
         "name": "StarCraft Tabletop Miniatures Game",
         "bcp_name": "StarCraft Tabletop Miniatures Game",
         "manufacturer": "Archon Studio",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 104
+        "popularity_rank": 106
     },
     {
         "slug": "steel_rift",
@@ -1198,9 +1220,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Steel Rift",
         "bcp_name": "Steel Rift",
         "manufacturer": "Death Ray Designs",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 105
+        "popularity_rank": 107
     },
     {
         "slug": "ninth_age",
@@ -1209,9 +1231,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "The 9th Age",
         "bcp_name": "The 9th Age",
         "manufacturer": "The IX Age",
-        "icon": "\ud83d\udee1\ufe0f",
+        "icon": "🛡️",
         "has_tracker": False,
-        "popularity_rank": 106
+        "popularity_rank": 108
     },
     {
         "slug": "transformers",
@@ -1220,31 +1242,31 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Transformers",
         "bcp_name": "Transformers",
         "manufacturer": "Hasbro",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 107
+        "popularity_rank": 109
     },
     {
         "slug": "universal_figh",
         "bcp_id": "JV0A6xP5qy",
-        "short_name": "Universal  Figh\u2026",
+        "short_name": "Universal  Figh…",
         "name": "Universal  Fighting  System",
         "bcp_name": "Universal  Fighting  System",
         "manufacturer": "Jasco Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 108
+        "popularity_rank": 110
     },
     {
         "slug": "universus_my_h",
         "bcp_id": "QzusTyUknx",
-        "short_name": "Universus: My H\u2026",
+        "short_name": "Universus: My H…",
         "name": "Universus: My Hero Academia",
         "bcp_name": "Universus: My Hero Academia",
         "manufacturer": "Jasco Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 109
+        "popularity_rank": 111
     },
     {
         "slug": "vanguard_zero",
@@ -1253,9 +1275,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Vanguard Zero",
         "bcp_name": "Vanguard Zero",
         "manufacturer": "Bushiroad",
-        "icon": "\ud83c\udfb4",
+        "icon": "🎴",
         "has_tracker": False,
-        "popularity_rank": 110
+        "popularity_rank": 112
     },
     {
         "slug": "vibes",
@@ -1264,9 +1286,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Vibes",
         "bcp_name": "Vibes",
         "manufacturer": "Orange Cap Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 111
+        "popularity_rank": 113
     },
     {
         "slug": "vs_system_2pcg",
@@ -1275,31 +1297,31 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "VS System 2PCG",
         "bcp_name": "VS System 2PCG",
         "manufacturer": "Upper Deck",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 112
+        "popularity_rank": 114
     },
     {
         "slug": "warcaster_neo_",
         "bcp_id": "vHcENvcLKL",
-        "short_name": "Warcaster: Neo-\u2026",
+        "short_name": "Warcaster: Neo-…",
         "name": "Warcaster: Neo-Mechanika",
         "bcp_name": "Warcaster: Neo-Mechanika",
         "manufacturer": "Privateer Press",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 113
+        "popularity_rank": 115
     },
     {
         "slug": "warlord_saga_o",
         "bcp_id": "lBoE1G9nbwVO",
-        "short_name": "Warlord: Saga o\u2026",
+        "short_name": "Warlord: Saga o…",
         "name": "Warlord: Saga of the Storm",
         "bcp_name": "Warlord: Saga of the Storm",
         "manufacturer": "KingsWood Games",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 114
+        "popularity_rank": 116
     },
     {
         "slug": "warmaster",
@@ -1308,9 +1330,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Warmaster Revolution",
         "bcp_name": "Warmaster Revolution",
         "manufacturer": "Games Workshop",
-        "icon": "\ud83d\udc51",
+        "icon": "👑",
         "has_tracker": False,
-        "popularity_rank": 115
+        "popularity_rank": 117
     },
     {
         "slug": "weiss_schwarz",
@@ -1319,9 +1341,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Weiss Schwarz",
         "bcp_name": "Weiss Schwarz",
         "manufacturer": "Bushiroad",
-        "icon": "\ud83c\udfb4",
+        "icon": "🎴",
         "has_tracker": False,
-        "popularity_rank": 116
+        "popularity_rank": 118
     },
     {
         "slug": "wixoss",
@@ -1330,9 +1352,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Wixoss",
         "bcp_name": "Wixoss",
         "manufacturer": "Takara Tomy",
-        "icon": "\ud83c\udfb2",
+        "icon": "🎲",
         "has_tracker": False,
-        "popularity_rank": 117
+        "popularity_rank": 119
     },
     {
         "slug": "zenozard",
@@ -1341,9 +1363,9 @@ BCP_GAME_SYSTEMS_CATALOG: List[Dict[str, Any]] = [
         "name": "Zenozard",
         "bcp_name": "Zenozard",
         "manufacturer": "Bandai",
-        "icon": "\ud83c\udfb4",
+        "icon": "🎴",
         "has_tracker": False,
-        "popularity_rank": 118
+        "popularity_rank": 120
     }
 ]
 
@@ -1446,6 +1468,13 @@ GAME_SYSTEM_ALIASES: Dict[str, str] = {
     "ygo": "yugioh",
     "digimon_tcg": "digimon",
     "digimon card game": "digimon",
+    "riftbound": "riftbound",
+    "riftbound_tcg": "riftbound",
+    "riftbound tcg": "riftbound",
+    "league of legends tcg": "riftbound",
+    "guild_ball": "guild_ball",
+    "guildball": "guild_ball",
+    "guild ball": "guild_ball",
 }
 for _s in BCP_GAME_SYSTEMS_CATALOG:
     _slug = _s["slug"]
@@ -2686,6 +2715,20 @@ GAME_SYSTEM_DEFAULT_FACTIONS: Dict[str, List[str]] = {
         "Ahri (Spirit Fox Tempo)",
         "Darius (Noxian Might)",
         "Lux (Demacian Radiance)",
+    ],
+    "guild_ball": [
+        "Butchers",
+        "Fishermen",
+        "Masons",
+        "Brewers",
+        "Alchemists",
+        "Engineers",
+        "Morticians",
+        "Hunters",
+        "Blacksmiths",
+        "Farmers",
+        "Falconers",
+        "Union",
     ],
     "generic": [
         "Crimson Legion",

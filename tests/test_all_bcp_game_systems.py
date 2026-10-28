@@ -22,11 +22,13 @@ from database import PostgresDatabase
 
 
 def test_catalog_has_all_118_bcp_systems_sorted_by_popularity():
-    assert len(BCP_GAME_SYSTEMS_CATALOG) == 118
+    assert len(BCP_GAME_SYSTEMS_CATALOG) == 120
     slugs = [item["slug"] for item in BCP_GAME_SYSTEMS_CATALOG]
     bcp_ids = [item["bcp_id"] for item in BCP_GAME_SYSTEMS_CATALOG]
-    assert len(set(slugs)) == 118, "All 118 game system slugs must be unique"
-    assert len(set(bcp_ids)) == 118, "All 118 BCP gameSystemIds must be unique"
+    assert len(set(slugs)) == 120, "All 120 game system slugs must be unique"
+    assert len(set(bcp_ids)) == 120, "All 120 gameSystemIds must be unique"
+    assert "riftbound" in slugs
+    assert "guild_ball" in slugs
 
     for item in BCP_GAME_SYSTEMS_CATALOG:
         assert 1 <= len(item["slug"]) <= 16, f"Slug {item['slug']} exceeds VARCHAR(16)"
@@ -156,12 +158,14 @@ def test_frontend_single_game_system_pill_and_tracker_hiding():
     assert 'id="game-system-picker-search"' in app_html
     assert 'id="game-system-picker-list"' in app_html
 
-    # 118 systems in utils.js
+    # 120 systems (118 BCP + Riftbound + Guild Ball) in utils.js
     assert "window.BCP_GAME_SYSTEMS_CATALOG" in utils_js
     assert "window.hasGameTracker" in utils_js
     assert "kill_team" in utils_js
     assert "the_old_world" in utils_js
     assert "trench_crusade" in utils_js
+    assert '"slug": "riftbound"' in utils_js
+    assert '"slug": "guild_ball"' in utils_js
 
     # Tracker tab hidden when !hasGameTracker(currentGameSystem) and preferred_game_system persisted
     assert "hasTracker" in app_js

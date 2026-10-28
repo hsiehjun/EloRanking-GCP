@@ -75,7 +75,7 @@ function renderGameSystemPickerList(query = '') {
 
   const countEl = document.getElementById('game-system-picker-count');
   if (countEl) {
-    countEl.textContent = q ? `${filtered.length} matching` : `${catalog.length} BCP Systems`;
+    countEl.textContent = q ? `${filtered.length} matching` : `${catalog.length} Game Systems`;
   }
 
   if (filtered.length === 0) {

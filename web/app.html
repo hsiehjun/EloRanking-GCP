@@ -6,7 +6,7 @@
   <title>OmniTactica • Tactical Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=960481e5bc">
+  <link rel="manifest" href="/manifest.json?v=99c7b3420c">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=960481e5bc">
-  <link rel="stylesheet" href="/css/styles.min.css?v=960481e5bc">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=960481e5bc">
-  <link rel="preload" href="/js/app.bundle.min.js?v=960481e5bc" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=99c7b3420c">
+  <link rel="stylesheet" href="/css/styles.min.css?v=99c7b3420c">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=99c7b3420c">
+  <link rel="preload" href="/js/app.bundle.min.js?v=99c7b3420c" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "960481e5bc";</script>
+  <script>window.APP_VERSION = "99c7b3420c";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -440,7 +440,7 @@
       <!-- User Account Action & Feedback Area -->
       <div class="header-actions-group" style="display: flex; align-items: center; gap: 0.6rem;">
         <div class="game-system-switcher desktop-only" id="desktop-game-switcher" role="radiogroup" aria-label="Game System" style="position: relative;">
-          <button type="button" id="desktop-game-system-trigger" class="game-system-pill active" onclick="toggleGameSystemPicker(event)" title="Select Game System (118 BCP Game Systems)">
+          <button type="button" id="desktop-game-system-trigger" class="game-system-pill active" onclick="toggleGameSystemPicker(event)" title="Select Game System (120 Game Systems)">
             <span class="sys-icon" id="desktop-sys-icon">⚔️</span> <span class="sys-label" id="desktop-sys-label">40K</span> <span class="sys-caret" style="font-size:0.65rem; opacity:0.75; margin-left:2px;">▾</span>
           </button>
           <div id="game-system-picker-popover" class="game-system-picker-popover" style="display: none;" onclick="event.stopPropagation();">
@@ -449,7 +449,7 @@
                 <span style="font-size:0.7rem; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; color:#94a3b8;">🎮 Game System</span>
                 <span id="game-system-picker-count" style="font-size:0.66rem; font-family:var(--font-mono); color:#64748b;">Sorted by Popularity</span>
               </div>
-              <input type="text" id="game-system-picker-search" class="game-system-picker-search" placeholder="Search 118 BCP game systems..." oninput="filterGameSystemPicker(this.value)" autocomplete="off">
+              <input type="text" id="game-system-picker-search" class="game-system-picker-search" placeholder="Search 120 game systems..." oninput="filterGameSystemPicker(this.value)" autocomplete="off">
             </div>
             <div id="game-system-picker-list" class="game-system-picker-list">
               <button type="button" class="game-system-option game-system-pill active" data-sys="40k" onclick="switchGameSystem('40k')" title="Warhammer 40,000">
@@ -3882,7 +3882,7 @@
   </div> <!-- #app-shell -->
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=960481e5bc"></script>
+  <script src="/js/app.bundle.min.js?v=99c7b3420c"></script>
 
   <!-- Cloud Firestore Compat SDK for Real-time Matchmaking & Push Chat -->
   <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>

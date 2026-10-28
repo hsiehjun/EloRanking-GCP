@@ -308,8 +308,8 @@ class TestMetaIntelAllSystemsAndFactions(unittest.TestCase):
         cls.all_slugs = [item["slug"] for item in BCP_GAME_SYSTEMS_CATALOG]
 
     def test_01_catalog_and_default_factions_for_all_118_systems(self):
-        """Verify all 118 game systems have >= 3 authentic default factions and 0 placeholders."""
-        self.assertEqual(len(self.all_slugs), 118)
+        """Verify all 120 game systems have >= 3 authentic default factions and 0 placeholders."""
+        self.assertEqual(len(self.all_slugs), 120)
         for slug in self.all_slugs:
             with self.subTest(game_system=slug):
                 default_factions = get_default_factions_for_system(slug)
@@ -554,7 +554,7 @@ class TestMetaIntelAllSystemsAndFactions(unittest.TestCase):
 
                 total_systems_checked += 1
 
-        self.assertEqual(total_systems_checked, 118)
+        self.assertEqual(total_systems_checked, 120)
         self.assertGreaterEqual(total_factions_checked, 750)
 
     def test_03_timeframe_windows_monotonicity_across_systems(self):
