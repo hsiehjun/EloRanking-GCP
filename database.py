@@ -12794,6 +12794,10 @@ class PostgresDatabase:
                 **entry,
                 "stats": st,
                 "total_matches": meta_tm,
+                "x0_runs": int(meta_fac_info.get("x0_runs") or 0),
+                "x1_runs": int(meta_fac_info.get("x1_runs") or 0),
+                "tiwp_rate": float(meta_fac_info.get("tiwp_rate") or 0.0),
+                "over_rep_ratio": float(meta_fac_info.get("over_rep_ratio") or 0.0),
                 "matchups": eff_mu,
                 "matches_offset": int(entry.get("matches_offset") or 0),
                 "has_more_matches": entry.get("has_more_matches") if "has_more_matches" in entry else bool(cur_m_len >= 350 and meta_tm > cur_m_len),
@@ -12889,7 +12893,7 @@ class PostgresDatabase:
                             # 1. Check L2 meta_intel cache first if not in L1 yet so L2 faction_details hit is 100% reconciled
                             if (not matchups or meta_fac_info is None) and meta_p:
                                 try:
-                                    meta_ver = "v12" if (system == "aos" and meta_p == "all") else ("v11" if system == "aos" else "v10")
+                                    meta_ver = "v13"
                                     l2_meta_key_v = f"meta_intel_{meta_ver}_{system}_{meta_p}"
                                     l2_meta_key_v_leg = f"meta_intel_{meta_ver}_legacy_{system}_{meta_p}"
                                     cursor.execute(
@@ -12900,7 +12904,7 @@ class PostgresDatabase:
                                     m_val = m_row.get("value") if isinstance(m_row, dict) else (m_row[0] if m_row else None)
                                     if m_val:
                                         parsed_meta = json.loads(m_val)
-                                        if isinstance(parsed_meta, dict) and len(parsed_meta.get("factions") or []) <= 200:
+                                        if isinstance(parsed_meta, dict) and len(parsed_meta.get("factions") or []) <= 5000:
                                             self.set_cached(self._faction_meta_cache_dict, f"preset_{meta_p}_{system}", parsed_meta, max_size=200)
                                             _extract_from_meta_payload(parsed_meta)
                                 except Exception:

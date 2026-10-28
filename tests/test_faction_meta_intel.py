@@ -662,9 +662,13 @@ class TestFactionMetaIntel(unittest.TestCase):
     def test_single_pass_x0_event_runs_and_ui_zero_suppression(self):
         import inspect
         meta_src = inspect.getsource(PostgresDatabase.get_faction_meta_stats)
+        details_src = inspect.getsource(PostgresDatabase.get_faction_details)
         self.assertIn("CROSS JOIN LATERAL", meta_src)
         self.assertIn("meta_evchunk_v2_", meta_src)
         self.assertNotIn("q1_elapsed_ms < 2200.0", meta_src)
+        self.assertIn('meta_ver = "v13"', meta_src)
+        self.assertIn('meta_ver = "v13"', details_src)
+        self.assertNotIn('"v10"', details_src)
 
         factions_js = (self.root_dir / "web" / "js" / "factions.js").read_text(encoding="utf-8")
         self.assertIn("Ex-Mirror Leader", factions_js)
