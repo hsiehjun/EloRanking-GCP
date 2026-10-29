@@ -78,25 +78,29 @@ def run_meta_rollup_backfill(
 
     for sys_slug in systems:
         s_t0 = time.time()
-        res = db.refresh_meta_event_rollups(
-            game_system=sys_slug,
-            start_date=start_date,
-            end_date=end_date,
-            batch_size=batch_size,
-            mark_ready=True,
-            only_pending=only_pending,
-        )
-        per_system[sys_slug] = res
-        ev_c = int(res.get("events_classified") or res.get("events_processed") or 0)
-        mu_c = int(res.get("matchup_rows_written") or res.get("matchup_rows") or 0)
-        rn_c = int(res.get("run_rows_written") or res.get("run_rows") or 0)
-        total_events += ev_c
-        total_mu_rows += mu_c
-        total_run_rows += rn_c
-        logger.info(
-            f"✅ [{sys_slug.upper()}] Classified {ev_c:,} events -> {mu_c:,} matchup rollup rows, "
-            f"{rn_c:,} run rows in {time.time() - s_t0:.1f}s"
-        )
+        try:
+            res = db.refresh_meta_event_rollups(
+                game_system=sys_slug,
+                start_date=start_date,
+                end_date=end_date,
+                batch_size=batch_size,
+                mark_ready=True,
+                only_pending=only_pending,
+            )
+            per_system[sys_slug] = res
+            ev_c = int(res.get("events_classified") or res.get("events_processed") or 0)
+            mu_c = int(res.get("matchup_rows_written") or res.get("matchup_rows") or 0)
+            rn_c = int(res.get("run_rows_written") or res.get("run_rows") or 0)
+            total_events += ev_c
+            total_mu_rows += mu_c
+            total_run_rows += rn_c
+            logger.info(
+                f"✅ [{sys_slug.upper()}] Classified {ev_c:,} events -> {mu_c:,} matchup rollup rows, "
+                f"{rn_c:,} run rows in {time.time() - s_t0:.1f}s"
+            )
+        except Exception as sys_err:
+            logger.warning(f"⚠️ [{sys_slug.upper()}] Rollup notice: {sys_err}")
+            per_system[sys_slug] = {"status": "error", "error": str(sys_err)}
 
     if raw_arg in ("all", "*") and hasattr(db, "get_connection") and not start_date:
         try:

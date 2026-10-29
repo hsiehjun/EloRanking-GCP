@@ -11439,6 +11439,7 @@ class PostgresDatabase:
                             WHERE e.id = v.id;
                             """,
                             cls_updates,
+                            template="(%s::text, %s::int, %s::int, %s::bool, %s::bool, %s::text, %s::text, %s::text, %s::text, %s::text, %s::timestamptz)",
                             page_size=500,
                         )
                         events_updated += len(cls_updates)
