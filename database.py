@@ -11946,7 +11946,7 @@ class PostgresDatabase:
             raw_legacy_key = f"{start_date}_{end_date}_{game_system}"
             if raw_legacy_key not in cache_keys:
                 cache_keys.append(raw_legacy_key)
-        meta_ver = "v13"
+        meta_ver = "v14"
         l2_setting_key = f"meta_intel_{meta_ver}_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}{f_suffix}"
         l2_legacy_key = f"meta_intel_{meta_ver}_legacy_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}" if not f_suffix else l2_setting_key
 
@@ -12069,7 +12069,7 @@ class PostgresDatabase:
                                                 _trigger_bg_meta_refresh()
                                             return _finalize_meta_return(parsed)
                                 if preset == "all" and mf.is_default():
-                                    fb_1yr_key = f"meta_intel_v13_{sys_norm}_1yr"
+                                    fb_1yr_key = f"meta_intel_{meta_ver}_{sys_norm}_1yr"
                                     cur_l2.execute(
                                         "SELECT value FROM system_settings WHERE key = %s LIMIT 1;",
                                         (fb_1yr_key,)
@@ -12156,7 +12156,7 @@ class PostgresDatabase:
                         if not is_mock_cur and self._is_meta_rollup_ready(cursor, sys_norm):
                             try:
                                 cursor.execute("SAVEPOINT sp_meta_rollup_read;")
-                                cursor.execute("SET LOCAL statement_timeout = '8000ms'; SET LOCAL work_mem = '64MB';")
+                                cursor.execute("SET LOCAL statement_timeout = '8000ms'; SET LOCAL work_mem = '128MB';")
                                 pfx = "vet_" if mf.elo_floor >= 1650 else ("exp_" if mf.elo_floor >= 1550 else "")
                                 ev_clauses, ev_params = PostgresDatabase._build_event_filter_sql_clauses(mf, ev_alias="e")
                                 join_ev_sql = "JOIN events e ON e.id = mu.event_id" if mf.has_event_filters() else ""
@@ -12185,58 +12185,52 @@ class PostgresDatabase:
 
                                 cursor.execute(
                                     f"""
-                                    WITH base_mu AS (
-                                        SELECT
-                                            mu.event_id,
-                                            mu.is_non_1v1,
-                                            mu.p1_fac,
-                                            mu.p2_fac,
-                                            {period_col_sql} AS period_date,
-                                            mu.{pfx}match_cnt AS match_cnt,
-                                            mu.{pfx}p1_wins AS p1_wins,
-                                            mu.{pfx}p1_losses AS p1_losses,
-                                            mu.{pfx}draws AS draws,
-                                            mu.{pfx}p2_wins AS p2_wins,
-                                            mu.{pfx}p2_losses AS p2_losses,
-                                            mu.{pfx}p1_score_sum AS p1_score_sum,
-                                            mu.{pfx}p1_score_cnt AS p1_score_cnt,
-                                            mu.{pfx}p2_score_sum AS p2_score_sum,
-                                            mu.{pfx}p2_score_cnt AS p2_score_cnt,
-                                            mu.{pfx}p1_margin_sum AS p1_margin_sum,
-                                            mu.{pfx}margin_cnt AS margin_cnt
-                                        FROM meta_event_matchups mu
-                                        {join_ev_sql}
-                                        WHERE {mu_where_sql}
-                                    ),
-                                    ev_cnt AS (
-                                        SELECT COUNT(DISTINCT CASE WHEN LEFT(event_id, 12) != '__unlinked__' THEN event_id END) AS cnt
-                                        FROM base_mu
-                                    )
                                     SELECT
-                                        b.is_non_1v1,
-                                        b.p1_fac,
-                                        b.p2_fac,
-                                        b.period_date,
-                                        SUM(b.match_cnt) AS match_cnt,
-                                        SUM(b.p1_wins) AS p1_wins,
-                                        SUM(b.p1_losses) AS p1_losses,
-                                        SUM(b.draws) AS draws,
-                                        SUM(b.p2_wins) AS p2_wins,
-                                        SUM(b.p2_losses) AS p2_losses,
-                                        SUM(b.p1_score_sum) AS p1_score_sum,
-                                        SUM(b.p1_score_cnt) AS p1_score_cnt,
-                                        SUM(b.p2_score_sum) AS p2_score_sum,
-                                        SUM(b.p2_score_cnt) AS p2_score_cnt,
-                                        SUM(b.p1_margin_sum) AS p1_margin_sum,
-                                        SUM(b.margin_cnt) AS margin_cnt,
-                                        (SELECT cnt FROM ev_cnt) AS matched_events
-                                    FROM base_mu b
+                                        mu.is_non_1v1,
+                                        mu.p1_fac,
+                                        mu.p2_fac,
+                                        {period_col_sql} AS period_date,
+                                        SUM(mu.{pfx}match_cnt) AS match_cnt,
+                                        SUM(mu.{pfx}p1_wins) AS p1_wins,
+                                        SUM(mu.{pfx}p1_losses) AS p1_losses,
+                                        SUM(mu.{pfx}draws) AS draws,
+                                        SUM(mu.{pfx}p2_wins) AS p2_wins,
+                                        SUM(mu.{pfx}p2_losses) AS p2_losses,
+                                        SUM(mu.{pfx}p1_score_sum) AS p1_score_sum,
+                                        SUM(mu.{pfx}p1_score_cnt) AS p1_score_cnt,
+                                        SUM(mu.{pfx}p2_score_sum) AS p2_score_sum,
+                                        SUM(mu.{pfx}p2_score_cnt) AS p2_score_cnt,
+                                        SUM(mu.{pfx}p1_margin_sum) AS p1_margin_sum,
+                                        SUM(mu.{pfx}margin_cnt) AS margin_cnt
+                                    FROM meta_event_matchups mu
+                                    {join_ev_sql}
+                                    WHERE {mu_where_sql}
                                     GROUP BY 1, 2, 3, 4;
                                     """,
                                     mu_p,
                                 )
                                 fetched_rows = [dict(r) for r in (cursor.fetchall() or [])]
-                                matched_events_count = int(fetched_rows[0].get("matched_events") or 0) if fetched_rows else 0
+                                if not fetched_rows:
+                                    matched_events_count = 0
+                                elif "matched_events" in fetched_rows[0]:
+                                    matched_events_count = int(fetched_rows[0].get("matched_events") or 0)
+                                elif not mf.is_default():
+                                    cursor.execute(
+                                        f"""
+                                        SELECT COUNT(*) AS cnt
+                                        FROM (
+                                            SELECT DISTINCT mu.event_id
+                                            FROM meta_event_matchups mu
+                                            {join_ev_sql}
+                                            WHERE {mu_where_sql} AND LEFT(mu.event_id, 12) != '__unlinked__'
+                                        ) d;
+                                        """,
+                                        mu_p,
+                                    )
+                                    ev_cnt_row = cursor.fetchone()
+                                    matched_events_count = int(
+                                        (ev_cnt_row.get("cnt") if isinstance(ev_cnt_row, dict) else ev_cnt_row[0]) or 0
+                                    ) if ev_cnt_row else 0
 
                                 # Query B: `meta_event_runs` for exact X-0 / X-1 tournament runs & deduplicated pilots
                                 if fetched_rows:
@@ -12282,13 +12276,18 @@ class PostgresDatabase:
                                             FROM base_runs
                                             GROUP BY fac
                                         ),
+                                        pilot_distinct AS (
+                                            SELECT DISTINCT br.fac, ph
+                                            FROM base_runs br,
+                                            LATERAL UNNEST(br.pilot_hashes) AS ph
+                                            WHERE br.pilot_hashes IS NOT NULL
+                                        ),
                                         pilot_totals AS (
                                             SELECT
-                                                br.fac,
-                                                COUNT(DISTINCT ph) AS unique_pilots
-                                            FROM base_runs br
-                                            CROSS JOIN LATERAL UNNEST(COALESCE(br.pilot_hashes, ARRAY[]::integer[])) AS ph
-                                            GROUP BY br.fac
+                                                fac,
+                                                COUNT(*) AS unique_pilots
+                                            FROM pilot_distinct
+                                            GROUP BY fac
                                         )
                                         SELECT
                                             rt.fac,
@@ -13099,16 +13098,45 @@ class PostgresDatabase:
                         } if highest_margin_fac else None,
                     }
 
+                    total_factions_all = len(overall)
+                    if total_factions_all > 250:
+                        # Free-text TCG systems (e.g. MTG/Pokemon custom deck names) can accumulate 4,000+ 1-game deck labels,
+                        # bloating JSON payloads to 16MB+. Preserve exact KPIs above and return the top 250 played archetypes.
+                        top_archetypes = list(sorted_by_play[:250])
+                        kept_names = {str(x.get("faction")) for x in top_archetypes}
+                        for special_fac in (highest_wr_fac, top_x0_fac, highest_margin_fac):
+                            if special_fac and str(special_fac.get("faction")) not in kept_names:
+                                top_archetypes.append(special_fac)
+                                kept_names.add(str(special_fac.get("faction")))
+                        top_archetypes.sort(key=lambda x: (float(x.get("win_rate") or 0.0), int(x.get("total_matches") or 0)), reverse=True)
+                        returned_factions = top_archetypes
+                    else:
+                        returned_factions = overall
+
+                    top_mu_facs = {str(x.get("faction")) for x in sorted_by_play[:60] if x.get("faction")}
+                    compact_matchups_by_fac: Dict[str, List[Dict[str, Any]]] = {}
+                    for fac_k in top_mu_facs:
+                        m_list = matchups_by_fac.get(fac_k)
+                        if m_list:
+                            compact_matchups_by_fac[fac_k] = sorted(
+                                m_list,
+                                key=lambda m_item: int(m_item.get("matches") or 0),
+                                reverse=True,
+                            )[:40]
+
+                    top_trend_facs = {str(x.get("faction")) for x in sorted_by_play[:50] if x.get("faction")}
+                    returned_monthly = [t for t in monthly if str(t.get("faction")) in top_trend_facs] if total_factions_all > 80 else monthly
+
                     res = {
-                        "factions": overall,
-                        "monthly_trends": monthly,
+                        "factions": returned_factions,
+                        "monthly_trends": returned_monthly,
                         "matchup_matrix": {
                             "factions": matrix_factions,
                             "cells": matrix_cells,
                         },
-                        "matchups_by_faction": matchups_by_fac,
+                        "matchups_by_faction": compact_matchups_by_fac,
                         "summary_kpis": summary_kpis,
-                        "total_factions_tracked": len(overall),
+                        "total_factions_tracked": total_factions_all,
                         "filter": {
                             "preset": preset or "custom",
                             "start_date": resolved_start,
@@ -14504,7 +14532,7 @@ class PostgresDatabase:
                             # 1. Check L2 meta_intel cache first if not in L1 yet so L2 faction_details hit is 100% reconciled
                             if (not matchups or (meta_fac_info is None and not meta_payload_loaded)) and meta_p:
                                 try:
-                                    meta_ver = "v13"
+                                    meta_ver = "v14"
                                     l2_meta_key_v = f"meta_intel_{meta_ver}_{system}_{meta_p}{f_suffix}"
                                     l2_meta_key_v_leg = f"meta_intel_{meta_ver}_legacy_{system}_{meta_p}" if not f_suffix else l2_meta_key_v
                                     cursor.execute(

@@ -669,8 +669,8 @@ class TestFactionMetaIntel(unittest.TestCase):
         self.assertIn("CROSS JOIN LATERAL", meta_src)
         self.assertIn("meta_evchunk_v2_", meta_src)
         self.assertNotIn("q1_elapsed_ms < 2200.0", meta_src)
-        self.assertIn('meta_ver = "v13"', meta_src)
-        self.assertIn('meta_ver = "v13"', details_src)
+        self.assertIn('meta_ver = "v14"', meta_src)
+        self.assertIn('meta_ver = "v14"', details_src)
         self.assertNotIn('"v10"', details_src)
 
         factions_js = (self.root_dir / "web" / "js" / "factions.js").read_text(encoding="utf-8")
