@@ -11109,7 +11109,7 @@ class PostgresDatabase:
                 return True
             raw_conn = None
             try:
-                dsn = PostgresDatabase._normalize_dsn(getattr(self, "dsn", None) or os.environ.get("DATABASE_URL", ""))
+                dsn = self._normalize_dsn(getattr(self, "dsn", None) or os.environ.get("DATABASE_URL", ""))
                 if not dsn:
                     return False
                 raw_conn = psycopg2.connect(dsn)
@@ -13178,25 +13178,28 @@ class PostgresDatabase:
                                     sc.itersize = 5000
                                     sc.execute(
                                         """
-                                        SELECT
-                                            COALESCE(NULLIF(NULLIF(rh.event_id, ''), 'unknown_event'), %s) AS ev_id,
-                                            rh.match_id,
-                                            rh.match_date,
-                                            rh.player_id,
-                                            rh.opponent_id,
-                                            rh.opponent_name,
-                                            rh.old_elo,
-                                            rh.opponent_elo,
-                                            rh.result,
-                                            rh.player_faction,
-                                            rh.opponent_faction,
-                                            rh.player_score,
-                                            rh.opponent_score
-                                        FROM rating_history rh
-                                        WHERE COALESCE(rh.game_system, '40k') = %s
-                                          AND rh.old_elo >= %s
-                                          AND rh.match_date >= %s
-                                        ORDER BY 1 COLLATE "C";
+                                        SELECT *
+                                        FROM (
+                                            SELECT
+                                                COALESCE(NULLIF(NULLIF(rh.event_id, ''), 'unknown_event'), %s) AS ev_id,
+                                                rh.match_id,
+                                                rh.match_date,
+                                                rh.player_id,
+                                                rh.opponent_id,
+                                                rh.opponent_name,
+                                                rh.old_elo,
+                                                rh.opponent_elo,
+                                                rh.result,
+                                                rh.player_faction,
+                                                rh.opponent_faction,
+                                                rh.player_score,
+                                                rh.opponent_score
+                                            FROM rating_history rh
+                                            WHERE COALESCE(rh.game_system, '40k') = %s
+                                              AND rh.old_elo >= %s
+                                              AND rh.match_date >= %s
+                                        ) sub
+                                        ORDER BY sub.ev_id COLLATE "C";
                                         """,
                                         (unlinked_key, sys_norm, int(min_elo), min_date_str),
                                     )
@@ -14709,6 +14712,7 @@ class PostgresDatabase:
                     monthly: List[Dict[str, Any]] = []
                     raw_match_count = 0
                     matched_events_count: Optional[int] = None
+                    query_failed = False
 
                     try:
                         q1_t0 = time.time()
@@ -15681,6 +15685,7 @@ class PostgresDatabase:
                         logger.warning(f"Fallback get_faction_meta_stats notice: {e}")
                         overall = []
                         raw_match_count = 0
+                        query_failed = True
 
                     # Secondary fallback: if date-windowed matches returned no faction rows (e.g. smaller game systems or ratings-seeded systems),
                     # check all-time matches for this game_system, and then player_ratings primary_faction aggregates (ONLY when unfiltered).
@@ -16008,7 +16013,7 @@ class PostgresDatabase:
                         }
                     }
 
-                    if overall or not mf.is_default():
+                    if not query_failed and (overall or not mf.is_default()):
                         for k in cache_keys:
                             PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, k, res, max_size=300)
 
@@ -17211,8 +17216,8 @@ class PostgresDatabase:
             cursor.execute(
                 f"""
                 WITH dedup_seats AS MATERIALIZED (
-                    SELECT DISTINCT ON (COALESCE(NULLIF(rh.match_id, ''), rh.id::text))
-                        COALESCE(NULLIF(rh.match_id, ''), rh.id::text) AS mid_key,
+                    SELECT DISTINCT ON (COALESCE(NULLIF(rh.match_id, ''), rh.player_id || ':' || COALESCE(rh.opponent_id, '') || ':' || COALESCE(rh.match_date::text, '')))
+                        COALESCE(NULLIF(rh.match_id, ''), rh.player_id || ':' || COALESCE(rh.opponent_id, '') || ':' || COALESCE(rh.match_date::text, '')) AS mid_key,
                         rh.match_id,
                         rh.event_id,
                         rh.player_id,
@@ -17229,7 +17234,7 @@ class PostgresDatabase:
                     FROM rating_history rh
                     {join_ev_sql}
                     WHERE {rh_where_sql}
-                    ORDER BY COALESCE(NULLIF(rh.match_id, ''), rh.id::text), rh.old_elo DESC
+                    ORDER BY COALESCE(NULLIF(rh.match_id, ''), rh.player_id || ':' || COALESCE(rh.opponent_id, '') || ':' || COALESCE(rh.match_date::text, '')), rh.old_elo DESC
                 ),
                 top_seats AS MATERIALIZED (
                     SELECT *
@@ -17331,8 +17336,8 @@ class PostgresDatabase:
         cursor.execute(
             f"""
             WITH dedup_seats AS MATERIALIZED (
-                SELECT DISTINCT ON (COALESCE(NULLIF(rh.match_id, ''), rh.id::text))
-                    COALESCE(NULLIF(rh.match_id, ''), rh.id::text) AS mid_key,
+                SELECT DISTINCT ON (COALESCE(NULLIF(rh.match_id, ''), rh.player_id || ':' || COALESCE(rh.opponent_id, '') || ':' || COALESCE(rh.match_date::text, '')))
+                    COALESCE(NULLIF(rh.match_id, ''), rh.player_id || ':' || COALESCE(rh.opponent_id, '') || ':' || COALESCE(rh.match_date::text, '')) AS mid_key,
                     rh.match_id,
                     rh.event_id,
                     rh.player_id,
@@ -17349,7 +17354,7 @@ class PostgresDatabase:
                 FROM rating_history rh
                 {join_ev_sql}
                 WHERE {rh_where_sql}
-                ORDER BY COALESCE(NULLIF(rh.match_id, ''), rh.id::text), rh.old_elo DESC
+                ORDER BY COALESCE(NULLIF(rh.match_id, ''), rh.player_id || ':' || COALESCE(rh.opponent_id, '') || ':' || COALESCE(rh.match_date::text, '')), rh.old_elo DESC
             ),
             top_seats AS MATERIALIZED (
                 SELECT *

@@ -560,6 +560,7 @@ async def on_server_startup():
                 lambda: fs_eng.search_real_teams_and_players("Team Zero Comp", "40k", 24),
                 lambda: fs_eng.get_real_team_roster("Team Zero Comp", "40k"),
                 lambda: fs_eng.get_real_team_roster("Art of War", "40k"),
+                lambda: fs_eng.get_tcg_collectible_pool("40k", allow_cold_db=True),
                 lambda: fs_eng.get_user_tcg_state("guest_catalog", glory_balance=0),
             ]
             sem = asyncio.Semaphore(6)

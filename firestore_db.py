@@ -7402,13 +7402,14 @@ class FirestoreRoomEngine:
         self._tcg_db_player_cards_cache[sys_key] = (now_mono, db_cards)
         return list(db_cards)
 
-    def get_tcg_collectible_pool(self, game_system: str = "40k") -> List[Dict[str, Any]]:
+    def get_tcg_collectible_pool(self, game_system: str = "40k", allow_cold_db: bool = True) -> List[Dict[str, Any]]:
         """
         Returns all collectible Real Player x Faction cards, hydrating each card's live Elo
         from `player_ratings` (or `_live_player_elo_overrides`) so that when a real player's Elo
         changes, ALL of their faction cards update automatically.
         """
         import copy
+        import threading
         import time
         sys_key = str(game_system or "40k").strip().lower()
         ov_dict = (getattr(self, "_live_player_elo_overrides", None) or {}).get(sys_key) or {}
@@ -7439,6 +7440,55 @@ class FirestoreRoomEngine:
                         "base_elo": int(float(p.get("elo") or 1950)),
                         "role_tag": str(p.get("role_tag") or p.get("role") or "All-Rounder"),
                     })
+
+        if not allow_cold_db and not ov_sig:
+            db_cached = (getattr(self, "_tcg_db_player_cards_cache", None) or {}).get(sys_key)
+            if db_cached:
+                for dbc in db_cached[1]:
+                    key = (self._slugify_tcg(dbc["player_name"]), self._slugify_tcg(dbc["faction"]))
+                    if dbc["player_name"] and key not in seen_keys:
+                        seen_keys.add(key)
+                        raw_cards.append(dbc)
+            else:
+                threading.Thread(
+                    target=lambda: self.get_tcg_collectible_pool(game_system=game_system, allow_cold_db=True),
+                    daemon=True,
+                ).start()
+            player_faction_counts_fast: Dict[str, List[str]] = {}
+            for c in raw_cards:
+                player_faction_counts_fast.setdefault(c["player_name"].strip(), []).append(c["faction"])
+            fast_pool: List[Dict[str, Any]] = []
+            for c in raw_cards:
+                p_name = c["player_name"].strip()
+                fac = c["faction"].strip()
+                live_elo = int(c["base_elo"])
+                rarity_info = self.classify_tcg_rarity(live_elo, is_starter=False)
+                p_slug = self._slugify_tcg(p_name)
+                f_slug = self._slugify_tcg(fac)
+                factions_for_player = player_faction_counts_fast.get(p_name, [fac])
+                fast_pool.append({
+                    "card_id": f"tcg_{p_slug}__{f_slug}",
+                    "name": p_name,
+                    "card_title": p_name,
+                    "player_name": p_name,
+                    "faction": fac,
+                    "detachment": c["detachment"],
+                    "role": c["role_tag"],
+                    "role_tag": c["role_tag"],
+                    "base_elo": live_elo,
+                    "elo": live_elo,
+                    "current_elo": live_elo,
+                    "elo_delta": 0,
+                    "is_starter": False,
+                    "rarity": rarity_info["id"],
+                    "rarity_label": rarity_info["label"],
+                    "rarity_short": rarity_info["short"],
+                    "duplicate_rebate": rarity_info["duplicate_rebate"],
+                    "player_faction_count": len(factions_for_player),
+                    "player_factions": factions_for_player,
+                })
+            fast_pool.sort(key=lambda item: (int(item["elo"]), item["player_name"], item["faction"]), reverse=True)
+            return fast_pool
 
         # Also include real competitive players from PostgreSQL player_ratings
         for dbc in self._fetch_db_tcg_player_cards(game_system=game_system):
@@ -7663,7 +7713,7 @@ class FirestoreRoomEngine:
         eff_glory = int(doc.get("spendable_glory", 0))
 
         starter_cards = self.get_tcg_starter_cards(user_id)
-        collectible_pool = self.get_tcg_collectible_pool()
+        collectible_pool = self.get_tcg_collectible_pool(allow_cold_db=(user_id != "guest_catalog"))
 
         owned_map: Dict[str, Dict[str, Any]] = doc.get("owned_collectibles") or {}
         card_lookup: Dict[str, Dict[str, Any]] = {}
