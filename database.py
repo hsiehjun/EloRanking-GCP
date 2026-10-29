@@ -23197,6 +23197,187 @@ class PostgresDatabase:
                 logger.warning(f"Notice deleting event news_post in PostgreSQL for {eid}: {e}")
         return True
 
+    def save_active_ml_predictor_bundle(
+        self,
+        schema_version: str,
+        bundle: Dict[str, Any],
+        benchmark_report: Optional[List[Dict[str, Any]]] = None,
+    ) -> bool:
+        """Persists trained & holdout-verified ML predictor bundle + benchmark scorecard in system_settings."""
+        ver = str(schema_version or "ml_predictor_v1").strip()
+        bundle_key = f"ml_predictor_bundle_{ver}"
+        bench_key = f"ml_predictor_benchmark_{ver}"
+        PostgresDatabase.set_cached(PostgresDatabase._players_cache_dict, bundle_key, bundle)
+        if benchmark_report is not None:
+            PostgresDatabase.set_cached(PostgresDatabase._players_cache_dict, bench_key, benchmark_report)
+
+        if not self._is_mock_instance() and hasattr(self, "get_connection") and not hasattr(self.get_connection, "_mock_name"):
+            try:
+                with self.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        if not type(cur).__module__.startswith("unittest.mock"):
+                            cur.execute("SET LOCAL statement_timeout = '15000ms';")
+                        cur.execute(
+                            """
+                            INSERT INTO system_settings (key, value, updated_at)
+                            VALUES (%s, %s, NOW())
+                            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
+                            """,
+                            (bundle_key, json.dumps(bundle, separators=(",", ":"), default=str)),
+                        )
+                        if benchmark_report is not None:
+                            cur.execute(
+                                """
+                                INSERT INTO system_settings (key, value, updated_at)
+                                VALUES (%s, %s, NOW())
+                                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
+                                """,
+                                (bench_key, json.dumps(benchmark_report, separators=(",", ":"), default=str)),
+                            )
+                    conn.commit()
+                return True
+            except Exception as e:
+                logger.warning(f"Notice saving ML predictor bundle to system_settings ({bundle_key}): {e}")
+        return False
+
+    def get_active_ml_predictor_bundle(self, schema_version: str = "ml_predictor_v1") -> Optional[Dict[str, Any]]:
+        """Loads active ML predictor bundle from L1 cache or system_settings (<2ms)."""
+        ver = str(schema_version or "ml_predictor_v1").strip()
+        bundle_key = f"ml_predictor_bundle_{ver}"
+        cached = PostgresDatabase.get_cached(PostgresDatabase._players_cache_dict, bundle_key, ttl=600)
+        if isinstance(cached, dict):
+            return cached
+        if self._is_mock_instance() or not hasattr(self, "get_connection") or hasattr(self.get_connection, "_mock_name"):
+            return None
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    if not type(cur).__module__.startswith("unittest.mock"):
+                        cur.execute("SET LOCAL statement_timeout = '1500ms';")
+                    cur.execute("SELECT value FROM system_settings WHERE key = %s LIMIT 1;", (bundle_key,))
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        parsed = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                        if isinstance(parsed, dict):
+                            PostgresDatabase.set_cached(PostgresDatabase._players_cache_dict, bundle_key, parsed)
+                            return parsed
+        except Exception as e:
+            logger.debug(f"Notice reading ML predictor bundle ({bundle_key}): {e}")
+        return None
+
+    def get_competitive_faction_alpha_snapshot(self, game_system: str = "40k") -> Dict[str, Any]:
+        """
+        Returns competitive-filtered (Singles, non-league, standard-format) 90d shrunk
+        faction alphas and matchup alphas for live ML Match Predictor inference (<1ms cached).
+        """
+        from predictor_model import normalize_faction_key
+
+        sys_norm = str(game_system or "40k").strip().lower()
+        snap_key = f"ml_comp_alpha_90d_{sys_norm}"
+        cached = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, snap_key, ttl=1800)
+        if isinstance(cached, dict):
+            return cached
+
+        meta_data = None
+        if not self._is_mock_instance() and hasattr(self, "get_faction_meta_stats"):
+            try:
+                std_fmt = "standard_2000" if sys_norm in ("40k", "aos") else "all"
+                comp_mf = MetaEventFilter(
+                    exclude_leagues=True,
+                    event_structure="singles",
+                    event_format=std_fmt,
+                )
+                meta_data = self.get_faction_meta_stats(
+                    game_system=sys_norm,
+                    timeframe="90d",
+                    meta_filter=comp_mf,
+                )
+                # Fallback if standard_2000 has 0 matches on unbackfilled test DB
+                if not isinstance(meta_data, dict) or not (meta_data.get("factions") or []):
+                    comp_mf_broad = MetaEventFilter(exclude_leagues=True, event_structure="singles")
+                    meta_data = self.get_faction_meta_stats(
+                        game_system=sys_norm,
+                        timeframe="90d",
+                        meta_filter=comp_mf_broad,
+                    )
+            except Exception:
+                meta_data = None
+
+        if meta_data is None:
+            meta_data = (
+                PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, f"preset_90d_{sys_norm}", ttl=86400)
+                or PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, f"::{sys_norm}:90d", ttl=86400)
+                or {}
+            )
+
+        fac_alphas: Dict[str, Dict[str, Any]] = {}
+        mu_alphas: Dict[str, Dict[str, Any]] = {}
+        factions_list = (meta_data.get("factions") if isinstance(meta_data, dict) else None) or []
+        mu_by_fac = (meta_data.get("matchups_by_faction") if isinstance(meta_data, dict) else None) or {}
+
+        for f_row in factions_list:
+            if not isinstance(f_row, dict):
+                continue
+            fn = str(f_row.get("faction") or "").strip()
+            nk = normalize_faction_key(fn)
+            if not nk:
+                continue
+            g = float(f_row.get("total_matches") or 0)
+            w = float(f_row.get("wins") or 0)
+            d = float(f_row.get("draws") or 0)
+            if g <= 0:
+                continue
+            # Shrunk edge relative to 0.50 (prior kappa = 75)
+            alpha = ((w + 0.5 * d) - 0.5 * g) / (g + 75.0)
+            fac_alphas[nk] = {
+                "faction": fn,
+                "alpha": round(alpha, 5),
+                "games": int(g),
+                "wins": int(w),
+                "losses": int(f_row.get("losses") or 0),
+                "draws": int(d),
+                "win_rate": round(float(f_row.get("win_rate") or 50.0), 1),
+            }
+
+        for fn, mu_list in (mu_by_fac.items() if isinstance(mu_by_fac, dict) else []):
+            nk1 = normalize_faction_key(fn)
+            if not nk1 or not isinstance(mu_list, list):
+                continue
+            a1 = fac_alphas.get(nk1, {}).get("alpha", 0.0)
+            for m in mu_list:
+                if not isinstance(m, dict):
+                    continue
+                opp_fn = str(m.get("opponent") or m.get("opponent_faction") or "").strip()
+                nk2 = normalize_faction_key(opp_fn)
+                if not nk2 or nk1 == nk2:
+                    continue
+                pair_key = f"{nk1}||{nk2}"
+                if pair_key in mu_alphas:
+                    continue
+                mg = float(m.get("matches_played") or m.get("total") or 0)
+                mw = float(m.get("wins") or 0)
+                md = float(m.get("draws") or 0)
+                ml = float(m.get("losses") or 0)
+                if mg <= 0:
+                    continue
+                a2 = fac_alphas.get(nk2, {}).get("alpha", 0.0)
+                # Residual matchup edge net of marginal faction strengths (kappa = 35)
+                raw_edge = ((mw + 0.5 * md) / mg) - 0.5
+                net_edge = raw_edge - (a1 - a2)
+                shrunk_mu = (net_edge * mg) / (mg + 35.0)
+                mu_alphas[pair_key] = {
+                    "alpha": round(shrunk_mu, 5),
+                    "games": int(mg),
+                    "wins": int(mw),
+                    "losses": int(ml),
+                    "draws": int(md),
+                }
+
+        snap = {"factions": fac_alphas, "matchups": mu_alphas}
+        if fac_alphas:
+            PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, snap_key, snap)
+        return snap
+
 
 class PostgresConnectionContext:
     """Manages connection acquisition and release back to ThreadedConnectionPool."""

@@ -2179,7 +2179,74 @@ tbody tr:hover {
   border: 1px solid var(--border);
 }
 .win-prob-bar .p1-bar { background: #38bdf8; height: 100%; transition: width 0.4s ease; }
+.win-prob-bar .draw-bar {
+  background: repeating-linear-gradient(
+    -45deg,
+    #64748b,
+    #64748b 5px,
+    #475569 5px,
+    #475569 10px
+  );
+  height: 100%;
+  transition: width 0.4s ease;
+  border-left: 1px solid rgba(15, 23, 42, 0.7);
+  border-right: 1px solid rgba(15, 23, 42, 0.7);
+}
 .win-prob-bar .p2-bar { background: #f43f5e; height: 100%; transition: width 0.4s ease; }
+
+.pred-draw-prob-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: #cbd5e1;
+  background: rgba(100, 116, 139, 0.22);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.pred-ml-engine-pill {
+  padding: 2px 9px;
+  border-radius: 5px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.pred-ml-engine-pill.mode-ml {
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.42);
+  color: #34d399;
+}
+.pred-ml-engine-pill.mode-elo {
+  background: rgba(168, 85, 247, 0.14);
+  border: 1px solid rgba(168, 85, 247, 0.38);
+  color: #c084fc;
+}
+
+.pred-disposition-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+.pred-disp-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: help;
+}
+.pred-disp-pill.tone-amber { background: rgba(245, 158, 11, 0.16); border: 1px solid rgba(245, 158, 11, 0.42); color: #fbbf24; }
+.pred-disp-pill.tone-cyan { background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #7dd3fc; }
+.pred-disp-pill.tone-rose { background: rgba(244, 63, 94, 0.16); border: 1px solid rgba(244, 63, 94, 0.42); color: #fda4af; }
+.pred-disp-pill.tone-slate { background: rgba(148, 163, 184, 0.16); border: 1px solid rgba(148, 163, 184, 0.38); color: #cbd5e1; }
+.pred-disp-pill.tone-purple { background: rgba(168, 85, 247, 0.16); border: 1px solid rgba(168, 85, 247, 0.42); color: #d8b4fe; }
+.pred-disp-pill.tone-emerald { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #6ee7b7; }
+.pred-disp-pill.tone-indigo { background: rgba(99, 102, 241, 0.16); border: 1px solid rgba(99, 102, 241, 0.4); color: #a5b4fc; }
 
 /* Autocomplete Dropdown */
 .autocomplete-dropdown {

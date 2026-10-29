@@ -6,7 +6,7 @@
   <title>OmniTactica • Tactical Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=fbfd3c48d5">
+  <link rel="manifest" href="/manifest.json?v=805d5f1ccb">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=fbfd3c48d5">
-  <link rel="stylesheet" href="/css/styles.min.css?v=fbfd3c48d5">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=fbfd3c48d5">
-  <link rel="preload" href="/js/app.bundle.min.js?v=fbfd3c48d5" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=805d5f1ccb">
+  <link rel="stylesheet" href="/css/styles.min.css?v=805d5f1ccb">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=805d5f1ccb">
+  <link rel="preload" href="/js/app.bundle.min.js?v=805d5f1ccb" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "fbfd3c48d5";</script>
+  <script>window.APP_VERSION = "805d5f1ccb";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -1668,7 +1668,10 @@
                     <div class="pm-name" id="p1-card-name">Player 1</div>
                     <span id="p1-card-team" class="badge" style="display: none; background: rgba(255,255,255,0.06); color: var(--text-secondary); font-size: 0.7rem;"></span>
                   </div>
-                  <div id="p1-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: none;"></div>
+                  <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.35rem;">
+                    <div id="p1-card-faction" class="faction-pill" style="display: none;"></div>
+                    <span id="p1-disposition-badges" class="pred-disposition-badges"></span>
+                  </div>
                 </div>
                 <div style="text-align: right; flex-shrink: 0;">
                   <div class="pm-elo-display" style="color: #38bdf8;" id="p1-card-elo">1500</div>
@@ -1716,7 +1719,10 @@
                     <div class="pm-name" id="p2-card-name">Player 2</div>
                     <span id="p2-card-team" class="badge" style="display: none; background: rgba(255,255,255,0.06); color: var(--text-secondary); font-size: 0.7rem;"></span>
                   </div>
-                  <div id="p2-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: none;"></div>
+                  <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.35rem;">
+                    <div id="p2-card-faction" class="faction-pill" style="display: none;"></div>
+                    <span id="p2-disposition-badges" class="pred-disposition-badges"></span>
+                  </div>
                 </div>
                 <div style="text-align: right; flex-shrink: 0;">
                   <div class="pm-elo-display" style="color: #f43f5e;" id="p2-card-elo">1500</div>
@@ -1745,19 +1751,22 @@
         <!-- Prediction Output Box -->
         <div class="predict-result-box">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
-            <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Expected Win Probability</div>
+            <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Calibrated Match Outcome Forecast</div>
             <div id="pred-header-badges" style="display: none; align-items: center; gap: 0.45rem; flex-wrap: wrap; font-family: var(--font-mono); font-size: 0.74rem;">
+              <span id="pred-ml-engine-pill" class="pred-ml-engine-pill"></span>
               <span id="pred-elo-gap-pill" style="padding: 2px 8px; border-radius: 5px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; font-weight: 700;"></span>
               <span id="pred-pure-elo-pill" style="padding: 2px 8px; border-radius: 5px; background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.28); color: #7dd3fc; font-weight: 700;"></span>
             </div>
           </div>
-          <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 1.5rem; margin-top: 0.5rem;">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; font-weight: 800; font-size: 1.5rem; margin-top: 0.5rem; gap: 0.5rem;">
             <span style="color: #38bdf8;" id="pred-p1-prob"></span>
+            <span id="pred-draw-prob" class="pred-draw-prob-label" style="display: none;"></span>
             <span style="color: #f43f5e;" id="pred-p2-prob"></span>
           </div>
 
           <div class="win-prob-bar">
             <div id="pred-bar-p1" class="p1-bar" style="width: 50%;"></div>
+            <div id="pred-bar-draw" class="draw-bar" style="width: 0%;"></div>
             <div id="pred-bar-p2" class="p2-bar" style="width: 50%;"></div>
           </div>
 
@@ -3958,7 +3967,7 @@
   </div> <!-- #app-shell -->
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=fbfd3c48d5"></script>
+  <script src="/js/app.bundle.min.js?v=805d5f1ccb"></script>
 
   <!-- Cloud Firestore Compat SDK for Real-time Matchmaking & Push Chat -->
   <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>

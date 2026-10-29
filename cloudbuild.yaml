@@ -208,6 +208,38 @@ steps:
       - '0'
       - '--no-execute'
 
+  # 11c. Create or Update Cloud Run Job + Weekly Scheduler: elo-ml-trainer-job (Calibrated 2-Mode ML Match Predictor)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'update-ml-trainer-job'
+    entrypoint: python3
+    args:
+      - 'scripts/deploy_platform_job.py'
+      - '--job-name'
+      - 'elo-ml-trainer-job'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--command'
+      - 'python3'
+      - '--args'
+      - 'scripts/train_match_predictor.py,--game-systems=all,--min-ml-matches=25000'
+      - '--scheduler-name'
+      - 'elo-ml-trainer-scheduler-job'
+      - '--schedule'
+      - '0 5 * * 1'
+      - '--description'
+      - 'Weekly chronological point-in-time trainer and holdout benchmark gate for Calibrated ML Match Predictor'
+      - '--memory'
+      - '8Gi'
+      - '--cpu'
+      - '4'
+      - '--task-timeout'
+      - '60m'
+      - '--max-retries'
+      - '0'
+      - '--no-execute'
+
   # 12. Run Sequential Production Endpoint & DB Latency Gate (<1000ms budget)
   - name: 'python:3.11-slim'
     id: 'verify-prod-performance'

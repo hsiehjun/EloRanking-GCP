@@ -485,7 +485,9 @@ class EloEngine:
             type(self.db).__module__.startswith("unittest.mock")
             or getattr(self.db, "_is_mock_instance", lambda: False)()
         )
-        cache_key = ("predict_match_v4", p1_str.lower(), p2_str.lower(), target_sys, p1_fac_req.lower(), p2_fac_req.lower())
+        from predictor_model import load_model_bundle
+        active_bundle_ver = "mock" if is_mock_db else str(load_model_bundle(db=self.db).get("trained_at") or "seed")
+        cache_key = ("predict_match_v5", active_bundle_ver, p1_str.lower(), p2_str.lower(), target_sys, p1_fac_req.lower(), p2_fac_req.lower())
         if not is_mock_db:
             cached_pred = PostgresDatabase.get_cached(PostgresDatabase._players_cache_dict, cache_key, ttl=600)
             if cached_pred is not None:
@@ -547,9 +549,13 @@ class EloEngine:
                         cur.execute(
                             """
                             SELECT rh.player_id, rh.match_id, rh.event_id, rh.round, rh.match_date,
-                                   rh.result, rh.delta_elo, rh.player_score, rh.opponent_score,
+                                   rh.result, rh.old_elo, rh.opponent_elo, rh.delta_elo,
+                                   rh.player_score, rh.opponent_score,
                                    rh.player_faction, rh.opponent_id, rh.opponent_name, rh.opponent_faction,
-                                   e.name AS event_name
+                                   e.name AS event_name,
+                                   COALESCE(e.is_league, FALSE) AS is_league,
+                                   COALESCE(e.structure_tag, 'singles') AS structure_tag,
+                                   COALESCE(e.format_tag, 'standard') AS format_tag
                             FROM rating_history rh
                             LEFT JOIN events e ON rh.event_id = e.id
                             WHERE COALESCE(rh.game_system, '40k') = %s
@@ -773,6 +779,17 @@ class EloEngine:
             else:
                 primary_fac = "Unknown"
 
+            from predictor_model import extract_player_disposition_and_residuals, get_system_model_spec
+            sys_spec_for_prof = get_system_model_spec(target_sys, db=None if is_mock_db else self.db)
+            ml_ext = extract_player_disposition_and_residuals(
+                history_rows=h_rows,
+                current_elo=c_elo,
+                peak_elo=pk_elo,
+                matches_played=m_tot,
+                game_system=target_sys,
+                margin_norm_std=sys_spec_for_prof.get("margin_norm_std"),
+            )
+
             return {
                 "player_id": pid,
                 "player_name": pname,
@@ -790,6 +807,16 @@ class EloEngine:
                 "faction_mastery": fm_list,
                 "matchup_matrix": mm_list,
                 "recent_matches": recent_list,
+                "disposition": ml_ext["disposition"],
+                "ml_features": {
+                    "competitive_games": ml_ext["competitive_games"],
+                    "days_inactive": ml_ext["days_inactive"],
+                    "uncertainty_sq": ml_ext["uncertainty_sq"],
+                    "recent_form_ewma": ml_ext["recent_form_ewma"],
+                    "peak_gap": ml_ext["peak_gap"],
+                    "own_faction_residuals": ml_ext["own_faction_residuals"],
+                    "vs_faction_residuals": ml_ext["vs_faction_residuals"],
+                },
             }
 
         p1_prof = _build_player_dossier(p1_data, p1_resolved_id, p1_fac_req)
@@ -1031,6 +1058,130 @@ class EloEngine:
             },
         }
 
+        from predictor_model import (
+            compute_h2h_elo_residual,
+            get_system_model_spec,
+            predict_1v1_matchup,
+        )
+
+        ml_spec = get_system_model_spec(target_sys, db=None if is_mock_db else self.db)
+        comp_snap: Dict[str, Any] = {"factions": {}, "matchups": {}}
+        if not is_mock_db and hasattr(self.db, "get_competitive_faction_alpha_snapshot"):
+            try:
+                snap_res = self.db.get_competitive_faction_alpha_snapshot(target_sys)
+                if isinstance(snap_res, dict) and snap_res.get("factions"):
+                    comp_snap = snap_res
+            except Exception:
+                pass
+
+        # Fallback to fac_norm_lookup if competitive snapshot was unavailable (e.g. unit test mocks)
+        if not comp_snap.get("factions") and fac_norm_lookup:
+            fb_facs: Dict[str, Any] = {}
+            fb_mus: Dict[str, Any] = {}
+            for fnk, f_ent in fac_norm_lookup.items():
+                fst = f_ent.get("stats") or {}
+                fg = float(fst.get("total_matches") or 0)
+                fw = float(fst.get("total_wins") or 0)
+                fd = float(fst.get("total_draws") or 0)
+                if fg > 0:
+                    fb_facs[fnk] = {
+                        "faction": f_ent.get("faction") or fnk,
+                        "alpha": round(((fw + 0.5 * fd) - 0.5 * fg) / (fg + 75.0), 5),
+                        "games": int(fg),
+                        "wins": int(fw),
+                        "losses": int(fst.get("total_losses") or 0),
+                        "draws": int(fd),
+                        "win_rate": round(float(fst.get("win_rate") or 50.0), 1),
+                    }
+            for fnk, f_ent in fac_norm_lookup.items():
+                a1_v = fb_facs.get(fnk, {}).get("alpha", 0.0)
+                for m_item in (f_ent.get("matchups") or []):
+                    onk = _norm_fac_key(m_item.get("opponent_faction") or "")
+                    mg = float(m_item.get("matches_played") or 0)
+                    mw = float(m_item.get("wins") or 0)
+                    md = float(m_item.get("draws") or 0)
+                    if onk and onk != fnk and mg > 0:
+                        a2_v = fb_facs.get(onk, {}).get("alpha", 0.0)
+                        raw_e = ((mw + 0.5 * md) / mg) - 0.5
+                        fb_mus[f"{fnk}||{onk}"] = {
+                            "alpha": round(((raw_e - (a1_v - a2_v)) * mg) / (mg + 35.0), 5),
+                            "games": int(mg),
+                            "wins": int(mw),
+                            "losses": int(m_item.get("losses") or 0),
+                            "draws": int(md),
+                        }
+            comp_snap = {"factions": fb_facs, "matchups": fb_mus}
+
+        f1_alpha_obj = (comp_snap.get("factions") or {}).get(nk1) or {}
+        f2_alpha_obj = (comp_snap.get("factions") or {}).get(nk2) or {}
+        mu_alpha_obj = (comp_snap.get("matchups") or {}).get(f"{nk1}||{nk2}") or {}
+        if not mu_alpha_obj and nk1 and nk2 and nk1 != nk2:
+            rev_obj = (comp_snap.get("matchups") or {}).get(f"{nk2}||{nk1}")
+            if rev_obj:
+                mu_alpha_obj = {
+                    "alpha": -float(rev_obj.get("alpha") or 0.0),
+                    "games": int(rev_obj.get("games") or 0),
+                }
+
+        p1_mlf = p1_prof.get("ml_features") or {}
+        p2_mlf = p2_prof.get("ml_features") or {}
+        p1_disp = p1_prof.get("disposition") or {}
+        p2_disp = p2_prof.get("disposition") or {}
+
+        p1_own_entry = (p1_mlf.get("own_faction_residuals") or {}).get(nk1) or {}
+        p2_own_entry = (p2_mlf.get("own_faction_residuals") or {}).get(nk2) or {}
+        p1_vs_entry = (p1_mlf.get("vs_faction_residuals") or {}).get(nk2) or {}
+        p2_vs_entry = (p2_mlf.get("vs_faction_residuals") or {}).get(nk1) or {}
+
+        h2h_res_ab, h2h_res_cnt = compute_h2h_elo_residual(
+            h2h_matches,
+            p1_id=p1_prof["player_id"],
+            p2_id=p2_prof["player_id"],
+            p1_elo=r1,
+            p2_elo=r2,
+            p1_name=p1_prof["player_name"],
+            p2_name=p2_prof["player_name"],
+        )
+
+        ml_pred = predict_1v1_matchup(
+            spec=ml_spec,
+            p1_inputs={
+                "elo": r1,
+                "games": max(m1, int(p1_mlf.get("competitive_games") or 0)),
+                "uncertainty_sq": float(p1_mlf.get("uncertainty_sq") or 0.5),
+                "peak_gap": float(p1_mlf.get("peak_gap") or 0.0),
+                "recent_form_ewma": float(p1_mlf.get("recent_form_ewma") or 0.0),
+                "own_fac_res": float(p1_own_entry.get("residual") or 0.0),
+                "own_fac_games": int(p1_own_entry.get("games") or m1_stats["ownGames"]),
+                "vs_fac_res": float(p1_vs_entry.get("residual") or 0.0),
+                "giant_slayer_res": float(p1_disp.get("giant_slayer_res") or 0.0),
+                "gatekeeper_res": float(p1_disp.get("gatekeeper_res") or 0.0),
+                "volatility_z": float(p1_disp.get("volatility_z") or 0.0),
+            },
+            p2_inputs={
+                "elo": r2,
+                "games": max(m2, int(p2_mlf.get("competitive_games") or 0)),
+                "uncertainty_sq": float(p2_mlf.get("uncertainty_sq") or 0.5),
+                "peak_gap": float(p2_mlf.get("peak_gap") or 0.0),
+                "recent_form_ewma": float(p2_mlf.get("recent_form_ewma") or 0.0),
+                "own_fac_res": float(p2_own_entry.get("residual") or 0.0),
+                "own_fac_games": int(p2_own_entry.get("games") or m2_stats["ownGames"]),
+                "vs_fac_res": float(p2_vs_entry.get("residual") or 0.0),
+                "giant_slayer_res": float(p2_disp.get("giant_slayer_res") or 0.0),
+                "gatekeeper_res": float(p2_disp.get("gatekeeper_res") or 0.0),
+                "volatility_z": float(p2_disp.get("volatility_z") or 0.0),
+            },
+            macro_inputs={
+                "is_mirror": is_mirror,
+                "f1_alpha": float(f1_alpha_obj.get("alpha") or 0.0),
+                "f2_alpha": float(f2_alpha_obj.get("alpha") or 0.0),
+                "matchup_alpha": float(mu_alpha_obj.get("alpha") or 0.0),
+                "matchup_games": int(mu_alpha_obj.get("games") or h2h_f_tot),
+            },
+            direct_h2h_res=h2h_res_ab,
+            direct_h2h_games=h2h_res_cnt,
+        )
+
         res = {
             "p1_win_prob": mf_p1_prob,
             "p2_win_prob": mf_p2_prob,
@@ -1051,6 +1202,9 @@ class EloEngine:
             "draw_deltas": {"p1": f"{d_p1_draw:+}", "p2": f"{d_p2_draw:+}"},
             "head_to_head": h2h_matches,
             "multi_factor_prediction": multi_factor_pred,
+            "ml_prediction": ml_pred,
+            "ml_client_spec": ml_spec,
+            "competitive_alpha_90d": comp_snap,
             "p1_profile": p1_prof,
             "p2_profile": p2_prof,
             "faction_3mo_summary": fac_summary,
