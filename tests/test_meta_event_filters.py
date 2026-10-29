@@ -774,6 +774,110 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
             self.assertEqual(det["filter"]["min_players"], 28)
             self.assertEqual(det["filter"]["elo_floor"], 1550)
 
+    def test_postgres_rollup_pre_eids_pk_and_unnest_hash_regimes(self):
+        """Verifies both PK `ANY(%s)` (<=1000 events) and `UNNEST` Hash Join (>1000 events) cold rollup regimes."""
+        for ev_count, expected_token in ((12, "mu.event_id = ANY(%s)"), (1205, "JOIN UNNEST(%s::varchar[]) AS fe(eid) ON fe.eid = mu.event_id")):
+            PostgresDatabase.invalidate_all_caches()
+            PostgresDatabase._meta_rollup_ready_systems.add("40k")
+            PostgresDatabase._meta_rollup_status_checked_ts = 9999999999.0
+            db = PostgresDatabase.__new__(PostgresDatabase)
+            db.connection_pool = True
+            db._is_mock_instance = lambda: False
+            executed = []
+
+            class PreEidRollupCursor:
+                _enable_pre_eids = True
+
+                def __init__(self):
+                    self.connection = object()
+                    self._last_q = ""
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    pass
+
+                def execute(self, query, params=None):
+                    if params is not None:
+                        _ = query % tuple(repr(p) for p in params)
+                    self._last_q = query
+                    executed.append((query, params))
+
+                def fetchone(self):
+                    if "SELECT COUNT(*) AS cnt" in self._last_q:
+                        return {"cnt": ev_count}
+                    return None
+
+                def fetchall(self):
+                    if "SELECT e.id FROM events e" in self._last_q:
+                        return [{"id": f"ev_{i}"} for i in range(ev_count)]
+                    if "FROM meta_event_matchups" in self._last_q:
+                        return [
+                            {
+                                "is_non_1v1": False,
+                                "p1_fac": "Aeldari",
+                                "p2_fac": "Necrons",
+                                "period_date": None,
+                                "match_cnt": 50,
+                                "p1_wins": 30,
+                                "p1_losses": 20,
+                                "draws": 0,
+                                "p2_wins": 20,
+                                "p2_losses": 30,
+                                "p1_score_sum": 4000,
+                                "p1_score_cnt": 50,
+                                "p2_score_sum": 3500,
+                                "p2_score_cnt": 50,
+                                "p1_margin_sum": 500,
+                                "margin_cnt": 50,
+                            }
+                        ]
+                    if "SUM(r." in self._last_q and "FROM meta_event_runs" in self._last_q:
+                        return [
+                            {
+                                "fac": "Aeldari",
+                                "sum_pilots": 25,
+                                "event_runs_count": 20,
+                                "x0_runs": 4,
+                                "x1_runs": 7,
+                                "row_cnt": 20 if ev_count <= 1000 else 5000,
+                            }
+                        ]
+                    if "UNNEST(r." in self._last_q:
+                        return [{"fac": "Aeldari", "unique_pilots": 22}]
+                    return []
+
+            class MockConn2:
+                def cursor(self, *args, **kwargs):
+                    return PreEidRollupCursor()
+
+                def rollback(self):
+                    pass
+
+                def commit(self):
+                    pass
+
+            @contextmanager
+            def _mc2():
+                yield MockConn2()
+
+            mf_sub = parse_meta_filters(min_players=24, exclude_leagues=True)
+            with patch.object(PostgresDatabase, "get_connection", new=lambda _self: _mc2()):
+                res_sub = db.get_faction_meta_stats(
+                    timeframe="90d",
+                    game_system="40k",
+                    meta_filters=mf_sub,
+                    include_trends=False,
+                    _force_refresh=True,
+                )
+                self.assertEqual(res_sub["summary_kpis"]["total_matches"], 50)
+                self.assertEqual(res_sub["summary_kpis"]["matched_events"], ev_count)
+                ael = next(f for f in res_sub["factions"] if f["faction"] == "Aeldari")
+                self.assertEqual(ael["unique_pilots"], 22 if ev_count <= 1000 else 25)
+                mu_sql = next(q for q, _p in executed if "FROM meta_event_matchups" in q and "SUM(" in q)
+                self.assertIn(expected_token, mu_sql)
+
     def test_frontend_quadrant_timeline_removed_and_all_events_default(self):
         root = Path(__file__).resolve().parent.parent
         app_html = (root / "web" / "app.html").read_text(encoding="utf-8")

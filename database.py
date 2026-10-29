@@ -12167,174 +12167,234 @@ class PostgresDatabase:
                             try:
                                 cursor.execute("SAVEPOINT sp_meta_rollup_read;")
                                 cursor.execute("SET LOCAL statement_timeout = '8000ms'; SET LOCAL work_mem = '128MB';")
-                                if mf.has_event_filters():
-                                    cursor.execute("SET LOCAL enable_nestloop = off;")
                                 pfx = "vet_" if mf.elo_floor >= 1650 else ("exp_" if mf.elo_floor >= 1550 else "")
                                 ev_clauses, ev_params = PostgresDatabase._build_event_filter_sql_clauses(mf, ev_alias="e")
-                                join_ev_sql = "JOIN events e ON e.id = mu.event_id" if mf.has_event_filters() else ""
-                                mu_w: List[str] = []
-                                mu_p: List[Any] = []
-                                if not allow_non_1v1:
-                                    mu_w.append("mu.is_non_1v1 = FALSE")
-                                elif mf.event_structure in ("doubles", "ffa_pod"):
-                                    # Include both expanded seat rows and any 1v1 rows recorded in that event
-                                    pass
-                                if game_system and sys_norm != "all":
-                                    mu_w.append("mu.game_system = %s")
-                                    mu_p.append(sys_norm)
-                                    if mf.has_event_filters():
-                                        mu_w.append("COALESCE(e.game_system, '40k') = %s")
-                                        mu_p.append(sys_norm)
-                                if resolved_start:
-                                    mu_w.append("mu.match_day >= %s")
-                                    mu_p.append(resolved_start)
-                                if resolved_end:
-                                    mu_w.append("mu.match_day <= %s")
-                                    mu_p.append(resolved_end)
-                                if ev_clauses:
-                                    mu_w.extend(ev_clauses)
-                                    mu_p.extend(ev_params)
-                                if pfx == "vet_":
-                                    mu_w.append("mu.exp_match_cnt > 0")
-                                mu_w.append(f"mu.{pfx}match_cnt > 0")
-                                mu_where_sql = " AND ".join(mu_w)
-                                period_col_sql = f"DATE_TRUNC('{period_trunc}', mu.match_day)::date" if include_trends else "NULL::date"
-
-                                cursor.execute(
-                                    f"""
-                                    SELECT
-                                        mu.is_non_1v1,
-                                        mu.p1_fac,
-                                        mu.p2_fac,
-                                        {period_col_sql} AS period_date,
-                                        SUM(mu.{pfx}match_cnt) AS match_cnt,
-                                        SUM(mu.{pfx}p1_wins) AS p1_wins,
-                                        SUM(mu.{pfx}p1_losses) AS p1_losses,
-                                        SUM(mu.{pfx}draws) AS draws,
-                                        SUM(mu.{pfx}p2_wins) AS p2_wins,
-                                        SUM(mu.{pfx}p2_losses) AS p2_losses,
-                                        SUM(mu.{pfx}p1_score_sum) AS p1_score_sum,
-                                        SUM(mu.{pfx}p1_score_cnt) AS p1_score_cnt,
-                                        SUM(mu.{pfx}p2_score_sum) AS p2_score_sum,
-                                        SUM(mu.{pfx}p2_score_cnt) AS p2_score_cnt,
-                                        SUM(mu.{pfx}p1_margin_sum) AS p1_margin_sum,
-                                        SUM(mu.{pfx}margin_cnt) AS margin_cnt
-                                    FROM meta_event_matchups mu
-                                    {join_ev_sql}
-                                    WHERE {mu_where_sql}
-                                    GROUP BY 1, 2, 3, 4;
-                                    """,
-                                    mu_p,
+                                rdc_cls = getattr(extras, "RealDictCursor", None)
+                                use_pre_eids = mf.has_event_filters() and (
+                                    (isinstance(rdc_cls, type) and isinstance(cursor, rdc_cls))
+                                    or bool(getattr(cursor, "_enable_pre_eids", False))
                                 )
-                                fetched_rows = [dict(r) for r in (cursor.fetchall() or [])]
-                                if not fetched_rows:
-                                    matched_events_count = 0
-                                elif "matched_events" in fetched_rows[0]:
-                                    matched_events_count = int(fetched_rows[0].get("matched_events") or 0)
-                                elif not mf.is_default():
-                                    cursor.execute(
-                                        f"""
-                                        SELECT COUNT(*) AS cnt
-                                        FROM (
-                                            SELECT DISTINCT mu.event_id
-                                            FROM meta_event_matchups mu
-                                            {join_ev_sql}
-                                            WHERE {mu_where_sql} AND LEFT(mu.event_id, 12) != '__unlinked__'
-                                        ) d;
-                                        """,
-                                        mu_p,
-                                    )
-                                    ev_cnt_row = cursor.fetchone()
-                                    matched_events_count = int(
-                                        (ev_cnt_row.get("cnt") if isinstance(ev_cnt_row, dict) else ev_cnt_row[0]) or 0
-                                    ) if ev_cnt_row else 0
+                                matched_eids: Optional[List[str]] = None
+                                pk_mode = False
 
-                                # Query B: `meta_event_runs` Index-Only Scan for X-0 / X-1 runs + bounded exact pilot deduplication
-                                if fetched_rows:
-                                    join_ev_runs_sql = "JOIN events e ON e.id = r.event_id" if mf.has_event_filters() else ""
-                                    ru_w: List[str] = []
-                                    ru_p: List[Any] = []
-                                    if not allow_non_1v1:
-                                        ru_w.append("r.is_non_1v1 = FALSE")
+                                if use_pre_eids:
+                                    ev_pre_w: List[str] = []
+                                    ev_pre_p: List[Any] = []
                                     if game_system and sys_norm != "all":
-                                        ru_w.append("r.game_system = %s")
-                                        ru_p.append(sys_norm)
-                                        if mf.has_event_filters():
-                                            ru_w.append("COALESCE(e.game_system, '40k') = %s")
-                                            ru_p.append(sys_norm)
+                                        ev_pre_w.append("COALESCE(e.game_system, '40k') = %s")
+                                        ev_pre_p.append(sys_norm)
                                     if resolved_start:
-                                        ru_w.append("r.event_date >= %s")
-                                        ru_p.append(resolved_start)
+                                        try:
+                                            ev_floor_dt = (datetime.strptime(resolved_start[:10], "%Y-%m-%d").date() - timedelta(days=180)).strftime("%Y-%m-%d")
+                                            ev_pre_w.append("(e.event_date >= %s OR e.event_date IS NULL)")
+                                            ev_pre_p.append(ev_floor_dt)
+                                        except Exception:
+                                            pass
                                     if resolved_end:
-                                        ru_w.append("r.event_date <= %s")
-                                        ru_p.append(resolved_end)
-                                    if ev_clauses:
-                                        ru_w.extend(ev_clauses)
-                                        ru_p.extend(ev_params)
-                                    ru_w.append(f"r.{pfx}pilots_cnt > 0")
-                                    ru_where_sql = " AND ".join(ru_w)
+                                        try:
+                                            ev_ceil_dt = (datetime.strptime(resolved_end[:10], "%Y-%m-%d").date() + timedelta(days=14)).strftime("%Y-%m-%d")
+                                            ev_pre_w.append("(e.event_date <= %s OR e.event_date IS NULL)")
+                                            ev_pre_p.append(ev_ceil_dt)
+                                        except Exception:
+                                            pass
+                                    ev_pre_w.extend(ev_clauses)
+                                    ev_pre_p.extend(ev_params)
+                                    ev_pre_sql = f"WHERE {' AND '.join(ev_pre_w)}" if ev_pre_w else ""
+                                    cursor.execute(f"SELECT e.id FROM events e {ev_pre_sql};", ev_pre_p)
+                                    matched_eids = [str(r["id"]) for r in (cursor.fetchall() or []) if r and r.get("id")]
+                                    pk_mode = 0 < len(matched_eids) <= 1000
+
+                                if matched_eids is not None and len(matched_eids) == 0:
+                                    fetched_rows = []
+                                    matched_events_count = 0
+                                else:
+                                    join_ev_sql = ""
+                                    mu_w: List[str] = []
+                                    mu_p: List[Any] = []
+                                    if matched_eids is not None:
+                                        if pk_mode:
+                                            cursor.execute("SET LOCAL enable_nestloop = on;")
+                                            mu_w.append("mu.event_id = ANY(%s)")
+                                            mu_p.append(matched_eids)
+                                        else:
+                                            cursor.execute("SET LOCAL enable_nestloop = off;")
+                                            join_ev_sql = "JOIN UNNEST(%s::varchar[]) AS fe(eid) ON fe.eid = mu.event_id"
+                                            mu_p.append(matched_eids)
+                                    elif mf.has_event_filters():
+                                        cursor.execute("SET LOCAL enable_nestloop = off;")
+                                        join_ev_sql = "JOIN events e ON e.id = mu.event_id"
+
+                                    if not allow_non_1v1:
+                                        mu_w.append("mu.is_non_1v1 = FALSE")
+                                    elif mf.event_structure in ("doubles", "ffa_pod"):
+                                        # Include both expanded seat rows and any 1v1 rows recorded in that event
+                                        pass
+                                    if game_system and sys_norm != "all":
+                                        mu_w.append("mu.game_system = %s")
+                                        mu_p.append(sys_norm)
+                                        if mf.has_event_filters() and matched_eids is None:
+                                            mu_w.append("COALESCE(e.game_system, '40k') = %s")
+                                            mu_p.append(sys_norm)
+                                    if resolved_start:
+                                        mu_w.append("mu.match_day >= %s")
+                                        mu_p.append(resolved_start)
+                                    if resolved_end:
+                                        mu_w.append("mu.match_day <= %s")
+                                        mu_p.append(resolved_end)
+                                    if ev_clauses and matched_eids is None:
+                                        mu_w.extend(ev_clauses)
+                                        mu_p.extend(ev_params)
+                                    if pfx == "vet_":
+                                        mu_w.append("mu.exp_match_cnt > 0")
+                                    mu_w.append(f"mu.{pfx}match_cnt > 0")
+                                    mu_where_sql = " AND ".join(mu_w)
+                                    period_col_sql = f"DATE_TRUNC('{period_trunc}', mu.match_day)::date" if include_trends else "NULL::date"
 
                                     cursor.execute(
                                         f"""
                                         SELECT
-                                            r.fac,
-                                            SUM(r.{pfx}pilots_cnt) AS sum_pilots,
-                                            SUM(r.{pfx}runs_cnt) AS event_runs_count,
-                                            SUM(r.{pfx}x0_runs) AS x0_runs,
-                                            SUM(r.{pfx}x1_runs) AS x1_runs,
-                                            COUNT(*) AS row_cnt
-                                        FROM meta_event_runs r
-                                        {join_ev_runs_sql}
-                                        WHERE {ru_where_sql}
-                                        GROUP BY r.fac;
+                                            mu.is_non_1v1,
+                                            mu.p1_fac,
+                                            mu.p2_fac,
+                                            {period_col_sql} AS period_date,
+                                            SUM(mu.{pfx}match_cnt) AS match_cnt,
+                                            SUM(mu.{pfx}p1_wins) AS p1_wins,
+                                            SUM(mu.{pfx}p1_losses) AS p1_losses,
+                                            SUM(mu.{pfx}draws) AS draws,
+                                            SUM(mu.{pfx}p2_wins) AS p2_wins,
+                                            SUM(mu.{pfx}p2_losses) AS p2_losses,
+                                            SUM(mu.{pfx}p1_score_sum) AS p1_score_sum,
+                                            SUM(mu.{pfx}p1_score_cnt) AS p1_score_cnt,
+                                            SUM(mu.{pfx}p2_score_sum) AS p2_score_sum,
+                                            SUM(mu.{pfx}p2_score_cnt) AS p2_score_cnt,
+                                            SUM(mu.{pfx}p1_margin_sum) AS p1_margin_sum,
+                                            SUM(mu.{pfx}margin_cnt) AS margin_cnt
+                                        FROM meta_event_matchups mu
+                                        {join_ev_sql}
+                                        WHERE {mu_where_sql}
+                                        GROUP BY 1, 2, 3, 4;
                                         """,
-                                        ru_p,
+                                        mu_p,
                                     )
-                                    ev_chunk_rows = [dict(r) for r in (cursor.fetchall() or [])]
-                                    if ev_chunk_rows and "unique_pilots" not in ev_chunk_rows[0]:
-                                        total_run_rows = sum(int(r.get("row_cnt") or 0) for r in ev_chunk_rows)
-                                        for r in ev_chunk_rows:
-                                            r["unique_pilots"] = int(r.get("sum_pilots") or 0)
-                                        if 0 < total_run_rows <= 25000:
-                                            try:
-                                                cursor.execute("SAVEPOINT sp_pilot_dedup;")
-                                                cursor.execute("SET LOCAL statement_timeout = '350ms';")
-                                                cursor.execute(
-                                                    f"""
-                                                    SELECT
-                                                        d.fac,
-                                                        COUNT(*) AS unique_pilots
-                                                    FROM (
-                                                        SELECT DISTINCT r.fac, UNNEST(r.{pfx}pilot_hashes) AS ph
-                                                        FROM meta_event_runs r
-                                                        {join_ev_runs_sql}
-                                                        WHERE {ru_where_sql} AND r.{pfx}pilot_hashes IS NOT NULL
-                                                    ) d
-                                                    GROUP BY d.fac;
-                                                    """,
-                                                    ru_p,
-                                                )
-                                                dedup_map = {
-                                                    str(dr["fac"]): int(dr.get("unique_pilots") or 0)
-                                                    for dr in (cursor.fetchall() or [])
-                                                    if dr and dr.get("fac") is not None
-                                                }
-                                                cursor.execute("RELEASE SAVEPOINT sp_pilot_dedup;")
-                                                if dedup_map:
-                                                    for r in ev_chunk_rows:
-                                                        fac_k = str(r.get("fac") or "")
-                                                        if fac_k in dedup_map:
-                                                            r["unique_pilots"] = dedup_map[fac_k]
-                                            except Exception:
+                                    fetched_rows = [dict(r) for r in (cursor.fetchall() or [])]
+                                    if not fetched_rows:
+                                        matched_events_count = 0
+                                    elif "matched_events" in fetched_rows[0]:
+                                        matched_events_count = int(fetched_rows[0].get("matched_events") or 0)
+                                    elif not mf.is_default():
+                                        cursor.execute(
+                                            f"""
+                                            SELECT COUNT(*) AS cnt
+                                            FROM (
+                                                SELECT DISTINCT mu.event_id
+                                                FROM meta_event_matchups mu
+                                                {join_ev_sql}
+                                                WHERE {mu_where_sql} AND LEFT(mu.event_id, 12) != '__unlinked__'
+                                            ) d;
+                                            """,
+                                            mu_p,
+                                        )
+                                        ev_cnt_row = cursor.fetchone()
+                                        matched_events_count = int(
+                                            (ev_cnt_row.get("cnt") if isinstance(ev_cnt_row, dict) else ev_cnt_row[0]) or 0
+                                        ) if ev_cnt_row else 0
+
+                                    # Query B: `meta_event_runs` Index-Only Scan for X-0 / X-1 runs + bounded exact pilot deduplication
+                                    if fetched_rows:
+                                        join_ev_runs_sql = ""
+                                        ru_w: List[str] = []
+                                        ru_p: List[Any] = []
+                                        if matched_eids is not None:
+                                            if pk_mode:
+                                                ru_w.append("r.event_id = ANY(%s)")
+                                                ru_p.append(matched_eids)
+                                            else:
+                                                join_ev_runs_sql = "JOIN UNNEST(%s::varchar[]) AS fe(eid) ON fe.eid = r.event_id"
+                                                ru_p.append(matched_eids)
+                                        elif mf.has_event_filters():
+                                            join_ev_runs_sql = "JOIN events e ON e.id = r.event_id"
+
+                                        if not allow_non_1v1:
+                                            ru_w.append("r.is_non_1v1 = FALSE")
+                                        if game_system and sys_norm != "all":
+                                            ru_w.append("r.game_system = %s")
+                                            ru_p.append(sys_norm)
+                                            if mf.has_event_filters() and matched_eids is None:
+                                                ru_w.append("COALESCE(e.game_system, '40k') = %s")
+                                                ru_p.append(sys_norm)
+                                        if resolved_start:
+                                            ru_w.append("r.event_date >= %s")
+                                            ru_p.append(resolved_start)
+                                        if resolved_end:
+                                            ru_w.append("r.event_date <= %s")
+                                            ru_p.append(resolved_end)
+                                        if ev_clauses and matched_eids is None:
+                                            ru_w.extend(ev_clauses)
+                                            ru_p.extend(ev_params)
+                                        ru_w.append(f"r.{pfx}pilots_cnt > 0")
+                                        ru_where_sql = " AND ".join(ru_w)
+
+                                        cursor.execute(
+                                            f"""
+                                            SELECT
+                                                r.fac,
+                                                SUM(r.{pfx}pilots_cnt) AS sum_pilots,
+                                                SUM(r.{pfx}runs_cnt) AS event_runs_count,
+                                                SUM(r.{pfx}x0_runs) AS x0_runs,
+                                                SUM(r.{pfx}x1_runs) AS x1_runs,
+                                                COUNT(*) AS row_cnt
+                                            FROM meta_event_runs r
+                                            {join_ev_runs_sql}
+                                            WHERE {ru_where_sql}
+                                            GROUP BY r.fac;
+                                            """,
+                                            ru_p,
+                                        )
+                                        ev_chunk_rows = [dict(r) for r in (cursor.fetchall() or [])]
+                                        if ev_chunk_rows and "unique_pilots" not in ev_chunk_rows[0]:
+                                            total_run_rows = sum(int(r.get("row_cnt") or 0) for r in ev_chunk_rows)
+                                            for r in ev_chunk_rows:
+                                                r["unique_pilots"] = int(r.get("sum_pilots") or 0)
+                                            if 0 < total_run_rows <= 3500:
                                                 try:
-                                                    cursor.execute("ROLLBACK TO SAVEPOINT sp_pilot_dedup;")
+                                                    cursor.execute("SAVEPOINT sp_pilot_dedup;")
+                                                    cursor.execute("SET LOCAL statement_timeout = '120ms';")
+                                                    cursor.execute(
+                                                        f"""
+                                                        SELECT
+                                                            d.fac,
+                                                            COUNT(*) AS unique_pilots
+                                                        FROM (
+                                                            SELECT DISTINCT r.fac, UNNEST(r.{pfx}pilot_hashes) AS ph
+                                                            FROM meta_event_runs r
+                                                            {join_ev_runs_sql}
+                                                            WHERE {ru_where_sql} AND r.{pfx}pilot_hashes IS NOT NULL
+                                                        ) d
+                                                        GROUP BY d.fac;
+                                                        """,
+                                                        ru_p,
+                                                    )
+                                                    dedup_map = {
+                                                        str(dr["fac"]): int(dr.get("unique_pilots") or 0)
+                                                        for dr in (cursor.fetchall() or [])
+                                                        if dr and dr.get("fac") is not None
+                                                    }
+                                                    cursor.execute("RELEASE SAVEPOINT sp_pilot_dedup;")
+                                                    if dedup_map:
+                                                        for r in ev_chunk_rows:
+                                                            fac_k = str(r.get("fac") or "")
+                                                            if fac_k in dedup_map:
+                                                                r["unique_pilots"] = dedup_map[fac_k]
                                                 except Exception:
-                                                    pass
-                                            finally:
-                                                try:
-                                                    cursor.execute("SET LOCAL statement_timeout = '8000ms';")
-                                                except Exception:
-                                                    pass
+                                                    try:
+                                                        cursor.execute("ROLLBACK TO SAVEPOINT sp_pilot_dedup;")
+                                                    except Exception:
+                                                        pass
+                                                finally:
+                                                    try:
+                                                        cursor.execute("SET LOCAL statement_timeout = '8000ms';")
+                                                    except Exception:
+                                                        pass
                                 if mf.has_event_filters():
                                     cursor.execute("SET LOCAL enable_nestloop = on;")
                                 ev_chunks_complete = True
@@ -13189,21 +13249,50 @@ class PostgresDatabase:
                             PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, k, res, max_size=300)
 
                     if overall and not is_mock_cur:
-                        try:
-                            with conn.cursor() as cur_store:
-                                cur_store.execute("SET LOCAL statement_timeout = '1000ms';")
-                                cur_store.execute(
-                                    """
-                                    INSERT INTO system_settings (key, value, updated_at)
-                                    VALUES (%s, %s, NOW())
-                                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
-                                    """,
-                                    (l2_setting_key, json.dumps(res))
-                                )
-                            conn.commit()
-                        except Exception as store_err:
-                            conn.rollback()
-                            logger.debug(f"Notice saving L2 meta_intel cache ({l2_setting_key}): {store_err}")
+                        if _force_refresh:
+                            try:
+                                with conn.cursor() as cur_store:
+                                    cur_store.execute("SET LOCAL statement_timeout = '1500ms';")
+                                    cur_store.execute(
+                                        """
+                                        INSERT INTO system_settings (key, value, updated_at)
+                                        VALUES (%s, %s, NOW())
+                                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
+                                        """,
+                                        (l2_setting_key, json.dumps(res))
+                                    )
+                                conn.commit()
+                            except Exception as store_err:
+                                conn.rollback()
+                                logger.debug(f"Notice saving L2 meta_intel cache ({l2_setting_key}): {store_err}")
+                        else:
+                            if not hasattr(PostgresDatabase, "_bg_meta_l2_write_sem"):
+                                PostgresDatabase._bg_meta_l2_write_sem = threading.BoundedSemaphore(2)
+
+                            def _persist_meta_l2_async(k_str: str, payload_obj: Dict[str, Any]) -> None:
+                                try:
+                                    with PostgresDatabase._bg_meta_l2_write_sem:
+                                        raw_json = json.dumps(payload_obj)
+                                        with self.get_connection() as bg_conn:
+                                            with bg_conn.cursor() as bg_cur:
+                                                bg_cur.execute("SET LOCAL statement_timeout = '1500ms';")
+                                                bg_cur.execute(
+                                                    """
+                                                    INSERT INTO system_settings (key, value, updated_at)
+                                                    VALUES (%s, %s, NOW())
+                                                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at;
+                                                    """,
+                                                    (k_str, raw_json),
+                                                )
+                                            bg_conn.commit()
+                                except Exception:
+                                    pass
+
+                            threading.Thread(
+                                target=_persist_meta_l2_async,
+                                args=(l2_setting_key, res),
+                                daemon=True,
+                            ).start()
 
                     return _finalize_meta_return(res)
 
