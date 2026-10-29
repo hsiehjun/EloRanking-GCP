@@ -424,36 +424,111 @@ class EloEngine:
         """Alias for expected_score."""
         return self.expected_score(rating_a, rating_b)
 
-    def predict_matchup(self, r1: float, r2: float, k: Optional[float] = None) -> Dict[str, Any]:
-        """Calculates expected probabilities and projected Elo deltas for a matchup."""
+    def predict_matchup(
+        self,
+        r1: float,
+        r2: float,
+        k: Optional[float] = None,
+        game_system: Optional[str] = "40k",
+        p1_faction: Optional[str] = None,
+        p2_faction: Optional[str] = None,
+        p1_games: int = 25,
+        p2_games: int = 25,
+    ) -> Dict[str, Any]:
+        """Calculates calibrated ML probabilities, projected scores/WTC, and pure-Elo rating stakes for a matchup."""
         k_val = k or self.default_k
-        exp1 = self.expected_score(r1, r2)
+        r1_f = float(r1)
+        r2_f = float(r2)
+        exp1 = self.expected_score(r1_f, r2_f)
         exp2 = 1.0 - exp1
 
-        # If P1 wins
+        # Pure Elo stakes (official rating changes remain strictly pure Elo)
         d_p1_win = round(k_val * (1.0 - exp1), 2)
-        # If P2 wins
         d_p2_win = round(k_val * (1.0 - exp2), 2)
-        # If Draw
         d_p1_draw = round(k_val * (0.5 - exp1), 2)
         d_p2_draw = round(k_val * (0.5 - exp2), 2)
 
+        target_sys = (game_system or "40k").strip().lower()
+        is_mock_db = (
+            self.db is None
+            or type(self.db).__module__.startswith("unittest.mock")
+            or getattr(self.db, "_is_mock_instance", lambda: False)()
+        )
+        from predictor_model import (
+            compute_rating_uncertainty_sq,
+            get_system_model_spec,
+            lookup_competitive_alpha_pair,
+            predict_1v1_matchup,
+        )
+
+        spec = get_system_model_spec(target_sys, db=None if is_mock_db else self.db)
+        comp_snap: Dict[str, Any] = {"factions": {}, "matchups": {}}
+        if not is_mock_db and hasattr(self.db, "get_competitive_faction_alpha_snapshot"):
+            try:
+                snap_res = self.db.get_competitive_faction_alpha_snapshot(target_sys)
+                if isinstance(snap_res, dict) and snap_res.get("factions"):
+                    comp_snap = snap_res
+            except Exception:
+                pass
+
+        macro = lookup_competitive_alpha_pair(comp_snap, p1_faction, p2_faction)
+        ml_pred = predict_1v1_matchup(
+            spec=spec,
+            p1_inputs={
+                "elo": r1_f,
+                "games": int(p1_games),
+                "uncertainty_sq": compute_rating_uncertainty_sq(int(p1_games)),
+                "peak_gap": 0.0,
+                "recent_form_ewma": 0.0,
+                "own_fac_res": 0.0,
+                "own_fac_games": 0,
+                "vs_fac_res": 0.0,
+                "giant_slayer_res": 0.0,
+                "gatekeeper_res": 0.0,
+                "volatility_z": 0.0,
+            },
+            p2_inputs={
+                "elo": r2_f,
+                "games": int(p2_games),
+                "uncertainty_sq": compute_rating_uncertainty_sq(int(p2_games)),
+                "peak_gap": 0.0,
+                "recent_form_ewma": 0.0,
+                "own_fac_res": 0.0,
+                "own_fac_games": 0,
+                "vs_fac_res": 0.0,
+                "giant_slayer_res": 0.0,
+                "gatekeeper_res": 0.0,
+                "volatility_z": 0.0,
+            },
+            macro_inputs=macro,
+        )
+
+        p1_share = float(ml_pred["p1_win_share"])
+        p2_share = round(100.0 - p1_share, 1)
+
         return {
-            "p1_win_prob": round(exp1 * 100.0, 1),
-            "p2_win_prob": round(exp2 * 100.0, 1),
-            "player1_rating": r1,
-            "player2_rating": r2,
-            "player1_win_prob": round(exp1 * 100.0, 1),
-            "player2_win_prob": round(exp2 * 100.0, 1),
+            "p1_win_prob": p1_share,
+            "p2_win_prob": p2_share,
+            "draw_prob": ml_pred["draw_prob"],
+            "p1_win_prob_3way": ml_pred["p1_win_prob"],
+            "p2_win_prob_3way": ml_pred["p2_win_prob"],
+            "pure_elo_p1_win_prob": round(exp1 * 100.0, 1),
+            "pure_elo_p2_win_prob": round(exp2 * 100.0, 1),
+            "player1_rating": r1_f,
+            "player2_rating": r2_f,
+            "player1_win_prob": p1_share,
+            "player2_win_prob": p2_share,
             "deltas": {
                 "p1_win": d_p1_win,
                 "p2_win": d_p2_win,
                 "p1_draw": d_p1_draw,
-                "p2_draw": d_p2_draw
+                "p2_draw": d_p2_draw,
             },
             "p1_win_deltas": {"p1": f"+{d_p1_win}", "p2": f"-{d_p1_win}"},
             "p2_win_deltas": {"p1": f"-{d_p2_win}", "p2": f"+{d_p2_win}"},
-            "draw_deltas": {"p1": f"{d_p1_draw:+}", "p2": f"{d_p2_draw:+}"}
+            "draw_deltas": {"p1": f"{d_p1_draw:+}", "p2": f"{d_p2_draw:+}"},
+            "projected": ml_pred["projected"],
+            "ml_prediction": ml_pred,
         }
 
     def predict_match_outcome(
@@ -487,7 +562,7 @@ class EloEngine:
         )
         from predictor_model import load_model_bundle
         active_bundle_ver = "mock" if is_mock_db else str(load_model_bundle(db=self.db).get("trained_at") or "seed")
-        cache_key = ("predict_match_v5", active_bundle_ver, p1_str.lower(), p2_str.lower(), target_sys, p1_fac_req.lower(), p2_fac_req.lower())
+        cache_key = ("predict_match_v6", active_bundle_ver, p1_str.lower(), p2_str.lower(), target_sys, p1_fac_req.lower(), p2_fac_req.lower())
         if not is_mock_db:
             cached_pred = PostgresDatabase.get_cached(PostgresDatabase._players_cache_dict, cache_key, ttl=600)
             if cached_pred is not None:
@@ -497,21 +572,32 @@ class EloEngine:
         p2_data = None
         hist_by_pid: Dict[str, List[Dict[str, Any]]] = {}
 
+        pr_sys_clause = (
+            "(game_system = %s OR game_system IS NULL)"
+            if target_sys == "40k"
+            else "game_system = %s"
+        )
+        rh_sys_clause = (
+            "(rh.game_system = %s OR rh.game_system IS NULL)"
+            if target_sys == "40k"
+            else "rh.game_system = %s"
+        )
+
         def _lookup_rating(cur, val: str):
             if not val:
                 return None
             cur.execute(
-                "SELECT * FROM player_ratings WHERE player_id = %s AND COALESCE(game_system, '40k') = %s LIMIT 1;",
+                f"SELECT * FROM player_ratings WHERE player_id = %s AND {pr_sys_clause} LIMIT 1;",
                 (val, target_sys),
             )
             row = cur.fetchone()
             if row:
                 return row
             cur.execute(
-                """
+                f"""
                 SELECT * FROM player_ratings
                 WHERE LOWER(TRIM(player_name)) = LOWER(TRIM(%s))
-                  AND COALESCE(game_system, '40k') = %s
+                  AND {pr_sys_clause}
                 ORDER BY current_elo DESC NULLS LAST
                 LIMIT 1;
                 """,
@@ -521,10 +607,10 @@ class EloEngine:
             if row:
                 return row
             cur.execute(
-                """
+                f"""
                 SELECT * FROM player_ratings
                 WHERE player_name ILIKE %s
-                  AND COALESCE(game_system, '40k') = %s
+                  AND {pr_sys_clause}
                 ORDER BY current_elo DESC NULLS LAST
                 LIMIT 1;
                 """,
@@ -547,7 +633,7 @@ class EloEngine:
                     try:
                         cur.execute("SET LOCAL statement_timeout = '350ms';")
                         cur.execute(
-                            """
+                            f"""
                             SELECT rh.player_id, rh.match_id, rh.event_id, rh.round, rh.match_date,
                                    rh.result, rh.old_elo, rh.opponent_elo, rh.delta_elo,
                                    rh.player_score, rh.opponent_score,
@@ -558,7 +644,7 @@ class EloEngine:
                                    COALESCE(e.format_tag, 'standard') AS format_tag
                             FROM rating_history rh
                             LEFT JOIN events e ON rh.event_id = e.id
-                            WHERE COALESCE(rh.game_system, '40k') = %s
+                            WHERE {rh_sys_clause}
                               AND rh.player_id = ANY(%s)
                             ORDER BY rh.match_date DESC NULLS LAST, rh.id DESC;
                             """,
@@ -1190,11 +1276,28 @@ class EloEngine:
             direct_h2h_games=h2h_res_cnt,
         )
 
+        ml_win_share_1 = float(ml_pred["p1_win_share"])
+        ml_win_share_2 = round(100.0 - ml_win_share_1, 1)
+        ml_proj = ml_pred.get("projected") or {}
+
+        # Synchronize multi_factor_prediction summary numbers onto Calibrated ML so legacy callers stay consistent
+        multi_factor_pred["p1WinProb"] = int(_clamp(round(ml_win_share_1), 5, 95))
+        multi_factor_pred["p2WinProb"] = 100 - multi_factor_pred["p1WinProb"]
+        multi_factor_pred["drawProb"] = float(ml_pred["draw_prob"])
+        multi_factor_pred["wtcScore1"] = int(ml_proj.get("wtc_p1", wtc_score1))
+        multi_factor_pred["wtcScore2"] = int(ml_proj.get("wtc_p2", 20 - multi_factor_pred["wtcScore1"]))
+        multi_factor_pred["effectiveEloDelta"] = float(ml_pred.get("effective_elo_equiv", round(effective_elo_delta, 1)))
+        multi_factor_pred["modelMode"] = ml_pred.get("model_mode", "calibrated_elo")
+        multi_factor_pred["modelLabel"] = ml_pred.get("model_label", "Uncertainty-Calibrated Elo")
+
         res = {
-            "p1_win_prob": mf_p1_prob,
-            "p2_win_prob": mf_p2_prob,
-            "player1_win_prob": mf_p1_prob,
-            "player2_win_prob": mf_p2_prob,
+            "p1_win_prob": ml_win_share_1,
+            "p2_win_prob": ml_win_share_2,
+            "draw_prob": ml_pred["draw_prob"],
+            "p1_win_prob_3way": ml_pred["p1_win_prob"],
+            "p2_win_prob_3way": ml_pred["p2_win_prob"],
+            "player1_win_prob": ml_win_share_1,
+            "player2_win_prob": ml_win_share_2,
             "pure_elo_p1_win_prob": pure_p1_prob,
             "pure_elo_p2_win_prob": pure_p2_prob,
             "player1_rating": r1,
@@ -1209,6 +1312,7 @@ class EloEngine:
             "p2_win_deltas": {"p1": f"-{d_p2_win}", "p2": f"+{d_p2_win}"},
             "draw_deltas": {"p1": f"{d_p1_draw:+}", "p2": f"{d_p2_draw:+}"},
             "head_to_head": h2h_matches,
+            "projected": ml_proj,
             "multi_factor_prediction": multi_factor_pred,
             "ml_prediction": ml_pred,
             "ml_client_spec": ml_spec,

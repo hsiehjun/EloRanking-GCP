@@ -1439,13 +1439,19 @@ function renderPairingsSubtab() {
     return;
   }
 
+  const studioSys = String(ev.game_system || '40k').trim().toLowerCase() || '40k';
+  if (typeof window.ensureMlModelSpec === 'function' && !(window._mlModelSpecCache && window._mlModelSpecCache[studioSys])) {
+    window.ensureMlModelSpec(studioSys, () => {
+      try { renderPairingsSubtab(); } catch (_) {}
+    });
+  }
+
   const cardsHtml = roundPairings.map(match => {
     const table = match.table || 1;
     const p1Name = match.p1_name || match.p1Name || "Player 1";
     const p1Fac = match.p1_faction || match.p1Faction || "";
     const p1Team = match.p1_team || match.p1Team || "";
     const p1Elo = match.p1_elo !== undefined ? match.p1_elo : (match.p1Elo || 1500);
-    const p1Prob = match.p1_win_prob !== undefined ? match.p1_win_prob : 50.0;
     const p1Score = match.p1_score !== undefined ? match.p1_score : 0;
 
     const isBye = Boolean(match.is_bye || match.p2_name === "BYE" || !match.p2_id);
@@ -1453,8 +1459,29 @@ function renderPairingsSubtab() {
     const p2Fac = isBye ? "" : (match.p2_faction || match.p2Faction || "");
     const p2Team = isBye ? "" : (match.p2_team || match.p2Team || "");
     const p2Elo = isBye ? 0.0 : (match.p2_elo !== undefined && match.p2_elo !== null ? (match.p2_elo || 1500) : (match.p2Elo || 1500));
-    const p2Prob = match.p2_win_prob !== undefined ? match.p2_win_prob : (100.0 - p1Prob);
     const p2Score = match.p2_score !== undefined ? match.p2_score : 0;
+
+    let p1Prob = match.p1_win_prob !== undefined ? match.p1_win_prob : 50.0;
+    let p2Prob = match.p2_win_prob !== undefined ? match.p2_win_prob : (100.0 - p1Prob);
+    let mlModeIcon = match.model_mode === 'dedicated_ml' ? '🤖' : '📐';
+    let mlMetaSub = match.projected_score
+      ? ` • Est. ${match.projected_score}${match.wtc_p1 !== undefined && match.wtc_p1 !== null ? ` (${match.wtc_p1}-${match.wtc_p2} WTC)` : ''}`
+      : '';
+    if (!isBye && typeof window.computeCalibratedMlMatchupClient === 'function' && (!match.model_mode || (p1Prob === 50 && (p1Elo !== p2Elo || (p1Fac && p2Fac && p1Fac !== p2Fac))))) {
+      const mlC = window.computeCalibratedMlMatchupClient({
+        gameSystem: studioSys,
+        elo1: Number(p1Elo || 1500),
+        elo2: Number(p2Elo || 1500),
+        fac1: p1Fac,
+        fac2: p2Fac
+      });
+      p1Prob = mlC.p1_win_share;
+      p2Prob = mlC.p2_win_share;
+      mlModeIcon = mlC.model_mode === 'dedicated_ml' ? '🤖' : '📐';
+      if (mlC.projected) {
+        mlMetaSub = ` • Est. ${mlC.projected.p1_score}-${mlC.projected.p2_score} ${mlC.projected.score_unit || 'VP'}${mlC.projected.has_wtc_matrix ? ` (${mlC.projected.wtc_p1}-${mlC.projected.wtc_p2} WTC)` : ''}`;
+      }
+    }
 
     const isRematch = Boolean(match.is_rematch);
     const rematchRounds = Array.isArray(match.rematch_rounds) && match.rematch_rounds.length > 0 ? match.rematch_rounds.join(', ') : '';
@@ -1496,7 +1523,7 @@ function renderPairingsSubtab() {
               <span class="badge" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.4rem;">⭐ ${Number(p1Elo).toFixed(1)}</span>
             </div>
             <div style="font-size: 0.75rem; color: #38bdf8; margin-top: 0.2rem;">${escapeHtml(p1Fac)}${p1Team ? ` • <span style="color: var(--text-secondary);">${escapeHtml(p1Team)}</span>` : ''}</div>
-            ${!isBye ? `<div style="font-size: 0.72rem; color: ${p1Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.25rem;">${p1Prob}% Win Prob</div>` : ''}
+            ${!isBye ? `<div style="font-size: 0.72rem; color: ${p1Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.25rem;" title="Calibrated ML Match Prediction">${mlModeIcon} ${p1Prob}% Win Share${escapeHtml(mlMetaSub)}</div>` : ''}
           </div>
 
           <!-- VS Divider & Warnings -->
@@ -1515,7 +1542,7 @@ function renderPairingsSubtab() {
               ${!isBye ? `<span class="badge" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.4rem;">⭐ ${Number(p2Elo).toFixed(1)}</span>` : ''}
             </div>
             ${!isBye ? `<div style="font-size: 0.75rem; color: #38bdf8; margin-top: 0.2rem;">${escapeHtml(p2Fac)}${p2Team ? ` • <span style="color: var(--text-secondary);">${escapeHtml(p2Team)}</span>` : ''}</div>` : ''}
-            ${!isBye ? `<div style="font-size: 0.72rem; color: ${p2Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.25rem;">${p2Prob}% Win Prob</div>` : ''}
+            ${!isBye ? `<div style="font-size: 0.72rem; color: ${p2Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.25rem;" title="Calibrated ML Match Prediction">${mlModeIcon} ${p2Prob}% Win Share</div>` : ''}
           </div>
         </div>
       `;
@@ -1563,7 +1590,7 @@ function renderPairingsSubtab() {
               <span class="badge" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.4rem;">⭐ ${Number(p1Elo).toFixed(1)}</span>
             </div>
             <div style="font-size: 0.75rem; color: #38bdf8; margin-top: 0.15rem;">${escapeHtml(p1Fac)}${p1Team ? ` • <span style="color: var(--text-secondary);">${escapeHtml(p1Team)}</span>` : ''}</div>
-            ${!isBye ? `<div style="font-size: 0.72rem; color: ${p1Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.2rem;">${p1Prob}% Win Prob</div>` : ''}
+            ${!isBye ? `<div style="font-size: 0.72rem; color: ${p1Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.2rem;" title="Calibrated ML Match Prediction">${mlModeIcon} ${p1Prob}% Win Share${escapeHtml(mlMetaSub)}</div>` : ''}
           </div>
           <input type="number" id="score-p1-${table}" class="form-input" value="${p1Score}" min="0" max="100" style="width: 65px; text-align: center; font-weight: 700; font-size: 1.05rem;" ${isBye ? 'disabled' : ''}>
         </div>
@@ -1585,7 +1612,7 @@ function renderPairingsSubtab() {
               ${!isBye ? `<span class="badge" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.4rem;">⭐ ${Number(p2Elo).toFixed(1)}</span>` : ''}
             </div>
             ${!isBye ? `<div style="font-size: 0.75rem; color: #38bdf8; margin-top: 0.15rem;">${escapeHtml(p2Fac)}${p2Team ? ` • <span style="color: var(--text-secondary);">${escapeHtml(p2Team)}</span>` : ''}</div>` : ''}
-            ${!isBye ? `<div style="font-size: 0.72rem; color: ${p2Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.2rem;">${p2Prob}% Win Prob</div>` : ''}
+            ${!isBye ? `<div style="font-size: 0.72rem; color: ${p2Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.2rem;" title="Calibrated ML Match Prediction">${mlModeIcon} ${p2Prob}% Win Share</div>` : ''}
           </div>
           <input type="number" id="score-p2-${table}" class="form-input" value="${p2Score}" min="0" max="100" style="width: 65px; text-align: center; font-weight: 700; font-size: 1.05rem;" ${isBye ? 'disabled' : ''}>
         </div>

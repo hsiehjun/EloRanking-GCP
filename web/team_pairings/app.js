@@ -88,6 +88,13 @@ class YuGiOhPairingsArena {
     this._searchDebounce = null;
     this._shareChatThreadsCache = [];
     this._shareUserSearchTimer = null;
+    if (typeof window.ensureMlModelSpec === "function") {
+      window.ensureMlModelSpec("40k", () => {
+        if (this.room && typeof this.render === "function") {
+          try { this.render(); } catch (_) {}
+        }
+      });
+    }
 
     // Persistent User / Guest Identity for Seat Locking
     this.userId = this.initGuestUserId();
@@ -2650,9 +2657,14 @@ class YuGiOhPairingsArena {
         oppWtcScore: 10,
         winProb: 50,
         oppWinProb: 50,
+        drawProb: 0,
+        modelMode: "dedicated_ml",
+        modelLabel: "Calibrated ML (GBDT + Davidson)",
         effectiveEloDelta: 0,
         factors: {},
-        tooltip: "Even Matchup (50% Win • 10-10 WTC)"
+        factorAttributions: [],
+        projected: null,
+        tooltip: "Even Matchup (50% Win Share • 10-10 WTC)"
       };
     }
 
@@ -2673,36 +2685,61 @@ class YuGiOhPairingsArena {
       if (rawPred && typeof rawPred === "object") {
         const wtcScore = isCard1TeamB ? Number(rawPred.wtc_score_b ?? (20 - rawPred.wtc_score_a)) : Number(rawPred.wtc_score_a ?? 10);
         const winProb = isCard1TeamB ? Number(rawPred.win_prob_b ?? (100 - rawPred.win_prob_a)) : Number(rawPred.win_prob_a ?? 50);
+        const drawProb = Number(rawPred.draw_prob || 0);
+        const modelMode = rawPred.model_mode || this.room.ml_model_mode || "dedicated_ml";
+        const modelLabel = rawPred.model_label || this.room.ml_model_label || (modelMode === "dedicated_ml" ? "Calibrated ML" : "Calibrated Elo");
         const sign = isCard1TeamB ? -1 : 1;
         const f = rawPred.factors || {};
         const d = rawPred.details || {};
+        const projRaw = rawPred.projected || null;
+        const proj = projRaw ? {
+          myScore: isCard1TeamB ? projRaw.p2_score : projRaw.p1_score,
+          oppScore: isCard1TeamB ? projRaw.p1_score : projRaw.p2_score,
+          scoreUnit: projRaw.score_unit || "VP"
+        } : null;
         const effDelta = sign * Number(rawPred.effective_elo_delta || 0);
         const signedFactors = {
           base_elo_delta: sign * Number(f.base_elo_delta || 0),
+          form_disposition_delta: sign * Number(f.form_disposition_delta || 0),
           fac_h2h_delta: sign * Number(f.fac_h2h_delta || 0),
           fac_meta_delta: sign * Number(f.fac_meta_delta || 0),
           own_mastery_delta: sign * Number(f.own_mastery_delta || 0),
           vs_mastery_delta: sign * Number(f.vs_mastery_delta || 0),
           past_h2h_delta: sign * Number(f.past_h2h_delta || 0)
         };
+        const signedAttrs = Array.isArray(rawPred.factor_attributions)
+          ? rawPred.factor_attributions.map(a => ({
+              key: a.key,
+              label: a.label,
+              prob_shift_pct: sign * Number(a.prob_shift_pct || 0),
+              elo_equiv: sign * Number(a.elo_equiv || 0)
+            }))
+          : [];
         const facH2hWr = isCard1TeamB ? Number(d.fac_h2h_wr_b ?? 50) : Number(d.fac_h2h_wr_a ?? 50);
         const facH2hGames = Number(d.fac_h2h_games || 0);
+        const modeTag = modelMode === "dedicated_ml" ? "🤖 Calibrated ML" : "📐 Calibrated Elo";
+        const projStr = proj && proj.myScore !== undefined ? ` • Proj. ${proj.myScore}-${proj.oppScore} ${proj.scoreUnit}` : "";
+        const drawStr = drawProb >= 0.5 ? ` • ${drawProb.toFixed(1)}% Draw` : "";
         const tooltip = [
-          `6-Factor Prediction: ${winProb}% Win • Est. ${wtcScore}-${20 - wtcScore} WTC (${fmtSigned(effDelta)} Eff. Elo)`,
-          `• Base Elo: ${fmtSigned(signedFactors.base_elo_delta)}`,
-          `• 3M Faction H2H: ${fmtSigned(signedFactors.fac_h2h_delta)} (${facH2hWr.toFixed(1)}%)`,
-          `• 3M Faction Meta: ${fmtSigned(signedFactors.fac_meta_delta)}`,
-          `• Own-Faction Mastery: ${fmtSigned(signedFactors.own_mastery_delta)}`,
-          `• Vs-Faction Mastery: ${fmtSigned(signedFactors.vs_mastery_delta)}`,
-          `• Past Player H2H: ${fmtSigned(signedFactors.past_h2h_delta)}`
+          `${modeTag}: ${winProb}% Win Share • Est. ${wtcScore}-${20 - wtcScore} WTC${projStr}${drawStr} (${fmtSigned(effDelta)} Eff. Elo)`,
+          `• Skill & Uncertainty: ${fmtSigned(signedFactors.base_elo_delta)} Elo`,
+          `• Form & Disposition: ${fmtSigned(signedFactors.form_disposition_delta)} Elo`,
+          `• 90d Faction Meta: ${fmtSigned(signedFactors.fac_meta_delta)} Elo`,
+          `• 90d Matchup Edge: ${fmtSigned(signedFactors.fac_h2h_delta)} Elo (${facH2hWr.toFixed(1)}%)`,
+          `• Pilot Mastery & H2H: ${fmtSigned(signedFactors.own_mastery_delta + signedFactors.vs_mastery_delta + signedFactors.past_h2h_delta)} Elo`
         ].join("\n");
         return {
           wtcScore,
           oppWtcScore: 20 - wtcScore,
           winProb,
           oppWinProb: 100 - winProb,
+          drawProb,
+          modelMode,
+          modelLabel,
           effectiveEloDelta: effDelta,
           factors: signedFactors,
+          factorAttributions: signedAttrs,
+          projected: proj,
           facH2hWr,
           facH2hGames,
           tooltip
@@ -2722,9 +2759,14 @@ class YuGiOhPairingsArena {
             oppWtcScore: aScore,
             winProb,
             oppWinProb: 100 - winProb,
+            drawProb: 0,
+            modelMode: "calibrated_elo",
+            modelLabel: "Calibrated Elo",
             effectiveEloDelta: 0,
             factors: {},
-            tooltip: `6-Factor Prediction: ${winProb}% Win • Est. ${wtcScore}-${aScore} WTC`
+            factorAttributions: [],
+            projected: null,
+            tooltip: `🤖 Calibrated ML Matrix: ${winProb}% Win Share • Est. ${wtcScore}-${aScore} WTC`
           };
         }
       } else {
@@ -2736,34 +2778,85 @@ class YuGiOhPairingsArena {
             oppWtcScore: 20 - score,
             winProb,
             oppWinProb: 100 - winProb,
+            drawProb: 0,
+            modelMode: "calibrated_elo",
+            modelLabel: "Calibrated Elo",
             effectiveEloDelta: 0,
             factors: {},
-            tooltip: `6-Factor Prediction: ${winProb}% Win • Est. ${score}-${20 - score} WTC`
+            factorAttributions: [],
+            projected: null,
+            tooltip: `🤖 Calibrated ML Matrix: ${winProb}% Win Share • Est. ${score}-${20 - score} WTC`
           };
         }
       }
     }
 
-    // Client-side 6-Factor fallback
+    // Client-side Calibrated ML fallback
+    const sys = String(this.room?.game_system || "40k").trim().toLowerCase() || "40k";
+    if (typeof window.computeCalibratedMlMatchupClient === "function") {
+      const mlRes = window.computeCalibratedMlMatchupClient({
+        gameSystem: sys,
+        p1Prof: myPlayer,
+        p2Prof: oppPlayer,
+        elo1: Number(myPlayer.elo || 2000),
+        elo2: Number(oppPlayer.elo || 2000),
+        fac1: myPlayer.faction || "",
+        fac2: oppPlayer.faction || "",
+        p1Games: Number(myPlayer.matches_played || 24),
+        p2Games: Number(oppPlayer.matches_played || 24)
+      });
+      const winProb = Math.max(2, Math.min(98, Math.round(Number(mlRes.p1_win_share ?? 50))));
+      const wtcScore = Math.max(0, Math.min(20, Math.round(10 + 33.34 * (winProb / 100 - 0.5))));
+      const effDelta = Math.round(Number(mlRes.effective_elo_equiv || 0));
+      const attrMap = {};
+      (mlRes.factor_attributions || []).forEach(a => { attrMap[a.key] = a; });
+      const subEq = mlRes.sub_elo_equiv || {};
+      const proj = mlRes.projected ? {
+        myScore: mlRes.projected.p1_score,
+        oppScore: mlRes.projected.p2_score,
+        scoreUnit: mlRes.projected.score_unit || "VP"
+      } : null;
+      const modeTag = mlRes.model_mode === "dedicated_ml" ? "🤖 Calibrated ML" : "📐 Calibrated Elo";
+      return {
+        wtcScore,
+        oppWtcScore: 20 - wtcScore,
+        winProb,
+        oppWinProb: 100 - winProb,
+        drawProb: Number(mlRes.draw_prob || 0),
+        modelMode: mlRes.model_mode,
+        modelLabel: mlRes.model_label,
+        effectiveEloDelta: effDelta,
+        factors: {
+          base_elo_delta: Number(attrMap.skill_uncertainty?.elo_equiv || 0),
+          form_disposition_delta: Number(attrMap.form_disposition?.elo_equiv || 0),
+          fac_meta_delta: Number(attrMap.faction_meta?.elo_equiv || 0),
+          fac_h2h_delta: Number(attrMap.matchup_edge?.elo_equiv || 0),
+          own_mastery_delta: Number(subEq.own_mastery || 0),
+          vs_mastery_delta: Number(subEq.vs_mastery || 0),
+          past_h2h_delta: Number(subEq.past_h2h || 0)
+        },
+        factorAttributions: mlRes.factor_attributions || [],
+        projected: proj,
+        tooltip: `${modeTag}: ${winProb}% Win Share • Est. ${wtcScore}-${20 - wtcScore} WTC${proj ? ` • Proj. ${proj.myScore}-${proj.oppScore} ${proj.scoreUnit}` : ""}`
+      };
+    }
+
     const baseEloDelta = Math.round(Number(myPlayer.elo || 2000) - Number(oppPlayer.elo || 2000));
-    const wrA = Number(myPlayer.win_rate || 50) > 1 ? Number(myPlayer.win_rate || 50) / 100 : Number(myPlayer.win_rate || 0.5);
-    const wrB = Number(oppPlayer.win_rate || 50) > 1 ? Number(oppPlayer.win_rate || 50) / 100 : Number(oppPlayer.win_rate || 0.5);
-    const gA = Number(myPlayer.matches_played || 24);
-    const gB = Number(oppPlayer.matches_played || 24);
-    const ownShiftA = Math.max(-35, Math.min(35, Math.round((wrA - 0.5) * (gA / (gA + 10)) * 140)));
-    const ownShiftB = Math.max(-35, Math.min(35, Math.round((wrB - 0.5) * (gB / (gB + 10)) * 140)));
-    const ownMasteryDelta = Math.max(-55, Math.min(55, ownShiftA - ownShiftB));
-    const effDelta = baseEloDelta + ownMasteryDelta;
-    const winProb = Math.max(5, Math.min(95, Math.round(100 / (1 + Math.pow(10, -effDelta / 400)))));
+    const winProb = Math.max(5, Math.min(95, Math.round(100 / (1 + Math.pow(10, -baseEloDelta / 400)))));
     const wtcScore = Math.max(0, Math.min(20, Math.round(10 + 33.34 * (winProb / 100 - 0.5))));
     return {
       wtcScore,
       oppWtcScore: 20 - wtcScore,
       winProb,
       oppWinProb: 100 - winProb,
-      effectiveEloDelta: effDelta,
-      factors: { base_elo_delta: baseEloDelta, own_mastery_delta: ownMasteryDelta },
-      tooltip: `6-Factor Prediction: ${winProb}% Win • Est. ${wtcScore}-${20 - wtcScore} WTC`
+      drawProb: 0,
+      modelMode: "calibrated_elo",
+      modelLabel: "Calibrated Elo",
+      effectiveEloDelta: baseEloDelta,
+      factors: { base_elo_delta: baseEloDelta },
+      factorAttributions: [],
+      projected: null,
+      tooltip: `📐 Calibrated Elo: ${winProb}% Win Share • Est. ${wtcScore}-${20 - wtcScore} WTC`
     };
   }
 
@@ -3956,20 +4049,24 @@ class YuGiOhPairingsArena {
     if (targetOpp && factorStrip) {
       const tPred = this.getMatchupPrediction(card, targetOpp);
       const f = tPred.factors || {};
+      const isMlMode = tPred.modelMode === "dedicated_ml";
       if (factorVsTitle) {
-        factorVsTitle.textContent = `6-FACTOR VS ${String(targetOpp.name || targetOpp.faction || "").toUpperCase()}`;
+        factorVsTitle.textContent = `${isMlMode ? "🤖 ML PREDICTOR" : "📐 CAL. ELO"} VS ${String(targetOpp.name || targetOpp.faction || "").toUpperCase()}`;
       }
       if (factorTotalDelta) {
-        factorTotalDelta.textContent = `${fmtSigned(tPred.effectiveEloDelta)} Eff. Elo (${tPred.winProb}%)`;
+        const projTxt = tPred.projected && tPred.projected.myScore !== undefined
+          ? ` • ${tPred.projected.myScore}-${tPred.projected.oppScore} ${tPred.projected.scoreUnit}`
+          : "";
+        factorTotalDelta.textContent = `${fmtSigned(tPred.effectiveEloDelta)} Eff. Elo (${tPred.winProb}% • ${tPred.wtcScore}-${tPred.oppWtcScore} WTC${projTxt})`;
         factorTotalDelta.style.color = tPred.effectiveEloDelta > 15 ? "#4ade80" : (tPred.effectiveEloDelta < -15 ? "#fb7185" : "#38bdf8");
       }
       const items = [
-        { lbl: "Base Elo", val: Number(f.base_elo_delta || 0) },
-        { lbl: "3M Fac H2H", val: Number(f.fac_h2h_delta || 0) },
-        { lbl: "3M Meta", val: Number(f.fac_meta_delta || 0) },
+        { lbl: "Skill & Unc.", val: Number(f.base_elo_delta || 0) },
+        { lbl: "Form & Disp.", val: Number(f.form_disposition_delta || 0) },
+        { lbl: "90d Meta", val: Number(f.fac_meta_delta || 0) },
+        { lbl: "Matchup", val: Number(f.fac_h2h_delta || 0) },
         { lbl: "Own Mast.", val: Number(f.own_mastery_delta || 0) },
-        { lbl: "Vs Mast.", val: Number(f.vs_mastery_delta || 0) },
-        { lbl: "Player H2H", val: Number(f.past_h2h_delta || 0) }
+        { lbl: "Vs & H2H", val: Number(f.vs_mastery_delta || 0) + Number(f.past_h2h_delta || 0) }
       ];
       factorStrip.innerHTML = items.map((it) => {
         const cls = it.val > 0 ? "pos" : (it.val < 0 ? "neg" : "");

@@ -189,6 +189,7 @@
     <button type="button" class="preview-helper-btn" onclick="hidePreviewBar()" style="border-color:rgba(255,255,255,0.2); color:#94a3b8; background:transparent;">✕ Hide</button>
   </div>
   <div id="overlay-root" class="overlay-wrapper"></div>
+  <script src="/js/ml_predictor_runtime.js"></script>
   <script>
     function escapeHtml(str) {
       return String(str ?? '')
@@ -362,9 +363,25 @@
         const hasScore = liveP1Score !== null && liveP1Score !== undefined && liveP2Score !== null && liveP2Score !== undefined;
         const scoreStr = hasScore ? `${liveP1Score} - ${liveP2Score}` : (tableNum === 0 && !match ? 'LIVE' : '0 - 0');
 
-        const eloDiff = p2Elo - p1Elo;
-        const p1WinProb = Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, eloDiff / 400)))));
-        const p2WinProb = 100 - p1WinProb;
+        const evSys = String(ev.game_system || '40k').trim().toLowerCase() || '40k';
+        if (typeof window.ensureMlModelSpec === 'function') {
+          await window.ensureMlModelSpec(evSys);
+        }
+        let p1WinProb = Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, (p2Elo - p1Elo) / 400)))));
+        let p2WinProb = 100 - p1WinProb;
+        if (typeof window.computeCalibratedMlMatchupClient === 'function') {
+          const mlOverlay = window.computeCalibratedMlMatchupClient({
+            gameSystem: evSys,
+            p1Prof: p1 || {},
+            p2Prof: p2 || {},
+            elo1: p1Elo,
+            elo2: p2Elo,
+            fac1: p1Fac,
+            fac2: p2Fac
+          });
+          p1WinProb = Math.min(98, Math.max(2, Math.round(Number(mlOverlay.p1_win_share ?? p1WinProb))));
+          p2WinProb = 100 - p1WinProb;
+        }
 
         const root = document.getElementById('overlay-root');
         if (!root) return;

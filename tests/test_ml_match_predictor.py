@@ -277,31 +277,64 @@ class TestCalibratedMlMatchPredictor(unittest.TestCase):
         expected_shift = res["p1_win_share"] - 50.0
         self.assertAlmostEqual(total_shift, expected_shift, delta=0.25)
 
-    def test_phase1_scope_isolation_leaves_tournament_pairings_and_eventstudio_untouched(self):
+    def test_phase2_universal_rollout_across_all_prediction_surfaces(self):
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        with open(os.path.join(repo_root, "web", "js", "predictor.js"), "r", encoding="utf-8") as f:
-            pred_js = f.read()
-        self.assertIn("computeCalibratedMlMatchupClient", pred_js)
-        self.assertIn("buildMlFactorAttributionHtml", pred_js)
-        self.assertIn("_renderDispositionBadgesHtml", pred_js)
 
-        with open(os.path.join(repo_root, "web", "js", "tournaments.js"), "r", encoding="utf-8") as f:
-            tourn_js = f.read()
-        self.assertIn("function computeMultiFactorMatchupPrediction", tourn_js)
-        self.assertNotIn("computeCalibratedMlMatchupClient", tourn_js)
+        # 1. Verify shared client-side ML runtime & integration across all 5 web apps
+        with open(os.path.join(repo_root, "web", "js", "ml_predictor_runtime.js"), "r", encoding="utf-8") as f:
+            runtime_js = f.read()
+        self.assertIn("computeCalibratedMlMatchupClient", runtime_js)
+        self.assertIn("ensureMlModelSpec", runtime_js)
+        self.assertIn("buildMlFactorAttributionHtml", runtime_js)
 
-        with open(os.path.join(repo_root, "routers", "eventstudio.py"), "r", encoding="utf-8") as f:
-            es_py = f.read()
-        self.assertNotIn("predictor_model", es_py)
+        for rel_path in [
+            ("web", "js", "predictor.js"),
+            ("web", "js", "tournaments.js"),
+            ("web", "js", "eventstudio.js"),
+            ("web", "team_pairings", "app.js"),
+            ("web", "overlay.html"),
+        ]:
+            with open(os.path.join(repo_root, *rel_path), "r", encoding="utf-8") as f:
+                content = f.read()
+            self.assertIn("computeCalibratedMlMatchupClient", content, f"Missing ML runtime call in {rel_path}")
 
-        # Verify git diff against HEAD for Phase 1 excluded files is empty when running inside git repo
-        if os.path.isdir(os.path.join(repo_root, ".git")):
-            out = subprocess.check_output(
-                ["git", "diff", "--name-only", "HEAD", "--", "web/js/tournaments.js", "routers/eventstudio.py", "firestore_db.py"],
-                cwd=repo_root,
-                text=True,
-            ).strip()
-            self.assertEqual(out, "", f"Phase 1 must not touch tournament pairings or EventStudio, got: {out}")
+        with open(os.path.join(repo_root, "web", "team_pairings", "index.html"), "r", encoding="utf-8") as f:
+            tp_html = f.read()
+        self.assertIn("/js/ml_predictor_runtime.js", tp_html)
+
+        # 2. Verify EloEngine.predict_matchup promotes ML win-shares while keeping Elo Stakes pure Elo
+        eng = EloEngine(MagicMock())
+        quick_res = eng.predict_matchup(1850.0, 1650.0, game_system="40k", p1_faction="Aeldari", p2_faction="Orks")
+        self.assertAlmostEqual(quick_res["p1_win_prob"] + quick_res["p2_win_prob"], 100.0, places=1)
+        self.assertIn("ml_prediction", quick_res)
+        self.assertIn("projected", quick_res)
+        pure_e1 = 1.0 / (1.0 + 10.0 ** ((1650.0 - 1850.0) / 400.0))
+        self.assertAlmostEqual(quick_res["deltas"]["p1_win"], round(32.0 * (1.0 - pure_e1), 1), places=1)
+
+        # 3. Verify WTC Team Pairings Engine (FirestoreRoomEngine.predict_matchup_outcome) antisymmetry & ML schema
+        from firestore_db import FirestoreRoomEngine
+        pa = {"id": "A1", "name": "Alpha", "faction": "Aeldari", "elo": 1920, "matches_played": 40}
+        pb = {"id": "B1", "name": "Bravo", "faction": "Astra Militarum", "elo": 1760, "matches_played": 35}
+        wtc_ab = FirestoreRoomEngine.predict_matchup_outcome(pa, pb)
+        wtc_ba = FirestoreRoomEngine.predict_matchup_outcome(pb, pa)
+        self.assertEqual(wtc_ab["wtc_score_a"] + wtc_ab["wtc_score_b"], 20)
+        self.assertEqual(wtc_ab["wtc_score_a"], wtc_ba["wtc_score_b"])
+        self.assertEqual(wtc_ab["win_prob_a"] + wtc_ab["win_prob_b"], 100)
+        self.assertIn("model_mode", wtc_ab)
+        self.assertIn("factor_attributions", wtc_ab)
+        self.assertEqual(len(wtc_ab["factor_attributions"]), 5)
+
+        # 4. Verify Batch Pairing Predictor & EventStudio pairing enrichment
+        from predictor_model import predict_batch_matchups
+        batch_pairs = [
+            {"p1_id": "", "p2_id": "", "p1_elo": 1800, "p2_elo": 1600, "p1_faction": "Orks", "p2_faction": "Necrons"},
+            {"p1_id": "", "p2_id": "", "p1_elo": 1550, "p2_elo": 0, "is_bye": True},
+        ]
+        batch_preds = predict_batch_matchups(None, batch_pairs, game_system="40k")
+        self.assertEqual(len(batch_preds), 2)
+        self.assertGreater(batch_preds[0]["p1_win_share"], 55.0)
+        self.assertTrue(batch_preds[1]["is_bye"])
+        self.assertEqual(batch_preds[1]["p1_win_share"], 100.0)
 
     def test_elo_engine_predict_match_attaches_ml_prediction_and_disposition(self):
         mock_db = MagicMock()

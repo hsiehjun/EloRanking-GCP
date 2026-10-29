@@ -16,6 +16,7 @@ OUTPUT_BUNDLE = WEB_JS_DIR / "app.bundle.min.js"
 
 BUNDLE_MODULES = [
     "utils.js",
+    "ml_predictor_runtime.js",
     "api.js",
     "leaderboard.js",
     "teams.js",
@@ -115,7 +116,7 @@ def build_bundle():
         print(f"  ✓ Minified web/css/styles.css ({css_raw / 1024:.1f} KB -> {css_out / 1024:.1f} KB, -{(1 - (css_out / css_raw)) * 100:.1f}%)")
 
     # 2. Bundle and minify Event Studio standalone bundle (eventstudio.bundle.min.js)
-    es_modules = ["utils.js", "api.js", "auth.js", "connect.js", "eventstudio.js"]
+    es_modules = ["utils.js", "ml_predictor_runtime.js", "api.js", "auth.js", "connect.js", "eventstudio.js"]
     es_parts = []
     es_raw_bytes = 0
     for mod_name in es_modules:
@@ -150,6 +151,7 @@ def build_bundle():
         ROOT_DIR / "web" / "css" / "styles.css",
         ROOT_DIR / "web" / "css" / "theme.css",
         ROOT_DIR / "web" / "css" / "eventstudio.css",
+        ROOT_DIR / "web" / "js" / "ml_predictor_runtime.js",
         ROOT_DIR / "web" / "js" / "eventstudio.js",
         ROOT_DIR / "web" / "tracker" / "bundle.js",
         ROOT_DIR / "web" / "tracker" / "bundle_40k.js",

@@ -2327,15 +2327,25 @@ class FirestoreRoomEngine:
     @classmethod
     def predict_matchup_outcome(cls, player_a: Dict[str, Any], player_b: Dict[str, Any]) -> Dict[str, Any]:
         """
-        6-Factor Pre-Game Matchup Prediction Engine (Strictly Prediction Only — Zero Impact on Elo Calculation):
-          1. Base Elo Anchor (elo_a - elo_b)
-          2. 3-Month Global Faction-vs-Faction Direct H2H (Bayesian shrunk K=35, cap ±75 Elo)
-          3. 3-Month Global Faction Meta Form (Bayesian shrunk K=100, cap ±40 Elo)
-          4. Player Career Own-Faction Mastery (Bayesian shrunk K=10, cap ±55 Elo)
-          5. Player Career Vs-Opponent-Faction Mastery (Bayesian shrunk K=10, cap ±45 Elo)
-          6. Past Career Player Head-to-Head (Bayesian shrunk K=4, cap ±35 Elo)
-        Strictly excludes any in-event stats (evF1Wins, event_wins, etc.).
+        Calibrated 2-Mode ML Pre-Game Matchup Prediction Engine (`dedicated_ml` GBDT + Mode 2 `calibrated_elo`):
+          1. Base Skill & Rating Uncertainty (Elo gap attenuated by sample uncertainty + career experience/peak)
+          2. Recent Form & Player Disposition (EWMA Elo residual + Giant-Slayer / Gatekeeper / Volatility)
+          3. 90-Day Competitive Faction Meta Alpha (shrunk K=75)
+          4. 90-Day Competitive Matchup Counter Interaction Alpha (shrunk K=35, net of macro faction rates)
+          5. Pilot Own-Faction Mastery, Vs-Faction Mastery & Career Head-to-Head (Elo-residualized)
+        Strictly Prediction Only — Zero Impact on Official Elo Calculation and Zero In-Event Leakage.
         """
+        import math
+        from predictor_model import (
+            build_directional_feature_vector,
+            compute_rating_uncertainty_sq,
+            eval_symmetric_davidson,
+            get_system_model_spec,
+            lookup_competitive_alpha_pair,
+            normalize_faction_key,
+            predict_1v1_matchup,
+        )
+
         pa = player_a or {}
         pb = player_b or {}
 
@@ -2351,18 +2361,67 @@ class FirestoreRoomEngine:
                 return None
             return v / 100.0 if v > 1.0 else _clamp(v, 0.0, 1.0)
 
+        sys_key = str(pa.get("game_system") or pb.get("game_system") or "40k").strip().lower() or "40k"
         fac_a = cls._clean_primary_faction(pa.get("faction") or pa.get("top_faction") or "Space Marines")
         fac_b = cls._clean_primary_faction(pb.get("faction") or pb.get("top_faction") or "Space Marines")
-        is_mirror = bool(fac_a and fac_b and fac_a.lower() == fac_b.lower())
+        nk_a = normalize_faction_key(fac_a)
+        nk_b = normalize_faction_key(fac_b)
+        is_mirror = bool((nk_a and nk_b and nk_a == nk_b) or (fac_a and fac_b and fac_a.lower() == fac_b.lower()))
 
-        # Factor 1: Base Elo Anchor
         elo_a = float(pa.get("elo") or pa.get("current_elo") or 2000.0)
         elo_b = float(pb.get("elo") or pb.get("current_elo") or 2000.0)
         base_elo_delta = round(elo_a - elo_b)
 
-        # Factor 2: 3-Month Global Faction-vs-Faction Direct H2H (K = 35, cap ±75 Elo)
-        fac_h2h_delta = 0
+        # Resolve active trained model spec and cached 90d competitive alpha snapshot (0ms L1 memory hit)
+        db_obj = None
+        try:
+            from core import get_database
+            cand_db = get_database()
+            if (
+                cand_db is not None
+                and not type(cand_db).__module__.startswith("unittest.mock")
+                and not getattr(cand_db, "_is_mock_instance", lambda: False)()
+            ):
+                db_obj = cand_db
+        except Exception:
+            db_obj = None
+
+        ml_spec = get_system_model_spec(sys_key, db=db_obj)
+        comp_snap: Dict[str, Any] = {"factions": {}, "matchups": {}}
+        if db_obj is not None and hasattr(db_obj, "get_competitive_faction_alpha_snapshot"):
+            try:
+                snap_res = db_obj.get_competitive_faction_alpha_snapshot(sys_key)
+                if isinstance(snap_res, dict) and snap_res.get("factions"):
+                    comp_snap = snap_res
+            except Exception:
+                pass
+
+        # Resolve 90d Faction Meta & Matchup Interaction Alphas (with deterministic fallback for offline/unit tests)
+        meta_a_def = cls.THREE_MONTH_FACTION_META_STATS.get(fac_a, (0.50, 250))
+        meta_b_def = cls.THREE_MONTH_FACTION_META_STATS.get(fac_b, (0.50, 250))
+
+        live_pair = lookup_competitive_alpha_pair(comp_snap, fac_a, fac_b) if comp_snap.get("factions") else None
+
+        if pa.get("fac_meta_wr") is not None or live_pair is None or live_pair["f1_games"] == 0:
+            wr1 = _norm_wr(pa.get("fac_meta_wr")) if pa.get("fac_meta_wr") is not None else meta_a_def[0]
+            g1 = int(pa.get("fac_meta_games") if pa.get("fac_meta_games") is not None else meta_a_def[1])
+            f1_alpha = ((wr1 - 0.50) * g1) / (g1 + 75.0) if (wr1 is not None and g1 > 0) else 0.0
+        else:
+            f1_alpha = float(live_pair["f1_alpha"])
+            g1 = int(live_pair["f1_games"])
+            wr1 = float(live_pair["f1_wr"]) / 100.0
+
+        if pb.get("fac_meta_wr") is not None or live_pair is None or live_pair["f2_games"] == 0:
+            wr2 = _norm_wr(pb.get("fac_meta_wr")) if pb.get("fac_meta_wr") is not None else meta_b_def[0]
+            g2 = int(pb.get("fac_meta_games") if pb.get("fac_meta_games") is not None else meta_b_def[1])
+            f2_alpha = ((wr2 - 0.50) * g2) / (g2 + 75.0) if (wr2 is not None and g2 > 0) else 0.0
+        else:
+            f2_alpha = float(live_pair["f2_alpha"])
+            g2 = int(live_pair["f2_games"])
+            wr2 = float(live_pair["f2_wr"]) / 100.0
+
         f1_wins, f2_wins, f_draws, f_games = 0, 0, 0, 0
+        mu_alpha = 0.0
         if not is_mirror:
             if isinstance(pa.get("fac_h2h"), dict):
                 fh = pa["fac_h2h"]
@@ -2370,89 +2429,97 @@ class FirestoreRoomEngine:
                 f2_wins = int(fh.get("f2_wins") or fh.get("losses") or 0)
                 f_draws = int(fh.get("draws") or 0)
                 f_games = int(fh.get("total") or (f1_wins + f2_wins + f_draws))
-            elif (fac_a, fac_b) in cls.THREE_MONTH_FACTION_H2H_STATS:
-                f1_wins, f2_wins, f_draws = cls.THREE_MONTH_FACTION_H2H_STATS[(fac_a, fac_b)]
-                f_games = f1_wins + f2_wins + f_draws
-            elif (fac_b, fac_a) in cls.THREE_MONTH_FACTION_H2H_STATS:
-                f2_wins, f1_wins, f_draws = cls.THREE_MONTH_FACTION_H2H_STATS[(fac_b, fac_a)]
-                f_games = f1_wins + f2_wins + f_draws
-            elif (fac_a, fac_b) in cls.FACTION_MATCHUP_EDGES or (fac_b, fac_a) in cls.FACTION_MATCHUP_EDGES:
-                edge = cls.FACTION_MATCHUP_EDGES.get((fac_a, fac_b), -cls.FACTION_MATCHUP_EDGES.get((fac_b, fac_a), 0))
-                f_games = 45
-                wr_est = _clamp(0.50 + edge * 0.045, 0.25, 0.75)
-                f1_wins = round(f_games * wr_est)
-                f2_wins = f_games - f1_wins
-
-            if f_games > 0:
-                raw_wr = (f1_wins + 0.5 * f_draws) / f_games
-                shrunk_edge = (raw_wr - 0.50) * (f_games / (f_games + 35.0))
-                fac_h2h_delta = int(_clamp(round(shrunk_edge * 350.0), -75, 75))
-
-        # Factor 3: 3-Month Global Faction Meta Form (K = 100, cap ±40 Elo)
-        fac_meta_delta = 0
-        meta_a = cls.THREE_MONTH_FACTION_META_STATS.get(fac_a, (0.50, 250))
-        meta_b = cls.THREE_MONTH_FACTION_META_STATS.get(fac_b, (0.50, 250))
-        wr1 = _norm_wr(pa.get("fac_meta_wr")) if pa.get("fac_meta_wr") is not None else meta_a[0]
-        g1 = int(pa.get("fac_meta_games") if pa.get("fac_meta_games") is not None else meta_a[1])
-        wr2 = _norm_wr(pb.get("fac_meta_wr")) if pb.get("fac_meta_wr") is not None else meta_b[0]
-        g2 = int(pb.get("fac_meta_games") if pb.get("fac_meta_games") is not None else meta_b[1])
-        if not is_mirror and wr1 is not None and wr2 is not None and (g1 > 0 or g2 > 0):
-            adj_wr1 = 0.50 + ((wr1 - 0.50) * (g1 / (g1 + 100.0)) if g1 > 0 else 0.0)
-            adj_wr2 = 0.50 + ((wr2 - 0.50) * (g2 / (g2 + 100.0)) if g2 > 0 else 0.0)
-            fac_meta_delta = int(_clamp(round((adj_wr1 - adj_wr2) * 250.0), -40, 40))
-
-        # Factor 4: Player Career Own-Faction Mastery (K = 10, cap ±55 Elo)
-        def _own_mastery_shift(p: Dict[str, Any]) -> Tuple[int, int, Optional[float]]:
-            if "own_faction_games" in p:
-                games = int(p.get("own_faction_games") or 0)
-            elif "matches_played" in p:
-                games = int(p.get("matches_played") or 0)
-            elif p.get("win_rate") is not None:
-                games = 24
+                if f_games > 0:
+                    raw_edge = ((f1_wins + 0.5 * f_draws) / f_games) - 0.50
+                    mu_alpha = ((raw_edge - (f1_alpha - f2_alpha)) * f_games) / (f_games + 35.0)
+            elif live_pair is not None and live_pair["matchup_games"] > 0:
+                mu_alpha = float(live_pair["matchup_alpha"])
+                f_games = int(live_pair["matchup_games"])
+                est_wr = _clamp(0.50 + (f1_alpha - f2_alpha) + mu_alpha * ((f_games + 35.0) / max(1.0, float(f_games))), 0.05, 0.95)
+                f1_wins = int(round(f_games * est_wr))
+                f2_wins = max(0, f_games - f1_wins)
             else:
-                games = 0
-            wr = _norm_wr(p.get("own_faction_wr") if p.get("own_faction_wr") is not None else p.get("win_rate"))
-            if games <= 0 or wr is None:
-                return 0, 0, None
-            conf = games / (games + 10.0)
-            wr_edge = (wr - 0.50) * conf * 140.0
-            net_elo = float(p.get("own_faction_net_elo") or 0.0)
-            net_elo_edge = _clamp(net_elo * 0.25, -18.0, 18.0) * conf
-            return int(_clamp(round(wr_edge + net_elo_edge), -35, 35)), games, wr
+                if (fac_a, fac_b) in cls.THREE_MONTH_FACTION_H2H_STATS:
+                    f1_wins, f2_wins, f_draws = cls.THREE_MONTH_FACTION_H2H_STATS[(fac_a, fac_b)]
+                    f_games = f1_wins + f2_wins + f_draws
+                elif (fac_b, fac_a) in cls.THREE_MONTH_FACTION_H2H_STATS:
+                    f2_wins, f1_wins, f_draws = cls.THREE_MONTH_FACTION_H2H_STATS[(fac_b, fac_a)]
+                    f_games = f1_wins + f2_wins + f_draws
+                elif (fac_a, fac_b) in cls.FACTION_MATCHUP_EDGES or (fac_b, fac_a) in cls.FACTION_MATCHUP_EDGES:
+                    edge = cls.FACTION_MATCHUP_EDGES.get((fac_a, fac_b), -cls.FACTION_MATCHUP_EDGES.get((fac_b, fac_a), 0))
+                    f_games = 45
+                    wr_est = _clamp(0.50 + edge * 0.045, 0.25, 0.75)
+                    f1_wins = round(f_games * wr_est)
+                    f2_wins = f_games - f1_wins
+                if f_games > 0:
+                    raw_edge = ((f1_wins + 0.5 * f_draws) / f_games) - 0.50
+                    mu_alpha = ((raw_edge - (f1_alpha - f2_alpha)) * f_games) / (f_games + 35.0)
 
-        own_shift_a, own_g_a, own_wr_a = _own_mastery_shift(pa)
-        own_shift_b, own_g_b, own_wr_b = _own_mastery_shift(pb)
-        own_mastery_delta = int(_clamp(own_shift_a - own_shift_b, -55, 55))
+        # Resolve Pilot Inputs (preferring real Elo-residualized `ml_features` from `rating_history`, with clean card-stat synthesis fallback)
+        def _build_pilot_ml_inputs(p: Dict[str, Any], my_nk: str, opp_fac: str, opp_nk: str, elo_v: float) -> Tuple[Dict[str, Any], int, int]:
+            mlf = p.get("ml_features") if isinstance(p.get("ml_features"), dict) else {}
+            disp = p.get("disposition") if isinstance(p.get("disposition"), dict) else {}
 
-        # Factor 5: Player Career Vs-Opponent-Faction Mastery (K = 10, cap ±45 Elo)
-        def _vs_mastery_shift(p: Dict[str, Any], enemy_fac: str) -> Tuple[int, int, Optional[float]]:
-            vs_dict = (p.get("vs_faction_stats") or {}).get(enemy_fac) if isinstance(p.get("vs_faction_stats"), dict) else None
-            games = int(
-                vs_dict.get("games", 0)
-                if isinstance(vs_dict, dict)
-                else (p.get("vs_faction_games") or 0)
+            base_games = int(p.get("matches_played") or mlf.get("competitive_games") or (24 if p.get("win_rate") is not None else 0))
+            tot_games = max(base_games, int(mlf.get("competitive_games") or 0))
+            unc_sq = float(mlf["uncertainty_sq"]) if "uncertainty_sq" in mlf else compute_rating_uncertainty_sq(tot_games)
+            peak_gap = float(mlf.get("peak_gap") or 0.0)
+            form_ewma = float(mlf.get("recent_form_ewma") or 0.0)
+
+            # Own-faction residual
+            own_dict = (mlf.get("own_faction_residuals") or {}).get(my_nk) if isinstance(mlf.get("own_faction_residuals"), dict) else None
+            has_explicit_own = ("own_faction_wr" in p) or ("own_faction_games" in p) or (not own_dict)
+            if own_dict and not ("own_faction_wr" in p or "own_faction_games" in p):
+                own_res = float(own_dict.get("residual") or 0.0)
+                own_g = int(own_dict.get("games") or 0)
+            else:
+                own_g = int(p.get("own_faction_games") if "own_faction_games" in p else base_games)
+                own_wr = _norm_wr(p.get("own_faction_wr") if p.get("own_faction_wr") is not None else p.get("win_rate"))
+                if own_g > 0 and own_wr is not None:
+                    # Residualize raw win rate against expected baseline for high/low Elo pilots so Elo isn't double-counted
+                    elo_prior = _clamp(0.50 + (elo_v - 1800.0) / 2200.0, 0.35, 0.65) if "own_faction_wr" not in p and mlf else 0.50
+                    net_elo_bonus = _clamp(float(p.get("own_faction_net_elo") or 0.0) / 180.0, -0.08, 0.08)
+                    own_res = _clamp(((own_wr - elo_prior) + net_elo_bonus) * (own_g / (own_g + 15.0)), -0.28, 0.28)
+                else:
+                    own_res = 0.0
+
+            # Vs-opponent-faction residual
+            vs_res_dict = (mlf.get("vs_faction_residuals") or {}).get(opp_nk) if isinstance(mlf.get("vs_faction_residuals"), dict) else None
+            vs_card_dict = (p.get("vs_faction_stats") or {}).get(opp_fac) if isinstance(p.get("vs_faction_stats"), dict) else None
+            if vs_res_dict and vs_card_dict is None and "vs_faction_wr" not in p:
+                vs_res = float(vs_res_dict.get("residual") or 0.0)
+                vs_g = int(vs_res_dict.get("games") or 0)
+            else:
+                vs_g = int(vs_card_dict.get("games", 0) if isinstance(vs_card_dict, dict) else (p.get("vs_faction_games") or 0))
+                vs_wr = _norm_wr(vs_card_dict.get("wr") if isinstance(vs_card_dict, dict) and "wr" in vs_card_dict else p.get("vs_faction_wr"))
+                if vs_g > 0 and vs_wr is not None:
+                    vs_net = _clamp(float((vs_card_dict.get("net_elo") if isinstance(vs_card_dict, dict) else p.get("vs_faction_net_elo")) or 0.0) / 180.0, -0.06, 0.06)
+                    vs_res = _clamp(((vs_wr - 0.50) + vs_net) * (vs_g / (vs_g + 12.0)), -0.25, 0.25)
+                else:
+                    vs_res = 0.0
+
+            return (
+                {
+                    "elo": elo_v,
+                    "games": tot_games,
+                    "uncertainty_sq": unc_sq,
+                    "peak_gap": peak_gap,
+                    "recent_form_ewma": form_ewma,
+                    "own_fac_res": own_res,
+                    "own_fac_games": own_g,
+                    "vs_fac_res": vs_res,
+                    "giant_slayer_res": float(disp.get("giant_slayer_res") or 0.0),
+                    "gatekeeper_res": float(disp.get("gatekeeper_res") or 0.0),
+                    "volatility_z": float(disp.get("volatility_z") or 0.0),
+                },
+                own_g,
+                vs_g,
             )
-            wr_raw = (
-                vs_dict.get("wr")
-                if isinstance(vs_dict, dict) and "wr" in vs_dict
-                else p.get("vs_faction_wr")
-            )
-            wr = _norm_wr(wr_raw)
-            if games <= 0 or wr is None:
-                return 0, 0, None
-            conf = games / (games + 10.0)
-            wr_edge = (wr - 0.50) * conf * 120.0
-            net_elo = float(
-                (vs_dict.get("net_elo") if isinstance(vs_dict, dict) else p.get("vs_faction_net_elo")) or 0.0
-            )
-            net_elo_edge = _clamp(net_elo * 0.20, -12.0, 12.0) * conf
-            return int(_clamp(round(wr_edge + net_elo_edge), -28, 28)), games, wr
 
-        vs_shift_a, vs_g_a, vs_wr_a = _vs_mastery_shift(pa, fac_b)
-        vs_shift_b, vs_g_b, vs_wr_b = _vs_mastery_shift(pb, fac_a)
-        vs_mastery_delta = int(_clamp(vs_shift_a - vs_shift_b, -45, 45))
+        p1_in, own_g_a, vs_g_a = _build_pilot_ml_inputs(pa, nk_a, fac_b, nk_b, elo_a)
+        p2_in, own_g_b, vs_g_b = _build_pilot_ml_inputs(pb, nk_b, fac_a, nk_a, elo_b)
 
-        # Factor 6: Past Career Player Head-to-Head (K = 4, cap ±35 Elo)
+        # Past Career Direct Player H2H Residual
         h2h_w_a = int(pa.get("past_h2h_wins") or 0)
         h2h_w_b = int(pa.get("past_h2h_losses") or pb.get("past_h2h_wins") or 0)
         h2h_d = int(pa.get("past_h2h_draws") or 0)
@@ -2462,40 +2529,119 @@ class FirestoreRoomEngine:
             h2h_w_b = int(rec.get("losses") or 0)
             h2h_d = int(rec.get("draws") or 0)
         h2h_total = h2h_w_a + h2h_w_b + h2h_d
-        past_h2h_delta = 0
-        if h2h_total > 0 and h2h_w_a != h2h_w_b:
-            past_h2h_delta = int(_clamp(round(((h2h_w_a - h2h_w_b) / (h2h_total + 4.0)) * 90.0), -35, 35))
+        exp_elo_a = 1.0 / (1.0 + math.pow(10.0, (elo_b - elo_a) / 400.0))
+        if h2h_total > 0:
+            s_sum_a = float(h2h_w_a) + 0.5 * float(h2h_d)
+            direct_h2h_res = _clamp((s_sum_a - h2h_total * exp_elo_a) / (h2h_total + 5.0), -0.30, 0.30)
+        else:
+            direct_h2h_res = 0.0
 
-        effective_elo_delta = int(
-            round(
-                base_elo_delta
-                + fac_h2h_delta
-                + fac_meta_delta
-                + own_mastery_delta
-                + vs_mastery_delta
-                + past_h2h_delta
-            )
+        macro_in = {
+            "is_mirror": is_mirror,
+            "f1_alpha": 0.0 if is_mirror else f1_alpha,
+            "f2_alpha": 0.0 if is_mirror else f2_alpha,
+            "matchup_alpha": 0.0 if is_mirror else mu_alpha,
+            "matchup_games": 0 if is_mirror else f_games,
+        }
+
+        ml_pred = predict_1v1_matchup(
+            spec=ml_spec,
+            p1_inputs=p1_in,
+            p2_inputs=p2_in,
+            macro_inputs=macro_in,
+            direct_h2h_res=direct_h2h_res,
+            direct_h2h_games=h2h_total,
         )
 
-        raw_prob_a = 1.0 / (1.0 + (10.0 ** (-effective_elo_delta / 400.0)))
-        win_prob_a = int(_clamp(round(raw_prob_a * 100.0), 5, 95))
+        # Exact sub-pillar disaggregation of Stage 5 (Own Mastery -> Vs Mastery -> Direct H2H)
+        unc_c = float(ml_spec.get("uncertainty_c", 0.85))
+        x_ab = build_directional_feature_vector(
+            r_a=p1_in["elo"], r_b=p2_in["elo"], games_a=p1_in["games"], games_b=p2_in["games"],
+            unc_sq_a=p1_in["uncertainty_sq"], unc_sq_b=p2_in["uncertainty_sq"],
+            peak_gap_a=p1_in["peak_gap"], peak_gap_b=p2_in["peak_gap"],
+            form_a=p1_in["recent_form_ewma"], form_b=p2_in["recent_form_ewma"],
+            fac_alpha_a=macro_in["f1_alpha"], fac_alpha_b=macro_in["f2_alpha"],
+            matchup_alpha_ab=macro_in["matchup_alpha"], is_mirror=is_mirror,
+            own_fac_res_a=p1_in["own_fac_res"], own_fac_res_b=p2_in["own_fac_res"],
+            own_fac_g_a=p1_in["own_fac_games"], own_fac_g_b=p2_in["own_fac_games"],
+            vs_fac_res_a=p1_in["vs_fac_res"], vs_fac_res_b=p2_in["vs_fac_res"],
+            direct_h2h_res_ab=direct_h2h_res,
+            giant_slayer_a=p1_in["giant_slayer_res"], gatekeeper_a=p1_in["gatekeeper_res"],
+            giant_slayer_b=p2_in["giant_slayer_res"], gatekeeper_b=p2_in["gatekeeper_res"],
+            uncertainty_c=unc_c,
+        )
+        x_ba = build_directional_feature_vector(
+            r_a=p2_in["elo"], r_b=p1_in["elo"], games_a=p2_in["games"], games_b=p1_in["games"],
+            unc_sq_a=p2_in["uncertainty_sq"], unc_sq_b=p1_in["uncertainty_sq"],
+            peak_gap_a=p2_in["peak_gap"], peak_gap_b=p1_in["peak_gap"],
+            form_a=p2_in["recent_form_ewma"], form_b=p1_in["recent_form_ewma"],
+            fac_alpha_a=macro_in["f2_alpha"], fac_alpha_b=macro_in["f1_alpha"],
+            matchup_alpha_ab=-macro_in["matchup_alpha"], is_mirror=is_mirror,
+            own_fac_res_a=p2_in["own_fac_res"], own_fac_res_b=p1_in["own_fac_res"],
+            own_fac_g_a=p2_in["own_fac_games"], own_fac_g_b=p1_in["own_fac_games"],
+            vs_fac_res_a=p2_in["vs_fac_res"], vs_fac_res_b=p1_in["vs_fac_res"],
+            direct_h2h_res_ab=-direct_h2h_res,
+            giant_slayer_a=p2_in["giant_slayer_res"], gatekeeper_a=p2_in["gatekeeper_res"],
+            giant_slayer_b=p1_in["giant_slayer_res"], gatekeeper_b=p1_in["gatekeeper_res"],
+            uncertainty_c=unc_c,
+        )
+        avg_vol = 0.5 * (p1_in["volatility_z"] + p2_in["volatility_z"])
+        ln10_400 = math.log(10.0) / 400.0
+
+        def _stage_logit(idx_set):
+            s_ab = [x_ab[i] if i in idx_set else 0.0 for i in range(14)]
+            s_ba = [x_ba[i] if i in idx_set else 0.0 for i in range(14)]
+            lg, _, _, _ = eval_symmetric_davidson(ml_spec, s_ab, s_ba, avg_volatility_z=avg_vol)
+            return lg
+
+        lg_pre_pilot = _stage_logit({0, 1, 2, 3, 4, 5, 6, 7, 8, 13})
+        lg_own = _stage_logit({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13})
+        lg_vs = _stage_logit({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13})
+        lg_full = float(ml_pred["logit"])
+
+        attr_map = {a["key"]: float(a["elo_equiv"]) for a in (ml_pred.get("factor_attributions") or [])}
+        skill_unc_delta = int(round(attr_map.get("skill_uncertainty", float(base_elo_delta))))
+        form_disp_delta = int(round(attr_map.get("form_disposition", 0.0)))
+        fac_meta_delta = int(round(attr_map.get("faction_meta", 0.0)))
+        fac_h2h_delta = int(round(attr_map.get("matchup_edge", 0.0)))
+        own_mastery_delta = int(round((lg_own - lg_pre_pilot) / ln10_400))
+        vs_mastery_delta = int(round((lg_vs - lg_own) / ln10_400))
+        past_h2h_delta = int(round((lg_full - lg_vs) / ln10_400))
+
+        effective_elo_delta = int(round(float(ml_pred["effective_elo_equiv"])))
+        win_share_a = float(ml_pred["p1_win_share"])
+        win_prob_a = int(_clamp(round(win_share_a), 5, 95))
         win_prob_b = 100 - win_prob_a
 
         pure_elo_prob_a = int(_clamp(round(100.0 / (1.0 + (10.0 ** (-base_elo_delta / 400.0)))), 5, 95))
         wtc_score_a = int(_clamp(round(10.0 + 33.34 * ((win_prob_a / 100.0) - 0.50)), 0, 20))
         wtc_score_b = 20 - wtc_score_a
 
+        proj = ml_pred.get("projected") or {}
+
         return {
             "win_prob_a": win_prob_a,
             "win_prob_b": win_prob_b,
+            "draw_prob": ml_pred["draw_prob"],
+            "p1_win_prob_3way": ml_pred["p1_win_prob"],
+            "p2_win_prob_3way": ml_pred["p2_win_prob"],
+            "model_mode": ml_pred["model_mode"],
+            "model_label": ml_pred["model_label"],
+            "confidence": ml_pred["confidence"],
             "pure_elo_win_prob_a": pure_elo_prob_a,
             "pure_elo_win_prob_b": 100 - pure_elo_prob_a,
             "wtc_score_a": wtc_score_a,
             "wtc_score_b": wtc_score_b,
+            "wtc_expected_a": proj.get("wtc_p1_exact", float(wtc_score_a)),
+            "wtc_expected_b": proj.get("wtc_p2_exact", float(wtc_score_b)),
+            "projected": proj,
             "base_elo_delta": base_elo_delta,
             "effective_elo_delta": effective_elo_delta,
+            "factor_attributions": ml_pred.get("factor_attributions") or [],
             "factors": {
                 "base_elo_delta": base_elo_delta,
+                "skill_uncertainty_delta": skill_unc_delta,
+                "form_disp_delta": form_disp_delta,
                 "fac_h2h_delta": fac_h2h_delta,
                 "fac_meta_delta": fac_meta_delta,
                 "own_mastery_delta": own_mastery_delta,
@@ -3538,15 +3684,76 @@ class FirestoreRoomEngine:
                     continue
                 cached = sys_cache.get(n_low)
                 live = (cached[1] if (cached and cached[1]) else None) or canon_map.get(n_low)
+                p["game_system"] = sys_key
                 if live and live.get("current_elo"):
                     cur_elo = round(float(live["current_elo"]), 1)
                     p["current_elo"] = cur_elo
                     p["elo"] = int(round(cur_elo))
+                    if live.get("player_id") and (not p.get("player_id") or str(p.get("player_id")).startswith(("p_", "sd_"))):
+                        p["player_id"] = str(live["player_id"])
                     if int(live.get("matches_played") or 0) > 0:
                         p["matches_played"] = int(live["matches_played"])
                     if float(live.get("win_rate") or 0.0) > 0.0:
                         p["win_rate"] = round(float(live["win_rate"]), 1)
                     _sync_card_rarity_if_needed(p, p["elo"])
+
+    def _hydrate_roster_ml_profiles(self, rosters: List[List[Dict[str, Any]]], game_system: str = "40k") -> None:
+        """Batch-hydrates Elo-residualized ML features & Player Disposition badges onto WTC pairing rosters (<10ms cold, 0ms L1 cached)."""
+        sys_key = str(game_system or "40k").strip().lower() or "40k"
+        try:
+            from core import get_database
+            from predictor_model import extract_batch_player_ml_profiles, normalize_faction_key
+            db = get_database()
+            if (
+                db is None
+                or type(db).__module__.startswith("unittest.mock")
+                or getattr(db, "_is_mock_instance", lambda: False)()
+            ):
+                return
+
+            pids: List[str] = []
+            for roster in (rosters or []):
+                if not isinstance(roster, list):
+                    continue
+                for p in roster:
+                    if not isinstance(p, dict) or p.get("is_starter"):
+                        continue
+                    p["game_system"] = sys_key
+                    pid = str(p.get("player_id") or "").strip()
+                    if pid and not pid.startswith(("p_", "sd_", "A", "B")):
+                        pids.append(pid)
+
+            prof_map = extract_batch_player_ml_profiles(db, pids, game_system=sys_key) if pids else {}
+            comp_snap = db.get_competitive_faction_alpha_snapshot(sys_key) if hasattr(db, "get_competitive_faction_alpha_snapshot") else {}
+            fac_snaps = (comp_snap.get("factions") or {}) if isinstance(comp_snap, dict) else {}
+
+            for roster in (rosters or []):
+                if not isinstance(roster, list):
+                    continue
+                for p in roster:
+                    if not isinstance(p, dict):
+                        continue
+                    p["game_system"] = sys_key
+                    fac_clean = self._clean_primary_faction(p.get("faction") or p.get("top_faction") or "Space Marines")
+                    nk = normalize_faction_key(fac_clean)
+                    f_live = fac_snaps.get(nk)
+                    if isinstance(f_live, dict) and int(f_live.get("games") or 0) > 0:
+                        wr_pct = float(f_live.get("win_rate") or 50.0)
+                        p["fac_meta_wr_pct"] = round(wr_pct, 1)
+                        p["fac_meta_games"] = int(f_live.get("games") or 0)
+                        p["fac_meta_elo_shift"] = int(round(float(f_live.get("alpha") or 0.0) * 280.0))
+                        p["fac_meta_tier"] = (
+                            "S-TIER" if wr_pct >= 53.0 else ("A-TIER" if wr_pct >= 51.0 else ("B-TIER" if wr_pct >= 49.0 else "C-TIER"))
+                        )
+                    if p.get("is_starter"):
+                        continue
+                    pid = str(p.get("player_id") or "").strip()
+                    ml_prof = prof_map.get(pid)
+                    if isinstance(ml_prof, dict):
+                        p["ml_features"] = ml_prof.get("ml_features") or {}
+                        p["disposition"] = ml_prof.get("disposition") or {}
+        except Exception as err:
+            logger.debug(f"WTC ML roster hydration notice: {err}")
 
     def get_real_team_roster(self, team_name: str, game_system: str = "40k") -> Dict[str, Any]:
         """Queries real team roster players from PostgreSQL player_ratings and teams_hub_service (< 50ms)."""
@@ -5028,11 +5235,15 @@ class FirestoreRoomEngine:
             masked["secret_attackers_b"] = []
             masked["secret_choice_b"] = None
 
-        # Precompute 6-Factor Matchup Matrix & Full Prediction Breakdown for all Roster A vs Roster B pairs
+        # Precompute Calibrated ML Matchup Matrix & Full Prediction Breakdown for all Roster A vs Roster B pairs
         roster_a = (room.get("team_a") or {}).get("roster") or []
         roster_b = (room.get("team_b") or {}).get("roster") or []
+        room_sys = str(room.get("game_system") or "40k").strip().lower() or "40k"
+        self._hydrate_roster_ml_profiles([roster_a, roster_b], game_system=room_sys)
         matchup_matrix: Dict[str, Dict[str, int]] = {}
         matchup_predictions: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        sample_model_mode = "calibrated_elo"
+        sample_model_label = "Uncertainty-Calibrated Elo"
         for pa in roster_a:
             aid = str(pa.get("id") or "")
             if not aid:
@@ -5046,8 +5257,13 @@ class FirestoreRoomEngine:
                 pred = self.predict_matchup_outcome(pa, pb)
                 matchup_matrix[aid][bid] = pred["wtc_score_a"]
                 matchup_predictions[aid][bid] = pred
+                if pred.get("model_mode"):
+                    sample_model_mode = pred["model_mode"]
+                    sample_model_label = pred.get("model_label") or sample_model_label
         masked["matchup_matrix"] = matchup_matrix
         masked["matchup_predictions"] = matchup_predictions
+        masked["ml_model_mode"] = sample_model_mode
+        masked["ml_model_label"] = sample_model_label
 
         # Compute Round-by-Round WTC Score Summary (Expected vs Simulated Dice/Guarantee)
         pairings_list = masked.get("pairings") or []

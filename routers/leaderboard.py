@@ -1875,6 +1875,10 @@ def _enrich_event_team_pairings(event_details: Dict[str, Any], event_id_str: str
                 m_target["player2_list_id"] = bp.get("player2_list_id") or m_target.get("player2_list_id")
                 m_target["_p1_win_prob"] = int(bp.get("win_prob_a") or 50)
                 m_target["_p2_win_prob"] = 100 - int(bp.get("win_prob_a") or 50)
+                if bp.get("draw_prob") is not None:
+                    m_target["_draw_prob"] = float(bp.get("draw_prob") or 0.0)
+                if bp.get("model_mode"):
+                    m_target["_model_mode"] = str(bp.get("model_mode"))
                 if m_target.get("_wtc_applied_stamp") != stamp_wp:
                     m_target["player1_score"] = None
                     m_target["player2_score"] = None
@@ -4621,31 +4625,74 @@ async def api_faction_details(
         **extra_kw,
     )
 
-# API: Match Win Probability Predictor
-@router.get("/api/predict", summary="Calculate win odds and simulated Elo changes")
+# API: Match Win Probability Predictor (Calibrated ML + Mode 2 Calibrated Elo)
+@router.get("/api/predict", summary="Calculate calibrated ML win/draw/loss odds, projected scores/WTC, and pure Elo stakes")
 @router.get("/api/predict/match", include_in_schema=False)
 async def api_predict(
     p1: Optional[str] = Query(None),
     p2: Optional[str] = Query(None),
     player1: Optional[str] = Query(None),
     player2: Optional[str] = Query(None),
+    p1_elo: Optional[float] = Query(None),
+    p2_elo: Optional[float] = Query(None),
     p1_faction: Optional[str] = Query(None),
     p2_faction: Optional[str] = Query(None),
-    game_system: Optional[str] = Query("40k")
+    game_system: Optional[str] = Query("40k"),
 ):
-    p1_name = p1 or player1 or ""
-    p2_name = p2 or player2 or ""
+    p1_name = (p1 or player1 or "").strip()
+    p2_name = (p2 or player2 or "").strip()
     if not p1_name or not p2_name:
+        if p1_elo is not None and p2_elo is not None:
+            def _run_elo_predict():
+                return get_elo_engine().predict_matchup(
+                    float(p1_elo),
+                    float(p2_elo),
+                    game_system=game_system,
+                    p1_faction=p1_faction,
+                    p2_faction=p2_faction,
+                )
+            return await asyncio.to_thread(_run_elo_predict)
         raise HTTPException(status_code=400, detail="Missing p1 (player1) or p2 (player2) parameters")
+
     def _run_predict():
         return get_elo_engine().predict_match_outcome(
-            p1_name.strip(),
-            p2_name.strip(),
+            p1_name,
+            p2_name,
             game_system=game_system,
             p1_faction=p1_faction,
             p2_faction=p2_faction,
         )
     return await asyncio.to_thread(_run_predict)
+
+
+@router.get("/api/predict/model-spec", summary="Fetch active calibrated ML model spec and 90d competitive faction alphas")
+async def api_predict_model_spec(game_system: Optional[str] = Query("40k")):
+    target_sys = normalize_game_system(game_system, default="40k")
+
+    def _load_spec():
+        from predictor_model import get_system_model_spec
+        db = get_database()
+        is_mock_db = (
+            db is None
+            or type(db).__module__.startswith("unittest.mock")
+            or getattr(db, "_is_mock_instance", lambda: False)()
+        )
+        spec = get_system_model_spec(target_sys, db=None if is_mock_db else db)
+        comp_snap: Dict[str, Any] = {"factions": {}, "matchups": {}}
+        if not is_mock_db and hasattr(db, "get_competitive_faction_alpha_snapshot"):
+            try:
+                snap = db.get_competitive_faction_alpha_snapshot(target_sys)
+                if isinstance(snap, dict) and snap.get("factions"):
+                    comp_snap = snap
+            except Exception:
+                pass
+        return {
+            "game_system": target_sys,
+            "ml_client_spec": spec,
+            "competitive_alpha_90d": comp_snap,
+        }
+
+    return await asyncio.to_thread(_load_spec)
 
 
 def _xml_escape(val: Any) -> str:

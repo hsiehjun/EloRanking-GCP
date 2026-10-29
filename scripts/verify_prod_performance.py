@@ -64,6 +64,8 @@ PRODUCTION_ENDPOINTS: List[str] = [
     "/api/faction/Aeldari?game_system=40k",
     "/api/faction/Space%20Marines%20(Astartes)?game_system=40k",
     "/api/predict?p1_elo=2000&p2_elo=1800&game_system=40k",
+    "/api/predict/model-spec?game_system=40k",
+    "/api/predict/model-spec?game_system=aos",
     "/api/predict/match?p1=xcaFfMZt5b&p2=MEV83VFANA&game_system=40k",
     "/api/og/player/40k/xcaFfMZt5b.svg",
     "/p/40k/xcaFfMZt5b",

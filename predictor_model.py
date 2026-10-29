@@ -1048,3 +1048,307 @@ def predict_1v1_matchup(
         "projected": proj,
         "direct_h2h_games": int(direct_h2h_games),
     }
+
+
+_PLAYER_ML_PROFILE_CACHE: Dict[Tuple[str, str], Tuple[float, Dict[str, Any]]] = {}
+
+
+def extract_batch_player_ml_profiles(
+    db: Any,
+    player_ids: Sequence[str],
+    game_system: str = "40k",
+    ttl_sec: float = 300.0,
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Batch-fetches sargable `player_ratings` + `rating_history` for a list of player IDs
+    and computes Elo-residualized ML features & Disposition badges with an L1 TTL cache.
+    Safe against mock DBs and cold statement timeouts.
+    """
+    import time as _time
+
+    target_sys = (game_system or "40k").strip().lower()
+    clean_pids: List[str] = []
+    seen = set()
+    for raw_pid in (player_ids or []):
+        pid = str(raw_pid or "").strip()
+        if pid and pid not in seen:
+            seen.add(pid)
+            clean_pids.append(pid)
+
+    if not clean_pids:
+        return {}
+
+    now_mono = _time.monotonic()
+    out: Dict[str, Dict[str, Any]] = {}
+    missing_pids: List[str] = []
+
+    for pid in clean_pids:
+        c_ent = _PLAYER_ML_PROFILE_CACHE.get((target_sys, pid))
+        if c_ent and (now_mono - c_ent[0]) < ttl_sec:
+            out[pid] = c_ent[1]
+        else:
+            missing_pids.append(pid)
+
+    if not missing_pids or db is None:
+        return out
+
+    is_mock_db = (
+        type(db).__module__.startswith("unittest.mock")
+        or getattr(db, "_is_mock_instance", lambda: False)()
+        or not hasattr(db, "get_connection")
+    )
+    if is_mock_db:
+        return out
+
+    ratings_by_pid: Dict[str, Dict[str, Any]] = {}
+    hist_by_pid: Dict[str, List[Dict[str, Any]]] = {}
+
+    pr_sys_clause = (
+        "(game_system = %s OR game_system IS NULL)"
+        if target_sys == "40k"
+        else "game_system = %s"
+    )
+    rh_sys_clause = (
+        "(rh.game_system = %s OR rh.game_system IS NULL)"
+        if target_sys == "40k"
+        else "rh.game_system = %s"
+    )
+
+    try:
+        import psycopg2.extras as pg_extras
+
+        with db.get_connection() as conn:
+            with conn.cursor(cursor_factory=pg_extras.RealDictCursor) as cur:
+                cur.execute("SET LOCAL statement_timeout = '300ms';")
+                cur.execute(
+                    f"""
+                    SELECT player_id,
+                           COALESCE(current_elo, 1500.0) AS current_elo,
+                           COALESCE(peak_elo, current_elo, 1500.0) AS peak_elo,
+                           COALESCE(matches_played, 0) AS matches_played
+                    FROM player_ratings
+                    WHERE {pr_sys_clause}
+                      AND player_id = ANY(%s);
+                    """,
+                    (target_sys, missing_pids),
+                )
+                for row in (cur.fetchall() or []):
+                    r_d = dict(row)
+                    r_pid = str(r_d.get("player_id") or "").strip()
+                    if r_pid:
+                        ratings_by_pid[r_pid] = r_d
+
+                cur.execute(
+                    f"""
+                    SELECT rh.player_id, rh.match_id, rh.event_id, rh.round, rh.match_date,
+                           rh.result, rh.old_elo, rh.opponent_elo, rh.delta_elo,
+                           rh.player_score, rh.opponent_score,
+                           rh.player_faction, rh.opponent_id, rh.opponent_name, rh.opponent_faction,
+                           COALESCE(e.is_league, FALSE) AS is_league,
+                           COALESCE(e.structure_tag, 'singles') AS structure_tag,
+                           COALESCE(e.format_tag, 'standard') AS format_tag
+                    FROM rating_history rh
+                    LEFT JOIN events e ON rh.event_id = e.id
+                    WHERE {rh_sys_clause}
+                      AND rh.player_id = ANY(%s)
+                    ORDER BY rh.match_date DESC NULLS LAST, rh.id DESC;
+                    """,
+                    (target_sys, missing_pids),
+                )
+                for hr in (cur.fetchall() or []):
+                    h_d = dict(hr)
+                    h_pid = str(h_d.get("player_id") or "").strip()
+                    if h_pid:
+                        hist_by_pid.setdefault(h_pid, []).append(h_d)
+    except Exception:
+        pass
+
+    if len(_PLAYER_ML_PROFILE_CACHE) > 4096:
+        _PLAYER_ML_PROFILE_CACHE.clear()
+
+    for pid in missing_pids:
+        pr = ratings_by_pid.get(pid) or {}
+        c_elo = float(pr.get("current_elo") or 1500.0)
+        pk_elo = float(pr.get("peak_elo") or c_elo)
+        m_cnt = int(pr.get("matches_played") or 0)
+        h_rows = hist_by_pid.get(pid) or []
+        ext = extract_player_disposition_and_residuals(
+            h_rows,
+            current_elo=c_elo,
+            peak_elo=pk_elo,
+            matches_played=m_cnt,
+            game_system=target_sys,
+        )
+        prof_entry = {
+            "player_id": pid,
+            "current_elo": c_elo,
+            "peak_elo": pk_elo,
+            "matches_played": m_cnt,
+            "ml_features": {
+                "competitive_games": ext["competitive_games"],
+                "uncertainty_sq": ext["uncertainty_sq"],
+                "peak_gap": ext["peak_gap"],
+                "recent_form_ewma": ext["recent_form_ewma"],
+                "own_faction_residuals": ext["own_faction_residuals"],
+                "vs_faction_residuals": ext["vs_faction_residuals"],
+            },
+            "disposition": ext["disposition"],
+        }
+        _PLAYER_ML_PROFILE_CACHE[(target_sys, pid)] = (now_mono, prof_entry)
+        out[pid] = prof_entry
+
+    return out
+
+
+def lookup_competitive_alpha_pair(
+    comp_snap: Optional[Dict[str, Any]],
+    fac1_raw: Optional[str],
+    fac2_raw: Optional[str],
+) -> Dict[str, Any]:
+    """Resolves antisymmetric 90d competitive faction & matchup alphas from a cached snapshot."""
+    nk1 = normalize_faction_key(fac1_raw)
+    nk2 = normalize_faction_key(fac2_raw)
+    is_mirror = bool(nk1 and nk2 and nk1 == nk2)
+    snap = comp_snap if isinstance(comp_snap, dict) else {}
+    facs = snap.get("factions") if isinstance(snap.get("factions"), dict) else {}
+    mus = snap.get("matchups") if isinstance(snap.get("matchups"), dict) else {}
+
+    f1_obj = facs.get(nk1) or {}
+    f2_obj = facs.get(nk2) or {}
+    fwd_mu = mus.get(f"{nk1}||{nk2}") if (nk1 and nk2 and not is_mirror) else None
+    rev_mu = mus.get(f"{nk2}||{nk1}") if (nk1 and nk2 and not is_mirror) else None
+
+    if fwd_mu and rev_mu:
+        mu_alpha = 0.5 * (float(fwd_mu.get("alpha") or 0.0) - float(rev_mu.get("alpha") or 0.0))
+        mu_games = max(int(fwd_mu.get("games") or 0), int(rev_mu.get("games") or 0))
+    elif fwd_mu:
+        mu_alpha = float(fwd_mu.get("alpha") or 0.0)
+        mu_games = int(fwd_mu.get("games") or 0)
+    elif rev_mu:
+        mu_alpha = -float(rev_mu.get("alpha") or 0.0)
+        mu_games = int(rev_mu.get("games") or 0)
+    else:
+        mu_alpha = 0.0
+        mu_games = 0
+
+    return {
+        "nk1": nk1,
+        "nk2": nk2,
+        "is_mirror": is_mirror,
+        "f1_alpha": float(f1_obj.get("alpha") or 0.0),
+        "f2_alpha": float(f2_obj.get("alpha") or 0.0),
+        "f1_games": int(f1_obj.get("games") or 0),
+        "f2_games": int(f2_obj.get("games") or 0),
+        "f1_wr": float(f1_obj.get("win_rate") or 50.0),
+        "f2_wr": float(f2_obj.get("win_rate") or 50.0),
+        "matchup_alpha": 0.0 if is_mirror else mu_alpha,
+        "matchup_games": 0 if is_mirror else mu_games,
+    }
+
+
+def predict_batch_matchups(
+    db: Any,
+    pairs: Sequence[Dict[str, Any]],
+    game_system: str = "40k",
+) -> List[Dict[str, Any]]:
+    """
+    Evaluates calibrated ML predictions across a batch of pairings (e.g., an entire Swiss round)
+    in <15ms using 1 batched player residual lookup + cached 90d competitive alpha snapshot.
+    """
+    if not pairs:
+        return []
+    target_sys = (game_system or "40k").strip().lower()
+    is_mock_db = (
+        db is None
+        or type(db).__module__.startswith("unittest.mock")
+        or getattr(db, "_is_mock_instance", lambda: False)()
+    )
+    spec = get_system_model_spec(target_sys, db=None if is_mock_db else db)
+    comp_snap: Dict[str, Any] = {"factions": {}, "matchups": {}}
+    if not is_mock_db and hasattr(db, "get_competitive_faction_alpha_snapshot"):
+        try:
+            snap_res = db.get_competitive_faction_alpha_snapshot(target_sys)
+            if isinstance(snap_res, dict) and snap_res.get("factions"):
+                comp_snap = snap_res
+        except Exception:
+            pass
+
+    all_pids: List[str] = []
+    for p in pairs:
+        for k in ("p1_id", "p2_id"):
+            v = str(p.get(k) or "").strip()
+            if v:
+                all_pids.append(v)
+
+    prof_map = extract_batch_player_ml_profiles(None if is_mock_db else db, all_pids, game_system=target_sys)
+
+    results: List[Dict[str, Any]] = []
+    for p in pairs:
+        if p.get("is_bye"):
+            results.append({
+                "is_bye": True,
+                "p1_win_prob": 100.0,
+                "draw_prob": 0.0,
+                "p2_win_prob": 0.0,
+                "p1_win_share": 100.0,
+                "p2_win_share": 0.0,
+            })
+            continue
+
+        pid1 = str(p.get("p1_id") or "").strip()
+        pid2 = str(p.get("p2_id") or "").strip()
+        pr1 = prof_map.get(pid1) or {}
+        pr2 = prof_map.get(pid2) or {}
+        mlf1 = pr1.get("ml_features") or {}
+        mlf2 = pr2.get("ml_features") or {}
+        disp1 = pr1.get("disposition") or {}
+        disp2 = pr2.get("disposition") or {}
+
+        elo1 = float(p.get("p1_elo") if p.get("p1_elo") is not None else (pr1.get("current_elo") or 1500.0))
+        elo2 = float(p.get("p2_elo") if p.get("p2_elo") is not None else (pr2.get("current_elo") or 1500.0))
+        g1 = max(int(p.get("p1_games") or pr1.get("matches_played") or 0), int(mlf1.get("competitive_games") or 0))
+        g2 = max(int(p.get("p2_games") or pr2.get("matches_played") or 0), int(mlf2.get("competitive_games") or 0))
+
+        macro = lookup_competitive_alpha_pair(comp_snap, p.get("p1_faction"), p.get("p2_faction"))
+        nk1, nk2 = macro["nk1"], macro["nk2"]
+        own1 = (mlf1.get("own_faction_residuals") or {}).get(nk1) or {}
+        own2 = (mlf2.get("own_faction_residuals") or {}).get(nk2) or {}
+        vs1 = (mlf1.get("vs_faction_residuals") or {}).get(nk2) or {}
+        vs2 = (mlf2.get("vs_faction_residuals") or {}).get(nk1) or {}
+
+        pred = predict_1v1_matchup(
+            spec=spec,
+            p1_inputs={
+                "elo": elo1,
+                "games": g1,
+                "uncertainty_sq": float(mlf1.get("uncertainty_sq") if "uncertainty_sq" in mlf1 else compute_rating_uncertainty_sq(g1)),
+                "peak_gap": float(mlf1.get("peak_gap") or 0.0),
+                "recent_form_ewma": float(mlf1.get("recent_form_ewma") or 0.0),
+                "own_fac_res": float(own1.get("residual") or 0.0),
+                "own_fac_games": int(own1.get("games") or 0),
+                "vs_fac_res": float(vs1.get("residual") or 0.0),
+                "giant_slayer_res": float(disp1.get("giant_slayer_res") or 0.0),
+                "gatekeeper_res": float(disp1.get("gatekeeper_res") or 0.0),
+                "volatility_z": float(disp1.get("volatility_z") or 0.0),
+            },
+            p2_inputs={
+                "elo": elo2,
+                "games": g2,
+                "uncertainty_sq": float(mlf2.get("uncertainty_sq") if "uncertainty_sq" in mlf2 else compute_rating_uncertainty_sq(g2)),
+                "peak_gap": float(mlf2.get("peak_gap") or 0.0),
+                "recent_form_ewma": float(mlf2.get("recent_form_ewma") or 0.0),
+                "own_fac_res": float(own2.get("residual") or 0.0),
+                "own_fac_games": int(own2.get("games") or 0),
+                "vs_fac_res": float(vs2.get("residual") or 0.0),
+                "giant_slayer_res": float(disp2.get("giant_slayer_res") or 0.0),
+                "gatekeeper_res": float(disp2.get("gatekeeper_res") or 0.0),
+                "volatility_z": float(disp2.get("volatility_z") or 0.0),
+            },
+            macro_inputs=macro,
+            direct_h2h_res=float(p.get("direct_h2h_res") or 0.0),
+            direct_h2h_games=int(p.get("direct_h2h_games") or 0),
+        )
+        results.append(pred)
+
+    return results
+

@@ -3351,6 +3351,15 @@ function renderEventPairingsRows(roundArg) {
   }
   if (!tbody && !cardsContainer) return;
 
+  const activeSys = String(currentEventData?.game_system || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).trim().toLowerCase() || '40k';
+  if (typeof window.ensureMlModelSpec === 'function' && !(window._mlModelSpecCache && window._mlModelSpecCache[activeSys])) {
+    window.ensureMlModelSpec(activeSys, () => {
+      if (currentEventModalTab === 'matches') {
+        renderEventPairingsRows();
+      }
+    });
+  }
+
   if (!eventMatchesCache || eventMatchesCache.length === 0) {
     if (roundsContainer) {
       roundsContainer.innerHTML = '';
@@ -3758,7 +3767,7 @@ function renderEventPairingsRows(roundArg) {
 
       let p1Prob = m._p1_win_prob !== undefined ? m._p1_win_prob : 50;
       let p2Prob = m._p2_win_prob !== undefined ? m._p2_win_prob : 50;
-      let wtcEstTitle = 'Multi-Factor Win Probability';
+      let wtcEstTitle = 'Calibrated ML Win Share';
       if (!isBye && typeof computeCasterMatchupPredictionSnapshot === 'function') {
         const p1EloVal = Number(m._p1_elo || m.player1_elo || p1Record?.current_elo || p1Record?.elo || 1500);
         const p2EloVal = Number(m._p2_elo || m.player2_elo || p2Record?.current_elo || p2Record?.elo || 1500);
@@ -3769,7 +3778,9 @@ function renderEventPairingsRows(roundArg) {
           m._p1_win_prob = p1Prob;
           m._p2_win_prob = p2Prob;
           m._prediction = snapPred;
-          wtcEstTitle = `Multi-Factor Win Probability (Est. WTC ${snapPred.wtcScore1}-${snapPred.wtcScore2})`;
+          const projPart = snapPred.projected ? ` • Proj. ${snapPred.projected.p1_score}-${snapPred.projected.p2_score} ${snapPred.projected.score_unit || 'VP'}` : '';
+          const drawPart = Number(snapPred.drawProb || 0) >= 0.5 ? ` • Draw ${Number(snapPred.drawProb).toFixed(1)}%` : '';
+          wtcEstTitle = `${snapPred.modelMode === 'dedicated_ml' ? '🤖 Calibrated ML' : '📐 Calibrated Elo'} Win Share: ${p1Prob}%-${p2Prob}% (Est. WTC ${snapPred.wtcScore1}-${snapPred.wtcScore2}${projPart}${drawPart})`;
         }
       }
       const matchProbDomKey = `${rNumInt}-${tNumInt}`;
@@ -11698,7 +11709,7 @@ function computeCasterCareerMasteryForPrediction(playerObj, opponentObj, profile
 }
 
 /**
- * Multi-Factor Win Probability & WTC Expected Score Prediction Engine.
+ * Calibrated 2-Mode ML Match Prediction & WTC Expected Score Engine.
  * Strictly read-only prediction: NEVER modifies player Elo or Elo stakes, and
  * NEVER uses any in-event stats (excludes In-Event Faction Clash & current-event W/L).
  */
@@ -11706,122 +11717,125 @@ function computeMultiFactorMatchupPrediction(opts = {}) {
   const clamp = (val, minV, maxV) => Math.min(maxV, Math.max(minV, val));
   const p1Elo = Number(opts.p1Elo ?? opts.p1?.current_elo ?? opts.p1?.elo ?? 1500);
   const p2Elo = Number(opts.p2Elo ?? opts.p2?.current_elo ?? opts.p2?.elo ?? 1500);
+  const sys = String(opts.gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).trim().toLowerCase() || '40k';
 
-  // 1. Base Elo Delta (~55-60% weight anchor)
-  const baseEloDelta = p1Elo - p2Elo;
-
-  // 2. Global 3-Month Faction-vs-Faction Direct Matchup (K = 35, cap ±75 Elo; excludes In-Event Clash)
   const facMetrics = opts.fac3MoMetrics || {};
-  const isMirror = Boolean(facMetrics.isMirror);
+  const fac1 = String(opts.fac1 || facMetrics.fac1 || opts.p1?.faction || 'Army');
+  const fac2 = String(opts.fac2 || facMetrics.fac2 || opts.p2?.faction || 'Army');
+  const m1 = opts.p1Mastery || {};
+  const m2 = opts.p2Mastery || {};
+  const h2h = opts.pastH2h || {};
+
   const h2hF1W = Number(facMetrics.h2hF1Wins || 0);
   const h2hF2W = Number(facMetrics.h2hF2Wins || 0);
   const h2hD = Number(facMetrics.h2hDraws || 0);
   const h2hTotal = h2hF1W + h2hF2W + h2hD;
-  let facH2hDelta = 0;
-  if (!isMirror && h2hTotal > 0) {
-    const shrunkEdge = ((h2hF1W + 0.5 * h2hD) - 0.5 * h2hTotal) / (h2hTotal + 35);
-    facH2hDelta = clamp(shrunkEdge * 350, -75, 75);
-  }
-
-  // 3. Global 3-Month Faction Overall Meta Form (K = 100, cap ±40 Elo)
   const f1MetaGames = Number(facMetrics.f1GlobalGames || 0);
   const f2MetaGames = Number(facMetrics.f2GlobalGames || 0);
   const f1MetaWr = Number(facMetrics.f1GlobalWr || 50);
   const f2MetaWr = Number(facMetrics.f2GlobalWr || 50);
-  let facMetaDelta = 0;
-  if (!isMirror && (f1MetaGames > 0 || f2MetaGames > 0)) {
-    const adjWr1 = 0.50 + ((f1MetaWr / 100) - 0.50) * (f1MetaGames / (f1MetaGames + 100));
-    const adjWr2 = 0.50 + ((f2MetaWr / 100) - 0.50) * (f2MetaGames / (f2MetaGames + 100));
-    facMetaDelta = clamp((adjWr1 - adjWr2) * 250, -40, 40);
-  }
-
-  // 4. Player Own-Faction Mastery (K = 10, cap ±55 Elo; career only)
-  const m1 = opts.p1Mastery || {};
-  const m2 = opts.p2Mastery || {};
-  const calcOwnScore = (m) => {
-    const g = Number(m.ownGames || 0);
-    if (g <= 0) return 0;
-    const w = Number(m.ownWins || 0);
-    const d = Number(m.ownDraws || 0);
-    const netElo = Number(m.ownNetElo || 0);
-    const wrPart = (((w + 0.5 * d) - 0.5 * g) / (g + 10)) * 140;
-    const netPart = clamp((netElo / 6.0) * (g / (g + 10)), -20, 20);
-    return wrPart + netPart;
-  };
-  const ownMasteryDelta = clamp(calcOwnScore(m1) - calcOwnScore(m2), -55, 55);
-
-  // 5. Player Matchup Mastery vs. Opponent's Faction (K = 10, cap ±45 Elo; career only)
-  const calcVsScore = (m) => {
-    const g = Number(m.vsGames || 0);
-    if (g <= 0) return 0;
-    const w = Number(m.vsWins || 0);
-    const d = Number(m.vsDraws || 0);
-    const netElo = Number(m.vsNetElo || 0);
-    const wrPart = (((w + 0.5 * d) - 0.5 * g) / (g + 10)) * 130;
-    const netPart = clamp((netElo / 6.0) * (g / (g + 10)), -15, 15);
-    return wrPart + netPart;
-  };
-  const vsMasteryDelta = clamp(calcVsScore(m1) - calcVsScore(m2), -45, 45);
-
-  // 6. Past Player Head-to-Head (K = 4, cap ±35 Elo; prior career meetings only)
-  const h2h = opts.pastH2h || {};
   const p1H2hW = Number(h2h.p1Wins || 0);
   const p2H2hW = Number(h2h.p2Wins || 0);
   const h2hDraws = Number(h2h.draws || 0);
   const h2hGames = p1H2hW + p2H2hW + h2hDraws;
-  let pastH2hDelta = 0;
-  if (h2hGames > 0) {
-    pastH2hDelta = clamp(((p1H2hW - p2H2hW) / (h2hGames + 4)) * 90, -35, 35);
+
+  if (typeof window.computeCalibratedMlMatchupClient === 'function') {
+    const mlRes = window.computeCalibratedMlMatchupClient({
+      gameSystem: sys,
+      p1Prof: opts.p1Prof || opts.p1 || {},
+      p2Prof: opts.p2Prof || opts.p2 || {},
+      elo1: p1Elo,
+      elo2: p2Elo,
+      fac1,
+      fac2,
+      fac3MoMetrics: facMetrics,
+      p1Mastery: m1,
+      p2Mastery: m2,
+      pastH2h: h2h,
+      p1Games: Number(opts.p1Prof?.matches_played ?? opts.p1?.matches_played ?? m1.ownGames ?? 0),
+      p2Games: Number(opts.p2Prof?.matches_played ?? opts.p2?.matches_played ?? m2.ownGames ?? 0)
+    });
+
+    const attrByKey = {};
+    (mlRes.factor_attributions || []).forEach(a => {
+      attrByKey[a.key] = a;
+    });
+    const subEq = mlRes.sub_elo_equiv || {};
+    const proj = mlRes.projected || {};
+    const p1WinProb = clamp(Math.round(Number(mlRes.p1_win_share ?? 50)), 2, 98);
+    const p2WinProb = 100 - p1WinProb;
+    const wtcScore1 = clamp(Number(proj.wtc_p1 !== undefined ? proj.wtc_p1 : Math.round(10 + 14 * ((p1WinProb / 100) - 0.50))), 0, 20);
+    const wtcScore2 = 20 - wtcScore1;
+
+    return {
+      p1WinProb,
+      p2WinProb,
+      drawProb: Number(mlRes.draw_prob || 0),
+      p1WinProb3Way: Number(mlRes.p1_win_prob || p1WinProb),
+      p2WinProb3Way: Number(mlRes.p2_win_prob || p2WinProb),
+      wtcScore1,
+      wtcScore2,
+      modelMode: mlRes.model_mode || 'calibrated_elo',
+      modelLabel: mlRes.model_label || 'Uncertainty-Calibrated Elo',
+      confidence: mlRes.confidence || 'Medium',
+      projected: proj,
+      factorAttributions: mlRes.factor_attributions || [],
+      p1Disposition: opts.p1Prof?.disposition || null,
+      p2Disposition: opts.p2Prof?.disposition || null,
+      baseEloDelta: Number(attrByKey.skill_uncertainty?.elo_equiv ?? (p1Elo - p2Elo)),
+      formDispositionDelta: Number(attrByKey.form_disposition?.elo_equiv ?? 0),
+      facH2hDelta: Number(attrByKey.matchup_edge?.elo_equiv ?? 0),
+      facMetaDelta: Number(attrByKey.faction_meta?.elo_equiv ?? 0),
+      ownMasteryDelta: Number(subEq.own_mastery ?? 0),
+      vsMasteryDelta: Number(subEq.vs_mastery ?? 0),
+      pastH2hDelta: Number(subEq.past_h2h ?? 0),
+      effectiveEloDelta: Number(mlRes.effective_elo_equiv ?? (p1Elo - p2Elo)),
+      details: {
+        h2hF1W,
+        h2hF2W,
+        h2hD,
+        h2hTotal,
+        f1MetaGames,
+        f2MetaGames,
+        f1MetaWr,
+        f2MetaWr,
+        p1OwnGames: Number(m1.ownGames || 0),
+        p1OwnWr: Number(m1.ownWr || 50),
+        p2OwnGames: Number(m2.ownGames || 0),
+        p2OwnWr: Number(m2.ownWr || 50),
+        p1VsGames: Number(m1.vsGames || 0),
+        p1VsWr: Number(m1.vsWr || 50),
+        p2VsGames: Number(m2.vsGames || 0),
+        p2VsWr: Number(m2.vsWr || 50),
+        p1H2hW,
+        p2H2hW,
+        h2hGames
+      }
+    };
   }
 
-  const effectiveEloDelta =
-    baseEloDelta +
-    facH2hDelta +
-    facMetaDelta +
-    ownMasteryDelta +
-    vsMasteryDelta +
-    pastH2hDelta;
-
-  const rawProb1 = 100 / (1 + Math.pow(10, -effectiveEloDelta / 400));
+  const baseEloDelta = p1Elo - p2Elo;
+  const rawProb1 = 100 / (1 + Math.pow(10, -baseEloDelta / 400));
   const p1WinProb = clamp(Math.round(rawProb1), 5, 95);
   const p2WinProb = 100 - p1WinProb;
-
   const wtcScore1 = clamp(Math.round(10 + 14 * ((rawProb1 / 100) - 0.50)), 3, 17);
-  const wtcScore2 = 20 - wtcScore1;
-
   return {
     p1WinProb,
     p2WinProb,
+    drawProb: 0,
     wtcScore1,
-    wtcScore2,
+    wtcScore2: 20 - wtcScore1,
+    modelMode: 'calibrated_elo',
+    modelLabel: 'Uncertainty-Calibrated Elo',
+    confidence: 'Provisional',
     baseEloDelta,
-    facH2hDelta,
-    facMetaDelta,
-    ownMasteryDelta,
-    vsMasteryDelta,
-    pastH2hDelta,
-    effectiveEloDelta,
-    details: {
-      h2hF1W,
-      h2hF2W,
-      h2hD,
-      h2hTotal,
-      f1MetaGames,
-      f2MetaGames,
-      f1MetaWr,
-      f2MetaWr,
-      p1OwnGames: Number(m1.ownGames || 0),
-      p1OwnWr: Number(m1.ownWr || 50),
-      p2OwnGames: Number(m2.ownGames || 0),
-      p2OwnWr: Number(m2.ownWr || 50),
-      p1VsGames: Number(m1.vsGames || 0),
-      p1VsWr: Number(m1.vsWr || 50),
-      p2VsGames: Number(m2.vsGames || 0),
-      p2VsWr: Number(m2.vsWr || 50),
-      p1H2hW,
-      p2H2hW,
-      h2hGames
-    }
+    facH2hDelta: 0,
+    facMetaDelta: 0,
+    ownMasteryDelta: 0,
+    vsMasteryDelta: 0,
+    pastH2hDelta: 0,
+    effectiveEloDelta: baseEloDelta,
+    details: { h2hF1W, h2hF2W, h2hD, h2hTotal, f1MetaGames, f2MetaGames, f1MetaWr, f2MetaWr, p1OwnGames: 0, p1OwnWr: 50, p2OwnGames: 0, p2OwnWr: 50, p1VsGames: 0, p1VsWr: 50, p2VsGames: 0, p2VsWr: 50, p1H2hW, p2H2hW, h2hGames }
   };
 }
 window.computeMultiFactorMatchupPrediction = computeMultiFactorMatchupPrediction;
@@ -11829,7 +11843,7 @@ window.computeMultiFactorMatchupPrediction = computeMultiFactorMatchupPrediction
 function buildCasterPredictionBreakdownHtml(pred, p1Name, p2Name, fac1, fac2) {
   if (!pred) return '';
   const fmtShift = (val) => {
-    const r = Math.round(val * 10) / 10;
+    const r = Math.round(Number(val || 0) * 10) / 10;
     if (Math.abs(r) < 0.05) return '0.0 Elo';
     return `${r > 0 ? '+' : ''}${r.toFixed(1)} Elo`;
   };
@@ -11838,53 +11852,69 @@ function buildCasterPredictionBreakdownHtml(pred, p1Name, p2Name, fac1, fac2) {
     if (val < -0.5) return '#f43f5e';
     return '#94a3b8';
   };
+  const isDedicatedMl = pred.modelMode === 'dedicated_ml';
+  const engineIcon = isDedicatedMl ? '🤖' : '📐';
+  const engineTitle = pred.modelLabel || (isDedicatedMl ? 'Calibrated ML (GBDT + Davidson)' : 'Uncertainty-Calibrated Elo');
+  const proj = pred.projected || {};
+  const drawPct = Number(pred.drawProb || 0);
+  const p1DispHtml = (typeof window.renderDispositionBadgesHtml === 'function' && pred.p1Disposition)
+    ? window.renderDispositionBadgesHtml({ disposition: pred.p1Disposition })
+    : '';
+  const p2DispHtml = (typeof window.renderDispositionBadgesHtml === 'function' && pred.p2Disposition)
+    ? window.renderDispositionBadgesHtml({ disposition: pred.p2Disposition })
+    : '';
+
+  const attrs = Array.isArray(pred.factorAttributions) && pred.factorAttributions.length > 0
+    ? pred.factorAttributions
+    : null;
+
   const d = pred.details || {};
-  const items = [
-    {
-      label: '1. Base Elo Anchor',
-      shift: pred.baseEloDelta,
-      sub: `Raw ±${Math.abs(pred.baseEloDelta).toFixed(1)} Elo gap`
-    },
-    {
-      label: '2. 3-Mo Faction H2H',
-      shift: pred.facH2hDelta,
-      sub: d.h2hTotal > 0 ? `${d.h2hF1W}W-${d.h2hF2W}L (${d.h2hTotal}G)` : 'Mirror / 0 Global G'
-    },
-    {
-      label: '3. 3-Mo Faction Meta',
-      shift: pred.facMetaDelta,
-      sub: (d.f1MetaGames > 0 || d.f2MetaGames > 0)
-        ? `${d.f1MetaWr.toFixed(1)}% vs ${d.f2MetaWr.toFixed(1)}% WR`
-        : 'Neutral 90d Meta'
-    },
-    {
-      label: '4. Faction Mastery',
-      shift: pred.ownMasteryDelta,
-      sub: `${d.p1OwnGames}G (${d.p1OwnWr.toFixed(0)}%) vs ${d.p2OwnGames}G (${d.p2OwnWr.toFixed(0)}%)`
-    },
-    {
-      label: '5. Vs-Faction Mastery',
-      shift: pred.vsMasteryDelta,
-      sub: `${d.p1VsGames}G (${d.p1VsWr.toFixed(0)}%) vs ${d.p2VsGames}G (${d.p2VsWr.toFixed(0)}%)`
-    },
-    {
-      label: '6. Past Head-to-Head',
-      shift: pred.pastH2hDelta,
-      sub: d.h2hGames > 0 ? `${d.p1H2hW}W - ${d.p2H2hW}L Career` : 'No Prior Meetings'
-    }
-  ];
+  const subByKey = {
+    skill_uncertainty: `Attenuated Elo & career games`,
+    form_disposition: `EWMA form & opponent-tier style`,
+    faction_meta: (d.f1MetaGames > 0 || d.f2MetaGames > 0) ? `${d.f1MetaWr.toFixed(1)}% vs ${d.f2MetaWr.toFixed(1)}% 90d WR` : `${fac1 || 'Army 1'} vs ${fac2 || 'Army 2'} 90d`,
+    matchup_edge: d.h2hTotal > 0 ? `${d.h2hF1W}W-${d.h2hF2W}L (${d.h2hTotal}G 90d)` : 'Elo-residualized counter edge',
+    pilot_mastery_h2h: d.h2hGames > 0 ? `${d.p1OwnGames}G/${d.p2OwnGames}G • ${d.p1H2hW}-${d.p2H2hW} H2H` : `${d.p1OwnGames}G vs ${d.p2OwnGames}G army mastery`
+  };
+
+  const items = attrs
+    ? attrs.map((a, idx) => ({
+        label: `${idx + 1}. ${a.label}`,
+        shift: Number(a.elo_equiv || 0),
+        probShift: Number(a.prob_shift_pct || 0),
+        sub: subByKey[a.key] || 'Elo-residualized ML signal'
+      }))
+    : [
+        { label: '1. Base Skill & Unc.', shift: pred.baseEloDelta, probShift: 0, sub: `Raw ±${Math.abs(pred.baseEloDelta).toFixed(1)} Elo gap` },
+        { label: '2. 3-Mo Faction H2H', shift: pred.facH2hDelta, probShift: 0, sub: d.h2hTotal > 0 ? `${d.h2hF1W}W-${d.h2hF2W}L (${d.h2hTotal}G)` : 'Mirror / 0 Global G' },
+        { label: '3. 3-Mo Faction Meta', shift: pred.facMetaDelta, probShift: 0, sub: (d.f1MetaGames > 0 || d.f2MetaGames > 0) ? `${d.f1MetaWr.toFixed(1)}% vs ${d.f2MetaWr.toFixed(1)}% WR` : 'Neutral 90d Meta' },
+        { label: '4. Faction Mastery', shift: pred.ownMasteryDelta, probShift: 0, sub: `${d.p1OwnGames}G vs ${d.p2OwnGames}G` },
+        { label: '5. Vs-Faction & H2H', shift: (pred.vsMasteryDelta || 0) + (pred.pastH2hDelta || 0), probShift: 0, sub: d.h2hGames > 0 ? `${d.p1H2hW}W - ${d.p2H2hW}L Career` : 'Career residual edge' }
+      ];
 
   const effCol = colShift(pred.effectiveEloDelta);
-  const favName = pred.effectiveEloDelta >= 0 ? (p1Name || 'Player 1') : (p2Name || 'Player 2');
+  const favName = Math.abs(pred.effectiveEloDelta) < 3.0
+    ? 'Toss-Up'
+    : (pred.effectiveEloDelta >= 0 ? (p1Name || 'Player 1') : (p2Name || 'Player 2'));
 
   return `
     <div class="caster-pred-breakdown-wrap" style="margin-top: 0.85rem; padding: 0.75rem 0.9rem; background: rgba(9, 14, 26, 0.78); border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 10px;">
       <div class="caster-pred-breakdown-header" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.55rem;">
-        <div style="font-size: 0.73rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: #e2e8f0; display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
-          <span>🎯 Multi-Factor Prediction Breakdown</span>
-          <span style="font-size: 0.65rem; font-weight: 600; color: var(--text-muted); text-transform: none;">(Career & 3-Mo Global • Excludes In-Event Stats)</span>
+        <div style="font-size: 0.73rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: #e2e8f0; display: flex; align-items: center; gap: 0.38rem; flex-wrap: wrap;">
+          <span>${engineIcon} ${escapeHtml(engineTitle)}</span>
+          <span style="font-size: 0.65rem; font-weight: 600; color: var(--text-muted); text-transform: none;">(${escapeHtml(pred.confidence || 'Medium')} Conf • Excludes In-Event Stats)</span>
         </div>
         <div class="caster-pred-breakdown-badges" style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; font-family: var(--font-mono); font-size: 0.72rem;">
+          ${drawPct >= 0.5 ? `
+            <span style="padding: 2px 8px; border-radius: 5px; background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.28); color: #cbd5e1; font-weight: 700;" title="Davidson 3-Way Calibrated Probabilities">
+              3-Way: ${Number(pred.p1WinProb3Way || pred.p1WinProb).toFixed(1)}% / ${drawPct.toFixed(1)}% D / ${Number(pred.p2WinProb3Way || pred.p2WinProb).toFixed(1)}%
+            </span>
+          ` : ''}
+          ${proj.p1_score !== undefined ? `
+            <span style="padding: 2px 8px; border-radius: 5px; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; font-weight: 800;" title="Projected Match Score">
+              Proj: ${proj.p1_score} - ${proj.p2_score} ${escapeHtml(proj.score_unit || 'VP')}
+            </span>
+          ` : ''}
           <span style="padding: 2px 8px; border-radius: 5px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: ${effCol}; font-weight: 800;">
             Eff. Edge: ${fmtShift(pred.effectiveEloDelta)} (${escapeHtml(favName)})
           </span>
@@ -11893,18 +11923,27 @@ function buildCasterPredictionBreakdownHtml(pred, p1Name, p2Name, fac1, fac2) {
           </span>
         </div>
       </div>
+      ${(p1DispHtml || p2DispHtml) ? `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.5rem; font-size:0.7rem;">
+          <div style="display:flex; align-items:center; gap:0.3rem; flex-wrap:wrap;"><span style="color:#94a3b8; font-weight:700;">${escapeHtml(p1Name || 'P1')}:</span>${p1DispHtml || '<span style="color:#64748b;">Balanced Profile</span>'}</div>
+          <div style="display:flex; align-items:center; gap:0.3rem; flex-wrap:wrap;"><span style="color:#94a3b8; font-weight:700;">${escapeHtml(p2Name || 'P2')}:</span>${p2DispHtml || '<span style="color:#64748b;">Balanced Profile</span>'}</div>
+        </div>
+      ` : ''}
       <div class="caster-pred-breakdown-grid">
-        ${items.map(it => `
+        ${items.map(it => {
+          const pShiftStr = Math.abs(it.probShift || 0) >= 0.15 ? `${it.probShift > 0 ? '+' : ''}${it.probShift.toFixed(1)}% • ` : '';
+          return `
           <div class="caster-pred-factor-card">
             <div class="caster-pred-factor-top">
               <span class="caster-pred-factor-label">${escapeHtml(it.label)}</span>
-              <span class="caster-pred-factor-shift" style="color: ${colShift(it.shift)};">${fmtShift(it.shift)}</span>
+              <span class="caster-pred-factor-shift" style="color: ${colShift(it.shift)};">${pShiftStr}${fmtShift(it.shift)}</span>
             </div>
             <div class="caster-pred-factor-sub">
               ${escapeHtml(it.sub)}
             </div>
           </div>
-        `).join('')}
+        `;
+        }).join('')}
       </div>
     </div>
   `;
@@ -11965,8 +12004,13 @@ function computeCasterMatchupPredictionSnapshot(ev, p1, p2, p1Elo, p2Elo, select
   const p2Mastery = computeCasterCareerMasteryForPrediction(p2, p1, prof2);
 
   return computeMultiFactorMatchupPrediction({
+    gameSystem: sys,
     p1,
     p2,
+    p1Prof: prof1,
+    p2Prof: prof2,
+    fac1,
+    fac2,
     p1Elo,
     p2Elo,
     fac3MoMetrics,
@@ -12014,7 +12058,10 @@ function refreshCasterWinProbabilityDom(ev, p1, p2, selectedMatch) {
 }
 
 async function hydrateCasterDossiersAsync(ev, p1, p2, selectedMatch) {
-  const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+  const sys = String(ev?.game_system || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).trim().toLowerCase() || '40k';
+  if (typeof window.ensureMlModelSpec === 'function') {
+    window.ensureMlModelSpec(sys, () => refreshCasterWinProbabilityDom(ev, p1, p2, selectedMatch));
+  }
   const evMatches = Array.isArray(ev?.matches) ? ev.matches : (Array.isArray(currentEventData?.matches) ? currentEventData.matches : []);
   const pairs = [
     { side: 'p1', obj: p1, oppObj: p2, matchPid: selectedMatch?.player1_id, matchName: selectedMatch?.player1_name, matchListId: selectedMatch?.player1_list_id, color: '#38bdf8' },

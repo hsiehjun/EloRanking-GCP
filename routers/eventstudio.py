@@ -221,6 +221,48 @@ def _get_creator_or_to_session_or_403(request: Request, token: Optional[str] = N
         )
     return session
 
+def _enrich_studio_pairings_with_ml(pairings: List[Dict[str, Any]], game_system: str = "40k") -> None:
+    """Enriches EventStudio round pairings in-place with Calibrated ML win/draw/loss probabilities and WTC/VP projections."""
+    if not pairings:
+        return
+    try:
+        from predictor_model import predict_batch_matchups
+        db = None
+        try:
+            db = get_database()
+        except Exception:
+            db = None
+        preds = predict_batch_matchups(db, pairings, game_system=game_system or "40k")
+        for p, ml_p in zip(pairings, preds):
+            if p.get("is_bye") or ml_p.get("is_bye"):
+                p["p1_win_prob"] = 100.0
+                p["p2_win_prob"] = 0.0
+                p["draw_prob"] = 0.0
+                continue
+            p1_sh = float(ml_p["p1_win_share"])
+            p["p1_win_prob"] = p1_sh
+            p["p2_win_prob"] = round(100.0 - p1_sh, 1)
+            p["draw_prob"] = float(ml_p.get("draw_prob") or 0.0)
+            p["model_mode"] = ml_p.get("model_mode")
+            proj = ml_p.get("projected") or {}
+            if proj:
+                p["wtc_p1"] = proj.get("wtc_p1")
+                p["wtc_p2"] = proj.get("wtc_p2")
+                p["projected_score"] = f"{proj.get('p1_score')}-{proj.get('p2_score')} {proj.get('score_unit', 'VP')}"
+    except Exception as err:
+        logger.debug(f"EventStudio ML pairing enrichment fallback: {err}")
+        for p in pairings:
+            if p.get("is_bye"):
+                p["p1_win_prob"] = 100.0
+                p["p2_win_prob"] = 0.0
+            else:
+                e1 = float(p.get("p1_elo") or 1500.0)
+                e2 = float(p.get("p2_elo") or 1500.0)
+                pr1 = round(1.0 / (1.0 + 10.0 ** ((e2 - e1) / 400.0)) * 100.0, 1)
+                p["p1_win_prob"] = pr1
+                p["p2_win_prob"] = round(100.0 - pr1, 1)
+
+
 def _normalize_bcp_pairing(
     pairing: Dict[str, Any],
     default_table: int = 1,
@@ -313,6 +355,8 @@ def _normalize_bcp_pairing(
     is_done = bool(pairing.get("isDone", False) or has_meta_scores or (p1_game.get("points") is not None and p2_game.get("points") is not None and not is_bye))
 
     res = dict(pairing)
+    p1_elo_val = float(r1.get("elo") or 1500.0) if r1 else 1500.0
+    p2_elo_val = 0.0 if is_bye else (float(r2.get("elo") or 1500.0) if r2 else 1500.0)
     res.update({
         "id": str(pairing.get("id") or f"bcp-pairing-{table_num}"),
         "table": table_num,
@@ -323,15 +367,15 @@ def _normalize_bcp_pairing(
         "p1_name": p1_name,
         "p1_faction": str(p1_fac or "Unassigned"),
         "p1_team": str(p1_team or ""),
-        "p1_elo": float(r1.get("elo") or 1500.0) if r1 else 1500.0,
-        "p1_win_prob": 50.0,
+        "p1_elo": p1_elo_val,
+        "p1_win_prob": 100.0 if is_bye else 50.0,
         "p1_score": int(p1_score or 0),
         "p2_id": p2_id if not is_bye else None,
         "p2_name": p2_name if not is_bye else "BYE",
         "p2_faction": str(p2_fac or "") if not is_bye else "",
         "p2_team": str(p2_team or "") if not is_bye else "",
-        "p2_elo": 0.0 if is_bye else (float(r2.get("elo") or 1500.0) if r2 else 1500.0),
-        "p2_win_prob": 50.0 if not is_bye else 0.0,
+        "p2_elo": p2_elo_val,
+        "p2_win_prob": 0.0 if is_bye else 50.0,
         "p2_score": int(p2_score or 0) if not is_bye else 0,
         "is_bye": is_bye,
         "is_done": is_done,
@@ -339,6 +383,21 @@ def _normalize_bcp_pairing(
         "rematch_rounds": [],
         "same_team": bool(p1_team and p2_team and str(p1_team).strip().lower() == str(p2_team).strip().lower() and not is_bye),
     })
+    if not is_bye:
+        try:
+            from predictor_model import compute_rating_uncertainty_sq, get_system_model_spec, lookup_competitive_alpha_pair, predict_1v1_matchup
+            spec_fast = get_system_model_spec("40k")
+            ml_fast = predict_1v1_matchup(
+                spec=spec_fast,
+                p1_inputs={"elo": p1_elo_val, "games": 20, "uncertainty_sq": compute_rating_uncertainty_sq(20), "peak_gap": 0.0, "recent_form_ewma": 0.0, "own_fac_res": 0.0, "own_fac_games": 0, "vs_fac_res": 0.0, "giant_slayer_res": 0.0, "gatekeeper_res": 0.0, "volatility_z": 0.0},
+                p2_inputs={"elo": p2_elo_val, "games": 20, "uncertainty_sq": compute_rating_uncertainty_sq(20), "peak_gap": 0.0, "recent_form_ewma": 0.0, "own_fac_res": 0.0, "own_fac_games": 0, "vs_fac_res": 0.0, "giant_slayer_res": 0.0, "gatekeeper_res": 0.0, "volatility_z": 0.0},
+                macro_inputs=lookup_competitive_alpha_pair({}, res["p1_faction"], res["p2_faction"]),
+            )
+            res["p1_win_prob"] = float(ml_fast["p1_win_share"])
+            res["p2_win_prob"] = round(100.0 - float(ml_fast["p1_win_share"]), 1)
+            res["draw_prob"] = float(ml_fast.get("draw_prob") or 0.0)
+        except Exception:
+            pass
     return res
 
 def _resolve_canonical_event_id(
@@ -2065,6 +2124,7 @@ def api_eventstudio_save_pairings(event_id: str, payload: Dict[str, Any], reques
             p["is_rematch"] = len(rematch_r) > 0
             p["rematch_rounds"] = sorted(rematch_r)
 
+    _enrich_studio_pairings_with_ml(pairings_list, game_system=ev.get("game_system") or "40k")
     pairings_map[round_num] = pairings_list
     ev["pairings"] = pairings_map
     ev["current_round"] = int(round_num)
@@ -2432,6 +2492,7 @@ def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> 
             "is_bye": True
         })
 
+    _enrich_studio_pairings_with_ml(generated_pairings, game_system=ev.get("game_system") or "40k")
     return generated_pairings
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/generate", summary="Generate automated Swiss pairings for tournament round (staged locally)")
@@ -2613,6 +2674,13 @@ async def api_eventstudio_quick_generate(event_id: str, payload: QuickGeneratePa
             idx += 1
         table_num += 1
 
+    ev_sys = "40k"
+    try:
+        ev_sys = (bcp_ev.get("game_system") if "bcp_ev" in locals() and bcp_ev else (ev.get("game_system") if "ev" in locals() and ev else "40k")) or "40k"
+    except Exception:
+        ev_sys = "40k"
+    _enrich_studio_pairings_with_ml(pairings, game_system=ev_sys)
+
     return {
         "success": True,
         "round": target_round,
@@ -2703,16 +2771,12 @@ def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPayload, re
         m1[k1] = val2
         m2[k2] = val1
 
-    # Recalculate win probabilities and warnings for both modified tables
+    # Recalculate Calibrated ML win probabilities and warnings for both modified tables
     for m in (m1, m2):
-        e1 = float(m.get("p1_elo") or 1500.0)
-        e2 = float(m.get("p2_elo") or 1500.0)
-        m["p1_win_prob"] = round(1.0 / (1.0 + 10.0 ** ((e2 - e1) / 400.0)) * 100.0, 1)
-        m["p2_win_prob"] = round(100.0 - m["p1_win_prob"], 1)
-
         t1 = (m.get("p1_team") or "").strip().lower()
         t2 = (m.get("p2_team") or "").strip().lower()
         m["same_team"] = bool(t1 and t2 and t1 == t2)
+    _enrich_studio_pairings_with_ml([m1, m2], game_system="40k")
 
     # Save to DB ONLY if local studio event
     saved_ev = None
@@ -3952,6 +4016,8 @@ _MATCH_PREDICTOR_CACHE: Dict[str, Any] = {}
 def api_eventstudio_match_predictor(
     p1_id: Optional[str] = None,
     p2_id: Optional[str] = None,
+    p1: Optional[str] = None,
+    p2: Optional[str] = None,
     p1_name: Optional[str] = "Player 1",
     p2_name: Optional[str] = "Player 2",
     p1_faction: Optional[str] = "Unknown",
@@ -3960,20 +4026,22 @@ def api_eventstudio_match_predictor(
 ):
     now_ts = time.time()
     target_sys = normalize_game_system(game_system, default="40k")
-    cache_key = f"{target_sys}:{p1_id or ''}:{p2_id or ''}:{(p1_name or '').strip().lower()}:{(p2_name or '').strip().lower()}:{(p1_faction or '').strip().lower()}:{(p2_faction or '').strip().lower()}"
+    eff_p1_id = (p1_id or p1 or "").strip()
+    eff_p2_id = (p2_id or p2 or "").strip()
+    cache_key = f"v2:{target_sys}:{eff_p1_id}:{eff_p2_id}:{(p1_name or '').strip().lower()}:{(p2_name or '').strip().lower()}:{(p1_faction or '').strip().lower()}:{(p2_faction or '').strip().lower()}"
     cached = _MATCH_PREDICTOR_CACHE.get(cache_key)
     if cached and (now_ts - cached[1]) < 120:
         return cached[0]
 
     db = get_database()
     
-    # 1. Elo Ratings
+    # 1. Elo Ratings & Player Resolution
     p1_elo = 1500.0
     p2_elo = 1500.0
     p1_matches = 0
     p2_matches = 0
-    resolved_p1_id = (p1_id or "").strip() or None
-    resolved_p2_id = (p2_id or "").strip() or None
+    resolved_p1_id = eff_p1_id or None
+    resolved_p2_id = eff_p2_id or None
     placeholder_names = {"", "player 1", "player 2", "player", "unknown", "unknown player", "bye"}
     p1_name_clean = (p1_name or "").strip()
     p2_name_clean = (p2_name or "").strip()
@@ -3982,6 +4050,9 @@ def api_eventstudio_match_predictor(
     fac_p1_wins = 0
     fac_total = 0
     h2h_matches = []
+    h2h_rows_raw = []
+
+    sys_pred = "(game_system = %s OR game_system IS NULL)" if target_sys == "40k" else "game_system = %s"
 
     need_db = bool(
         resolved_p1_id
@@ -3996,38 +4067,62 @@ def api_eventstudio_match_predictor(
             from psycopg2 import extras
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 if resolved_p1_id:
-                    cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s AND COALESCE(game_system, '40k') = %s;", (resolved_p1_id, target_sys))
+                    cursor.execute(
+                        f"SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s AND {sys_pred};",
+                        (resolved_p1_id, target_sys),
+                    )
                     r1 = cursor.fetchone()
                     if r1:
                         p1_elo = float(r1["current_elo"] or 1500.0)
                         p1_matches = int(r1["total_matches"] or 0)
                 elif p1_name_clean.lower() not in placeholder_names:
-                    cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) AND COALESCE(game_system, '40k') = %s ORDER BY current_elo DESC LIMIT 1;", (p1_name_clean, target_sys))
+                    cursor.execute(
+                        f"SELECT current_elo, matches_played AS total_matches, player_id, top_faction FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) AND {sys_pred} ORDER BY current_elo DESC LIMIT 1;",
+                        (p1_name_clean, target_sys),
+                    )
                     r1 = cursor.fetchone()
                     if not r1:
-                        cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE player_name ILIKE %s AND COALESCE(game_system, '40k') = %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p1_name_clean}%", target_sys))
+                        cursor.execute(
+                            f"SELECT current_elo, matches_played AS total_matches, player_id, top_faction FROM player_ratings WHERE player_name ILIKE %s AND {sys_pred} ORDER BY current_elo DESC LIMIT 1;",
+                            (f"%{p1_name_clean}%", target_sys),
+                        )
                         r1 = cursor.fetchone()
                     if r1:
                         resolved_p1_id = r1.get("player_id")
                         p1_elo = float(r1["current_elo"] or 1500.0)
                         p1_matches = int(r1["total_matches"] or 0)
+                        if fac1.lower() in ("", "unknown") and r1.get("top_faction"):
+                            fac1 = str(r1["top_faction"])
+                            p1_faction = fac1
 
                 if resolved_p2_id:
-                    cursor.execute("SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s AND COALESCE(game_system, '40k') = %s;", (resolved_p2_id, target_sys))
+                    cursor.execute(
+                        f"SELECT current_elo, matches_played AS total_matches FROM player_ratings WHERE player_id = %s AND {sys_pred};",
+                        (resolved_p2_id, target_sys),
+                    )
                     r2 = cursor.fetchone()
                     if r2:
                         p2_elo = float(r2["current_elo"] or 1500.0)
                         p2_matches = int(r2["total_matches"] or 0)
                 elif p2_name_clean.lower() not in placeholder_names:
-                    cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) AND COALESCE(game_system, '40k') = %s ORDER BY current_elo DESC LIMIT 1;", (p2_name_clean, target_sys))
+                    cursor.execute(
+                        f"SELECT current_elo, matches_played AS total_matches, player_id, top_faction FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) AND {sys_pred} ORDER BY current_elo DESC LIMIT 1;",
+                        (p2_name_clean, target_sys),
+                    )
                     r2 = cursor.fetchone()
                     if not r2:
-                        cursor.execute("SELECT current_elo, matches_played AS total_matches, player_id FROM player_ratings WHERE player_name ILIKE %s AND COALESCE(game_system, '40k') = %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p2_name_clean}%", target_sys))
+                        cursor.execute(
+                            f"SELECT current_elo, matches_played AS total_matches, player_id, top_faction FROM player_ratings WHERE player_name ILIKE %s AND {sys_pred} ORDER BY current_elo DESC LIMIT 1;",
+                            (f"%{p2_name_clean}%", target_sys),
+                        )
                         r2 = cursor.fetchone()
                     if r2:
                         resolved_p2_id = r2.get("player_id")
                         p2_elo = float(r2["current_elo"] or 1500.0)
                         p2_matches = int(r2["total_matches"] or 0)
+                        if fac2.lower() in ("", "unknown") and r2.get("top_faction"):
+                            fac2 = str(r2["top_faction"])
+                            p2_faction = fac2
 
                 # 2. Faction Matchup Win Rate (uses idx_pg_matches_p1_fac_lower_date)
                 if fac1.lower() not in ("", "unknown") and fac2.lower() not in ("", "unknown"):
@@ -4057,67 +4152,167 @@ def api_eventstudio_match_predictor(
                 # 3. Head-to-Head History (uses idx_matches_p1_p2)
                 if resolved_p1_id and resolved_p2_id:
                     cursor.execute("""
-                    SELECT m.round, m.player1_name, m.player2_name, m.player1_score, m.player2_score, m.match_date, e.name as event_name
+                    SELECT m.round, m.player1_id, m.player2_id, m.winner_id, m.player1_name, m.player2_name, m.player1_score, m.player2_score, m.match_date, e.name as event_name
                     FROM matches m
                     LEFT JOIN events e ON m.event_id = e.id
                     WHERE m.is_done = TRUE AND (
                         (m.player1_id = %s AND m.player2_id = %s) OR
                         (m.player1_id = %s AND m.player2_id = %s)
                     )
-                    ORDER BY m.match_date DESC LIMIT 5;
+                    ORDER BY m.match_date DESC LIMIT 10;
                     """, (resolved_p1_id, resolved_p2_id, resolved_p2_id, resolved_p1_id))
-                    h2h_rows = cursor.fetchall()
-                    for hr in h2h_rows:
-                        h2h_matches.append({
-                            "event_name": hr.get("event_name") or "Tournament Match",
-                            "date": hr.get("match_date").isoformat() if hr.get("match_date") else None,
-                            "p1_name": hr.get("player1_name"),
-                            "p2_name": hr.get("player2_name"),
-                            "score": f"{hr.get('player1_score')} - {hr.get('player2_score')}"
-                        })
+                    h2h_rows = cursor.fetchall() or []
+                    for idx_hr, hr in enumerate(h2h_rows):
+                        h2h_rows_raw.append(hr)
+                        if idx_hr < 5:
+                            h2h_matches.append({
+                                "event_name": hr.get("event_name") or "Tournament Match",
+                                "date": hr.get("match_date").isoformat() if hr.get("match_date") else None,
+                                "p1_name": hr.get("player1_name"),
+                                "p2_name": hr.get("player2_name"),
+                                "score": f"{hr.get('player1_score')} - {hr.get('player2_score')}"
+                            })
 
-    # Calculate Elo Win Probability: P(A) = 1 / (1 + 10^((R_B - R_A)/400))
+    # 4. Calibrated 2-Mode ML Match Prediction (GBDT + Davidson 3-Way Calibration)
+    from predictor_model import (
+        compute_h2h_elo_residual,
+        compute_rating_uncertainty_sq,
+        extract_batch_player_ml_profiles,
+        get_competitive_alpha_snapshot_90d,
+        get_system_model_spec,
+        lookup_competitive_alpha_pair,
+        normalize_faction_key,
+        predict_1v1_matchup,
+    )
+
+    spec = get_system_model_spec(target_sys)
+    comp_snap = get_competitive_alpha_snapshot_90d(db, target_sys) if need_db else {"factions": {}, "matchups": {}}
+    pids_to_load = [pid for pid in (resolved_p1_id, resolved_p2_id) if pid]
+    ml_profiles = extract_batch_player_ml_profiles(db, pids_to_load, target_sys) if (need_db and pids_to_load) else {}
+    if resolved_p1_id and resolved_p1_id in ml_profiles:
+        mp1 = ml_profiles[resolved_p1_id]
+        if p1_name_clean.lower() in placeholder_names and mp1.get("player_name"):
+            p1_name = mp1["player_name"]
+        if fac1.lower() in ("", "unknown") and mp1.get("top_faction"):
+            fac1 = str(mp1["top_faction"])
+            p1_faction = fac1
+    if resolved_p2_id and resolved_p2_id in ml_profiles:
+        mp2 = ml_profiles[resolved_p2_id]
+        if p2_name_clean.lower() in placeholder_names and mp2.get("player_name"):
+            p2_name = mp2["player_name"]
+        if fac2.lower() in ("", "unknown") and mp2.get("top_faction"):
+            fac2 = str(mp2["top_faction"])
+            p2_faction = fac2
+
+    def _build_side_ml_inputs(pid: Optional[str], elo_v: float, games_v: int, own_fac: str, opp_fac: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        prof = ml_profiles.get(str(pid or "")) or {}
+        ml_f = prof.get("ml_features") or {}
+        f_own = normalize_faction_key(own_fac)
+        f_opp = normalize_faction_key(opp_fac)
+        own_map = ml_f.get("own_faction_residuals") or {}
+        vs_map = ml_f.get("vs_faction_residuals") or {}
+        own_entry = own_map.get(f_own) or {}
+        vs_entry = vs_map.get(f_opp) or {}
+        g_cnt = int(ml_f.get("games") if ml_f.get("games") is not None else games_v)
+        return (
+            {
+                "elo": float(elo_v),
+                "games": g_cnt,
+                "uncertainty_sq": float(ml_f.get("uncertainty_sq") if ml_f.get("uncertainty_sq") is not None else compute_rating_uncertainty_sq(g_cnt)),
+                "peak_gap": float(ml_f.get("peak_gap") or 0.0),
+                "recent_form_ewma": float(ml_f.get("recent_form_ewma") or 0.0),
+                "own_fac_res": float(own_entry.get("shrunk_res") or 0.0),
+                "own_fac_games": int(own_entry.get("games") or 0),
+                "vs_fac_res": float(vs_entry.get("shrunk_res") or 0.0),
+                "giant_slayer_res": float(ml_f.get("giant_slayer_res") or 0.0),
+                "gatekeeper_res": float(ml_f.get("gatekeeper_res") or 0.0),
+                "volatility_z": float(ml_f.get("volatility_z") or 0.0),
+            },
+            prof.get("disposition") or {"badges": [], "sample_games": g_cnt},
+        )
+
+    p1_ml_in, p1_disp = _build_side_ml_inputs(resolved_p1_id, p1_elo, p1_matches, fac1, fac2)
+    p2_ml_in, p2_disp = _build_side_ml_inputs(resolved_p2_id, p2_elo, p2_matches, fac2, fac1)
+    macro_in = lookup_competitive_alpha_pair(comp_snap, fac1, fac2)
+    if fac_total >= 10 and int(macro_in.get("matchup_games_90d") or 0) == 0:
+        emp_rate = fac_p1_wins / max(1, fac_total)
+        macro_in["matchup_alpha"] = math.log(max(0.05, min(0.95, emp_rate)) / max(0.05, 1.0 - max(0.05, min(0.95, emp_rate)))) * (fac_total / (fac_total + 30.0))
+        macro_in["matchup_games_90d"] = fac_total
+
+    h2h_past_list = []
+    if resolved_p1_id and h2h_rows_raw:
+        for hr in h2h_rows_raw:
+            w_id = str(hr.get("winner_id") or "")
+            s1_raw = float(hr.get("player1_score") or 0)
+            s2_raw = float(hr.get("player2_score") or 0)
+            if str(hr.get("player1_id") or "") == str(resolved_p1_id):
+                res_code = "W" if (w_id == str(resolved_p1_id) or (not w_id and s1_raw > s2_raw)) else ("D" if (not w_id and s1_raw == s2_raw) else "L")
+            else:
+                res_code = "W" if (w_id == str(resolved_p1_id) or (not w_id and s2_raw > s1_raw)) else ("D" if (not w_id and s1_raw == s2_raw) else "L")
+            h2h_past_list.append({"p1_result": res_code, "p1_elo": p1_elo, "p2_elo": p2_elo})
+    h2h_res = compute_h2h_elo_residual(h2h_past_list, p1_elo, p2_elo)
+
+    ml_pred = predict_1v1_matchup(
+        spec=spec,
+        p1_inputs=p1_ml_in,
+        p2_inputs=p2_ml_in,
+        macro_inputs=macro_in,
+        h2h_inputs=h2h_res,
+    )
+
+    p1_win_share_pct = float(ml_pred["p1_win_share"])
+    p2_win_share_pct = round(100.0 - p1_win_share_pct, 1)
+    draw_prob_pct = float(ml_pred.get("draw_prob") or 0.0)
+    proj = ml_pred.get("projected") or {}
+    p1_expected_score = round(float(proj.get("p1_score") if proj.get("p1_score") is not None else 75.0))
+    p2_expected_score = round(float(proj.get("p2_score") if proj.get("p2_score") is not None else 75.0))
+
     elo_diff = p1_elo - p2_elo
-    p1_win_prob = 1.0 / (1.0 + math.pow(10.0, -elo_diff / 400.0))
-    p2_win_prob = 1.0 - p1_win_prob
-
-    # Adjust slightly for faction matchup if >10 recorded games
-    if fac_total >= 10:
-        fac_rate = fac_p1_wins / max(1, fac_total)
-        p1_win_prob = 0.75 * p1_win_prob + 0.25 * fac_rate
-        p1_win_prob = max(0.05, min(0.95, p1_win_prob))
-        p2_win_prob = 1.0 - p1_win_prob
-
-    # Expected score prediction (Base 75 pts average, +/- up to 18 pts)
-    expected_diff = round((p1_win_prob - 0.5) * 36.0)
-    p1_expected_score = max(40, min(100, 75 + int(expected_diff / 2)))
-    p2_expected_score = max(40, min(100, 75 - int(expected_diff / 2)))
-
-    favored = p1_name if p1_win_prob > 0.52 else (p2_name if p2_win_prob > 0.52 else "Even Matchup")
+    favored = p1_name if p1_win_share_pct > 52.0 else (p2_name if p2_win_share_pct > 52.0 else "Even Matchup")
 
     res = {
         "player1": {
+            "id": resolved_p1_id,
             "name": p1_name,
             "faction": p1_faction,
             "elo": round(p1_elo, 1),
-            "win_probability": round(p1_win_prob * 100, 1),
-            "expected_score": p1_expected_score
+            "win_probability": p1_win_share_pct,
+            "win_probability_3way": float(ml_pred["p1_win_prob"]),
+            "expected_score": p1_expected_score,
+            "wtc_score": proj.get("wtc_p1"),
+            "disposition": p1_disp,
         },
         "player2": {
+            "id": resolved_p2_id,
             "name": p2_name,
             "faction": p2_faction,
             "elo": round(p2_elo, 1),
-            "win_probability": round(p2_win_prob * 100, 1),
-            "expected_score": p2_expected_score
+            "win_probability": p2_win_share_pct,
+            "win_probability_3way": float(ml_pred["p2_win_prob"]),
+            "expected_score": p2_expected_score,
+            "wtc_score": proj.get("wtc_p2"),
+            "disposition": p2_disp,
         },
+        "draw_probability": draw_prob_pct,
+        "model_mode": ml_pred.get("model_mode"),
+        "model_label": ml_pred.get("model_label"),
+        "confidence": ml_pred.get("confidence"),
+        "wtc_projection": {
+            "wtc_p1": proj.get("wtc_p1"),
+            "wtc_p2": proj.get("wtc_p2"),
+            "score_unit": proj.get("score_unit", "VP"),
+            "blowout_prob": proj.get("blowout_prob"),
+            "tight_game_prob": proj.get("tight_game_prob"),
+        },
+        "ml_prediction": ml_pred,
         "favored_player": favored,
         "elo_diff": round(abs(elo_diff), 1),
         "expected_differential": abs(p1_expected_score - p2_expected_score),
         "faction_matchup": {
-            "total_games": fac_total,
-            "p1_faction_win_pct": round((fac_p1_wins / max(1, fac_total)) * 100, 1) if fac_total > 0 else 50.0
+            "total_games": fac_total or int(macro_in.get("matchup_games_90d") or 0),
+            "p1_faction_win_pct": round((fac_p1_wins / max(1, fac_total)) * 100, 1) if fac_total > 0 else round(50.0 + 25.0 * math.tanh(float(macro_in.get("matchup_alpha") or 0.0)), 1),
         },
-        "h2h_history": h2h_matches
+        "h2h_history": h2h_matches,
     }
     if len(_MATCH_PREDICTOR_CACHE) > 500:
         _MATCH_PREDICTOR_CACHE.clear()
