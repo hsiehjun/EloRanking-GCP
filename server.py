@@ -290,7 +290,11 @@ async def root_health_check():
 SERVER_PREWARM_COMPLETE = False
 
 @app.get("/api/system/perf-telemetry", summary="Structured API and DB call latency telemetry snapshot")
-async def api_system_perf_telemetry():
+async def api_system_perf_telemetry(wait_ms: int = 0):
+    if wait_ms > 0 and not SERVER_PREWARM_COMPLETE:
+        deadline = time.perf_counter() + min(float(wait_ms) / 1000.0, 8.0)
+        while not SERVER_PREWARM_COMPLETE and time.perf_counter() < deadline:
+            await asyncio.sleep(0.15)
     snap = PERF_REGISTRY.snapshot()
     if isinstance(snap, dict):
         snap["prewarm_complete"] = SERVER_PREWARM_COMPLETE
@@ -329,13 +333,12 @@ async def _prewarm_meta_intel_cache(force_refresh: bool = False):
                 "META_RAM_PREWARM_SYSTEMS",
                 ("40k", "aos", "mtg", "pokemon", "one_piece", "sw_unlimited", "lorcana", "flesh_blood", "mcp", "digimon", "sw_legion"),
             )
-            ram_sem = asyncio.Semaphore(3)
-
-            async def _warm_ram_idx(gs_code: str):
-                async with ram_sem:
-                    await asyncio.to_thread(db.load_system_meta_rollup_ram_index, gs_code, force_refresh)
-
-            await asyncio.gather(*(_warm_ram_idx(gs) for gs in ram_systems), return_exceptions=True)
+            for gs in ram_systems:
+                try:
+                    await asyncio.to_thread(db.load_system_meta_rollup_ram_index, gs, force_refresh)
+                except Exception as ram_err:
+                    logger.warning(f"Notice warming RAM rollup index ({gs}): {ram_err}")
+                await asyncio.sleep(0.02)
 
         await asyncio.gather(
             asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k", _force_refresh=force_refresh),
@@ -349,7 +352,7 @@ async def _prewarm_meta_intel_cache(force_refresh: bool = False):
                 return_exceptions=True,
             )
             multi_systems = ("mtg", "pokemon", "one_piece", "sw_unlimited", "lorcana", "flesh_blood", "mcp", "digimon", "sw_legion")
-            mp_sem = asyncio.Semaphore(4)
+            mp_sem = asyncio.Semaphore(2)
 
             async def _warm_multi_sys(gs_code: str):
                 async with mp_sem:
@@ -373,7 +376,7 @@ async def _prewarm_meta_intel_cache(force_refresh: bool = False):
             {"elo_floor": 1550},
             {"elo_floor": 1650},
         ]
-        sc_sem = asyncio.Semaphore(4)
+        sc_sem = asyncio.Semaphore(2)
 
         async def _warm_scope(f_kw):
             async with sc_sem:

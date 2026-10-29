@@ -163,12 +163,13 @@ def fetch_once(url: str, timeout: float = 15.0) -> Tuple[int, float, bytes]:
         return 599, ms, str(exc).encode("utf-8")
 
 
-def wait_for_prewarm(base_url: str, max_wait_sec: int = 90) -> None:
+def wait_for_prewarm(base_url: str, max_wait_sec: int = 120) -> None:
     """Waits after deployment for traffic cutover and background startup cache pre-warming to finish."""
     deadline = time.time() + max_wait_sec
     consecutive_ready = 0
     while time.time() < deadline:
-        status, _, body = fetch_once(f"{base_url}/api/system/perf-telemetry", timeout=5.0)
+        q = "" if consecutive_ready > 0 else "?wait_ms=4000"
+        status, _, body = fetch_once(f"{base_url}/api/system/perf-telemetry{q}", timeout=7.0)
         is_ready = False
         if status == 200:
             try:
@@ -189,9 +190,10 @@ def wait_for_prewarm(base_url: str, max_wait_sec: int = 90) -> None:
             consecutive_ready += 1
             if consecutive_ready >= 4:
                 return
+            time.sleep(0.5)
         else:
             consecutive_ready = 0
-        time.sleep(2.0)
+            time.sleep(0.2)
 
 
 def main() -> int:
