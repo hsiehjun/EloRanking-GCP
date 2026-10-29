@@ -59,7 +59,7 @@ logger = logging.getLogger("train_match_predictor")
 
 
 def _export_hgbt_trees(estimator: Any) -> Tuple[float, List[Dict[str, Any]]]:
-    """Exports scikit-learn HistGradientBoosting trees into compact pure-Python/JS JSON arrays."""
+    """Exports scikit-learn HistGradientBoosting trees into exact IEEE-754 pure-Python/JS JSON arrays."""
     import numpy as np
 
     baseline = float(np.asarray(estimator._baseline_prediction).ravel()[0])
@@ -78,15 +78,15 @@ def _export_hgbt_trees(estimator: Any) -> Tuple[float, List[Dict[str, Any]]]:
                 t_list.append(0.0)
                 l_list.append(0)
                 r_list.append(0)
-                v_list.append(round(float(nd["value"]), 6))
+                v_list.append(float(nd["value"]))
             else:
                 f_list.append(int(nd["feature_idx"]))
-                t_list.append(round(float(nd["num_threshold"]), 6))
+                t_list.append(float(nd["num_threshold"]))
                 l_list.append(int(nd["left"]))
                 r_list.append(int(nd["right"]))
                 v_list.append(0.0)
         trees_out.append({"f": f_list, "t": t_list, "l": l_list, "r": r_list, "v": v_list})
-    return round(baseline, 6), trees_out
+    return baseline, trees_out
 
 
 def _verify_exported_trees(estimator: Any, base_score: float, trees: List[Dict[str, Any]], X_sample: Any) -> None:
@@ -94,17 +94,21 @@ def _verify_exported_trees(estimator: Any, base_score: float, trees: List[Dict[s
 
     if len(X_sample) == 0:
         return
-    check_n = min(128, len(X_sample))
+    # Verify exact parity after full JSON round-trip serialization
+    rt_payload = json.loads(json.dumps({"b": base_score, "t": trees}))
+    rt_base = float(rt_payload["b"])
+    rt_trees = rt_payload["t"]
+    check_n = min(256, len(X_sample))
     sk_raw = np.asarray(estimator._raw_predict(X_sample[:check_n])).ravel()
     max_err = 0.0
     for i in range(check_n):
         row_list = [float(v) for v in X_sample[i]]
-        py_raw = base_score + sum(_eval_single_tree(t, row_list) for t in trees)
+        py_raw = rt_base + sum(_eval_single_tree(t, row_list) for t in rt_trees)
         err = abs(py_raw - float(sk_raw[i]))
         if err > max_err:
             max_err = err
-    if max_err > 2e-3:
-        raise RuntimeError(f"Exported tree verification failed: max_err={max_err:.6f}")
+    if max_err > 1e-7:
+        raise RuntimeError(f"Exported tree verification failed: max_err={max_err:.9f}")
 
 
 def _compute_metrics(y_outcomes: List[float], p1_win_shares: List[float], p1_3way: Optional[List[Tuple[float, float, float]]] = None) -> Dict[str, float]:
@@ -961,7 +965,7 @@ def main() -> int:
     parser.add_argument("--game-systems", default="all", help="Comma-separated game systems or 'all'")
     parser.add_argument("--min-ml-matches", type=int, default=25000, help="Minimum clean 1v1 matches for Dedicated ML")
     parser.add_argument("--min-mode2-matches", type=int, default=1500, help="Minimum total rows to fit custom Mode 2 weights")
-    parser.add_argument("--max-matches-per-system", type=int, default=400000, help="Cap per system to modern competitive window")
+    parser.add_argument("--max-matches-per-system", type=int, default=250000, help="Cap per system to modern competitive window")
     parser.add_argument("--output", default=str(ROOT_DIR / "models" / "match_predictor_v1.json"), help="Local JSON output path")
     parser.add_argument("--no-db-save", action="store_true", help="Skip saving bundle to Postgres ml_predictor_models")
     args = parser.parse_args()
