@@ -37,8 +37,7 @@ def _discover_active_systems(db: Any) -> List[str]:
                 FROM events
                 UNION
                 SELECT DISTINCT COALESCE(game_system, '40k') AS gs
-                FROM matches
-                WHERE match_date >= '2024-01-01';
+                FROM player_ratings;
                 """
             )
             rows = cur.fetchall() or []
@@ -89,8 +88,8 @@ def run_meta_rollup_backfill(
         )
         per_system[sys_slug] = res
         ev_c = int(res.get("events_classified") or res.get("events_processed") or 0)
-        mu_c = int(res.get("matchup_rows") or 0)
-        rn_c = int(res.get("run_rows") or 0)
+        mu_c = int(res.get("matchup_rows_written") or res.get("matchup_rows") or 0)
+        rn_c = int(res.get("run_rows_written") or res.get("run_rows") or 0)
         total_events += ev_c
         total_mu_rows += mu_c
         total_run_rows += rn_c

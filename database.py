@@ -11258,6 +11258,15 @@ class PostgresDatabase:
                     cur.execute("SET LOCAL statement_timeout = '120000ms';")
                     cur.execute(f"SELECT id FROM events {where_sql} ORDER BY event_date DESC NULLS LAST, id;", ev_p)
                     target_ids = [str(r[0]) for r in (cur.fetchall() or []) if r and r[0]]
+                    if only_pending and not start_date and not target_ids and sys_norm:
+                        cur.execute(
+                            "SELECT value FROM system_settings WHERE key = %s;",
+                            (f"meta_event_rollups_v1_{sys_norm}",),
+                        )
+                        st_r = cur.fetchone()
+                        st_v = (st_r[0] if not isinstance(st_r, dict) else st_r.get("value")) if st_r else None
+                        if st_v == "ready":
+                            include_unlinked = False
 
         events_updated = 0
         mu_rows_written = 0
@@ -11780,7 +11789,7 @@ class PostgresDatabase:
         if include_unlinked:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SET LOCAL statement_timeout = '120000ms';")
+                    cur.execute("SET LOCAL statement_timeout = '300000ms'; SET LOCAL work_mem = '256MB';")
                     ul_w = [
                         "m.is_done = TRUE",
                         "m.match_date IS NOT NULL",
@@ -11792,8 +11801,11 @@ class PostgresDatabase:
                     ]
                     ul_p: List[Any] = []
                     if sys_norm:
-                        ul_w.append("COALESCE(m.game_system, '40k') = %s")
-                        ul_p.append(sys_norm)
+                        if sys_norm == "40k":
+                            ul_w.append("(m.game_system = '40k' OR m.game_system IS NULL)")
+                        else:
+                            ul_w.append("m.game_system = %s")
+                            ul_p.append(sys_norm)
                         cur.execute("DELETE FROM meta_event_matchups WHERE event_id = %s;", (f"__unlinked__:{sys_norm}",))
                     elif not start_date and not end_date:
                         cur.execute("DELETE FROM meta_event_matchups WHERE LEFT(event_id, 12) = '__unlinked__';")
