@@ -967,6 +967,7 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
             run_rows=run_rows,
         )
         PostgresDatabase.set_cached(PostgresDatabase._meta_ram_rollup_cache, "40k", ram_idx, max_size=24)
+        self.addCleanup(lambda: PostgresDatabase._meta_ram_rollup_cache.pop("40k", None))
 
         class DummyCursor:
             def __enter__(self):

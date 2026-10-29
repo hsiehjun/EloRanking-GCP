@@ -361,8 +361,11 @@ class PostgresDatabase:
     _meta_rollup_status_checked_ts: float = 0.0
     _meta_ram_rollup_cache: Dict[str, Any] = {}
     _meta_ram_rollup_locks: Dict[str, threading.Lock] = {}
+    _meta_ram_bg_inflight: Set[str] = set()
     _meta_ram_rollup_guard = threading.Lock()
     _meta_ram_global_build_lock = threading.Lock()
+    _pool_lock = threading.Lock()
+    _META_RAM_STALE_SECS: int = 21600
     _META_RAM_S1D = struct.Struct("=BIi2H11i3d")
     _META_RAM_S2D = struct.Struct("=Bi2I7id")
     _META_RAM_SRUN = struct.Struct("=Bi2I4i2I")
@@ -370,8 +373,8 @@ class PostgresDatabase:
     _META_RAM_EMPTY_2D: Tuple[int, int] = (0, 0)
     _META_RAM_EMPTY_RUN: Tuple[int, int, int, int, bool] = (0, 0, 0, 0, False)
     META_RAM_PREWARM_SYSTEMS: Tuple[str, ...] = (
-        "40k", "aos", "mtg", "pokemon", "one_piece", "sw_unlimited",
-        "lorcana", "flesh_blood", "mcp", "digimon", "sw_legion",
+        "40k", "mtg", "pokemon", "sw_unlimited", "aos", "one_piece",
+        "lorcana", "mcp", "digimon", "sw_legion", "flesh_blood",
     )
     _faction_details_cache_dict = {}
     _players_cache_dict = {}
@@ -690,7 +693,13 @@ class PostgresDatabase:
         if hasattr(cls, "_meta_rollup_ready_systems") and isinstance(cls._meta_rollup_ready_systems, set):
             cls._meta_rollup_ready_systems.clear()
         if hasattr(cls, "_meta_ram_rollup_cache") and isinstance(cls._meta_ram_rollup_cache, dict):
-            cls._meta_ram_rollup_cache.clear()
+            if cls._pool is None:
+                cls._meta_ram_rollup_cache.clear()
+            else:
+                # Retain hot 405-day RAM rollup snapshots for Stale-While-Revalidate (<250ms queries while bg refresh runs)
+                for _rk, _rv in list(cls._meta_ram_rollup_cache.items()):
+                    if isinstance(_rv, tuple) and len(_rv) == 2 and isinstance(_rv[0], dict):
+                        cls._meta_ram_rollup_cache[_rk] = (_rv[0], 0.0)
         cls._faction_details_cache_dict.clear()
         cls._faction_bg_warmed_keys.clear()
         cls._players_cache_dict.clear()
@@ -1619,16 +1628,18 @@ class PostgresDatabase:
 
     def _ensure_pool(self):
         if PostgresDatabase._pool is None:
-            try:
-                PostgresDatabase._pool = pool.ThreadedConnectionPool(
-                    minconn=1,
-                    maxconn=60,
-                    dsn=self.dsn
-                )
-                logger.info(f"PostgreSQL connection pool initialized with DSN: {self._sanitize_dsn(self.dsn)}")
-            except Exception as e:
-                logger.error(f"Failed to connect to PostgreSQL pool ({self._sanitize_dsn(self.dsn)}): {e}")
-                raise
+            with PostgresDatabase._pool_lock:
+                if PostgresDatabase._pool is None:
+                    try:
+                        PostgresDatabase._pool = pool.ThreadedConnectionPool(
+                            minconn=1,
+                            maxconn=60,
+                            dsn=self.dsn
+                        )
+                        logger.info(f"PostgreSQL connection pool initialized with DSN: {self._sanitize_dsn(self.dsn)}")
+                    except Exception as e:
+                        logger.error(f"Failed to connect to PostgreSQL pool ({self._sanitize_dsn(self.dsn)}): {e}")
+                        raise
         self.pool = PostgresDatabase._pool
 
     @property
@@ -11933,10 +11944,22 @@ class PostgresDatabase:
                 PostgresDatabase._meta_rollup_ready_systems.add("ALL_READY")
             PostgresDatabase._meta_rollup_status_checked_ts = time.time()
 
-        if sys_norm:
-            PostgresDatabase._meta_ram_rollup_cache.pop(sys_norm, None)
+        if PostgresDatabase._pool is None:
+            if sys_norm:
+                PostgresDatabase._meta_ram_rollup_cache.pop(sys_norm, None)
+            else:
+                PostgresDatabase._meta_ram_rollup_cache.clear()
         else:
-            PostgresDatabase._meta_ram_rollup_cache.clear()
+            if sys_norm:
+                _cur_entry = PostgresDatabase._meta_ram_rollup_cache.get(sys_norm)
+                if isinstance(_cur_entry, tuple) and len(_cur_entry) == 2 and isinstance(_cur_entry[0], dict):
+                    PostgresDatabase._meta_ram_rollup_cache[sys_norm] = (_cur_entry[0], 0.0)
+                self._trigger_bg_ram_rollup_refresh(sys_norm)
+            else:
+                for _rk, _rv in list(PostgresDatabase._meta_ram_rollup_cache.items()):
+                    if isinstance(_rv, tuple) and len(_rv) == 2 and isinstance(_rv[0], dict):
+                        PostgresDatabase._meta_ram_rollup_cache[_rk] = (_rv[0], 0.0)
+                        self._trigger_bg_ram_rollup_refresh(_rk)
         PostgresDatabase._meta_filter_options_cache_dict.clear()
         PostgresDatabase._faction_meta_cache_dict.clear()
         elapsed = round(time.time() - t0, 2)
@@ -12498,6 +12521,54 @@ class PostgresDatabase:
         sb["stream_runs"](sorted(run_rows or [], key=lambda r: str(r[0] or "").strip()))
         return sb["finalize"]()
 
+    @classmethod
+    def _is_ram_rollup_entry_fresh(cls, entry: Any) -> bool:
+        if not (isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[0], dict)):
+            return False
+        ts = float(entry[1] or 0.0)
+        if ts <= 0.0 or ts < cls._last_cache_invalidation_ts:
+            return False
+        return (time.time() - ts) < cls._META_RAM_STALE_SECS
+
+    @classmethod
+    def _get_ram_rollup_swr(
+        cls,
+        sys_norm: str,
+        db_inst: Optional["PostgresDatabase"] = None,
+        trigger_bg: bool = True,
+    ) -> Optional[Dict[str, Any]]:
+        """Stale-While-Revalidate lookup: returns hot RAM index immediately and triggers async refresh if stale/missing."""
+        entry = cls._meta_ram_rollup_cache.get(sys_norm)
+        if isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[0], dict):
+            if trigger_bg and not cls._is_ram_rollup_entry_fresh(entry):
+                if db_inst is not None and cls._pool is not None and not db_inst._is_mock_instance():
+                    db_inst._trigger_bg_ram_rollup_refresh(sys_norm)
+            return entry[0]
+        if trigger_bg and db_inst is not None and cls._pool is not None and not db_inst._is_mock_instance():
+            db_inst._trigger_bg_ram_rollup_refresh(sys_norm)
+        return None
+
+    def _trigger_bg_ram_rollup_refresh(self, game_system: str) -> None:
+        raw_sys = (game_system or "40k").strip().lower()
+        if raw_sys == "all" or PostgresDatabase._pool is None or self._is_mock_instance():
+            return
+        sys_norm = normalize_game_system(raw_sys, default="40k")
+        with PostgresDatabase._meta_ram_rollup_guard:
+            if sys_norm in PostgresDatabase._meta_ram_bg_inflight:
+                return
+            PostgresDatabase._meta_ram_bg_inflight.add(sys_norm)
+
+        def _bg_load():
+            try:
+                self.load_system_meta_rollup_ram_index(sys_norm, force=True)
+            except Exception as bg_err:
+                logger.debug(f"Background RAM rollup refresh notice ({sys_norm}): {bg_err}")
+            finally:
+                with PostgresDatabase._meta_ram_rollup_guard:
+                    PostgresDatabase._meta_ram_bg_inflight.discard(sys_norm)
+
+        threading.Thread(target=_bg_load, name=f"meta_ram_bg_{sys_norm}", daemon=True).start()
+
     def load_system_meta_rollup_ram_index(self, game_system: str, force: bool = False) -> Optional[Dict[str, Any]]:
         """Streams a system's 405-day rollups via server-side cursors into compact C-struct memory (<5MB temporary heap)."""
         raw_sys = (game_system or "40k").strip().lower()
@@ -12507,9 +12578,9 @@ class PostgresDatabase:
         if self._is_mock_instance():
             return None
         if not force:
-            cached = PostgresDatabase.get_cached(PostgresDatabase._meta_ram_rollup_cache, sys_norm, ttl=7200)
-            if isinstance(cached, dict):
-                return cached
+            entry = PostgresDatabase._meta_ram_rollup_cache.get(sys_norm)
+            if PostgresDatabase._is_ram_rollup_entry_fresh(entry):
+                return entry[0]
 
         with PostgresDatabase._meta_ram_rollup_guard:
             sys_lock = PostgresDatabase._meta_ram_rollup_locks.get(sys_norm)
@@ -12519,15 +12590,15 @@ class PostgresDatabase:
 
         with sys_lock:
             if not force:
-                cached = PostgresDatabase.get_cached(PostgresDatabase._meta_ram_rollup_cache, sys_norm, ttl=7200)
-                if isinstance(cached, dict):
-                    return cached
+                entry = PostgresDatabase._meta_ram_rollup_cache.get(sys_norm)
+                if PostgresDatabase._is_ram_rollup_entry_fresh(entry):
+                    return entry[0]
 
             with PostgresDatabase._meta_ram_global_build_lock:
                 if not force:
-                    cached = PostgresDatabase.get_cached(PostgresDatabase._meta_ram_rollup_cache, sys_norm, ttl=7200)
-                    if isinstance(cached, dict):
-                        return cached
+                    entry = PostgresDatabase._meta_ram_rollup_cache.get(sys_norm)
+                    if PostgresDatabase._is_ram_rollup_entry_fresh(entry):
+                        return entry[0]
 
                 t0 = time.perf_counter()
                 min_date_dt = datetime.now(timezone.utc).date() - timedelta(days=405)
@@ -12543,7 +12614,7 @@ class PostgresDatabase:
                                     return None
                                 if not self._is_meta_rollup_ready(ctl_cur, sys_norm):
                                     return None
-                                ctl_cur.execute("SET LOCAL statement_timeout = '30000ms'; SET LOCAL work_mem = '96MB';")
+                                ctl_cur.execute("SET LOCAL statement_timeout = '180000ms'; SET LOCAL work_mem = '96MB';")
                                 ctl_cur.execute(
                                     """
                                     SELECT
@@ -13369,7 +13440,7 @@ class PostgresDatabase:
             allow_non_1v1 = mf.event_structure in ("doubles", "ffa_pod") or mf.event_format == "commander"
 
             hot_ram_idx = (
-                PostgresDatabase.get_cached(PostgresDatabase._meta_ram_rollup_cache, sys_norm, ttl=7200)
+                PostgresDatabase._get_ram_rollup_swr(sys_norm, db_inst=self, trigger_bg=True)
                 if (not is_mock_self and game_system and sys_norm != "all" and resolved_start)
                 else None
             )
@@ -13447,11 +13518,11 @@ class PostgresDatabase:
                         is_real_rdc = isinstance(rdc_cls, type) and isinstance(cursor, rdc_cls)
 
                         if not is_mock_cur and game_system and sys_norm != "all" and resolved_start:
-                            ram_idx = PostgresDatabase.get_cached(PostgresDatabase._meta_ram_rollup_cache, sys_norm, ttl=7200)
-                            if ram_idx is None and is_real_rdc and self._is_meta_rollup_ready(cursor, sys_norm):
-                                min_405 = (datetime.now(timezone.utc).date() - timedelta(days=405)).strftime("%Y-%m-%d")
-                                if resolved_start[:10] >= min_405:
-                                    ram_idx = self.load_system_meta_rollup_ram_index(sys_norm, force=False)
+                            ram_idx = (
+                                hot_ram_idx
+                                if isinstance(hot_ram_idx, dict)
+                                else PostgresDatabase._get_ram_rollup_swr(sys_norm, db_inst=self, trigger_bg=True)
+                            )
                             if isinstance(ram_idx, dict) and resolved_start[:10] >= str(ram_idx.get("min_date_str") or "9999-99-99"):
                                 overall, matchup_rows, monthly, raw_match_count, matched_events_count = (
                                     PostgresDatabase._query_meta_ram_rollup_index(
@@ -21437,7 +21508,9 @@ class PostgresConnectionContext:
 
     def __enter__(self):
         try:
-            if hasattr(self.conn, "get_transaction_status") and self.conn.get_transaction_status() in (3, 4):
+            tx_st = self.conn.get_transaction_status() if hasattr(self.conn, "get_transaction_status") else 0
+            c_st = getattr(self.conn, "status", 1)
+            if tx_st != 0 or c_st != 1:
                 self.conn.rollback()
         except Exception:
             pass
@@ -21509,8 +21582,10 @@ try:
             "_new_meta_ram_stream_builder",
             "_build_meta_ram_rollup_index_from_rows",
             "_query_meta_ram_rollup_index",
+            "_is_ram_rollup_entry_fresh",
+            "_get_ram_rollup_swr",
         },
-        quiet_methods={"get_cached", "set_cached", "_is_mock_instance"},
+        quiet_methods={"get_cached", "set_cached", "_is_mock_instance", "_trigger_bg_ram_rollup_refresh"},
     )
 except Exception as _perf_err:
     logger.debug(f"Perf instrumentation notice on PostgresDatabase: {_perf_err}")

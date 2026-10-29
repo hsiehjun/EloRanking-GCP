@@ -319,7 +319,7 @@ async def _periodic_firestore_cleanup():
             logger.warning(f"Notice during periodic Firestore cleanup: {e}")
         await asyncio.sleep(12 * 3600)  # Run every 12 hours
 
-async def _prewarm_meta_intel_cache(force_refresh: bool = False):
+async def _prewarm_meta_intel_cache(force_refresh: bool = False, force_ram: bool = False):
     """Pre-warms Meta Intel presets, filter options, common competitive scopes, and Faction Details across 40k, AoS, and multi-platform systems."""
     try:
         now = datetime.now(timezone.utc)
@@ -331,11 +331,11 @@ async def _prewarm_meta_intel_cache(force_refresh: bool = False):
             ram_systems = getattr(
                 db,
                 "META_RAM_PREWARM_SYSTEMS",
-                ("40k", "aos", "mtg", "pokemon", "one_piece", "sw_unlimited", "lorcana", "flesh_blood", "mcp", "digimon", "sw_legion"),
+                ("40k", "mtg", "pokemon", "sw_unlimited", "aos", "one_piece", "lorcana", "mcp", "digimon", "sw_legion", "flesh_blood"),
             )
             for gs in ram_systems:
                 try:
-                    await asyncio.to_thread(db.load_system_meta_rollup_ram_index, gs, force_refresh)
+                    await asyncio.to_thread(db.load_system_meta_rollup_ram_index, gs, force_ram)
                 except Exception as ram_err:
                     logger.warning(f"Notice warming RAM rollup index ({gs}): {ram_err}")
                 await asyncio.sleep(0.02)
@@ -532,7 +532,6 @@ async def on_server_startup():
                 lambda: lh_svc.get_league_group_chats("sd40k"),
                 lambda: lh_svc.get_unified_floor_ops("sd40k"),
                 lambda: lh_svc.get_player_league_summary("Jun Hsieh"),
-                lambda: db.prewarm_itc_rankings_cache(),
                 lambda: fs_eng.search_real_teams_and_players("", "40k", 24),
                 lambda: fs_eng.search_real_teams_and_players("Team Zero Comp", "40k", 24),
                 lambda: fs_eng.get_real_team_roster("Team Zero Comp", "40k"),
@@ -549,6 +548,7 @@ async def on_server_startup():
 
             await asyncio.gather(*(_run_bounded(fn) for fn in core_tasks))
             await _prewarm_meta_intel_cache()
+            await _run_bounded(lambda: db.prewarm_itc_rankings_cache())
             logger.info("🔥 Core leaderboard, stats, events, teams, stores & community caches pre-warmed")
         except Exception as cw_err:
             logger.warning(f"Notice during core cache pre-warming: {cw_err}")
