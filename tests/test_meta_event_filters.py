@@ -682,6 +682,17 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
             def fetchall(self):
                 if "FROM system_settings WHERE key = ANY" in self._last_q:
                     return [{"key": "meta_event_rollups_v1_40k", "value": "ready"}]
+                if "SELECT e.id FROM events e" in self._last_q:
+                    return [{"id": "ev_gt_1"}, {"id": "ev_gt_2"}]
+                if "WITH filtered_rh AS MATERIALIZED" in self._last_q:
+                    return [
+                        ("T", None, None, None, 40, 18, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, None),
+                        ("M", "Space Marines", "Orks", "2026-10-01", 40, 24, 15, 1, 40, 40, 40, 3200.0, 2800.0, 400.0, None),
+                        ("M", "Orks", "Space Marines", "2026-10-01", 40, 15, 24, 1, 40, 40, 40, 2800.0, 3200.0, -400.0, None),
+                        ("R", "Space Marines", None, None, 10, 2, 4, 0, 0, 0, 0, 0.0, 0.0, 0.0, None),
+                        ("P", "Space Marines", None, None, 14, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, list(range(1, 15))),
+                        ("P", "Orks", None, None, 14, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, list(range(101, 115))),
+                    ]
                 if "FROM meta_event_matchups" in self._last_q:
                     return [
                         {
@@ -738,9 +749,30 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
             event_structure="singles",
             country="US",
             state="TX",
-            elo_floor=1550,
+            elo_floor=1750,
+        )
+        mf_no_elo = parse_meta_filters(
+            min_players=28,
+            min_rounds=5,
+            exclude_leagues=True,
+            venue_mode="in_person",
+            event_structure="singles",
+            country="US",
+            state="TX",
         )
         with patch.object(PostgresDatabase, "get_connection", new=lambda _self: _mock_conn()):
+            res_ev = db.get_faction_meta_stats(
+                timeframe="90d",
+                game_system="40k",
+                meta_filters=mf_no_elo,
+                include_trends=False,
+                _force_refresh=True,
+            )
+            self.assertEqual(res_ev["summary_kpis"]["total_matches"], 40)
+            rollup_mu_sql = next(q for q, _p in executed_queries if "FROM meta_event_matchups" in q)
+            self.assertIn("SUM(mu.match_cnt)", rollup_mu_sql)
+            self.assertIn("JOIN events e ON e.id = mu.event_id", rollup_mu_sql)
+
             res = db.get_faction_meta_stats(
                 timeframe="90d",
                 game_system="40k",
@@ -756,12 +788,12 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
             self.assertEqual(sm["x0_runs"], 2)
             self.assertEqual(sm["unique_pilots"], 14)
 
-            # Verify `exp_` rollup columns were queried for `elo_floor=1550`
-            rollup_mu_sql = next(q for q, _p in executed_queries if "FROM meta_event_matchups" in q)
-            self.assertIn("mu.exp_match_cnt", rollup_mu_sql)
-            self.assertIn("JOIN events e ON e.id = mu.event_id", rollup_mu_sql)
+            # Verify dynamic `rating_history` SQL path was queried for `elo_floor=1750`
+            dyn_elo_sql = next(q for q, _p in executed_queries if "WITH filtered_rh AS MATERIALIZED" in q)
+            self.assertIn("rh.old_elo >= %s", dyn_elo_sql)
+            self.assertIn("rh.opponent_elo >= %s", dyn_elo_sql)
 
-            # Verify `get_faction_details` with active filters executes parameterized `EXISTS` clauses cleanly
+            # Verify `get_faction_details` with active filters executes parameterized clauses cleanly (no table_number INT cast error)
             det = db.get_faction_details(
                 "Space Marines",
                 limit=50,
@@ -772,7 +804,9 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
                 _force_refresh=True,
             )
             self.assertEqual(det["filter"]["min_players"], 28)
-            self.assertEqual(det["filter"]["elo_floor"], 1550)
+            self.assertEqual(det["filter"]["elo_floor"], 1750)
+            for q_text, _ in executed_queries:
+                self.assertNotIn("COALESCE(matches.table_number, '')", q_text)
 
     def test_postgres_rollup_pre_eids_pk_and_unnest_hash_regimes(self):
         """Verifies Index-Only `UNNEST` Hash Join cold rollup regime for both small and large event slices."""
@@ -939,22 +973,46 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
                 75.0, 1, 70.0, 1, 5.0, 1,
             ))
 
-        mu_exp_rows = [
-            (
-                "ev_gt_tx", "2026-10-10", False, "Space Marines", "Orks",
-                6, 4, 2, 0, 2, 4, 510.0, 6, 430.0, 6, 80.0, 6,
-                2, 2, 0, 0, 0, 2, 180.0, 2, 130.0, 2, 50.0, 2,
-            ),
-            (
-                "ev_onl_tts", "2026-10-14", False, "Aeldari", "Necrons",
-                4, 3, 1, 0, 1, 3, 350.0, 4, 270.0, 4, 80.0, 4,
-                0, 0, 0, 0, 0, 0, 0.0, 0, 0.0, 0, 0.0, 0,
-            ),
+        # Side-level Elo history tape rows (`old_elo >= 1525`):
+        # Format: (event_id, match_id, match_date, player_id, opponent_id, opponent_name, old_elo, opponent_elo, result, player_faction, opponent_faction, player_score, opponent_score)
+        # In `ev_gt_tx`:
+        # - 6 games where BOTH players >= 1550:
+        #   - Pilot p_sm_elite (1900 Elo) wins 4 games:
+        #     - m1, m2 vs p_ork_high (1880 Elo) -> BOTH >= 1850
+        #     - m3 vs p_ork_vet (1680 Elo) -> BOTH >= 1650 (not 1850)
+        #     - m4 vs p_ork_low (1480 Elo) -> ONLY pilot >= 1550/1650/1850 (`pilot` mode includes m4; `both` mode excludes m4!)
+        #     - Notice: under `both >= 1550`, p_sm_elite has 3 wins (m1, m2, m3 -> < 4 games, so x0_runs=0!);
+        #       plus p_sm_2 (1600 Elo) wins m5, m6, m7, m8 (4-0 all vs >= 1560 Elo -> x0_runs=1 under `both >= 1550`, 0 under `both >= 1650`)!
+        #       WAIT: under `pilot >= 1850`, p_sm_elite has ALL 4 wins (m1, m2, m3, m4 -> 4-0, so x0_runs=1!), proving dynamic filtered runs!
+        elo_rows = [
+            # m1: p_sm_elite (1900) beats p_ork_high (1880)
+            ("ev_gt_tx", "m1", "2026-10-10", "p_sm_elite", "p_ork_high", "Ork High", 1900.0, 1880.0, "W", "Space Marines", "Orks", 90, 65),
+            ("ev_gt_tx", "m1", "2026-10-10", "p_ork_high", "p_sm_elite", "SM Elite", 1880.0, 1900.0, "L", "Orks", "Space Marines", 65, 90),
+            # m2: p_sm_elite (1910) beats p_ork_high2 (1860)
+            ("ev_gt_tx", "m2", "2026-10-10", "p_sm_elite", "p_ork_high2", "Ork High2", 1910.0, 1860.0, "W", "Space Marines", "Orks", 88, 62),
+            ("ev_gt_tx", "m2", "2026-10-10", "p_ork_high2", "p_sm_elite", "SM Elite", 1860.0, 1910.0, "L", "Orks", "Space Marines", 62, 88),
+            # m3: p_sm_elite (1920) beats p_ork_vet (1680)
+            ("ev_gt_tx", "m3", "2026-10-10", "p_sm_elite", "p_ork_vet", "Ork Vet", 1920.0, 1680.0, "W", "Space Marines", "Orks", 85, 70),
+            ("ev_gt_tx", "m3", "2026-10-10", "p_ork_vet", "p_sm_elite", "SM Elite", 1680.0, 1920.0, "L", "Orks", "Space Marines", 70, 85),
+            # m4: p_sm_elite (1930) beats p_ork_low (1480 — opponent < 1525 so only p_sm_elite row has old_elo >= 1525)
+            ("ev_gt_tx", "m4", "2026-10-10", "p_sm_elite", "p_ork_low", "Ork Low", 1930.0, 1480.0, "W", "Space Marines", "Orks", 95, 45),
+            # m5..m8: p_sm_2 (1580..1610) goes 4-0 vs opponents at 1560..1590 (all BOTH >= 1550, < 1650)
+            ("ev_gt_tx", "m5", "2026-10-10", "p_sm_2", "p_ork_e1", "Ork E1", 1580.0, 1560.0, "W", "Space Marines", "Orks", 80, 70),
+            ("ev_gt_tx", "m5", "2026-10-10", "p_ork_e1", "p_sm_2", "SM 2", 1560.0, 1580.0, "L", "Orks", "Space Marines", 70, 80),
+            ("ev_gt_tx", "m6", "2026-10-10", "p_sm_2", "p_ork_e2", "Ork E2", 1590.0, 1570.0, "W", "Space Marines", "Orks", 82, 68),
+            ("ev_gt_tx", "m6", "2026-10-10", "p_ork_e2", "p_sm_2", "SM 2", 1570.0, 1590.0, "L", "Orks", "Space Marines", 68, 82),
+            ("ev_gt_tx", "m7", "2026-10-10", "p_sm_2", "p_ork_e3", "Ork E3", 1600.0, 1585.0, "W", "Space Marines", "Orks", 84, 66),
+            ("ev_gt_tx", "m7", "2026-10-10", "p_ork_e3", "p_sm_2", "SM 2", 1585.0, 1600.0, "L", "Orks", "Space Marines", 66, 84),
+            ("ev_gt_tx", "m8", "2026-10-10", "p_sm_2", "p_ork_e4", "Ork E4", 1610.0, 1595.0, "W", "Space Marines", "Orks", 86, 64),
+            ("ev_gt_tx", "m8", "2026-10-10", "p_ork_e4", "p_sm_2", "SM 2", 1595.0, 1610.0, "L", "Orks", "Space Marines", 64, 86),
+            # Online TTS event: Aeldari vs Necrons (1600 vs 1580)
+            ("ev_onl_tts", "m9", "2026-10-14", "p_ael_1", "p_nec_1", "Nec 1", 1600.0, 1580.0, "W", "Aeldari", "Necrons", 90, 60),
+            ("ev_onl_tts", "m9", "2026-10-14", "p_nec_1", "p_ael_1", "Ael 1", 1580.0, 1600.0, "L", "Necrons", "Aeldari", 60, 90),
         ]
-        # Pilot hash 101 appears in BOTH ev_gt_tx and ev_onl_tts for Aeldari/Craftworlds -> deduplicated when same raw fac
+        # Pilot hash 101 appears in BOTH ev_gt_tx and ev_onl_tts for Aeldari/Craftworlds -> deduplicated across canonical faction
         run_rows = [
             ("ev_gt_tx", False, "Space Marines", "2026-10-10", 5, 5, 2, 3, [11, 12, 13, 14, 15], 3, 3, 1, 2, [11, 12, 13], 1, 1, 1, 1, [11]),
-            ("ev_gt_tx", False, "Aeldari", "2026-10-10", 2, 2, 1, 1, [101, 102], 0, 0, 0, 0, [], 0, 0, 0, 0, []),
+            ("ev_gt_tx", False, "Craftworlds", "2026-10-10", 2, 2, 1, 1, [101, 102], 0, 0, 0, 0, [], 0, 0, 0, 0, []),
             ("ev_onl_tts", False, "Aeldari", "2026-10-14", 3, 3, 1, 2, [101, 103, 104], 2, 2, 1, 1, [101, 103], 0, 0, 0, 0, []),
         ]
 
@@ -963,8 +1021,8 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
             min_date_str="2026-01-01",
             ev_rows=ev_rows,
             mu_base_rows=mu_base_rows,
-            mu_exp_rows=mu_exp_rows,
             run_rows=run_rows,
+            elo_rows=elo_rows,
         )
         PostgresDatabase.set_cached(PostgresDatabase._meta_ram_rollup_cache, "40k", ram_idx, max_size=24)
         self.addCleanup(lambda: PostgresDatabase._meta_ram_rollup_cache.pop("40k", None))
@@ -1004,7 +1062,7 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
         db._is_mock_instance = lambda: False
 
         with patch.object(PostgresDatabase, "get_connection", new=lambda _self: _dummy_conn()):
-            # 1. Default unfiltered 90d window (includes __unlinked__:40k, excludes ev_pod_cmd non_1v1, strips '+' and 'Custom'/'Modern')
+            # 1. Default unfiltered 90d window (includes __unlinked__:40k, excludes ev_pod_cmd non_1v1, strips '+')
             res_all = db.get_faction_meta_stats(
                 start_date="2026-09-01",
                 end_date="2026-10-20",
@@ -1013,21 +1071,19 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
                 include_trends=True,
                 _force_refresh=True,
             )
-            # Total 1v1 valid matches = 10 + 4 + 2 (mirror) + 6 + 8 + 2 (unlinked) + 260 = 292!
             self.assertEqual(res_all["summary_kpis"]["total_matches"], 292)
             self.assertEqual(res_all["total_factions_tracked"], 264)
             self.assertLessEqual(len(res_all["factions"]), 253)
 
-            # Aeldari pilot deduplication: [101, 102] U [101, 103, 104] = 4 unique pilots (instead of 2 + 3 = 5)
+            # Aeldari pilot deduplication across alias ('Craftworlds' + 'Aeldari'): [101, 102] U [101, 103, 104] = 4 unique pilots!
             ael_row = next(f for f in res_all["factions"] if f["faction"] == "Aeldari")
-            self.assertEqual(ael_row["total_matches"], 12)  # 4 ('Craftworlds') + 8 ('Aeldari')
+            self.assertEqual(ael_row["total_matches"], 12)
             self.assertEqual(ael_row["unique_pilots"], 4)
 
-            # Orks mirror match handling: 2 mirror matches -> 4 appearances, 2 mirror_matches each? Wait: 2 matches -> mirror_matches=4 appearances
             ork_row = next(f for f in res_all["factions"] if f["faction"] == "Orks")
             self.assertEqual(ork_row["mirror_matches"], 4)
 
-            # 2. Filtered GT US TX + Exclude Leagues + Elo 1550+
+            # 2. Filtered GT US TX + Exclude Leagues + Elo 1550+ (`both` mode: m1, m2, m3, m5, m6, m7, m8 = 7 matches)
             res_tx_1550 = db.get_faction_meta_stats(
                 start_date="2026-09-01",
                 end_date="2026-10-20",
@@ -1042,13 +1098,15 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
                 include_trends=False,
                 _force_refresh=True,
             )
-            self.assertEqual(res_tx_1550["summary_kpis"]["total_matches"], 6)
+            self.assertEqual(res_tx_1550["summary_kpis"]["total_matches"], 7)
             self.assertEqual(res_tx_1550["summary_kpis"]["matched_events"], 1)
             sm_1550 = next(f for f in res_tx_1550["factions"] if f["faction"] == "Space Marines")
-            self.assertEqual(sm_1550["wins"], 4)
+            self.assertEqual(sm_1550["wins"], 7)
+            self.assertEqual(sm_1550["unique_pilots"], 2)
+            # p_sm_2 went 4-0 within filtered 1550+ matches -> x0_runs=1; p_sm_elite went 3-0 within both>=1550 -> not 4-0!
             self.assertEqual(sm_1550["x0_runs"], 1)
 
-            # 3. Elo 1650+ (`vet` tier)
+            # 3. Elo 1650+ (`both` mode: m1, m2, m3 = 3 matches; p_sm_elite only has 3 filtered games, so x0_runs=0 dynamically!)
             res_vet = db.get_faction_meta_stats(
                 start_date="2026-09-01",
                 end_date="2026-10-20",
@@ -1058,10 +1116,47 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
                 include_trends=False,
                 _force_refresh=True,
             )
-            self.assertEqual(res_vet["summary_kpis"]["total_matches"], 2)
+            self.assertEqual(res_vet["summary_kpis"]["total_matches"], 3)
             self.assertEqual(res_vet["summary_kpis"]["matched_events"], 1)
+            sm_1650 = next(f for f in res_vet["factions"] if f["faction"] == "Space Marines")
+            self.assertEqual(sm_1650["x0_runs"], 0)
 
-            # 4. Pod / Commander `allow_non_1v1=True` (`8` seats -> `round(8 / 4.0) = 2` pod games)
+            # 4. Higher Elo 1850+ (`both` mode vs `pilot` mode!)
+            res_1850_both = db.get_faction_meta_stats(
+                start_date="2026-09-01",
+                end_date="2026-10-20",
+                timeframe="custom",
+                game_system="40k",
+                elo_floor=1850,
+                elo_mode="both",
+                include_trends=False,
+                _force_refresh=True,
+            )
+            self.assertEqual(res_1850_both["summary_kpis"]["total_matches"], 2)  # m1, m2
+            sm_1850_b = next(f for f in res_1850_both["factions"] if f["faction"] == "Space Marines")
+            self.assertEqual(sm_1850_b["total_matches"], 2)
+            self.assertEqual(sm_1850_b["x0_runs"], 0)
+
+            res_1850_pilot = db.get_faction_meta_stats(
+                start_date="2026-09-01",
+                end_date="2026-10-20",
+                timeframe="custom",
+                game_system="40k",
+                elo_floor=1850,
+                elo_mode="pilot",
+                include_trends=False,
+                _force_refresh=True,
+            )
+            # m1, m2, m3, m4 all have >=1 pilot >= 1850! And p_sm_elite has 4 wins (m1..m4) -> x0_runs=1!
+            self.assertEqual(res_1850_pilot["summary_kpis"]["total_matches"], 4)
+            sm_1850_p = next(f for f in res_1850_pilot["factions"] if f["faction"] == "Space Marines")
+            self.assertEqual(sm_1850_p["total_matches"], 4)
+            self.assertEqual(sm_1850_p["x0_runs"], 1)
+            # Meanwhile Orks only had 2 pilot seats >= 1850 (p_ork_high in m1 and p_ork_high2 in m2)!
+            ork_1850_p = next(f for f in res_1850_pilot["factions"] if f["faction"] == "Orks")
+            self.assertEqual(ork_1850_p["total_matches"], 2)
+
+            # 5. Pod / Commander `allow_non_1v1=True` (`8` seats -> `round(8 / 4.0) = 2` pod games)
             res_pod = db.get_faction_meta_stats(
                 start_date="2026-09-01",
                 end_date="2026-10-20",
@@ -1073,6 +1168,38 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
             )
             self.assertEqual(res_pod["summary_kpis"]["total_matches"], 2)
             self.assertEqual(res_pod["summary_kpis"]["matched_events"], 1)
+
+    def test_system_specific_format_canonicalization_and_options(self):
+        """Verifies game-system-aware format labels & cross-game noise stripping across 40k, AoS, MTG, Pokémon, SWU, Lorcana, and FaB."""
+        from meta_event_classifier import canonicalize_system_format_tag, format_options_for_system
+
+        # 40k: `standard` / `strike_force_2000` -> `standard_2000` ("Strike Force (2000pt)"); `custom` and accidental `modern` stripped!
+        opts_40k = format_options_for_system("40k", {"standard": 500, "strike_force_2000": 120, "incursion_1000": 15, "custom": 40, "modern": 3})
+        codes_40k = {o["code"]: o for o in opts_40k}
+        self.assertIn("standard_2000", codes_40k)
+        self.assertEqual(codes_40k["standard_2000"]["count"], 620)
+        self.assertEqual(codes_40k["standard_2000"]["label"], "Strike Force (2000pt)")
+        self.assertNotIn("custom", codes_40k)
+        self.assertNotIn("modern", codes_40k)
+
+        # AoS: `standard` / `strike_force_2000` -> `standard_2000` ("Pitched Battle (2000pt)"); `incursion_1000` -> "Spearhead / Vanguard (≤1500pt)"
+        opts_aos = format_options_for_system("aos", {"standard": 200, "strike_force_2000": 30, "incursion_1000": 12, "crusade": 4, "custom": 9})
+        codes_aos = {o["code"]: o for o in opts_aos}
+        self.assertEqual(codes_aos["standard_2000"]["count"], 230)
+        self.assertEqual(codes_aos["standard_2000"]["label"], "Pitched Battle (2000pt)")
+        self.assertEqual(codes_aos["incursion_1000"]["label"], "Spearhead / Vanguard (≤1500pt)")
+        self.assertEqual(codes_aos["path_to_glory"]["label"], "Path to Glory / Narrative")
+
+        # MTG: preserves Standard, Modern, Pioneer, Legacy, Commander / EDH, Limited; strips 40k standard_2000
+        opts_mtg = format_options_for_system("mtg", {"standard": 100, "modern": 85, "commander": 40, "standard_2000": 2, "custom": 5})
+        codes_mtg = {o["code"]: o for o in opts_mtg}
+        self.assertIn("standard", codes_mtg)
+        self.assertIn("modern", codes_mtg)
+        self.assertIn("commander", codes_mtg)
+        self.assertNotIn("standard_2000", codes_mtg)
+        self.assertEqual(canonicalize_system_format_tag("sw_unlimited", "standard"), "premier")
+        self.assertEqual(canonicalize_system_format_tag("lorcana", "standard"), "core_constructed")
+        self.assertEqual(canonicalize_system_format_tag("flesh_blood", "standard"), "classic_constructed")
 
 
 if __name__ == "__main__":

@@ -19214,6 +19214,20 @@ table.desktop-only,
   gap: 0.6rem;
 }
 
+.meta-scope-mobile-bar {
+  display: none;
+}
+
+.meta-scope-drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.meta-mobile-drawer-footer {
+  display: none;
+}
+
 .meta-scope-row {
   display: flex;
   align-items: center;
@@ -19222,6 +19236,13 @@ table.desktop-only,
 }
 
 .meta-scope-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.38rem;
+}
+
+.meta-location-selects-wrap {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
@@ -19250,9 +19271,46 @@ table.desktop-only,
   transition: border-color 0.15s ease;
 }
 
+.meta-custom-elo-input {
+  width: 76px;
+}
+
 .meta-custom-num-input:focus {
   border-color: #38bdf8;
   box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.18);
+}
+
+.meta-elo-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 7px;
+  background: rgba(7, 11, 20, 0.88);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  gap: 2px;
+}
+
+.meta-elo-mode-btn {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.meta-elo-mode-btn:hover {
+  color: #e2e8f0;
+}
+
+.meta-elo-mode-btn.active {
+  background: rgba(56, 189, 248, 0.22);
+  color: #7dd3fc;
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.38);
 }
 
 .meta-scope-select {
@@ -19260,7 +19318,7 @@ table.desktop-only,
   font-size: 0.74rem !important;
   height: auto !important;
   min-width: 128px;
-  max-width: 195px;
+  max-width: 215px;
   background: rgba(7, 11, 20, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 6px;
@@ -19295,6 +19353,7 @@ table.desktop-only,
   border-radius: 999px;
   font-size: 0.7rem;
   font-weight: 700;
+  white-space: nowrap;
   background: rgba(56, 189, 248, 0.15);
   color: #7dd3fc;
   border: 1px solid rgba(56, 189, 248, 0.32);
@@ -19334,19 +19393,184 @@ table.desktop-only,
 
 @media (max-width: 768px) {
   .meta-scope-filter-panel {
-    padding: 0.65rem 0.7rem;
+    padding: 0.48rem 0.65rem;
+    gap: 0;
   }
-  .meta-scope-row {
-    gap: 0.5rem 0.65rem;
-  }
-  .meta-scope-select {
-    min-width: 112px;
-    max-width: 165px;
-  }
-  .meta-active-scope-bar {
-    margin-left: 0;
+
+  .meta-scope-mobile-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     width: 100%;
+    min-height: 32px;
+  }
+
+  .meta-mobile-drawer-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.32rem 0.65rem;
+    border-radius: 8px;
+    font-size: 0.76rem;
+    font-weight: 800;
+    color: #f8fafc;
+    background: rgba(56, 189, 248, 0.16);
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .meta-mobile-filter-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 800;
+    background: #38bdf8;
+    color: #020617;
+  }
+
+  .meta-mobile-drawer-chevron {
+    font-size: 0.72rem;
+    opacity: 0.85;
+    transition: transform 0.18s ease;
+  }
+
+  .meta-scope-filter-panel.mobile-open .meta-mobile-drawer-chevron {
+    transform: rotate(180deg);
+  }
+
+  .meta-mobile-active-chips {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .meta-mobile-active-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .meta-mobile-all-hint {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #94a3b8;
+  }
+
+  .meta-mobile-reset-btn {
+    padding: 0.25rem 0.5rem;
+    border-radius: 7px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: #fda4af;
+    background: rgba(244, 63, 94, 0.16);
+    border: 1px solid rgba(244, 63, 94, 0.34);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .meta-scope-drawer-body {
+    display: none;
+    margin-top: 0.65rem;
+    padding-top: 0.65rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    gap: 0.7rem;
+  }
+
+  .meta-scope-filter-panel.mobile-open .meta-scope-drawer-body {
+    display: flex;
+  }
+
+  .meta-scope-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+
+  .meta-scope-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    width: 100%;
+    gap: 0.38rem;
+  }
+
+  .meta-scope-label {
+    width: 100%;
+    font-size: 0.72rem;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .meta-scope-drawer-body .meta-tier-pills {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  .meta-scope-drawer-body .meta-tier-pills::-webkit-scrollbar {
+    display: none;
+  }
+
+  .meta-scope-drawer-body .meta-pill-btn {
+    flex-shrink: 0;
+  }
+
+  .meta-location-selects-wrap {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 0.45rem;
+  }
+
+  .meta-scope-select {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    padding: 0.4rem 0.55rem !important;
+    font-size: 0.78rem !important;
+  }
+
+  #meta-state-select {
+    grid-column: 1 / -1;
+  }
+
+  #meta-active-scope-bar {
+    display: none !important;
+  }
+
+  .meta-mobile-drawer-footer {
+    display: flex;
+    align-items: center;
     justify-content: space-between;
+    gap: 0.5rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .meta-mobile-done-btn {
+    padding: 0.34rem 0.9rem;
+    border-radius: 7px;
+    font-size: 0.76rem;
+    font-weight: 800;
+    color: #020617;
+    background: #38bdf8;
+    border: 1px solid #38bdf8;
+    cursor: pointer;
   }
 }
 

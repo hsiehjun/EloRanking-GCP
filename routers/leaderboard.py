@@ -4443,7 +4443,8 @@ async def api_faction_meta(
     region: Optional[str] = Query(None, description="Geographic region filter (NA, UK_IE, EU, OCE, ASIA, LATAM)"),
     country: Optional[str] = Query(None, description="2-letter ISO country code (e.g. US, GB, CA, AU, DE)"),
     state: Optional[str] = Query(None, description="2-letter US state code when country=US"),
-    elo_floor: int = Query(0, ge=0, le=3000, description="Minimum pre-match Elo for both players (e.g. 0, 1550, 1650)"),
+    elo_floor: int = Query(0, ge=0, le=3500, description="Minimum pre-match Elo threshold (e.g. 0, 1550, 1650, 1750, 1850, 2000)"),
+    elo_mode: Optional[str] = Query("both", description="Elo matching mode: 'both' (both players >= elo_floor) or 'pilot' (pilot >= elo_floor vs any)"),
     include_trends: bool = Query(True, description="Include monthly/weekly trend series"),
 ):
     try:
@@ -4469,6 +4470,7 @@ async def api_faction_meta(
             country=_unwrap_query_arg(country),
             state=_unwrap_query_arg(state),
             elo_floor=_unwrap_query_arg(elo_floor),
+            elo_mode=_unwrap_query_arg(elo_mode),
         )
 
         resolved_start = raw_start
@@ -4579,7 +4581,8 @@ async def api_faction_details(
     region: Optional[str] = Query(None),
     country: Optional[str] = Query(None),
     state: Optional[str] = Query(None),
-    elo_floor: int = Query(0, ge=0, le=3000),
+    elo_floor: int = Query(0, ge=0, le=3500),
+    elo_mode: Optional[str] = Query("both"),
 ):
     from meta_event_classifier import parse_meta_filters
 
@@ -4601,6 +4604,7 @@ async def api_faction_details(
         country=_unwrap_query_arg(country),
         state=_unwrap_query_arg(state),
         elo_floor=_unwrap_query_arg(elo_floor),
+        elo_mode=_unwrap_query_arg(elo_mode),
     )
     extra_kw: Dict[str, Any] = {}
     if not mf.is_default():

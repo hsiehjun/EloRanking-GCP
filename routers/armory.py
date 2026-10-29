@@ -212,6 +212,9 @@ def _get_or_init_vault(user_data: Dict[str, Any]) -> Dict[str, Any]:
     return armory_catalog.normalize_armory_vault(vault)
 
 
+_GUEST_CATALOG_CACHE: Dict[str, Any] = {}
+
+
 @router.get("/api/armory/catalog", summary="Get Retribution Armory catalog")
 def get_catalog(request: Request):
     """Returns the full Armory catalog with ownership flags and equipped status."""
@@ -233,6 +236,17 @@ def get_catalog(request: Request):
         pass
 
     game_sys = (request.query_params.get("game_system") or "40k").strip().lower()
+    if user_id is None:
+        try:
+            import time as _t_cat
+            from firestore_db import get_firestore_engine
+            _fs_chk = get_firestore_engine()
+            _has_ov = bool(getattr(_fs_chk, "_live_player_elo_overrides", None))
+            _guest_entry = _GUEST_CATALOG_CACHE.get(game_sys)
+            if not _has_ov and _guest_entry and (_t_cat.monotonic() - _guest_entry[0]) < 300.0:
+                return _guest_entry[1]
+        except Exception:
+            pass
     if game_sys != "40k":
         glory_state = dict(glory_state)
         glory_state["unified_spendable_glory"] = glory_state.get("spendable_glory", 0)
@@ -281,6 +295,14 @@ def get_catalog(request: Request):
         )
     except Exception as te:
         logger.debug(f"Notice attaching tcg_state to armory catalog: {te}")
+    if user_id is None:
+        try:
+            import time as _t_cat_s
+            from firestore_db import get_firestore_engine
+            if not getattr(get_firestore_engine(), "_live_player_elo_overrides", None):
+                _GUEST_CATALOG_CACHE[game_sys] = (_t_cat_s.monotonic(), catalog)
+        except Exception:
+            pass
     return catalog
 
 

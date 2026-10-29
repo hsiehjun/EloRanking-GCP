@@ -3451,7 +3451,7 @@ class FirestoreRoomEngine:
                     _sync_card_rarity_if_needed(p, p["elo"])
                     continue
                 cached = sys_cache.get(n_low)
-                if not cached or (now_mono - cached[0]) >= 30.0:
+                if not cached or (now_mono - cached[0]) >= 300.0:
                     if n_low not in seen_missing:
                         seen_missing.add(n_low)
                         missing_names.append(n_low)
@@ -7418,7 +7418,7 @@ class FirestoreRoomEngine:
         if not hasattr(self, "_tcg_collectible_pool_cache") or not isinstance(getattr(self, "_tcg_collectible_pool_cache", None), dict):
             self._tcg_collectible_pool_cache = {}
         cached_pool = self._tcg_collectible_pool_cache.get(cache_key)
-        if cached_pool and (now_mono - cached_pool[0]) < 60.0:
+        if cached_pool and (now_mono - cached_pool[0]) < 600.0:
             return cached_pool[1]
 
         raw_cards = copy.deepcopy(self.TCG_BASE_PLAYER_CARDS)

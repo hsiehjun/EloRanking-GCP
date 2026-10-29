@@ -853,7 +853,10 @@ window.api = {
     if (filters.region && filters.region !== 'all') params.set('region', String(filters.region));
     if (filters.country && filters.country !== 'all') params.set('country', String(filters.country));
     if (filters.state && filters.state !== 'all') params.set('state', String(filters.state));
-    if (Number(filters.elo_floor) > 0) params.set('elo_floor', String(Math.floor(Number(filters.elo_floor))));
+    if (Number(filters.elo_floor) > 0) {
+      params.set('elo_floor', String(Math.floor(Number(filters.elo_floor))));
+      if (filters.elo_mode === 'pilot') params.set('elo_mode', 'pilot');
+    }
     if (filters.include_trends === false) params.set('include_trends', 'false');
   },
 

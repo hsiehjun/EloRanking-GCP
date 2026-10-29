@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import json
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +205,8 @@ ISO2_TO_REGION: Dict[str, str] = {
 
 FORMAT_DISPLAY_NAMES: Dict[str, str] = {
     "standard_2000": "Standard (2000pt)",
-    "incursion_1000": "Small Points / Incursion",
+    "incursion_1000": "Small Points (≤1500pt)",
+    "skirmish_small": "Recon / Small Format",
     "standard": "Standard",
     "modern": "Modern",
     "legacy": "Legacy",
@@ -223,11 +224,223 @@ FORMAT_DISPLAY_NAMES: Dict[str, str] = {
     "classic_constructed": "Classic Constructed",
     "blitz": "Blitz",
     "living_legend": "Living Legend",
+    "commoner": "Commoner",
     "core_constructed": "Core (Constructed)",
+    "infinity": "Infinity Constructed",
     "highlander": "Highlander / Premodern",
+    "genesys": "Genesys",
+    "advanced": "Advanced",
+    "edison": "Edison (Historical)",
+    "goat": "Goat (Historical)",
+    "hat": "HAT (Historical)",
+    "premium": "Premium",
+    "v_premium": "V-Premium",
 }
 
 FORMAT_DISPLAY_LABELS = FORMAT_DISPLAY_NAMES
+
+SYSTEM_FORMAT_LABELS: Dict[str, Dict[str, str]] = {
+    "40k": {
+        "standard_2000": "Strike Force (2000pt)",
+        "incursion_1000": "Incursion / Small Pts (≤1500pt)",
+        "combat_patrol": "Combat Patrol",
+        "boarding_actions": "Boarding Actions",
+        "crusade": "Crusade / Narrative",
+    },
+    "aos": {
+        "standard_2000": "Pitched Battle (2000pt)",
+        "incursion_1000": "Spearhead / Vanguard (≤1500pt)",
+        "path_to_glory": "Path to Glory / Narrative",
+    },
+    "the_old_world": {
+        "standard_2000": "Grand Melee (2000pt+)",
+        "incursion_1000": "Small Points (≤1500pt)",
+    },
+    "horus_heresy": {
+        "standard_2000": "Age of Darkness (2000pt+)",
+        "incursion_1000": "Zone Mortalis / Small Pts (≤1500pt)",
+    },
+    "kings_of_war": {
+        "standard_2000": "Standard Battle (2000pt+)",
+        "incursion_1000": "Ambush / Small Pts (≤1500pt)",
+    },
+    "conquest": {
+        "standard_2000": "Last Argument of Kings (2000pt)",
+        "incursion_1000": "First Blood / Small Pts (≤1500pt)",
+    },
+    "bolt_action": {
+        "standard_2000": "Standard Platoon",
+        "incursion_1000": "Combat Patrol / Small Pts",
+    },
+    "mcp": {"standard": "Standard Crisis"},
+    "sw_legion": {"standard": "Standard (800pt / 1000pt)", "skirmish_small": "Skirmish (500pt)"},
+}
+
+_MASS_WARGAME_SYSTEMS = frozenset({
+    "40k", "aos", "the_old_world", "horus_heresy", "kings_of_war", "conquest", "bolt_action"
+})
+_SKIRMISH_MINIATURE_SYSTEMS = frozenset({
+    "mcp", "sw_legion", "shatterpoint", "warmachine", "infinity", "malifaux",
+    "battletech", "kill_team", "underworlds", "warcry", "blood_bowl", "mesbg",
+    "x_wing", "armada", "gaslands", "guild_ball", "trench_crusade",
+})
+_NOISE_FORMAT_TAGS = frozenset({
+    "", "none", "null", "unknown", "custom", "other", "n_a", "na", "tbd", "all", "default", "unassigned"
+})
+_POKEMON_RETRO_TAG_RE = re.compile(
+    r"^(retro|unlimited|legacy_pokemon|rs_pk.*|adv.*|ex_.*|dp_.*|dp$|pl_.*|hgss.*|bw_.*|bw$|xy_.*|xy$|sm_.*|sm$|swsh.*|base_.*|neo_.*|worlds_.*|20[012]\d.*|.*_series|.*regulation.*|expanded_bw.*)$"
+)
+_POKEMON_RETRO_SQL_REGEX = (
+    r"^(retro|unlimited|legacy_pokemon|rs_pk|adv|ex_|dp_|dp$|pl_|hgss|bw_|bw$|xy_|xy$|sm_|sm$|swsh|base_|neo_|worlds_|20[012][0-9]|.*_series$|.*regulation|expanded_bw)"
+)
+
+_SYSTEM_RAW_TO_CANON_FORMAT: Dict[str, Dict[str, str]] = {
+    "mtg": {
+        "commander": "commander", "cedh": "commander", "edh": "commander", "multiplayer": "commander",
+        "duel_commander": "duel_commander", "1v1_commander": "duel_commander", "centurion": "duel_commander",
+        "standard": "standard", "constructed": "standard",
+        "modern": "modern",
+        "legacy": "legacy",
+        "pioneer": "pioneer",
+        "pauper": "pauper",
+        "limited": "limited", "draft": "limited", "sealed": "limited", "prerelease": "limited",
+        "vintage": "vintage",
+        "highlander": "highlander", "premodern": "highlander", "canlander": "highlander", "canadian_highlander": "highlander",
+    },
+    "pokemon": {
+        "standard": "standard", "constructed": "standard",
+        "glc": "glc", "gym_leader": "glc", "gym_leader_challenge": "glc",
+        "expanded": "expanded",
+        "limited": "limited", "draft": "limited", "sealed": "limited", "prerelease": "limited",
+        "retro": "retro",
+    },
+    "sw_unlimited": {
+        "premier": "premier", "standard": "premier", "constructed": "premier",
+        "twin_suns": "twin_suns", "twinsuns": "twin_suns",
+        "limited": "limited", "draft": "limited", "sealed": "limited", "prerelease": "limited",
+    },
+    "lorcana": {
+        "core_constructed": "core_constructed", "constructed": "core_constructed", "core": "core_constructed", "standard": "core_constructed",
+        "limited": "limited", "draft": "limited", "sealed": "limited", "pack_rush": "limited", "prerelease": "limited",
+        "infinity": "infinity", "infinity_constructed": "infinity",
+    },
+    "flesh_blood": {
+        "classic_constructed": "classic_constructed", "cc": "classic_constructed", "standard": "classic_constructed", "constructed": "classic_constructed",
+        "blitz": "blitz",
+        "living_legend": "living_legend", "ll": "living_legend",
+        "commoner": "commoner",
+        "limited": "limited", "draft": "limited", "sealed": "limited", "prerelease": "limited",
+    },
+}
+
+
+def canonicalize_system_format_tag(game_system: Optional[str], raw_tag: Optional[str]) -> Optional[str]:
+    """Maps a raw `events.format_tag` or query parameter to a clean canonical format code for `game_system`, or `None` if noise/invalid."""
+    sys_l = (game_system or "40k").strip().lower()
+    t = re.sub(r"[^a-z0-9_]+", "_", (raw_tag or "").strip().lower()).strip("_")
+    if t in _NOISE_FORMAT_TAGS:
+        return None
+
+    if sys_l in _MASS_WARGAME_SYSTEMS:
+        if t in ("standard_2000", "strike_force", "strike_force_2000", "pitched_battle", "pitched_battle_2000", "2000", "2000pt", "standard"):
+            return "standard_2000"
+        if t in ("incursion_1000", "incursion", "spearhead", "vanguard", "1000", "1000pt", "small_points"):
+            return "incursion_1000"
+        if sys_l == "40k" and t in ("combat_patrol", "boarding_actions", "crusade"):
+            return t
+        if sys_l == "aos" and t in ("path_to_glory", "crusade"):
+            return "path_to_glory"
+        return None
+
+    if sys_l in _SYSTEM_RAW_TO_CANON_FORMAT:
+        mapped = _SYSTEM_RAW_TO_CANON_FORMAT[sys_l].get(t)
+        if mapped:
+            return mapped
+        if sys_l == "pokemon" and _POKEMON_RETRO_TAG_RE.match(t):
+            return "retro"
+        return None
+
+    if sys_l in _SKIRMISH_MINIATURE_SYSTEMS:
+        if t in ("standard_2000", "standard", "constructed", "premier"):
+            return "standard"
+        if t in ("incursion_1000", "skirmish", "skirmish_small", "recon"):
+            return "skirmish_small"
+        if t in ("commander", "duel_commander", "modern", "legacy", "pioneer", "pauper", "vintage", "twin_suns", "twinsuns", "glc", "expanded"):
+            return None
+        return t[:32]
+
+    # Other TCGs (One Piece, Digimon, Gundam, Yu-Gi-Oh!, Riftbound, etc.)
+    if t in ("standard_2000", "incursion_1000", "commander", "duel_commander", "twin_suns", "twinsuns", "glc"):
+        return None
+    if t in ("constructed", "core", "core_constructed", "premier"):
+        return "standard"
+    if t in ("draft", "sealed", "prerelease", "booster"):
+        return "limited"
+    return t[:32]
+
+
+def format_label_for_system(game_system: Optional[str], fmt_code: str) -> str:
+    sys_l = (game_system or "40k").strip().lower()
+    sys_map = SYSTEM_FORMAT_LABELS.get(sys_l)
+    if sys_map and fmt_code in sys_map:
+        return sys_map[fmt_code]
+    if fmt_code in FORMAT_DISPLAY_NAMES:
+        return FORMAT_DISPLAY_NAMES[fmt_code]
+    return fmt_code.replace("_", " ").title()
+
+
+def format_options_for_system(game_system: Optional[str], raw_fmt_counts: Dict[str, int]) -> List[Dict[str, Any]]:
+    """Aggregates raw DB `format_tag` counts into clean, game-system-specific format options."""
+    merged: Dict[str, int] = {}
+    for raw_k, cnt in (raw_fmt_counts or {}).items():
+        if not cnt or cnt <= 0:
+            continue
+        canon = canonicalize_system_format_tag(game_system, raw_k)
+        if not canon:
+            continue
+        merged[canon] = merged.get(canon, 0) + int(cnt)
+    return [
+        {"code": k, "label": format_label_for_system(game_system, k), "count": v}
+        for k, v in sorted(merged.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+
+
+def expand_system_format_sql_predicate(
+    game_system: Optional[str],
+    event_format: str,
+    col_expr: str,
+) -> Tuple[str, List[Any]]:
+    """Builds a parameterized PostgreSQL predicate matching all raw `format_tag` aliases of `event_format`."""
+    sys_l = (game_system or "40k").strip().lower()
+    canon = canonicalize_system_format_tag(sys_l, event_format) or event_format.strip().lower()
+    if sys_l == "pokemon" and canon == "retro":
+        return f"({col_expr} = %s OR {col_expr} ~ %s)", ["retro", _POKEMON_RETRO_SQL_REGEX]
+
+    if sys_l in _SYSTEM_RAW_TO_CANON_FORMAT:
+        aliases = sorted({raw_k for raw_k, c_val in _SYSTEM_RAW_TO_CANON_FORMAT[sys_l].items() if c_val == canon} | {canon})
+    elif sys_l in _MASS_WARGAME_SYSTEMS:
+        if canon == "standard_2000":
+            aliases = ["standard_2000", "standard", "strike_force", "strike_force_2000", "pitched_battle", "pitched_battle_2000"]
+        elif canon == "incursion_1000":
+            aliases = ["incursion_1000", "incursion", "spearhead", "vanguard", "small_points"]
+        elif sys_l == "aos" and canon == "path_to_glory":
+            aliases = ["path_to_glory", "crusade"]
+        else:
+            aliases = [canon]
+    elif sys_l in _SKIRMISH_MINIATURE_SYSTEMS and canon == "standard":
+        aliases = ["standard", "standard_2000", "constructed"]
+    elif sys_l in _SKIRMISH_MINIATURE_SYSTEMS and canon == "skirmish_small":
+        aliases = ["skirmish_small", "incursion_1000", "skirmish", "recon"]
+    elif canon == "standard":
+        aliases = ["standard", "constructed", "core", "core_constructed", "premier"]
+    elif canon == "limited":
+        aliases = ["limited", "draft", "sealed", "prerelease"]
+    else:
+        aliases = [canon]
+
+    if len(aliases) == 1:
+        return f"{col_expr} = %s", [aliases[0]]
+    return f"{col_expr} = ANY(%s)", [aliases]
 
 _ONLINE_WORD_RE = re.compile(
     r"\b(tts|tabletop\s+simulator|wartable|vassal|cockatrice|untap|octgn|mtgo|mtg\s+arena|ptcg\s+live|optcg\s+sim|spelltable|webcam)\b",
@@ -445,7 +658,7 @@ def _normalize_format_slug(raw_fmt: str, game_system: str, structure_tag: str, p
     t_low = (title or "").strip().lower()
 
     # Wargames (40k, AoS, etc.) never use TCG 'commander' format slug
-    if sys_l in ("40k", "aos", "the_old_world", "horus_heresy", "kings_of_war", "conquest", "bolt_action"):
+    if sys_l in _MASS_WARGAME_SYSTEMS:
         if points_val >= 1750:
             return "standard_2000"
         if (250 <= points_val <= 1500) or _SMALL_PTS_RE.search(t_low):
@@ -453,7 +666,14 @@ def _normalize_format_slug(raw_fmt: str, game_system: str, structure_tag: str, p
         return "standard_2000"
 
     if structure_tag == "ffa_pod":
-        return "commander"
+        if sys_l == "sw_unlimited":
+            return "twin_suns"
+        if sys_l == "mtg":
+            return "commander"
+
+    f_clean_token = re.sub(r"[^a-z0-9_]+", "_", f_low).strip("_")
+    if f_clean_token in _NOISE_FORMAT_TAGS:
+        f_low = ""
 
     if not f_low and t_low:
         for kw, slug in (
@@ -472,32 +692,41 @@ def _normalize_format_slug(raw_fmt: str, game_system: str, structure_tag: str, p
             ("classic constructed", "classic_constructed"),
             ("blitz", "blitz"),
             ("twin suns", "twin_suns"),
+            ("twinsuns", "twin_suns"),
         ):
             if re.search(rf"\b{re.escape(kw)}\b", t_low):
-                return slug
+                canon_kw = canonicalize_system_format_tag(sys_l, slug)
+                if canon_kw:
+                    return canon_kw
 
-    if any(k in f_low for k in ("draft", "sealed", "limited", "prerelease", "booster")):
+    if any(k in f_low for k in ("draft", "sealed", "limited", "prerelease", "booster", "pack rush")):
         return "limited"
     if "duel commander" in f_low or "1v1 commander" in f_low or "centurion" in f_low:
-        return "duel_commander"
+        return "duel_commander" if sys_l == "mtg" else "standard"
     if any(k in f_low for k in ("commander", "cedh", "edh", "multiplayer")):
-        return "commander"
+        if sys_l == "sw_unlimited":
+            return "twin_suns"
+        return "commander" if sys_l == "mtg" else "standard"
     if "modern" in f_low and "premodern" not in f_low:
-        return "modern"
-    if "legacy" in f_low:
-        return "legacy"
+        return "modern" if sys_l == "mtg" else "standard"
+    if "legacy" in f_low and "legacy_pokemon" not in f_clean_token:
+        return "legacy" if sys_l == "mtg" else ("retro" if sys_l == "pokemon" else "standard")
     if "pioneer" in f_low:
-        return "pioneer"
+        return "pioneer" if sys_l == "mtg" else "standard"
     if "pauper" in f_low:
-        return "pauper"
+        return "pauper" if sys_l == "mtg" else "standard"
     if "vintage" in f_low:
-        return "vintage"
+        return "vintage" if sys_l == "mtg" else "standard"
     if "highlander" in f_low or "premodern" in f_low or "canlander" in f_low:
-        return "highlander"
+        return "highlander" if sys_l == "mtg" else "standard"
     if "expanded" in f_low:
+        if sys_l == "pokemon" and "bw" in f_low:
+            return "retro"
         return "expanded"
     if "glc" in f_low or "gym leader" in f_low:
         return "glc"
+    if sys_l == "pokemon" and _POKEMON_RETRO_TAG_RE.match(f_clean_token):
+        return "retro"
     if any(k in f_low for k in ("retro", "rs-pk", "dp-", "bw-", "xy-", "sm-", "adv", "base-")):
         return "retro"
     if "classic constructed" in f_low or f_low == "cc":
@@ -506,13 +735,15 @@ def _normalize_format_slug(raw_fmt: str, game_system: str, structure_tag: str, p
         return "blitz"
     if "living legend" in f_low:
         return "living_legend"
-    if "twin suns" in f_low:
+    if "commoner" in f_low:
+        return "commoner"
+    if "twin suns" in f_low or "twinsuns" in f_low:
         return "twin_suns"
     if "premier" in f_low:
         return "premier"
-    if "core" in f_low:
+    if "core" in f_low or (sys_l == "lorcana" and "constructed" in f_low):
         return "core_constructed"
-    if "standard" in f_low or not f_low:
+    if "standard" in f_low or "constructed" in f_low or not f_low:
         if sys_l == "sw_unlimited":
             return "premier"
         if sys_l == "lorcana":
@@ -521,8 +752,16 @@ def _normalize_format_slug(raw_fmt: str, game_system: str, structure_tag: str, p
             return "classic_constructed"
         return "standard"
 
-    clean = re.sub(r"[^a-z0-9]+", "_", f_low).strip("_")[:32]
-    return clean or "standard"
+    canon_clean = canonicalize_system_format_tag(sys_l, f_clean_token)
+    if canon_clean:
+        return canon_clean
+    if sys_l == "sw_unlimited":
+        return "premier"
+    if sys_l == "lorcana":
+        return "core_constructed"
+    if sys_l == "flesh_blood":
+        return "classic_constructed"
+    return "standard"
 
 
 def classify_event_structure_and_format(
@@ -622,6 +861,7 @@ def classify_event_structure_and_format(
 VALID_VENUE_MODES = frozenset({"all", "in_person", "online"})
 VALID_STRUCTURES = frozenset({"all", "singles", "teams", "doubles", "ffa_pod"})
 VALID_REGIONS = frozenset({"all", "NA", "UK_IE", "EU", "OCE", "ASIA", "LATAM", "OTHER"})
+VALID_ELO_MODES = frozenset({"both", "pilot"})
 
 
 @dataclass(frozen=True)
@@ -637,6 +877,7 @@ class MetaFilterSpec:
     country: str = "all"
     state: str = "all"
     elo_floor: int = 0
+    elo_mode: str = "both"
 
     def is_default(self) -> bool:
         return (
@@ -692,7 +933,10 @@ class MetaFilterSpec:
         if self.state != "all":
             parts.append(f"st_{self.state}")
         if self.elo_floor > 0:
-            parts.append(f"elo{self.elo_floor}")
+            if self.elo_mode == "pilot":
+                parts.append(f"elop{self.elo_floor}")
+            else:
+                parts.append(f"elo{self.elo_floor}")
         return "__" + "_".join(parts)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -708,6 +952,7 @@ class MetaFilterSpec:
             "country": self.country,
             "state": self.state,
             "elo_floor": self.elo_floor,
+            "elo_mode": self.elo_mode if self.elo_floor > 0 else "both",
             "is_filtered": not self.is_default(),
         }
 
@@ -724,6 +969,7 @@ def parse_meta_filters(
     country: Optional[str] = None,
     state: Optional[str] = None,
     elo_floor: Any = 0,
+    elo_mode: Optional[str] = None,
 ) -> MetaFilterSpec:
     """Normalizes raw HTTP/Python filter inputs into a safe `MetaFilterSpec`."""
     try:
@@ -790,15 +1036,21 @@ def parse_meta_filters(
         st = st_up if st_up in US_STATE_CODES else US_STATE_NAME_TO_CODE.get(st_raw.lower(), re.sub(r"[^A-Za-z0-9 ]+", "", st_raw)[:24] or "all")
 
     try:
-        ef_elo = int(elo_floor or 0)
+        ef_elo = int(float(elo_floor or 0))
     except (TypeError, ValueError):
         ef_elo = 0
-    if ef_elo >= 1650:
-        ef_elo = 1650
-    elif ef_elo >= 1550:
-        ef_elo = 1550
-    else:
+    if ef_elo <= 0:
         ef_elo = 0
+    else:
+        ef_elo = max(1000, min(3500, ef_elo))
+
+    em_raw = str(elo_mode or "both").strip().lower().replace("-", "_")
+    if em_raw in ("pilot", "any", "single", "one", "pilot_only"):
+        em = "pilot"
+    else:
+        em = "both"
+    if ef_elo <= 0:
+        em = "both"
 
     return MetaFilterSpec(
         min_players=mp,
@@ -812,4 +1064,5 @@ def parse_meta_filters(
         country=cc,
         state=st,
         elo_floor=ef_elo,
+        elo_mode=em,
     )

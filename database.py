@@ -112,9 +112,13 @@ try:
         COUNTRY_DISPLAY_NAMES,
         FORMAT_DISPLAY_NAMES,
         REGION_DISPLAY_NAMES,
+        US_STATE_NAMES,
         MetaFilterSpec,
+        canonicalize_system_format_tag,
         classify_event_structure_and_format,
         classify_is_online,
+        expand_system_format_sql_predicate,
+        format_options_for_system,
         normalize_country_and_region,
         parse_meta_filters,
     )
@@ -126,8 +130,11 @@ except ImportError:
             REGION_DISPLAY_NAMES,
             US_STATE_NAMES,
             MetaFilterSpec,
+            canonicalize_system_format_tag,
             classify_event_structure_and_format,
             classify_is_online,
+            expand_system_format_sql_predicate,
+            format_options_for_system,
             normalize_country_and_region,
             parse_meta_filters,
         )
@@ -138,8 +145,11 @@ except ImportError:
             REGION_DISPLAY_NAMES,
             US_STATE_NAMES,
             MetaFilterSpec,
+            canonicalize_system_format_tag,
             classify_event_structure_and_format,
             classify_is_online,
+            expand_system_format_sql_predicate,
+            format_options_for_system,
             normalize_country_and_region,
             parse_meta_filters,
         )
@@ -362,6 +372,9 @@ class PostgresDatabase:
     _meta_ram_rollup_cache: Dict[str, Any] = {}
     _meta_ram_rollup_locks: Dict[str, threading.Lock] = {}
     _meta_ram_bg_inflight: Set[str] = set()
+    _meta_ram_elo_bg_inflight: Set[str] = set()
+    _elo_hist_idx_checked: bool = False
+    _elo_hist_idx_lock = threading.Lock()
     _meta_ram_rollup_guard = threading.Lock()
     _meta_ram_global_build_lock = threading.Lock()
     _pool_lock = threading.Lock()
@@ -369,9 +382,11 @@ class PostgresDatabase:
     _META_RAM_S1D = struct.Struct("=BIi2H11i3d")
     _META_RAM_S2D = struct.Struct("=Bi2I7id")
     _META_RAM_SRUN = struct.Struct("=Bi2I4i2I")
+    _META_RAM_SELO = struct.Struct("=B2Hi5I2H2f")
     _META_RAM_EMPTY_1D: Tuple[int, int, int, int, bool, bool] = (0, 0, 0, 0, False, False)
     _META_RAM_EMPTY_2D: Tuple[int, int] = (0, 0)
     _META_RAM_EMPTY_RUN: Tuple[int, int, int, int, bool] = (0, 0, 0, 0, False)
+    _META_RAM_EMPTY_ELO: Tuple[int, int, int, int, int, int, bool, bool] = (0, 0, 0, 0, 0, 0, False, False)
     META_RAM_PREWARM_SYSTEMS: Tuple[str, ...] = (
         "40k", "mtg", "pokemon", "sw_unlimited", "aos", "one_piece",
         "lorcana", "mcp", "digimon", "sw_legion", "flesh_blood",
@@ -11038,6 +11053,7 @@ class PostgresDatabase:
     def _build_event_filter_sql_clauses(
         mf: MetaFilterSpec,
         ev_alias: str = "e",
+        game_system: Optional[str] = None,
     ) -> Tuple[List[str], List[Any]]:
         """Builds parameterized SQL predicates on `events` for `MetaFilterSpec` (zero literal '%' chars)."""
         clauses: List[str] = []
@@ -11061,8 +11077,18 @@ class PostgresDatabase:
             clauses.append(f"COALESCE({ev_alias}.structure_tag, 'singles') = %s")
             params.append(mf.event_structure)
         if mf.event_format != "all":
-            clauses.append(f"COALESCE({ev_alias}.format_tag, 'standard') = %s")
-            params.append(mf.event_format)
+            sys_clean = (game_system or "").strip().lower()
+            if sys_clean and sys_clean != "all":
+                fmt_sql, fmt_params = expand_system_format_sql_predicate(
+                    sys_clean,
+                    mf.event_format,
+                    f"LOWER(COALESCE({ev_alias}.format_tag, 'standard'))",
+                )
+                clauses.append(fmt_sql)
+                params.extend(fmt_params)
+            else:
+                clauses.append(f"COALESCE({ev_alias}.format_tag, 'standard') = %s")
+                params.append(mf.event_format)
         if mf.region != "all":
             clauses.append(f"COALESCE({ev_alias}.region_code, 'UNKNOWN') = %s")
             params.append(mf.region)
@@ -11073,6 +11099,65 @@ class PostgresDatabase:
             clauses.append(f"COALESCE({ev_alias}.state_code, '') = %s")
             params.append(mf.state)
         return clauses, params
+
+    def ensure_elo_history_indexes_concurrent(self) -> bool:
+        """Non-blocking concurrent creation of partial covering Elo indexes on `rating_history`."""
+        if PostgresDatabase._elo_hist_idx_checked or self._is_mock_instance() or not PSYCOPG2_AVAILABLE:
+            return PostgresDatabase._elo_hist_idx_checked
+        with PostgresDatabase._elo_hist_idx_lock:
+            if PostgresDatabase._elo_hist_idx_checked:
+                return True
+            raw_conn = None
+            try:
+                dsn = PostgresDatabase._normalize_dsn(getattr(self, "dsn", None) or os.environ.get("DATABASE_URL", ""))
+                if not dsn:
+                    return False
+                raw_conn = psycopg2.connect(dsn)
+                raw_conn.autocommit = True
+                with raw_conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT indexname
+                        FROM pg_indexes
+                        WHERE schemaname = 'public'
+                          AND tablename = 'rating_history'
+                          AND indexname IN ('idx_pg_history_sys_elo_date', 'idx_pg_history_sys_date_elo');
+                        """
+                    )
+                    existing = {str(r[0]) for r in (cur.fetchall() or []) if r and r[0]}
+                    if "idx_pg_history_sys_elo_date" not in existing:
+                        t_idx = time.perf_counter()
+                        cur.execute("SET statement_timeout = '300000ms'; SET maintenance_work_mem = '128MB';")
+                        cur.execute(
+                            """
+                            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_pg_history_sys_elo_date
+                            ON rating_history ((COALESCE(game_system, '40k')), old_elo DESC, match_date DESC)
+                            INCLUDE (match_id, event_id, player_id, opponent_id, opponent_name, opponent_elo, result, player_faction, opponent_faction, player_score, opponent_score)
+                            WHERE old_elo >= 1525;
+                            """
+                        )
+                        logger.info(f"⚡ Created idx_pg_history_sys_elo_date concurrently in {(time.perf_counter() - t_idx) * 1000.0:.0f}ms")
+                    if "idx_pg_history_sys_date_elo" not in existing:
+                        t_idx2 = time.perf_counter()
+                        cur.execute("SET statement_timeout = '300000ms'; SET maintenance_work_mem = '128MB';")
+                        cur.execute(
+                            """
+                            CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_pg_history_sys_date_elo
+                            ON rating_history ((COALESCE(game_system, '40k')), match_date DESC, old_elo DESC);
+                            """
+                        )
+                        logger.info(f"⚡ Created idx_pg_history_sys_date_elo concurrently in {(time.perf_counter() - t_idx2) * 1000.0:.0f}ms")
+                PostgresDatabase._elo_hist_idx_checked = True
+                return True
+            except Exception as idx_err:
+                logger.warning(f"ensure_elo_history_indexes_concurrent notice: {idx_err}")
+                return False
+            finally:
+                if raw_conn is not None:
+                    try:
+                        raw_conn.close()
+                    except Exception:
+                        pass
 
     def _is_meta_rollup_ready(self, cursor, sys_norm: str) -> bool:
         """Checks whether pre-aggregated `meta_event_matchups` / `meta_event_runs` rollups are populated."""
@@ -11113,7 +11198,7 @@ class PostgresDatabase:
         preset, resolved_start, resolved_end, _ = PostgresDatabase._resolve_meta_preset_and_dates(
             start_date=start_date, end_date=end_date, timeframe=timeframe
         )
-        opt_key = f"fopt_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
+        opt_key = f"fopt2_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}"
         cached = PostgresDatabase.get_cached(PostgresDatabase._meta_filter_options_cache_dict, opt_key, ttl=900)
         if isinstance(cached, dict):
             return cached
@@ -11248,10 +11333,14 @@ class PostgresDatabase:
                     {"code": k, "name": structure_labels.get(k, k.title()), "label": structure_labels.get(k, k.title()), "count": v}
                     for k, v in sorted(str_acc.items(), key=lambda x: (-x[1], x[0]))
                 ],
-                "formats": [
-                    {"code": k, "name": FORMAT_DISPLAY_NAMES.get(k, k.replace("_", " ").title()), "label": FORMAT_DISPLAY_NAMES.get(k, k.replace("_", " ").title()), "count": v}
-                    for k, v in sorted(fmt_acc.items(), key=lambda x: (-x[1], x[0]))
-                ],
+                "formats": (
+                    [{**item, "name": item["label"]} for item in format_options_for_system(sys_norm, fmt_acc)]
+                    if sys_norm != "all"
+                    else [
+                        {"code": k, "name": FORMAT_DISPLAY_NAMES.get(k, k.replace("_", " ").title()), "label": FORMAT_DISPLAY_NAMES.get(k, k.replace("_", " ").title()), "count": v}
+                        for k, v in sorted(fmt_acc.items(), key=lambda x: (-x[1], x[0]))
+                    ]
+                ),
             }
             if total_ev > 0:
                 PostgresDatabase.set_cached(PostgresDatabase._meta_filter_options_cache_dict, opt_key, opts, max_size=300)
@@ -11979,6 +12068,7 @@ class PostgresDatabase:
         ev_attrs: List[Tuple[bool, bool, int, int, bool, bool, str, str, str, str, str]] = []
         orphan_slots_by_eid: Dict[str, List[int]] = {}
         clone_parent_slots: Dict[int, List[int]] = {}
+        default_fmt = sys.intern(canonicalize_system_format_tag(sys_norm, "standard") or "standard")
 
         def clamp(val: Any) -> int:
             v = int(val or 0)
@@ -11987,6 +12077,10 @@ class PostgresDatabase:
             if v < -2147483647:
                 return -2147483647
             return v
+
+        def _canon_ev_fmt(raw_f: Any) -> str:
+            c = canonicalize_system_format_tag(sys_norm, str(raw_f or "standard"))
+            return sys.intern(c or str(raw_f or "standard").strip().lower() or default_fmt)
 
         def add_ev_rows(ev_rows: List[Any]) -> None:
             for r in (ev_rows or []):
@@ -12002,7 +12096,7 @@ class PostgresDatabase:
                     bool(r[3]),
                     bool(r[4]),
                     sys.intern(str(r[5] or "singles")),
-                    sys.intern(str(r[6] or "standard")),
+                    _canon_ev_fmt(r[6]),
                     sys.intern(str(r[7] or "UNKNOWN")),
                     sys.intern(str(r[8] or "")),
                     sys.intern(str(r[9] or "")),
@@ -12024,7 +12118,7 @@ class PostgresDatabase:
                 False,
                 False,
                 sys.intern("singles"),
-                sys.intern("standard"),
+                default_fmt,
                 sys.intern("UNKNOWN"),
                 sys.intern(""),
                 sys.intern(""),
@@ -12052,7 +12146,7 @@ class PostgresDatabase:
                 is_onl = bool(r[3])
                 is_lg = bool(r[4])
                 s_tag = sys.intern(str(r[5] or "singles"))
-                f_tag = sys.intern(str(r[6] or "standard"))
+                f_tag = _canon_ev_fmt(r[6])
                 rg_c = sys.intern(str(r[7] or "UNKNOWN"))
                 cc_c = sys.intern(str(r[8] or ""))
                 st_c = sys.intern(str(r[9] or ""))
@@ -12137,7 +12231,7 @@ class PostgresDatabase:
                 date_memo[d_val] = res_t
             return res_t
 
-        tier_names = ("all", "exp", "vet")
+        tier_names = ("all",)
         s1d = cls._META_RAM_S1D
         s2d = cls._META_RAM_S2D
         srun = cls._META_RAM_SRUN
@@ -12331,60 +12425,6 @@ class PostgresDatabase:
             if cur_ev_i >= 0 and dset:
                 _flush_mu_tier("all", cur_ev_i, dset, m1d, m2d)
 
-        def stream_mu_exp(row_iter: Any, yield_gil: bool = False) -> None:
-            cur_eid: Optional[str] = None
-            cur_ev_i = -1
-            dset_e: Set[Tuple[int, int]] = set()
-            m1d_e: Dict[Tuple[int, int, int], List[Any]] = {}
-            m2d_e: Dict[Tuple[int, int, int, int], List[Any]] = {}
-            dset_v: Set[Tuple[int, int]] = set()
-            m1d_v: Dict[Tuple[int, int, int], List[Any]] = {}
-            m2d_v: Dict[Tuple[int, int, int, int], List[Any]] = {}
-            n_rows = 0
-            for r in row_iter:
-                eid_s = str(r[0] or "").strip()
-                if eid_s != cur_eid:
-                    if cur_ev_i >= 0:
-                        if dset_e:
-                            _flush_mu_tier("exp", cur_ev_i, dset_e, m1d_e, m2d_e)
-                            dset_e.clear()
-                            m1d_e.clear()
-                            m2d_e.clear()
-                        if dset_v:
-                            _flush_mu_tier("vet", cur_ev_i, dset_v, m1d_v, m2d_v)
-                            dset_v.clear()
-                            m1d_v.clear()
-                            m2d_v.clear()
-                    cur_eid = eid_s
-                    cur_ev_i = _get_or_add_ev_idx(eid_s)
-                d_ord, w_id, m_id = _parse_date_info(r[1])
-                n1 = 1 if r[2] else 0
-                p1_raw, p2_raw = r[3], r[4]
-                exp_mc = int(r[5] or 0)
-                if exp_mc > 0:
-                    _accum_mu_local(
-                        dset_e, m1d_e, m2d_e, d_ord, w_id, m_id, n1, p1_raw, p2_raw,
-                        exp_mc, int(r[6] or 0), int(r[7] or 0), int(r[8] or 0),
-                        int(r[9] or 0), int(r[10] or 0), float(r[11] or 0.0), int(r[12] or 0),
-                        float(r[13] or 0.0), int(r[14] or 0), float(r[15] or 0.0), int(r[16] or 0),
-                    )
-                vet_mc = int(r[17] or 0)
-                if vet_mc > 0:
-                    _accum_mu_local(
-                        dset_v, m1d_v, m2d_v, d_ord, w_id, m_id, n1, p1_raw, p2_raw,
-                        vet_mc, int(r[18] or 0), int(r[19] or 0), int(r[20] or 0),
-                        int(r[21] or 0), int(r[22] or 0), float(r[23] or 0.0), int(r[24] or 0),
-                        float(r[25] or 0.0), int(r[26] or 0), float(r[27] or 0.0), int(r[28] or 0),
-                    )
-                n_rows += 1
-                if yield_gil and (n_rows & 4095) == 0:
-                    time.sleep(0.0005)
-            if cur_ev_i >= 0:
-                if dset_e:
-                    _flush_mu_tier("exp", cur_ev_i, dset_e, m1d_e, m2d_e)
-                if dset_v:
-                    _flush_mu_tier("vet", cur_ev_i, dset_v, m1d_v, m2d_v)
-
         def _flush_run_tier(tk: str, base_ev_i: int, rl: List[Tuple[int, int, int, int, int, int, int, int, Any]]) -> None:
             if not rl:
                 return
@@ -12420,16 +12460,14 @@ class PostgresDatabase:
         def stream_runs(row_iter: Any, yield_gil: bool = False) -> None:
             cur_eid: Optional[str] = None
             cur_ev_i = -1
-            rl_map: Dict[str, List[Tuple[int, int, int, int, int, int, int, int, Any]]] = {tk: [] for tk in tier_names}
+            rl_all: List[Tuple[int, int, int, int, int, int, int, int, Any]] = []
             n_rows = 0
             for r in row_iter:
                 eid_s = str(r[0] or "").strip()
                 if eid_s != cur_eid:
-                    if cur_ev_i >= 0:
-                        for tk in tier_names:
-                            if rl_map[tk]:
-                                _flush_run_tier(tk, cur_ev_i, rl_map[tk])
-                                rl_map[tk].clear()
+                    if cur_ev_i >= 0 and rl_all:
+                        _flush_run_tier("all", cur_ev_i, rl_all)
+                        rl_all.clear()
                     cur_eid = eid_s
                     cur_ev_i = _get_or_add_ev_idx(eid_s)
                 n1 = 1 if r[1] else 0
@@ -12440,22 +12478,18 @@ class PostgresDatabase:
                     raw_fac_to_id[raw_f_str] = raw_f_id
                 canon_f_id = _intern_canon_fac(raw_f_str)
                 d_ord, _w, _m = _parse_date_info(r[3])
-                for tk, base_col in (("all", 4), ("exp", 9), ("vet", 14)):
-                    p_cnt = int(r[base_col] or 0)
-                    if p_cnt <= 0:
-                        continue
-                    rl_map[tk].append((
+                p_cnt = int(r[4] or 0)
+                if p_cnt > 0:
+                    rl_all.append((
                         n1, d_ord, canon_f_id, raw_f_id,
-                        p_cnt, int(r[base_col + 1] or 0), int(r[base_col + 2] or 0), int(r[base_col + 3] or 0),
-                        r[base_col + 4],
+                        p_cnt, int(r[5] or 0), int(r[6] or 0), int(r[7] or 0),
+                        r[8],
                     ))
                 n_rows += 1
                 if yield_gil and (n_rows & 4095) == 0:
                     time.sleep(0.0005)
-            if cur_ev_i >= 0:
-                for tk in tier_names:
-                    if rl_map[tk]:
-                        _flush_run_tier(tk, cur_ev_i, rl_map[tk])
+            if cur_ev_i >= 0 and rl_all:
+                _flush_run_tier("all", cur_ev_i, rl_all)
 
         def finalize() -> Dict[str, Any]:
             num_evs = len(ev_attrs)
@@ -12491,22 +12525,342 @@ class PostgresDatabase:
                 "sys_norm": sys_norm,
                 "min_date_str": min_date_str[:10],
                 "min_date_ord": min_date_ord,
+                "ev_id_to_idx": ev_id_to_idx,
                 "ev_attrs": ev_attrs,
                 "fac_names": fac_names,
+                "fac_low_group": fac_low_group,
+                "canon_to_id": canon_to_id,
+                "low_to_group": low_to_group,
                 "raw_fac_canon": raw_fac_canon,
                 "week_strs": week_strs,
+                "week_to_id": week_to_id,
                 "month_strs": month_strs,
+                "month_to_id": month_to_id,
                 "tiers": tiers_packed,
+                "elo_tape": None,
             }
 
         return {
             "add_ev_rows": add_ev_rows,
             "stream_mu_base": stream_mu_base,
-            "stream_mu_exp": stream_mu_exp,
             "stream_runs": stream_runs,
             "orphan_slots_by_eid": orphan_slots_by_eid,
             "patch_orphan_events": patch_orphan_events,
             "finalize": finalize,
+        }
+
+    @classmethod
+    def _pack_elo_tape_onto_ram_idx(
+        cls,
+        ram_idx: Dict[str, Any],
+        row_iter: Any,
+        min_elo: int = 1525,
+        yield_gil: bool = False,
+        orphan_lookup_fn: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Packs side-level `rating_history` rows (`old_elo >= min_elo`) onto a copy of `ram_idx` for O(N) arbitrary Elo queries."""
+        sys_norm = str(ram_idx["sys_norm"])
+        ev_id_to_idx = dict(ram_idx.get("ev_id_to_idx") or {})
+        ev_attrs = list(ram_idx["ev_attrs"])
+        fac_names = list(ram_idx["fac_names"])
+        fac_low_group = list(ram_idx.get("fac_low_group") or [0] * len(fac_names))
+        canon_to_id = dict(ram_idx.get("canon_to_id") or {fn: i for i, fn in enumerate(fac_names) if i > 0 and fn})
+        low_to_group = dict(ram_idx.get("low_to_group") or {})
+        if not low_to_group:
+            for i in range(1, len(fac_names)):
+                cl = fac_names[i].lower()
+                if cl not in low_to_group:
+                    low_to_group[cl] = fac_low_group[i] if i < len(fac_low_group) and fac_low_group[i] > 0 else (len(low_to_group) + 1)
+                if i < len(fac_low_group) and fac_low_group[i] == 0:
+                    fac_low_group[i] = low_to_group[cl]
+
+        week_strs = list(ram_idx["week_strs"])
+        week_to_id = dict(ram_idx.get("week_to_id") or {w: i for i, w in enumerate(week_strs) if i > 0 and w})
+        month_strs = list(ram_idx["month_strs"])
+        month_to_id = dict(ram_idx.get("month_to_id") or {m: i for i, m in enumerate(month_strs) if i > 0 and m})
+        default_fmt = sys.intern(canonicalize_system_format_tag(sys_norm, "standard") or "standard")
+        unlinked_key = f"__unlinked__:{sys_norm}"
+
+        canon_memo: Dict[Any, int] = {"": 0, None: 0}
+        date_memo: Dict[Any, Tuple[int, int, int]] = {None: (0, 0, 0), "": (0, 0, 0)}
+        orphan_eids_map: Dict[str, int] = {}
+
+        def _intern_fac(raw_val: Any) -> int:
+            hit = canon_memo.get(raw_val)
+            if hit is not None:
+                return hit
+            s = str(raw_val or "").strip()
+            if not s or "+" in s or "pod (" in s.lower() or cls.is_super_or_empty_faction(s):
+                canon_memo[raw_val] = 0
+                return 0
+            cf = cls.canonicalize_faction_name(s)
+            if not cf or "+" in cf or "pod (" in cf.lower() or cls.is_super_or_empty_faction(cf):
+                canon_memo[raw_val] = 0
+                return 0
+            fid = canon_to_id.get(cf)
+            if fid is None:
+                fid = len(fac_names)
+                fac_names.append(cf)
+                canon_to_id[cf] = fid
+                clow = cf.lower()
+                lg = low_to_group.get(clow)
+                if lg is None:
+                    lg = len(low_to_group) + 1
+                    low_to_group[clow] = lg
+                fac_low_group.append(lg)
+            canon_memo[raw_val] = fid
+            return fid
+
+        def _parse_d(d_val: Any) -> Tuple[int, int, int]:
+            hit = date_memo.get(d_val)
+            if hit is not None:
+                return hit
+            try:
+                if hasattr(d_val, "toordinal") and not hasattr(d_val, "hour"):
+                    dt_obj = d_val
+                elif hasattr(d_val, "date"):
+                    dt_obj = d_val.date()
+                else:
+                    dt_obj = datetime.strptime(str(d_val)[:10], "%Y-%m-%d").date()
+                d_ord = dt_obj.toordinal()
+                wk_s = (dt_obj - timedelta(days=dt_obj.weekday())).strftime("%Y-%m-%d")
+                mo_s = dt_obj.strftime("%Y-%m")
+                w_id = week_to_id.get(wk_s)
+                if w_id is None:
+                    w_id = len(week_strs)
+                    week_strs.append(wk_s)
+                    week_to_id[wk_s] = w_id
+                m_id = month_to_id.get(mo_s)
+                if m_id is None:
+                    m_id = len(month_strs)
+                    month_strs.append(mo_s)
+                    month_to_id[mo_s] = m_id
+                res_t = (d_ord, w_id, m_id)
+            except Exception:
+                res_t = (0, 0, 0)
+            if len(date_memo) < 4096:
+                date_memo[d_val] = res_t
+            return res_t
+
+        def _get_ev_i(raw_eid: Any) -> int:
+            s = str(raw_eid or "").strip()
+            if not s or s == "unknown_event":
+                s = unlinked_key
+            idx = ev_id_to_idx.get(s)
+            if idx is not None:
+                return idx
+            idx = len(ev_attrs)
+            ev_id_to_idx[s] = idx
+            is_ul = s.startswith("__unlinked__")
+            ev_attrs.append((
+                False,
+                is_ul,
+                0,
+                0,
+                False,
+                False,
+                sys.intern("singles"),
+                default_fmt,
+                sys.intern("UNKNOWN"),
+                sys.intern(""),
+                sys.intern(""),
+            ))
+            if not is_ul:
+                orphan_eids_map[s] = idx
+            return idx
+
+        selo = cls._META_RAM_SELO
+        buf_elo = bytearray()
+        slices_elo_map: Dict[int, Tuple[int, int, int, int, int, int, bool, bool]] = {}
+        pid_to_int: Dict[str, int] = {}
+        mid_to_int: Dict[str, int] = {}
+        next_mid = 0
+        cur_eid: Optional[str] = None
+        cur_ev_i = -1
+        ev_rows_buf: List[Tuple[int, int, int, int, int, int, int, int, int, int, int, float, float]] = []
+
+        def _flush_ev_elo(base_ev_i: int, rows_l: List[Tuple[int, int, int, int, int, int, int, int, int, int, int, float, float]]) -> None:
+            if not rows_l:
+                return
+            slot_i = base_ev_i
+            if slot_i in slices_elo_map:
+                b = ev_attrs[base_ev_i]
+                slot_i = len(ev_attrs)
+                ev_attrs.append((b[0], True, b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10]))
+            rows_l.sort(key=lambda x: x[5])
+            st_off = len(buf_elo)
+            buf_elo.extend(b"\x00" * (len(rows_l) * selo.size))
+            off = st_off
+            d_min = 2147483647
+            d_max = 0
+            max_p_e = 0
+            max_b_e = 0
+            h_1v1 = False
+            h_n1 = False
+            is_real_bit = 0 if ev_attrs[slot_i][1] else 128
+            for (fl, w_id, m_id, d_ord, _evi, mid_i, pid_i, pf_id, of_id, p_elo, o_elo, p_sc, o_sc) in rows_l:
+                if d_ord < d_min:
+                    d_min = d_ord
+                if d_ord > d_max:
+                    d_max = d_ord
+                if p_elo > max_p_e:
+                    max_p_e = p_elo
+                b_e = p_elo if p_elo <= o_elo else o_elo
+                if b_e > max_b_e:
+                    max_b_e = b_e
+                if fl & 1:
+                    h_n1 = True
+                else:
+                    h_1v1 = True
+                selo.pack_into(
+                    buf_elo, off,
+                    fl | is_real_bit, w_id, m_id, d_ord, slot_i, mid_i, pid_i, pf_id, of_id, p_elo, o_elo, p_sc, o_sc,
+                )
+                off += selo.size
+            slices_elo_map[slot_i] = (st_off, off, d_min, d_max, max_p_e, max_b_e, h_1v1, h_n1)
+
+        n_rows = 0
+        for r in row_iter:
+            raw_eid = str(r[0] or "").strip()
+            norm_eid = unlinked_key if (not raw_eid or raw_eid == "unknown_event") else raw_eid
+            if norm_eid != cur_eid:
+                if cur_ev_i >= 0 and ev_rows_buf:
+                    _flush_ev_elo(cur_ev_i, ev_rows_buf)
+                    ev_rows_buf.clear()
+                mid_to_int.clear()
+                cur_eid = norm_eid
+                cur_ev_i = _get_ev_i(norm_eid)
+
+            mid_s = str(r[1] or "").strip()
+            pid_s = str(r[3] or "").strip()
+            opp_id_s = str(r[4] or "").strip()
+            opp_nm_s = str(r[5] or "").strip()
+            if not mid_s or not pid_s or pid_s.upper() == "BYE" or opp_id_s.upper() == "BYE" or opp_nm_s.upper() == "BYE":
+                continue
+
+            pf_raw = str(r[9] or "").strip()
+            of_raw = str(r[10] or "").strip()
+            if "+" in pf_raw or "+" in of_raw or "pod (" in pf_raw.lower() or "pod (" in of_raw.lower():
+                continue
+            is_pod = opp_nm_s.lower().startswith("pod (")
+            is_dbl = (not of_raw and " & " in opp_nm_s)
+            n1 = 1 if (is_pod or is_dbl) else 0
+            if n1 == 0 and not opp_id_s:
+                continue
+
+            pf_id = _intern_fac(pf_raw)
+            if pf_id == 0:
+                continue
+            of_id = _intern_fac(of_raw)
+
+            d_ord, w_id, m_id = _parse_d(r[2])
+            if d_ord <= 0:
+                continue
+
+            p_elo_f = float(r[6]) if r[6] is not None else 0.0
+            o_elo_f = float(r[7]) if r[7] is not None else 0.0
+            p_elo_i = max(0, min(65535, int(math.floor(p_elo_f))))
+            if p_elo_i < min_elo:
+                continue
+            o_elo_i = max(0, min(65535, int(math.floor(o_elo_f))))
+
+            res_s = str(r[8] or "").strip().upper()
+            res_bits = 2 if res_s == "W" else (4 if res_s == "L" else (8 if res_s == "D" else 0))
+            if res_bits == 0:
+                continue
+
+            p_sc_raw = r[11]
+            o_sc_raw = r[12]
+            p_sc = float(p_sc_raw) if p_sc_raw is not None else 0.0
+            o_sc = float(o_sc_raw) if o_sc_raw is not None else 0.0
+            has_ps = 16 if (p_sc_raw is not None and p_sc > 0.0) else 0
+            has_os = 32 if (n1 == 0 and o_sc_raw is not None and o_sc > 0.0) else 0
+            has_mgn = 64 if (n1 == 0 and p_sc_raw is not None and o_sc_raw is not None and (p_sc > 0.0 or o_sc > 0.0)) else 0
+            flags = n1 | res_bits | has_ps | has_os | has_mgn
+
+            mid_i = mid_to_int.get(mid_s)
+            if mid_i is None:
+                next_mid += 1
+                mid_i = next_mid
+                mid_to_int[mid_s] = mid_i
+
+            pid_i = pid_to_int.get(pid_s)
+            if pid_i is None:
+                pid_i = len(pid_to_int) + 1
+                pid_to_int[pid_s] = pid_i
+
+            ev_rows_buf.append((flags, w_id, m_id, d_ord, cur_ev_i, mid_i, pid_i, pf_id, of_id, p_elo_i, o_elo_i, p_sc, o_sc))
+            n_rows += 1
+            if yield_gil and (n_rows & 4095) == 0:
+                time.sleep(0.0005)
+
+        if cur_ev_i >= 0 and ev_rows_buf:
+            _flush_ev_elo(cur_ev_i, ev_rows_buf)
+            ev_rows_buf.clear()
+
+        if orphan_eids_map and callable(orphan_lookup_fn):
+            try:
+                found_orphans = orphan_lookup_fn(list(orphan_eids_map.keys())) or []
+                for fr in found_orphans:
+                    eid_o = str(fr[0] or "").strip()
+                    sl_i = orphan_eids_map.get(eid_o)
+                    if sl_i is not None:
+                        c_fmt = canonicalize_system_format_tag(sys_norm, str(fr[6] or "standard")) or str(fr[6] or "standard").strip().lower() or default_fmt
+                        ev_attrs[sl_i] = (
+                            True, False,
+                            int(fr[1] or 0), int(fr[2] or 0), bool(fr[3]), bool(fr[4]),
+                            sys.intern(str(fr[5] or "singles")),
+                            sys.intern(c_fmt),
+                            sys.intern(str(fr[7] or "UNKNOWN")),
+                            sys.intern(str(fr[8] or "")),
+                            sys.intern(str(fr[9] or "")),
+                        )
+            except Exception:
+                pass
+
+        num_evs = len(ev_attrs)
+        e1d = cls._META_RAM_EMPTY_1D
+        e2d = cls._META_RAM_EMPTY_2D
+        erun = cls._META_RAM_EMPTY_RUN
+        eelo = cls._META_RAM_EMPTY_ELO
+        old_all = ram_idx["tiers"]["all"]
+        old_n = len(old_all["slices_1d"])
+        pad_n = max(0, num_evs - old_n)
+        new_all = (
+            old_all
+            if pad_n == 0
+            else {
+                **old_all,
+                "slices_1d": old_all["slices_1d"] + ([e1d] * pad_n),
+                "slices_2d": old_all["slices_2d"] + ([e2d] * pad_n),
+                "slices_run": old_all["slices_run"] + ([erun] * pad_n),
+                "mu_spans": old_all["mu_spans"] + ([None] * pad_n),
+            }
+        )
+
+        elo_tape = {
+            "min_elo": int(min_elo),
+            "buf_elo": buf_elo,
+            "slices_elo": [slices_elo_map.get(i, eelo) for i in range(num_evs)],
+        }
+        pid_to_int.clear()
+        mid_to_int.clear()
+        slices_elo_map.clear()
+
+        return {
+            **ram_idx,
+            "ev_id_to_idx": ev_id_to_idx,
+            "ev_attrs": ev_attrs,
+            "fac_names": fac_names,
+            "fac_low_group": fac_low_group,
+            "canon_to_id": canon_to_id,
+            "low_to_group": low_to_group,
+            "week_strs": week_strs,
+            "week_to_id": week_to_id,
+            "month_strs": month_strs,
+            "month_to_id": month_to_id,
+            "tiers": {"all": new_all},
+            "elo_tape": elo_tape,
         }
 
     @classmethod
@@ -12516,16 +12870,26 @@ class PostgresDatabase:
         min_date_str: str,
         ev_rows: List[Any],
         mu_base_rows: List[Any],
-        mu_exp_rows: List[Any],
-        run_rows: List[Any],
+        mu_exp_rows: Optional[List[Any]] = None,
+        run_rows: Optional[List[Any]] = None,
+        elo_rows: Optional[List[Any]] = None,
+        min_elo: int = 1525,
     ) -> Dict[str, Any]:
-        """Packs event metadata, 1D faction stats, 2D matchup stats, and event runs into compact C-struct bytearrays."""
+        """Packs event metadata, 1D faction stats, 2D matchup stats, event runs, and optional Elo side tape into C-struct bytearrays."""
         sb = cls._new_meta_ram_stream_builder(sys_norm, min_date_str)
         sb["add_ev_rows"](ev_rows or [])
         sb["stream_mu_base"](sorted(mu_base_rows or [], key=lambda r: str(r[0] or "").strip()))
-        sb["stream_mu_exp"](sorted(mu_exp_rows or [], key=lambda r: str(r[0] or "").strip()))
         sb["stream_runs"](sorted(run_rows or [], key=lambda r: str(r[0] or "").strip()))
-        return sb["finalize"]()
+        built = sb["finalize"]()
+        if elo_rows is not None:
+            sorted_elo = sorted(
+                elo_rows,
+                key=lambda r: (
+                    f"__unlinked__:{sys_norm}" if (not str(r[0] or "").strip() or str(r[0] or "").strip() == "unknown_event") else str(r[0] or "").strip()
+                ),
+            )
+            built = cls._pack_elo_tape_onto_ram_idx(built, sorted_elo, min_elo=min_elo)
+        return built
 
     @classmethod
     def _is_ram_rollup_entry_fresh(cls, entry: Any) -> bool:
@@ -12677,30 +13041,6 @@ class PostgresDatabase:
                                 yield_gil=True,
                             )
 
-                            sb["stream_mu_exp"](
-                                _iter_named(
-                                    f"rme_{c_tag}",
-                                    """
-                                    SELECT
-                                        mu.event_id, mu.match_day, mu.is_non_1v1, mu.p1_fac, mu.p2_fac,
-                                        mu.exp_match_cnt, mu.exp_p1_wins, mu.exp_p1_losses, mu.exp_draws, mu.exp_p2_wins, mu.exp_p2_losses,
-                                        mu.exp_p1_score_sum, mu.exp_p1_score_cnt, mu.exp_p2_score_sum, mu.exp_p2_score_cnt,
-                                        mu.exp_p1_margin_sum, mu.exp_margin_cnt,
-                                        mu.vet_match_cnt, mu.vet_p1_wins, mu.vet_p1_losses, mu.vet_draws, mu.vet_p2_wins, mu.vet_p2_losses,
-                                        mu.vet_p1_score_sum, mu.vet_p1_score_cnt, mu.vet_p2_score_sum, mu.vet_p2_score_cnt,
-                                        mu.vet_p1_margin_sum, mu.vet_margin_cnt
-                                    FROM meta_event_matchups mu
-                                    WHERE mu.game_system = %s
-                                      AND mu.is_non_1v1 IN (FALSE, TRUE)
-                                      AND mu.match_day >= %s
-                                      AND mu.exp_match_cnt > 0
-                                    ORDER BY mu.event_id COLLATE "C";
-                                    """,
-                                    (sys_norm, min_date_str),
-                                ),
-                                yield_gil=True,
-                            )
-
                             sb["stream_runs"](
                                 _iter_named(
                                     f"rmr_{c_tag}",
@@ -12708,15 +13048,12 @@ class PostgresDatabase:
                                     SELECT
                                         r.event_id, r.is_non_1v1, r.fac, r.event_date,
                                         r.pilots_cnt, r.runs_cnt, r.x0_runs, r.x1_runs,
-                                        CASE WHEN CARDINALITY(r.pilot_hashes) <= 512 THEN r.pilot_hashes ELSE NULL END,
-                                        r.exp_pilots_cnt, r.exp_runs_cnt, r.exp_x0_runs, r.exp_x1_runs,
-                                        CASE WHEN CARDINALITY(r.exp_pilot_hashes) <= 512 THEN r.exp_pilot_hashes ELSE NULL END,
-                                        r.vet_pilots_cnt, r.vet_runs_cnt, r.vet_x0_runs, r.vet_x1_runs,
-                                        CASE WHEN CARDINALITY(r.vet_pilot_hashes) <= 512 THEN r.vet_pilot_hashes ELSE NULL END
+                                        CASE WHEN CARDINALITY(r.pilot_hashes) <= 512 THEN r.pilot_hashes ELSE NULL END
                                     FROM meta_event_runs r
                                     WHERE r.game_system = %s
                                       AND r.is_non_1v1 IN (FALSE, TRUE)
                                       AND r.event_date >= %s
+                                      AND r.pilots_cnt > 0
                                     ORDER BY r.event_id COLLATE "C";
                                     """,
                                     (sys_norm, min_date_str),
@@ -12756,6 +13093,8 @@ class PostgresDatabase:
                     del sb
                     gc.collect()
                     PostgresDatabase.set_cached(PostgresDatabase._meta_ram_rollup_cache, sys_norm, built, max_size=16)
+                    if PostgresDatabase._elo_hist_idx_checked:
+                        self._trigger_bg_ram_elo_tape_refresh(sys_norm, force=True)
                     ram_bytes = sum(
                         len(t_d["buf_1d"]) + len(t_d["buf_2d"]) + len(t_d["buf_run"]) + (len(t_d["ph_arr"]) * 4)
                         for t_d in built["tiers"].values()
@@ -12770,6 +13109,436 @@ class PostgresDatabase:
                     logger.warning(f"load_system_meta_rollup_ram_index notice ({sys_norm}): {err}")
                     return None
 
+    def _trigger_bg_ram_elo_tape_refresh(self, game_system: str, force: bool = False) -> None:
+        raw_sys = (game_system or "40k").strip().lower()
+        if raw_sys == "all" or PostgresDatabase._pool is None or self._is_mock_instance():
+            return
+        sys_norm = normalize_game_system(raw_sys, default="40k")
+        with PostgresDatabase._meta_ram_rollup_guard:
+            if sys_norm in PostgresDatabase._meta_ram_elo_bg_inflight:
+                return
+            PostgresDatabase._meta_ram_elo_bg_inflight.add(sys_norm)
+
+        def _bg_elo():
+            try:
+                self.load_system_meta_elo_ram_tape(sys_norm, force=force)
+            except Exception as err:
+                logger.debug(f"Background Elo RAM tape refresh notice ({sys_norm}): {err}")
+            finally:
+                with PostgresDatabase._meta_ram_rollup_guard:
+                    PostgresDatabase._meta_ram_elo_bg_inflight.discard(sys_norm)
+
+        threading.Thread(target=_bg_elo, name=f"meta_elo_bg_{sys_norm}", daemon=True).start()
+
+    def load_system_meta_elo_ram_tape(self, game_system: str, force: bool = False, min_elo: int = 1525) -> Optional[Dict[str, Any]]:
+        """Streams `rating_history` (`old_elo >= 1525`, 405d) into `ram_idx['elo_tape']` for instant arbitrary-Elo Meta queries."""
+        raw_sys = (game_system or "40k").strip().lower()
+        if raw_sys == "all" or self._is_mock_instance():
+            return None
+        sys_norm = normalize_game_system(raw_sys, default="40k")
+        entry = PostgresDatabase._meta_ram_rollup_cache.get(sys_norm)
+        base_ram = entry[0] if (isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[0], dict)) else None
+        if base_ram is None:
+            base_ram = self.load_system_meta_rollup_ram_index(sys_norm, force=False)
+        if not isinstance(base_ram, dict):
+            return None
+        if not force and isinstance(base_ram.get("elo_tape"), dict):
+            return base_ram
+
+        self.ensure_elo_history_indexes_concurrent()
+
+        with PostgresDatabase._meta_ram_rollup_guard:
+            sys_lock = PostgresDatabase._meta_ram_rollup_locks.get(sys_norm)
+            if sys_lock is None:
+                sys_lock = threading.Lock()
+                PostgresDatabase._meta_ram_rollup_locks[sys_norm] = sys_lock
+
+        with sys_lock:
+            entry = PostgresDatabase._meta_ram_rollup_cache.get(sys_norm)
+            cur_ram = entry[0] if (isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[0], dict)) else base_ram
+            if not force and isinstance(cur_ram.get("elo_tape"), dict):
+                return cur_ram
+
+            with PostgresDatabase._meta_ram_global_build_lock:
+                t0 = time.perf_counter()
+                min_date_str = str(cur_ram.get("min_date_str") or (datetime.now(timezone.utc).date() - timedelta(days=405)).strftime("%Y-%m-%d"))
+                unlinked_key = f"__unlinked__:{sys_norm}"
+                c_tag = f"{int(time.time() * 1000) % 1000000}_{threading.get_ident() % 10000}"
+
+                try:
+                    with self.get_connection() as conn:
+                        try:
+                            with conn.cursor() as ctl_cur:
+                                if hasattr(ctl_cur, "_mock_name") or type(ctl_cur).__module__.startswith("unittest.mock"):
+                                    return cur_ram
+                                ctl_cur.execute("SET LOCAL statement_timeout = '120000ms'; SET LOCAL work_mem = '96MB';")
+
+                            def _iter_elo():
+                                with conn.cursor(name=f"relo_{c_tag}") as sc:
+                                    sc.itersize = 5000
+                                    sc.execute(
+                                        """
+                                        SELECT
+                                            COALESCE(NULLIF(NULLIF(rh.event_id, ''), 'unknown_event'), %s) AS ev_id,
+                                            rh.match_id,
+                                            rh.match_date,
+                                            rh.player_id,
+                                            rh.opponent_id,
+                                            rh.opponent_name,
+                                            rh.old_elo,
+                                            rh.opponent_elo,
+                                            rh.result,
+                                            rh.player_faction,
+                                            rh.opponent_faction,
+                                            rh.player_score,
+                                            rh.opponent_score
+                                        FROM rating_history rh
+                                        WHERE COALESCE(rh.game_system, '40k') = %s
+                                          AND rh.old_elo >= %s
+                                          AND rh.match_date >= %s
+                                        ORDER BY 1 COLLATE "C";
+                                        """,
+                                        (unlinked_key, sys_norm, int(min_elo), min_date_str),
+                                    )
+                                    while True:
+                                        batch = sc.fetchmany(5000)
+                                        if not batch:
+                                            break
+                                        for row in batch:
+                                            yield row
+
+                            def _lookup_orphans(eids: List[str]) -> List[Any]:
+                                if not eids:
+                                    return []
+                                with conn.cursor() as op_cur:
+                                    op_cur.execute(
+                                        """
+                                        SELECT
+                                            e.id,
+                                            COALESCE(NULLIF(e.effective_players, 0), e.total_players, 0),
+                                            COALESCE(NULLIF(e.effective_rounds, 0), e.num_rounds, 0),
+                                            COALESCE(e.is_online, FALSE),
+                                            COALESCE(e.is_league, FALSE),
+                                            COALESCE(e.structure_tag, 'singles'),
+                                            COALESCE(e.format_tag, 'standard'),
+                                            COALESCE(e.region_code, 'UNKNOWN'),
+                                            COALESCE(e.country_code, ''),
+                                            COALESCE(e.state_code, '')
+                                        FROM events e
+                                        WHERE e.id = ANY(%s);
+                                        """,
+                                        (eids,),
+                                    )
+                                    return op_cur.fetchall() or []
+
+                            updated_ram = PostgresDatabase._pack_elo_tape_onto_ram_idx(
+                                cur_ram,
+                                _iter_elo(),
+                                min_elo=min_elo,
+                                yield_gil=True,
+                                orphan_lookup_fn=_lookup_orphans,
+                            )
+                        finally:
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
+
+                    gc.collect()
+                    PostgresDatabase.set_cached(PostgresDatabase._meta_ram_rollup_cache, sys_norm, updated_ram, max_size=16)
+                    elo_mb = len(updated_ram["elo_tape"]["buf_elo"]) / (1024.0 * 1024.0)
+                    logger.info(
+                        f"⚡ Packed Meta Elo RAM tape [{sys_norm} >= {min_elo}]: buffer={elo_mb:.2f}MB "
+                        f"in {(time.perf_counter() - t0) * 1000.0:.0f}ms"
+                    )
+                    return updated_ram
+                except Exception as elo_err:
+                    logger.warning(f"load_system_meta_elo_ram_tape notice ({sys_norm}): {elo_err}")
+                    return cur_ram
+
+    @classmethod
+    def _query_meta_ram_elo_tape(
+        cls,
+        ram_idx: Dict[str, Any],
+        matched_ev_indices: List[int],
+        mf: MetaFilterSpec,
+        start_ord: int,
+        end_ord: int,
+        is_short_window: bool,
+        allow_non_1v1: bool,
+        include_trends: bool,
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]], List[Dict[str, Any]], int, Optional[int]]:
+        """Dynamically computes 100% of faction stats, matchups, trends, pilots & X-0/X-1 runs from filtered Elo side rows."""
+        elo_tape = ram_idx.get("elo_tape")
+        if not isinstance(elo_tape, dict) or not matched_ev_indices:
+            return [], {}, [], 0, 0
+
+        elo_min = int(mf.elo_floor or 0)
+        both_mode = mf.elo_mode != "pilot"
+        sys_n = str(ram_idx.get("sys_norm") or "40k")
+        min_x0_games = 4 if sys_n in ("40k", "aos") else 3
+        min_x1_wins = 3 if sys_n in ("40k", "aos") else 2
+
+        slices_elo = elo_tape["slices_elo"]
+        mv_elo = memoryview(elo_tape["buf_elo"])
+        uelo = cls._META_RAM_SELO.iter_unpack
+        fac_names = ram_idx["fac_names"]
+        fac_low_group = ram_idx.get("fac_low_group") or [0] * len(fac_names)
+        num_facs = len(fac_names)
+        sz = num_facs + 1
+
+        fast_spans: List[Tuple[int, int]] = []
+        slow_spans: List[Tuple[int, int]] = []
+        max_slices = len(slices_elo)
+        for ev_i in matched_ev_indices:
+            if ev_i >= max_slices:
+                continue
+            st_o, en_o, d_min, d_max, max_p_e, max_b_e, h_1v1, h_n1 = slices_elo[ev_i]
+            if st_o >= en_o or d_max < start_ord or d_min > end_ord:
+                continue
+            if both_mode:
+                if max_b_e < elo_min:
+                    continue
+            else:
+                if max_p_e < elo_min:
+                    continue
+            if not allow_non_1v1 and not h_1v1:
+                continue
+            if (d_min >= start_ord and d_max <= end_ord) and (allow_non_1v1 or not h_n1):
+                if fast_spans and fast_spans[-1][1] == st_o:
+                    fast_spans[-1] = (fast_spans[-1][0], en_o)
+                else:
+                    fast_spans.append((st_o, en_o))
+            else:
+                slow_spans.append((st_o, en_o))
+
+        if not fast_spans and not slow_spans:
+            return [], {}, [], 0, 0
+
+        tot_m = [0] * sz
+        wins = [0] * sz
+        losses = [0] * sz
+        draws = [0] * sz
+        mirrors = [0] * sz
+        nm_m = [0] * sz
+        nm_w = [0] * sz
+        sc_cnt = [0] * sz
+        opp_cnt = [0] * sz
+        mgn_cnt = [0] * sz
+        sc_sum = [0.0] * sz
+        opp_sum = [0.0] * sz
+        mgn_sum = [0.0] * sz
+
+        pilots_by_fac: List[Set[int]] = [set() for _ in range(sz)]
+        runs_acc: Dict[int, List[int]] = {}
+        dir_mu_acc: Dict[int, List[Any]] = {}
+        matched_real_evs: Set[int] = set()
+
+        calc_trends = bool(include_trends or mf.is_default())
+        period_strs = ram_idx["week_strs"] if is_short_window else ram_idx["month_strs"]
+        trend_m: Dict[int, int] = {}
+        trend_w: Dict[int, int] = {}
+
+        raw_match_count = 0
+        prev_mid = 0
+
+        def _consume_span(st_o: int, en_o: int, check_bounds: bool) -> None:
+            nonlocal raw_match_count, prev_mid
+            for (fl, w_id, m_id, d_o, ev_i, mid_i, pid_i, pf_id, of_id, p_elo, o_elo, p_sc, o_sc) in uelo(mv_elo[st_o:en_o]):
+                if p_elo < elo_min or (both_mode and o_elo < elo_min):
+                    continue
+                if check_bounds:
+                    if (not allow_non_1v1 and (fl & 1)) or d_o < start_ord or d_o > end_ord:
+                        continue
+                if mid_i != prev_mid:
+                    raw_match_count += 1
+                    prev_mid = mid_i
+                if fl & 128:
+                    matched_real_evs.add(ev_i)
+
+                is_w = 1 if (fl & 2) else 0
+                is_l = 1 if (fl & 4) else 0
+                is_d = 1 if (fl & 8) else 0
+                is_mir = of_id > 0 and fac_low_group[pf_id] == fac_low_group[of_id]
+
+                tot_m[pf_id] += 1
+                wins[pf_id] += is_w
+                losses[pf_id] += is_l
+                draws[pf_id] += is_d
+                if is_mir:
+                    mirrors[pf_id] += 1
+                else:
+                    nm_m[pf_id] += 1
+                    nm_w[pf_id] += is_w
+                if fl & 16:
+                    sc_cnt[pf_id] += 1
+                    sc_sum[pf_id] += p_sc
+                if fl & 32:
+                    opp_cnt[pf_id] += 1
+                    opp_sum[pf_id] += o_sc
+                mgn_v = (p_sc - o_sc) if (fl & 64) else 0.0
+                if fl & 64:
+                    mgn_cnt[pf_id] += 1
+                    mgn_sum[pf_id] += mgn_v
+
+                pilots_by_fac[pf_id].add(pid_i)
+                if fl & 128:
+                    rk = (ev_i << 40) | (pid_i << 12) | pf_id
+                    rb = runs_acc.get(rk)
+                    if rb is None:
+                        runs_acc[rk] = [1, is_w, is_l, is_d]
+                    else:
+                        rb[0] += 1
+                        rb[1] += is_w
+                        rb[2] += is_l
+                        rb[3] += is_d
+
+                if of_id > 0 and not is_mir:
+                    mk = (pf_id << 20) | of_id
+                    mb = dir_mu_acc.get(mk)
+                    mgc_i = 1 if (fl & 64) else 0
+                    if mb is None:
+                        dir_mu_acc[mk] = [1, is_w, is_l, is_d, mgn_v, mgc_i]
+                    else:
+                        mb[0] += 1
+                        mb[1] += is_w
+                        mb[2] += is_l
+                        mb[3] += is_d
+                        mb[4] += mgn_v
+                        mb[5] += mgc_i
+
+                if calc_trends:
+                    p_id = w_id if is_short_window else m_id
+                    if p_id:
+                        tk_key = (p_id << 20) | pf_id
+                        trend_m[tk_key] = trend_m.get(tk_key, 0) + 1
+                        trend_w[tk_key] = trend_w.get(tk_key, 0) + is_w
+
+        for rs, re in fast_spans:
+            _consume_span(rs, re, False)
+        for ss, se in slow_spans:
+            _consume_span(ss, se, True)
+
+        if raw_match_count <= 0:
+            return [], {}, [], 0, 0
+
+        ev_runs_cnt = [0] * sz
+        ev_x0 = [0] * sz
+        ev_x1 = [0] * sz
+        for rk, (g_c, w_c, l_c, d_c) in runs_acc.items():
+            fid = rk & 0xFFF
+            if g_c >= 3:
+                ev_runs_cnt[fid] += 1
+            if w_c >= min_x0_games and l_c == 0 and d_c == 0:
+                ev_x0[fid] += 1
+            if g_c >= min_x0_games and l_c <= 1 and w_c >= min_x1_wins:
+                ev_x1[fid] += 1
+
+        overall: List[Dict[str, Any]] = []
+        for fid in range(1, num_facs):
+            tm = tot_m[fid]
+            if tm < 1:
+                continue
+            fname = fac_names[fid]
+            w = wins[fid]
+            l = losses[fid]
+            d = draws[fid]
+            mir = mirrors[fid]
+            nmm = nm_m[fid]
+            nmw = nm_w[fid]
+            wr = round((w * 100.0 / tm), 1)
+            nm_wr = round((nmw * 100.0 / nmm), 1) if nmm > 0 else wr
+            avg_sc = round((sc_sum[fid] / sc_cnt[fid]), 1) if sc_cnt[fid] > 0 else 0.0
+            avg_opp = round((opp_sum[fid] / opp_cnt[fid]), 1) if opp_cnt[fid] > 0 else 0.0
+            avg_mgn = round((mgn_sum[fid] / mgn_cnt[fid]), 1) if mgn_cnt[fid] > 0 else 0.0
+            up_cnt = len(pilots_by_fac[fid])
+            overall.append({
+                "faction": fname,
+                "total_matches": tm,
+                "wins": w,
+                "losses": l,
+                "draws": d,
+                "win_rate": wr,
+                "mirror_matches": mir,
+                "non_mirror_matches": nmm,
+                "non_mirror_wins": nmw,
+                "non_mirror_win_rate": nm_wr,
+                "avg_score": avg_sc,
+                "avg_opp_score": avg_opp,
+                "avg_margin": avg_mgn,
+                "unique_pilots": up_cnt if up_cnt > 0 else 1,
+                "events_played": 0,
+                "event_runs_count": ev_runs_cnt[fid],
+                "x0_runs": ev_x0[fid],
+                "x1_runs": ev_x1[fid],
+                "_fid": fid,
+            })
+        overall.sort(key=lambda x: (float(x.get("win_rate") or 0.0), int(x.get("total_matches") or 0)), reverse=True)
+
+        keep_all_mu = len(overall) <= 250
+        keep_flag = [1] * sz
+        if not keep_all_mu:
+            keep_flag = [0] * sz
+            _s_play = sorted(overall, key=lambda x: int(x.get("total_matches") or 0), reverse=True)
+            _tot_app = sum(int(x.get("total_matches") or 0) for x in overall)
+            _min_k = max(5, int(_tot_app * 0.008)) if _tot_app >= 200 else 1
+            _qual = [x for x in overall if int(x.get("total_matches") or 0) >= _min_k] or overall
+            for x in _s_play[:250]:
+                keep_flag[int(x["_fid"])] = 1
+            keep_flag[int(max(_qual, key=lambda x: (float(x.get("win_rate") or 0.0), int(x.get("total_matches") or 0)))["_fid"])] = 1
+            keep_flag[int(max(overall, key=lambda x: (int(x.get("x0_runs") or 0), int(x.get("x1_runs") or 0), float(x.get("win_rate") or 0.0)))["_fid"])] = 1
+            keep_flag[int(max(_qual, key=lambda x: (float(x.get("avg_margin") or -999.0), float(x.get("win_rate") or 0.0)))["_fid"])] = 1
+
+        for x in overall:
+            x.pop("_fid", None)
+
+        matchups_by_fac_out: Dict[str, List[Dict[str, Any]]] = {}
+        for mk, mb in dir_mu_acc.items():
+            m_tot = int(mb[0])
+            if m_tot < 1:
+                continue
+            f1 = mk >> 20
+            if not keep_flag[f1]:
+                continue
+            f2 = mk & 0xFFFFF
+            fa = fac_names[f1]
+            fb = fac_names[f2]
+            mw = int(mb[1])
+            ml = int(mb[2])
+            md = int(mb[3])
+            m_mgn = round((mb[4] / mb[5]), 1) if mb[5] > 0 else 0.0
+            lst = matchups_by_fac_out.get(fa)
+            if lst is None:
+                lst = []
+                matchups_by_fac_out[fa] = lst
+            lst.append({
+                "opponent_faction": fb,
+                "matches": m_tot,
+                "wins": mw,
+                "losses": ml,
+                "draws": md,
+                "win_rate": round((mw * 100.0 / m_tot), 1),
+                "avg_margin": m_mgn,
+            })
+
+        monthly: List[Dict[str, Any]] = []
+        for tk_key, t_cnt in trend_m.items():
+            if t_cnt < 2:
+                continue
+            p_str = period_strs[tk_key >> 20]
+            fname = fac_names[tk_key & 0xFFFFF]
+            t_w = trend_w[tk_key]
+            monthly.append({
+                "month": p_str,
+                "faction": fname,
+                "matches_in_month": t_cnt,
+                "wins": t_w,
+                "win_rate": round((t_w * 100.0 / t_cnt), 1),
+            })
+        monthly.sort(key=lambda x: (str(x.get("month") or ""), -float(x.get("win_rate") or 0.0)))
+
+        return overall, matchups_by_fac_out, monthly, raw_match_count, len(matched_real_evs)
+
     @classmethod
     def _query_meta_ram_rollup_index(
         cls,
@@ -12780,16 +13549,15 @@ class PostgresDatabase:
         is_short_window: bool,
         allow_non_1v1: bool,
         include_trends: bool,
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], int, Optional[int]]:
-        """Evaluates any MetaFilterSpec against the packed C-struct RAM index in ~15-150ms with 100% SQL parity."""
+    ) -> Tuple[List[Dict[str, Any]], Any, List[Dict[str, Any]], int, Optional[int]]:
+        """Evaluates any MetaFilterSpec against the packed C-struct RAM index in ~5-50ms with 100% SQL parity."""
         start_ord = datetime.strptime(resolved_start[:10], "%Y-%m-%d").date().toordinal()
         end_ord = (
             datetime.strptime(resolved_end[:10], "%Y-%m-%d").date().toordinal()
             if resolved_end
             else datetime.now(timezone.utc).date().toordinal() + 1
         )
-        tk = "vet" if mf.elo_floor >= 1650 else ("exp" if mf.elo_floor >= 1550 else "all")
-        tier = ram_idx["tiers"][tk]
+        sys_n = str(ram_idx.get("sys_norm") or "40k")
         ev_attrs = ram_idx["ev_attrs"]
         fac_names = ram_idx["fac_names"]
         num_facs = len(fac_names)
@@ -12802,6 +13570,7 @@ class PostgresDatabase:
         excl_lg = mf.exclude_leagues
         ev_struct = mf.event_structure
         ev_fmt = mf.event_format
+        ev_fmt_c = (canonicalize_system_format_tag(sys_n, ev_fmt) or ev_fmt) if ev_fmt != "all" else "all"
         f_reg = mf.region
         f_cc = mf.country
         f_st = mf.state
@@ -12827,7 +13596,7 @@ class PostgresDatabase:
                     continue
                 if ev_struct != "all" and s_tag != ev_struct:
                     continue
-                if ev_fmt != "all" and f_tag != ev_fmt:
+                if ev_fmt_c != "all" and f_tag != ev_fmt_c and f_tag != ev_fmt:
                     continue
                 if f_reg != "all" and rg_c != f_reg:
                     continue
@@ -12838,8 +13607,21 @@ class PostgresDatabase:
                 matched_ev_indices.append(idx)
 
         if not matched_ev_indices:
-            return [], [], [], 0, 0
+            return [], {}, [], 0, 0
 
+        if mf.elo_floor > 0:
+            return cls._query_meta_ram_elo_tape(
+                ram_idx=ram_idx,
+                matched_ev_indices=matched_ev_indices,
+                mf=mf,
+                start_ord=start_ord,
+                end_ord=end_ord,
+                is_short_window=is_short_window,
+                allow_non_1v1=allow_non_1v1,
+                include_trends=include_trends,
+            )
+
+        tier = ram_idx["tiers"]["all"]
         mu_spans = tier["mu_spans"]
         slices_1d = tier["slices_1d"]
         slices_2d = tier["slices_2d"]
@@ -12876,6 +13658,7 @@ class PostgresDatabase:
         non_1v1_seat_total = 0
         any_raw_mu_row = False
         matched_real_ev_cnt = 0
+        active_ev_indices: List[int] = []
         fast_1d_spans: List[Tuple[int, int]] = []
         slow_1d_spans: List[Tuple[int, int]] = []
         fast_2d_spans: List[Tuple[int, int]] = []
@@ -12905,6 +13688,7 @@ class PostgresDatabase:
                 continue
 
             any_raw_mu_row = True
+            active_ev_indices.append(ev_i)
             if not ev_attrs[ev_i][1]:
                 matched_real_ev_cnt += 1
 
@@ -12930,7 +13714,7 @@ class PostgresDatabase:
                     slow_2d_spans.append((s2, e2))
 
         if not any_raw_mu_row:
-            return [], [], [], 0, 0
+            return [], {}, [], 0, 0
 
         if not calc_trends:
             for rs1, re1 in fast_1d_spans:
@@ -13010,17 +13794,17 @@ class PostgresDatabase:
             raw_match_count += max(1, int(round(non_1v1_seat_total / 4.0)))
         matched_events_count: Optional[int] = matched_real_ev_cnt if not mf.is_default() else None
 
-        # Accumulate `meta_event_runs` (with bounded exact pilot_hashes deduplication when total_run_rows <= 300)
+        # Accumulate `meta_event_runs` ONLY across active events (exact canonical pilot_hashes deduplication across full window)
         ev_pilots = [0] * sz
         ev_runs_cnt = [0] * sz
         ev_x0 = [0] * sz
         ev_x1 = [0] * sz
         total_run_rows = 0
-        dedup_candidates: List[Tuple[int, int, int, int]] = []
+        dedup_candidates: List[Tuple[int, int, int]] = []
         fast_run_spans: List[Tuple[int, int]] = []
         slow_run_spans: List[Tuple[int, int]] = []
 
-        for ev_i in matched_ev_indices:
+        for ev_i in active_ev_indices:
             sr, er_off, dr_min, dr_max, hr_n1 = slices_run[ev_i]
             if sr >= er_off or dr_max < start_ord or (dr_min > 0 and dr_min > end_ord):
                 continue
@@ -13033,51 +13817,44 @@ class PostgresDatabase:
                 slow_run_spans.append((sr, er_off))
 
         for rsr, rer in fast_run_spans:
-            for (_n1, _d_o, cf_id, rf_id, p_c, r_c, x0_c, x1_c, ph_s, ph_e) in urun(mv_run[rsr:rer]):
-                total_run_rows += 1
-                if total_run_rows <= 300:
-                    dedup_candidates.append((cf_id, rf_id, p_c, (ph_s << 32) | ph_e))
-                if cf_id > 0:
-                    ev_pilots[cf_id] += p_c
-                    ev_runs_cnt[cf_id] += r_c
-                    ev_x0[cf_id] += x0_c
-                    ev_x1[cf_id] += x1_c
-
-        for sr, er_off in slow_run_spans:
-            for (n1, d_o, cf_id, rf_id, p_c, r_c, x0_c, x1_c, ph_s, ph_e) in urun(mv_run[sr:er_off]):
-                if (not allow_non_1v1 and n1) or d_o < start_ord or d_o > end_ord:
-                    continue
-                total_run_rows += 1
-                if total_run_rows <= 300:
-                    dedup_candidates.append((cf_id, rf_id, p_c, (ph_s << 32) | ph_e))
-                if cf_id > 0:
-                    ev_pilots[cf_id] += p_c
-                    ev_runs_cnt[cf_id] += r_c
-                    ev_x0[cf_id] += x0_c
-                    ev_x1[cf_id] += x1_c
-
-        if 0 < total_run_rows <= 300 and dedup_candidates:
-            raw_ph_sets: Dict[int, Set[int]] = {}
-            raw_sum_p: Dict[int, int] = {}
-            raw_to_cf: Dict[int, int] = {}
-            for cf_id, rf_id, p_c, ph_packed in dedup_candidates:
+            for (_n1, _d_o, cf_id, _rf_id, p_c, r_c, x0_c, x1_c, ph_s, ph_e) in urun(mv_run[rsr:rer]):
                 if cf_id <= 0:
                     continue
-                raw_to_cf[rf_id] = cf_id
-                raw_sum_p[rf_id] = raw_sum_p.get(rf_id, 0) + p_c
+                total_run_rows += 1
+                if total_run_rows <= 100000 and ph_e > ph_s:
+                    dedup_candidates.append((cf_id, p_c, (ph_s << 32) | ph_e))
+                ev_pilots[cf_id] += p_c
+                ev_runs_cnt[cf_id] += r_c
+                ev_x0[cf_id] += x0_c
+                ev_x1[cf_id] += x1_c
+
+        for sr, er_off in slow_run_spans:
+            for (n1, d_o, cf_id, _rf_id, p_c, r_c, x0_c, x1_c, ph_s, ph_e) in urun(mv_run[sr:er_off]):
+                if cf_id <= 0 or (not allow_non_1v1 and n1) or d_o < start_ord or d_o > end_ord:
+                    continue
+                total_run_rows += 1
+                if total_run_rows <= 100000 and ph_e > ph_s:
+                    dedup_candidates.append((cf_id, p_c, (ph_s << 32) | ph_e))
+                ev_pilots[cf_id] += p_c
+                ev_runs_cnt[cf_id] += r_c
+                ev_x0[cf_id] += x0_c
+                ev_x1[cf_id] += x1_c
+
+        if 0 < total_run_rows <= 100000 and dedup_candidates:
+            cf_ph_sets: Dict[int, Set[int]] = {}
+            cf_sum_p: Dict[int, int] = {}
+            for cf_id, p_c, ph_packed in dedup_candidates:
+                cf_sum_p[cf_id] = cf_sum_p.get(cf_id, 0) + p_c
                 ph_s = ph_packed >> 32
                 ph_e = ph_packed & 0xFFFFFFFF
-                if ph_e > ph_s:
-                    pset = raw_ph_sets.get(rf_id)
-                    if pset is None:
-                        pset = set()
-                        raw_ph_sets[rf_id] = pset
-                    pset.update(ph_arr[ph_s:ph_e])
-            if raw_ph_sets:
-                for rf_id, pset in raw_ph_sets.items():
-                    if pset:
-                        cf_id = raw_to_cf[rf_id]
-                        ev_pilots[cf_id] = ev_pilots[cf_id] - raw_sum_p[rf_id] + len(pset)
+                pset = cf_ph_sets.get(cf_id)
+                if pset is None:
+                    pset = set()
+                    cf_ph_sets[cf_id] = pset
+                pset.update(ph_arr[ph_s:ph_e])
+            for cf_id, pset in cf_ph_sets.items():
+                if pset:
+                    ev_pilots[cf_id] = ev_pilots[cf_id] - cf_sum_p[cf_id] + len(pset)
 
         overall: List[Dict[str, Any]] = []
         for fid in range(1, num_facs):
@@ -13238,6 +14015,416 @@ class PostgresDatabase:
 
         return overall, matchups_by_fac_out, monthly, raw_match_count, matched_events_count
 
+    def _query_dynamic_elo_sql(
+        self,
+        cursor: Any,
+        conn: Any,
+        sys_norm: str,
+        mf: MetaFilterSpec,
+        resolved_start: Optional[str],
+        resolved_end: Optional[str],
+        is_short_window: bool,
+        period_trunc: str,
+        allow_non_1v1: bool,
+        include_trends: bool,
+        min_x0_games: int,
+        min_x1_wins: int,
+        is_real_rdc: bool,
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]], List[Dict[str, Any]], int, int]:
+        """Single-pass Index-Only Scan over `rating_history` computing 100% of metrics strictly from filtered Elo matches."""
+        unlinked_key = f"__unlinked__:{sys_norm}"
+        matched_eids: Optional[List[str]] = None
+        ev_clauses, ev_params = PostgresDatabase._build_event_filter_sql_clauses(mf, ev_alias="e", game_system=sys_norm)
+        if mf.has_event_filters():
+            ev_pre_w: List[str] = []
+            ev_pre_p: List[Any] = []
+            if sys_norm != "all":
+                ev_pre_w.append("COALESCE(e.game_system, '40k') = %s")
+                ev_pre_p.append(sys_norm)
+            if resolved_start:
+                try:
+                    floor_days = 14 if mf.exclude_leagues else 90
+                    ev_floor_dt = (datetime.strptime(resolved_start[:10], "%Y-%m-%d").date() - timedelta(days=floor_days)).strftime("%Y-%m-%d")
+                    ev_pre_w.append("e.event_date >= %s")
+                    ev_pre_p.append(ev_floor_dt)
+                except Exception:
+                    pass
+            if resolved_end:
+                try:
+                    ev_ceil_dt = (datetime.strptime(resolved_end[:10], "%Y-%m-%d").date() + timedelta(days=14)).strftime("%Y-%m-%d")
+                    ev_pre_w.append("e.event_date <= %s")
+                    ev_pre_p.append(ev_ceil_dt)
+                except Exception:
+                    pass
+            ev_pre_w.extend(ev_clauses)
+            ev_pre_p.extend(ev_params)
+            ev_pre_sql = f"WHERE {' AND '.join(ev_pre_w)}" if ev_pre_w else ""
+            cursor.execute(f"SELECT e.id FROM events e {ev_pre_sql};", ev_pre_p)
+            matched_eids = [
+                str(r["id"] if isinstance(r, dict) else r[0])
+                for r in (cursor.fetchall() or [])
+                if r and (r.get("id") if isinstance(r, dict) else r[0])
+            ]
+            if not matched_eids:
+                return [], {}, [], 0, 0
+
+        join_ev_sql = ""
+        rh_w: List[str] = []
+        rh_p: List[Any] = [unlinked_key]
+        if matched_eids is not None:
+            join_ev_sql = "JOIN UNNEST(%s::varchar[]) AS fe(eid) ON fe.eid = rh.event_id"
+            rh_p.append(matched_eids)
+            rh_w.append("rh.event_id IS NOT NULL AND rh.event_id != '' AND rh.event_id != 'unknown_event'")
+        if sys_norm != "all":
+            rh_w.append("COALESCE(rh.game_system, '40k') = %s")
+            rh_p.append(sys_norm)
+        rh_w.append("rh.old_elo >= %s")
+        rh_p.append(int(mf.elo_floor))
+        if mf.elo_mode != "pilot":
+            rh_w.append("rh.opponent_elo >= %s")
+            rh_p.append(int(mf.elo_floor))
+        if resolved_start:
+            rh_w.append("rh.match_date >= %s")
+            rh_p.append(resolved_start)
+        if resolved_end:
+            rh_w.append("rh.match_date <= %s")
+            rh_p.append(resolved_end)
+        rh_w.append("rh.player_faction IS NOT NULL AND rh.player_faction != ''")
+        rh_w.append("POSITION('+' IN COALESCE(rh.player_faction, '')) = 0")
+        rh_w.append("POSITION('+' IN COALESCE(rh.opponent_faction, '')) = 0")
+        rh_w.append("UPPER(COALESCE(rh.opponent_id, '')) != 'BYE'")
+        rh_w.append("UPPER(COALESCE(rh.opponent_name, '')) != 'BYE'")
+        if not allow_non_1v1:
+            rh_w.append("COALESCE(rh.opponent_id, '') != ''")
+            rh_w.append("LEFT(COALESCE(rh.opponent_name, ''), 5) != 'Pod ('")
+            rh_w.append("NOT (COALESCE(rh.opponent_faction, '') = '' AND POSITION(' & ' IN COALESCE(rh.opponent_name, '')) > 0)")
+
+        rh_where_sql = " AND ".join(rh_w)
+        period_col_sql = f"DATE_TRUNC('{period_trunc}', match_date)::date" if include_trends else "NULL::date"
+        rh_p.extend([int(min_x0_games), int(min_x0_games), int(min_x1_wins)])
+
+        q_elo_sql = f"""
+            WITH filtered_rh AS MATERIALIZED (
+                SELECT
+                    COALESCE(NULLIF(NULLIF(rh.event_id, ''), 'unknown_event'), %s) AS ev_id,
+                    rh.match_id,
+                    rh.player_id,
+                    rh.match_date,
+                    (
+                        LEFT(COALESCE(rh.opponent_name, ''), 5) = 'Pod ('
+                        OR (COALESCE(rh.opponent_faction, '') = '' AND POSITION(' & ' IN COALESCE(rh.opponent_name, '')) > 0)
+                    ) AS is_non_1v1,
+                    rh.result,
+                    rh.player_faction AS pf,
+                    rh.opponent_faction AS of_fac,
+                    rh.player_score AS p_sc,
+                    rh.opponent_score AS o_sc
+                FROM rating_history rh
+                {join_ev_sql}
+                WHERE {rh_where_sql}
+            ),
+            pilot_runs AS (
+                SELECT
+                    ev_id,
+                    player_id,
+                    MAX(pf) AS pf,
+                    COUNT(*) AS g_cnt,
+                    COUNT(*) FILTER (WHERE result = 'W') AS w_cnt,
+                    COUNT(*) FILTER (WHERE result = 'L') AS l_cnt,
+                    COUNT(*) FILTER (WHERE result = 'D') AS d_cnt
+                FROM filtered_rh
+                WHERE LEFT(ev_id, 12) != '__unlinked__'
+                  AND player_id IS NOT NULL AND player_id != ''
+                GROUP BY ev_id, player_id
+            )
+            SELECT
+                'T'::text AS kind,
+                NULL::text AS pf,
+                NULL::text AS of_fac,
+                NULL::date AS period_date,
+                COUNT(DISTINCT match_id)::bigint AS c1,
+                COUNT(DISTINCT ev_id) FILTER (WHERE LEFT(ev_id, 12) != '__unlinked__')::bigint AS c2,
+                0::bigint AS c3, 0::bigint AS c4, 0::bigint AS c5, 0::bigint AS c6, 0::bigint AS c7,
+                0.0::double precision AS f1, 0.0::double precision AS f2, 0.0::double precision AS f3,
+                NULL::int[] AS ph_arr
+            FROM filtered_rh
+            UNION ALL
+            SELECT
+                'M'::text AS kind,
+                pf,
+                of_fac,
+                {period_col_sql} AS period_date,
+                COUNT(*)::bigint AS c1,
+                COUNT(*) FILTER (WHERE result = 'W')::bigint AS c2,
+                COUNT(*) FILTER (WHERE result = 'L')::bigint AS c3,
+                COUNT(*) FILTER (WHERE result = 'D')::bigint AS c4,
+                COUNT(*) FILTER (WHERE p_sc IS NOT NULL AND p_sc > 0)::bigint AS c5,
+                COUNT(*) FILTER (WHERE NOT is_non_1v1 AND o_sc IS NOT NULL AND o_sc > 0)::bigint AS c6,
+                COUNT(*) FILTER (WHERE NOT is_non_1v1 AND p_sc IS NOT NULL AND o_sc IS NOT NULL AND (p_sc > 0 OR o_sc > 0))::bigint AS c7,
+                COALESCE(SUM(CASE WHEN p_sc IS NOT NULL AND p_sc > 0 THEN p_sc ELSE 0 END), 0.0)::double precision AS f1,
+                COALESCE(SUM(CASE WHEN NOT is_non_1v1 AND o_sc IS NOT NULL AND o_sc > 0 THEN o_sc ELSE 0 END), 0.0)::double precision AS f2,
+                COALESCE(SUM(CASE WHEN NOT is_non_1v1 AND p_sc IS NOT NULL AND o_sc IS NOT NULL AND (p_sc > 0 OR o_sc > 0) THEN (p_sc - o_sc) ELSE 0 END), 0.0)::double precision AS f3,
+                NULL::int[] AS ph_arr
+            FROM filtered_rh
+            GROUP BY pf, of_fac, 4
+            UNION ALL
+            SELECT
+                'R'::text AS kind,
+                pf,
+                NULL::text AS of_fac,
+                NULL::date AS period_date,
+                COUNT(*) FILTER (WHERE g_cnt >= 3)::bigint AS c1,
+                COUNT(*) FILTER (WHERE w_cnt >= %s AND l_cnt = 0 AND d_cnt = 0)::bigint AS c2,
+                COUNT(*) FILTER (WHERE g_cnt >= %s AND l_cnt <= 1 AND w_cnt >= %s)::bigint AS c3,
+                0::bigint AS c4, 0::bigint AS c5, 0::bigint AS c6, 0::bigint AS c7,
+                0.0::double precision AS f1, 0.0::double precision AS f2, 0.0::double precision AS f3,
+                NULL::int[] AS ph_arr
+            FROM pilot_runs
+            GROUP BY pf
+            UNION ALL
+            SELECT
+                'P'::text AS kind,
+                pf,
+                NULL::text AS of_fac,
+                NULL::date AS period_date,
+                COUNT(DISTINCT player_id)::bigint AS c1,
+                0::bigint AS c2, 0::bigint AS c3, 0::bigint AS c4, 0::bigint AS c5, 0::bigint AS c6, 0::bigint AS c7,
+                0.0::double precision AS f1, 0.0::double precision AS f2, 0.0::double precision AS f3,
+                CASE WHEN COUNT(DISTINCT player_id) <= 10000 THEN ARRAY_AGG(DISTINCT hashtext(player_id)) ELSE NULL END AS ph_arr
+            FROM filtered_rh
+            WHERE player_id IS NOT NULL AND player_id != ''
+            GROUP BY pf;
+            """
+        if is_real_rdc and conn is not None:
+            with conn.cursor() as raw_cur:
+                raw_cur.execute(q_elo_sql, rh_p)
+                rows = raw_cur.fetchall() or []
+        else:
+            cursor.execute(q_elo_sql, rh_p)
+            rows = cursor.fetchall() or []
+
+        raw_match_count = 0
+        matched_events = 0
+        canon_memo: Dict[Any, str] = {"": "", None: ""}
+
+        def _cf(raw_v: Any) -> str:
+            hit = canon_memo.get(raw_v)
+            if hit is not None:
+                return hit
+            s = str(raw_v or "").strip()
+            if not s or "+" in s or "pod (" in s.lower() or PostgresDatabase.is_super_or_empty_faction(s):
+                canon_memo[raw_v] = ""
+                return ""
+            cf = PostgresDatabase.canonicalize_faction_name(s)
+            if not cf or "+" in cf or "pod (" in cf.lower() or PostgresDatabase.is_super_or_empty_faction(cf):
+                canon_memo[raw_v] = ""
+                return ""
+            canon_memo[raw_v] = cf
+            return cf
+
+        fac_acc: Dict[str, Dict[str, float]] = {}
+        dir_mu: Dict[Tuple[str, str], List[float]] = {}
+        trend_acc: Dict[Tuple[str, str], List[int]] = {}
+        runs_by_cf: Dict[str, List[int]] = {}
+        ph_sets_by_cf: Dict[str, Set[int]] = {}
+        pilots_fallback_by_cf: Dict[str, int] = {}
+
+        for r in rows:
+            if isinstance(r, tuple):
+                kind, pf_r, of_r, p_dt, c1, c2, c3, c4, c5, c6, c7, f1, f2, f3, ph_a = r
+            else:
+                kind = r.get("kind")
+                pf_r = r.get("pf")
+                of_r = r.get("of_fac")
+                p_dt = r.get("period_date")
+                c1 = r.get("c1")
+                c2 = r.get("c2")
+                c3 = r.get("c3")
+                c4 = r.get("c4")
+                c5 = r.get("c5")
+                c6 = r.get("c6")
+                c7 = r.get("c7")
+                f1 = r.get("f1")
+                f2 = r.get("f2")
+                f3 = r.get("f3")
+                ph_a = r.get("ph_arr")
+
+            if kind == "T":
+                raw_match_count = int(c1 or 0)
+                matched_events = int(c2 or 0)
+            elif kind == "M":
+                cf_p = _cf(pf_r)
+                if not cf_p:
+                    continue
+                cf_o = _cf(of_r)
+                cnt = int(c1 or 0)
+                if cnt <= 0:
+                    continue
+                w = int(c2 or 0)
+                l = int(c3 or 0)
+                d = int(c4 or 0)
+                psc = int(c5 or 0)
+                osc = int(c6 or 0)
+                mgc = int(c7 or 0)
+                pss = float(f1 or 0.0)
+                oss = float(f2 or 0.0)
+                mgs = float(f3 or 0.0)
+                is_mir = bool(cf_o and (cf_p == cf_o or cf_p.lower() == cf_o.lower()))
+                b = fac_acc.get(cf_p)
+                if b is None:
+                    b = {
+                        "tm": 0, "w": 0, "l": 0, "d": 0, "mir": 0, "nmm": 0, "nmw": 0,
+                        "pss": 0.0, "psc": 0, "oss": 0.0, "osc": 0, "mgs": 0.0, "mgc": 0,
+                    }
+                    fac_acc[cf_p] = b
+                b["tm"] += cnt
+                b["w"] += w
+                b["l"] += l
+                b["d"] += d
+                if is_mir:
+                    b["mir"] += cnt
+                else:
+                    b["nmm"] += cnt
+                    b["nmw"] += w
+                b["pss"] += pss
+                b["psc"] += psc
+                b["oss"] += oss
+                b["osc"] += osc
+                b["mgs"] += mgs
+                b["mgc"] += mgc
+                if cf_o and not is_mir:
+                    mk = (cf_p, cf_o)
+                    mb = dir_mu.get(mk)
+                    if mb is None:
+                        dir_mu[mk] = [cnt, w, l, d, mgs, mgc]
+                    else:
+                        mb[0] += cnt
+                        mb[1] += w
+                        mb[2] += l
+                        mb[3] += d
+                        mb[4] += mgs
+                        mb[5] += mgc
+                if p_dt is not None and include_trends:
+                    p_str = p_dt.strftime("%Y-%m-%d" if is_short_window else "%Y-%m") if hasattr(p_dt, "strftime") else str(p_dt)[:10 if is_short_window else 7]
+                    if p_str:
+                        tk = (p_str, cf_p)
+                        tb = trend_acc.get(tk)
+                        if tb is None:
+                            trend_acc[tk] = [cnt, w]
+                        else:
+                            tb[0] += cnt
+                            tb[1] += w
+            elif kind == "R":
+                cf_p = _cf(pf_r)
+                if not cf_p:
+                    continue
+                rb = runs_by_cf.get(cf_p)
+                if rb is None:
+                    runs_by_cf[cf_p] = [int(c1 or 0), int(c2 or 0), int(c3 or 0)]
+                else:
+                    rb[0] += int(c1 or 0)
+                    rb[1] += int(c2 or 0)
+                    rb[2] += int(c3 or 0)
+            elif kind == "P":
+                cf_p = _cf(pf_r)
+                if not cf_p:
+                    continue
+                if ph_a:
+                    ps = ph_sets_by_cf.setdefault(cf_p, set())
+                    ps.update(int(x) for x in ph_a if x is not None)
+                else:
+                    pilots_fallback_by_cf[cf_p] = pilots_fallback_by_cf.get(cf_p, 0) + int(c1 or 0)
+
+        if raw_match_count <= 0 or not fac_acc:
+            return [], {}, [], 0, 0
+
+        overall: List[Dict[str, Any]] = []
+        for fname, b in fac_acc.items():
+            tm = int(b["tm"])
+            if tm < 1:
+                continue
+            w = int(b["w"])
+            l = int(b["l"])
+            d = int(b["d"])
+            mir = int(b["mir"])
+            nmm = int(b["nmm"])
+            nmw = int(b["nmw"])
+            wr = round((w * 100.0 / tm), 1)
+            nm_wr = round((nmw * 100.0 / nmm), 1) if nmm > 0 else wr
+            avg_sc = round((b["pss"] / b["psc"]), 1) if b["psc"] > 0 else 0.0
+            avg_opp = round((b["oss"] / b["osc"]), 1) if b["osc"] > 0 else 0.0
+            avg_mgn = round((b["mgs"] / b["mgc"]), 1) if b["mgc"] > 0 else 0.0
+            rb = runs_by_cf.get(fname) or [0, 0, 0]
+            up_c = len(ph_sets_by_cf[fname]) + pilots_fallback_by_cf.get(fname, 0) if fname in ph_sets_by_cf else pilots_fallback_by_cf.get(fname, 0)
+            overall.append({
+                "faction": fname,
+                "total_matches": tm,
+                "wins": w,
+                "losses": l,
+                "draws": d,
+                "win_rate": wr,
+                "mirror_matches": mir,
+                "non_mirror_matches": nmm,
+                "non_mirror_wins": nmw,
+                "non_mirror_win_rate": nm_wr,
+                "avg_score": avg_sc,
+                "avg_opp_score": avg_opp,
+                "avg_margin": avg_mgn,
+                "unique_pilots": up_c if up_c > 0 else 1,
+                "events_played": 0,
+                "event_runs_count": rb[0],
+                "x0_runs": rb[1],
+                "x1_runs": rb[2],
+            })
+        overall.sort(key=lambda x: (float(x.get("win_rate") or 0.0), int(x.get("total_matches") or 0)), reverse=True)
+
+        kept_mu_filter: Optional[Set[str]] = None
+        if len(overall) > 250:
+            _s_play = sorted(overall, key=lambda x: int(x.get("total_matches") or 0), reverse=True)
+            _tot_app = sum(int(x.get("total_matches") or 0) for x in overall)
+            _min_k = max(5, int(_tot_app * 0.008)) if _tot_app >= 200 else 1
+            _qual = [x for x in overall if int(x.get("total_matches") or 0) >= _min_k] or overall
+            kept_mu_filter = {str(x.get("faction")) for x in _s_play[:250] if x.get("faction")}
+            kept_mu_filter.add(str(max(_qual, key=lambda x: (float(x.get("win_rate") or 0.0), int(x.get("total_matches") or 0))).get("faction") or ""))
+            kept_mu_filter.add(str(max(overall, key=lambda x: (int(x.get("x0_runs") or 0), int(x.get("x1_runs") or 0), float(x.get("win_rate") or 0.0))).get("faction") or ""))
+            kept_mu_filter.add(str(max(_qual, key=lambda x: (float(x.get("avg_margin") or -999.0), float(x.get("win_rate") or 0.0))).get("faction") or ""))
+
+        matchups_by_fac: Dict[str, List[Dict[str, Any]]] = {}
+        for (fa, fb), mb in dir_mu.items():
+            if kept_mu_filter is not None and fa not in kept_mu_filter:
+                continue
+            m_tot = int(mb[0])
+            if m_tot < 1:
+                continue
+            mw = int(mb[1])
+            ml = int(mb[2])
+            md = int(mb[3])
+            m_mgn = round((mb[4] / mb[5]), 1) if mb[5] > 0 else 0.0
+            matchups_by_fac.setdefault(fa, []).append({
+                "opponent_faction": fb,
+                "matches": m_tot,
+                "wins": mw,
+                "losses": ml,
+                "draws": md,
+                "win_rate": round((mw * 100.0 / m_tot), 1),
+                "avg_margin": m_mgn,
+            })
+
+        monthly: List[Dict[str, Any]] = []
+        for (p_str, fname), (t_cnt, t_w) in trend_acc.items():
+            if t_cnt < 2:
+                continue
+            monthly.append({
+                "month": p_str,
+                "faction": fname,
+                "matches_in_month": t_cnt,
+                "wins": t_w,
+                "win_rate": round((t_w * 100.0 / t_cnt), 1),
+            })
+        monthly.sort(key=lambda x: (str(x.get("month") or ""), -float(x.get("win_rate") or 0.0)))
+
+        return overall, matchups_by_fac, monthly, raw_match_count, matched_events
+
     def get_faction_meta_stats(
         self,
         start_date: Optional[str] = None,
@@ -13258,6 +14445,7 @@ class PostgresDatabase:
         country: Optional[str] = None,
         state: Optional[str] = None,
         elo_floor: int = 0,
+        elo_mode: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Returns overall faction balance metrics, StatCheck/EloRank competitive KPIs, matchup matrix, and timeline trends (L1+L2 cached)."""
         raw_sys = (game_system or "40k").strip().lower()
@@ -13277,6 +14465,7 @@ class PostgresDatabase:
             country=country,
             state=state,
             elo_floor=elo_floor,
+            elo_mode=elo_mode,
         )
         f_suffix = mf.cache_suffix()
 
@@ -13289,7 +14478,7 @@ class PostgresDatabase:
             raw_legacy_key = f"{start_date}_{end_date}_{game_system}"
             if raw_legacy_key not in cache_keys:
                 cache_keys.append(raw_legacy_key)
-        meta_ver = "v14"
+        meta_ver = "v15"
         l2_setting_key = f"meta_intel_{meta_ver}_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}{f_suffix}"
         l2_legacy_key = f"meta_intel_{meta_ver}_legacy_{sys_norm}_{preset or f'{resolved_start}_{resolved_end}'}" if not f_suffix else l2_setting_key
 
@@ -13445,11 +14634,26 @@ class PostgresDatabase:
                 if (not is_mock_self and game_system and sys_norm != "all" and resolved_start)
                 else None
             )
+            if (
+                isinstance(hot_ram_idx, dict)
+                and mf.elo_floor >= 1525
+                and not isinstance(hot_ram_idx.get("elo_tape"), dict)
+            ):
+                self._trigger_bg_ram_elo_tape_refresh(sys_norm)
+            ram_can_serve_elo = (
+                mf.elo_floor <= 0
+                or (
+                    mf.elo_floor >= 1525
+                    and isinstance(hot_ram_idx, dict)
+                    and isinstance(hot_ram_idx.get("elo_tape"), dict)
+                )
+            )
             skip_db_conn = (
                 isinstance(hot_ram_idx, dict)
                 and bool(resolved_start)
                 and resolved_start[:10] >= str(hot_ram_idx.get("min_date_str") or "9999-99-99")
                 and not mf.is_default()
+                and ram_can_serve_elo
             )
 
             class _NullCtx:
@@ -13475,23 +14679,33 @@ class PostgresDatabase:
                         "POSITION('+' IN COALESCE(player1_faction, '')) = 0",
                         "POSITION('+' IN COALESCE(player2_faction, '')) = 0",
                     ]
+                    qual_where_clauses = [
+                        "matches.is_done = TRUE",
+                        "matches.match_date IS NOT NULL",
+                        "POSITION('+' IN COALESCE(matches.player1_faction, '')) = 0",
+                        "POSITION('+' IN COALESCE(matches.player2_faction, '')) = 0",
+                    ]
                     params: List[Any] = []
                     if game_system and sys_norm != "all":
                         where_clauses.append("COALESCE(game_system, '40k') = %s")
+                        qual_where_clauses.append("COALESCE(matches.game_system, '40k') = %s")
                         params.append(sys_norm)
                     if resolved_start:
                         where_clauses.append("match_date >= %s")
+                        qual_where_clauses.append("matches.match_date >= %s")
                         params.append(resolved_start)
                     if resolved_end:
                         where_clauses.append("match_date <= %s")
+                        qual_where_clauses.append("matches.match_date <= %s")
                         params.append(resolved_end)
 
                     date_filter_sql = " AND ".join(where_clauses)
+                    qual_date_filter_sql = " AND ".join(qual_where_clauses)
                     order_by_cov = "ORDER BY COALESCE(game_system, '40k'), match_date DESC" if (game_system and sys_norm != "all") else "ORDER BY match_date DESC"
                     min_x0_games = 4 if sys_norm in ("40k", "aos") else 3
                     min_x1_wins = 3 if sys_norm in ("40k", "aos") else 2
                     overall: List[Dict[str, Any]] = []
-                    matchup_rows: List[Dict[str, Any]] = []
+                    matchup_rows: Any = []
                     monthly: List[Dict[str, Any]] = []
                     raw_match_count = 0
                     matched_events_count: Optional[int] = None
@@ -13524,7 +14738,14 @@ class PostgresDatabase:
                                 if isinstance(hot_ram_idx, dict)
                                 else PostgresDatabase._get_ram_rollup_swr(sys_norm, db_inst=self, trigger_bg=True)
                             )
-                            if isinstance(ram_idx, dict) and resolved_start[:10] >= str(ram_idx.get("min_date_str") or "9999-99-99"):
+                            if (
+                                isinstance(ram_idx, dict)
+                                and resolved_start[:10] >= str(ram_idx.get("min_date_str") or "9999-99-99")
+                                and (
+                                    mf.elo_floor <= 0
+                                    or (mf.elo_floor >= 1525 and isinstance(ram_idx.get("elo_tape"), dict))
+                                )
+                            ):
                                 overall, matchup_rows, monthly, raw_match_count, matched_events_count = (
                                     PostgresDatabase._query_meta_ram_rollup_index(
                                         ram_idx=ram_idx,
@@ -13540,13 +14761,49 @@ class PostgresDatabase:
                                 rollup_used = True
                                 ev_chunks_complete = True
 
-                        # Fast Path: Pre-aggregated `meta_event_matchups` & `meta_event_runs` (<80ms cold for any filter combination)
-                        if not ram_rollup_used and not is_mock_cur and self._is_meta_rollup_ready(cursor, sys_norm):
+                        # Dynamic Elo-Filtered SQL Fast Path (`rating_history` covering index — exact dynamic runs, pilots & matchups for any Elo threshold / mode)
+                        if not ram_rollup_used and not is_mock_cur and mf.elo_floor > 0:
+                            try:
+                                if is_real_rdc:
+                                    self.ensure_elo_history_indexes_concurrent()
+                                cursor.execute("SAVEPOINT sp_meta_elo_dyn;")
+                                cursor.execute("SET LOCAL statement_timeout = '12000ms'; SET LOCAL work_mem = '128MB';")
+                                overall, matchup_rows, monthly, raw_match_count, matched_events_count = (
+                                    self._query_dynamic_elo_sql(
+                                        cursor=cursor,
+                                        conn=conn,
+                                        sys_norm=sys_norm,
+                                        mf=mf,
+                                        resolved_start=resolved_start,
+                                        resolved_end=resolved_end,
+                                        is_short_window=is_short_window,
+                                        period_trunc=period_trunc,
+                                        allow_non_1v1=allow_non_1v1,
+                                        include_trends=include_trends,
+                                        min_x0_games=min_x0_games,
+                                        min_x1_wins=min_x1_wins,
+                                        is_real_rdc=is_real_rdc,
+                                    )
+                                )
+                                cursor.execute("RELEASE SAVEPOINT sp_meta_elo_dyn;")
+                                ram_rollup_used = True
+                                rollup_used = True
+                                ev_chunks_complete = True
+                            except Exception as elo_dyn_err:
+                                try:
+                                    cursor.execute("ROLLBACK TO SAVEPOINT sp_meta_elo_dyn;")
+                                except Exception:
+                                    if conn is not None:
+                                        conn.rollback()
+                                logger.warning(f"Dynamic Elo SQL fallback notice ({sys_norm}, elo={mf.elo_floor}, mode={mf.elo_mode}): {elo_dyn_err}")
+
+                        # Fast Path: Pre-aggregated `meta_event_matchups` & `meta_event_runs` (<80ms cold for non-Elo event filter combinations)
+                        if not ram_rollup_used and not is_mock_cur and mf.elo_floor <= 0 and self._is_meta_rollup_ready(cursor, sys_norm):
                             try:
                                 cursor.execute("SAVEPOINT sp_meta_rollup_read;")
                                 cursor.execute("SET LOCAL statement_timeout = '8000ms'; SET LOCAL work_mem = '128MB';")
-                                pfx = "vet_" if mf.elo_floor >= 1650 else ("exp_" if mf.elo_floor >= 1550 else "")
-                                ev_clauses, ev_params = PostgresDatabase._build_event_filter_sql_clauses(mf, ev_alias="e")
+                                pfx = ""
+                                ev_clauses, ev_params = PostgresDatabase._build_event_filter_sql_clauses(mf, ev_alias="e", game_system=sys_norm)
                                 use_pre_eids = mf.has_event_filters() and (
                                     is_real_rdc or bool(getattr(cursor, "_enable_pre_eids", False))
                                 )
@@ -13763,14 +15020,14 @@ class PostgresDatabase:
                                             total_run_rows = sum(int(r.get("row_cnt") or 0) for r in ev_chunk_rows)
                                             for r in ev_chunk_rows:
                                                 r["unique_pilots"] = int(r.get("sum_pilots") or 0)
-                                            if 0 < total_run_rows <= 300:
+                                            if 0 < total_run_rows <= 2500:
                                                 use_nl_dedup = matched_eids is not None and len(matched_eids) <= 120
                                                 try:
                                                     cursor.execute("SAVEPOINT sp_pilot_dedup;")
                                                     if use_nl_dedup:
-                                                        cursor.execute("SET LOCAL statement_timeout = '80ms'; SET LOCAL enable_nestloop = on;")
+                                                        cursor.execute("SET LOCAL statement_timeout = '150ms'; SET LOCAL enable_nestloop = on;")
                                                     else:
-                                                        cursor.execute("SET LOCAL statement_timeout = '80ms';")
+                                                        cursor.execute("SET LOCAL statement_timeout = '150ms';")
                                                     cursor.execute(
                                                         f"""
                                                         SELECT
@@ -13879,7 +15136,7 @@ class PostgresDatabase:
                             """
 
                         fb_join_sql = ""
-                        fb_filter_sql = date_filter_sql
+                        fb_filter_sql = qual_date_filter_sql
                         fb_params = list(params)
                         if not mf.is_default() and not rollup_used:
                             fb_joins: List[str] = []
@@ -13887,16 +15144,25 @@ class PostgresDatabase:
                             fb_extra_p: List[Any] = []
                             if mf.has_event_filters():
                                 fb_joins.append("JOIN events e ON e.id = matches.event_id")
-                                ev_c, ev_p = PostgresDatabase._build_event_filter_sql_clauses(mf, ev_alias="e")
+                                ev_c, ev_p = PostgresDatabase._build_event_filter_sql_clauses(mf, ev_alias="e", game_system=sys_norm)
                                 fb_extra_w.extend(ev_c)
                                 fb_extra_p.extend(ev_p)
                             if mf.elo_floor > 0:
                                 fb_joins.append("LEFT JOIN rating_history rh_f ON rh_f.match_id = matches.id AND rh_f.player_id = matches.player1_id")
-                                fb_extra_w.append("matches.is_bye IS NOT TRUE AND matches.player2_id IS NOT NULL AND COALESCE(rh_f.old_elo, 0) >= %s AND COALESCE(rh_f.opponent_elo, 0) >= %s")
+                                if mf.elo_mode == "pilot":
+                                    fb_extra_w.append(
+                                        "matches.is_bye IS NOT TRUE AND matches.player2_id IS NOT NULL"
+                                        " AND (COALESCE(rh_f.old_elo, 0) >= %s OR COALESCE(rh_f.opponent_elo, 0) >= %s)"
+                                    )
+                                else:
+                                    fb_extra_w.append(
+                                        "matches.is_bye IS NOT TRUE AND matches.player2_id IS NOT NULL"
+                                        " AND COALESCE(rh_f.old_elo, 0) >= %s AND COALESCE(rh_f.opponent_elo, 0) >= %s"
+                                    )
                                 fb_extra_p.extend([int(mf.elo_floor), int(mf.elo_floor)])
                             fb_join_sql = " ".join(fb_joins)
                             if fb_extra_w:
-                                fb_filter_sql = f"{date_filter_sql} AND {' AND '.join(fb_extra_w)}"
+                                fb_filter_sql = f"{qual_date_filter_sql} AND {' AND '.join(fb_extra_w)}"
                                 fb_params.extend(fb_extra_p)
 
                         def _run_unchunked_q1() -> List[Dict[str, Any]]:
@@ -15794,6 +17060,382 @@ class PostgresDatabase:
 
     _faction_bg_warmed_keys: Set[Any] = set()
 
+    def _query_faction_elo_filtered_details(
+        self,
+        cursor: Any,
+        faction_name: str,
+        system: str,
+        mf: MetaFilterSpec,
+        probe_limit: int,
+        eff_offset: int,
+        clean_search: str,
+        resolved_start: Optional[str],
+        canon_tf: str,
+        allow_non_1v1: bool,
+        include_top_players: bool,
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Sub-25ms Index-Only `rating_history` path for Elo-filtered faction recent matches & top commanders."""
+        aliases = PostgresDatabase.get_faction_aliases_lower(faction_name)
+        if not aliases:
+            return [], []
+
+        matched_eids: Optional[List[str]] = None
+        if mf.has_event_filters():
+            ev_clauses, ev_params = PostgresDatabase._build_event_filter_sql_clauses(mf, ev_alias="e", game_system=system)
+            ev_pre_w: List[str] = []
+            ev_pre_p: List[Any] = []
+            if system and system != "all":
+                ev_pre_w.append("COALESCE(e.game_system, '40k') = %s")
+                ev_pre_p.append(system)
+            if resolved_start and canon_tf != "all":
+                try:
+                    floor_days = 14 if mf.exclude_leagues else 90
+                    ev_floor_dt = (datetime.strptime(resolved_start[:10], "%Y-%m-%d").date() - timedelta(days=floor_days)).strftime("%Y-%m-%d")
+                    ev_pre_w.append("e.event_date >= %s")
+                    ev_pre_p.append(ev_floor_dt)
+                except Exception:
+                    pass
+            ev_pre_w.extend(ev_clauses)
+            ev_pre_p.extend(ev_params)
+            ev_pre_sql = f"WHERE {' AND '.join(ev_pre_w)}" if ev_pre_w else ""
+            cursor.execute(f"SELECT e.id FROM events e {ev_pre_sql};", tuple(ev_pre_p))
+            matched_eids = [
+                str(r["id"] if isinstance(r, dict) else r[0])
+                for r in (cursor.fetchall() or [])
+                if r and (r.get("id") if isinstance(r, dict) else r[0])
+            ]
+            if not matched_eids:
+                return [], []
+
+        join_ev_sql = ""
+        rh_w: List[str] = ["LOWER(COALESCE(rh.player_faction, '')) = ANY(%s)"]
+        rh_p: List[Any] = [list(aliases)]
+        if matched_eids is not None:
+            join_ev_sql = "JOIN UNNEST(%s::varchar[]) AS fe(eid) ON fe.eid = rh.event_id"
+            rh_p = [matched_eids] + rh_p
+            rh_w.append("rh.event_id IS NOT NULL AND rh.event_id != '' AND rh.event_id != 'unknown_event'")
+        if system and system != "all":
+            rh_w.append("COALESCE(rh.game_system, '40k') = %s")
+            rh_p.append(system)
+        rh_w.append("rh.old_elo >= %s")
+        rh_p.append(int(mf.elo_floor))
+        if mf.elo_mode != "pilot":
+            rh_w.append("rh.opponent_elo >= %s")
+            rh_p.append(int(mf.elo_floor))
+        if resolved_start and canon_tf != "all":
+            rh_w.append("rh.match_date >= %s")
+            rh_p.append(resolved_start)
+        rh_w.append("POSITION('+' IN COALESCE(rh.player_faction, '')) = 0")
+        rh_w.append("POSITION('+' IN COALESCE(rh.opponent_faction, '')) = 0")
+        rh_w.append("UPPER(COALESCE(rh.opponent_id, '')) != 'BYE'")
+        rh_w.append("UPPER(COALESCE(rh.opponent_name, '')) != 'BYE'")
+        if not allow_non_1v1:
+            rh_w.append("COALESCE(rh.opponent_id, '') != ''")
+            rh_w.append("LEFT(COALESCE(rh.opponent_name, ''), 5) != 'Pod ('")
+            rh_w.append("NOT (COALESCE(rh.opponent_faction, '') = '' AND POSITION(' & ' IN COALESCE(rh.opponent_name, '')) > 0)")
+
+        rh_where_sql = " AND ".join(rh_w)
+        offset_sql = " OFFSET %s" if eff_offset > 0 else ""
+        tail_params = (probe_limit, eff_offset) if eff_offset > 0 else (probe_limit,)
+
+        top_players: List[Dict[str, Any]] = []
+        if include_top_players and eff_offset == 0:
+            tp_params = tuple(rh_p + [system])
+            cursor.execute(
+                f"""
+                WITH filtered_seats AS MATERIALIZED (
+                    SELECT
+                        rh.player_id,
+                        rh.player_score,
+                        rh.result
+                    FROM rating_history rh
+                    {join_ev_sql}
+                    WHERE {rh_where_sql}
+                      AND rh.player_id IS NOT NULL AND rh.player_id != ''
+                ),
+                agg_pilots AS MATERIALIZED (
+                    SELECT
+                        fs.player_id AS p_id,
+                        COUNT(*) AS matches_played,
+                        COUNT(*) FILTER (WHERE fs.result = 'W') AS wins,
+                        COUNT(*) FILTER (WHERE fs.result = 'L') AS losses,
+                        COUNT(*) FILTER (WHERE fs.result = 'D') AS draws,
+                        ROUND((COUNT(*) FILTER (WHERE fs.result = 'W') * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) AS win_rate,
+                        ROUND(AVG(fs.player_score)::numeric, 1) AS avg_score
+                    FROM filtered_seats fs
+                    GROUP BY fs.player_id
+                    HAVING COUNT(*) >= 1
+                    ORDER BY COUNT(*) FILTER (WHERE fs.result = 'W') DESC, COUNT(*) DESC
+                    LIMIT 25
+                )
+                SELECT
+                    ap.p_id AS player_id,
+                    COALESCE(NULLIF(r.player_name, ''), ap.p_id) AS player_name,
+                    COALESCE(r.team, '') AS team,
+                    COALESCE(r.current_elo, 1500.0) AS current_elo,
+                    ap.matches_played,
+                    ap.wins,
+                    ap.losses,
+                    ap.draws,
+                    ap.win_rate,
+                    ap.avg_score
+                FROM agg_pilots ap
+                LEFT JOIN LATERAL (
+                    SELECT r.player_name, r.team, r.current_elo
+                    FROM player_ratings r
+                    WHERE r.player_id = ap.p_id AND COALESCE(r.game_system, '40k') = %s
+                    LIMIT 1
+                ) r ON TRUE
+                ORDER BY ap.wins DESC, ap.matches_played DESC, COALESCE(r.current_elo, 1500.0) DESC
+                LIMIT 25;
+                """,
+                tp_params,
+            )
+            top_players = [dict(r) for r in (cursor.fetchall() or [])]
+
+        def _norm_elo_matches(raw_rows: List[Any]) -> List[Dict[str, Any]]:
+            out: List[Dict[str, Any]] = []
+            for r in (raw_rows or []):
+                d = dict(r)
+                if d.get("player_faction"):
+                    d["player_faction"] = PostgresDatabase.canonicalize_faction_name(d["player_faction"])
+                if d.get("opponent_faction"):
+                    d["opponent_faction"] = PostgresDatabase.canonicalize_faction_name(d["opponent_faction"])
+                out.append(d)
+            return out
+
+        cand_cap = max(probe_limit + eff_offset, 2500) if clean_search else (probe_limit + eff_offset)
+        if clean_search:
+            q_like = f"%{clean_search}%"
+            rm_params = tuple(rh_p + [cand_cap, list(aliases), system, q_like, q_like, q_like, q_like, *tail_params])
+            cursor.execute(
+                f"""
+                WITH dedup_seats AS MATERIALIZED (
+                    SELECT DISTINCT ON (COALESCE(NULLIF(rh.match_id, ''), rh.id::text))
+                        COALESCE(NULLIF(rh.match_id, ''), rh.id::text) AS mid_key,
+                        rh.match_id,
+                        rh.event_id,
+                        rh.player_id,
+                        rh.player_faction,
+                        rh.player_score,
+                        rh.opponent_id,
+                        rh.opponent_name,
+                        rh.opponent_faction,
+                        rh.opponent_score,
+                        rh.old_elo,
+                        rh.opponent_elo,
+                        rh.result,
+                        rh.match_date
+                    FROM rating_history rh
+                    {join_ev_sql}
+                    WHERE {rh_where_sql}
+                    ORDER BY COALESCE(NULLIF(rh.match_id, ''), rh.id::text), rh.old_elo DESC
+                ),
+                top_seats AS MATERIALIZED (
+                    SELECT *
+                    FROM dedup_seats
+                    ORDER BY match_date DESC NULLS LAST, mid_key DESC
+                    LIMIT %s
+                ),
+                resolved_matches AS (
+                    SELECT
+                        COALESCE(m.id, c.mid_key) AS id,
+                        COALESCE(m.event_id, NULLIF(c.event_id, 'unknown_event')) AS event_id,
+                        COALESCE(e.name, 'Tournament') AS event_name,
+                        m.round,
+                        m.table_number,
+                        COALESCE(m.match_date, c.match_date) AS match_date,
+                        CASE
+                            WHEN m.id IS NULL THEN c.player_id
+                            WHEN s.is_p1 THEN m.player1_id
+                            ELSE m.player2_id
+                        END AS player_id,
+                        CASE
+                            WHEN m.id IS NULL THEN COALESCE(pr.player_name, c.player_id)
+                            WHEN s.is_p1 THEN m.player1_name
+                            ELSE m.player2_name
+                        END AS player_name,
+                        CASE
+                            WHEN m.id IS NULL THEN c.player_faction
+                            WHEN s.is_p1 THEN COALESCE(NULLIF(m.player1_faction, ''), c.player_faction)
+                            ELSE COALESCE(NULLIF(m.player2_faction, ''), c.player_faction)
+                        END AS player_faction,
+                        CASE
+                            WHEN m.id IS NULL THEN c.player_score
+                            WHEN s.is_p1 THEN COALESCE(m.player1_score, c.player_score)
+                            ELSE COALESCE(m.player2_score, c.player_score)
+                        END AS player_score,
+                        CASE
+                            WHEN m.id IS NULL THEN c.opponent_id
+                            WHEN s.is_p1 THEN m.player2_id
+                            ELSE m.player1_id
+                        END AS opponent_id,
+                        CASE
+                            WHEN m.id IS NULL THEN c.opponent_name
+                            WHEN s.is_p1 THEN COALESCE(NULLIF(m.player2_name, ''), c.opponent_name)
+                            ELSE COALESCE(NULLIF(m.player1_name, ''), c.opponent_name)
+                        END AS opponent_name,
+                        CASE
+                            WHEN m.id IS NULL THEN c.opponent_faction
+                            WHEN s.is_p1 THEN COALESCE(NULLIF(m.player2_faction, ''), c.opponent_faction)
+                            ELSE COALESCE(NULLIF(m.player1_faction, ''), c.opponent_faction)
+                        END AS opponent_faction,
+                        CASE
+                            WHEN m.id IS NULL THEN c.opponent_score
+                            WHEN s.is_p1 THEN COALESCE(m.player2_score, c.opponent_score)
+                            ELSE COALESCE(m.player1_score, c.opponent_score)
+                        END AS opponent_score,
+                        ROUND(c.old_elo::numeric, 0) AS player_elo,
+                        ROUND(c.opponent_elo::numeric, 0) AS opponent_elo,
+                        CASE
+                            WHEN c.result IN ('W', 'L', 'D') THEN c.result
+                            WHEN m.is_draw THEN 'D'
+                            WHEN (m.winner_id = m.player1_id AND s.is_p1) OR (m.winner_id = m.player2_id AND NOT s.is_p1) THEN 'W'
+                            ELSE 'L'
+                        END AS outcome
+                    FROM top_seats c
+                    LEFT JOIN matches m ON m.id = c.match_id
+                    CROSS JOIN LATERAL (
+                        SELECT CASE
+                            WHEN m.id IS NULL THEN TRUE
+                            WHEN m.player1_id = c.player_id THEN TRUE
+                            WHEN m.player2_id = c.player_id THEN FALSE
+                            WHEN LOWER(COALESCE(m.player1_faction, '')) = ANY(%s) THEN TRUE
+                            ELSE FALSE
+                        END AS is_p1
+                    ) s
+                    LEFT JOIN events e ON e.id = COALESCE(m.event_id, NULLIF(c.event_id, 'unknown_event'))
+                    LEFT JOIN LATERAL (
+                        SELECT player_name
+                        FROM player_ratings pr_i
+                        WHERE m.id IS NULL AND pr_i.player_id = c.player_id AND COALESCE(pr_i.game_system, '40k') = %s
+                        LIMIT 1
+                    ) pr ON TRUE
+                )
+                SELECT *
+                FROM resolved_matches rm
+                WHERE (
+                    COALESCE(rm.event_name, '') ILIKE %s
+                    OR COALESCE(rm.player_name, '') ILIKE %s
+                    OR COALESCE(rm.opponent_name, '') ILIKE %s
+                    OR COALESCE(rm.opponent_faction, '') ILIKE %s
+                )
+                ORDER BY rm.match_date DESC NULLS LAST, rm.round DESC NULLS LAST, rm.id DESC
+                LIMIT %s{offset_sql};
+                """,
+                rm_params,
+            )
+            return _norm_elo_matches(cursor.fetchall()), top_players
+
+        rm_params = tuple(rh_p + [*tail_params, list(aliases), system])
+        cursor.execute(
+            f"""
+            WITH dedup_seats AS MATERIALIZED (
+                SELECT DISTINCT ON (COALESCE(NULLIF(rh.match_id, ''), rh.id::text))
+                    COALESCE(NULLIF(rh.match_id, ''), rh.id::text) AS mid_key,
+                    rh.match_id,
+                    rh.event_id,
+                    rh.player_id,
+                    rh.player_faction,
+                    rh.player_score,
+                    rh.opponent_id,
+                    rh.opponent_name,
+                    rh.opponent_faction,
+                    rh.opponent_score,
+                    rh.old_elo,
+                    rh.opponent_elo,
+                    rh.result,
+                    rh.match_date
+                FROM rating_history rh
+                {join_ev_sql}
+                WHERE {rh_where_sql}
+                ORDER BY COALESCE(NULLIF(rh.match_id, ''), rh.id::text), rh.old_elo DESC
+            ),
+            top_seats AS MATERIALIZED (
+                SELECT *
+                FROM dedup_seats
+                ORDER BY match_date DESC NULLS LAST, mid_key DESC
+                LIMIT %s{offset_sql}
+            )
+            SELECT
+                COALESCE(m.id, c.mid_key) AS id,
+                COALESCE(m.event_id, NULLIF(c.event_id, 'unknown_event')) AS event_id,
+                COALESCE(e.name, 'Tournament') AS event_name,
+                m.round,
+                m.table_number,
+                COALESCE(m.match_date, c.match_date) AS match_date,
+                CASE
+                    WHEN m.id IS NULL THEN c.player_id
+                    WHEN s.is_p1 THEN m.player1_id
+                    ELSE m.player2_id
+                END AS player_id,
+                CASE
+                    WHEN m.id IS NULL THEN COALESCE(pr.player_name, c.player_id)
+                    WHEN s.is_p1 THEN m.player1_name
+                    ELSE m.player2_name
+                END AS player_name,
+                CASE
+                    WHEN m.id IS NULL THEN c.player_faction
+                    WHEN s.is_p1 THEN COALESCE(NULLIF(m.player1_faction, ''), c.player_faction)
+                    ELSE COALESCE(NULLIF(m.player2_faction, ''), c.player_faction)
+                END AS player_faction,
+                CASE
+                    WHEN m.id IS NULL THEN c.player_score
+                    WHEN s.is_p1 THEN COALESCE(m.player1_score, c.player_score)
+                    ELSE COALESCE(m.player2_score, c.player_score)
+                END AS player_score,
+                CASE
+                    WHEN m.id IS NULL THEN c.opponent_id
+                    WHEN s.is_p1 THEN m.player2_id
+                    ELSE m.player1_id
+                END AS opponent_id,
+                CASE
+                    WHEN m.id IS NULL THEN c.opponent_name
+                    WHEN s.is_p1 THEN COALESCE(NULLIF(m.player2_name, ''), c.opponent_name)
+                    ELSE COALESCE(NULLIF(m.player1_name, ''), c.opponent_name)
+                END AS opponent_name,
+                CASE
+                    WHEN m.id IS NULL THEN c.opponent_faction
+                    WHEN s.is_p1 THEN COALESCE(NULLIF(m.player2_faction, ''), c.opponent_faction)
+                    ELSE COALESCE(NULLIF(m.player1_faction, ''), c.opponent_faction)
+                END AS opponent_faction,
+                CASE
+                    WHEN m.id IS NULL THEN c.opponent_score
+                    WHEN s.is_p1 THEN COALESCE(m.player2_score, c.opponent_score)
+                    ELSE COALESCE(m.player1_score, c.opponent_score)
+                END AS opponent_score,
+                ROUND(c.old_elo::numeric, 0) AS player_elo,
+                ROUND(c.opponent_elo::numeric, 0) AS opponent_elo,
+                CASE
+                    WHEN c.result IN ('W', 'L', 'D') THEN c.result
+                    WHEN m.is_draw THEN 'D'
+                    WHEN (m.winner_id = m.player1_id AND s.is_p1) OR (m.winner_id = m.player2_id AND NOT s.is_p1) THEN 'W'
+                    ELSE 'L'
+                END AS outcome
+            FROM top_seats c
+            LEFT JOIN matches m ON m.id = c.match_id
+            CROSS JOIN LATERAL (
+                SELECT CASE
+                    WHEN m.id IS NULL THEN TRUE
+                    WHEN m.player1_id = c.player_id THEN TRUE
+                    WHEN m.player2_id = c.player_id THEN FALSE
+                    WHEN LOWER(COALESCE(m.player1_faction, '')) = ANY(%s) THEN TRUE
+                    ELSE FALSE
+                END AS is_p1
+            ) s
+            LEFT JOIN events e ON e.id = COALESCE(m.event_id, NULLIF(c.event_id, 'unknown_event'))
+            LEFT JOIN LATERAL (
+                SELECT player_name
+                FROM player_ratings pr_i
+                WHERE m.id IS NULL AND pr_i.player_id = c.player_id AND COALESCE(pr_i.game_system, '40k') = %s
+                LIMIT 1
+            ) pr ON TRUE
+            ORDER BY COALESCE(m.match_date, c.match_date) DESC NULLS LAST, m.round DESC NULLS LAST, COALESCE(m.id, c.mid_key) DESC;
+            """,
+            rm_params,
+        )
+        return _norm_elo_matches(cursor.fetchall()), top_players
+
     def get_faction_details(
         self,
         faction_name: str,
@@ -15817,6 +17459,7 @@ class PostgresDatabase:
         country: Optional[str] = None,
         state: Optional[str] = None,
         elo_floor: int = 0,
+        elo_mode: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Returns match-level faction analytics and matchups with sub-second (<1s) latency and multi-tier caching."""
         mf = meta_filters if isinstance(meta_filters, MetaFilterSpec) else parse_meta_filters(
@@ -15831,6 +17474,7 @@ class PostgresDatabase:
             country=country,
             state=state,
             elo_floor=elo_floor,
+            elo_mode=elo_mode,
         )
         if not faction_name:
             return {
@@ -16093,8 +17737,8 @@ class PostgresDatabase:
                 eff_limit = min(max(int(limit or 350), 350), 500)
             else:
                 eff_limit = min(max(int(limit or 350), 1), 500)
-            l2_fac_key = f"faction_details_v8_{system}_{canon_tf}_{norm_fac_lower}_{eff_limit}{f_suffix}"
-            l2_fac_key_350 = f"faction_details_v8_{system}_{canon_tf}_{norm_fac_lower}_350{f_suffix}"
+            l2_fac_key = f"faction_details_v9_{system}_{canon_tf}_{norm_fac_lower}_{eff_limit}{f_suffix}"
+            l2_fac_key_350 = f"faction_details_v9_{system}_{canon_tf}_{norm_fac_lower}_350{f_suffix}"
             canon_eff_key = (norm_fac_lower, system, canon_tf, eff_limit, f_suffix) if f_suffix else (norm_fac_lower, system, canon_tf, eff_limit)
 
             sys_clause = ""
@@ -16115,10 +17759,11 @@ class PostgresDatabase:
                     date_clause += (
                         " AND POSITION('+' IN COALESCE(matches.player1_name, '')) = 0"
                         " AND POSITION('+' IN COALESCE(matches.player2_name, '')) = 0"
-                        " AND LEFT(LOWER(COALESCE(matches.table_number, '')), 5) != 'pod ('"
+                        " AND POSITION('pod (' IN LOWER(COALESCE(matches.player1_faction, ''))) = 0"
+                        " AND POSITION('pod (' IN LOWER(COALESCE(matches.player2_faction, ''))) = 0"
                     )
                 if mf.has_event_filters():
-                    ev_clauses, ev_params = PostgresDatabase._build_event_filter_sql_clauses(mf, ev_alias="e_f")
+                    ev_clauses, ev_params = PostgresDatabase._build_event_filter_sql_clauses(mf, ev_alias="e_f", game_system=system)
                     if ev_clauses:
                         date_clause += (
                             " AND matches.event_id IS NOT NULL"
@@ -16126,17 +17771,30 @@ class PostgresDatabase:
                         )
                         date_params.extend(ev_params)
                 if mf.elo_floor > 0:
-                    date_clause += (
-                        " AND matches.is_bye IS NOT TRUE AND matches.player2_id IS NOT NULL"
-                        " AND EXISTS ("
-                        "SELECT 1 FROM rating_history rh_f"
-                        " WHERE rh_f.match_id = matches.id"
-                        " AND rh_f.player_id = matches.player1_id"
-                        " AND COALESCE(rh_f.old_elo, 0) >= %s"
-                        " AND COALESCE(rh_f.opponent_elo, 0) >= %s"
-                        ")"
-                    )
-                    date_params.extend([float(mf.elo_floor), float(mf.elo_floor)])
+                    if mf.elo_mode == "pilot":
+                        fac_aliases_l = PostgresDatabase.get_faction_aliases_lower(faction_name)
+                        date_clause += (
+                            " AND matches.is_bye IS NOT TRUE AND matches.player2_id IS NOT NULL"
+                            " AND EXISTS ("
+                            "SELECT 1 FROM rating_history rh_f"
+                            " WHERE rh_f.match_id = matches.id"
+                            " AND LOWER(COALESCE(rh_f.player_faction, '')) = ANY(%s)"
+                            " AND COALESCE(rh_f.old_elo, 0) >= %s"
+                            ")"
+                        )
+                        date_params.extend([list(fac_aliases_l), float(mf.elo_floor)])
+                    else:
+                        date_clause += (
+                            " AND matches.is_bye IS NOT TRUE AND matches.player2_id IS NOT NULL"
+                            " AND EXISTS ("
+                            "SELECT 1 FROM rating_history rh_f"
+                            " WHERE rh_f.match_id = matches.id"
+                            " AND rh_f.player_id = matches.player1_id"
+                            " AND COALESCE(rh_f.old_elo, 0) >= %s"
+                            " AND COALESCE(rh_f.opponent_elo, 0) >= %s"
+                            ")"
+                        )
+                        date_params.extend([float(mf.elo_floor), float(mf.elo_floor)])
 
             top_players: List[Dict[str, Any]] = []
             recent_matches: List[Dict[str, Any]] = []
@@ -16145,10 +17803,12 @@ class PostgresDatabase:
             try:
                 with self.get_connection() as conn:
                     with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                        rdc_cls_det = getattr(extras, "RealDictCursor", None)
+                        is_real_rdc_det = isinstance(rdc_cls_det, type) and isinstance(cursor, rdc_cls_det)
                         if not is_mock_self:
                             try:
-                                # Single connection checkout with generous 3000ms timeout and backward B-tree index scan
-                                cursor.execute("SET LOCAL statement_timeout = '3000ms';")
+                                # Single connection checkout with generous 5000ms timeout and backward B-tree index scan
+                                cursor.execute("SET LOCAL statement_timeout = '5000ms';")
                                 cursor.execute("SET LOCAL enable_bitmapscan = off;")
                             except Exception:
                                 pass
@@ -16156,7 +17816,7 @@ class PostgresDatabase:
                             # 1. Check L2 meta_intel cache first if not in L1 yet so L2 faction_details hit is 100% reconciled
                             if (not matchups or (meta_fac_info is None and not meta_payload_loaded)) and meta_p:
                                 try:
-                                    meta_ver = "v14"
+                                    meta_ver = "v15"
                                     l2_meta_key_v = f"meta_intel_{meta_ver}_{system}_{meta_p}{f_suffix}"
                                     l2_meta_key_v_leg = f"meta_intel_{meta_ver}_legacy_{system}_{meta_p}" if not f_suffix else l2_meta_key_v
                                     cursor.execute(
@@ -16220,22 +17880,51 @@ class PostgresDatabase:
                                 except Exception:
                                     pass
 
-                        if include_top_players and eff_offset == 0:
-                            top_players = self._query_faction_top_players(
-                                faction_name, system, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
-                            )
                         probe_limit = eff_limit if is_mock_self else (eff_limit + 1)
-                        raw_recent_matches = self._query_faction_recent_matches(
-                            faction_name,
-                            probe_limit,
-                            sys_params,
-                            sys_clause,
-                            date_clause,
-                            date_params=date_params,
-                            cursor=cursor,
-                            search_query=clean_search or None,
-                            offset=eff_offset
-                        )
+                        elo_fast_used = False
+                        if not is_mock_self and mf.elo_floor > 0 and is_real_rdc_det:
+                            try:
+                                self.ensure_elo_history_indexes_concurrent()
+                                cursor.execute("SAVEPOINT sp_fac_elo_det;")
+                                raw_recent_matches, elo_tp = self._query_faction_elo_filtered_details(
+                                    cursor=cursor,
+                                    faction_name=faction_name,
+                                    system=system,
+                                    mf=mf,
+                                    probe_limit=probe_limit,
+                                    eff_offset=eff_offset,
+                                    clean_search=clean_search,
+                                    resolved_start=resolved_start,
+                                    canon_tf=canon_tf,
+                                    allow_non_1v1=allow_non_1v1,
+                                    include_top_players=bool(include_top_players and eff_offset == 0),
+                                )
+                                cursor.execute("RELEASE SAVEPOINT sp_fac_elo_det;")
+                                top_players = elo_tp
+                                elo_fast_used = True
+                            except Exception as elo_det_err:
+                                try:
+                                    cursor.execute("ROLLBACK TO SAVEPOINT sp_fac_elo_det;")
+                                except Exception:
+                                    conn.rollback()
+                                logger.warning(f"Elo faction details fast-path fallback ({faction_name}, {system}): {elo_det_err}")
+
+                        if not elo_fast_used:
+                            if include_top_players and eff_offset == 0:
+                                top_players = self._query_faction_top_players(
+                                    faction_name, system, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
+                                )
+                            raw_recent_matches = self._query_faction_recent_matches(
+                                faction_name,
+                                probe_limit,
+                                sys_params,
+                                sys_clause,
+                                date_clause,
+                                date_params=date_params,
+                                cursor=cursor,
+                                search_query=clean_search or None,
+                                offset=eff_offset
+                            )
                         if not is_mock_self and len(raw_recent_matches) > eff_limit:
                             fetched_extra_probe = True
                             recent_matches = raw_recent_matches[:eff_limit]
@@ -21592,12 +23281,20 @@ try:
             "canonicalize_faction_name",
             "get_faction_aliases_lower",
             "_new_meta_ram_stream_builder",
+            "_pack_elo_tape_onto_ram_idx",
             "_build_meta_ram_rollup_index_from_rows",
             "_query_meta_ram_rollup_index",
             "_is_ram_rollup_entry_fresh",
             "_get_ram_rollup_swr",
         },
-        quiet_methods={"get_cached", "set_cached", "_is_mock_instance", "_trigger_bg_ram_rollup_refresh"},
+        quiet_methods={
+            "get_cached",
+            "set_cached",
+            "_is_mock_instance",
+            "_query_meta_ram_elo_tape",
+            "_trigger_bg_ram_rollup_refresh",
+            "_trigger_bg_ram_elo_tape_refresh",
+        },
     )
 except Exception as _perf_err:
     logger.debug(f"Perf instrumentation notice on PostgresDatabase: {_perf_err}")

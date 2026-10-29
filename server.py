@@ -340,6 +340,27 @@ async def _prewarm_meta_intel_cache(force_refresh: bool = False, force_ram: bool
                     logger.warning(f"Notice warming RAM rollup index ({gs}): {ram_err}")
                 await asyncio.sleep(0.02)
 
+            if hasattr(db, "ensure_elo_history_indexes_concurrent"):
+                try:
+                    await asyncio.to_thread(db.ensure_elo_history_indexes_concurrent)
+                except Exception as idx_err:
+                    logger.warning(f"Notice checking Elo history indexes: {idx_err}")
+
+            if hasattr(db, "load_system_meta_elo_ram_tape"):
+                for gs in ram_systems:
+                    try:
+                        await asyncio.to_thread(db.load_system_meta_elo_ram_tape, gs, force_ram)
+                    except Exception as elo_ram_err:
+                        logger.warning(f"Notice warming RAM Elo tape ({gs}): {elo_ram_err}")
+                    await asyncio.sleep(0.02)
+
+        if hasattr(db, "get_meta_filter_options"):
+            await asyncio.gather(
+                asyncio.to_thread(db.get_meta_filter_options, "40k", "90d"),
+                asyncio.to_thread(db.get_meta_filter_options, "aos", "90d"),
+                return_exceptions=True,
+            )
+
         await asyncio.gather(
             asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k", _force_refresh=force_refresh),
             asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos", _force_refresh=force_refresh),
@@ -375,6 +396,9 @@ async def _prewarm_meta_intel_cache(force_refresh: bool = False, force_ram: bool
             {"event_structure": "teams"},
             {"elo_floor": 1550},
             {"elo_floor": 1650},
+            {"elo_floor": 1750},
+            {"elo_floor": 1850},
+            {"elo_floor": 1650, "elo_mode": "pilot"},
         ]
         sc_sem = asyncio.Semaphore(2)
 
@@ -549,6 +573,7 @@ async def on_server_startup():
 
             await asyncio.gather(*(_run_bounded(fn) for fn in core_tasks))
             await _prewarm_meta_intel_cache()
+            await _run_bounded(lambda: fs_eng.get_user_tcg_state("guest_catalog", glory_balance=0))
             logger.info("🔥 Core leaderboard, stats, events, teams, stores & community caches pre-warmed")
         except Exception as cw_err:
             logger.warning(f"Notice during core cache pre-warming: {cw_err}")

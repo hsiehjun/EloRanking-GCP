@@ -41,8 +41,10 @@ from meta_event_classifier import (
     MetaFilterSpec,
     REGION_DISPLAY_NAMES,
     US_STATE_NAMES,
+    canonicalize_system_format_tag,
     classify_event_structure_and_format,
     classify_is_online,
+    format_options_for_system,
     normalize_country_and_region,
     parse_meta_filters,
 )
@@ -4870,6 +4872,7 @@ class LocalSqliteDatabase:
                 ev_day = str(er.get("event_date") or ms.get("min_day") or "")[:10]
                 out[eid] = {
                     "id": eid,
+                    "game_system": norm_sys,
                     "effective_players": eff_p,
                     "effective_rounds": eff_r,
                     "is_online": bool(is_onl),
@@ -4907,8 +4910,13 @@ class LocalSqliteDatabase:
             return False
         if mf.event_structure != "all" and str(ev_meta.get("structure_tag") or "singles") != mf.event_structure:
             return False
-        if mf.event_format != "all" and str(ev_meta.get("format_tag") or "standard") != mf.event_format:
-            return False
+        if mf.event_format != "all":
+            ev_gs = str(ev_meta.get("game_system") or "")
+            raw_ft = str(ev_meta.get("format_tag") or "standard")
+            canon_ft = canonicalize_system_format_tag(ev_gs, raw_ft) or raw_ft
+            target_ft = canonicalize_system_format_tag(ev_gs, mf.event_format) or mf.event_format
+            if canon_ft != target_ft:
+                return False
         if mf.region != "all":
             if bool(ev_meta.get("is_online")):
                 return False
@@ -4983,10 +4991,7 @@ class LocalSqliteDatabase:
                 {"code": k, "count": v}
                 for k, v in sorted(str_counts.items(), key=lambda kv: (-kv[1], kv[0]))
             ],
-            "formats": [
-                {"code": k, "label": FORMAT_DISPLAY_LABELS.get(k, k.replace("_", " ").title()), "count": v}
-                for k, v in sorted(fmt_counts.items(), key=lambda kv: (-kv[1], kv[0]))
-            ],
+            "formats": format_options_for_system(norm_sys, fmt_counts),
         }
 
     def refresh_meta_event_rollups(
@@ -5077,8 +5082,12 @@ class LocalSqliteDatabase:
                     opp_id = str(r.get("opponent_id") or "").strip()
                     if not opp_id:
                         continue
-                    if float(r.get("old_elo") or 0.0) < mf.elo_floor or float(r.get("opponent_elo") or 0.0) < mf.elo_floor:
-                        continue
+                    if mf.elo_mode == "pilot":
+                        if float(r.get("old_elo") or 0.0) < mf.elo_floor:
+                            continue
+                    else:
+                        if float(r.get("old_elo") or 0.0) < mf.elo_floor or float(r.get("opponent_elo") or 0.0) < mf.elo_floor:
+                            continue
                 if not allow_non_1v1:
                     raw_rj = r.get("raw_json")
                     rj_d = {}
@@ -5128,6 +5137,7 @@ class LocalSqliteDatabase:
         country: Optional[str] = None,
         state: Optional[str] = None,
         elo_floor: int = 0,
+        elo_mode: Optional[str] = None,
         include_trends: bool = True,
     ) -> Dict[str, Any]:
         """Returns comprehensive StatCheck-style Meta Intel for any of the 118 game systems."""
@@ -5143,6 +5153,7 @@ class LocalSqliteDatabase:
             country=country,
             state=state,
             elo_floor=elo_floor,
+            elo_mode=elo_mode,
         )
         norm_sys = normalize_game_system(game_system, default="40k")
         tf_key, eff_start, eff_end = self._resolve_meta_timeframe_window(timeframe, start_date, end_date)
@@ -5206,6 +5217,7 @@ class LocalSqliteDatabase:
         country: Optional[str] = None,
         state: Optional[str] = None,
         elo_floor: int = 0,
+        elo_mode: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Computes faction/deck/commander detailed analytics, top pilots, matchups, and recent matches."""
         mf = meta_filters if isinstance(meta_filters, MetaFilterSpec) else parse_meta_filters(
@@ -5220,6 +5232,7 @@ class LocalSqliteDatabase:
             country=country,
             state=state,
             elo_floor=elo_floor,
+            elo_mode=elo_mode,
         )
         norm_sys = normalize_game_system(game_system, default="40k")
         f_clean = str(faction_name or "").strip()

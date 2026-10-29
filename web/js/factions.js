@@ -23,8 +23,11 @@ const DEFAULT_META_EVENT_FILTERS = Object.freeze({
   region: 'all',
   country: 'all',
   state: 'all',
-  elo_floor: 0
+  elo_floor: 0,
+  elo_mode: 'both'
 });
+
+let _metaMobileDrawerOpen = false;
 
 // Initial default on page load: All Events
 let factionEventFilters = { ...DEFAULT_META_EVENT_FILTERS };
@@ -113,7 +116,10 @@ function getMetaEventFilterCacheKey(f = factionEventFilters) {
   if (f.region && f.region !== 'all') parts.push(`rg_${f.region}`);
   if (f.country && f.country !== 'all') parts.push(`cc_${f.country}`);
   if (f.state && f.state !== 'all') parts.push(`sc_${f.state}`);
-  if (Number(f.elo_floor) > 0) parts.push(`ef${Math.floor(Number(f.elo_floor))}`);
+  if (Number(f.elo_floor) > 0) {
+    const modeSfx = f.elo_mode === 'pilot' ? 'p' : 'b';
+    parts.push(`ef${modeSfx}${Math.floor(Number(f.elo_floor))}`);
+  }
   return parts.length > 0 ? `__${parts.join('_')}` : '';
 }
 
@@ -147,8 +153,19 @@ function getMetaEventFilterSummaryChips(f = factionEventFilters) {
   } else if (f.region && f.region !== 'all') {
     chips.push(_META_REGION_LABELS[f.region] || f.region);
   }
-  if (Number(f.elo_floor) > 0) chips.push(`${Math.floor(Number(f.elo_floor))}+ Elo`);
+  if (Number(f.elo_floor) > 0) {
+    const eloVal = Math.floor(Number(f.elo_floor));
+    chips.push(f.elo_mode === 'pilot' ? `Pilot ≥ ${eloVal} Elo` : `Both ≥ ${eloVal} Elo`);
+  }
   return chips;
+}
+
+function toggleMetaMobileFilterDrawer(forceState = null) {
+  _metaMobileDrawerOpen = typeof forceState === 'boolean' ? forceState : !_metaMobileDrawerOpen;
+  const panelEl = document.getElementById('meta-scope-filter-panel');
+  const btnEl = document.getElementById('meta-mobile-drawer-btn');
+  if (panelEl) panelEl.classList.toggle('mobile-open', _metaMobileDrawerOpen);
+  if (btnEl) btnEl.setAttribute('aria-expanded', _metaMobileDrawerOpen ? 'true' : 'false');
 }
 
 function syncMetaScopeFilterControlsUI() {
@@ -204,27 +221,75 @@ function syncMetaScopeFilterControlsUI() {
     stSel.value = f.state || 'all';
   }
 
+  const presetEloVals = new Set([0, 1550, 1650, 1750, 1850, 1950, 2000]);
   const ef = Number(f.elo_floor) || 0;
   document.querySelectorAll('.meta-elo-pills .meta-pill-btn').forEach(btn => {
     btn.classList.toggle('active', Number(btn.getAttribute('data-elo') || 0) === ef);
   });
+  const customEloInput = document.getElementById('meta-custom-elo-floor');
+  if (customEloInput) {
+    customEloInput.value = ef > 0 ? String(ef) : '';
+    customEloInput.style.borderColor = (ef > 0 && !presetEloVals.has(ef)) ? '#38bdf8' : '';
+  }
+
+  const curEloMode = f.elo_mode === 'pilot' ? 'pilot' : 'both';
+  const eloModeGroup = document.getElementById('meta-elo-mode-group');
+  if (eloModeGroup) {
+    eloModeGroup.style.opacity = ef > 0 ? '1' : '0.68';
+    eloModeGroup.querySelectorAll('.meta-elo-mode-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-elo-mode') === curEloMode);
+    });
+  }
 
   const activeBar = document.getElementById('meta-active-scope-bar');
   const badgesWrap = document.getElementById('meta-active-scope-badges');
   const chips = getMetaEventFilterSummaryChips(f);
+  const chipsHtml = chips.map(c => `<span class="meta-scope-chip">${escapeHtml(c)}</span>`).join('');
   if (activeBar && badgesWrap) {
     if (chips.length > 0) {
       activeBar.style.display = 'inline-flex';
-      badgesWrap.innerHTML = chips.map(c => `<span class="meta-scope-chip">${escapeHtml(c)}</span>`).join('');
+      badgesWrap.innerHTML = chipsHtml;
     } else {
       activeBar.style.display = 'none';
       badgesWrap.innerHTML = '';
     }
   }
+
+  const mobCountEl = document.getElementById('meta-mobile-filter-count');
+  const mobChipsEl = document.getElementById('meta-mobile-active-chips');
+  const mobResetBtn = document.getElementById('meta-mobile-reset-btn');
+  if (mobCountEl) {
+    mobCountEl.style.display = chips.length > 0 ? 'inline-flex' : 'none';
+    mobCountEl.textContent = String(chips.length);
+  }
+  if (mobChipsEl) {
+    mobChipsEl.innerHTML = chips.length > 0
+      ? chipsHtml
+      : '<span class="meta-mobile-all-hint">All Events</span>';
+  }
+  if (mobResetBtn) {
+    mobResetBtn.style.display = chips.length > 0 ? 'inline-flex' : 'none';
+  }
 }
 
 function syncMetaFilterOptionsUI(avail) {
   if (!avail || typeof avail !== 'object') return;
+
+  if (Array.isArray(avail.structures) && avail.structures.length > 0) {
+    const stMap = new Map();
+    avail.structures.forEach(item => {
+      if (item && item.code) stMap.set(String(item.code), Number(item.count || 0));
+    });
+    const curStruct = factionEventFilters.event_structure || 'all';
+    document.querySelectorAll('.meta-structure-pills .meta-pill-btn').forEach(btn => {
+      const code = btn.getAttribute('data-structure') || 'all';
+      if (code === 'all' || code === 'singles' || code === curStruct) {
+        btn.style.display = '';
+      } else {
+        btn.style.display = (stMap.get(code) || 0) > 0 ? '' : 'none';
+      }
+    });
+  }
 
   const ccSel = document.getElementById('meta-country-select');
   if (ccSel && Array.isArray(avail.countries)) {
@@ -268,7 +333,7 @@ function syncMetaFilterOptionsUI(avail) {
   if (fmtWrap && fmtSel && Array.isArray(avail.formats)) {
     const curFmt = factionEventFilters.event_format || 'all';
     const nonEmptyFmts = avail.formats.filter(x => x && x.code && Number(x.count || 0) > 0);
-    const hasMeaningfulVariety = nonEmptyFmts.length > 1 || nonEmptyFmts.some(x => x.code !== 'standard') || curFmt !== 'all';
+    const hasMeaningfulVariety = nonEmptyFmts.length >= 1 || curFmt !== 'all';
     if (hasMeaningfulVariety) {
       let html = '<option value="all">All Formats</option>';
       let seenFmt = (curFmt === 'all');
@@ -282,8 +347,9 @@ function syncMetaFilterOptionsUI(avail) {
       }
       fmtSel.innerHTML = html;
       fmtSel.value = curFmt;
-      fmtWrap.style.display = 'inline-flex';
+      fmtWrap.style.display = '';
     } else {
+      fmtSel.innerHTML = '<option value="all">All Formats</option>';
       fmtWrap.style.display = 'none';
     }
   }
@@ -378,10 +444,31 @@ function onMetaStateChange(val) {
 }
 
 function setMetaEloFloor(val) {
-  const ef = Math.max(0, Math.min(3000, Math.floor(Number(val) || 0)));
+  const raw = Math.floor(Number(val) || 0);
+  const ef = raw <= 0 ? 0 : Math.max(1000, Math.min(3500, raw));
   factionEventFilters.elo_floor = ef;
   syncMetaScopeFilterControlsUI();
   loadFactionMeta();
+}
+
+function onMetaCustomEloChange(val) {
+  const trimmed = String(val || '').trim();
+  if (!trimmed) {
+    setMetaEloFloor(0);
+    return;
+  }
+  const n = Math.floor(Number(trimmed) || 0);
+  setMetaEloFloor(n > 0 ? Math.max(1000, Math.min(3500, n)) : 0);
+}
+
+function setMetaEloMode(mode) {
+  const m = mode === 'pilot' ? 'pilot' : 'both';
+  if (factionEventFilters.elo_mode === m) return;
+  factionEventFilters.elo_mode = m;
+  syncMetaScopeFilterControlsUI();
+  if ((Number(factionEventFilters.elo_floor) || 0) > 0) {
+    loadFactionMeta();
+  }
 }
 
 function resetMetaEventFilters() {
@@ -1056,12 +1143,19 @@ if (typeof window !== 'undefined') {
   window.onMetaCountryChange = onMetaCountryChange;
   window.onMetaStateChange = onMetaStateChange;
   window.setMetaEloFloor = setMetaEloFloor;
+  window.onMetaCustomEloChange = onMetaCustomEloChange;
+  window.setMetaEloMode = setMetaEloMode;
+  window.toggleMetaMobileFilterDrawer = toggleMetaMobileFilterDrawer;
   window.resetMetaEventFilters = resetMetaEventFilters;
   window.resetFactionState = function() {
     factionMetaData = null;
     if (factionEventFilters.event_format !== 'all') {
       factionEventFilters.event_format = 'all';
     }
+    const fmtSel = document.getElementById('meta-format-select');
+    const fmtWrap = document.getElementById('meta-format-select-wrap');
+    if (fmtSel) fmtSel.innerHTML = '<option value="all">All Formats</option>';
+    if (fmtWrap) fmtWrap.style.display = 'none';
     syncMetaScopeFilterControlsUI();
   };
 }

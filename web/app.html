@@ -6,7 +6,7 @@
   <title>OmniTactica • Tactical Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=d11a82ec6c">
+  <link rel="manifest" href="/manifest.json?v=d5fe4974f1">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=d11a82ec6c">
-  <link rel="stylesheet" href="/css/styles.min.css?v=d11a82ec6c">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=d11a82ec6c">
-  <link rel="preload" href="/js/app.bundle.min.js?v=d11a82ec6c" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=d5fe4974f1">
+  <link rel="stylesheet" href="/css/styles.min.css?v=d5fe4974f1">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=d5fe4974f1">
+  <link rel="preload" href="/js/app.bundle.min.js?v=d5fe4974f1" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "d11a82ec6c";</script>
+  <script>window.APP_VERSION = "d5fe4974f1";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -1429,96 +1429,128 @@
 
         <!-- Tournament Scope & Competitive Filters Bar (Default: All Events) -->
         <div id="meta-scope-filter-panel" class="meta-scope-filter-panel">
-          <div class="meta-scope-row">
-            <div class="meta-scope-group">
-              <span class="meta-scope-label" title="Filter tournaments by minimum active player count">👥 Players:</span>
-              <div class="meta-tier-pills meta-players-pills" role="group" aria-label="Minimum tournament players">
-                <button type="button" class="meta-pill-btn active" data-min-players="0" onclick="setMetaMinPlayers(0)">All</button>
-                <button type="button" class="meta-pill-btn" data-min-players="8" onclick="setMetaMinPlayers(8)">8+</button>
-                <button type="button" class="meta-pill-btn" data-min-players="16" onclick="setMetaMinPlayers(16)">16+</button>
-                <button type="button" class="meta-pill-btn" data-min-players="28" onclick="setMetaMinPlayers(28)">28+</button>
-                <button type="button" class="meta-pill-btn" data-min-players="32" onclick="setMetaMinPlayers(32)">32+</button>
-                <button type="button" class="meta-pill-btn" data-min-players="64" onclick="setMetaMinPlayers(64)">64+</button>
-                <button type="button" class="meta-pill-btn" data-min-players="100" onclick="setMetaMinPlayers(100)">100+</button>
-              </div>
-              <input type="number" id="meta-custom-min-players" class="meta-custom-num-input" min="0" max="5000" step="1" placeholder="Min #" title="Custom minimum player count" onchange="onMetaCustomPlayersChange(this.value)">
+          <div class="meta-scope-mobile-bar">
+            <button type="button" id="meta-mobile-drawer-btn" class="meta-mobile-drawer-btn" aria-expanded="false" onclick="toggleMetaMobileFilterDrawer()">
+              <span>🎯 Filters</span>
+              <span id="meta-mobile-filter-count" class="meta-mobile-filter-count" style="display: none;">0</span>
+              <span id="meta-mobile-drawer-chevron" class="meta-mobile-drawer-chevron">▾</span>
+            </button>
+            <div id="meta-mobile-active-chips" class="meta-mobile-active-chips">
+              <span class="meta-mobile-all-hint">All Events</span>
             </div>
-
-            <div class="meta-scope-group">
-              <span class="meta-scope-label" title="Filter tournaments by minimum played Swiss/bracket rounds">🔄 Rounds:</span>
-              <div class="meta-tier-pills meta-rounds-pills" role="group" aria-label="Minimum tournament rounds">
-                <button type="button" class="meta-pill-btn active" data-min-rounds="0" onclick="setMetaMinRounds(0)">All</button>
-                <button type="button" class="meta-pill-btn" data-min-rounds="3" onclick="setMetaMinRounds(3)">3+</button>
-                <button type="button" class="meta-pill-btn" data-min-rounds="4" onclick="setMetaMinRounds(4)">4+</button>
-                <button type="button" class="meta-pill-btn" data-min-rounds="5" onclick="setMetaMinRounds(5)">5+</button>
-                <button type="button" class="meta-pill-btn" data-min-rounds="6" onclick="setMetaMinRounds(6)">6+</button>
-              </div>
-              <label class="meta-toggle-label meta-league-toggle" title="Exclude multi-week casual store leagues (e.g. 6-8 week escalation leagues)">
-                <input type="checkbox" id="meta-exclude-leagues-toggle" onchange="toggleMetaExcludeLeagues(this.checked)">
-                <span>Excl. Leagues</span>
-              </label>
-            </div>
-
-            <div class="meta-scope-group">
-              <span class="meta-scope-label" title="Filter by physical tabletop venue vs online/webcam/TTS/SpellTable/MTGO">🏛️ Venue:</span>
-              <div class="meta-tier-pills meta-venue-pills" role="group" aria-label="Tournament venue mode">
-                <button type="button" class="meta-pill-btn active" data-venue="all" onclick="setMetaVenueMode('all')">All</button>
-                <button type="button" class="meta-pill-btn" data-venue="in_person" onclick="setMetaVenueMode('in_person')">In-Person</button>
-                <button type="button" class="meta-pill-btn" data-venue="online" onclick="setMetaVenueMode('online')">Online</button>
-              </div>
-            </div>
+            <button type="button" id="meta-mobile-reset-btn" class="meta-mobile-reset-btn" style="display: none;" onclick="resetMetaEventFilters()">✕</button>
           </div>
 
-          <div class="meta-scope-row">
-            <div class="meta-scope-group">
-              <span class="meta-scope-label" title="Filter by tournament structure (Singles 1v1, Multi-player Teams, 2v2 Doubles, or Multiplayer FFA Pods)">⚔️ Structure:</span>
-              <div class="meta-tier-pills meta-structure-pills" role="group" aria-label="Tournament structure">
-                <button type="button" class="meta-pill-btn active" data-structure="all" onclick="setMetaEventStructure('all')">All</button>
-                <button type="button" class="meta-pill-btn" data-structure="singles" onclick="setMetaEventStructure('singles')">Singles</button>
-                <button type="button" class="meta-pill-btn" data-structure="teams" onclick="setMetaEventStructure('teams')">Teams</button>
-                <button type="button" class="meta-pill-btn" data-structure="doubles" onclick="setMetaEventStructure('doubles')">Doubles</button>
-                <button type="button" class="meta-pill-btn" data-structure="ffa_pod" onclick="setMetaEventStructure('ffa_pod')">Pods</button>
+          <div id="meta-scope-drawer-body" class="meta-scope-drawer-body">
+            <div class="meta-scope-row">
+              <div class="meta-scope-group">
+                <span class="meta-scope-label" title="Filter tournaments by minimum active player count">👥 Players:</span>
+                <div class="meta-tier-pills meta-players-pills" role="group" aria-label="Minimum tournament players">
+                  <button type="button" class="meta-pill-btn active" data-min-players="0" onclick="setMetaMinPlayers(0)">All</button>
+                  <button type="button" class="meta-pill-btn" data-min-players="8" onclick="setMetaMinPlayers(8)">8+</button>
+                  <button type="button" class="meta-pill-btn" data-min-players="16" onclick="setMetaMinPlayers(16)">16+</button>
+                  <button type="button" class="meta-pill-btn" data-min-players="28" onclick="setMetaMinPlayers(28)">28+</button>
+                  <button type="button" class="meta-pill-btn" data-min-players="32" onclick="setMetaMinPlayers(32)">32+</button>
+                  <button type="button" class="meta-pill-btn" data-min-players="64" onclick="setMetaMinPlayers(64)">64+</button>
+                  <button type="button" class="meta-pill-btn" data-min-players="100" onclick="setMetaMinPlayers(100)">100+</button>
+                </div>
+                <input type="number" id="meta-custom-min-players" class="meta-custom-num-input" min="0" max="5000" step="1" placeholder="Min #" title="Custom minimum player count" onchange="onMetaCustomPlayersChange(this.value)">
+              </div>
+
+              <div class="meta-scope-group">
+                <span class="meta-scope-label" title="Filter tournaments by minimum played Swiss/bracket rounds">🔄 Rounds:</span>
+                <div class="meta-tier-pills meta-rounds-pills" role="group" aria-label="Minimum tournament rounds">
+                  <button type="button" class="meta-pill-btn active" data-min-rounds="0" onclick="setMetaMinRounds(0)">All</button>
+                  <button type="button" class="meta-pill-btn" data-min-rounds="3" onclick="setMetaMinRounds(3)">3+</button>
+                  <button type="button" class="meta-pill-btn" data-min-rounds="4" onclick="setMetaMinRounds(4)">4+</button>
+                  <button type="button" class="meta-pill-btn" data-min-rounds="5" onclick="setMetaMinRounds(5)">5+</button>
+                  <button type="button" class="meta-pill-btn" data-min-rounds="6" onclick="setMetaMinRounds(6)">6+</button>
+                </div>
+                <label class="meta-toggle-label meta-league-toggle" title="Exclude multi-week casual store leagues (e.g. 6-8 week escalation leagues)">
+                  <input type="checkbox" id="meta-exclude-leagues-toggle" onchange="toggleMetaExcludeLeagues(this.checked)">
+                  <span>Excl. Leagues</span>
+                </label>
+              </div>
+
+              <div class="meta-scope-group">
+                <span class="meta-scope-label" title="Filter by physical tabletop venue vs online/webcam/TTS/SpellTable/MTGO">🏛️ Venue:</span>
+                <div class="meta-tier-pills meta-venue-pills" role="group" aria-label="Tournament venue mode">
+                  <button type="button" class="meta-pill-btn active" data-venue="all" onclick="setMetaVenueMode('all')">All</button>
+                  <button type="button" class="meta-pill-btn" data-venue="in_person" onclick="setMetaVenueMode('in_person')">In-Person</button>
+                  <button type="button" class="meta-pill-btn" data-venue="online" onclick="setMetaVenueMode('online')">Online</button>
+                </div>
               </div>
             </div>
 
-            <div id="meta-format-select-wrap" class="meta-scope-group" style="display: none;">
-              <span class="meta-scope-label" title="Filter by game-specific ruleset or format">📜 Format:</span>
-              <select id="meta-format-select" class="select-input meta-scope-select" onchange="setMetaEventFormat(this.value)">
-                <option value="all">All Formats</option>
-              </select>
-            </div>
+            <div class="meta-scope-row">
+              <div class="meta-scope-group">
+                <span class="meta-scope-label" title="Filter by tournament structure (Singles 1v1, Multi-player Teams, 2v2 Doubles, or Multiplayer FFA Pods)">⚔️ Structure:</span>
+                <div class="meta-tier-pills meta-structure-pills" role="group" aria-label="Tournament structure">
+                  <button type="button" class="meta-pill-btn active" data-structure="all" onclick="setMetaEventStructure('all')">All</button>
+                  <button type="button" class="meta-pill-btn" data-structure="singles" onclick="setMetaEventStructure('singles')">Singles</button>
+                  <button type="button" class="meta-pill-btn" data-structure="teams" onclick="setMetaEventStructure('teams')">Teams</button>
+                  <button type="button" class="meta-pill-btn" data-structure="doubles" onclick="setMetaEventStructure('doubles')">Doubles</button>
+                  <button type="button" class="meta-pill-btn" data-structure="ffa_pod" onclick="setMetaEventStructure('ffa_pod')">Pods</button>
+                </div>
+              </div>
 
-            <div id="meta-location-group" class="meta-scope-group">
-              <span class="meta-scope-label" title="Filter in-person tournaments by region, country, or US state">🌍 Location:</span>
-              <select id="meta-region-select" class="select-input meta-scope-select" onchange="onMetaRegionChange(this.value)">
-                <option value="all">Global (All Regions)</option>
-                <option value="NA">North America</option>
-                <option value="UK_IE">UK &amp; Ireland</option>
-                <option value="EU">Continental Europe</option>
-                <option value="OCE">Oceania (AU / NZ)</option>
-                <option value="ASIA">Asia</option>
-                <option value="LATAM">Latin America</option>
-              </select>
-              <select id="meta-country-select" class="select-input meta-scope-select" onchange="onMetaCountryChange(this.value)">
-                <option value="all">All Countries</option>
-              </select>
-              <select id="meta-state-select" class="select-input meta-scope-select" style="display: none;" onchange="onMetaStateChange(this.value)">
-                <option value="all">All US States</option>
-              </select>
-            </div>
+              <div id="meta-format-select-wrap" class="meta-scope-group" style="display: none;">
+                <span class="meta-scope-label" title="Filter by game-system-specific ruleset or format">📜 Format:</span>
+                <select id="meta-format-select" class="select-input meta-scope-select" onchange="setMetaEventFormat(this.value)">
+                  <option value="all">All Formats</option>
+                </select>
+              </div>
 
-            <div class="meta-scope-group">
-              <span class="meta-scope-label" title="Require BOTH players in each game to hold at least this pre-match Elo rating">🎖️ Pilot Elo:</span>
-              <div class="meta-tier-pills meta-elo-pills" role="group" aria-label="Minimum pilot Elo">
-                <button type="button" class="meta-pill-btn active" data-elo="0" onclick="setMetaEloFloor(0)">All Pilots</button>
-                <button type="button" class="meta-pill-btn" data-elo="1550" onclick="setMetaEloFloor(1550)">1550+</button>
-                <button type="button" class="meta-pill-btn" data-elo="1650" onclick="setMetaEloFloor(1650)">1650+</button>
+              <div id="meta-location-group" class="meta-scope-group meta-scope-selects-group">
+                <span class="meta-scope-label" title="Filter in-person tournaments by region, country, or US state">🌍 Location:</span>
+                <div class="meta-location-selects-wrap">
+                  <select id="meta-region-select" class="select-input meta-scope-select" onchange="onMetaRegionChange(this.value)">
+                    <option value="all">Global (All Regions)</option>
+                    <option value="NA">North America</option>
+                    <option value="UK_IE">UK &amp; Ireland</option>
+                    <option value="EU">Continental Europe</option>
+                    <option value="OCE">Oceania (AU / NZ)</option>
+                    <option value="ASIA">Asia</option>
+                    <option value="LATAM">Latin America</option>
+                  </select>
+                  <select id="meta-country-select" class="select-input meta-scope-select" onchange="onMetaCountryChange(this.value)">
+                    <option value="all">All Countries</option>
+                  </select>
+                  <select id="meta-state-select" class="select-input meta-scope-select" style="display: none;" onchange="onMetaStateChange(this.value)">
+                    <option value="all">All US States</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            <div id="meta-active-scope-bar" class="meta-active-scope-bar" style="display: none;">
-              <span id="meta-active-scope-badges" class="meta-active-scope-badges"></span>
-              <button type="button" id="meta-reset-filters-btn" class="meta-reset-filters-btn" onclick="resetMetaEventFilters()">✕ Reset to All Events</button>
+            <div class="meta-scope-row">
+              <div id="meta-elo-scope-group" class="meta-scope-group">
+                <span class="meta-scope-label" title="Filter strictly to matches meeting pre-match Elo rating threshold">🎖️ Pilot Elo:</span>
+                <div class="meta-tier-pills meta-elo-pills" role="group" aria-label="Minimum pilot Elo">
+                  <button type="button" class="meta-pill-btn active" data-elo="0" onclick="setMetaEloFloor(0)">All</button>
+                  <button type="button" class="meta-pill-btn" data-elo="1550" onclick="setMetaEloFloor(1550)">1550+</button>
+                  <button type="button" class="meta-pill-btn" data-elo="1650" onclick="setMetaEloFloor(1650)">1650+</button>
+                  <button type="button" class="meta-pill-btn" data-elo="1750" onclick="setMetaEloFloor(1750)">1750+</button>
+                  <button type="button" class="meta-pill-btn" data-elo="1850" onclick="setMetaEloFloor(1850)">1850+</button>
+                  <button type="button" class="meta-pill-btn" data-elo="1950" onclick="setMetaEloFloor(1950)">1950+</button>
+                  <button type="button" class="meta-pill-btn" data-elo="2000" onclick="setMetaEloFloor(2000)">2000+</button>
+                </div>
+                <input type="number" id="meta-custom-elo-floor" class="meta-custom-num-input meta-custom-elo-input" min="1000" max="3500" step="25" placeholder="Min Elo" title="Custom minimum pre-match Elo (1000–3500)" onchange="onMetaCustomEloChange(this.value)">
+                <div id="meta-elo-mode-group" class="meta-elo-mode-toggle" role="group" aria-label="Elo filter matching mode">
+                  <button type="button" class="meta-elo-mode-btn active" data-elo-mode="both" onclick="setMetaEloMode('both')" title="Require BOTH players in each game to hold at least this pre-match Elo">Both ≥ Elo</button>
+                  <button type="button" class="meta-elo-mode-btn" data-elo-mode="pilot" onclick="setMetaEloMode('pilot')" title="Include all games played by pilots at or above this Elo (against any opponent)">Pilot ≥ Elo</button>
+                </div>
+              </div>
+
+              <div id="meta-active-scope-bar" class="meta-active-scope-bar" style="display: none;">
+                <span id="meta-active-scope-badges" class="meta-active-scope-badges"></span>
+                <button type="button" id="meta-reset-filters-btn" class="meta-reset-filters-btn" onclick="resetMetaEventFilters()">✕ Reset to All Events</button>
+              </div>
+            </div>
+
+            <div class="meta-mobile-drawer-footer">
+              <button type="button" class="meta-reset-filters-btn" onclick="resetMetaEventFilters()">✕ Reset All</button>
+              <button type="button" class="meta-mobile-done-btn" onclick="toggleMetaMobileFilterDrawer(false)">Done ✓</button>
             </div>
           </div>
         </div>
@@ -3926,7 +3958,7 @@
   </div> <!-- #app-shell -->
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=d11a82ec6c"></script>
+  <script src="/js/app.bundle.min.js?v=d5fe4974f1"></script>
 
   <!-- Cloud Firestore Compat SDK for Real-time Matchmaking & Push Chat -->
   <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
