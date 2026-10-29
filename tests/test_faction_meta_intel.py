@@ -310,7 +310,7 @@ class TestFactionMetaIntel(unittest.TestCase):
         self.assertIn("meta-controls-bar", app_html)
         self.assertIn("meta-window-bar", app_html)
         self.assertIn("meta-view-modes-bar", app_html)
-        self.assertIn("meta-goldilocks-callout", app_html)
+        self.assertNotIn("meta-goldilocks-callout", app_html)
 
         styles_css = (self.root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
         self.assertIn(".search-input-group,\n.search-box {", styles_css)
