@@ -12223,19 +12223,25 @@ class PostgresDatabase:
                     b2[15] -= p1_ms
 
             if f1 > 0 and f2 > 0 and not is_mir:
-                k2d = (n1, d_ord, f1, f2)
+                if f1 < f2:
+                    a_f, b_f = f1, f2
+                    aw, al, bw, bl, ams = p1_w, p1_l, p2_w, p2_l, p1_ms
+                else:
+                    a_f, b_f = f2, f1
+                    aw, al, bw, bl, ams = p2_w, p2_l, p1_w, p1_l, -p1_ms
+                k2d = (n1, d_ord, a_f, b_f)
                 mb = m2d.get(k2d)
                 if mb is None:
-                    m2d[k2d] = [m_cnt, p1_w, p1_l, drw, p2_w, p2_l, mgnc, p1_ms]
+                    m2d[k2d] = [m_cnt, aw, al, drw, bw, bl, mgnc, ams]
                 else:
                     mb[0] += m_cnt
-                    mb[1] += p1_w
-                    mb[2] += p1_l
+                    mb[1] += aw
+                    mb[2] += al
                     mb[3] += drw
-                    mb[4] += p2_w
-                    mb[5] += p2_l
+                    mb[4] += bw
+                    mb[5] += bl
                     mb[6] += mgnc
-                    mb[7] += p1_ms
+                    mb[7] += ams
 
         def _flush_mu_tier(
             tk: str,
@@ -13130,94 +13136,89 @@ class PostgresDatabase:
         for x in overall:
             x.pop("_fid", None)
 
-        # Pass 2: 2D Non-Mirror Matchup Aggregates (pruned to kept factions when len(overall) > 250)
+        # Pass 2: 2D Non-Mirror Matchup Aggregates (unordered f1 < f2 single-lookup accumulation)
         mu_acc: Dict[int, List[Any]] = {}
         for rs2, re2 in fast_2d_spans:
             for (_n1, _d_o, f1, f2, mc, p1w, p1l, drw, p2w, p2l, mgnc, p1ms) in u2(mv_2d[rs2:re2]):
-                kf1 = keep_flag[f1]
-                kf2 = keep_flag[f2]
-                if not (kf1 or kf2):
+                if not (keep_flag[f1] or keep_flag[f2]):
                     continue
-                if kf1:
-                    k12 = (f1 << 20) | f2
-                    b1 = mu_acc.get(k12)
-                    if b1 is None:
-                        mu_acc[k12] = [mc, p1w, p1l, drw, p1ms, mgnc]
-                    else:
-                        b1[0] += mc
-                        b1[1] += p1w
-                        b1[2] += p1l
-                        b1[3] += drw
-                        b1[4] += p1ms
-                        b1[5] += mgnc
-                if kf2:
-                    k21 = (f2 << 20) | f1
-                    b2 = mu_acc.get(k21)
-                    if b2 is None:
-                        mu_acc[k21] = [mc, p2w, p2l, drw, -p1ms, mgnc]
-                    else:
-                        b2[0] += mc
-                        b2[1] += p2w
-                        b2[2] += p2l
-                        b2[3] += drw
-                        b2[4] -= p1ms
-                        b2[5] += mgnc
+                kp = (f1 << 20) | f2
+                b = mu_acc.get(kp)
+                if b is None:
+                    mu_acc[kp] = [mc, p1w, p1l, drw, p2w, p2l, p1ms, mgnc]
+                else:
+                    b[0] += mc
+                    b[1] += p1w
+                    b[2] += p1l
+                    b[3] += drw
+                    b[4] += p2w
+                    b[5] += p2l
+                    b[6] += p1ms
+                    b[7] += mgnc
 
         for s2, e2 in slow_2d_spans:
             for (n1, d_o, f1, f2, mc, p1w, p1l, drw, p2w, p2l, mgnc, p1ms) in u2(mv_2d[s2:e2]):
                 if (not allow_non_1v1 and n1) or d_o < start_ord or d_o > end_ord:
                     continue
-                kf1 = keep_flag[f1]
-                kf2 = keep_flag[f2]
-                if not (kf1 or kf2):
+                if not (keep_flag[f1] or keep_flag[f2]):
                     continue
-                if kf1:
-                    k12 = (f1 << 20) | f2
-                    b1 = mu_acc.get(k12)
-                    if b1 is None:
-                        mu_acc[k12] = [mc, p1w, p1l, drw, p1ms, mgnc]
-                    else:
-                        b1[0] += mc
-                        b1[1] += p1w
-                        b1[2] += p1l
-                        b1[3] += drw
-                        b1[4] += p1ms
-                        b1[5] += mgnc
-                if kf2:
-                    k21 = (f2 << 20) | f1
-                    b2 = mu_acc.get(k21)
-                    if b2 is None:
-                        mu_acc[k21] = [mc, p2w, p2l, drw, -p1ms, mgnc]
-                    else:
-                        b2[0] += mc
-                        b2[1] += p2w
-                        b2[2] += p2l
-                        b2[3] += drw
-                        b2[4] -= p1ms
-                        b2[5] += mgnc
+                kp = (f1 << 20) | f2
+                b = mu_acc.get(kp)
+                if b is None:
+                    mu_acc[kp] = [mc, p1w, p1l, drw, p2w, p2l, p1ms, mgnc]
+                else:
+                    b[0] += mc
+                    b[1] += p1w
+                    b[2] += p1l
+                    b[3] += drw
+                    b[4] += p2w
+                    b[5] += p2l
+                    b[6] += p1ms
+                    b[7] += mgnc
 
-        matchup_rows: List[Dict[str, Any]] = []
-        for k_pair, mb in mu_acc.items():
+        matchups_by_fac_out: Dict[str, List[Dict[str, Any]]] = {}
+        for kp, mb in mu_acc.items():
             m_tot = int(mb[0])
             if m_tot < 1:
                 continue
-            fa = fac_names[k_pair >> 20]
-            fb = fac_names[k_pair & 0xFFFFF]
-            mw = int(mb[1])
-            ml = int(mb[2])
+            f1 = kp >> 20
+            f2 = kp & 0xFFFFF
+            fa = fac_names[f1]
+            fb = fac_names[f2]
             md = int(mb[3])
-            m_wr = round((mw * 100.0 / m_tot), 1)
-            m_mgn = round((mb[4] / mb[5]), 1) if mb[5] > 0 else 0.0
-            matchup_rows.append({
-                "faction": fa,
-                "opp_faction": fb,
-                "matches": m_tot,
-                "wins": mw,
-                "losses": ml,
-                "draws": md,
-                "win_rate": m_wr,
-                "avg_margin": m_mgn,
-            })
+            m_mgn1 = round((mb[6] / mb[7]), 1) if mb[7] > 0 else 0.0
+            if keep_flag[f1]:
+                mw1 = int(mb[1])
+                ml1 = int(mb[2])
+                lst1 = matchups_by_fac_out.get(fa)
+                if lst1 is None:
+                    lst1 = []
+                    matchups_by_fac_out[fa] = lst1
+                lst1.append({
+                    "opponent_faction": fb,
+                    "matches": m_tot,
+                    "wins": mw1,
+                    "losses": ml1,
+                    "draws": md,
+                    "win_rate": round((mw1 * 100.0 / m_tot), 1),
+                    "avg_margin": m_mgn1,
+                })
+            if keep_flag[f2]:
+                mw2 = int(mb[4])
+                ml2 = int(mb[5])
+                lst2 = matchups_by_fac_out.get(fb)
+                if lst2 is None:
+                    lst2 = []
+                    matchups_by_fac_out[fb] = lst2
+                lst2.append({
+                    "opponent_faction": fa,
+                    "matches": m_tot,
+                    "wins": mw2,
+                    "losses": ml2,
+                    "draws": md,
+                    "win_rate": round((mw2 * 100.0 / m_tot), 1),
+                    "avg_margin": (-m_mgn1 if m_mgn1 != 0.0 else 0.0),
+                })
 
         monthly: List[Dict[str, Any]] = []
         for tk_key, t_cnt in trend_m.items():
@@ -13235,7 +13236,7 @@ class PostgresDatabase:
             })
         monthly.sort(key=lambda x: (str(x.get("month") or ""), -float(x.get("win_rate") or 0.0)))
 
-        return overall, matchup_rows, monthly, raw_match_count, matched_events_count
+        return overall, matchups_by_fac_out, monthly, raw_match_count, matched_events_count
 
     def get_faction_meta_stats(
         self,
@@ -13589,12 +13590,20 @@ class PostgresDatabase:
                                     mu_p: List[Any] = []
                                     has_sys_key = bool(game_system and sys_norm != "all")
                                     if matched_eids is not None:
+                                        use_pk_nl = resolved_start is None and len(matched_eids) <= 1800
                                         if has_sys_key:
-                                            cursor.execute(
-                                                "SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off; "
-                                                "SET LOCAL enable_nestloop = off; SET LOCAL enable_mergejoin = off; "
-                                                "SET LOCAL max_parallel_workers_per_gather = 0;"
-                                            )
+                                            if use_pk_nl:
+                                                cursor.execute(
+                                                    "SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off; "
+                                                    "SET LOCAL enable_nestloop = on; SET LOCAL enable_mergejoin = off; "
+                                                    "SET LOCAL max_parallel_workers_per_gather = 0;"
+                                                )
+                                            else:
+                                                cursor.execute(
+                                                    "SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off; "
+                                                    "SET LOCAL enable_nestloop = off; SET LOCAL enable_mergejoin = off; "
+                                                    "SET LOCAL max_parallel_workers_per_gather = 0;"
+                                                )
                                             idx_only_forced = True
                                         else:
                                             cursor.execute("SET LOCAL enable_nestloop = off; SET LOCAL enable_mergejoin = off;")
@@ -14481,20 +14490,23 @@ class PostgresDatabase:
                             logger.debug(f"Secondary player_ratings meta fallback notice ({sys_norm}): {fb_err}")
 
                     # Index matchup rows by faction for O(1) enrichment & matrix construction
-                    matchups_by_fac: Dict[str, List[Dict[str, Any]]] = {}
-                    for m_row in matchup_rows:
-                        fac_a = str(m_row.get("faction") or "").strip()
-                        if not fac_a:
-                            continue
-                        matchups_by_fac.setdefault(fac_a, []).append({
-                            "opponent_faction": str(m_row.get("opp_faction") or ""),
-                            "matches": int(m_row.get("matches") or 0),
-                            "wins": int(m_row.get("wins") or 0),
-                            "losses": int(m_row.get("losses") or 0),
-                            "draws": int(m_row.get("draws") or 0),
-                            "win_rate": float(m_row.get("win_rate") or 0.0),
-                            "avg_margin": float(m_row.get("avg_margin") or 0.0),
-                        })
+                    if isinstance(matchup_rows, dict):
+                        matchups_by_fac = matchup_rows
+                    else:
+                        matchups_by_fac = {}
+                        for m_row in matchup_rows:
+                            fac_a = str(m_row.get("faction") or "").strip()
+                            if not fac_a:
+                                continue
+                            matchups_by_fac.setdefault(fac_a, []).append({
+                                "opponent_faction": str(m_row.get("opp_faction") or ""),
+                                "matches": int(m_row.get("matches") or 0),
+                                "wins": int(m_row.get("wins") or 0),
+                                "losses": int(m_row.get("losses") or 0),
+                                "draws": int(m_row.get("draws") or 0),
+                                "win_rate": float(m_row.get("win_rate") or 0.0),
+                                "avg_margin": float(m_row.get("avg_margin") or 0.0),
+                            })
 
                     total_appearances = sum(int(f.get("total_matches") or 0) for f in overall)
                     total_x0_runs = sum(int(f.get("x0_runs") or 0) for f in overall)

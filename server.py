@@ -536,6 +536,7 @@ async def on_server_startup():
                 lambda: fs_eng.search_real_teams_and_players("Team Zero Comp", "40k", 24),
                 lambda: fs_eng.get_real_team_roster("Team Zero Comp", "40k"),
                 lambda: fs_eng.get_real_team_roster("Art of War", "40k"),
+                lambda: fs_eng.get_user_tcg_state("guest_catalog", glory_balance=0),
             ]
             sem = asyncio.Semaphore(6)
 
@@ -548,12 +549,13 @@ async def on_server_startup():
 
             await asyncio.gather(*(_run_bounded(fn) for fn in core_tasks))
             await _prewarm_meta_intel_cache()
-            await _run_bounded(lambda: db.prewarm_itc_rankings_cache())
             logger.info("🔥 Core leaderboard, stats, events, teams, stores & community caches pre-warmed")
         except Exception as cw_err:
             logger.warning(f"Notice during core cache pre-warming: {cw_err}")
         finally:
             SERVER_PREWARM_COMPLETE = True
+            if db is not None and hasattr(db, "prewarm_itc_rankings_cache"):
+                threading.Thread(target=db.prewarm_itc_rankings_cache, name="bg_itc_prewarm", daemon=True).start()
             try:
                 from scripts.repair_matches_and_elo import ensure_startup_elo_repair_migration
                 threading.Thread(

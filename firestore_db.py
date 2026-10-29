@@ -3358,19 +3358,20 @@ class FirestoreRoomEngine:
                         "win_rate": float(base_c.get("win_rate") or 0.0),
                     }
             try:
-                import teams_hub_service
-                svc = teams_hub_service.get_teams_hub_service()
-                for t_sum in (svc.get_teams_leaderboard(game_system=sys_key, page=1, page_size=50, min_roster=1).get("items") or []):
-                    tname = str(t_sum.get("team") or t_sum.get("name") or "").strip()
-                    hub = svc.get_team_hub(tname, sys_key)
-                    for hp in (hub.get("roster") if isinstance(hub, dict) else []) or []:
-                        pn = str(hp.get("player_name") or hp.get("name") or "").strip()
-                        if pn and float(hp.get("current_elo") or hp.get("elo") or 0) > 0:
-                            canon_map[pn.lower()] = {
-                                "current_elo": float(hp.get("current_elo") or hp.get("elo")),
-                                "matches_played": int(hp.get("matches_played") or 0),
-                                "win_rate": float(hp.get("win_rate") or 0.0),
-                            }
+                from core import get_database
+                _db_ref = get_database()
+                _cached_teams = getattr(_db_ref, "_all_teams_cache_map", {}).get(sys_key) if _db_ref else None
+                if isinstance(_cached_teams, tuple) and len(_cached_teams) >= 1 and isinstance(_cached_teams[0], list):
+                    for t_sum in _cached_teams[0][:50]:
+                        for hp in (t_sum.get("members") or t_sum.get("roster") or []):
+                            if isinstance(hp, dict):
+                                pn = str(hp.get("player_name") or hp.get("name") or "").strip()
+                                if pn and float(hp.get("current_elo") or hp.get("elo") or 0) > 0:
+                                    canon_map[pn.lower()] = {
+                                        "current_elo": float(hp.get("current_elo") or hp.get("elo")),
+                                        "matches_played": int(hp.get("matches_played") or 0),
+                                        "win_rate": float(hp.get("win_rate") or 0.0),
+                                    }
             except Exception:
                 pass
             try:
@@ -7408,6 +7409,18 @@ class FirestoreRoomEngine:
         changes, ALL of their faction cards update automatically.
         """
         import copy
+        import time
+        sys_key = str(game_system or "40k").strip().lower()
+        ov_dict = (getattr(self, "_live_player_elo_overrides", None) or {}).get(sys_key) or {}
+        ov_sig = tuple(sorted((str(k), round(float(v), 2)) for k, v in ov_dict.items())) if ov_dict else ()
+        cache_key = (sys_key, ov_sig)
+        now_mono = time.monotonic()
+        if not hasattr(self, "_tcg_collectible_pool_cache") or not isinstance(getattr(self, "_tcg_collectible_pool_cache", None), dict):
+            self._tcg_collectible_pool_cache = {}
+        cached_pool = self._tcg_collectible_pool_cache.get(cache_key)
+        if cached_pool and (now_mono - cached_pool[0]) < 60.0:
+            return cached_pool[1]
+
         raw_cards = copy.deepcopy(self.TCG_BASE_PLAYER_CARDS)
 
         seen_keys = {(self._slugify_tcg(c["player_name"]), self._slugify_tcg(c["faction"])) for c in raw_cards}
@@ -7485,6 +7498,7 @@ class FirestoreRoomEngine:
             })
 
         pool.sort(key=lambda item: (int(item["elo"]), item["player_name"], item["faction"]), reverse=True)
+        self._tcg_collectible_pool_cache[cache_key] = (now_mono, pool)
         return pool
 
     @staticmethod
@@ -7662,7 +7676,8 @@ class FirestoreRoomEngine:
             cid = cc["card_id"]
             own_meta = owned_map.get(cid)
             copies = int(own_meta.get("copies", 1)) if isinstance(own_meta, dict) else 0
-            c_copy = copy.deepcopy(cc)
+            c_copy = dict(cc)
+            c_copy["player_factions"] = list(cc.get("player_factions") or [])
             c_copy["owned"] = copies > 0
             c_copy["copies"] = copies
             c_copy["foil_tier"] = self._foil_tier_for_copies(copies) if copies > 0 else "Locked"
