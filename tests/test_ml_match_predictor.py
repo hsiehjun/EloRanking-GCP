@@ -336,6 +336,27 @@ class TestCalibratedMlMatchPredictor(unittest.TestCase):
         self.assertTrue(batch_preds[1]["is_bye"])
         self.assertEqual(batch_preds[1]["p1_win_share"], 100.0)
 
+        # 5. Verify EventStudio api_eventstudio_match_predictor end-to-end with ?p1=...&p2=...
+        from unittest.mock import patch
+        import routers.eventstudio as es_router
+        mock_db = MagicMock()
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+        mock_cur.fetchone.side_effect = [
+            {"current_elo": 1880.0, "total_matches": 45},
+            {"current_elo": 1690.0, "total_matches": 30},
+        ]
+        mock_cur.fetchall.return_value = []
+        with patch.object(es_router, "get_database", return_value=mock_db):
+            es_res = es_router.api_eventstudio_match_predictor(
+                p1="p1_test", p2="p2_test", p1_faction="Aeldari", p2_faction="Orks", game_system="40k"
+            )
+        self.assertAlmostEqual(es_res["player1"]["win_probability"] + es_res["player2"]["win_probability"], 100.0, places=1)
+        self.assertIn("ml_prediction", es_res)
+        self.assertIn("wtc_projection", es_res)
+
     def test_elo_engine_predict_match_attaches_ml_prediction_and_disposition(self):
         mock_db = MagicMock()
         mock_conn = MagicMock()
