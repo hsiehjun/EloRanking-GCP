@@ -909,6 +909,170 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
         self.assertIn("setMetaMinPlayers", bundle_js)
         self.assertIn("toggleFactionModalFilterScope", bundle_js)
 
+    def test_ram_rollup_index_exact_parity_across_filters_and_high_cardinality_tcg(self):
+        """Verifies packed C-struct RAM rollup index matches row-level KPIs, mirrors, pilot dedup, Elo tiers, and >250 TCG decks."""
+        PostgresDatabase.invalidate_all_caches()
+        ev_rows = [
+            ("ev_gt_tx", 64, 6, False, False, "singles", "standard_2000", "NA", "US", "TX"),
+            ("ev_lg_ca", 20, 6, False, True, "singles", "standard_2000", "NA", "US", "CA"),
+            ("ev_onl_tts", 32, 5, True, False, "singles", "standard_2000", "ONLINE", "", ""),
+            ("ev_pod_cmd", 16, 4, False, False, "ffa_pod", "commander", "NA", "US", "NY"),
+        ]
+        # Include mirrors, canonical aliases ('Craftworlds' -> 'Aeldari'), placeholders ('Custom'), '+' composites, and unlinked rows
+        mu_base_rows = [
+            ("ev_gt_tx", "2026-10-10", False, "Space Marines", "Orks", 10, 6, 3, 1, 3, 6, 820.0, 10, 710.0, 10, 110.0, 10),
+            ("ev_gt_tx", "2026-10-11", False, "Craftworlds", "Space Marines", 4, 3, 1, 0, 1, 3, 340.0, 4, 280.0, 4, 60.0, 4),
+            ("ev_gt_tx", "2026-10-11", False, "Orks", "Orks", 2, 1, 1, 0, 1, 1, 150.0, 2, 140.0, 2, 10.0, 2),
+            ("ev_gt_tx", "2026-10-11", False, "Space Marines + Imperial Knights", "Orks", 3, 2, 1, 0, 1, 2, 200.0, 3, 180.0, 3, 20.0, 3),
+            ("ev_lg_ca", "2026-09-25", False, "Necrons", "Orks", 6, 4, 2, 0, 2, 4, 480.0, 6, 390.0, 6, 90.0, 6),
+            ("ev_onl_tts", "2026-10-14", False, "Aeldari", "Necrons", 8, 5, 3, 0, 3, 5, 680.0, 8, 560.0, 8, 120.0, 8),
+            ("ev_onl_tts", "2026-10-14", False, "Custom", "Modern", 2, 1, 1, 0, 1, 1, 0.0, 0, 0.0, 0, 0.0, 0),
+            ("ev_pod_cmd", "2026-10-15", True, "Tymna / Kraum", "", 8, 2, 6, 0, 0, 0, 0.0, 0, 0.0, 0, 0.0, 0),
+            ("__unlinked__:40k", "2026-10-12", False, "Space Marines", "Necrons", 2, 1, 1, 0, 1, 1, 160.0, 2, 150.0, 2, 10.0, 2),
+        ]
+        # Add 260 distinct synthetic archetypes in ev_gt_tx so len(overall) > 250 pruning is also exercised!
+        for i in range(260):
+            mu_base_rows.append((
+                "ev_gt_tx", "2026-10-10", False, f"Rogue Deck {i:03d}", "Orks",
+                1, 1 if (i % 2 == 0) else 0, 0 if (i % 2 == 0) else 1, 0,
+                0 if (i % 2 == 0) else 1, 1 if (i % 2 == 0) else 0,
+                75.0, 1, 70.0, 1, 5.0, 1,
+            ))
+
+        mu_exp_rows = [
+            (
+                "ev_gt_tx", "2026-10-10", False, "Space Marines", "Orks",
+                6, 4, 2, 0, 2, 4, 510.0, 6, 430.0, 6, 80.0, 6,
+                2, 2, 0, 0, 0, 2, 180.0, 2, 130.0, 2, 50.0, 2,
+            ),
+            (
+                "ev_onl_tts", "2026-10-14", False, "Aeldari", "Necrons",
+                4, 3, 1, 0, 1, 3, 350.0, 4, 270.0, 4, 80.0, 4,
+                0, 0, 0, 0, 0, 0, 0.0, 0, 0.0, 0, 0.0, 0,
+            ),
+        ]
+        # Pilot hash 101 appears in BOTH ev_gt_tx and ev_onl_tts for Aeldari/Craftworlds -> deduplicated when same raw fac
+        run_rows = [
+            ("ev_gt_tx", False, "Space Marines", "2026-10-10", 5, 5, 2, 3, [11, 12, 13, 14, 15], 3, 3, 1, 2, [11, 12, 13], 1, 1, 1, 1, [11]),
+            ("ev_gt_tx", False, "Aeldari", "2026-10-10", 2, 2, 1, 1, [101, 102], 0, 0, 0, 0, [], 0, 0, 0, 0, []),
+            ("ev_onl_tts", False, "Aeldari", "2026-10-14", 3, 3, 1, 2, [101, 103, 104], 2, 2, 1, 1, [101, 103], 0, 0, 0, 0, []),
+        ]
+
+        ram_idx = PostgresDatabase._build_meta_ram_rollup_index_from_rows(
+            sys_norm="40k",
+            min_date_str="2026-01-01",
+            ev_rows=ev_rows,
+            mu_base_rows=mu_base_rows,
+            mu_exp_rows=mu_exp_rows,
+            run_rows=run_rows,
+        )
+        PostgresDatabase.set_cached(PostgresDatabase._meta_ram_rollup_cache, "40k", ram_idx, max_size=24)
+
+        class DummyCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def execute(self, *args, **kwargs):
+                pass
+
+            def fetchone(self):
+                return None
+
+            def fetchall(self):
+                return []
+
+        class DummyConn:
+            def cursor(self, *args, **kwargs):
+                return DummyCursor()
+
+            def rollback(self):
+                pass
+
+            def commit(self):
+                pass
+
+        @contextmanager
+        def _dummy_conn():
+            yield DummyConn()
+
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        db.pool = True
+        db._is_mock_instance = lambda: False
+
+        with patch.object(PostgresDatabase, "get_connection", new=lambda _self: _dummy_conn()):
+            # 1. Default unfiltered 90d window (includes __unlinked__:40k, excludes ev_pod_cmd non_1v1, strips '+' and 'Custom'/'Modern')
+            res_all = db.get_faction_meta_stats(
+                start_date="2026-09-01",
+                end_date="2026-10-20",
+                timeframe="custom",
+                game_system="40k",
+                include_trends=True,
+                _force_refresh=True,
+            )
+            # Total 1v1 valid matches = 10 + 4 + 2 (mirror) + 6 + 8 + 2 (unlinked) + 260 = 292!
+            self.assertEqual(res_all["summary_kpis"]["total_matches"], 292)
+            self.assertEqual(res_all["total_factions_tracked"], 264)
+            self.assertLessEqual(len(res_all["factions"]), 253)
+
+            # Aeldari pilot deduplication: [101, 102] U [101, 103, 104] = 4 unique pilots (instead of 2 + 3 = 5)
+            ael_row = next(f for f in res_all["factions"] if f["faction"] == "Aeldari")
+            self.assertEqual(ael_row["total_matches"], 12)  # 4 ('Craftworlds') + 8 ('Aeldari')
+            self.assertEqual(ael_row["unique_pilots"], 4)
+
+            # Orks mirror match handling: 2 mirror matches -> 4 appearances, 2 mirror_matches each? Wait: 2 matches -> mirror_matches=4 appearances
+            ork_row = next(f for f in res_all["factions"] if f["faction"] == "Orks")
+            self.assertEqual(ork_row["mirror_matches"], 4)
+
+            # 2. Filtered GT US TX + Exclude Leagues + Elo 1550+
+            res_tx_1550 = db.get_faction_meta_stats(
+                start_date="2026-09-01",
+                end_date="2026-10-20",
+                timeframe="custom",
+                game_system="40k",
+                min_players=28,
+                min_rounds=5,
+                exclude_leagues=True,
+                country="US",
+                state="TX",
+                elo_floor=1550,
+                include_trends=False,
+                _force_refresh=True,
+            )
+            self.assertEqual(res_tx_1550["summary_kpis"]["total_matches"], 6)
+            self.assertEqual(res_tx_1550["summary_kpis"]["matched_events"], 1)
+            sm_1550 = next(f for f in res_tx_1550["factions"] if f["faction"] == "Space Marines")
+            self.assertEqual(sm_1550["wins"], 4)
+            self.assertEqual(sm_1550["x0_runs"], 1)
+
+            # 3. Elo 1650+ (`vet` tier)
+            res_vet = db.get_faction_meta_stats(
+                start_date="2026-09-01",
+                end_date="2026-10-20",
+                timeframe="custom",
+                game_system="40k",
+                elo_floor=1650,
+                include_trends=False,
+                _force_refresh=True,
+            )
+            self.assertEqual(res_vet["summary_kpis"]["total_matches"], 2)
+            self.assertEqual(res_vet["summary_kpis"]["matched_events"], 1)
+
+            # 4. Pod / Commander `allow_non_1v1=True` (`8` seats -> `round(8 / 4.0) = 2` pod games)
+            res_pod = db.get_faction_meta_stats(
+                start_date="2026-09-01",
+                end_date="2026-10-20",
+                timeframe="custom",
+                game_system="40k",
+                event_structure="ffa_pod",
+                include_trends=False,
+                _force_refresh=True,
+            )
+            self.assertEqual(res_pod["summary_kpis"]["total_matches"], 2)
+            self.assertEqual(res_pod["summary_kpis"]["matched_events"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

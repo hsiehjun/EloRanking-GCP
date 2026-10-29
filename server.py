@@ -323,6 +323,20 @@ async def _prewarm_meta_intel_cache(force_refresh: bool = False):
         start_str = d90.strftime("%Y-%m-%d")
         end_str = now.strftime("%Y-%m-%d")
         db = await asyncio.to_thread(get_database)
+        if hasattr(db, "load_system_meta_rollup_ram_index"):
+            ram_systems = getattr(
+                db,
+                "META_RAM_PREWARM_SYSTEMS",
+                ("40k", "aos", "mtg", "pokemon", "one_piece", "sw_unlimited", "lorcana", "flesh_blood", "mcp", "digimon", "sw_legion"),
+            )
+            ram_sem = asyncio.Semaphore(3)
+
+            async def _warm_ram_idx(gs_code: str):
+                async with ram_sem:
+                    await asyncio.to_thread(db.load_system_meta_rollup_ram_index, gs_code, force_refresh)
+
+            await asyncio.gather(*(_warm_ram_idx(gs) for gs in ram_systems), return_exceptions=True)
+
         await asyncio.gather(
             asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="40k", _force_refresh=force_refresh),
             asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos", _force_refresh=force_refresh),

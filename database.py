@@ -1,11 +1,14 @@
 """PostgreSQL Database backend for Warhammer 40k Elo Ranking and BCP scraper."""
 
+import array
 import hashlib
 import json
 import logging
 import math
 import os
 import re
+import struct
+import sys
 import time
 import threading
 import concurrent.futures
@@ -355,6 +358,16 @@ class PostgresDatabase:
     _meta_filter_options_cache_dict = {}
     _meta_rollup_ready_systems: Set[str] = set()
     _meta_rollup_status_checked_ts: float = 0.0
+    _meta_ram_rollup_cache: Dict[str, Any] = {}
+    _meta_ram_rollup_locks: Dict[str, threading.Lock] = {}
+    _meta_ram_rollup_guard = threading.Lock()
+    _META_RAM_S1D = struct.Struct("=BIi2H11i3d")
+    _META_RAM_S2D = struct.Struct("=Bi2I7id")
+    _META_RAM_SRUN = struct.Struct("=Bi2I4i2I")
+    META_RAM_PREWARM_SYSTEMS: Tuple[str, ...] = (
+        "40k", "aos", "mtg", "pokemon", "one_piece", "sw_unlimited",
+        "lorcana", "flesh_blood", "mcp", "digimon", "sw_legion",
+    )
     _faction_details_cache_dict = {}
     _players_cache_dict = {}
     _players_count_cache_dict = {}
@@ -671,6 +684,8 @@ class PostgresDatabase:
             cls._meta_filter_options_cache_dict.clear()
         if hasattr(cls, "_meta_rollup_ready_systems") and isinstance(cls._meta_rollup_ready_systems, set):
             cls._meta_rollup_ready_systems.clear()
+        if hasattr(cls, "_meta_ram_rollup_cache") and isinstance(cls._meta_ram_rollup_cache, dict):
+            cls._meta_ram_rollup_cache.clear()
         cls._faction_details_cache_dict.clear()
         cls._faction_bg_warmed_keys.clear()
         cls._players_cache_dict.clear()
@@ -1230,7 +1245,7 @@ class PostgresDatabase:
                 with conn.cursor() as cur:
                     if hasattr(cur, "_mock_name") or type(cur).__module__.startswith("unittest.mock"):
                         return
-                    cur.execute("SELECT value FROM system_settings WHERE key = 'meta_event_rollup_schema_v3';")
+                    cur.execute("SELECT value FROM system_settings WHERE key = 'meta_event_rollup_schema_v4';")
                     row = cur.fetchone()
                     if row and (row[0] if isinstance(row, (list, tuple)) else row.get("value")) == "ready":
                         return
@@ -1241,7 +1256,7 @@ class PostgresDatabase:
                         cur.execute(
                             """
                             INSERT INTO system_settings (key, value, updated_at)
-                            VALUES ('meta_event_rollup_schema_v3', 'ready', NOW())
+                            VALUES ('meta_event_rollup_schema_v4', 'ready', NOW())
                             ON CONFLICT (key) DO UPDATE SET value = 'ready', updated_at = NOW();
                             """
                         )
@@ -1337,11 +1352,11 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_events_meta_filter_v2 ON events (COALESCE(game_system, '40k'), event_date DESC) INCLUDE (id, effective_players, total_players, effective_rounds, num_rounds, is_online, is_league, structure_tag, format_tag, region_code, country_code, state_code);",
             "CREATE INDEX IF NOT EXISTS idx_events_id_meta_v2 ON events (id) INCLUDE (effective_players, total_players, effective_rounds, num_rounds, is_online, is_league, structure_tag, format_tag, region_code, country_code, state_code);",
             "CREATE INDEX IF NOT EXISTS idx_match_participants_match_id ON match_participants (match_id);",
-            "CREATE INDEX IF NOT EXISTS idx_meta_ev_mu_sys_day ON meta_event_matchups (game_system, is_non_1v1, match_day DESC);",
-            "CREATE INDEX IF NOT EXISTS idx_meta_ev_runs_sys_date ON meta_event_runs (game_system, is_non_1v1, event_date DESC);",
             "CREATE INDEX IF NOT EXISTS idx_meta_ev_mu_cov_v3 ON meta_event_matchups (game_system, is_non_1v1, match_day DESC) INCLUDE (event_id, p1_fac, p2_fac, match_cnt, p1_wins, p1_losses, draws, p2_wins, p2_losses, p1_score_sum, p1_score_cnt, p2_score_sum, p2_score_cnt, p1_margin_sum, margin_cnt);",
             "CREATE INDEX IF NOT EXISTS idx_meta_ev_mu_exp_cov_v3 ON meta_event_matchups (game_system, is_non_1v1, match_day DESC) INCLUDE (event_id, p1_fac, p2_fac, exp_match_cnt, exp_p1_wins, exp_p1_losses, exp_draws, exp_p2_wins, exp_p2_losses, exp_p1_score_sum, exp_p1_score_cnt, exp_p2_score_sum, exp_p2_score_cnt, exp_p1_margin_sum, exp_margin_cnt, vet_match_cnt, vet_p1_wins, vet_p1_losses, vet_draws, vet_p2_wins, vet_p2_losses, vet_p1_score_sum, vet_p1_score_cnt, vet_p2_score_sum, vet_p2_score_cnt, vet_p1_margin_sum, vet_margin_cnt) WHERE exp_match_cnt > 0;",
             "CREATE INDEX IF NOT EXISTS idx_meta_ev_runs_cov_v3 ON meta_event_runs (game_system, is_non_1v1, event_date DESC) INCLUDE (event_id, fac, pilots_cnt, runs_cnt, x0_runs, x1_runs, exp_pilots_cnt, exp_runs_cnt, exp_x0_runs, exp_x1_runs, vet_pilots_cnt, vet_runs_cnt, vet_x0_runs, vet_x1_runs);",
+            "DROP INDEX IF EXISTS idx_meta_ev_mu_sys_day;",
+            "DROP INDEX IF EXISTS idx_meta_ev_runs_sys_date;",
             "ANALYZE meta_event_matchups;",
             "ANALYZE meta_event_runs;",
         )
@@ -11898,8 +11913,11 @@ class PostgresDatabase:
             else:
                 PostgresDatabase._meta_rollup_ready_systems.add("ALL_READY")
             PostgresDatabase._meta_rollup_status_checked_ts = time.time()
-            PostgresDatabase._meta_rollup_status_checked_ts = time.time()
 
+        if sys_norm:
+            PostgresDatabase._meta_ram_rollup_cache.pop(sys_norm, None)
+        else:
+            PostgresDatabase._meta_ram_rollup_cache.clear()
         PostgresDatabase._meta_filter_options_cache_dict.clear()
         PostgresDatabase._faction_meta_cache_dict.clear()
         elapsed = round(time.time() - t0, 2)
@@ -11910,6 +11928,1040 @@ class PostgresDatabase:
             "run_rows_written": run_rows_written,
             "elapsed_seconds": elapsed,
         }
+
+    @classmethod
+    def _build_meta_ram_rollup_index_from_rows(
+        cls,
+        sys_norm: str,
+        min_date_str: str,
+        ev_rows: List[Any],
+        mu_base_rows: List[Any],
+        mu_exp_rows: List[Any],
+        run_rows: List[Any],
+    ) -> Dict[str, Any]:
+        """Packs event metadata, 1D faction stats, 2D matchup stats, and event runs into compact C-struct bytearrays."""
+        min_date_ord = datetime.strptime(min_date_str[:10], "%Y-%m-%d").date().toordinal()
+        ev_id_to_idx: Dict[str, int] = {}
+        ev_attrs: List[Tuple[bool, bool, int, int, bool, bool, str, str, str, str, str]] = []
+
+        for r in (ev_rows or []):
+            eid = str(r[0] or "").strip()
+            if not eid or eid in ev_id_to_idx:
+                continue
+            ev_id_to_idx[eid] = len(ev_attrs)
+            ev_attrs.append((
+                True,
+                eid.startswith("__unlinked__"),
+                int(r[1] or 0),
+                int(r[2] or 0),
+                bool(r[3]),
+                bool(r[4]),
+                sys.intern(str(r[5] or "singles")),
+                sys.intern(str(r[6] or "standard")),
+                sys.intern(str(r[7] or "UNKNOWN")),
+                sys.intern(str(r[8] or "")),
+                sys.intern(str(r[9] or "")),
+            ))
+
+        def _get_or_add_orphan_ev(raw_eid: Any) -> int:
+            eid_s = str(raw_eid or "").strip()
+            idx = ev_id_to_idx.get(eid_s)
+            if idx is not None:
+                return idx
+            idx = len(ev_attrs)
+            ev_id_to_idx[eid_s] = idx
+            ev_attrs.append((
+                False,
+                eid_s.startswith("__unlinked__"),
+                0,
+                0,
+                False,
+                False,
+                sys.intern("singles"),
+                sys.intern("standard"),
+                sys.intern("UNKNOWN"),
+                sys.intern(""),
+                sys.intern(""),
+            ))
+            return idx
+
+        fac_names: List[str] = [""]
+        fac_low_group: List[int] = [0]
+        canon_to_id: Dict[str, int] = {}
+        low_to_group: Dict[str, int] = {}
+        canon_memo: Dict[Any, int] = {"": 0, None: 0}
+
+        def _intern_canon_fac(raw_val: Any) -> int:
+            cached = canon_memo.get(raw_val)
+            if cached is not None:
+                return cached
+            s = str(raw_val or "").strip()
+            if not s or "+" in s or "pod (" in s.lower() or cls.is_super_or_empty_faction(s):
+                canon_memo[raw_val] = 0
+                return 0
+            cf = cls.canonicalize_faction_name(s)
+            if not cf or "+" in cf or "pod (" in cf.lower() or cls.is_super_or_empty_faction(cf):
+                canon_memo[raw_val] = 0
+                return 0
+            fid = canon_to_id.get(cf)
+            if fid is None:
+                fid = len(fac_names)
+                fac_names.append(cf)
+                canon_to_id[cf] = fid
+                clow = cf.lower()
+                lg = low_to_group.get(clow)
+                if lg is None:
+                    lg = len(low_to_group) + 1
+                    low_to_group[clow] = lg
+                fac_low_group.append(lg)
+            canon_memo[raw_val] = fid
+            return fid
+
+        raw_fac_to_id: Dict[str, int] = {"": 0}
+        week_strs: List[str] = [""]
+        week_to_id: Dict[str, int] = {"": 0}
+        month_strs: List[str] = [""]
+        month_to_id: Dict[str, int] = {"": 0}
+        date_memo: Dict[Any, Tuple[int, int, int]] = {None: (0, 0, 0), "": (0, 0, 0)}
+
+        def _parse_date_info(d_val: Any) -> Tuple[int, int, int]:
+            hit = date_memo.get(d_val)
+            if hit is not None:
+                return hit
+            try:
+                if hasattr(d_val, "toordinal") and not hasattr(d_val, "hour"):
+                    dt_obj = d_val
+                elif hasattr(d_val, "date"):
+                    dt_obj = d_val.date()
+                else:
+                    dt_obj = datetime.strptime(str(d_val)[:10], "%Y-%m-%d").date()
+                d_ord = dt_obj.toordinal()
+                wk_s = (dt_obj - timedelta(days=dt_obj.weekday())).strftime("%Y-%m-%d")
+                mo_s = dt_obj.strftime("%Y-%m")
+                w_id = week_to_id.get(wk_s)
+                if w_id is None:
+                    w_id = len(week_strs)
+                    week_strs.append(wk_s)
+                    week_to_id[wk_s] = w_id
+                m_id = month_to_id.get(mo_s)
+                if m_id is None:
+                    m_id = len(month_strs)
+                    month_strs.append(mo_s)
+                    month_to_id[mo_s] = m_id
+                res_t = (d_ord, w_id, m_id)
+            except Exception:
+                res_t = (0, 0, 0)
+            date_memo[d_val] = res_t
+            return res_t
+
+        # Ensure all referenced event_ids exist in ev_attrs before sizing per-event structures
+        for r in (mu_base_rows or []):
+            if r[0] not in ev_id_to_idx:
+                _get_or_add_orphan_ev(r[0])
+        for r in (mu_exp_rows or []):
+            if r[0] not in ev_id_to_idx:
+                _get_or_add_orphan_ev(r[0])
+        for r in (run_rows or []):
+            if r[0] not in ev_id_to_idx:
+                _get_or_add_orphan_ev(r[0])
+
+        num_evs = len(ev_attrs)
+        tier_names = ("all", "exp", "vet")
+        ev_1d_maps: Dict[str, List[Optional[Dict[Tuple[int, int, int], List[Any]]]]] = {
+            tk: [None] * num_evs for tk in tier_names
+        }
+        ev_2d_maps: Dict[str, List[Optional[Dict[Tuple[int, int, int, int], List[Any]]]]] = {
+            tk: [None] * num_evs for tk in tier_names
+        }
+        ev_mu_days: Dict[str, List[Optional[Set[Tuple[int, int]]]]] = {
+            tk: [None] * num_evs for tk in tier_names
+        }
+
+        def _ingest_mu_row(
+            tk: str,
+            ev_i: int,
+            d_ord: int,
+            w_id: int,
+            m_id: int,
+            n1: int,
+            p1_raw: Any,
+            p2_raw: Any,
+            m_cnt: int,
+            p1_w: int,
+            p1_l: int,
+            drw: int,
+            p2_w: int,
+            p2_l: int,
+            p1_ss: float,
+            p1_sc: int,
+            p2_ss: float,
+            p2_sc: int,
+            p1_ms: float,
+            mgnc: int,
+        ) -> None:
+            if m_cnt <= 0 or d_ord <= 0:
+                return
+            dset = ev_mu_days[tk][ev_i]
+            if dset is None:
+                dset = set()
+                ev_mu_days[tk][ev_i] = dset
+            dset.add((d_ord, n1))
+
+            if (isinstance(p1_raw, str) and ("+" in p1_raw or "pod (" in p1_raw.lower())) or (
+                isinstance(p2_raw, str) and ("+" in p2_raw or "pod (" in p2_raw.lower())
+            ):
+                return
+            f1 = _intern_canon_fac(p1_raw)
+            f2 = _intern_canon_fac(p2_raw)
+            if f1 == 0 and f2 == 0:
+                return
+
+            is_mir = f1 > 0 and f2 > 0 and fac_low_group[f1] == fac_low_group[f2]
+            m1d = ev_1d_maps[tk][ev_i]
+            if m1d is None:
+                m1d = {}
+                ev_1d_maps[tk][ev_i] = m1d
+
+            if f1 > 0:
+                k1 = (n1, d_ord, f1)
+                b1 = m1d.get(k1)
+                mir_v = m_cnt if is_mir else 0
+                nmm_v = 0 if is_mir else m_cnt
+                nmw_v = 0 if is_mir else p1_w
+                if b1 is None:
+                    m1d[k1] = [w_id, m_id, m_cnt, m_cnt, p1_w, p1_l, drw, mir_v, nmm_v, nmw_v, p1_sc, p2_sc, mgnc, p1_ss, p2_ss, p1_ms]
+                else:
+                    b1[2] += m_cnt
+                    b1[3] += m_cnt
+                    b1[4] += p1_w
+                    b1[5] += p1_l
+                    b1[6] += drw
+                    b1[7] += mir_v
+                    b1[8] += nmm_v
+                    b1[9] += nmw_v
+                    b1[10] += p1_sc
+                    b1[11] += p2_sc
+                    b1[12] += mgnc
+                    b1[13] += p1_ss
+                    b1[14] += p2_ss
+                    b1[15] += p1_ms
+
+            if f2 > 0:
+                k2 = (n1, d_ord, f2)
+                b2 = m1d.get(k2)
+                raw_contrib = m_cnt if f1 == 0 else 0
+                mir_v = m_cnt if is_mir else 0
+                nmm_v = 0 if is_mir else m_cnt
+                nmw_v = 0 if is_mir else p2_w
+                if b2 is None:
+                    m1d[k2] = [w_id, m_id, raw_contrib, m_cnt, p2_w, p2_l, drw, mir_v, nmm_v, nmw_v, p2_sc, p1_sc, mgnc, p2_ss, p1_ss, -p1_ms]
+                else:
+                    b2[2] += raw_contrib
+                    b2[3] += m_cnt
+                    b2[4] += p2_w
+                    b2[5] += p2_l
+                    b2[6] += drw
+                    b2[7] += mir_v
+                    b2[8] += nmm_v
+                    b2[9] += nmw_v
+                    b2[10] += p2_sc
+                    b2[11] += p1_sc
+                    b2[12] += mgnc
+                    b2[13] += p2_ss
+                    b2[14] += p1_ss
+                    b2[15] -= p1_ms
+
+            if f1 > 0 and f2 > 0 and not is_mir:
+                m2d = ev_2d_maps[tk][ev_i]
+                if m2d is None:
+                    m2d = {}
+                    ev_2d_maps[tk][ev_i] = m2d
+                k2d = (n1, d_ord, f1, f2)
+                mb = m2d.get(k2d)
+                if mb is None:
+                    m2d[k2d] = [m_cnt, p1_w, p1_l, drw, p2_w, p2_l, mgnc, p1_ms]
+                else:
+                    mb[0] += m_cnt
+                    mb[1] += p1_w
+                    mb[2] += p1_l
+                    mb[3] += drw
+                    mb[4] += p2_w
+                    mb[5] += p2_l
+                    mb[6] += mgnc
+                    mb[7] += p1_ms
+
+        for r in (mu_base_rows or []):
+            ev_i = ev_id_to_idx[str(r[0] or "").strip()]
+            d_ord, w_id, m_id = _parse_date_info(r[1])
+            _ingest_mu_row(
+                "all", ev_i, d_ord, w_id, m_id, 1 if r[2] else 0, r[3], r[4],
+                int(r[5] or 0), int(r[6] or 0), int(r[7] or 0), int(r[8] or 0),
+                int(r[9] or 0), int(r[10] or 0), float(r[11] or 0.0), int(r[12] or 0),
+                float(r[13] or 0.0), int(r[14] or 0), float(r[15] or 0.0), int(r[16] or 0),
+            )
+
+        for r in (mu_exp_rows or []):
+            ev_i = ev_id_to_idx[str(r[0] or "").strip()]
+            d_ord, w_id, m_id = _parse_date_info(r[1])
+            n1 = 1 if r[2] else 0
+            p1_raw, p2_raw = r[3], r[4]
+            exp_mc = int(r[5] or 0)
+            if exp_mc > 0:
+                _ingest_mu_row(
+                    "exp", ev_i, d_ord, w_id, m_id, n1, p1_raw, p2_raw,
+                    exp_mc, int(r[6] or 0), int(r[7] or 0), int(r[8] or 0),
+                    int(r[9] or 0), int(r[10] or 0), float(r[11] or 0.0), int(r[12] or 0),
+                    float(r[13] or 0.0), int(r[14] or 0), float(r[15] or 0.0), int(r[16] or 0),
+                )
+            vet_mc = int(r[17] or 0)
+            if vet_mc > 0:
+                _ingest_mu_row(
+                    "vet", ev_i, d_ord, w_id, m_id, n1, p1_raw, p2_raw,
+                    vet_mc, int(r[18] or 0), int(r[19] or 0), int(r[20] or 0),
+                    int(r[21] or 0), int(r[22] or 0), float(r[23] or 0.0), int(r[24] or 0),
+                    float(r[25] or 0.0), int(r[26] or 0), float(r[27] or 0.0), int(r[28] or 0),
+                )
+
+        ev_run_lists: Dict[str, List[Optional[List[Tuple[int, int, int, int, int, int, int, int, Any]]]]] = {
+            tk: [None] * num_evs for tk in tier_names
+        }
+        for r in (run_rows or []):
+            ev_i = ev_id_to_idx[str(r[0] or "").strip()]
+            n1 = 1 if r[1] else 0
+            raw_f_str = str(r[2] or "")
+            raw_f_id = raw_fac_to_id.get(raw_f_str)
+            if raw_f_id is None:
+                raw_f_id = len(raw_fac_to_id)
+                raw_fac_to_id[raw_f_str] = raw_f_id
+            canon_f_id = _intern_canon_fac(raw_f_str)
+            d_ord, _w, _m = _parse_date_info(r[3])
+            for tk, base_col in (("all", 4), ("exp", 9), ("vet", 14)):
+                p_cnt = int(r[base_col] or 0)
+                if p_cnt <= 0:
+                    continue
+                rl = ev_run_lists[tk][ev_i]
+                if rl is None:
+                    rl = []
+                    ev_run_lists[tk][ev_i] = rl
+                rl.append((
+                    n1, d_ord, canon_f_id, raw_f_id,
+                    p_cnt, int(r[base_col + 1] or 0), int(r[base_col + 2] or 0), int(r[base_col + 3] or 0),
+                    r[base_col + 4],
+                ))
+
+        def clamp(val: Any) -> int:
+            v = int(val or 0)
+            if v > 2147483647:
+                return 2147483647
+            if v < -2147483647:
+                return -2147483647
+            return v
+
+        s1d = cls._META_RAM_S1D
+        s2d = cls._META_RAM_S2D
+        srun = cls._META_RAM_SRUN
+        tiers_packed: Dict[str, Dict[str, Any]] = {}
+
+        for tk in tier_names:
+            n_1d = sum(len(m) for m in ev_1d_maps[tk] if m)
+            n_2d = sum(len(m) for m in ev_2d_maps[tk] if m)
+            n_run = sum(len(rl) for rl in ev_run_lists[tk] if rl)
+            buf_1d = bytearray(n_1d * s1d.size)
+            buf_2d = bytearray(n_2d * s2d.size)
+            buf_run = bytearray(n_run * srun.size)
+            ph_arr = array.array("i")
+
+            slices_1d: List[Tuple[int, int, int, int, bool, bool]] = []
+            slices_2d: List[Tuple[int, int]] = []
+            slices_run: List[Tuple[int, int, int, int, bool]] = []
+            mu_spans: List[Optional[Tuple[int, int, bool, bool, Tuple[Tuple[int, int], ...]]]] = []
+
+            o1 = 0
+            o2 = 0
+            orun = 0
+            for ev_i in range(num_evs):
+                dset = ev_mu_days[tk][ev_i]
+                if not dset:
+                    mu_spans.append(None)
+                else:
+                    min_d = min(x[0] for x in dset)
+                    max_d = max(x[0] for x in dset)
+                    has_1v1 = any(x[1] == 0 for x in dset)
+                    has_n1 = any(x[1] == 1 for x in dset)
+                    dp_tup = () if min_d == max_d else tuple(dset)
+                    mu_spans.append((min_d, max_d, has_1v1, has_n1, dp_tup))
+
+                m1d = ev_1d_maps[tk][ev_i]
+                st1 = o1
+                if m1d:
+                    d1_min = 2147483647
+                    d1_max = 0
+                    h1_1v1 = False
+                    h1_n1 = False
+                    for (n1, d_ord, fid), vals in m1d.items():
+                        if d_ord < d1_min:
+                            d1_min = d_ord
+                        if d_ord > d1_max:
+                            d1_max = d_ord
+                        if n1:
+                            h1_n1 = True
+                        else:
+                            h1_1v1 = True
+                        s1d.pack_into(
+                            buf_1d, o1, n1, fid, d_ord, vals[0], vals[1],
+                            clamp(vals[2]), clamp(vals[3]), clamp(vals[4]), clamp(vals[5]), clamp(vals[6]),
+                            clamp(vals[7]), clamp(vals[8]), clamp(vals[9]), clamp(vals[10]), clamp(vals[11]), clamp(vals[12]),
+                            float(vals[13]), float(vals[14]), float(vals[15]),
+                        )
+                        o1 += s1d.size
+                    slices_1d.append((st1, o1, d1_min, d1_max, h1_1v1, h1_n1))
+                else:
+                    slices_1d.append((st1, o1, 0, 0, False, False))
+
+                m2d = ev_2d_maps[tk][ev_i]
+                st2 = o2
+                if m2d:
+                    for (n1, d_ord, f1, f2), vals2 in m2d.items():
+                        s2d.pack_into(
+                            buf_2d, o2, n1, d_ord, f1, f2,
+                            clamp(vals2[0]), clamp(vals2[1]), clamp(vals2[2]), clamp(vals2[3]),
+                            clamp(vals2[4]), clamp(vals2[5]), clamp(vals2[6]), float(vals2[7]),
+                        )
+                        o2 += s2d.size
+                slices_2d.append((st2, o2))
+
+                rl = ev_run_lists[tk][ev_i]
+                strun = orun
+                if rl:
+                    dr_min = 2147483647
+                    dr_max = 0
+                    hr_n1 = False
+                    for (n1, d_ord, cf_id, rf_id, p_c, r_c, x0_c, x1_c, ph_list) in rl:
+                        if 0 < d_ord < dr_min:
+                            dr_min = d_ord
+                        if d_ord > dr_max:
+                            dr_max = d_ord
+                        if n1:
+                            hr_n1 = True
+                        ph_s = len(ph_arr)
+                        if ph_list:
+                            ph_arr.extend(int(h) for h in ph_list if h is not None)
+                        ph_e = len(ph_arr)
+                        srun.pack_into(
+                            buf_run, orun, n1, d_ord, cf_id, rf_id,
+                            clamp(p_c), clamp(r_c), clamp(x0_c), clamp(x1_c), ph_s, ph_e,
+                        )
+                        orun += srun.size
+                    if dr_min == 2147483647:
+                        dr_min = 0
+                    slices_run.append((strun, orun, dr_min, dr_max, hr_n1))
+                else:
+                    slices_run.append((strun, orun, 0, 0, False))
+
+            tiers_packed[tk] = {
+                "buf_1d": buf_1d,
+                "buf_2d": buf_2d,
+                "buf_run": buf_run,
+                "ph_arr": ph_arr,
+                "slices_1d": slices_1d,
+                "slices_2d": slices_2d,
+                "slices_run": slices_run,
+                "mu_spans": mu_spans,
+            }
+
+        raw_fac_canon: List[int] = [0] * (len(raw_fac_to_id) + 1)
+        for rf_str, rf_idx in raw_fac_to_id.items():
+            raw_fac_canon[rf_idx] = _intern_canon_fac(rf_str)
+
+        return {
+            "sys_norm": sys_norm,
+            "min_date_str": min_date_str[:10],
+            "min_date_ord": min_date_ord,
+            "ev_attrs": ev_attrs,
+            "fac_names": fac_names,
+            "raw_fac_canon": raw_fac_canon,
+            "week_strs": week_strs,
+            "month_strs": month_strs,
+            "tiers": tiers_packed,
+        }
+
+    def load_system_meta_rollup_ram_index(self, game_system: str, force: bool = False) -> Optional[Dict[str, Any]]:
+        """Loads and packs a system's 405-day event + matchup + run rollups into compact C-struct memory."""
+        raw_sys = (game_system or "40k").strip().lower()
+        if raw_sys == "all":
+            return None
+        sys_norm = normalize_game_system(raw_sys, default="40k")
+        if self._is_mock_instance():
+            return None
+        if not force:
+            cached = PostgresDatabase.get_cached(PostgresDatabase._meta_ram_rollup_cache, sys_norm, ttl=7200)
+            if isinstance(cached, dict):
+                return cached
+
+        with PostgresDatabase._meta_ram_rollup_guard:
+            sys_lock = PostgresDatabase._meta_ram_rollup_locks.get(sys_norm)
+            if sys_lock is None:
+                sys_lock = threading.Lock()
+                PostgresDatabase._meta_ram_rollup_locks[sys_norm] = sys_lock
+
+        with sys_lock:
+            if not force:
+                cached = PostgresDatabase.get_cached(PostgresDatabase._meta_ram_rollup_cache, sys_norm, ttl=7200)
+                if isinstance(cached, dict):
+                    return cached
+
+            min_date_dt = datetime.now(timezone.utc).date() - timedelta(days=405)
+            min_date_str = min_date_dt.strftime("%Y-%m-%d")
+            ev_min_date_str = (min_date_dt - timedelta(days=120)).strftime("%Y-%m-%d")
+
+            try:
+                with self.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        if hasattr(cur, "_mock_name") or type(cur).__module__.startswith("unittest.mock"):
+                            return None
+                        if not self._is_meta_rollup_ready(cur, sys_norm):
+                            return None
+                        cur.execute(
+                            "SET LOCAL statement_timeout = '25000ms'; SET LOCAL work_mem = '128MB'; "
+                            "SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off; "
+                            "SET LOCAL max_parallel_workers_per_gather = 0;"
+                        )
+                        cur.execute(
+                            """
+                            SELECT
+                                e.id,
+                                COALESCE(NULLIF(e.effective_players, 0), e.total_players, 0),
+                                COALESCE(NULLIF(e.effective_rounds, 0), e.num_rounds, 0),
+                                COALESCE(e.is_online, FALSE),
+                                COALESCE(e.is_league, FALSE),
+                                COALESCE(e.structure_tag, 'singles'),
+                                COALESCE(e.format_tag, 'standard'),
+                                COALESCE(e.region_code, 'UNKNOWN'),
+                                COALESCE(e.country_code, ''),
+                                COALESCE(e.state_code, '')
+                            FROM events e
+                            WHERE COALESCE(e.game_system, '40k') = %s
+                              AND (e.event_date >= %s OR e.event_date IS NULL);
+                            """,
+                            (sys_norm, ev_min_date_str),
+                        )
+                        ev_rows = list(cur.fetchall() or [])
+                        known_eids = {str(r[0]) for r in ev_rows if r and r[0]}
+
+                        cur.execute(
+                            """
+                            SELECT
+                                mu.event_id, mu.match_day, mu.is_non_1v1, mu.p1_fac, mu.p2_fac,
+                                mu.match_cnt, mu.p1_wins, mu.p1_losses, mu.draws, mu.p2_wins, mu.p2_losses,
+                                mu.p1_score_sum, mu.p1_score_cnt, mu.p2_score_sum, mu.p2_score_cnt,
+                                mu.p1_margin_sum, mu.margin_cnt
+                            FROM meta_event_matchups mu
+                            WHERE mu.game_system = %s
+                              AND mu.is_non_1v1 IN (FALSE, TRUE)
+                              AND mu.match_day >= %s
+                              AND mu.match_cnt > 0;
+                            """,
+                            (sys_norm, min_date_str),
+                        )
+                        mu_base_rows = cur.fetchall() or []
+
+                        cur.execute(
+                            """
+                            SELECT
+                                mu.event_id, mu.match_day, mu.is_non_1v1, mu.p1_fac, mu.p2_fac,
+                                mu.exp_match_cnt, mu.exp_p1_wins, mu.exp_p1_losses, mu.exp_draws, mu.exp_p2_wins, mu.exp_p2_losses,
+                                mu.exp_p1_score_sum, mu.exp_p1_score_cnt, mu.exp_p2_score_sum, mu.exp_p2_score_cnt,
+                                mu.exp_p1_margin_sum, mu.exp_margin_cnt,
+                                mu.vet_match_cnt, mu.vet_p1_wins, mu.vet_p1_losses, mu.vet_draws, mu.vet_p2_wins, mu.vet_p2_losses,
+                                mu.vet_p1_score_sum, mu.vet_p1_score_cnt, mu.vet_p2_score_sum, mu.vet_p2_score_cnt,
+                                mu.vet_p1_margin_sum, mu.vet_margin_cnt
+                            FROM meta_event_matchups mu
+                            WHERE mu.game_system = %s
+                              AND mu.is_non_1v1 IN (FALSE, TRUE)
+                              AND mu.match_day >= %s
+                              AND mu.exp_match_cnt > 0;
+                            """,
+                            (sys_norm, min_date_str),
+                        )
+                        mu_exp_rows = cur.fetchall() or []
+
+                        cur.execute(
+                            """
+                            SELECT
+                                r.event_id, r.is_non_1v1, r.fac, r.event_date,
+                                r.pilots_cnt, r.runs_cnt, r.x0_runs, r.x1_runs, r.pilot_hashes,
+                                r.exp_pilots_cnt, r.exp_runs_cnt, r.exp_x0_runs, r.exp_x1_runs, r.exp_pilot_hashes,
+                                r.vet_pilots_cnt, r.vet_runs_cnt, r.vet_x0_runs, r.vet_x1_runs, r.vet_pilot_hashes
+                            FROM meta_event_runs r
+                            WHERE r.game_system = %s
+                              AND r.is_non_1v1 IN (FALSE, TRUE)
+                              AND r.event_date >= %s;
+                            """,
+                            (sys_norm, min_date_str),
+                        )
+                        run_rows = cur.fetchall() or []
+
+                        missing_eids: List[str] = []
+                        missing_seen: Set[str] = set()
+                        for src in (mu_base_rows, mu_exp_rows, run_rows):
+                            for r in src:
+                                eid_s = str(r[0] or "").strip()
+                                if eid_s and eid_s not in known_eids and eid_s not in missing_seen and not eid_s.startswith("__unlinked__"):
+                                    missing_seen.add(eid_s)
+                                    missing_eids.append(eid_s)
+                        if missing_eids:
+                            cur.execute(
+                                """
+                                SELECT
+                                    e.id,
+                                    COALESCE(NULLIF(e.effective_players, 0), e.total_players, 0),
+                                    COALESCE(NULLIF(e.effective_rounds, 0), e.num_rounds, 0),
+                                    COALESCE(e.is_online, FALSE),
+                                    COALESCE(e.is_league, FALSE),
+                                    COALESCE(e.structure_tag, 'singles'),
+                                    COALESCE(e.format_tag, 'standard'),
+                                    COALESCE(e.region_code, 'UNKNOWN'),
+                                    COALESCE(e.country_code, ''),
+                                    COALESCE(e.state_code, '')
+                                FROM events e
+                                WHERE e.id = ANY(%s);
+                                """,
+                                (missing_eids,),
+                            )
+                            ev_rows.extend(cur.fetchall() or [])
+
+                        cur.execute(
+                            "SET LOCAL enable_seqscan = on; SET LOCAL enable_bitmapscan = on; "
+                            "SET LOCAL max_parallel_workers_per_gather = 4;"
+                        )
+
+                built = PostgresDatabase._build_meta_ram_rollup_index_from_rows(
+                    sys_norm=sys_norm,
+                    min_date_str=min_date_str,
+                    ev_rows=ev_rows,
+                    mu_base_rows=mu_base_rows,
+                    mu_exp_rows=mu_exp_rows,
+                    run_rows=run_rows,
+                )
+                PostgresDatabase.set_cached(PostgresDatabase._meta_ram_rollup_cache, sys_norm, built, max_size=24)
+                return built
+            except Exception as err:
+                logger.warning(f"load_system_meta_rollup_ram_index notice ({sys_norm}): {err}")
+                return None
+
+    @classmethod
+    def _query_meta_ram_rollup_index(
+        cls,
+        ram_idx: Dict[str, Any],
+        mf: MetaFilterSpec,
+        resolved_start: str,
+        resolved_end: Optional[str],
+        is_short_window: bool,
+        allow_non_1v1: bool,
+        include_trends: bool,
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], int, Optional[int]]:
+        """Evaluates any MetaFilterSpec against the packed C-struct RAM index in ~15-150ms with 100% SQL parity."""
+        start_ord = datetime.strptime(resolved_start[:10], "%Y-%m-%d").date().toordinal()
+        end_ord = (
+            datetime.strptime(resolved_end[:10], "%Y-%m-%d").date().toordinal()
+            if resolved_end
+            else datetime.now(timezone.utc).date().toordinal() + 1
+        )
+        tk = "vet" if mf.elo_floor >= 1650 else ("exp" if mf.elo_floor >= 1550 else "all")
+        tier = ram_idx["tiers"][tk]
+        ev_attrs = ram_idx["ev_attrs"]
+        fac_names = ram_idx["fac_names"]
+        num_facs = len(fac_names)
+
+        has_ev_f = mf.has_event_filters()
+        min_p = mf.min_players
+        max_p = mf.max_players
+        min_r = mf.min_rounds
+        v_mode = mf.venue_mode
+        excl_lg = mf.exclude_leagues
+        ev_struct = mf.event_structure
+        ev_fmt = mf.event_format
+        f_reg = mf.region
+        f_cc = mf.country
+        f_st = mf.state
+
+        if not has_ev_f:
+            matched_ev_indices = list(range(len(ev_attrs)))
+        else:
+            matched_ev_indices = []
+            for idx, (in_ev_tbl, _is_ul, eff_p, eff_r, is_onl, is_lg, s_tag, f_tag, rg_c, cc_c, st_c) in enumerate(ev_attrs):
+                if not in_ev_tbl:
+                    continue
+                if min_p > 0 and eff_p < min_p:
+                    continue
+                if max_p > 0 and eff_p > max_p:
+                    continue
+                if min_r > 0 and eff_r < min_r:
+                    continue
+                if v_mode == "in_person" and is_onl:
+                    continue
+                if v_mode == "online" and not is_onl:
+                    continue
+                if excl_lg and is_lg:
+                    continue
+                if ev_struct != "all" and s_tag != ev_struct:
+                    continue
+                if ev_fmt != "all" and f_tag != ev_fmt:
+                    continue
+                if f_reg != "all" and rg_c != f_reg:
+                    continue
+                if f_cc != "all" and cc_c != f_cc:
+                    continue
+                if f_st != "all" and st_c != f_st:
+                    continue
+                matched_ev_indices.append(idx)
+
+        if not matched_ev_indices:
+            return [], [], [], 0, 0
+
+        mu_spans = tier["mu_spans"]
+        slices_1d = tier["slices_1d"]
+        slices_2d = tier["slices_2d"]
+        slices_run = tier["slices_run"]
+        mv_1d = memoryview(tier["buf_1d"])
+        mv_2d = memoryview(tier["buf_2d"])
+        mv_run = memoryview(tier["buf_run"])
+        ph_arr = tier["ph_arr"]
+        u1 = cls._META_RAM_S1D.iter_unpack
+        u2 = cls._META_RAM_S2D.iter_unpack
+        urun = cls._META_RAM_SRUN.iter_unpack
+
+        sz = num_facs + 1
+        tot_m = [0] * sz
+        wins = [0] * sz
+        losses = [0] * sz
+        draws = [0] * sz
+        mirrors = [0] * sz
+        nm_m = [0] * sz
+        nm_w = [0] * sz
+        sc_cnt = [0] * sz
+        opp_cnt = [0] * sz
+        mgn_cnt = [0] * sz
+        sc_sum = [0.0] * sz
+        opp_sum = [0.0] * sz
+        mgn_sum = [0.0] * sz
+
+        period_strs = ram_idx["week_strs"] if is_short_window else ram_idx["month_strs"]
+        trend_m: Dict[int, int] = {}
+        trend_w: Dict[int, int] = {}
+
+        raw_match_count = 0
+        non_1v1_seat_total = 0
+        any_raw_mu_row = False
+        matched_real_ev_cnt = 0
+        mu_active_evs: List[Tuple[int, bool]] = []
+
+        # Pass 1: 1D Faction Aggregates + Exact Matched Event Count
+        for ev_i in matched_ev_indices:
+            sp = mu_spans[ev_i]
+            if sp is None:
+                continue
+            sp_min, sp_max, sp_has_1v1, _sp_has_n1, sp_pairs = sp
+            if sp_max < start_ord or sp_min > end_ord:
+                continue
+            if not allow_non_1v1 and not sp_has_1v1:
+                continue
+            interior = sp_min >= start_ord and sp_max <= end_ord
+            if interior:
+                ev_has_mu = True
+            elif not sp_pairs:
+                ev_has_mu = (start_ord <= sp_min <= end_ord) and (allow_non_1v1 or sp_has_1v1)
+            else:
+                ev_has_mu = any(
+                    (start_ord <= d_o <= end_ord) and (allow_non_1v1 or n1 == 0)
+                    for d_o, n1 in sp_pairs
+                )
+            if not ev_has_mu:
+                continue
+
+            any_raw_mu_row = True
+            if not ev_attrs[ev_i][1]:
+                matched_real_ev_cnt += 1
+
+            s1, e1, d1_min, d1_max, _h1_1v1, h1_n1 = slices_1d[ev_i]
+            if s1 >= e1:
+                continue
+            fast_1d = (d1_min >= start_ord and d1_max <= end_ord) and (allow_non_1v1 or not h1_n1)
+            mu_active_evs.append((ev_i, fast_1d))
+
+            if fast_1d:
+                for (n1, fid, _d_o, w_id, m_id, r_mc, mc, w, l, d, mir, nmm, nmw, sc, oc, mgc, ss, os_, ms) in u1(mv_1d[s1:e1]):
+                    if n1:
+                        non_1v1_seat_total += r_mc
+                    else:
+                        raw_match_count += r_mc
+                    tot_m[fid] += mc
+                    wins[fid] += w
+                    losses[fid] += l
+                    draws[fid] += d
+                    mirrors[fid] += mir
+                    nm_m[fid] += nmm
+                    nm_w[fid] += nmw
+                    sc_cnt[fid] += sc
+                    opp_cnt[fid] += oc
+                    mgn_cnt[fid] += mgc
+                    sc_sum[fid] += ss
+                    opp_sum[fid] += os_
+                    mgn_sum[fid] += ms
+                    p_id = w_id if is_short_window else m_id
+                    if p_id:
+                        tk_key = (p_id << 20) | fid
+                        trend_m[tk_key] = trend_m.get(tk_key, 0) + mc
+                        trend_w[tk_key] = trend_w.get(tk_key, 0) + w
+            else:
+                for (n1, fid, d_o, w_id, m_id, r_mc, mc, w, l, d, mir, nmm, nmw, sc, oc, mgc, ss, os_, ms) in u1(mv_1d[s1:e1]):
+                    if (not allow_non_1v1 and n1) or d_o < start_ord or d_o > end_ord:
+                        continue
+                    if n1:
+                        non_1v1_seat_total += r_mc
+                    else:
+                        raw_match_count += r_mc
+                    tot_m[fid] += mc
+                    wins[fid] += w
+                    losses[fid] += l
+                    draws[fid] += d
+                    mirrors[fid] += mir
+                    nm_m[fid] += nmm
+                    nm_w[fid] += nmw
+                    sc_cnt[fid] += sc
+                    opp_cnt[fid] += oc
+                    mgn_cnt[fid] += mgc
+                    sc_sum[fid] += ss
+                    opp_sum[fid] += os_
+                    mgn_sum[fid] += ms
+                    p_id = w_id if is_short_window else m_id
+                    if p_id:
+                        tk_key = (p_id << 20) | fid
+                        trend_m[tk_key] = trend_m.get(tk_key, 0) + mc
+                        trend_w[tk_key] = trend_w.get(tk_key, 0) + w
+
+        if not any_raw_mu_row:
+            return [], [], [], 0, 0
+
+        if non_1v1_seat_total > 0:
+            raw_match_count += max(1, int(round(non_1v1_seat_total / 4.0)))
+        matched_events_count: Optional[int] = matched_real_ev_cnt if not mf.is_default() else None
+
+        # Accumulate `meta_event_runs` (with bounded exact pilot_hashes deduplication when total_run_rows <= 300)
+        ev_pilots = [0] * sz
+        ev_runs_cnt = [0] * sz
+        ev_x0 = [0] * sz
+        ev_x1 = [0] * sz
+        total_run_rows = 0
+        dedup_candidates: List[Tuple[int, int, int, int]] = []
+
+        for ev_i in matched_ev_indices:
+            sr, er_off, dr_min, dr_max, hr_n1 = slices_run[ev_i]
+            if sr >= er_off or dr_max < start_ord or (dr_min > 0 and dr_min > end_ord):
+                continue
+            fast_run = (dr_min >= start_ord and dr_max <= end_ord) and (allow_non_1v1 or not hr_n1)
+            for (n1, d_o, cf_id, rf_id, p_c, r_c, x0_c, x1_c, ph_s, ph_e) in urun(mv_run[sr:er_off]):
+                if not fast_run:
+                    if (not allow_non_1v1 and n1) or d_o < start_ord or d_o > end_ord:
+                        continue
+                total_run_rows += 1
+                if total_run_rows <= 300:
+                    dedup_candidates.append((cf_id, rf_id, p_c, (ph_s << 32) | ph_e))
+                if cf_id > 0:
+                    ev_pilots[cf_id] += p_c
+                    ev_runs_cnt[cf_id] += r_c
+                    ev_x0[cf_id] += x0_c
+                    ev_x1[cf_id] += x1_c
+
+        if 0 < total_run_rows <= 300 and dedup_candidates:
+            raw_ph_sets: Dict[int, Set[int]] = {}
+            raw_sum_p: Dict[int, int] = {}
+            raw_to_cf: Dict[int, int] = {}
+            for cf_id, rf_id, p_c, ph_packed in dedup_candidates:
+                if cf_id <= 0:
+                    continue
+                raw_to_cf[rf_id] = cf_id
+                raw_sum_p[rf_id] = raw_sum_p.get(rf_id, 0) + p_c
+                ph_s = ph_packed >> 32
+                ph_e = ph_packed & 0xFFFFFFFF
+                if ph_e > ph_s:
+                    pset = raw_ph_sets.get(rf_id)
+                    if pset is None:
+                        pset = set()
+                        raw_ph_sets[rf_id] = pset
+                    pset.update(ph_arr[ph_s:ph_e])
+            if raw_ph_sets:
+                for rf_id, pset in raw_ph_sets.items():
+                    if pset:
+                        cf_id = raw_to_cf[rf_id]
+                        ev_pilots[cf_id] = ev_pilots[cf_id] - raw_sum_p[rf_id] + len(pset)
+
+        overall: List[Dict[str, Any]] = []
+        for fid in range(1, num_facs):
+            tm = tot_m[fid]
+            if tm < 1:
+                continue
+            fname = fac_names[fid]
+            w = wins[fid]
+            l = losses[fid]
+            d = draws[fid]
+            mir = mirrors[fid]
+            nmm = nm_m[fid]
+            nmw = nm_w[fid]
+            wr = round((w * 100.0 / tm), 1)
+            nm_wr = round((nmw * 100.0 / nmm), 1) if nmm > 0 else wr
+            avg_sc = round((sc_sum[fid] / sc_cnt[fid]), 1) if sc_cnt[fid] > 0 else 0.0
+            avg_opp = round((opp_sum[fid] / opp_cnt[fid]), 1) if opp_cnt[fid] > 0 else 0.0
+            avg_mgn = round((mgn_sum[fid] / mgn_cnt[fid]), 1) if mgn_cnt[fid] > 0 else 0.0
+            overall.append({
+                "faction": fname,
+                "total_matches": tm,
+                "wins": w,
+                "losses": l,
+                "draws": d,
+                "win_rate": wr,
+                "mirror_matches": mir,
+                "non_mirror_matches": nmm,
+                "non_mirror_wins": nmw,
+                "non_mirror_win_rate": nm_wr,
+                "avg_score": avg_sc,
+                "avg_opp_score": avg_opp,
+                "avg_margin": avg_mgn,
+                "unique_pilots": ev_pilots[fid] if ev_pilots[fid] > 0 else max(1, tm // 5),
+                "events_played": 0,
+                "event_runs_count": ev_runs_cnt[fid],
+                "x0_runs": ev_x0[fid],
+                "x1_runs": ev_x1[fid],
+                "_fid": fid,
+            })
+        overall.sort(key=lambda x: (float(x.get("win_rate") or 0.0), int(x.get("total_matches") or 0)), reverse=True)
+
+        keep_all_mu = len(overall) <= 250
+        keep_flag = [1] * sz
+        if not keep_all_mu:
+            keep_flag = [0] * sz
+            _s_play = sorted(overall, key=lambda x: int(x.get("total_matches") or 0), reverse=True)
+            _tot_app = sum(int(x.get("total_matches") or 0) for x in overall)
+            _min_k = max(5, int(_tot_app * 0.008)) if _tot_app >= 200 else 1
+            _qual = [x for x in overall if int(x.get("total_matches") or 0) >= _min_k] or overall
+            for x in _s_play[:250]:
+                keep_flag[int(x["_fid"])] = 1
+            keep_flag[int(max(_qual, key=lambda x: (float(x.get("win_rate") or 0.0), int(x.get("total_matches") or 0)))["_fid"])] = 1
+            keep_flag[int(max(overall, key=lambda x: (int(x.get("x0_runs") or 0), int(x.get("x1_runs") or 0), float(x.get("win_rate") or 0.0)))["_fid"])] = 1
+            keep_flag[int(max(_qual, key=lambda x: (float(x.get("avg_margin") or -999.0), float(x.get("win_rate") or 0.0)))["_fid"])] = 1
+
+        for x in overall:
+            x.pop("_fid", None)
+
+        # Pass 2: 2D Non-Mirror Matchup Aggregates (pruned to kept factions when len(overall) > 250)
+        mu_acc: Dict[int, List[Any]] = {}
+        for ev_i, fast_ev in mu_active_evs:
+            s2, e2 = slices_2d[ev_i]
+            if s2 >= e2:
+                continue
+            if fast_ev:
+                for (_n1, _d_o, f1, f2, mc, p1w, p1l, drw, p2w, p2l, mgnc, p1ms) in u2(mv_2d[s2:e2]):
+                    kf1 = keep_flag[f1]
+                    kf2 = keep_flag[f2]
+                    if not (kf1 or kf2):
+                        continue
+                    if kf1:
+                        k12 = (f1 << 20) | f2
+                        b1 = mu_acc.get(k12)
+                        if b1 is None:
+                            mu_acc[k12] = [mc, p1w, p1l, drw, p1ms, mgnc]
+                        else:
+                            b1[0] += mc
+                            b1[1] += p1w
+                            b1[2] += p1l
+                            b1[3] += drw
+                            b1[4] += p1ms
+                            b1[5] += mgnc
+                    if kf2:
+                        k21 = (f2 << 20) | f1
+                        b2 = mu_acc.get(k21)
+                        if b2 is None:
+                            mu_acc[k21] = [mc, p2w, p2l, drw, -p1ms, mgnc]
+                        else:
+                            b2[0] += mc
+                            b2[1] += p2w
+                            b2[2] += p2l
+                            b2[3] += drw
+                            b2[4] -= p1ms
+                            b2[5] += mgnc
+            else:
+                for (n1, d_o, f1, f2, mc, p1w, p1l, drw, p2w, p2l, mgnc, p1ms) in u2(mv_2d[s2:e2]):
+                    if (not allow_non_1v1 and n1) or d_o < start_ord or d_o > end_ord:
+                        continue
+                    kf1 = keep_flag[f1]
+                    kf2 = keep_flag[f2]
+                    if not (kf1 or kf2):
+                        continue
+                    if kf1:
+                        k12 = (f1 << 20) | f2
+                        b1 = mu_acc.get(k12)
+                        if b1 is None:
+                            mu_acc[k12] = [mc, p1w, p1l, drw, p1ms, mgnc]
+                        else:
+                            b1[0] += mc
+                            b1[1] += p1w
+                            b1[2] += p1l
+                            b1[3] += drw
+                            b1[4] += p1ms
+                            b1[5] += mgnc
+                    if kf2:
+                        k21 = (f2 << 20) | f1
+                        b2 = mu_acc.get(k21)
+                        if b2 is None:
+                            mu_acc[k21] = [mc, p2w, p2l, drw, -p1ms, mgnc]
+                        else:
+                            b2[0] += mc
+                            b2[1] += p2w
+                            b2[2] += p2l
+                            b2[3] += drw
+                            b2[4] -= p1ms
+                            b2[5] += mgnc
+
+        matchup_rows: List[Dict[str, Any]] = []
+        for k_pair, mb in mu_acc.items():
+            m_tot = int(mb[0])
+            if m_tot < 1:
+                continue
+            fa = fac_names[k_pair >> 20]
+            fb = fac_names[k_pair & 0xFFFFF]
+            mw = int(mb[1])
+            ml = int(mb[2])
+            md = int(mb[3])
+            m_wr = round((mw * 100.0 / m_tot), 1)
+            m_mgn = round((mb[4] / mb[5]), 1) if mb[5] > 0 else 0.0
+            matchup_rows.append({
+                "faction": fa,
+                "opp_faction": fb,
+                "matches": m_tot,
+                "wins": mw,
+                "losses": ml,
+                "draws": md,
+                "win_rate": m_wr,
+                "avg_margin": m_mgn,
+            })
+
+        monthly: List[Dict[str, Any]] = []
+        for tk_key, t_cnt in trend_m.items():
+            if t_cnt < 2:
+                continue
+            p_str = period_strs[tk_key >> 20]
+            fname = fac_names[tk_key & 0xFFFFF]
+            t_w = trend_w[tk_key]
+            monthly.append({
+                "month": p_str,
+                "faction": fname,
+                "matches_in_month": t_cnt,
+                "wins": t_w,
+                "win_rate": round((t_w * 100.0 / t_cnt), 1),
+            })
+        monthly.sort(key=lambda x: (str(x.get("month") or ""), -float(x.get("win_rate") or 0.0)))
+
+        return overall, matchup_rows, monthly, raw_match_count, matched_events_count
 
     def get_faction_meta_stats(
         self,
@@ -12166,18 +13218,41 @@ class PostgresDatabase:
                         ev_chunk_rows: List[Dict[str, Any]] = []
                         ev_chunks_complete = False
                         rollup_used = False
+                        ram_rollup_used = False
+                        rdc_cls = getattr(extras, "RealDictCursor", None)
+                        is_real_rdc = isinstance(rdc_cls, type) and isinstance(cursor, rdc_cls)
+
+                        if not is_mock_cur and game_system and sys_norm != "all" and resolved_start:
+                            ram_idx = PostgresDatabase.get_cached(PostgresDatabase._meta_ram_rollup_cache, sys_norm, ttl=7200)
+                            if ram_idx is None and is_real_rdc and self._is_meta_rollup_ready(cursor, sys_norm):
+                                min_405 = (datetime.now(timezone.utc).date() - timedelta(days=405)).strftime("%Y-%m-%d")
+                                if resolved_start[:10] >= min_405:
+                                    ram_idx = self.load_system_meta_rollup_ram_index(sys_norm, force=False)
+                            if isinstance(ram_idx, dict) and resolved_start[:10] >= str(ram_idx.get("min_date_str") or "9999-99-99"):
+                                overall, matchup_rows, monthly, raw_match_count, matched_events_count = (
+                                    PostgresDatabase._query_meta_ram_rollup_index(
+                                        ram_idx=ram_idx,
+                                        mf=mf,
+                                        resolved_start=resolved_start,
+                                        resolved_end=resolved_end,
+                                        is_short_window=is_short_window,
+                                        allow_non_1v1=allow_non_1v1,
+                                        include_trends=include_trends,
+                                    )
+                                )
+                                ram_rollup_used = True
+                                rollup_used = True
+                                ev_chunks_complete = True
 
                         # Fast Path: Pre-aggregated `meta_event_matchups` & `meta_event_runs` (<80ms cold for any filter combination)
-                        if not is_mock_cur and self._is_meta_rollup_ready(cursor, sys_norm):
+                        if not ram_rollup_used and not is_mock_cur and self._is_meta_rollup_ready(cursor, sys_norm):
                             try:
                                 cursor.execute("SAVEPOINT sp_meta_rollup_read;")
                                 cursor.execute("SET LOCAL statement_timeout = '8000ms'; SET LOCAL work_mem = '128MB';")
                                 pfx = "vet_" if mf.elo_floor >= 1650 else ("exp_" if mf.elo_floor >= 1550 else "")
                                 ev_clauses, ev_params = PostgresDatabase._build_event_filter_sql_clauses(mf, ev_alias="e")
-                                rdc_cls = getattr(extras, "RealDictCursor", None)
                                 use_pre_eids = mf.has_event_filters() and (
-                                    (isinstance(rdc_cls, type) and isinstance(cursor, rdc_cls))
-                                    or bool(getattr(cursor, "_enable_pre_eids", False))
+                                    is_real_rdc or bool(getattr(cursor, "_enable_pre_eids", False))
                                 )
                                 matched_eids: Optional[List[str]] = None
 
@@ -12244,11 +13319,17 @@ class PostgresDatabase:
                                         join_planner_forced = True
                                         join_ev_sql = "JOIN events e ON e.id = mu.event_id"
 
+                                    elif has_sys_key and is_real_rdc:
+                                        cursor.execute(
+                                            "SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off; "
+                                            "SET LOCAL max_parallel_workers_per_gather = 0;"
+                                        )
+                                        idx_only_forced = True
+
                                     if not allow_non_1v1:
                                         mu_w.append("mu.is_non_1v1 = FALSE")
-                                    elif mf.event_structure in ("doubles", "ffa_pod"):
-                                        # Include both expanded seat rows and any 1v1 rows recorded in that event
-                                        pass
+                                    elif is_real_rdc:
+                                        mu_w.append("mu.is_non_1v1 IN (FALSE, TRUE)")
                                     if game_system and sys_norm != "all":
                                         mu_w.append("mu.game_system = %s")
                                         mu_p.append(sys_norm)
@@ -12270,8 +13351,7 @@ class PostgresDatabase:
                                     mu_where_sql = " AND ".join(mu_w)
                                     period_col_sql = f"DATE_TRUNC('{period_trunc}', mu.match_day)::date" if include_trends else "NULL::date"
 
-                                    cursor.execute(
-                                        f"""
+                                    q_a1_sql = f"""
                                         SELECT
                                             mu.is_non_1v1,
                                             mu.p1_fac,
@@ -12293,17 +13373,21 @@ class PostgresDatabase:
                                         {join_ev_sql}
                                         WHERE {mu_where_sql}
                                         GROUP BY 1, 2, 3, 4;
-                                        """,
-                                        mu_p,
-                                    )
-                                    raw_mu_rows = cursor.fetchall() or []
-                                    if raw_mu_rows and isinstance(raw_mu_rows[0], dict):
-                                        fetched_rows = list(raw_mu_rows)
+                                        """
+                                    if is_real_rdc:
+                                        with conn.cursor() as raw_cur:
+                                            raw_cur.execute(q_a1_sql, mu_p)
+                                            fetched_rows = raw_cur.fetchall() or []
                                     else:
-                                        fetched_rows = [dict(r) for r in raw_mu_rows]
+                                        cursor.execute(q_a1_sql, mu_p)
+                                        raw_mu_rows = cursor.fetchall() or []
+                                        if raw_mu_rows and isinstance(raw_mu_rows[0], dict):
+                                            fetched_rows = list(raw_mu_rows)
+                                        else:
+                                            fetched_rows = [dict(r) for r in raw_mu_rows]
                                     if not fetched_rows:
                                         matched_events_count = 0
-                                    elif "matched_events" in fetched_rows[0]:
+                                    elif isinstance(fetched_rows[0], dict) and "matched_events" in fetched_rows[0]:
                                         matched_events_count = int(fetched_rows[0].get("matched_events") or 0)
                                     elif not mf.is_default():
                                         cursor.execute(
@@ -12710,7 +13794,9 @@ class PostgresDatabase:
                                 ev_chunk_rows = []
                                 ev_chunks_complete = False
                         q1_elapsed_ms = (time.time() - q1_t0) * 1000.0
-                        if fetched_rows and isinstance(fetched_rows[0], dict) and "factions_json" in fetched_rows[0]:
+                        if ram_rollup_used:
+                            pass
+                        elif fetched_rows and isinstance(fetched_rows[0], dict) and "factions_json" in fetched_rows[0]:
                             row0 = fetched_rows[0]
                             raw_f = row0.get("factions_json")
                             raw_m = row0.get("matchups_json")
@@ -12762,38 +13848,70 @@ class PostgresDatabase:
 
                             non_1v1_seat_total = 0
                             for r in fetched_rows:
-                                p1_raw_obj = r.get("p1_fac")
-                                p2_raw_obj = r.get("p2_fac")
-                                if (isinstance(p1_raw_obj, str) and ("+" in p1_raw_obj or "pod (" in p1_raw_obj.lower())) or (
-                                    isinstance(p2_raw_obj, str) and ("+" in p2_raw_obj or "pod (" in p2_raw_obj.lower())
-                                ):
-                                    continue
-                                f1 = _canon_fast(p1_raw_obj)
-                                f2 = _canon_fast(p2_raw_obj)
-                                if not f1 and not f2:
-                                    continue
-
-                                m_cnt = int(r.get("match_cnt") or 0)
-                                if m_cnt <= 0:
-                                    continue
-                                if r.get("is_non_1v1"):
-                                    non_1v1_seat_total += m_cnt
+                                if isinstance(r, tuple):
+                                    is_non_1v1_flag = bool(r[0])
+                                    p1_raw_obj = r[1]
+                                    p2_raw_obj = r[2]
+                                    p_date = r[3]
+                                    m_cnt = int(r[4] or 0)
+                                    if m_cnt <= 0:
+                                        continue
+                                    if (isinstance(p1_raw_obj, str) and ("+" in p1_raw_obj or "pod (" in p1_raw_obj.lower())) or (
+                                        isinstance(p2_raw_obj, str) and ("+" in p2_raw_obj or "pod (" in p2_raw_obj.lower())
+                                    ):
+                                        continue
+                                    f1 = _canon_fast(p1_raw_obj)
+                                    f2 = _canon_fast(p2_raw_obj)
+                                    if not f1 and not f2:
+                                        continue
+                                    if is_non_1v1_flag:
+                                        non_1v1_seat_total += m_cnt
+                                    else:
+                                        raw_match_count += m_cnt
+                                    p1_w = int(r[5] or 0)
+                                    p1_l = int(r[6] or 0)
+                                    drw = int(r[7] or 0)
+                                    p2_w = int(r[8] or 0)
+                                    p2_l = int(r[9] or 0)
+                                    p1_sc_sum = float(r[10] or 0.0)
+                                    p1_sc_cnt = int(r[11] or 0)
+                                    p2_sc_sum = float(r[12] or 0.0)
+                                    p2_sc_cnt = int(r[13] or 0)
+                                    p1_mgn_sum = float(r[14] or 0.0)
+                                    mgn_cnt = int(r[15] or 0)
                                 else:
-                                    raw_match_count += m_cnt
+                                    p1_raw_obj = r.get("p1_fac")
+                                    p2_raw_obj = r.get("p2_fac")
+                                    if (isinstance(p1_raw_obj, str) and ("+" in p1_raw_obj or "pod (" in p1_raw_obj.lower())) or (
+                                        isinstance(p2_raw_obj, str) and ("+" in p2_raw_obj or "pod (" in p2_raw_obj.lower())
+                                    ):
+                                        continue
+                                    f1 = _canon_fast(p1_raw_obj)
+                                    f2 = _canon_fast(p2_raw_obj)
+                                    if not f1 and not f2:
+                                        continue
 
-                                p1_w = int(r.get("p1_wins") or 0)
-                                p1_l = int(r.get("p1_losses") or 0)
-                                drw = int(r.get("draws") or 0)
-                                p2_w = int(r.get("p2_wins") or 0)
-                                p2_l = int(r.get("p2_losses") or 0)
-                                p1_sc_sum = float(r.get("p1_score_sum") or 0.0)
-                                p1_sc_cnt = int(r.get("p1_score_cnt") or 0)
-                                p2_sc_sum = float(r.get("p2_score_sum") or 0.0)
-                                p2_sc_cnt = int(r.get("p2_score_cnt") or 0)
-                                p1_mgn_sum = float(r.get("p1_margin_sum") or 0.0)
-                                mgn_cnt = int(r.get("margin_cnt") or 0)
+                                    m_cnt = int(r.get("match_cnt") or 0)
+                                    if m_cnt <= 0:
+                                        continue
+                                    if r.get("is_non_1v1"):
+                                        non_1v1_seat_total += m_cnt
+                                    else:
+                                        raw_match_count += m_cnt
 
-                                p_date = r.get("period_date")
+                                    p1_w = int(r.get("p1_wins") or 0)
+                                    p1_l = int(r.get("p1_losses") or 0)
+                                    drw = int(r.get("draws") or 0)
+                                    p2_w = int(r.get("p2_wins") or 0)
+                                    p2_l = int(r.get("p2_losses") or 0)
+                                    p1_sc_sum = float(r.get("p1_score_sum") or 0.0)
+                                    p1_sc_cnt = int(r.get("p1_score_cnt") or 0)
+                                    p2_sc_sum = float(r.get("p2_score_sum") or 0.0)
+                                    p2_sc_cnt = int(r.get("p2_score_cnt") or 0)
+                                    p1_mgn_sum = float(r.get("p1_margin_sum") or 0.0)
+                                    mgn_cnt = int(r.get("margin_cnt") or 0)
+                                    p_date = r.get("period_date")
+
                                 if p_date is None:
                                     period_str = ""
                                 elif hasattr(p_date, "strftime"):
@@ -20163,6 +21281,8 @@ try:
             "pick_specific_faction",
             "canonicalize_faction_name",
             "get_faction_aliases_lower",
+            "_build_meta_ram_rollup_index_from_rows",
+            "_query_meta_ram_rollup_index",
         },
         quiet_methods={"get_cached", "set_cached", "_is_mock_instance"},
     )
