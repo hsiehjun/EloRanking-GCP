@@ -316,7 +316,7 @@ async def _periodic_firestore_cleanup():
         await asyncio.sleep(12 * 3600)  # Run every 12 hours
 
 async def _prewarm_meta_intel_cache(force_refresh: bool = False):
-    """Pre-warms all Meta Intel presets (30d, 60d, 90d, 180d, 1yr, ytd, all) and Faction Details caches for 40k and AoS."""
+    """Pre-warms Meta Intel presets, filter options, common competitive scopes, and Faction Details across 40k, AoS, and multi-platform systems."""
     try:
         now = datetime.now(timezone.utc)
         d90 = now - timedelta(days=90)
@@ -334,6 +334,45 @@ async def _prewarm_meta_intel_cache(force_refresh: bool = False):
                 asyncio.to_thread(db.prewarm_meta_intel_presets, "aos", None, force_refresh),
                 return_exceptions=True,
             )
+            multi_systems = ("mtg", "pokemon", "one_piece", "sw_unlimited", "lorcana", "flesh_blood", "mcp", "digimon", "sw_legion")
+            mp_sem = asyncio.Semaphore(4)
+
+            async def _warm_multi_sys(gs_code: str):
+                async with mp_sem:
+                    await asyncio.to_thread(db.prewarm_meta_intel_presets, gs_code, ["90d", "30d", "1yr", "all"], force_refresh)
+                    if hasattr(db, "get_meta_filter_options"):
+                        await asyncio.to_thread(db.get_meta_filter_options, gs_code, "90d")
+                        await asyncio.to_thread(db.get_meta_filter_options, gs_code, "1yr")
+
+            await asyncio.gather(*(_warm_multi_sys(gs) for gs in multi_systems), return_exceptions=True)
+
+        # Warm common 40k competitive scope filter combinations so popular 1-click pills hit L1/L2 in <5ms
+        common_40k_scopes = [
+            {"min_players": 28, "min_rounds": 5, "exclude_leagues": True},
+            {"min_players": 28},
+            {"min_players": 64},
+            {"min_rounds": 5, "exclude_leagues": True},
+            {"venue_mode": "in_person"},
+            {"venue_mode": "online"},
+            {"event_structure": "singles"},
+            {"event_structure": "teams"},
+            {"elo_floor": 1550},
+            {"elo_floor": 1650},
+        ]
+        sc_sem = asyncio.Semaphore(4)
+
+        async def _warm_scope(f_kw):
+            async with sc_sem:
+                await asyncio.to_thread(
+                    db.get_faction_meta_stats,
+                    timeframe="90d",
+                    game_system="40k",
+                    _force_refresh=force_refresh,
+                    **f_kw,
+                )
+
+        await asyncio.gather(*(_warm_scope(kw) for kw in common_40k_scopes), return_exceptions=True)
+
         await asyncio.gather(
             asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "3mo", 6),
             asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 6),
@@ -344,7 +383,7 @@ async def _prewarm_meta_intel_cache(force_refresh: bool = False):
             asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "6mo", 2),
             return_exceptions=True,
         )
-        logger.info(f"🔥 Meta Intel (all presets) & Faction Details caches {'refreshed' if force_refresh else 'pre-warmed'} for 40k and AoS ({start_str} to {end_str})")
+        logger.info(f"🔥 Meta Intel (all presets + multi-system + scope filters) & Faction Details caches {'refreshed' if force_refresh else 'pre-warmed'} ({start_str} to {end_str})")
     except Exception as me:
         logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
 

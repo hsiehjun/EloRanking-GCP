@@ -1225,25 +1225,26 @@ class PostgresDatabase:
                 with conn.cursor() as cur:
                     if hasattr(cur, "_mock_name") or type(cur).__module__.startswith("unittest.mock"):
                         return
-                    cur.execute("SELECT value FROM system_settings WHERE key = 'meta_event_rollup_schema_v2';")
+                    cur.execute("SELECT value FROM system_settings WHERE key = 'meta_event_rollup_schema_v3';")
                     row = cur.fetchone()
                     if row and (row[0] if isinstance(row, (list, tuple)) else row.get("value")) == "ready":
                         return
-            self._ensure_meta_rollup_columns_and_tables()
-            with self.get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO system_settings (key, value, updated_at)
-                        VALUES ('meta_event_rollup_schema_v2', 'ready', NOW())
-                        ON CONFLICT (key) DO UPDATE SET value = 'ready', updated_at = NOW();
-                        """
-                    )
-                conn.commit()
+            all_ok = self._ensure_meta_rollup_columns_and_tables()
+            if all_ok:
+                with self.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            INSERT INTO system_settings (key, value, updated_at)
+                            VALUES ('meta_event_rollup_schema_v3', 'ready', NOW())
+                            ON CONFLICT (key) DO UPDATE SET value = 'ready', updated_at = NOW();
+                            """
+                        )
+                    conn.commit()
         except Exception as e:
             logger.debug(f"_ensure_meta_rollup_schema_fast notice: {e}")
 
-    def _ensure_meta_rollup_columns_and_tables(self) -> None:
+    def _ensure_meta_rollup_columns_and_tables(self) -> bool:
         """Idempotently adds normalized event filter columns and creates meta_event_matchups & meta_event_runs."""
         ddl_statements = (
             "ALTER TABLE events ADD COLUMN IF NOT EXISTS effective_players INTEGER DEFAULT 0;",
@@ -1333,20 +1334,29 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_match_participants_match_id ON match_participants (match_id);",
             "CREATE INDEX IF NOT EXISTS idx_meta_ev_mu_sys_day ON meta_event_matchups (game_system, is_non_1v1, match_day DESC);",
             "CREATE INDEX IF NOT EXISTS idx_meta_ev_runs_sys_date ON meta_event_runs (game_system, is_non_1v1, event_date DESC);",
+            "CREATE INDEX IF NOT EXISTS idx_meta_ev_mu_cov_v3 ON meta_event_matchups (game_system, is_non_1v1, match_day DESC) INCLUDE (event_id, p1_fac, p2_fac, match_cnt, p1_wins, p1_losses, draws, p2_wins, p2_losses, p1_score_sum, p1_score_cnt, p2_score_sum, p2_score_cnt, p1_margin_sum, margin_cnt);",
+            "CREATE INDEX IF NOT EXISTS idx_meta_ev_mu_exp_cov_v3 ON meta_event_matchups (game_system, is_non_1v1, match_day DESC) INCLUDE (event_id, p1_fac, p2_fac, exp_match_cnt, exp_p1_wins, exp_p1_losses, exp_draws, exp_p2_wins, exp_p2_losses, exp_p1_score_sum, exp_p1_score_cnt, exp_p2_score_sum, exp_p2_score_cnt, exp_p1_margin_sum, exp_margin_cnt, vet_match_cnt, vet_p1_wins, vet_p1_losses, vet_draws, vet_p2_wins, vet_p2_losses, vet_p1_score_sum, vet_p1_score_cnt, vet_p2_score_sum, vet_p2_score_cnt, vet_p1_margin_sum, vet_margin_cnt) WHERE exp_match_cnt > 0;",
+            "CREATE INDEX IF NOT EXISTS idx_meta_ev_runs_cov_v3 ON meta_event_runs (game_system, is_non_1v1, event_date DESC) INCLUDE (event_id, fac, pilots_cnt, runs_cnt, x0_runs, x1_runs, exp_pilots_cnt, exp_runs_cnt, exp_x0_runs, exp_x1_runs, vet_pilots_cnt, vet_runs_cnt, vet_x0_runs, vet_x1_runs);",
+            "ANALYZE meta_event_matchups;",
+            "ANALYZE meta_event_runs;",
         )
+        all_ok = True
         try:
             with self.get_connection() as conn:
                 for stmt in ddl_statements:
                     try:
                         with conn.cursor() as cur:
-                            cur.execute("SET LOCAL lock_timeout = '8s';")
+                            cur.execute("SET LOCAL lock_timeout = '20s'; SET LOCAL statement_timeout = '180000ms'; SET LOCAL maintenance_work_mem = '256MB';")
                             cur.execute(stmt)
                         conn.commit()
                     except Exception as stmt_err:
+                        all_ok = False
                         conn.rollback()
-                        logger.debug(f"_ensure_meta_rollup_columns_and_tables statement notice: {stmt_err}")
+                        logger.warning(f"_ensure_meta_rollup_columns_and_tables statement notice: {stmt_err}")
         except Exception as err:
+            all_ok = False
             logger.warning(f"_ensure_meta_rollup_columns_and_tables notice: {err}")
+        return all_ok
 
     def prune_obsolete_public_tables(self, force: bool = False) -> List[str]:
         """Drops legacy unused tables (Wahapedia waha_*, retired army_lists/league_matches/studio_events, etc.) not in ACTIVE_PUBLIC_TABLES."""
@@ -12157,6 +12167,8 @@ class PostgresDatabase:
                             try:
                                 cursor.execute("SAVEPOINT sp_meta_rollup_read;")
                                 cursor.execute("SET LOCAL statement_timeout = '8000ms'; SET LOCAL work_mem = '128MB';")
+                                if mf.has_event_filters():
+                                    cursor.execute("SET LOCAL enable_nestloop = off;")
                                 pfx = "vet_" if mf.elo_floor >= 1650 else ("exp_" if mf.elo_floor >= 1550 else "")
                                 ev_clauses, ev_params = PostgresDatabase._build_event_filter_sql_clauses(mf, ev_alias="e")
                                 join_ev_sql = "JOIN events e ON e.id = mu.event_id" if mf.has_event_filters() else ""
@@ -12170,6 +12182,9 @@ class PostgresDatabase:
                                 if game_system and sys_norm != "all":
                                     mu_w.append("mu.game_system = %s")
                                     mu_p.append(sys_norm)
+                                    if mf.has_event_filters():
+                                        mu_w.append("COALESCE(e.game_system, '40k') = %s")
+                                        mu_p.append(sys_norm)
                                 if resolved_start:
                                     mu_w.append("mu.match_day >= %s")
                                     mu_p.append(resolved_start)
@@ -12179,6 +12194,8 @@ class PostgresDatabase:
                                 if ev_clauses:
                                     mu_w.extend(ev_clauses)
                                     mu_p.extend(ev_params)
+                                if pfx == "vet_":
+                                    mu_w.append("mu.exp_match_cnt > 0")
                                 mu_w.append(f"mu.{pfx}match_cnt > 0")
                                 mu_where_sql = " AND ".join(mu_w)
                                 period_col_sql = f"DATE_TRUNC('{period_trunc}', mu.match_day)::date" if include_trends else "NULL::date"
@@ -12232,7 +12249,7 @@ class PostgresDatabase:
                                         (ev_cnt_row.get("cnt") if isinstance(ev_cnt_row, dict) else ev_cnt_row[0]) or 0
                                     ) if ev_cnt_row else 0
 
-                                # Query B: `meta_event_runs` for exact X-0 / X-1 tournament runs & deduplicated pilots
+                                # Query B: `meta_event_runs` Index-Only Scan for X-0 / X-1 runs + bounded exact pilot deduplication
                                 if fetched_rows:
                                     join_ev_runs_sql = "JOIN events e ON e.id = r.event_id" if mf.has_event_filters() else ""
                                     ru_w: List[str] = []
@@ -12242,6 +12259,9 @@ class PostgresDatabase:
                                     if game_system and sys_norm != "all":
                                         ru_w.append("r.game_system = %s")
                                         ru_p.append(sys_norm)
+                                        if mf.has_event_filters():
+                                            ru_w.append("COALESCE(e.game_system, '40k') = %s")
+                                            ru_p.append(sys_norm)
                                     if resolved_start:
                                         ru_w.append("r.event_date >= %s")
                                         ru_p.append(resolved_start)
@@ -12256,57 +12276,74 @@ class PostgresDatabase:
 
                                     cursor.execute(
                                         f"""
-                                        WITH base_runs AS (
-                                            SELECT
-                                                r.fac,
-                                                r.{pfx}runs_cnt AS runs_cnt,
-                                                r.{pfx}x0_runs AS x0_runs,
-                                                r.{pfx}x1_runs AS x1_runs,
-                                                r.{pfx}pilot_hashes AS pilot_hashes
-                                            FROM meta_event_runs r
-                                            {join_ev_runs_sql}
-                                            WHERE {ru_where_sql}
-                                        ),
-                                        run_totals AS (
-                                            SELECT
-                                                fac,
-                                                SUM(runs_cnt) AS event_runs_count,
-                                                SUM(x0_runs) AS x0_runs,
-                                                SUM(x1_runs) AS x1_runs
-                                            FROM base_runs
-                                            GROUP BY fac
-                                        ),
-                                        pilot_distinct AS (
-                                            SELECT DISTINCT br.fac, ph
-                                            FROM base_runs br,
-                                            LATERAL UNNEST(br.pilot_hashes) AS ph
-                                            WHERE br.pilot_hashes IS NOT NULL
-                                        ),
-                                        pilot_totals AS (
-                                            SELECT
-                                                fac,
-                                                COUNT(*) AS unique_pilots
-                                            FROM pilot_distinct
-                                            GROUP BY fac
-                                        )
                                         SELECT
-                                            rt.fac,
-                                            COALESCE(pt.unique_pilots, 0) AS unique_pilots,
-                                            rt.event_runs_count,
-                                            rt.x0_runs,
-                                            rt.x1_runs
-                                        FROM run_totals rt
-                                        LEFT JOIN pilot_totals pt ON pt.fac = rt.fac;
+                                            r.fac,
+                                            SUM(r.{pfx}pilots_cnt) AS sum_pilots,
+                                            SUM(r.{pfx}runs_cnt) AS event_runs_count,
+                                            SUM(r.{pfx}x0_runs) AS x0_runs,
+                                            SUM(r.{pfx}x1_runs) AS x1_runs,
+                                            COUNT(*) AS row_cnt
+                                        FROM meta_event_runs r
+                                        {join_ev_runs_sql}
+                                        WHERE {ru_where_sql}
+                                        GROUP BY r.fac;
                                         """,
                                         ru_p,
                                     )
                                     ev_chunk_rows = [dict(r) for r in (cursor.fetchall() or [])]
+                                    if ev_chunk_rows and "unique_pilots" not in ev_chunk_rows[0]:
+                                        total_run_rows = sum(int(r.get("row_cnt") or 0) for r in ev_chunk_rows)
+                                        for r in ev_chunk_rows:
+                                            r["unique_pilots"] = int(r.get("sum_pilots") or 0)
+                                        if 0 < total_run_rows <= 25000:
+                                            try:
+                                                cursor.execute("SAVEPOINT sp_pilot_dedup;")
+                                                cursor.execute("SET LOCAL statement_timeout = '350ms';")
+                                                cursor.execute(
+                                                    f"""
+                                                    SELECT
+                                                        d.fac,
+                                                        COUNT(*) AS unique_pilots
+                                                    FROM (
+                                                        SELECT DISTINCT r.fac, UNNEST(r.{pfx}pilot_hashes) AS ph
+                                                        FROM meta_event_runs r
+                                                        {join_ev_runs_sql}
+                                                        WHERE {ru_where_sql} AND r.{pfx}pilot_hashes IS NOT NULL
+                                                    ) d
+                                                    GROUP BY d.fac;
+                                                    """,
+                                                    ru_p,
+                                                )
+                                                dedup_map = {
+                                                    str(dr["fac"]): int(dr.get("unique_pilots") or 0)
+                                                    for dr in (cursor.fetchall() or [])
+                                                    if dr and dr.get("fac") is not None
+                                                }
+                                                cursor.execute("RELEASE SAVEPOINT sp_pilot_dedup;")
+                                                if dedup_map:
+                                                    for r in ev_chunk_rows:
+                                                        fac_k = str(r.get("fac") or "")
+                                                        if fac_k in dedup_map:
+                                                            r["unique_pilots"] = dedup_map[fac_k]
+                                            except Exception:
+                                                try:
+                                                    cursor.execute("ROLLBACK TO SAVEPOINT sp_pilot_dedup;")
+                                                except Exception:
+                                                    pass
+                                            finally:
+                                                try:
+                                                    cursor.execute("SET LOCAL statement_timeout = '8000ms';")
+                                                except Exception:
+                                                    pass
+                                if mf.has_event_filters():
+                                    cursor.execute("SET LOCAL enable_nestloop = on;")
                                 ev_chunks_complete = True
                                 rollup_used = True
                                 cursor.execute("RELEASE SAVEPOINT sp_meta_rollup_read;")
                             except Exception as rollup_err:
                                 try:
                                     cursor.execute("ROLLBACK TO SAVEPOINT sp_meta_rollup_read;")
+                                    cursor.execute("SET LOCAL enable_nestloop = on;")
                                 except Exception:
                                     conn.rollback()
                                 rollup_used = False
