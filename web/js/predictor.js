@@ -208,12 +208,19 @@ function computeCalibratedMlMatchupClient({ p1Prof, p2Prof, elo1, elo2, fac1, fa
 
   const f1AlphaObj = (compSnap.factions && compSnap.factions[nk1]) || {};
   const f2AlphaObj = (compSnap.factions && compSnap.factions[nk2]) || {};
-  let muAlphaObj = (compSnap.matchups && compSnap.matchups[`${nk1}||${nk2}`]) || null;
-  if (!muAlphaObj && nk1 && nk2 && nk1 !== nk2 && compSnap.matchups && compSnap.matchups[`${nk2}||${nk1}`]) {
-    const rev = compSnap.matchups[`${nk2}||${nk1}`];
-    muAlphaObj = { alpha: -Number(rev.alpha || 0.0), games: Number(rev.games || 0) };
+  const fwdMu = (compSnap.matchups && compSnap.matchups[`${nk1}||${nk2}`]) || null;
+  const revMu = (nk1 && nk2 && nk1 !== nk2 && compSnap.matchups && compSnap.matchups[`${nk2}||${nk1}`]) || null;
+  let muAlphaObj = {};
+  if (fwdMu && revMu) {
+    muAlphaObj = {
+      alpha: 0.5 * (Number(fwdMu.alpha || 0.0) - Number(revMu.alpha || 0.0)),
+      games: Math.max(Number(fwdMu.games || 0), Number(revMu.games || 0))
+    };
+  } else if (fwdMu) {
+    muAlphaObj = fwdMu;
+  } else if (revMu) {
+    muAlphaObj = { alpha: -Number(revMu.alpha || 0.0), games: Number(revMu.games || 0) };
   }
-  muAlphaObj = muAlphaObj || {};
 
   const mlf1 = p1Prof?.ml_features || {};
   const mlf2 = p2Prof?.ml_features || {};

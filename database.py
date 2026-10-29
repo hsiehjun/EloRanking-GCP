@@ -23273,10 +23273,15 @@ class PostgresDatabase:
         from predictor_model import normalize_faction_key
 
         sys_norm = str(game_system or "40k").strip().lower()
-        snap_key = f"ml_comp_alpha_90d_{sys_norm}"
+        snap_key = f"ml_comp_alpha_90d_v2_{sys_norm}"
         cached = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, snap_key, ttl=1800)
         if isinstance(cached, dict):
             return cached
+        if not self._is_mock_instance() and hasattr(self, "get_l2_cache"):
+            l2_snap = self.get_l2_cache("meta_intel", snap_key, ttl_seconds=21600)
+            if isinstance(l2_snap, dict) and l2_snap.get("factions"):
+                PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, snap_key, l2_snap)
+                return l2_snap
 
         meta_data = None
         if not self._is_mock_instance() and hasattr(self, "get_faction_meta_stats"):
@@ -23324,17 +23329,24 @@ class PostgresDatabase:
                 continue
             g = float(f_row.get("total_matches") or 0)
             w = float(f_row.get("wins") or 0)
+            l_cnt = float(f_row.get("losses") or 0)
             d = float(f_row.get("draws") or 0)
             if g <= 0:
                 continue
-            # Shrunk edge relative to 0.50 (prior kappa = 75)
-            alpha = ((w + 0.5 * d) - 0.5 * g) / (g + 75.0)
+            # Strictly antisymmetric shrunk edge (0.5 * (W - L) / (G + 75))
+            prev = fac_alphas.get(nk)
+            if prev:
+                w += float(prev["wins"])
+                l_cnt += float(prev["losses"])
+                d += float(prev["draws"])
+                g += float(prev["games"])
+            alpha = (0.5 * (w - l_cnt)) / (g + 75.0)
             fac_alphas[nk] = {
                 "faction": fn,
                 "alpha": round(alpha, 5),
                 "games": int(g),
                 "wins": int(w),
-                "losses": int(f_row.get("losses") or 0),
+                "losses": int(l_cnt),
                 "draws": int(d),
                 "win_rate": round(float(f_row.get("win_rate") or 50.0), 1),
             }
@@ -23361,8 +23373,8 @@ class PostgresDatabase:
                 if mg <= 0:
                     continue
                 a2 = fac_alphas.get(nk2, {}).get("alpha", 0.0)
-                # Residual matchup edge net of marginal faction strengths (kappa = 35)
-                raw_edge = ((mw + 0.5 * md) / mg) - 0.5
+                # Strictly antisymmetric residual matchup edge net of marginal faction strengths (kappa = 35)
+                raw_edge = (0.5 * (mw - ml)) / mg
                 net_edge = raw_edge - (a1 - a2)
                 shrunk_mu = (net_edge * mg) / (mg + 35.0)
                 mu_alphas[pair_key] = {
@@ -23376,6 +23388,8 @@ class PostgresDatabase:
         snap = {"factions": fac_alphas, "matchups": mu_alphas}
         if fac_alphas:
             PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, snap_key, snap)
+            if not self._is_mock_instance() and hasattr(self, "set_l2_cache"):
+                self.set_l2_cache("meta_intel", snap_key, snap)
         return snap
 
 

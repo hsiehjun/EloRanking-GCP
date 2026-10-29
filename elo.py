@@ -1114,14 +1114,22 @@ class EloEngine:
 
         f1_alpha_obj = (comp_snap.get("factions") or {}).get(nk1) or {}
         f2_alpha_obj = (comp_snap.get("factions") or {}).get(nk2) or {}
-        mu_alpha_obj = (comp_snap.get("matchups") or {}).get(f"{nk1}||{nk2}") or {}
-        if not mu_alpha_obj and nk1 and nk2 and nk1 != nk2:
-            rev_obj = (comp_snap.get("matchups") or {}).get(f"{nk2}||{nk1}")
-            if rev_obj:
-                mu_alpha_obj = {
-                    "alpha": -float(rev_obj.get("alpha") or 0.0),
-                    "games": int(rev_obj.get("games") or 0),
-                }
+        fwd_mu = (comp_snap.get("matchups") or {}).get(f"{nk1}||{nk2}")
+        rev_mu = (comp_snap.get("matchups") or {}).get(f"{nk2}||{nk1}") if (nk1 and nk2 and nk1 != nk2) else None
+        if fwd_mu and rev_mu:
+            mu_alpha_obj = {
+                "alpha": 0.5 * (float(fwd_mu.get("alpha") or 0.0) - float(rev_mu.get("alpha") or 0.0)),
+                "games": max(int(fwd_mu.get("games") or 0), int(rev_mu.get("games") or 0)),
+            }
+        elif fwd_mu:
+            mu_alpha_obj = fwd_mu
+        elif rev_mu:
+            mu_alpha_obj = {
+                "alpha": -float(rev_mu.get("alpha") or 0.0),
+                "games": int(rev_mu.get("games") or 0),
+            }
+        else:
+            mu_alpha_obj = {}
 
         p1_mlf = p1_prof.get("ml_features") or {}
         p2_mlf = p2_prof.get("ml_features") or {}
