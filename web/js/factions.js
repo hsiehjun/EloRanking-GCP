@@ -141,7 +141,7 @@ function getMetaEventFilterSummaryChips(f = factionEventFilters) {
     if (fmtEl && fmtEl.options) {
       for (let i = 0; i < fmtEl.options.length; i++) {
         if (fmtEl.options[i].value === f.event_format) {
-          fmtLabel = fmtEl.options[i].getAttribute('data-clean-label') || fmtEl.options[i].textContent.replace(/\s*\([^)]*\)\s*$/, '');
+          fmtLabel = fmtEl.options[i].getAttribute('data-clean-label') || fmtEl.options[i].textContent.trim();
           break;
         }
       }
@@ -340,7 +340,7 @@ function syncMetaFilterOptionsUI(avail) {
       nonEmptyFmts.forEach(item => {
         if (item.code === curFmt) seenFmt = true;
         const lbl = item.label || item.code;
-        html += `<option value="${escapeHtml(item.code)}" data-clean-label="${escapeHtml(lbl)}">${escapeHtml(lbl)} (${formatNumber(item.count)})</option>`;
+        html += `<option value="${escapeHtml(item.code)}" data-clean-label="${escapeHtml(lbl)}">${escapeHtml(lbl)}</option>`;
       });
       if (!seenFmt && curFmt !== 'all') {
         html += `<option value="${escapeHtml(curFmt)}" data-clean-label="${escapeHtml(curFmt)}">${escapeHtml(curFmt)}</option>`;
