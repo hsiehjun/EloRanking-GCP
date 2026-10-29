@@ -12175,7 +12175,6 @@ class PostgresDatabase:
                                     or bool(getattr(cursor, "_enable_pre_eids", False))
                                 )
                                 matched_eids: Optional[List[str]] = None
-                                pk_mode = False
 
                                 if use_pre_eids:
                                     ev_pre_w: List[str] = []
@@ -12186,14 +12185,14 @@ class PostgresDatabase:
                                     if resolved_start:
                                         try:
                                             ev_floor_dt = (datetime.strptime(resolved_start[:10], "%Y-%m-%d").date() - timedelta(days=180)).strftime("%Y-%m-%d")
-                                            ev_pre_w.append("(e.event_date >= %s OR e.event_date IS NULL)")
+                                            ev_pre_w.append("e.event_date >= %s")
                                             ev_pre_p.append(ev_floor_dt)
                                         except Exception:
                                             pass
                                     if resolved_end:
                                         try:
                                             ev_ceil_dt = (datetime.strptime(resolved_end[:10], "%Y-%m-%d").date() + timedelta(days=14)).strftime("%Y-%m-%d")
-                                            ev_pre_w.append("(e.event_date <= %s OR e.event_date IS NULL)")
+                                            ev_pre_w.append("e.event_date <= %s")
                                             ev_pre_p.append(ev_ceil_dt)
                                         except Exception:
                                             pass
@@ -12202,7 +12201,6 @@ class PostgresDatabase:
                                     ev_pre_sql = f"WHERE {' AND '.join(ev_pre_w)}" if ev_pre_w else ""
                                     cursor.execute(f"SELECT e.id FROM events e {ev_pre_sql};", ev_pre_p)
                                     matched_eids = [str(r["id"]) for r in (cursor.fetchall() or []) if r and r.get("id")]
-                                    pk_mode = 0 < len(matched_eids) <= 1000
 
                                 if matched_eids is not None and len(matched_eids) == 0:
                                     fetched_rows = []
@@ -12212,14 +12210,9 @@ class PostgresDatabase:
                                     mu_w: List[str] = []
                                     mu_p: List[Any] = []
                                     if matched_eids is not None:
-                                        if pk_mode:
-                                            cursor.execute("SET LOCAL enable_nestloop = on;")
-                                            mu_w.append("mu.event_id = ANY(%s)")
-                                            mu_p.append(matched_eids)
-                                        else:
-                                            cursor.execute("SET LOCAL enable_nestloop = off;")
-                                            join_ev_sql = "JOIN UNNEST(%s::varchar[]) AS fe(eid) ON fe.eid = mu.event_id"
-                                            mu_p.append(matched_eids)
+                                        cursor.execute("SET LOCAL enable_nestloop = off;")
+                                        join_ev_sql = "JOIN UNNEST(%s::varchar[]) AS fe(eid) ON fe.eid = mu.event_id"
+                                        mu_p.append(matched_eids)
                                     elif mf.has_event_filters():
                                         cursor.execute("SET LOCAL enable_nestloop = off;")
                                         join_ev_sql = "JOIN events e ON e.id = mu.event_id"
@@ -12305,12 +12298,8 @@ class PostgresDatabase:
                                         ru_w: List[str] = []
                                         ru_p: List[Any] = []
                                         if matched_eids is not None:
-                                            if pk_mode:
-                                                ru_w.append("r.event_id = ANY(%s)")
-                                                ru_p.append(matched_eids)
-                                            else:
-                                                join_ev_runs_sql = "JOIN UNNEST(%s::varchar[]) AS fe(eid) ON fe.eid = r.event_id"
-                                                ru_p.append(matched_eids)
+                                            join_ev_runs_sql = "JOIN UNNEST(%s::varchar[]) AS fe(eid) ON fe.eid = r.event_id"
+                                            ru_p.append(matched_eids)
                                         elif mf.has_event_filters():
                                             join_ev_runs_sql = "JOIN events e ON e.id = r.event_id"
 
@@ -12355,10 +12344,10 @@ class PostgresDatabase:
                                             total_run_rows = sum(int(r.get("row_cnt") or 0) for r in ev_chunk_rows)
                                             for r in ev_chunk_rows:
                                                 r["unique_pilots"] = int(r.get("sum_pilots") or 0)
-                                            if 0 < total_run_rows <= 3500:
+                                            if 0 < total_run_rows <= 300:
                                                 try:
                                                     cursor.execute("SAVEPOINT sp_pilot_dedup;")
-                                                    cursor.execute("SET LOCAL statement_timeout = '120ms';")
+                                                    cursor.execute("SET LOCAL statement_timeout = '80ms';")
                                                     cursor.execute(
                                                         f"""
                                                         SELECT

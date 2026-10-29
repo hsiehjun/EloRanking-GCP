@@ -775,8 +775,9 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
             self.assertEqual(det["filter"]["elo_floor"], 1550)
 
     def test_postgres_rollup_pre_eids_pk_and_unnest_hash_regimes(self):
-        """Verifies both PK `ANY(%s)` (<=1000 events) and `UNNEST` Hash Join (>1000 events) cold rollup regimes."""
-        for ev_count, expected_token in ((12, "mu.event_id = ANY(%s)"), (1205, "JOIN UNNEST(%s::varchar[]) AS fe(eid) ON fe.eid = mu.event_id")):
+        """Verifies Index-Only `UNNEST` Hash Join cold rollup regime for both small and large event slices."""
+        for ev_count in (12, 1205):
+            expected_token = "JOIN UNNEST(%s::varchar[]) AS fe(eid) ON fe.eid = mu.event_id"
             PostgresDatabase.invalidate_all_caches()
             PostgresDatabase._meta_rollup_ready_systems.add("40k")
             PostgresDatabase._meta_rollup_status_checked_ts = 9999999999.0
