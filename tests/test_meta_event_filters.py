@@ -878,6 +878,9 @@ class TestPostgresRollupSqlAndFrontendContract(unittest.TestCase):
                 self.assertEqual(ael["unique_pilots"], 22 if ev_count <= 1000 else 25)
                 mu_sql = next(q for q, _p in executed if "FROM meta_event_matchups" in q and "SUM(" in q)
                 self.assertIn(expected_token, mu_sql)
+                all_sql_text = "\n".join(q for q, _p in executed)
+                self.assertIn("SET LOCAL enable_nestloop = off; SET LOCAL enable_mergejoin = off;", all_sql_text)
+                self.assertIn("SET LOCAL enable_nestloop = on; SET LOCAL enable_mergejoin = on;", all_sql_text)
 
     def test_frontend_quadrant_timeline_removed_and_all_events_default(self):
         root = Path(__file__).resolve().parent.parent

@@ -576,6 +576,8 @@ class PostgresDatabase:
         "orruk warclans": ["orruk warclans", "big waaagh!"],
     }
 
+    _KNOWN_40K_AOS_LOWER: Optional[Set[str]] = None
+
     @classmethod
     def canonicalize_faction_name(cls, name: Optional[str]) -> str:
         raw = str(name or "").strip()
@@ -591,10 +593,13 @@ class PostgresDatabase:
             if not prefix or cls.is_super_or_empty_faction(prefix):
                 return ""
             prefix_low = prefix.lower()
-            known_40k_aos = {
-                f.lower()
-                for f in (cls.DEFAULT_40K_STATS["factions"] + cls.DEFAULT_AOS_STATS["factions"])
-            }
+            known_40k_aos = cls._KNOWN_40K_AOS_LOWER
+            if known_40k_aos is None:
+                known_40k_aos = {
+                    f.lower()
+                    for f in (cls.DEFAULT_40K_STATS["factions"] + cls.DEFAULT_AOS_STATS["factions"])
+                }
+                cls._KNOWN_40K_AOS_LOWER = known_40k_aos
             if prefix_low in cls.FACTION_CANONICAL_MAP or prefix_low in known_40k_aos:
                 return cls.FACTION_CANONICAL_MAP.get(prefix_low, prefix)
         return cls.FACTION_CANONICAL_MAP.get(low, raw)
@@ -12184,7 +12189,8 @@ class PostgresDatabase:
                                         ev_pre_p.append(sys_norm)
                                     if resolved_start:
                                         try:
-                                            ev_floor_dt = (datetime.strptime(resolved_start[:10], "%Y-%m-%d").date() - timedelta(days=180)).strftime("%Y-%m-%d")
+                                            floor_days = 14 if mf.exclude_leagues else 90
+                                            ev_floor_dt = (datetime.strptime(resolved_start[:10], "%Y-%m-%d").date() - timedelta(days=floor_days)).strftime("%Y-%m-%d")
                                             ev_pre_w.append("e.event_date >= %s")
                                             ev_pre_p.append(ev_floor_dt)
                                         except Exception:
@@ -12202,6 +12208,7 @@ class PostgresDatabase:
                                     cursor.execute(f"SELECT e.id FROM events e {ev_pre_sql};", ev_pre_p)
                                     matched_eids = [str(r["id"]) for r in (cursor.fetchall() or []) if r and r.get("id")]
 
+                                join_planner_forced = False
                                 if matched_eids is not None and len(matched_eids) == 0:
                                     fetched_rows = []
                                     matched_events_count = 0
@@ -12210,11 +12217,13 @@ class PostgresDatabase:
                                     mu_w: List[str] = []
                                     mu_p: List[Any] = []
                                     if matched_eids is not None:
-                                        cursor.execute("SET LOCAL enable_nestloop = off;")
+                                        cursor.execute("SET LOCAL enable_nestloop = off; SET LOCAL enable_mergejoin = off;")
+                                        join_planner_forced = True
                                         join_ev_sql = "JOIN UNNEST(%s::varchar[]) AS fe(eid) ON fe.eid = mu.event_id"
                                         mu_p.append(matched_eids)
                                     elif mf.has_event_filters():
-                                        cursor.execute("SET LOCAL enable_nestloop = off;")
+                                        cursor.execute("SET LOCAL enable_nestloop = off; SET LOCAL enable_mergejoin = off;")
+                                        join_planner_forced = True
                                         join_ev_sql = "JOIN events e ON e.id = mu.event_id"
 
                                     if not allow_non_1v1:
@@ -12269,7 +12278,11 @@ class PostgresDatabase:
                                         """,
                                         mu_p,
                                     )
-                                    fetched_rows = [dict(r) for r in (cursor.fetchall() or [])]
+                                    raw_mu_rows = cursor.fetchall() or []
+                                    if raw_mu_rows and isinstance(raw_mu_rows[0], dict):
+                                        fetched_rows = list(raw_mu_rows)
+                                    else:
+                                        fetched_rows = [dict(r) for r in raw_mu_rows]
                                     if not fetched_rows:
                                         matched_events_count = 0
                                     elif "matched_events" in fetched_rows[0]:
@@ -12345,9 +12358,13 @@ class PostgresDatabase:
                                             for r in ev_chunk_rows:
                                                 r["unique_pilots"] = int(r.get("sum_pilots") or 0)
                                             if 0 < total_run_rows <= 300:
+                                                use_nl_dedup = matched_eids is not None and len(matched_eids) <= 120
                                                 try:
                                                     cursor.execute("SAVEPOINT sp_pilot_dedup;")
-                                                    cursor.execute("SET LOCAL statement_timeout = '80ms';")
+                                                    if use_nl_dedup:
+                                                        cursor.execute("SET LOCAL statement_timeout = '80ms'; SET LOCAL enable_nestloop = on;")
+                                                    else:
+                                                        cursor.execute("SET LOCAL statement_timeout = '80ms';")
                                                     cursor.execute(
                                                         f"""
                                                         SELECT
@@ -12381,18 +12398,21 @@ class PostgresDatabase:
                                                         pass
                                                 finally:
                                                     try:
-                                                        cursor.execute("SET LOCAL statement_timeout = '8000ms';")
+                                                        if use_nl_dedup and join_planner_forced:
+                                                            cursor.execute("SET LOCAL statement_timeout = '8000ms'; SET LOCAL enable_nestloop = off;")
+                                                        else:
+                                                            cursor.execute("SET LOCAL statement_timeout = '8000ms';")
                                                     except Exception:
                                                         pass
-                                if mf.has_event_filters():
-                                    cursor.execute("SET LOCAL enable_nestloop = on;")
+                                if join_planner_forced:
+                                    cursor.execute("SET LOCAL enable_nestloop = on; SET LOCAL enable_mergejoin = on;")
                                 ev_chunks_complete = True
                                 rollup_used = True
                                 cursor.execute("RELEASE SAVEPOINT sp_meta_rollup_read;")
                             except Exception as rollup_err:
                                 try:
                                     cursor.execute("ROLLBACK TO SAVEPOINT sp_meta_rollup_read;")
-                                    cursor.execute("SET LOCAL enable_nestloop = on;")
+                                    cursor.execute("SET LOCAL enable_nestloop = on; SET LOCAL enable_mergejoin = on;")
                                 except Exception:
                                     conn.rollback()
                                 rollup_used = False
@@ -12675,8 +12695,21 @@ class PostgresDatabase:
                             overall = [dict(r) for r in fetched_rows]
                         else:
                             fac_acc: Dict[str, Dict[str, float]] = {}
-                            mu_acc: Dict[Tuple[str, str], Dict[str, float]] = {}
+                            mu_acc: Dict[Tuple[str, str], List[float]] = {}
                             trend_acc: Dict[Tuple[str, str], Dict[str, int]] = {}
+                            _canon_memo: Dict[Any, str] = {"": "", None: ""}
+
+                            def _canon_fast(raw_val: Any) -> str:
+                                cached_f = _canon_memo.get(raw_val)
+                                if cached_f is not None:
+                                    return cached_f
+                                s = str(raw_val or "").strip()
+                                if not s or "+" in s or "pod (" in s.lower() or PostgresDatabase.is_super_or_empty_faction(s):
+                                    _canon_memo[raw_val] = ""
+                                    return ""
+                                cf = PostgresDatabase.canonicalize_faction_name(s)
+                                _canon_memo[raw_val] = cf
+                                return cf
 
                             def _ensure_fac(fname: str) -> Dict[str, float]:
                                 bucket = fac_acc.get(fname)
@@ -12701,12 +12734,14 @@ class PostgresDatabase:
 
                             non_1v1_seat_total = 0
                             for r in fetched_rows:
-                                raw_p1 = str(r.get("p1_fac") or "").strip()
-                                raw_p2 = str(r.get("p2_fac") or "").strip()
-                                if ("+" in raw_p1 or "pod (" in raw_p1.lower()) or ("+" in raw_p2 or "pod (" in raw_p2.lower()):
+                                p1_raw_obj = r.get("p1_fac")
+                                p2_raw_obj = r.get("p2_fac")
+                                if (isinstance(p1_raw_obj, str) and ("+" in p1_raw_obj or "pod (" in p1_raw_obj.lower())) or (
+                                    isinstance(p2_raw_obj, str) and ("+" in p2_raw_obj or "pod (" in p2_raw_obj.lower())
+                                ):
                                     continue
-                                f1 = "" if PostgresDatabase.is_super_or_empty_faction(raw_p1) else PostgresDatabase.canonicalize_faction_name(raw_p1)
-                                f2 = "" if PostgresDatabase.is_super_or_empty_faction(raw_p2) else PostgresDatabase.canonicalize_faction_name(raw_p2)
+                                f1 = _canon_fast(p1_raw_obj)
+                                f2 = _canon_fast(p2_raw_obj)
                                 if not f1 and not f2:
                                     continue
 
@@ -12731,12 +12766,14 @@ class PostgresDatabase:
                                 mgn_cnt = int(r.get("margin_cnt") or 0)
 
                                 p_date = r.get("period_date")
-                                if hasattr(p_date, "strftime"):
+                                if p_date is None:
+                                    period_str = ""
+                                elif hasattr(p_date, "strftime"):
                                     period_str = p_date.strftime("%Y-%m-%d" if is_short_window else "%Y-%m")
                                 else:
                                     period_str = str(p_date or "")[:10 if is_short_window else 7]
 
-                                is_mirror = bool(f1 and f2 and f1.lower() == f2.lower())
+                                is_mirror = bool(f1 and f2 and (f1 == f2 or f1.lower() == f2.lower()))
 
                                 if f1:
                                     b1 = _ensure_fac(f1)
@@ -12783,21 +12820,29 @@ class PostgresDatabase:
                                         tb2["wins"] += p2_w
 
                                 if f1 and f2 and not is_mirror:
-                                    mb1 = mu_acc.setdefault((f1, f2), {"matches": 0, "wins": 0, "losses": 0, "draws": 0, "margin_sum": 0.0, "margin_cnt": 0})
-                                    mb1["matches"] += m_cnt
-                                    mb1["wins"] += p1_w
-                                    mb1["losses"] += p1_l
-                                    mb1["draws"] += drw
-                                    mb1["margin_sum"] += p1_mgn_sum
-                                    mb1["margin_cnt"] += mgn_cnt
+                                    k12 = (f1, f2)
+                                    mb1 = mu_acc.get(k12)
+                                    if mb1 is None:
+                                        mu_acc[k12] = [m_cnt, p1_w, p1_l, drw, p1_mgn_sum, mgn_cnt]
+                                    else:
+                                        mb1[0] += m_cnt
+                                        mb1[1] += p1_w
+                                        mb1[2] += p1_l
+                                        mb1[3] += drw
+                                        mb1[4] += p1_mgn_sum
+                                        mb1[5] += mgn_cnt
 
-                                    mb2 = mu_acc.setdefault((f2, f1), {"matches": 0, "wins": 0, "losses": 0, "draws": 0, "margin_sum": 0.0, "margin_cnt": 0})
-                                    mb2["matches"] += m_cnt
-                                    mb2["wins"] += p2_w
-                                    mb2["losses"] += p2_l
-                                    mb2["draws"] += drw
-                                    mb2["margin_sum"] -= p1_mgn_sum
-                                    mb2["margin_cnt"] += mgn_cnt
+                                    k21 = (f2, f1)
+                                    mb2 = mu_acc.get(k21)
+                                    if mb2 is None:
+                                        mu_acc[k21] = [m_cnt, p2_w, p2_l, drw, -p1_mgn_sum, mgn_cnt]
+                                    else:
+                                        mb2[0] += m_cnt
+                                        mb2[1] += p2_w
+                                        mb2[2] += p2_l
+                                        mb2[3] += drw
+                                        mb2[4] -= p1_mgn_sum
+                                        mb2[5] += mgn_cnt
 
                             if non_1v1_seat_total > 0:
                                 raw_match_count += max(1, int(round(non_1v1_seat_total / 4.0)))
@@ -12806,10 +12851,7 @@ class PostgresDatabase:
 
                             def _accumulate_ev_rows(rows_iter: List[Dict[str, Any]]) -> None:
                                 for er in (rows_iter or []):
-                                    raw_ef = str(er.get("fac") or "").strip()
-                                    if "+" in raw_ef or "pod (" in raw_ef.lower() or PostgresDatabase.is_super_or_empty_faction(raw_ef):
-                                        continue
-                                    canon_ef = PostgresDatabase.canonicalize_faction_name(raw_ef)
+                                    canon_ef = _canon_fast(er.get("fac"))
                                     if not canon_ef:
                                         continue
                                     eb = ev_acc.setdefault(canon_ef, {"unique_pilots": 0, "event_runs_count": 0, "x0_runs": 0, "x1_runs": 0})
@@ -12870,15 +12912,28 @@ class PostgresDatabase:
                                 })
                             overall.sort(key=lambda x: (float(x.get("win_rate") or 0.0), int(x.get("total_matches") or 0)), reverse=True)
 
+                            kept_mu_filter: Optional[Set[str]] = None
+                            if len(overall) > 250:
+                                _s_play = sorted(overall, key=lambda x: int(x.get("total_matches") or 0), reverse=True)
+                                _tot_app = sum(int(x.get("total_matches") or 0) for x in overall)
+                                _min_k = max(5, int(_tot_app * 0.008)) if _tot_app >= 200 else 1
+                                _qual = [x for x in overall if int(x.get("total_matches") or 0) >= _min_k] or overall
+                                kept_mu_filter = {str(x.get("faction")) for x in _s_play[:250] if x.get("faction")}
+                                kept_mu_filter.add(str(max(_qual, key=lambda x: (float(x.get("win_rate") or 0.0), int(x.get("total_matches") or 0))).get("faction") or ""))
+                                kept_mu_filter.add(str(max(overall, key=lambda x: (int(x.get("x0_runs") or 0), int(x.get("x1_runs") or 0), float(x.get("win_rate") or 0.0))).get("faction") or ""))
+                                kept_mu_filter.add(str(max(_qual, key=lambda x: (float(x.get("avg_margin") or -999.0), float(x.get("win_rate") or 0.0))).get("faction") or ""))
+
                             for (fa, fb), mb in mu_acc.items():
-                                m_tot = int(mb["matches"])
+                                if kept_mu_filter is not None and fa not in kept_mu_filter:
+                                    continue
+                                m_tot = int(mb[0])
                                 if m_tot < 1:
                                     continue
-                                mw = int(mb["wins"])
-                                ml = int(mb["losses"])
-                                md = int(mb["draws"])
+                                mw = int(mb[1])
+                                ml = int(mb[2])
+                                md = int(mb[3])
                                 m_wr = round((mw * 100.0 / m_tot), 1)
-                                m_mgn = round((mb["margin_sum"] / mb["margin_cnt"]), 1) if mb["margin_cnt"] > 0 else 0.0
+                                m_mgn = round((mb[4] / mb[5]), 1) if mb[5] > 0 else 0.0
                                 matchup_rows.append({
                                     "faction": fa,
                                     "opp_faction": fb,
