@@ -12209,6 +12209,7 @@ class PostgresDatabase:
                                     matched_eids = [str(r["id"]) for r in (cursor.fetchall() or []) if r and r.get("id")]
 
                                 join_planner_forced = False
+                                idx_only_forced = False
                                 if matched_eids is not None and len(matched_eids) == 0:
                                     fetched_rows = []
                                     matched_events_count = 0
@@ -12216,13 +12217,30 @@ class PostgresDatabase:
                                     join_ev_sql = ""
                                     mu_w: List[str] = []
                                     mu_p: List[Any] = []
+                                    has_sys_key = bool(game_system and sys_norm != "all")
                                     if matched_eids is not None:
-                                        cursor.execute("SET LOCAL enable_nestloop = off; SET LOCAL enable_mergejoin = off;")
+                                        if has_sys_key:
+                                            cursor.execute(
+                                                "SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off; "
+                                                "SET LOCAL enable_nestloop = off; SET LOCAL enable_mergejoin = off; "
+                                                "SET LOCAL max_parallel_workers_per_gather = 0;"
+                                            )
+                                            idx_only_forced = True
+                                        else:
+                                            cursor.execute("SET LOCAL enable_nestloop = off; SET LOCAL enable_mergejoin = off;")
                                         join_planner_forced = True
                                         join_ev_sql = "JOIN UNNEST(%s::varchar[]) AS fe(eid) ON fe.eid = mu.event_id"
                                         mu_p.append(matched_eids)
                                     elif mf.has_event_filters():
-                                        cursor.execute("SET LOCAL enable_nestloop = off; SET LOCAL enable_mergejoin = off;")
+                                        if has_sys_key:
+                                            cursor.execute(
+                                                "SET LOCAL enable_seqscan = off; SET LOCAL enable_bitmapscan = off; "
+                                                "SET LOCAL enable_nestloop = off; SET LOCAL enable_mergejoin = off; "
+                                                "SET LOCAL max_parallel_workers_per_gather = 0;"
+                                            )
+                                            idx_only_forced = True
+                                        else:
+                                            cursor.execute("SET LOCAL enable_nestloop = off; SET LOCAL enable_mergejoin = off;")
                                         join_planner_forced = True
                                         join_ev_sql = "JOIN events e ON e.id = mu.event_id"
 
@@ -12404,7 +12422,13 @@ class PostgresDatabase:
                                                             cursor.execute("SET LOCAL statement_timeout = '8000ms';")
                                                     except Exception:
                                                         pass
-                                if join_planner_forced:
+                                if idx_only_forced:
+                                    cursor.execute(
+                                        "SET LOCAL enable_seqscan = on; SET LOCAL enable_bitmapscan = on; "
+                                        "SET LOCAL enable_nestloop = on; SET LOCAL enable_mergejoin = on; "
+                                        "SET LOCAL max_parallel_workers_per_gather = 4;"
+                                    )
+                                elif join_planner_forced:
                                     cursor.execute("SET LOCAL enable_nestloop = on; SET LOCAL enable_mergejoin = on;")
                                 ev_chunks_complete = True
                                 rollup_used = True
@@ -12412,7 +12436,11 @@ class PostgresDatabase:
                             except Exception as rollup_err:
                                 try:
                                     cursor.execute("ROLLBACK TO SAVEPOINT sp_meta_rollup_read;")
-                                    cursor.execute("SET LOCAL enable_nestloop = on; SET LOCAL enable_mergejoin = on;")
+                                    cursor.execute(
+                                        "SET LOCAL enable_seqscan = on; SET LOCAL enable_bitmapscan = on; "
+                                        "SET LOCAL enable_nestloop = on; SET LOCAL enable_mergejoin = on; "
+                                        "SET LOCAL max_parallel_workers_per_gather = 4;"
+                                    )
                                 except Exception:
                                     conn.rollback()
                                 rollup_used = False
