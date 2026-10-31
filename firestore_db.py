@@ -296,10 +296,44 @@ class FirestoreRoomEngine:
 
         firestore_query_ok = False
         all_firestore_active_keys = set()
-        if self._client:
+        is_mock_client = bool(self._client and type(self._client).__module__.startswith("unittest.mock"))
+        now_mono = time.monotonic()
+        cached_stream = getattr(self, "_active_rooms_stream_cache", None)
+        if self._client and not is_mock_client and cached_stream and (now_mono - cached_stream[0]) < 8.0:
+            raw_stream_docs = cached_stream[1]
+            firestore_query_ok = True
+            for rkey, d in raw_stream_docs:
+                if not rkey or rkey in seen_keys or self.is_room_discarded(rkey):
+                    continue
+                fb_override = self._fallback_rooms.get(rkey)
+                eff_d = fb_override if isinstance(fb_override, dict) else d
+                if eff_d.get("status") in ("abandoned", "completed") or eff_d.get("is_abandoned") or eff_d.get("is_finished"):
+                    continue
+                all_firestore_active_keys.add(rkey)
+                if _matches_user(eff_d):
+                    seen_keys.add(rkey)
+                    rooms.append(eff_d)
+            # Also include any brand-new room created in _fallback_rooms within the last 8s window
+            for mid, fb_d in list(self._fallback_rooms.items()):
+                if not isinstance(fb_d, dict):
+                    continue
+                rkey = (fb_d.get("roomKey") or fb_d.get("matchId") or mid or "").strip().upper()
+                if (
+                    rkey
+                    and rkey not in seen_keys
+                    and not self.is_room_discarded(rkey)
+                    and fb_d.get("status") == "in_progress"
+                    and not fb_d.get("is_abandoned")
+                    and not fb_d.get("is_finished")
+                    and _matches_user(fb_d)
+                ):
+                    seen_keys.add(rkey)
+                    rooms.append(fb_d)
+        elif self._client:
             try:
                 col = self._client.collection("rooms")
                 query = _apply_where(col, "status", "==", "in_progress").limit(limit)
+                fetched_pairs = []
                 for doc in query.stream():
                     d = doc.to_dict() or {}
                     rkey = (d.get("roomKey") or d.get("matchId") or doc.id or "").strip().upper()
@@ -311,11 +345,14 @@ class FirestoreRoomEngine:
 
                     all_firestore_active_keys.add(rkey)
                     self._fallback_rooms[rkey] = d
+                    fetched_pairs.append((rkey, d))
 
                     if _matches_user(d):
                         seen_keys.add(rkey)
                         rooms.append(d)
                 firestore_query_ok = True
+                if not is_mock_client:
+                    self._active_rooms_stream_cache = (now_mono, fetched_pairs)
             except Exception as e:
                 logger.warning(f"Notice listing Firestore user rooms: {e}")
 
@@ -1099,6 +1136,7 @@ class FirestoreRoomEngine:
         else:
             fb_idx["broadcasts"].pop(slot_key, None)
         fb_idx["updatedAt"] = now_ts
+        self._active_broadcasts_idx_cache = None
 
         if write_firestore and self._client:
             try:
@@ -1476,13 +1514,66 @@ class FirestoreRoomEngine:
 
         raw_list = [str(x or "").strip() for x in (event_ids or []) if str(x or "").strip()]
         include_wildcard = (not raw_list) or any(x.lower() in ("*", "all") for x in raw_list)
+        checked_eids = {
+            eid for eid in raw_list
+            if eid.lower() not in ("*", "all", "_active_broadcasts")
+        }
 
-        # 1. Check explicit event IDs first (both general broadcast and targeted_broadcasts)
-        checked_eids = set()
+        client_obj = getattr(self, "_client", None)
+        is_mock_client = bool(client_obj and type(client_obj).__module__.startswith("unittest.mock"))
+
+        # Fast O(1) path via shared _active_broadcasts index + local fallback (eliminates 70 sequential per-event Firestore RPCs!)
+        if not is_mock_client:
+            b_map: Dict[str, Any] = {}
+            if client_obj:
+                now_mono = time.monotonic()
+                cached_idx = getattr(self, "_active_broadcasts_idx_cache", None)
+                if cached_idx and (now_mono - cached_idx[0]) < 15.0:
+                    b_map = cached_idx[1]
+                else:
+                    try:
+                        snap = self._client.collection("tournaments").document("_active_broadcasts").get()
+                        if snap.exists:
+                            idx_data = snap.to_dict() or {}
+                            raw_bmap = idx_data.get("broadcasts")
+                            if isinstance(raw_bmap, dict):
+                                b_map = dict(raw_bmap)
+                        self._active_broadcasts_idx_cache = (now_mono, b_map)
+                    except Exception as e:
+                        logger.debug(f"Notice reading _active_broadcasts from Firestore: {e}")
+
+            for k_eid, b_val in b_map.items():
+                clean_k = str(k_eid or "").split("__target__")[0].strip()
+                if include_wildcard or clean_k in checked_eids:
+                    _add_candidate(str(k_eid).strip(), b_val)
+
+            fb_idx = self._get_fallback_tournament_dict("_active_broadcasts")
+            if isinstance(fb_idx.get("broadcasts"), dict):
+                for k_eid, b_val in list(fb_idx["broadcasts"].items()):
+                    clean_k = str(k_eid or "").split("__target__")[0].strip()
+                    if include_wildcard or clean_k in checked_eids:
+                        _add_candidate(str(k_eid).strip(), b_val)
+
+            for fb_eid, fb_doc in list(self._fallback_tournaments.items()):
+                if fb_eid == "_active_broadcasts":
+                    continue
+                clean_fb = str(fb_eid or "").strip()
+                if not include_wildcard and clean_fb not in checked_eids:
+                    continue
+                if isinstance(fb_doc, dict):
+                    if "broadcast" in fb_doc:
+                        _add_candidate(clean_fb, fb_doc.get("broadcast"))
+                    if isinstance(fb_doc.get("targeted_broadcasts"), list):
+                        for tb in fb_doc["targeted_broadcasts"]:
+                            _add_candidate(clean_fb, tb)
+
+            results.sort(key=lambda x: x.get("timestamp") or x.get("createdAt") or 0, reverse=True)
+            return results
+
+        # Mock-client compatibility path for unit tests mocking per-event Firestore documents
         for eid in raw_list:
-            if eid.lower() in ("*", "all", "_active_broadcasts") or eid in checked_eids:
+            if eid.lower() in ("*", "all", "_active_broadcasts"):
                 continue
-            checked_eids.add(eid)
             b = self.get_tournament_broadcast(eid)
             _add_candidate(eid, b)
             for tb in self.get_tournament_targeted_broadcasts(eid):

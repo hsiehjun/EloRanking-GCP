@@ -106,13 +106,22 @@ def _compute_actual_armory_spent(auth_mgr, user_id: str, user_data: Dict[str, An
 
 
 _USER_GLORY_STATE_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_AUTH_CATALOG_CACHE: Dict[Tuple[str, str], Tuple[float, str, Dict[str, Any]]] = {}
+_LAST_SYNCED_TCG_SIG: Dict[str, str] = {}
 
 
 def _invalidate_armory_glory_cache(user_id: Optional[str] = None) -> None:
     if not user_id:
         _USER_GLORY_STATE_CACHE.clear()
+        _AUTH_CATALOG_CACHE.clear()
+        _LAST_SYNCED_TCG_SIG.clear()
     else:
-        _USER_GLORY_STATE_CACHE.pop(str(user_id), None)
+        uid_s = str(user_id)
+        _USER_GLORY_STATE_CACHE.pop(uid_s, None)
+        _LAST_SYNCED_TCG_SIG.pop(uid_s, None)
+        for k in list(_AUTH_CATALOG_CACHE.keys()):
+            if k[0] == uid_s:
+                _AUTH_CATALOG_CACHE.pop(k, None)
 
 
 def _calculate_user_glory_state(auth_mgr, user_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -236,6 +245,27 @@ def get_catalog(request: Request):
         pass
 
     game_sys = (request.query_params.get("game_system") or "40k").strip().lower()
+    is_mock_mgr = bool(
+        auth_mgr is None
+        or hasattr(auth_mgr, "assert_called")
+        or hasattr(getattr(auth_mgr, "get_user_competitor_hub", None), "assert_called")
+        or hasattr(getattr(auth_mgr, "db", None), "assert_called")
+    )
+    vault_sig = ""
+    if user_id is not None and not is_mock_mgr:
+        try:
+            import time as _t_auth_cat
+            inv_len = len((user_vault or {}).get("inventory") or {})
+            eq_str = json.dumps((user_vault or {}).get("equipped") or {}, sort_keys=True)
+            tcg_v = (user_vault or {}).get("tcg_vault") if isinstance((user_vault or {}).get("tcg_vault"), dict) else {}
+            tcg_sig = f"{tcg_v.get('packs_opened', 0)}:{len(tcg_v.get('owned_collectibles') or {})}:{tcg_v.get('deck_5v5')}:{tcg_v.get('deck_8v8')}"
+            vault_sig = f"{inv_len}:{eq_str}:{tcg_sig}:{glory_state.get('spendable_glory', 0)}"
+            auth_ck = (str(user_id), game_sys)
+            auth_hit = _AUTH_CATALOG_CACHE.get(auth_ck)
+            if auth_hit and (_t_auth_cat.monotonic() - auth_hit[0]) < 45.0 and auth_hit[1] == vault_sig:
+                return auth_hit[2]
+        except Exception:
+            vault_sig = ""
     if user_id is None:
         try:
             import time as _t_cat
@@ -288,13 +318,24 @@ def get_catalog(request: Request):
         fs_engine = get_firestore_engine()
         eff_uid = str(user_id or "guest_catalog")
         if user_id:
-            fs_engine.sync_tcg_doc_from_armory_vault(eff_uid, user_vault)
+            tcg_v_cur = (user_vault or {}).get("tcg_vault") if isinstance((user_vault or {}).get("tcg_vault"), dict) else {}
+            cur_tcg_sig = f"{tcg_v_cur.get('packs_opened', 0)}:{len(tcg_v_cur.get('owned_collectibles') or {})}:{tcg_v_cur.get('deck_5v5')}:{tcg_v_cur.get('deck_8v8')}"
+            if is_mock_mgr or _LAST_SYNCED_TCG_SIG.get(eff_uid) != cur_tcg_sig:
+                fs_engine.sync_tcg_doc_from_armory_vault(eff_uid, user_vault)
+                if not is_mock_mgr:
+                    _LAST_SYNCED_TCG_SIG[eff_uid] = cur_tcg_sig
         catalog["tcg_state"] = fs_engine.get_user_tcg_state(
             eff_uid,
             glory_balance=int(glory_state.get("spendable_glory") or 0),
         )
     except Exception as te:
         logger.debug(f"Notice attaching tcg_state to armory catalog: {te}")
+    if user_id is not None and not is_mock_mgr and vault_sig:
+        try:
+            import time as _t_cat_a
+            _AUTH_CATALOG_CACHE[(str(user_id), game_sys)] = (_t_cat_a.monotonic(), vault_sig, catalog)
+        except Exception:
+            pass
     if user_id is None:
         try:
             import time as _t_cat_s

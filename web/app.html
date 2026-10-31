@@ -6,7 +6,7 @@
   <title>OmniTactica • Tactical Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=5fde7a74b5">
+  <link rel="manifest" href="/manifest.json?v=454b2c6d84">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=5fde7a74b5">
-  <link rel="stylesheet" href="/css/styles.min.css?v=5fde7a74b5">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=5fde7a74b5">
-  <link rel="preload" href="/js/app.bundle.min.js?v=5fde7a74b5" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=454b2c6d84">
+  <link rel="stylesheet" href="/css/styles.min.css?v=454b2c6d84">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=454b2c6d84">
+  <link rel="preload" href="/js/app.bundle.min.js?v=454b2c6d84" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "5fde7a74b5";</script>
+  <script>window.APP_VERSION = "454b2c6d84";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -500,7 +500,7 @@
             <button onclick="openCommunityLocationModal()" class="btn btn-outline comm-location-btn" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; border-color: rgba(56,189,248,0.35); color: #f8fafc; background: rgba(56,189,248,0.06); cursor: pointer;" title="Change search city or venue">
               <span>📍</span>
               <span id="user-location-text" style="font-weight: 600;">Your Location</span>
-              <span class="comm-loc-edit-badge" style="font-size: 0.7rem; color: #38bdf8; font-weight: 700;">✏️ Set</span>
+              <span class="comm-loc-edit-badge" style="font-size: 0.7rem; color: #38bdf8; font-weight: 700;"><span class="subtab-desktop-text">✏️ Set</span><span class="subtab-mobile-text">▾</span></span>
             </button>
             <script>
               try {
@@ -612,18 +612,18 @@
             <div class="comm-tournaments-view-switch-left" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
               <span class="comm-view-switch-label" style="font-size: 0.75rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">DISPLAY VIEW:</span>
               <div class="comm-scene-toggles-bar" style="margin: 0;">
-                <button type="button" id="btn-tournaments-view-calendar" class="comm-toggle-btn active" onclick="switchTournamentsViewMode('calendar')" title="Interactive Monthly Tournament Calendar" style="padding: 0.42rem 1.15rem; font-size: 0.85rem; font-weight: 800;">
-                  📅 Calendar View
-                </button>
                 <button type="button" id="btn-tournaments-view-feed" class="comm-toggle-btn" onclick="switchTournamentsViewMode('feed')" title="Tournament Cards Feed &amp; Destination Marquee" style="padding: 0.42rem 1.15rem; font-size: 0.85rem; font-weight: 800;">
-                  📋 Cards Feed
+                  🃏 <span class="subtab-desktop-text">Cards Feed</span><span class="subtab-mobile-text">Event Cards</span>
+                </button>
+                <button type="button" id="btn-tournaments-view-calendar" class="comm-toggle-btn active" onclick="switchTournamentsViewMode('calendar')" title="Interactive Monthly Tournament Calendar" style="padding: 0.42rem 1.15rem; font-size: 0.85rem; font-weight: 800;">
+                  📅 <span class="subtab-desktop-text">Calendar View</span><span class="subtab-mobile-text">Calendar</span>
                 </button>
               </div>
             </div>
             <div class="comm-tournaments-view-switch-right" style="display: flex; align-items: center; gap: 0.6rem;">
               <span id="comm-tournaments-summary" class="comm-toolbar-meta" style="font-size: 0.76rem; color: #94a3b8;"></span>
-              <button type="button" id="comm-btn-refresh-tournaments" onclick="refreshCommunityTournaments(this)" class="btn btn-outline comm-toolbar-btn" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;">
-                <span class="refresh-icon">🔄</span> <span>Refresh</span>
+              <button type="button" id="comm-btn-refresh-tournaments" onclick="refreshCommunityTournaments(this)" class="btn btn-outline comm-toolbar-btn" title="Refresh Tournaments" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;">
+                <span class="refresh-icon">🔄</span> <span class="comm-refresh-label">Refresh</span>
               </button>
             </div>
           </div>
@@ -1427,56 +1427,72 @@
           </div>
         </div>
 
-        <!-- Tournament Scope & Competitive Filters Bar (Default: All Events) -->
+        <!-- Tournament Scope & Competitive Filters Bar (Default: Competitive Standard) -->
         <div id="meta-scope-filter-panel" class="meta-scope-filter-panel">
           <div class="meta-scope-mobile-bar">
             <button type="button" id="meta-mobile-drawer-btn" class="meta-mobile-drawer-btn" aria-expanded="false" onclick="toggleMetaMobileFilterDrawer()">
               <span>🎯 Filters</span>
-              <span id="meta-mobile-filter-count" class="meta-mobile-filter-count" style="display: none;">0</span>
+              <span id="meta-mobile-filter-count" class="meta-mobile-filter-count">6</span>
               <span id="meta-mobile-drawer-chevron" class="meta-mobile-drawer-chevron">▾</span>
             </button>
-            <div id="meta-mobile-active-chips" class="meta-mobile-active-chips">
-              <span class="meta-mobile-all-hint">All Events</span>
+            <div class="meta-mobile-preset-pills" role="group" aria-label="Quick Scope Preset">
+              <button type="button" class="meta-preset-quick-btn active" data-meta-preset="competitive" onclick="applyCompetitiveMetaFilters()" title="16+ Players, 3+ Rounds, Excl. Leagues, In-Person, Singles, 2000pt">🏆 Comp</button>
+              <button type="button" class="meta-preset-quick-btn" data-meta-preset="all" onclick="resetMetaEventFilters()" title="Include all events without scope filters">🌐 All</button>
             </div>
-            <button type="button" id="meta-mobile-reset-btn" class="meta-mobile-reset-btn" style="display: none;" onclick="resetMetaEventFilters()">✕</button>
+            <div id="meta-mobile-active-chips" class="meta-mobile-active-chips">
+              <span class="meta-scope-chip">16+ Players</span>
+            </div>
+            <button type="button" id="meta-mobile-reset-btn" class="meta-mobile-reset-btn" style="display: none;" onclick="resetMetaEventFilters()" title="Reset to All Events">✕</button>
           </div>
 
           <div id="meta-scope-drawer-body" class="meta-scope-drawer-body">
+            <div class="meta-preset-banner-row">
+              <span class="meta-scope-label meta-preset-row-label">⚡ Scope Preset:</span>
+              <div class="meta-tier-pills meta-preset-mode-pills" role="group" aria-label="Meta Filter Preset">
+                <button type="button" class="meta-pill-btn meta-preset-mode-btn active" data-meta-preset="competitive" onclick="applyCompetitiveMetaFilters()" title="Competitive Standard: 16+ Players, 3+ Rounds, Exclude Leagues, In-Person, Singles, 2000pt"><span class="subtab-desktop-text">🏆 Competitive Standard</span><span class="subtab-mobile-text">🏆 Competitive</span></button>
+                <button type="button" class="meta-pill-btn meta-preset-mode-btn" data-meta-preset="all" onclick="resetMetaEventFilters()" title="Unfiltered: All player counts, rounds, leagues, online &amp; formats">🌐 All Events</button>
+              </div>
+            </div>
+
             <div class="meta-scope-row">
-              <div class="meta-scope-group">
+              <div class="meta-scope-group meta-scope-group-inline">
                 <span class="meta-scope-label" title="Filter tournaments by minimum active player count">👥 Players:</span>
-                <div class="meta-tier-pills meta-players-pills" role="group" aria-label="Minimum tournament players">
-                  <button type="button" class="meta-pill-btn active" data-min-players="0" onclick="setMetaMinPlayers(0)">All</button>
-                  <button type="button" class="meta-pill-btn" data-min-players="8" onclick="setMetaMinPlayers(8)">8+</button>
-                  <button type="button" class="meta-pill-btn" data-min-players="16" onclick="setMetaMinPlayers(16)">16+</button>
-                  <button type="button" class="meta-pill-btn" data-min-players="28" onclick="setMetaMinPlayers(28)">28+</button>
-                  <button type="button" class="meta-pill-btn" data-min-players="32" onclick="setMetaMinPlayers(32)">32+</button>
-                  <button type="button" class="meta-pill-btn" data-min-players="64" onclick="setMetaMinPlayers(64)">64+</button>
-                  <button type="button" class="meta-pill-btn" data-min-players="100" onclick="setMetaMinPlayers(100)">100+</button>
+                <div class="meta-inline-pills-wrap">
+                  <div class="meta-tier-pills meta-players-pills" role="group" aria-label="Minimum tournament players">
+                    <button type="button" class="meta-pill-btn" data-min-players="0" onclick="setMetaMinPlayers(0)">All</button>
+                    <button type="button" class="meta-pill-btn" data-min-players="8" onclick="setMetaMinPlayers(8)">8+</button>
+                    <button type="button" class="meta-pill-btn active" data-min-players="16" onclick="setMetaMinPlayers(16)">16+</button>
+                    <button type="button" class="meta-pill-btn" data-min-players="28" onclick="setMetaMinPlayers(28)">28+</button>
+                    <button type="button" class="meta-pill-btn" data-min-players="32" onclick="setMetaMinPlayers(32)">32+</button>
+                    <button type="button" class="meta-pill-btn" data-min-players="64" onclick="setMetaMinPlayers(64)">64+</button>
+                    <button type="button" class="meta-pill-btn" data-min-players="100" onclick="setMetaMinPlayers(100)">100+</button>
+                  </div>
+                  <input type="number" id="meta-custom-min-players" class="meta-custom-num-input" min="0" max="5000" step="1" value="16" placeholder="Min #" title="Custom minimum player count" onchange="onMetaCustomPlayersChange(this.value)">
                 </div>
-                <input type="number" id="meta-custom-min-players" class="meta-custom-num-input" min="0" max="5000" step="1" placeholder="Min #" title="Custom minimum player count" onchange="onMetaCustomPlayersChange(this.value)">
               </div>
 
-              <div class="meta-scope-group">
+              <div class="meta-scope-group meta-scope-group-inline">
                 <span class="meta-scope-label" title="Filter tournaments by minimum played Swiss/bracket rounds">🔄 Rounds:</span>
-                <div class="meta-tier-pills meta-rounds-pills" role="group" aria-label="Minimum tournament rounds">
-                  <button type="button" class="meta-pill-btn active" data-min-rounds="0" onclick="setMetaMinRounds(0)">All</button>
-                  <button type="button" class="meta-pill-btn" data-min-rounds="3" onclick="setMetaMinRounds(3)">3+</button>
-                  <button type="button" class="meta-pill-btn" data-min-rounds="4" onclick="setMetaMinRounds(4)">4+</button>
-                  <button type="button" class="meta-pill-btn" data-min-rounds="5" onclick="setMetaMinRounds(5)">5+</button>
-                  <button type="button" class="meta-pill-btn" data-min-rounds="6" onclick="setMetaMinRounds(6)">6+</button>
+                <div class="meta-inline-pills-wrap">
+                  <div class="meta-tier-pills meta-rounds-pills" role="group" aria-label="Minimum tournament rounds">
+                    <button type="button" class="meta-pill-btn" data-min-rounds="0" onclick="setMetaMinRounds(0)">All</button>
+                    <button type="button" class="meta-pill-btn active" data-min-rounds="3" onclick="setMetaMinRounds(3)">3+</button>
+                    <button type="button" class="meta-pill-btn" data-min-rounds="4" onclick="setMetaMinRounds(4)">4+</button>
+                    <button type="button" class="meta-pill-btn" data-min-rounds="5" onclick="setMetaMinRounds(5)">5+</button>
+                    <button type="button" class="meta-pill-btn" data-min-rounds="6" onclick="setMetaMinRounds(6)">6+</button>
+                  </div>
+                  <label class="meta-toggle-label meta-league-toggle" title="Exclude multi-week casual store leagues (e.g. 6-8 week escalation leagues)">
+                    <input type="checkbox" id="meta-exclude-leagues-toggle" checked onchange="toggleMetaExcludeLeagues(this.checked)">
+                    <span>Excl. Leagues</span>
+                  </label>
                 </div>
-                <label class="meta-toggle-label meta-league-toggle" title="Exclude multi-week casual store leagues (e.g. 6-8 week escalation leagues)">
-                  <input type="checkbox" id="meta-exclude-leagues-toggle" onchange="toggleMetaExcludeLeagues(this.checked)">
-                  <span>Excl. Leagues</span>
-                </label>
               </div>
 
               <div class="meta-scope-group">
                 <span class="meta-scope-label" title="Filter by physical tabletop venue vs online/webcam/TTS/SpellTable/MTGO">🏛️ Venue:</span>
                 <div class="meta-tier-pills meta-venue-pills" role="group" aria-label="Tournament venue mode">
-                  <button type="button" class="meta-pill-btn active" data-venue="all" onclick="setMetaVenueMode('all')">All</button>
-                  <button type="button" class="meta-pill-btn" data-venue="in_person" onclick="setMetaVenueMode('in_person')">In-Person</button>
+                  <button type="button" class="meta-pill-btn" data-venue="all" onclick="setMetaVenueMode('all')">All</button>
+                  <button type="button" class="meta-pill-btn active" data-venue="in_person" onclick="setMetaVenueMode('in_person')">In-Person</button>
                   <button type="button" class="meta-pill-btn" data-venue="online" onclick="setMetaVenueMode('online')">Online</button>
                 </div>
               </div>
@@ -1486,18 +1502,19 @@
               <div class="meta-scope-group">
                 <span class="meta-scope-label" title="Filter by tournament structure (Singles 1v1, Multi-player Teams, 2v2 Doubles, or Multiplayer FFA Pods)">⚔️ Structure:</span>
                 <div class="meta-tier-pills meta-structure-pills" role="group" aria-label="Tournament structure">
-                  <button type="button" class="meta-pill-btn active" data-structure="all" onclick="setMetaEventStructure('all')">All</button>
-                  <button type="button" class="meta-pill-btn" data-structure="singles" onclick="setMetaEventStructure('singles')">Singles</button>
+                  <button type="button" class="meta-pill-btn" data-structure="all" onclick="setMetaEventStructure('all')">All</button>
+                  <button type="button" class="meta-pill-btn active" data-structure="singles" onclick="setMetaEventStructure('singles')">Singles</button>
                   <button type="button" class="meta-pill-btn" data-structure="teams" onclick="setMetaEventStructure('teams')">Teams</button>
                   <button type="button" class="meta-pill-btn" data-structure="doubles" onclick="setMetaEventStructure('doubles')">Doubles</button>
                   <button type="button" class="meta-pill-btn" data-structure="ffa_pod" onclick="setMetaEventStructure('ffa_pod')">Pods</button>
                 </div>
               </div>
 
-              <div id="meta-format-select-wrap" class="meta-scope-group" style="display: none;">
+              <div id="meta-format-select-wrap" class="meta-scope-group">
                 <span class="meta-scope-label" title="Filter by game-system-specific ruleset or format">📜 Format:</span>
                 <select id="meta-format-select" class="select-input meta-scope-select" onchange="setMetaEventFormat(this.value)">
                   <option value="all">All Formats</option>
+                  <option value="standard_2000" data-clean-label="2000pt Standard" selected>Strike Force (2000pt)</option>
                 </select>
               </div>
 
@@ -1549,7 +1566,10 @@
             </div>
 
             <div class="meta-mobile-drawer-footer">
-              <button type="button" class="meta-reset-filters-btn" onclick="resetMetaEventFilters()">✕ Reset All</button>
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <button type="button" class="meta-preset-footer-btn" onclick="applyCompetitiveMetaFilters()">🏆 Competitive</button>
+                <button type="button" class="meta-reset-filters-btn" onclick="resetMetaEventFilters()">🌐 All Events</button>
+              </div>
               <button type="button" class="meta-mobile-done-btn" onclick="toggleMetaMobileFilterDrawer(false)">Done ✓</button>
             </div>
           </div>
@@ -1610,23 +1630,33 @@
           </div>
         </div>
 
-        <!-- Faction View 2: StatCheck N×N Faction Matchup Matrix Heatmap -->
+        <!-- Faction View 2: StatCheck N×N Faction Matchup Matrix Heatmap & Mobile Focus Explorer -->
         <div id="faction-view-matrix-container" style="display: none; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.25rem;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
+          <div class="matrix-header-bar" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
             <div>
               <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.2rem;">🔥 Head-to-Head Faction Matchup Matrix</h3>
-              <div style="font-size: 0.8rem; color: var(--text-secondary);">
-                Read across each <b>Row Army</b> against each <b>Column Opponent</b>. Colors show row faction win rate; click any cell to open full faction breakdown.
+              <div class="matrix-header-subtitle" style="font-size: 0.8rem; color: var(--text-secondary);">
+                Inspect an army's head-to-head matchups or pan across the N×N matrix. Tap any matchup to open full breakdown.
               </div>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-              <span style="font-size: 0.75rem; color: var(--text-secondary);">Grid Size:</span>
-              <button type="button" id="matrix-size-10" class="faction-quick-btn" onclick="setMatchupMatrixSize(10)">Top 10</button>
-              <button type="button" id="matrix-size-14" class="faction-quick-btn active" onclick="setMatchupMatrixSize(14)">Top 14</button>
-              <button type="button" id="matrix-size-16" class="faction-quick-btn" onclick="setMatchupMatrixSize(16)">Top 16</button>
+            <div class="matrix-controls-cluster" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <div class="matrix-display-mode-toggle" role="group" aria-label="Matchup display mode">
+                <button type="button" id="matrix-submode-focus" class="faction-quick-btn" onclick="setMatrixDisplaySubmode('focus')">🎯 Army Matchups</button>
+                <button type="button" id="matrix-submode-grid" class="faction-quick-btn active" onclick="setMatrixDisplaySubmode('grid')">🔢 Full Grid</button>
+              </div>
+              <div id="matrix-grid-size-controls" style="display: inline-flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                <span class="matrix-grid-size-label" style="font-size: 0.75rem; color: var(--text-secondary);">Grid:</span>
+                <button type="button" id="matrix-size-10" class="faction-quick-btn" onclick="setMatchupMatrixSize(10)">Top 10</button>
+                <button type="button" id="matrix-size-14" class="faction-quick-btn active" onclick="setMatchupMatrixSize(14)">Top 14</button>
+                <button type="button" id="matrix-size-16" class="faction-quick-btn" onclick="setMatchupMatrixSize(16)">Top 16</button>
+              </div>
             </div>
           </div>
-          <div id="faction-matrix-grid-wrap" style="overflow-x: hidden; position: relative;"></div>
+          <div id="faction-matrix-focus-view" class="faction-matrix-focus-view" style="display: none;"></div>
+          <div id="faction-matrix-grid-outer">
+            <div class="matrix-mobile-pan-hint">↔ Swipe horizontally to pan all opponent columns • Tap any cell for breakdown</div>
+            <div id="faction-matrix-grid-wrap" class="faction-matrix-grid-scroll-wrap" style="overflow-x: auto; -webkit-overflow-scrolling: touch; position: relative;"></div>
+          </div>
         </div>
       </div>
 
@@ -1763,7 +1793,7 @@
           <div id="pred-context-strip" style="display: none; margin-top: 0.9rem; padding: 0.65rem 0.85rem; background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; align-items: center; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8rem; color: var(--text-secondary);"></div>
 
           <!-- Pure Elo Rating Stakes -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.15rem; text-align: left;">
+          <div class="pred-elo-stakes-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.15rem; text-align: left;">
             <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
               <div style="font-size: 0.78rem; font-weight: 700; color: var(--win); text-transform: uppercase;">IF PLAYER 1 WINS</div>
               <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-win" style="color: var(--win);"></b> <span id="new-p1-win-elo"></span></div>
@@ -3953,7 +3983,7 @@
   </div> <!-- #app-shell -->
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=5fde7a74b5"></script>
+  <script src="/js/app.bundle.min.js?v=454b2c6d84"></script>
 
   <!-- Cloud Firestore Compat SDK for Real-time Matchmaking & Push Chat -->
   <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>

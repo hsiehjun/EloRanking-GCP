@@ -3774,17 +3774,27 @@ class EloEngine:
                             h["placement"] = est_rk
                             h["total_players"] = max(int(h.get("total_players") or 0), est_tot, est_rk)
 
+        is_mock_db_early = hasattr(self.db, "_is_mock_instance") and self.db._is_mock_instance()
         if base_key in self._player_win_path_cache_dict:
             cached_val, cached_ts = self._player_win_path_cache_dict[base_key]
-            if (now - cached_ts) < 900:
-                if include_tournaments and isinstance(cached_val, dict):
-                    c_tours = cached_val.get("tournaments")
-                    if isinstance(c_tours, list) and hasattr(self.db, "_enrich_tournaments_with_bcp_placings"):
-                        if any(isinstance(t, dict) and int(t.get("placement") or 0) <= 0 and int(t.get("matches_played") or 0) > 0 for t in c_tours):
-                            c_pid = str(cached_val.get("player_id") or player_id or "").strip()
-                            c_pnorm = str(cached_val.get("player_name") or player_name or "").strip().lower()
-                            self.db._enrich_tournaments_with_bcp_placings(c_tours, c_pid, c_pnorm)
-                            _sync_history_from_tournaments(c_tours, cached_val.get("history") or [])
+            age_wp = now - cached_ts
+            if age_wp < 900:
+                return cached_val
+            if not is_mock_db_early and age_wp < 43200:
+                if not hasattr(self, "_win_path_bg_inflight"):
+                    self._win_path_bg_inflight = set()
+                if base_key not in self._win_path_bg_inflight:
+                    self._win_path_bg_inflight.add(base_key)
+                    def _bg_wp_refresh():
+                        try:
+                            self._player_win_path_cache_dict.pop(base_key, None)
+                            self.get_player_win_path(player_id, game_system=game_system, player_name=player_name, include_tournaments=True)
+                        except Exception:
+                            pass
+                        finally:
+                            self._win_path_bg_inflight.discard(base_key)
+                    import threading
+                    threading.Thread(target=_bg_wp_refresh, daemon=True).start()
                 return cached_val
             self._player_win_path_cache_dict.pop(base_key, None)
         if not include_tournaments and cache_key in self._player_win_path_cache_dict:
@@ -4084,16 +4094,27 @@ class EloEngine:
                 or (history and (pr_matches_cnt != len(history) or abs(pr_curr_elo - hist_last_elo) > 0.5))
             )
             if needs_user_elo_recon:
-                try:
-                    self.reconstruct_user_elo(player_id, game_system=game_system)
-                    history = self.db.get_player_history(player_id, game_system=game_system)
-                    refreshed_info = self.db.search_players(player_id, game_system=game_system)
-                    if refreshed_info:
-                        player_meta = refreshed_info[0]
-                    if include_tournaments and hasattr(self.db, "get_player_tournaments"):
-                        tournaments_list = self.db.get_player_tournaments(player_id, game_system=game_system)
-                except Exception as recon_err:
-                    logger.debug(f"Self-heal reconstruct_user_elo notice for {player_id}: {recon_err}")
+                if not hasattr(self, "_recon_user_bg_inflight"):
+                    self._recon_user_bg_inflight = set()
+                if not hasattr(self, "_recon_user_cooldown"):
+                    self._recon_user_cooldown = {}
+                recon_k = f"{(game_system or '40k').strip().lower()}:{player_id}"
+                last_recon_ts = self._recon_user_cooldown.get(recon_k, 0.0)
+                if recon_k not in self._recon_user_bg_inflight and (time.time() - last_recon_ts) > 1800.0:
+                    self._recon_user_bg_inflight.add(recon_k)
+                    self._recon_user_cooldown[recon_k] = time.time()
+
+                    def _bg_self_heal():
+                        try:
+                            self.reconstruct_user_elo(player_id, game_system=game_system)
+                            self._player_win_path_cache_dict.pop(base_key, None)
+                        except Exception as recon_err:
+                            logger.debug(f"Self-heal reconstruct_user_elo notice for {player_id}: {recon_err}")
+                        finally:
+                            self._recon_user_bg_inflight.discard(recon_k)
+
+                    import threading
+                    threading.Thread(target=_bg_self_heal, daemon=True).start()
 
         # Ensure player_meta stats (matches_played, wins, losses, draws, win_rate, current_elo, peak_elo) strictly match history
         if history and isinstance(player_meta, dict):

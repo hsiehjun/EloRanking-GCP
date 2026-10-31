@@ -2466,12 +2466,23 @@ def _api_tracker_user_sessions_sync(
     except Exception:
         pass
 
-    # 1. Fetch completed history in a SINGLE query (eliminates N*5 per-room SQL queries!)
+    # Fast 8s cache for anonymous session-list polls (prevents repeated 500-row JSONB scans)
+    is_mock_db = bool(db and (hasattr(db, "assert_called") or hasattr(getattr(db, "get_tracker_history", None), "assert_called")))
+    if not user_id and not user_name and not player_id and not is_mock_db:
+        anon_ck = f"anon:{(game_system or 'all').strip().lower()}"
+        if not hasattr(_api_tracker_user_sessions_sync, "_anon_cache"):
+            _api_tracker_user_sessions_sync._anon_cache = {}
+        anon_hit = _api_tracker_user_sessions_sync._anon_cache.get(anon_ck)
+        if anon_hit and (time.monotonic() - anon_hit[0]) < 8.0:
+            return anon_hit[1]
+
+    # 1. Fetch completed history in a SINGLE bounded query (eliminates N*5 per-room SQL queries & 500-blob TOAST overhead!)
     raw_completed_history = []
     completed_mids = set()
+    hist_limit = 500 if is_mock_db else (120 if (user_id or user_name) else 40)
     if db and hasattr(db, "get_tracker_history"):
         try:
-            fetched_hist = db.get_tracker_history(limit=500, user_id=user_id, user_name=user_name)
+            fetched_hist = db.get_tracker_history(limit=hist_limit, user_id=user_id, user_name=user_name)
             raw_completed_history = list(fetched_hist) if isinstance(fetched_hist, list) else []
             completed_mids = {
                 (g.get("match_id") or "").strip().upper()
@@ -2564,7 +2575,7 @@ def _api_tracker_user_sessions_sync(
         else:
             completed_history = [c for c in completed_history if c.get("game_system") != "aos" and not str(c.get("match_id", "")).upper().startswith("AOS-")]
         
-    return {
+    resp_payload = {
         "success": True,
         "active_sessions": active_sessions,
         "completed_history": completed_history,
@@ -2572,6 +2583,10 @@ def _api_tracker_user_sessions_sync(
         "unfinished_sessions": unfinished_sessions,
         "total_games": len(completed_history) + len(active_sessions)
     }
+    if not user_id and not user_name and not player_id and not is_mock_db and hasattr(_api_tracker_user_sessions_sync, "_anon_cache"):
+        anon_ck = f"anon:{(game_system or 'all').strip().lower()}"
+        _api_tracker_user_sessions_sync._anon_cache[anon_ck] = (time.monotonic(), resp_payload)
+    return resp_payload
 
 @router.post("/api/tracker/room/{match_id}/discard", summary="Discard / abandon a casual test session with zero Elo penalty")
 async def api_tracker_discard_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):

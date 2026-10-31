@@ -386,6 +386,14 @@ async def _prewarm_meta_intel_cache(force_refresh: bool = False, force_ram: bool
 
         # Warm common 40k competitive scope filter combinations so popular 1-click pills hit L1/L2 in <5ms
         common_40k_scopes = [
+            {
+                "min_players": 16,
+                "min_rounds": 3,
+                "exclude_leagues": True,
+                "venue_mode": "in_person",
+                "event_structure": "singles",
+                "event_format": "standard_2000",
+            },
             {"min_players": 28, "min_rounds": 5, "exclude_leagues": True},
             {"min_players": 28},
             {"min_players": 64},
@@ -429,15 +437,15 @@ async def _prewarm_meta_intel_cache(force_refresh: bool = False, force_ram: bool
         logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
 
 async def _periodic_meta_intel_refresh():
-    """Background task to proactively refresh rolling 90-day and preset Meta Intel caches every 30 minutes."""
-    interval_secs = float(os.environ.get("META_INTEL_REFRESH_INTERVAL_SECS", "1800") or 1800)
-    await asyncio.sleep(max(300.0, interval_secs))
+    """Background task to proactively refresh rolling 90-day and preset Meta Intel caches every 60 minutes."""
+    interval_secs = float(os.environ.get("META_INTEL_REFRESH_INTERVAL_SECS", "3600") or 3600)
+    await asyncio.sleep(max(600.0, interval_secs))
     while True:
         try:
-            await _prewarm_meta_intel_cache(force_refresh=True)
+            await _prewarm_meta_intel_cache(force_refresh=True, force_ram=False)
         except Exception as e:
             logger.warning(f"Notice during periodic Meta Intel cache refresh: {e}")
-        await asyncio.sleep(max(300.0, interval_secs))
+        await asyncio.sleep(max(600.0, interval_secs))
 
 async def _periodic_nr_bundle_refresh():
     """Background task to periodically check www.newrecruit.eu and refresh data/nr_offline_bundle.zip."""
@@ -561,7 +569,11 @@ async def on_server_startup():
                 lambda: fs_eng.get_real_team_roster("Team Zero Comp", "40k"),
                 lambda: fs_eng.get_real_team_roster("Art of War", "40k"),
                 lambda: fs_eng.get_tcg_collectible_pool("40k", allow_cold_db=True),
+                lambda: fs_eng.get_tcg_collectible_pool("aos", allow_cold_db=True),
                 lambda: fs_eng.get_user_tcg_state("guest_catalog", glory_balance=0),
+                lambda: fs_eng.get_active_broadcasts_for_events(["AFKEKlCznJYg"]),
+                lambda: __import__("routers.community", fromlist=["fetch_live_bcp_majors"]).fetch_live_bcp_majors("40k"),
+                lambda: __import__("routers.community", fromlist=["fetch_live_bcp_majors"]).fetch_live_bcp_majors("aos"),
             ]
             sem = asyncio.Semaphore(6)
 

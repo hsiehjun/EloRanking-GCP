@@ -16,7 +16,7 @@ var communityState = (typeof window !== 'undefined' && window.communityState) ||
   stores: [],
   storesFilter: 'all', // 'all', 'tournaments', 'official', 'top_rated', 'open_now'
   storesSearch: '',
-  storesViewMode: 'both', // 'both', 'cards', 'map'
+  storesViewMode: (typeof window !== 'undefined' && window.innerWidth <= 768) ? 'cards' : 'both', // 'both', 'cards', 'map'
   storesMap: null,
   storesMarkers: [],
   storesInfoWindow: null,
@@ -29,7 +29,7 @@ var communityState = (typeof window !== 'undefined' && window.communityState) ||
   chatMessages: [],
   chatPollingInterval: null,
   isSendingChat: false,
-  tournamentsViewMode: 'calendar', // 'calendar', 'feed'
+  tournamentsViewMode: (typeof window !== 'undefined' && window.innerWidth <= 768) ? 'feed' : 'calendar', // 'calendar', 'feed'
   tournamentsQuickFilter: 'all', // 'all', 'weekend', 'next_weekend', 'majors'
   majorsList: [],
   majorsLoading: false,
@@ -165,6 +165,19 @@ async function initCommunityHub(targetSubtab = null) {
   }
 
   const subtab = targetSubtab || communityState.activeSubtab || 'radar';
+  // Ensure mobile/desktop initial view mode buttons & containers match state
+  const initTMode = communityState.tournamentsViewMode || ((typeof window !== 'undefined' && window.innerWidth <= 768) ? 'feed' : 'calendar');
+  const btnFeedInit = document.getElementById('btn-tournaments-view-feed');
+  const btnCalInit = document.getElementById('btn-tournaments-view-calendar');
+  const feedViewInit = document.getElementById('comm-tournaments-feed-view');
+  const calViewInit = document.getElementById('comm-tournaments-calendar-view');
+  if (btnFeedInit) btnFeedInit.classList.toggle('active', initTMode === 'feed');
+  if (btnCalInit) btnCalInit.classList.toggle('active', initTMode === 'calendar');
+  if (feedViewInit) feedViewInit.style.display = (initTMode === 'feed') ? 'block' : 'none';
+  if (calViewInit) calViewInit.style.display = (initTMode === 'calendar') ? 'block' : 'none';
+  if (typeof setStoresViewMode === 'function') {
+    setStoresViewMode(communityState.storesViewMode || ((typeof window !== 'undefined' && window.innerWidth <= 768) ? 'cards' : 'both'));
+  }
   // Skip subtab render here: loadCommunityHub() below orchestrates the active subtab load once coordinates are locked
   switchCommunitySubtab(subtab, true);
 
@@ -980,8 +993,10 @@ function renderMajorsCarousel() {
     return !isTournamentEnded(ev);
   });
 
+  const majorsSec = document.getElementById('comm-majors-section');
   if (events.length === 0) {
     if (communityState.majorsLoading) {
+      if (majorsSec) majorsSec.style.display = '';
       carousel.innerHTML = `
         <div style="padding: 1.5rem; text-align: center; color: var(--text-muted); width: 100%;">
           <span class="spinner-mini" style="display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(56,189,248,0.25); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px;"></span>
@@ -990,6 +1005,11 @@ function renderMajorsCarousel() {
       `;
       return;
     }
+    if (majorsSec && typeof window !== 'undefined' && window.innerWidth <= 768 && !sq) {
+      majorsSec.style.display = 'none';
+    } else if (majorsSec) {
+      majorsSec.style.display = '';
+    }
     carousel.innerHTML = `
       <div style="padding: 1.5rem; text-align: center; color: var(--text-muted); width: 100%;">
         ${sq ? `No destination premier majors match "${escapeHtml(sq)}".` : 'No destination premier majors currently scheduled in this window.'}
@@ -997,6 +1017,7 @@ function renderMajorsCarousel() {
     `;
     return;
   }
+  if (majorsSec) majorsSec.style.display = '';
 
   let html = '';
   events.slice(0, 20).forEach(ev => {
@@ -5182,4 +5203,26 @@ window.openCalendarDayDrawer = openCalendarDayDrawer;
 window.openCalendarFilteredDrawer = openCalendarFilteredDrawer;
 window.closeCalendarDayDrawer = closeCalendarDayDrawer;
 window.renderTournamentsCalendar = renderTournamentsCalendar;
+
+// Mobile floating chat bubble auto-duck on downward scroll so bottom content is never obstructed
+if (typeof window !== 'undefined' && typeof document !== 'undefined' && !window._mobileChatDuckBound) {
+  window._mobileChatDuckBound = true;
+  let _lastMobScrollY = 0;
+  let _duckIdleTimer = null;
+  window.addEventListener('scroll', () => {
+    if (window.innerWidth > 768) return;
+    const y = window.scrollY || document.documentElement.scrollTop || 0;
+    const delta = y - _lastMobScrollY;
+    if (delta > 8 && y > 90) {
+      document.body.classList.add('mobile-scrolling-down');
+    } else if (delta < -6 || y <= 40) {
+      document.body.classList.remove('mobile-scrolling-down');
+    }
+    _lastMobScrollY = y;
+    if (_duckIdleTimer) clearTimeout(_duckIdleTimer);
+    _duckIdleTimer = setTimeout(() => {
+      document.body.classList.remove('mobile-scrolling-down');
+    }, 1400);
+  }, { passive: true });
+}
 

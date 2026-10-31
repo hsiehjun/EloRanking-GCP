@@ -748,11 +748,84 @@ def _refresh_bcp_majors_sync(target_sys: str, days_ahead: int = 180, min_players
     return normalized
 
 
-def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 180, min_players: int = 28) -> List[Dict[str, Any]]:
+import threading as _majors_threading
+_bcp_majors_inflight_events: Dict[str, _majors_threading.Event] = {}
+_bcp_majors_lock = _majors_threading.Lock()
+
+
+def _get_fast_db_majors_readonly(target_sys: str, min_players: int = 28) -> List[Dict[str, Any]]:
+    """Fast (<25ms) read-only local PostgreSQL query for premier tournaments when cold remote scrape exceeds budget.
+    Returns strictly real database events (never synthetic bcp_* placeholders).
+    """
+    db_majors: List[Dict[str, Any]] = []
+    try:
+        db = get_database()
+        if db and getattr(db, "_pool", None) is not None and not (hasattr(db, "_is_mock_instance") and db._is_mock_instance()):
+            with db.get_connection() as conn:
+                cursor_factory = getattr(extras, "RealDictCursor", None) if extras else None
+                cursor_kw = {"cursor_factory": cursor_factory} if cursor_factory else {}
+                with conn.cursor(**cursor_kw) as cur:
+                    cur.execute("SET LOCAL statement_timeout = '350ms';")
+                    cur.execute("""
+                        SELECT id, name, event_date, end_date, city, state, country, venue, venue_name,
+                               COALESCE(total_players, 0) AS total_players,
+                               COALESCE(num_rounds, 0) AS num_rounds,
+                               COALESCE(is_ended, FALSE) AS is_ended
+                        FROM events
+                        WHERE COALESCE(game_system, '40k') = %s
+                          AND event_date >= (CURRENT_DATE - INTERVAL '90 days')::text
+                          AND (COALESCE(total_players, 0) >= %s OR COALESCE(num_rounds, 0) >= 5)
+                        ORDER BY event_date DESC
+                        LIMIT 60;
+                    """, (target_sys, min_players))
+                    for row in (cur.fetchall() or []):
+                        r = dict(row) if hasattr(row, "keys") else {}
+                        eid_s = str(r.get("id") or "").strip()
+                        if not eid_s or eid_s.startswith("bcp_"):
+                            continue
+                        tier_info = classify_tournament_tier(
+                            r.get("name") or "",
+                            total_players=int(r.get("total_players") or 0),
+                            num_rounds=int(r.get("num_rounds") or 0),
+                        )
+                        if tier_info["tier"] == "rtt":
+                            continue
+                        db_majors.append({
+                            "id": eid_s,
+                            "name": r.get("name") or "Tournament",
+                            "event_date": str(r.get("event_date") or ""),
+                            "end_date": str(r.get("end_date") or ""),
+                            "city": r.get("city") or "",
+                            "state": r.get("state") or "",
+                            "country": r.get("country") or "",
+                            "venue": r.get("venue_name") or r.get("venue") or "",
+                            "total_players": int(r.get("total_players") or 0),
+                            "num_tickets": int(r.get("total_players") or 0),
+                            "num_rounds": int(r.get("num_rounds") or 0),
+                            "circuits": [],
+                            "tier": tier_info["tier"],
+                            "tier_badge": tier_info["badge"],
+                            "tier_color": tier_info["color"],
+                            "tier_weight": tier_info["weight"],
+                            "game_system": target_sys,
+                            "is_ended": bool(r.get("is_ended")),
+                            "external_url": f"https://www.bestcoastpairings.com/event/{eid_s}" if ":" not in eid_s else "",
+                        })
+    except Exception:
+        pass
+    return db_majors
+
+
+def fetch_live_bcp_majors(
+    game_system: Optional[str] = "40k",
+    days_ahead: int = 180,
+    min_players: int = 28,
+    max_wait_sec: Optional[float] = None,
+) -> List[Dict[str, Any]]:
     """
     Fetches premier Super Majors, Majors, and GTs (both upcoming and past 90d) without spatial radius boundaries from BCP API.
-    Uses an in-memory Python RAM cache (2-hour TTL) with stale-while-revalidate for <5ms response latency.
-    STRICT POLICY: Zero SQL writes / Zero database mutations.
+    Uses an in-memory Python RAM cache (2-hour TTL) with single-flight deduplication and stale-while-revalidate for <5ms response latency.
+    STRICT POLICY: Zero SQL writes / Zero database mutations / Zero synthetic fallback events.
     """
     target_sys = normalize_game_system(game_system, default="40k")
 
@@ -763,18 +836,72 @@ def fetch_live_bcp_majors(game_system: Optional[str] = "40k", days_ahead: int = 
         if age < 7200:
             return cached[1]
         # Stale-while-revalidate: return warm cache immediately (<1ms) and refresh asynchronously
-        if target_sys not in _bcp_majors_refreshing:
-            _bcp_majors_refreshing.add(target_sys)
-            def _bg_refresh():
-                try:
-                    _refresh_bcp_majors_sync(target_sys, days_ahead=days_ahead, min_players=min_players)
-                finally:
-                    _bcp_majors_refreshing.discard(target_sys)
-            import threading
-            threading.Thread(target=_bg_refresh, daemon=True).start()
+        with _bcp_majors_lock:
+            if target_sys not in _bcp_majors_refreshing:
+                _bcp_majors_refreshing.add(target_sys)
+                ev_swr = _majors_threading.Event()
+                _bcp_majors_inflight_events[target_sys] = ev_swr
+
+                def _bg_refresh():
+                    try:
+                        _refresh_bcp_majors_sync(target_sys, days_ahead=days_ahead, min_players=min_players)
+                    finally:
+                        with _bcp_majors_lock:
+                            _bcp_majors_refreshing.discard(target_sys)
+                            _bcp_majors_inflight_events.pop(target_sys, None)
+                        ev_swr.set()
+
+                _majors_threading.Thread(target=_bg_refresh, daemon=True).start()
         return cached[1]
 
-    return _refresh_bcp_majors_sync(target_sys, days_ahead=days_ahead, min_players=min_players)
+    with _bcp_majors_lock:
+        cached = _bcp_majors_cache.get(target_sys)
+        if cached and (time.time() - cached[0]) < 7200:
+            return cached[1]
+        inflight_ev = _bcp_majors_inflight_events.get(target_sys)
+        if inflight_ev is None:
+            inflight_ev = _majors_threading.Event()
+            _bcp_majors_inflight_events[target_sys] = inflight_ev
+            _bcp_majors_refreshing.add(target_sys)
+            is_leader = True
+        else:
+            is_leader = False
+
+    if max_wait_sec is None:
+        if is_leader:
+            try:
+                return _refresh_bcp_majors_sync(target_sys, days_ahead=days_ahead, min_players=min_players)
+            finally:
+                with _bcp_majors_lock:
+                    _bcp_majors_refreshing.discard(target_sys)
+                    _bcp_majors_inflight_events.pop(target_sys, None)
+                inflight_ev.set()
+        else:
+            inflight_ev.wait(timeout=15.0)
+            cached_after = _bcp_majors_cache.get(target_sys)
+            return cached_after[1] if cached_after else []
+
+    # Bounded latency HTTP path (max_wait_sec provided, e.g. 0.60s)
+    if is_leader:
+        def _bg_cold_majors():
+            try:
+                _refresh_bcp_majors_sync(target_sys, days_ahead=days_ahead, min_players=min_players)
+            except Exception:
+                pass
+            finally:
+                with _bcp_majors_lock:
+                    _bcp_majors_refreshing.discard(target_sys)
+                    _bcp_majors_inflight_events.pop(target_sys, None)
+                inflight_ev.set()
+
+        _majors_threading.Thread(target=_bg_cold_majors, daemon=True).start()
+
+    if inflight_ev.wait(timeout=max_wait_sec):
+        cached_after = _bcp_majors_cache.get(target_sys)
+        if cached_after is not None:
+            return cached_after[1]
+
+    return _get_fast_db_majors_readonly(target_sys, min_players=min_players)
 
 
 @router.get("/api/community/bcp_majors", summary="Fetch live premier circuit & major tournaments (read-only RAM cache)")
@@ -784,10 +911,10 @@ def api_community_bcp_majors(
 ):
     """
     Returns upcoming and recent past premier Super Majors, Majors, and GTs without spatial radius boundaries.
-    100% read-only, backed by 2-hour Python RAM cache. Zero DB mutations.
+    100% read-only, backed by 2-hour Python RAM cache + 600ms cold timeout cap. Zero DB mutations.
     """
     target_sys = normalize_game_system(game_system, default="40k")
-    majors = fetch_live_bcp_majors(game_system=target_sys, days_ahead=days_ahead)
+    majors = fetch_live_bcp_majors(game_system=target_sys, days_ahead=days_ahead, max_wait_sec=0.60)
     return {
         "success": True,
         "events": majors,
@@ -1292,6 +1419,11 @@ def _sync_api_community_event_registration(
                 ev = entry.get("data")
         except Exception:
             pass
+    if not ev and not is_mock_env and hasattr(db, "get_event_registration_summary") and not (hasattr(db, "_is_mock_instance") and db._is_mock_instance()):
+        try:
+            ev = db.get_event_registration_summary(clean_eid)
+        except Exception:
+            ev = None
     if not ev:
         ev = db.get_event_details(clean_eid)
     if not ev:

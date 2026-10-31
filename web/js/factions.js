@@ -27,10 +27,42 @@ const DEFAULT_META_EVENT_FILTERS = Object.freeze({
   elo_mode: 'both'
 });
 
-let _metaMobileDrawerOpen = false;
+const _MASS_WARGAME_2000PT_SYSTEMS = new Set([
+  '40k', 'aos', 'the_old_world', 'horus_heresy', 'kings_of_war', 'conquest', 'bolt_action'
+]);
 
-// Initial default on page load: All Events
-let factionEventFilters = { ...DEFAULT_META_EVENT_FILTERS };
+function _getCurrentMetaSysNorm(sysOverride = null) {
+  const raw = sysOverride || ((typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k');
+  return String(raw || '40k').trim().toLowerCase();
+}
+
+function getCompetitiveDefaultMetaFilters(sysOverride = null) {
+  const sysNorm = _getCurrentMetaSysNorm(sysOverride);
+  return {
+    min_players: 16,
+    max_players: 0,
+    min_rounds: 3,
+    exclude_leagues: true,
+    venue_mode: 'in_person',
+    event_structure: 'singles',
+    event_format: _MASS_WARGAME_2000PT_SYSTEMS.has(sysNorm) ? 'standard_2000' : 'all',
+    region: 'all',
+    country: 'all',
+    state: 'all',
+    elo_floor: 0,
+    elo_mode: 'both'
+  };
+}
+
+let _metaMobileDrawerOpen = false;
+let factionFilterPresetMode = 'competitive'; // 'competitive' | 'all' | 'custom'
+let matrixDisplaySubmode = (typeof window !== 'undefined' && window.innerWidth <= 768) ? 'focus' : 'grid'; // 'focus' | 'grid'
+let matrixFocusArmy = '';
+let matrixFocusZoneFilter = 'all'; // 'all' | 'favored' | 'even' | 'tough'
+let matrixFocusSort = 'popular'; // 'popular' | 'best' | 'worst'
+
+// Initial default on page load: Competitive Standard (16+ players, 3+ rounds, Excl. Leagues, In-Person, Singles, 2000pt)
+let factionEventFilters = getCompetitiveDefaultMetaFilters();
 let _metaLoadSeq = 0;
 
 // Client-side L1 cache for instant 0ms switching across timeframes and filter presets
@@ -101,6 +133,34 @@ function isMetaEventFiltersDefault(f = factionEventFilters) {
     (!f.state || f.state === 'all') &&
     (Number(f.elo_floor) || 0) <= 0
   );
+}
+
+function isMetaEventFiltersCompetitiveDefault(f = factionEventFilters, sysOverride = null) {
+  if (!f || typeof f !== 'object') return false;
+  const comp = getCompetitiveDefaultMetaFilters(sysOverride);
+  return (
+    (Number(f.min_players) || 0) === comp.min_players &&
+    (Number(f.max_players) || 0) === 0 &&
+    (Number(f.min_rounds) || 0) === comp.min_rounds &&
+    Boolean(f.exclude_leagues) === true &&
+    (f.venue_mode || 'all') === comp.venue_mode &&
+    (f.event_structure || 'all') === comp.event_structure &&
+    (f.event_format || 'all') === comp.event_format &&
+    (!f.region || f.region === 'all') &&
+    (!f.country || f.country === 'all') &&
+    (!f.state || f.state === 'all') &&
+    (Number(f.elo_floor) || 0) <= 0
+  );
+}
+
+function _refreshPresetModeFromFilters() {
+  if (isMetaEventFiltersCompetitiveDefault(factionEventFilters)) {
+    factionFilterPresetMode = 'competitive';
+  } else if (isMetaEventFiltersDefault(factionEventFilters)) {
+    factionFilterPresetMode = 'all';
+  } else {
+    factionFilterPresetMode = 'custom';
+  }
 }
 
 function getMetaEventFilterCacheKey(f = factionEventFilters) {
@@ -243,6 +303,7 @@ function syncMetaScopeFilterControlsUI() {
 
   const activeBar = document.getElementById('meta-active-scope-bar');
   const badgesWrap = document.getElementById('meta-active-scope-badges');
+  _refreshPresetModeFromFilters();
   const chips = getMetaEventFilterSummaryChips(f);
   const chipsHtml = chips.map(c => `<span class="meta-scope-chip">${escapeHtml(c)}</span>`).join('');
   if (activeBar && badgesWrap) {
@@ -255,6 +316,11 @@ function syncMetaScopeFilterControlsUI() {
     }
   }
 
+  document.querySelectorAll('[data-meta-preset]').forEach(btn => {
+    const pMode = btn.getAttribute('data-meta-preset');
+    btn.classList.toggle('active', pMode === factionFilterPresetMode);
+  });
+
   const mobCountEl = document.getElementById('meta-mobile-filter-count');
   const mobChipsEl = document.getElementById('meta-mobile-active-chips');
   const mobResetBtn = document.getElementById('meta-mobile-reset-btn');
@@ -263,12 +329,18 @@ function syncMetaScopeFilterControlsUI() {
     mobCountEl.textContent = String(chips.length);
   }
   if (mobChipsEl) {
-    mobChipsEl.innerHTML = chips.length > 0
-      ? chipsHtml
-      : '<span class="meta-mobile-all-hint">All Events</span>';
+    if (factionFilterPresetMode === 'competitive') {
+      const compSys = _getCurrentMetaSysNorm();
+      const fmtPart = _MASS_WARGAME_2000PT_SYSTEMS.has(compSys) ? ' • 2000pt' : '';
+      mobChipsEl.innerHTML = `<span class="meta-scope-chip meta-scope-chip-comp">16p+ • 3R+ • Singles${fmtPart}</span>`;
+    } else if (chips.length > 0) {
+      mobChipsEl.innerHTML = chipsHtml;
+    } else {
+      mobChipsEl.innerHTML = '<span class="meta-mobile-all-hint">All Events</span>';
+    }
   }
   if (mobResetBtn) {
-    mobResetBtn.style.display = chips.length > 0 ? 'inline-flex' : 'none';
+    mobResetBtn.style.display = (factionFilterPresetMode === 'custom') ? 'inline-flex' : 'none';
   }
 }
 
@@ -343,7 +415,11 @@ function syncMetaFilterOptionsUI(avail) {
         html += `<option value="${escapeHtml(item.code)}" data-clean-label="${escapeHtml(lbl)}">${escapeHtml(lbl)}</option>`;
       });
       if (!seenFmt && curFmt !== 'all') {
-        html += `<option value="${escapeHtml(curFmt)}" data-clean-label="${escapeHtml(curFmt)}">${escapeHtml(curFmt)}</option>`;
+        const sysNorm = _getCurrentMetaSysNorm();
+        const fallbackFmtLbl = (curFmt === 'standard_2000')
+          ? (sysNorm === 'aos' ? 'Pitched Battle (2000pt)' : (sysNorm === '40k' ? 'Strike Force (2000pt)' : 'Standard (2000pt)'))
+          : curFmt;
+        html += `<option value="${escapeHtml(curFmt)}" data-clean-label="${escapeHtml(fallbackFmtLbl)}">${escapeHtml(fallbackFmtLbl)}</option>`;
       }
       fmtSel.innerHTML = html;
       fmtSel.value = curFmt;
@@ -471,7 +547,15 @@ function setMetaEloMode(mode) {
   }
 }
 
+function applyCompetitiveMetaFilters() {
+  factionFilterPresetMode = 'competitive';
+  factionEventFilters = getCompetitiveDefaultMetaFilters();
+  syncMetaScopeFilterControlsUI();
+  loadFactionMeta();
+}
+
 function resetMetaEventFilters() {
+  factionFilterPresetMode = 'all';
   factionEventFilters = { ...DEFAULT_META_EVENT_FILTERS };
   syncMetaScopeFilterControlsUI();
   loadFactionMeta();
@@ -530,6 +614,10 @@ function setFactionViewMode(mode) {
     if (btn) btn.classList.toggle('active', m === factionViewMode);
     if (container) container.style.display = (m === factionViewMode) ? 'block' : 'none';
   });
+  const kpiStrip = document.getElementById('faction-meta-kpis-strip');
+  if (kpiStrip) {
+    kpiStrip.classList.toggle('matrix-mode-compact-mobile', factionViewMode === 'matrix');
+  }
 
   if (!factionMetaData) return;
   if (factionViewMode === 'matrix') {
@@ -577,18 +665,23 @@ function _applyFactionMetaDataToUI(data) {
 
 function scheduleFactionPresetsPrefetch(sys) {
   const sysKey = sys || '40k';
-  if (!isMetaEventFiltersDefault(factionEventFilters)) return;
-  if (_factionPrefetchScheduled.has(sysKey)) return;
-  _factionPrefetchScheduled.add(sysKey);
+  const activeFilters = getActiveMetaEventFilters();
+  const isAll = isMetaEventFiltersDefault(activeFilters);
+  const isComp = isMetaEventFiltersCompetitiveDefault(activeFilters, sysKey);
+  if (!isAll && !isComp) return;
+  const filterKey = getMetaEventFilterCacheKey(activeFilters);
+  const pfKey = `${sysKey}${filterKey}`;
+  if (_factionPrefetchScheduled.has(pfKey)) return;
+  _factionPrefetchScheduled.add(pfKey);
 
   const presetsToWarm = ['30d', '180d', '1yr', 'all', '60d', 'ytd'];
   setTimeout(async () => {
     for (const p of presetsToWarm) {
-      const ck = `${sysKey}_preset_${p}`;
+      const ck = `${sysKey}_preset_${p}${filterKey}`;
       if (factionMetaClientCache.has(ck)) continue;
       try {
-        const res = await window.api.getFactionMeta(null, null, p, sysKey, { include_trends: false });
-        if (res && Array.isArray(res.factions) && res.factions.length > 0) {
+        const res = await window.api.getFactionMeta(null, null, p, sysKey, { ...activeFilters, include_trends: false });
+        if (res && Array.isArray(res.factions) && (res.factions.length > 0 || !isAll)) {
           factionMetaClientCache.set(ck, { timestamp: Date.now(), data: res });
         }
       } catch (e) {
@@ -1065,9 +1158,186 @@ function _getHeatmapCellStyle(wr, matches) {
   return 'background:rgba(220,38,38,0.42); color:#fee2e2; border-color:rgba(239,68,68,0.45);';
 }
 
+function _formatCompactGameCount(mCount) {
+  const n = Number(mCount || 0);
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return `${n}g`;
+}
+
+function setMatrixDisplaySubmode(submode) {
+  matrixDisplaySubmode = (submode === 'focus') ? 'focus' : 'grid';
+  renderFactionMatchupMatrix();
+}
+
+function setMatrixFocusArmy(facName) {
+  matrixFocusArmy = String(facName || '').trim();
+  renderFactionMatchupFocusView();
+}
+
+function setMatrixFocusZone(zone) {
+  matrixFocusZoneFilter = ['all', 'favored', 'even', 'tough'].includes(zone) ? zone : 'all';
+  renderFactionMatchupFocusView();
+}
+
+function setMatrixFocusSort(sortKey) {
+  matrixFocusSort = ['popular', 'best', 'worst'].includes(sortKey) ? sortKey : 'popular';
+  renderFactionMatchupFocusView();
+}
+
+function renderFactionMatchupFocusView() {
+  const focusWrap = document.getElementById('faction-matrix-focus-view');
+  if (!focusWrap || !factionMetaData) return;
+
+  const matrix = factionMetaData.matchup_matrix || { factions: [], cells: {} };
+  const allMatrixFactions = Array.isArray(matrix.factions) ? matrix.factions : [];
+  const cells = matrix.cells || {};
+  const metaRows = Array.isArray(factionMetaData.factions) ? factionMetaData.factions : [];
+  const facList = allMatrixFactions.length > 0 ? allMatrixFactions : metaRows.map(r => r.faction).filter(Boolean);
+
+  if (facList.length === 0) {
+    focusWrap.innerHTML = '<div class="empty-state" style="padding:1.5rem;">No head-to-head matchup data available for this scope and timeframe.</div>';
+    return;
+  }
+
+  if (!matrixFocusArmy || !facList.includes(matrixFocusArmy)) {
+    matrixFocusArmy = facList[0];
+  }
+
+  const focusMeta = metaRows.find(r => r.faction === matrixFocusArmy) || null;
+  const focusWr = focusMeta ? Number(focusMeta.win_rate || 0).toFixed(1) : null;
+  const focusGames = focusMeta ? Number(focusMeta.total_matches || 0) : 0;
+  const rowCells = cells[matrixFocusArmy] || {};
+
+  const oppRows = [];
+  facList.forEach(oppFac => {
+    if (oppFac === matrixFocusArmy) return;
+    const cell = rowCells[oppFac] || null;
+    const mCount = cell ? Number(cell.m || 0) : 0;
+    if (mCount <= 0 || cell.wr == null) return;
+    const wr = Number(cell.wr || 0);
+    const w = Number(cell.w || 0);
+    const l = Number(cell.l || 0);
+    const d = Number(cell.d || 0);
+    const margin = Number(cell.margin || 0);
+    oppRows.push({ oppFac, mCount, wr, w, l, d, margin });
+  });
+
+  const filteredOpps = oppRows.filter(item => {
+    if (matrixFocusZoneFilter === 'favored') return item.wr >= 53;
+    if (matrixFocusZoneFilter === 'even') return item.wr > 47 && item.wr < 53;
+    if (matrixFocusZoneFilter === 'tough') return item.wr <= 47;
+    return true;
+  });
+
+  filteredOpps.sort((a, b) => {
+    if (matrixFocusSort === 'best') return (b.wr - a.wr) || (b.mCount - a.mCount);
+    if (matrixFocusSort === 'worst') return (a.wr - b.wr) || (b.mCount - a.mCount);
+    return (b.mCount - a.mCount) || (b.wr - a.wr);
+  });
+
+  const safeFocusJs = String(matrixFocusArmy).replace(/'/g, "\\'");
+  const focusColor = getFactionColor(matrixFocusArmy);
+
+  let pillsHtml = '';
+  facList.slice(0, 18).forEach(fn => {
+    const isAct = fn === matrixFocusArmy;
+    const safeFnJs = String(fn).replace(/'/g, "\\'");
+    pillsHtml += `<button type="button" class="matrix-focus-army-pill${isAct ? ' active' : ''}" onclick="setMatrixFocusArmy('${safeFnJs}')">${escapeHtml(_getShortFactionHeader(fn))}</button>`;
+  });
+
+  let selectOpts = '';
+  facList.forEach(fn => {
+    selectOpts += `<option value="${escapeHtml(fn)}"${fn === matrixFocusArmy ? ' selected' : ''}>${escapeHtml(fn)}</option>`;
+  });
+
+  let cardsHtml = '';
+  if (filteredOpps.length === 0) {
+    cardsHtml = `<div class="empty-state" style="padding:1.25rem; font-size:0.82rem;">No matchups in this zone for ${escapeHtml(matrixFocusArmy)}.</div>`;
+  } else {
+    filteredOpps.forEach(item => {
+      const safeOppJs = String(item.oppFac).replace(/'/g, "\\'");
+      const wrBadgeClass = item.wr >= 55 ? 'wr-strong-win' : (item.wr >= 52 ? 'wr-slight-win' : (item.wr <= 45 ? 'wr-strong-loss' : (item.wr <= 48 ? 'wr-slight-loss' : 'wr-even')));
+      const barColor = item.wr >= 53 ? '#22c55e' : (item.wr <= 47 ? '#ef4444' : '#38bdf8');
+      const mgnStr = `${item.margin >= 0 ? '+' : ''}${item.margin.toFixed(1)} VP`;
+      const oppColor = getFactionColor(item.oppFac);
+      cardsHtml += `
+        <div class="matrix-focus-opp-card" onclick="openFactionModal('${safeFocusJs}', null, 'matchups')">
+          <div class="matrix-focus-opp-top">
+            <div class="matrix-focus-opp-name-wrap">
+              <span class="matrix-focus-dot" style="background:${oppColor};"></span>
+              <span class="matrix-focus-opp-name">vs ${escapeHtml(item.oppFac)}</span>
+            </div>
+            <div class="matrix-focus-opp-right">
+              <span class="matrix-focus-wr-badge ${wrBadgeClass}">${item.wr.toFixed(1)}%</span>
+              <button type="button" class="matrix-focus-pivot-btn" onclick="event.stopPropagation(); setMatrixFocusArmy('${safeOppJs}')" title="Switch focus to ${escapeHtml(item.oppFac)}">⇄</button>
+            </div>
+          </div>
+          <div class="matrix-focus-bar-track">
+            <div class="matrix-focus-bar-fill" style="width:${Math.max(4, Math.min(96, item.wr))}%; background:${barColor};"></div>
+          </div>
+          <div class="matrix-focus-opp-meta">
+            <span><b>${item.mCount}</b> games (${item.w}W-${item.l}L${item.d > 0 ? `-${item.d}D` : ''})</span>
+            <span style="color:${item.margin >= 0 ? '#4ade80' : '#f87171'}; font-weight:700;">${mgnStr}</span>
+          </div>
+        </div>
+      `;
+    });
+  }
+
+  focusWrap.innerHTML = `
+    <div class="matrix-focus-controls">
+      <div class="matrix-focus-picker-row">
+        <label class="matrix-focus-picker-label" for="matrix-focus-army-select">🎯 Army:</label>
+        <select id="matrix-focus-army-select" class="select-input matrix-focus-select" onchange="setMatrixFocusArmy(this.value)">
+          ${selectOpts}
+        </select>
+        <button type="button" class="btn-xs btn-outline matrix-focus-dossier-btn" onclick="openFactionModal('${safeFocusJs}', null, 'matchups')"><span class="subtab-desktop-text">Full Dossier →</span><span class="subtab-mobile-text">Dossier →</span></button>
+      </div>
+      <div class="matrix-focus-army-rail" role="tablist" aria-label="Quick army selector">${pillsHtml}</div>
+      <div class="matrix-focus-hero-bar">
+        <div style="display:flex; align-items:center; gap:0.45rem; min-width:0;">
+          <span class="matrix-focus-dot" style="background:${focusColor}; width:10px; height:10px;"></span>
+          <strong style="color:#fff; font-size:0.88rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(matrixFocusArmy)}</strong>
+          ${focusWr != null ? `<span class="badge" style="background:rgba(56,189,248,0.14); color:#7dd3fc; font-size:0.7rem; font-weight:800;">${focusWr}% Overall (${formatNumber(focusGames)}g)</span>` : ''}
+        </div>
+      </div>
+      <div class="matrix-focus-filter-bar">
+        <div class="matrix-focus-zone-pills">
+          <button type="button" class="meta-pill-btn${matrixFocusZoneFilter === 'all' ? ' active' : ''}" onclick="setMatrixFocusZone('all')">All (${oppRows.length})</button>
+          <button type="button" class="meta-pill-btn${matrixFocusZoneFilter === 'favored' ? ' active' : ''}" onclick="setMatrixFocusZone('favored')">🟢 Favored</button>
+          <button type="button" class="meta-pill-btn${matrixFocusZoneFilter === 'even' ? ' active' : ''}" onclick="setMatrixFocusZone('even')">⚖️ Even</button>
+          <button type="button" class="meta-pill-btn${matrixFocusZoneFilter === 'tough' ? ' active' : ''}" onclick="setMatrixFocusZone('tough')">🔴 Tough</button>
+        </div>
+        <div class="matrix-focus-sort-pills">
+          <button type="button" class="meta-pill-btn${matrixFocusSort === 'popular' ? ' active' : ''}" onclick="setMatrixFocusSort('popular')">Popular</button>
+          <button type="button" class="meta-pill-btn${matrixFocusSort === 'best' ? ' active' : ''}" onclick="setMatrixFocusSort('best')">Best WR</button>
+          <button type="button" class="meta-pill-btn${matrixFocusSort === 'worst' ? ' active' : ''}" onclick="setMatrixFocusSort('worst')">Worst WR</button>
+        </div>
+      </div>
+    </div>
+    <div class="matrix-focus-cards-grid">${cardsHtml}</div>
+  `;
+}
+
 function renderFactionMatchupMatrix() {
   const wrap = document.getElementById('faction-matrix-grid-wrap');
+  const gridOuter = document.getElementById('faction-matrix-grid-outer');
+  const focusWrap = document.getElementById('faction-matrix-focus-view');
+  const btnFocus = document.getElementById('matrix-submode-focus');
+  const btnGrid = document.getElementById('matrix-submode-grid');
+  const gridSizeControls = document.getElementById('matrix-grid-size-controls');
+
+  if (btnFocus) btnFocus.classList.toggle('active', matrixDisplaySubmode === 'focus');
+  if (btnGrid) btnGrid.classList.toggle('active', matrixDisplaySubmode === 'grid');
+  if (focusWrap) focusWrap.style.display = (matrixDisplaySubmode === 'focus') ? 'block' : 'none';
+  if (gridOuter) gridOuter.style.display = (matrixDisplaySubmode === 'grid') ? 'block' : 'none';
+  if (gridSizeControls) gridSizeControls.style.display = (matrixDisplaySubmode === 'grid') ? 'inline-flex' : 'none';
+
   if (!wrap || !factionMetaData) return;
+
+  if (matrixDisplaySubmode === 'focus') {
+    renderFactionMatchupFocusView();
+  }
 
   const matrix = factionMetaData.matchup_matrix || { factions: [], cells: {} };
   const factions = (matrix.factions || []).slice(0, factionMatrixSize);
@@ -1078,7 +1348,7 @@ function renderFactionMatchupMatrix() {
     return;
   }
 
-  let html = '<table class="meta-matrix-table"><thead><tr><th class="matrix-corner-th">Row Army \\ vs Col</th>';
+  let html = '<table class="meta-matrix-table"><thead><tr><th class="matrix-corner-th"><span class="subtab-desktop-text">Row Army \\ vs Col</span><span class="subtab-mobile-text">Army \\ Opp</span></th>';
   factions.forEach(colFac => {
     html += `<th class="matrix-col-th" title="${escapeHtml(colFac)}">${escapeHtml(_getShortFactionHeader(colFac))}</th>`;
   });
@@ -1089,7 +1359,7 @@ function renderFactionMatchupMatrix() {
     html += `<tr><th class="matrix-row-th" onclick="openFactionModal('${safeRowJs}', null, 'matchups')" title="Inspect ${escapeHtml(rowFac)} matchups">${escapeHtml(_getShortFactionHeader(rowFac))}</th>`;
     factions.forEach(colFac => {
       if (rowFac === colFac) {
-        html += `<td class="matrix-cell matrix-cell-mirror" title="${escapeHtml(rowFac)} Mirror Match">MIRROR</td>`;
+        html += `<td class="matrix-cell matrix-cell-mirror" title="${escapeHtml(rowFac)} Mirror Match"><span class="subtab-desktop-text">MIRROR</span><span class="subtab-mobile-text">MIR</span></td>`;
       } else {
         const cell = (cells[rowFac] && cells[rowFac][colFac]) ? cells[rowFac][colFac] : null;
         const mCount = cell ? Number(cell.m || 0) : 0;
@@ -1104,7 +1374,7 @@ function renderFactionMatchupMatrix() {
           html += `
             <td class="matrix-cell" style="${style}" title="${escapeHtml(tip)}" onclick="openFactionModal('${safeRowJs}', null, 'matchups')">
               <div class="matrix-cell-wr">${wr.toFixed(0)}%</div>
-              <div class="matrix-cell-cnt">${mCount}g</div>
+              <div class="matrix-cell-cnt">${_formatCompactGameCount(mCount)}</div>
             </td>
           `;
         } else {
@@ -1126,12 +1396,19 @@ if (typeof window !== 'undefined') {
   window.setFactionTierFilter = setFactionTierFilter;
   window.onFactionTableFilterChange = onFactionTableFilterChange;
   window.setMatchupMatrixSize = setMatchupMatrixSize;
+  window.setMatrixDisplaySubmode = setMatrixDisplaySubmode;
+  window.setMatrixFocusArmy = setMatrixFocusArmy;
+  window.setMatrixFocusZone = setMatrixFocusZone;
+  window.setMatrixFocusSort = setMatrixFocusSort;
   window.renderFactionMeta = renderFactionMeta;
   window.openDatePicker = openDatePicker;
   window.getActiveMetaEventFilters = getActiveMetaEventFilters;
+  window.getCompetitiveDefaultMetaFilters = getCompetitiveDefaultMetaFilters;
   window.isMetaEventFiltersDefault = isMetaEventFiltersDefault;
+  window.isMetaEventFiltersCompetitiveDefault = isMetaEventFiltersCompetitiveDefault;
   window.getMetaEventFilterCacheKey = getMetaEventFilterCacheKey;
   window.getMetaEventFilterSummaryChips = getMetaEventFilterSummaryChips;
+  window.applyCompetitiveMetaFilters = applyCompetitiveMetaFilters;
   window.setMetaMinPlayers = setMetaMinPlayers;
   window.onMetaCustomPlayersChange = onMetaCustomPlayersChange;
   window.setMetaMinRounds = setMetaMinRounds;
@@ -1149,13 +1426,32 @@ if (typeof window !== 'undefined') {
   window.resetMetaEventFilters = resetMetaEventFilters;
   window.resetFactionState = function() {
     factionMetaData = null;
-    if (factionEventFilters.event_format !== 'all') {
+    matrixFocusArmy = '';
+    const nextSys = _getCurrentMetaSysNorm();
+    if (factionFilterPresetMode === 'competitive') {
+      factionEventFilters = getCompetitiveDefaultMetaFilters(nextSys);
+    } else if (factionEventFilters.event_format !== 'all') {
       factionEventFilters.event_format = 'all';
     }
     const fmtSel = document.getElementById('meta-format-select');
     const fmtWrap = document.getElementById('meta-format-select-wrap');
-    if (fmtSel) fmtSel.innerHTML = '<option value="all">All Formats</option>';
-    if (fmtWrap) fmtWrap.style.display = 'none';
+    if (factionEventFilters.event_format && factionEventFilters.event_format !== 'all') {
+      if (fmtSel) {
+        const lbl = nextSys === 'aos' ? 'Pitched Battle (2000pt)' : '2000pt Standard';
+        fmtSel.innerHTML = `<option value="all">All Formats</option><option value="${escapeHtml(factionEventFilters.event_format)}" data-clean-label="${escapeHtml(lbl)}" selected>${escapeHtml(lbl)}</option>`;
+      }
+      if (fmtWrap) fmtWrap.style.display = '';
+    } else {
+      if (fmtSel) fmtSel.innerHTML = '<option value="all">All Formats</option>';
+      if (fmtWrap) fmtWrap.style.display = 'none';
+    }
     syncMetaScopeFilterControlsUI();
   };
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => syncMetaScopeFilterControlsUI(), { once: true });
+    } else {
+      setTimeout(() => syncMetaScopeFilterControlsUI(), 0);
+    }
+  }
 }
