@@ -17152,10 +17152,12 @@ table.desktop-only,
 
   #es-view-create .form-input,
   #es-view-create select,
-  #es-view-create input,
+  #es-view-create textarea,
+  #es-view-create input:not([type="checkbox"]):not([type="radio"]),
   .es-form-card .form-input,
   .es-form-card select,
-  .es-form-card input {
+  .es-form-card textarea,
+  .es-form-card input:not([type="checkbox"]):not([type="radio"]) {
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;

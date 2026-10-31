@@ -6,7 +6,7 @@
   <title>OmniTactica • Tactical Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=b78a3c165a">
+  <link rel="manifest" href="/manifest.json?v=f38b9b4b06">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=b78a3c165a">
-  <link rel="stylesheet" href="/css/styles.min.css?v=b78a3c165a">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=b78a3c165a">
-  <link rel="preload" href="/js/app.bundle.min.js?v=b78a3c165a" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=f38b9b4b06">
+  <link rel="stylesheet" href="/css/styles.min.css?v=f38b9b4b06">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=f38b9b4b06">
+  <link rel="preload" href="/js/app.bundle.min.js?v=f38b9b4b06" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "b78a3c165a";</script>
+  <script>window.APP_VERSION = "f38b9b4b06";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -116,7 +116,7 @@
         return;
       }
       if (val === 'event-studio') {
-        var isTO = (typeof currentUser !== 'undefined' && currentUser) && (typeof isUserTO === 'function' ? isUserTO(currentUser) : false);
+        var isTO = Boolean((typeof currentUser !== 'undefined' && currentUser && currentUser.id) || ((typeof currentUser !== 'undefined' && currentUser) && (typeof isUserTO === 'function' ? isUserTO(currentUser) : false)));
         if (!isTO) {
           var mob = document.getElementById('mobile-nav-select');
           if (mob && typeof activeTab !== 'undefined') mob.value = activeTab;
@@ -644,6 +644,12 @@
                 </div>
                 <button type="button" id="comm-btn-refresh-tournaments" onclick="refreshCommunityTournaments(this)" class="btn btn-outline comm-toolbar-btn comm-rec-refresh-btn" title="Refresh Recommendations">
                   <span class="refresh-icon">🔄</span> <span class="comm-refresh-label subtab-desktop-text">Refresh</span>
+                </button>
+                <button type="button" id="comm-btn-host-event" onclick="openHostEventWizard()" class="btn btn-primary comm-toolbar-btn" style="background: linear-gradient(135deg, #0ea5e9, #6366f1); border: 1px solid rgba(56, 189, 248, 0.55); font-weight: 700; white-space: nowrap;" title="Host your own Wargame or TCG tournament natively on OmniTactica">
+                  ➕ <span>Host Event</span>
+                </button>
+                <button type="button" id="comm-btn-my-hosted" onclick="switchTab('event-studio')" class="btn btn-outline comm-toolbar-btn" style="white-space: nowrap;" title="Manage your hosted tournaments &amp; leagues">
+                  👑 <span class="subtab-desktop-text">My Hosted</span>
                 </button>
               </div>
             </div>
@@ -1983,38 +1989,60 @@
         <div id="es-view-create" class="es-tab-view" style="display: none;">
           <div class="es-form-card" style="max-width: 840px; margin: 0 auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.75rem; box-shadow: var(--shadow-lg);">
             <div class="es-form-header" style="margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
-              <h3 style="margin: 0; font-size: 1.35rem; color: #fff;">Create New Tournament</h3>
-              <p class="es-sec-sub" style="font-size: 0.82rem; color: var(--text-secondary); margin: 0.25rem 0 0;">Create a tournament in Event Studio with full Swiss &amp; scoring controls and circuit export.</p>
+              <h3 style="margin: 0; font-size: 1.35rem; color: #fff;">⚡ Host New Tournament</h3>
+              <p class="es-sec-sub" style="font-size: 0.82rem; color: var(--text-secondary); margin: 0.25rem 0 0;">Publish natively on OmniTactica with 1-click player registration, Swiss/FFA/Top-Cut brackets, live Game Tracker, and automatic Elo ratings.</p>
             </div>
             <div class="form-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+              <!-- Hosting Platform Mode -->
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #67e8f9; margin-bottom: 0.35rem;">Hosting Mode</label>
+                <select id="create-event-hosting-mode" class="form-input" style="width: 100%; box-sizing: border-box;" onchange="typeof onHostingModeChange === 'function' && onHostingModeChange()">
+                  <option value="native" selected>⚡ OmniTactica Native Hosting (Recommended — Instant Registration, Pairings, Top Cut &amp; Elo)</option>
+                  <option value="bcp">🔄 Dual-Publish to Best Coast Pairings (Requires Linked BCP Organizer Account)</option>
+                </select>
+              </div>
+
               <!-- Game System Picker -->
               <div class="form-group" style="grid-column: 1 / -1;">
                 <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Game System *</label>
                 <select id="create-event-game-system" class="form-input" style="width: 100%; box-sizing: border-box;" onchange="typeof onGameSystemChange === 'function' && onGameSystemChange()">
-                  <option value="WGMSzfKFYA" selected>Warhammer 40k</option>
-                  <option value="OY8FCPBf6O">Warhammer: Age of Sigmar</option>
-                  <option value="vyeOD0fcYY">Kill Team</option>
-                  <option value="dJtT7U0Wv2">Warhammer: The Old World</option>
-                  <option value="6p119129pL">Warhammer: The Horus Heresy</option>
-                  <option value="0b3e76fa-e943-432b-ab14-fd9f8fb0fb1f">Age of Sigmar: Spearhead</option>
-                  <option value="413r539n11">Blood Bowl</option>
-                  <option value="cZ33E3tH2z">Middle-earth Strategy Battle Game</option>
-                  <option value="61c2k9332H">Warhammer Underworlds</option>
-                  <option value="t357b79w24">Warcry</option>
-                  <option value="O3uG413y61">Necromunda</option>
-                  <option value="a93e6be8-d141-4bc9-a9f8-8cd4ebae9c94">Legions Imperialis</option>
-                  <option value="23H1180541">Bolt Action</option>
-                  <option value="3p2L1Z7t8r">Marvel: Crisis Protocol</option>
-                  <option value="4yG2vX6H8p">Star Wars: Legion</option>
-                  <option value="83b0f568-545d-4d04-b082-d7952cd0aa08">Star Wars: Shatterpoint</option>
-                  <option value="a78dfcd4-e8df-40e0-bc5d-8842d5e87a08">Trench Crusade</option>
-                  <option value="5rX9v81b6q">BattleTech (Classic)</option>
-                  <option value="1d2a79f5-82bb-42c3-85cb-b1fd88c99a08">BattleTech: Alpha Strike</option>
-                  <option value="N2vB5tR8yU">Conquest: TLAoK</option>
-                  <option value="8kL3mN6pQ9">Warmachine</option>
-                  <option value="9vX2zB5nM8">Infinity</option>
-                  <option value="4tY7uI0oP3">Malifaux</option>
-                  <option value="7wE0rT3yU6">A Song of Ice and Fire</option>
+                  <optgroup label="⚔️ Tabletop Wargames">
+                    <option value="WGMSzfKFYA" selected>Warhammer 40k</option>
+                    <option value="OY8FCPBf6O">Warhammer: Age of Sigmar</option>
+                    <option value="vyeOD0fcYY">Kill Team</option>
+                    <option value="dJtT7U0Wv2">Warhammer: The Old World</option>
+                    <option value="6p119129pL">Warhammer: The Horus Heresy</option>
+                    <option value="0b3e76fa-e943-432b-ab14-fd9f8fb0fb1f">Age of Sigmar: Spearhead</option>
+                    <option value="413r539n11">Blood Bowl</option>
+                    <option value="cZ33E3tH2z">Middle-earth Strategy Battle Game</option>
+                    <option value="61c2k9332H">Warhammer Underworlds</option>
+                    <option value="t357b79w24">Warcry</option>
+                    <option value="O3uG413y61">Necromunda</option>
+                    <option value="a93e6be8-d141-4bc9-a9f8-8cd4ebae9c94">Legions Imperialis</option>
+                    <option value="23H1180541">Bolt Action</option>
+                    <option value="3p2L1Z7t8r">Marvel: Crisis Protocol</option>
+                    <option value="4yG2vX6H8p">Star Wars: Legion</option>
+                    <option value="83b0f568-545d-4d04-b082-d7952cd0aa08">Star Wars: Shatterpoint</option>
+                    <option value="a78dfcd4-e8df-40e0-bc5d-8842d5e87a08">Trench Crusade</option>
+                    <option value="5rX9v81b6q">BattleTech (Classic)</option>
+                    <option value="1d2a79f5-82bb-42c3-85cb-b1fd88c99a08">BattleTech: Alpha Strike</option>
+                    <option value="N2vB5tR8yU">Conquest: TLAoK</option>
+                    <option value="8kL3mN6pQ9">Warmachine</option>
+                    <option value="9vX2zB5nM8">Infinity</option>
+                    <option value="4tY7uI0oP3">Malifaux</option>
+                    <option value="7wE0rT3yU6">A Song of Ice and Fire</option>
+                  </optgroup>
+                  <optgroup label="🃏 Trading Card Games (TCG)">
+                    <option value="mtg">Magic: The Gathering (Constructed / Modern / Standard / cEDH)</option>
+                    <option value="pokemon">Pokémon TCG</option>
+                    <option value="yugioh">Yu-Gi-Oh! TCG</option>
+                    <option value="onepiece">One Piece Card Game</option>
+                    <option value="lorcana">Disney Lorcana</option>
+                    <option value="fab">Flesh and Blood</option>
+                    <option value="swu">Star Wars: Unlimited</option>
+                    <option value="digimon">Digimon Card Game</option>
+                    <option value="riftbound">Riftbound (League of Legends TCG)</option>
+                  </optgroup>
                 </select>
               </div>
 
@@ -2029,6 +2057,7 @@
                   <option value="Singles Event" selected>👤 Singles Event (Standard 1v1)</option>
                   <option value="Doubles Event">👥 Doubles Event (2-Player Tag Team)</option>
                   <option value="Teams Event">🛡️ Teams Event (WTC / Multi-Player)</option>
+                  <option value="Pods Event">🎲 4-Player FFA Pods (Commander / Multiplayer)</option>
                 </select>
               </div>
 
@@ -2040,6 +2069,17 @@
                   <option value="3">3-Player Team (Trios)</option>
                   <option value="4">4-Player Team</option>
                   <option value="6">6-Player Team</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Scoring &amp; Match Format</label>
+                <select id="create-event-scoring-mode" class="form-input" style="width: 100%; box-sizing: border-box;" onchange="typeof onScoringModeChange === 'function' && onScoringModeChange()">
+                  <option value="wargame_vp" selected>⚔️ Tabletop Wargame VP (0–100 Battle Points)</option>
+                  <option value="wtc_20">🛡️ WTC 20-0 Differential Matrix</option>
+                  <option value="tcg_bo3">🃏 TCG Best-of-3 (3/1/0 Match Pts + OMW%/GW%)</option>
+                  <option value="tcg_bo1">⚡ TCG Best-of-1 (3/1/0 Match Pts + OMW%)</option>
+                  <option value="ffa_pods">🎲 4-Player Commander Pods (5 Win / 1 Draw / 0 Loss)</option>
                 </select>
               </div>
 
@@ -2064,17 +2104,30 @@
               </div>
 
               <div class="form-group">
-                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Number of Rounds</label>
+                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Number of Swiss Rounds</label>
                 <input type="number" id="create-event-rounds" class="form-input" style="width: 100%; box-sizing: border-box;" value="5" min="1" max="12">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Playoff Top Cut</label>
+                <select id="create-event-top-cut" class="form-input" style="width: 100%; box-sizing: border-box;">
+                  <option value="0" selected>No Top Cut (Pure Swiss Standings)</option>
+                  <option value="4">🏆 Top 4 Single-Elimination Cut</option>
+                  <option value="8">🏆 Top 8 Single-Elimination Cut</option>
+                </select>
               </div>
 
               <div class="form-group">
                 <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Default Round Length</label>
                 <select id="create-event-round-length" class="form-input" style="width: 100%; box-sizing: border-box;">
                   <option value="9000" selected>2 Hours 30 Minutes (Standard 40k GT)</option>
+                  <option value="9900">2 Hours 45 Minutes (Standard AoS)</option>
                   <option value="10800">3 Hours 00 Minutes (Major / Extended)</option>
                   <option value="7200">2 Hours 00 Minutes (Fast / RTT)</option>
                   <option value="6300">1 Hour 45 Minutes (Incursion / Spearhead)</option>
+                  <option value="4800">1 Hour 20 Minutes (Commander 4P FFA Pod)</option>
+                  <option value="3000">50 Minutes (Standard TCG Best-of-3)</option>
+                  <option value="2100">35 Minutes (Fast TCG Best-of-1)</option>
                 </select>
               </div>
 
@@ -2094,13 +2147,39 @@
               </div>
 
               <div class="form-group">
-                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Army Points Limit</label>
-                <input type="number" id="create-event-points" class="form-input" style="width: 100%; box-sizing: border-box;" value="2000" min="500" max="3000" step="500">
+                <label class="form-label" id="create-event-points-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Army Points Limit (0 for TCG)</label>
+                <input type="number" id="create-event-points" class="form-input" style="width: 100%; box-sizing: border-box;" value="2000" min="0" max="5000" step="250">
               </div>
 
               <div class="form-group">
-                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Venue / Store Name</label>
+                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Venue Mode</label>
+                <select id="create-event-venue-mode" class="form-input" style="width: 100%; box-sizing: border-box;" onchange="typeof onVenueModeChange === 'function' && onVenueModeChange()">
+                  <option value="in_person" selected>🏛️ In-Person Store / Convention</option>
+                  <option value="online">🌐 Online (TTS / SpellTable / MTG Arena / Webcam)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" id="create-event-venue-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Venue / Store Name *</label>
                 <input type="text" id="create-event-venue" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Mox Boarding House">
+              </div>
+
+              <!-- Online Platform & Links (Visible when Venue Mode == online or optional for streams/discord) -->
+              <div class="form-group" id="create-online-fields-group" style="display: none; grid-column: 1 / -1; background: rgba(56, 189, 248, 0.04); border: 1px solid rgba(56, 189, 248, 0.22); border-radius: var(--radius-md); padding: 0.9rem;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem;">
+                  <div>
+                    <label class="form-label" style="display: block; font-size: 0.75rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">Online Platform</label>
+                    <input type="text" id="create-event-online-platform" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Tabletop Simulator, SpellTable, MTG Arena">
+                  </div>
+                  <div>
+                    <label class="form-label" style="display: block; font-size: 0.75rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">Discord Server Invite URL</label>
+                    <input type="url" id="create-event-discord-url" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="https://discord.gg/...">
+                  </div>
+                  <div>
+                    <label class="form-label" style="display: block; font-size: 0.75rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">Livestream URL (Twitch / YouTube)</label>
+                    <input type="url" id="create-event-stream-url" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="https://twitch.tv/...">
+                  </div>
+                </div>
               </div>
 
               <div class="form-group" style="position: relative;">
@@ -2152,15 +2231,64 @@
                 </div>
               </div>
 
-              <!-- Advanced BCP Rules & Privacy Options -->
+              <!-- Registration, Ticketing & Event Pack -->
+              <div class="form-group" style="grid-column: 1 / -1; background: rgba(6, 182, 212, 0.04); border: 1px solid rgba(6, 182, 212, 0.24); border-radius: var(--radius-md); padding: 1rem; margin-top: 0.25rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.4rem;">
+                  <div style="font-weight: 700; color: #67e8f9; font-size: 0.86rem;">🎟️ Registration, Ticketing &amp; Player Pack</div>
+                  <span style="font-size: 0.74rem; color: var(--text-secondary);">1-click OmniTactica registration + optional store checkout link</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 0.75rem;">
+                  <div>
+                    <label class="form-label" style="display: block; font-size: 0.75rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">Entry Fee ($)</label>
+                    <input type="number" id="create-event-ticket-price" class="form-input" style="width: 100%; box-sizing: border-box;" value="0" min="0" step="1" placeholder="0 for Free">
+                  </div>
+                  <div>
+                    <label class="form-label" style="display: block; font-size: 0.75rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">Currency</label>
+                    <select id="create-event-currency" class="form-input" style="width: 100%; box-sizing: border-box;">
+                      <option value="usd" selected>USD ($)</option>
+                      <option value="gbp">GBP (£)</option>
+                      <option value="eur">EUR (€)</option>
+                      <option value="cad">CAD ($)</option>
+                      <option value="aud">AUD ($)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="form-label" style="display: block; font-size: 0.75rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">Store Ticket URL (Optional)</label>
+                    <input type="url" id="create-event-ticket-url" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="https://yourstore.com/tickets">
+                  </div>
+                </div>
+                <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; margin-bottom: 0.75rem; font-size: 0.8rem; color: #cbd5e1;">
+                  <label style="display: flex; align-items: center; gap: 0.45rem; cursor: pointer;">
+                    <input type="checkbox" id="create-event-pay-at-door" checked> Pay at Door / In-Store Allowed
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 0.45rem; cursor: pointer;">
+                    <input type="checkbox" id="create-event-private" onchange="const b=document.getElementById('create-event-access-code-box'); if(b) b.style.display=this.checked?'inline-flex':'none';"> 🔒 Private Event (Require Code)
+                  </label>
+                  <span id="create-event-access-code-box" style="display: none; align-items: center; gap: 0.4rem;">
+                    <input type="text" id="create-event-access-code" class="form-input" style="width: 150px; padding: 0.28rem 0.55rem; font-size: 0.8rem;" placeholder="Access Passcode">
+                  </span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+                  <div>
+                    <label class="form-label" style="display: block; font-size: 0.75rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">Rules, Schedule &amp; Player Pack</label>
+                    <textarea id="create-event-description" class="form-input" rows="2" style="width: 100%; box-sizing: border-box; resize: vertical;" placeholder="Doors 8:30 AM, Round 1 at 9:00 AM, Chapter Approved / Standard banlist..."></textarea>
+                  </div>
+                  <div>
+                    <label class="form-label" style="display: block; font-size: 0.75rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">Prizes &amp; Awards</label>
+                    <textarea id="create-event-prizes" class="form-input" rows="2" style="width: 100%; box-sizing: border-box; resize: vertical;" placeholder="Store credit top 4, Best Painted trophy, door prizes..."></textarea>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Advanced Rules & Privacy Options -->
               <div class="form-group" style="grid-column: 1 / -1; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; margin-top: 0.5rem;">
-                <div style="font-weight: 700; color: #fff; font-size: 0.85rem; margin-bottom: 0.75rem;">🛡️ Army List & Player Privacy Options</div>
+                <div style="font-weight: 700; color: #fff; font-size: 0.85rem; margin-bottom: 0.75rem;">🛡️ Army / Decklist &amp; Player Privacy Options</div>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; font-size: 0.82rem; color: #cbd5e1;">
                   <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                    <input type="checkbox" id="create-event-hide-lists" checked> Hide Army Lists until Round 1
+                    <input type="checkbox" id="create-event-hide-lists" checked> Hide Lists until Round 1
                   </label>
                   <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                    <input type="checkbox" id="create-event-require-lists" checked> Require Lists at Check-In
+                    <input type="checkbox" id="create-event-require-lists"> Require Lists at Check-In
                   </label>
                   <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                     <input type="checkbox" id="create-event-passwordless" checked> Passwordless Player Scoring
@@ -2176,7 +2304,7 @@
 
             <div class="es-form-actions" style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
               <button class="btn btn-outline" onclick="switchStudioTab('events')">Cancel</button>
-              <button class="btn btn-primary" id="btn-submit-create-event" onclick="submitCreateTournament()">🚀 Create Tournament</button>
+              <button class="btn btn-primary" id="btn-submit-create-event" onclick="submitCreateTournament()">⚡ Launch Tournament</button>
             </div>
           </div>
         </div>
@@ -2217,6 +2345,7 @@
                 <button id="btn-open-broadcast" class="btn btn-outline" style="display: none; font-size: 0.78rem; padding: 0.45rem 0.85rem; color: #f59e0b; border-color: rgba(245,158,11,0.35);" onclick="openBroadcastModal()" title="Broadcast Live Announcement to All Tables">📢 Broadcast</button>
                 <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="openCircuitsModal()">🏆 Circuits</button>
                 <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="openEditTournamentModal()">⚙️ Edit Details</button>
+                <button id="btn-copy-native-link" type="button" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; color: #67e8f9; border-color: rgba(6,182,212,0.4);" onclick="copyStudioShareLink()" title="Copy shareable registration &amp; live standings link">🔗 Share Link</button>
                 <a id="manage-event-bcp-link" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; text-decoration: none;" onclick="openStudioPublicListing(event)" title="Open Public Event Listing on Best Coast Pairings">🔗 Public Listing ↗</a>
                 <button id="manage-event-end-btn" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; color: #f59e0b; border-color: rgba(245,158,11,0.4);" onclick="endAndArchiveTournament()">🏆 End Event</button>
               </div>
@@ -2283,6 +2412,7 @@
                 <button id="btn-apply-pairings-bcp" class="btn" style="display: none;" onclick="pushPairingsToBcp()">🚀 Apply to BCP</button>
                 <button id="btn-publish-pairings" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.42rem 0.85rem;" onclick="togglePublishPairings()">📢 Publish to Players</button>
                 <button class="btn btn-primary" style="font-size: 0.78rem; padding: 0.42rem 0.85rem;" onclick="advanceTournamentRound()">⏩ Next Round</button>
+                <button id="btn-manage-top-cut" type="button" class="btn btn-outline" style="display: none; font-size: 0.78rem; padding: 0.42rem 0.85rem; color: #fbbf24; border-color: rgba(251, 191, 36, 0.45); font-weight: 700;" onclick="triggerStudioTopCut()">🏆 Top Cut</button>
               </div>
             </div>
 
@@ -3982,7 +4112,7 @@
   </div> <!-- #app-shell -->
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=b78a3c165a"></script>
+  <script src="/js/app.bundle.min.js?v=f38b9b4b06"></script>
 
   <!-- Cloud Firestore Compat SDK for Real-time Matchmaking & Push Chat -->
   <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>

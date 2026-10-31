@@ -2844,9 +2844,12 @@ function renderTournamentCard(ev, isUpcomingSection, userElo) {
   const isSoldOut = Boolean(ev.is_sold_out) || (numTickets > 0 && totalPlayers >= numTickets);
   let ticketPrice = Number(ev.ticket_price || 0);
   if (ticketPrice >= 500) ticketPrice = ticketPrice / 100;
-  const isBcpEv = (typeof isBcpEventId === 'function') ? isBcpEventId(ev.id) : !String(ev.id || '').includes(':');
-  const usingOnlineReg = isBcpEv && (ev.using_online_reg !== false);
-  const externalUrl = ev.external_url || (!isBcpEv && typeof getPlatformExternalEventUrl === 'function' ? getPlatformExternalEventUrl(ev.id, ev) : null);
+  const isNativeEv = Boolean(ev.is_native_event || ev.source_platform === 'omnitactica' || /^es[-_]/i.test(String(ev.id || '')));
+  const isBcpEv = !isNativeEv && ((typeof isBcpEventId === 'function') ? isBcpEventId(ev.id) : !String(ev.id || '').includes(':'));
+  const usingOnlineReg = (isNativeEv || isBcpEv) && (ev.using_online_reg !== false);
+  const externalUrl = isNativeEv
+    ? (ev.external_ticket_url || null)
+    : (ev.external_url || (!isBcpEv && typeof getPlatformExternalEventUrl === 'function' ? getPlatformExternalEventUrl(ev.id, ev) : null));
   const hasPrimaryGetTickets = isRegistrationOpen && !isRegistered && !isSoldOut && !usingOnlineReg && Boolean(externalUrl);
   const currentRound = Number(ev.current_round || ev.currentRound || 0);
 
@@ -2982,6 +2985,13 @@ function renderTournamentCard(ev, isUpcomingSection, userElo) {
       <div style="margin-top: auto; display: flex; flex-direction: column;">
         ${isRegistrationOpen ? (() => {
           if (isRegistered) {
+            if (isNativeEv) {
+              return `
+                <button class="btn" style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; background: rgba(16, 185, 129, 0.16); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); margin-bottom: 0.45rem;" onclick="openEventRegistrationModal('${escapeHtml(ev.id)}')">
+                  ✅ Registered • Edit List / Entry
+                </button>
+              `;
+            }
             return `
               <button class="btn" disabled style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35); cursor: default; margin-bottom: 0.45rem;">
                 ✅ Registered
@@ -2991,6 +3001,13 @@ function renderTournamentCard(ev, isUpcomingSection, userElo) {
             return `
               <button class="btn btn-secondary" disabled style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 600; opacity: 0.65; cursor: not-allowed; margin-bottom: 0.45rem;" title="Tournament has reached maximum capacity">
                 🚫 Sold Out (${totalPlayers}/${numTickets})
+              </button>
+            `;
+          } else if (isNativeEv && usingOnlineReg) {
+            const feeTxt = ticketPrice > 0 ? `$${ticketPrice % 1 === 0 ? ticketPrice.toFixed(0) : ticketPrice.toFixed(2)} Entry` : 'Free';
+            return `
+              <button class="btn btn-success" style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; background: linear-gradient(135deg, #0ea5e9, #10b981); color: #fff; border: none; margin-bottom: 0.45rem;" onclick="openEventRegistrationModal('${escapeHtml(ev.id)}')">
+                ⚡ Register Now (${feeTxt})
               </button>
             `;
           } else if (usingOnlineReg) {
@@ -3034,9 +3051,16 @@ function renderTournamentCard(ev, isUpcomingSection, userElo) {
               🗺️ Map
             </button>
           ` : ''}
-          <a href="${escapeHtml(cardExtUrl)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.45rem 0.6rem; color: #94a3b8;" title="View on ${escapeHtml(cardPlatName)}">
-            🔗 ${escapeHtml(cardPlatName)}
-          </a>
+          ${isNativeEv ? `
+            <button type="button" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.45rem 0.6rem; color: #67e8f9; border-color: rgba(6,182,212,0.4);" onclick="event.stopPropagation(); typeof copyStudioShareLink === 'function' && copyStudioShareLink('${escapeHtml(ev.id)}')" title="Copy Shareable Event Link">
+              🔗 Share
+            </button>
+            ${externalUrl ? `<a href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.45rem 0.6rem; color: #fbbf24;" title="Store Ticket Checkout">💳 Tickets ↗</a>` : ''}
+          ` : `
+            <a href="${escapeHtml(cardExtUrl)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.45rem 0.6rem; color: #94a3b8;" title="View on ${escapeHtml(cardPlatName)}">
+              🔗 ${escapeHtml(cardPlatName)}
+            </a>
+          `}
           ${(isBcpEv && externalUrl && !hasPrimaryGetTickets) ? `
             <a href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.45rem 0.6rem; color: #94a3b8;" title="Organizer Website / Tickets">
               🌐 Web
@@ -5457,8 +5481,20 @@ async function openEventRegistrationModal(eventId) {
 
     // Account pill update
     const prof = data.user_profile || {};
+    const isNativeReg = Boolean(data.is_native_event || /^es[-_]/i.test(String(eventId)));
+    const regFeeNum = Number(data.ticket_price || 0);
     if (accountPill && accountStatus && regBadge) {
-      if (prof.bcp_linked) {
+      if (isNativeReg) {
+        accountPill.style.background = 'rgba(6, 182, 212, 0.12)';
+        accountPill.style.borderColor = 'rgba(6, 182, 212, 0.35)';
+        accountPill.style.color = '#67e8f9';
+        accountStatus.textContent = prof.logged_in
+          ? `⚡ OmniTactica Account (${prof.name || prof.email})`
+          : '⚡ Registering on OmniTactica';
+        regBadge.textContent = regFeeNum > 0 ? `$${regFeeNum.toFixed(0)} ENTRY` : '⚡ NATIVE';
+        regBadge.style.background = 'rgba(6, 182, 212, 0.22)';
+        regBadge.style.color = '#67e8f9';
+      } else if (prof.bcp_linked) {
         accountPill.style.background = 'rgba(16, 185, 129, 0.1)';
         accountPill.style.borderColor = 'rgba(16, 185, 129, 0.3)';
         accountPill.style.color = '#10b981';
@@ -5796,7 +5832,8 @@ async function submitEventRegistration() {
     return;
   }
 
-  if (!email) {
+  const isNativeSubmit = Boolean(activeRegistrationEvent?.is_native_event || /^es[-_]/i.test(String(eventId)));
+  if (!email && !isNativeSubmit) {
     if (statusEl) {
       statusEl.style.display = 'block';
       statusEl.style.background = 'rgba(239, 68, 68, 0.15)';

@@ -797,29 +797,48 @@ def _get_fast_db_majors_readonly(target_sys: str, min_players: int = 28) -> List
                                         THEN (raw_json->'coordinate'->>0)::double precision ELSE NULL END
                                ) AS longitude,
                                COALESCE(total_players, 0) AS total_players,
+                               COALESCE(
+                                   NULLIF(capacity, 0),
+                                   CASE WHEN raw_json IS NOT NULL AND (raw_json->>'numTickets') ~ '^[0-9]+$'
+                                        THEN (raw_json->>'numTickets')::int ELSE 0 END,
+                                   0
+                               ) AS num_tickets,
                                COALESCE(num_rounds, 0) AS num_rounds,
-                               COALESCE(is_ended, FALSE) AS is_ended
+                               COALESCE(is_ended, FALSE) AS is_ended,
+                               COALESCE(NULLIF(source_platform, ''), CASE WHEN LEFT(id, 3) = 'ES-' THEN 'omnitactica' ELSE '' END) AS source_platform
                         FROM events
                         WHERE COALESCE(game_system, '40k') = %s
                           AND event_date >= CURRENT_DATE - INTERVAL '90 days'
-                          AND (COALESCE(total_players, 0) >= %s OR COALESCE(num_rounds, 0) >= 5)
+                          AND (
+                              COALESCE(total_players, 0) >= %s
+                              OR COALESCE(capacity, 0) >= %s
+                              OR COALESCE(num_rounds, 0) >= 5
+                          )
                         ORDER BY event_date DESC
                         LIMIT 60;
-                    """, (target_sys, min_players))
+                    """, (target_sys, min_players, min_players))
                     for row in (cur.fetchall() or []):
                         r = dict(row) if hasattr(row, "keys") else {}
                         eid_s = str(r.get("id") or "").strip()
                         if not eid_s or eid_s.startswith("bcp_"):
                             continue
+                        is_native = eid_s.startswith("ES-")
+                        num_t = int(r.get("num_tickets") or r.get("total_players") or 0)
                         tier_info = classify_tournament_tier(
                             r.get("name") or "",
                             total_players=int(r.get("total_players") or 0),
+                            num_tickets=num_t,
                             num_rounds=int(r.get("num_rounds") or 0),
                         )
                         if tier_info["tier"] == "rtt":
                             continue
                         ev_dt = r.get("event_date")
                         end_dt = r.get("end_date")
+                        ext_url = (
+                            f"/app?event={eid_s}#community"
+                            if is_native
+                            else (f"https://www.bestcoastpairings.com/event/{eid_s}" if ":" not in eid_s else "")
+                        )
                         db_majors.append({
                             "id": eid_s,
                             "name": r.get("name") or "Tournament",
@@ -835,7 +854,7 @@ def _get_fast_db_majors_readonly(target_sys: str, min_players: int = 28) -> List
                             "latitude": float(r["latitude"]) if r.get("latitude") is not None else None,
                             "longitude": float(r["longitude"]) if r.get("longitude") is not None else None,
                             "total_players": int(r.get("total_players") or 0),
-                            "num_tickets": int(r.get("total_players") or 0),
+                            "num_tickets": num_t,
                             "num_rounds": int(r.get("num_rounds") or 0),
                             "circuits": [],
                             "tier": tier_info["tier"],
@@ -844,7 +863,9 @@ def _get_fast_db_majors_readonly(target_sys: str, min_players: int = 28) -> List
                             "tier_weight": tier_info["weight"],
                             "game_system": target_sys,
                             "is_ended": bool(r.get("is_ended")),
-                            "external_url": f"https://www.bestcoastpairings.com/event/{eid_s}" if ":" not in eid_s else "",
+                            "is_native_event": is_native,
+                            "source_platform": "omnitactica" if is_native else (r.get("source_platform") or ""),
+                            "external_url": ext_url,
                         })
     except Exception:
         pass
@@ -1163,12 +1184,16 @@ def is_casual_or_irrelevant_event(ev: Dict[str, Any], game_system: str = "40k") 
         return (True, "league_session")
 
     tot_p = int(ev.get("total_players") or 0)
-    num_t = int(ev.get("num_tickets") or 0)
+    num_t = int(ev.get("num_tickets") or ev.get("capacity") or 0)
     rounds = int(ev.get("num_rounds") or 0)
     is_ended = bool(ev.get("is_ended"))
 
     if is_ended and tot_p <= 2:
         return (True, "empty_ended_stub")
+
+    if eid.startswith("ES-") and not is_ended:
+        # Native OmniTactica hosted tournaments start at 0 players upon creation while open for registration
+        return (False, "")
 
     if not is_ended and tot_p <= 0 and num_t <= 0 and rounds in (1, 2):
         return (True, "casual_short_stub")
@@ -1343,8 +1368,14 @@ def score_and_categorize_community_events(
         if st.get("rated_players_count"):
             ev["rated_players_count"] = st["rated_players_count"]
 
-        if not ev.get("external_url") and ":" not in eid and not eid.startswith("ES-"):
-            ev["external_url"] = f"https://www.bestcoastpairings.com/event/{eid}"
+        if not ev.get("external_url"):
+            if eid.startswith("ES-"):
+                ev["external_url"] = f"/app?event={eid}#community"
+            elif ":" not in eid:
+                ev["external_url"] = f"https://www.bestcoastpairings.com/event/{eid}"
+        if eid.startswith("ES-"):
+            ev["is_native_event"] = True
+            ev["source_platform"] = "omnitactica"
 
         # Capacity & urgency metrics
         fill_pct = 0
@@ -1689,6 +1720,25 @@ def _query_local_db_events_for_recommendations(
                                             THEN NULLIF((raw_json->'coordinate'->>0)::double precision, 0.0) ELSE NULL END
                                    ) AS longitude,
                                    COALESCE(total_players, 0) AS total_players,
+                                   COALESCE(
+                                       NULLIF(capacity, 0),
+                                       CASE WHEN raw_json IS NOT NULL AND (raw_json->>'numTickets') ~ '^[0-9]+$'
+                                            THEN (raw_json->>'numTickets')::int ELSE 0 END,
+                                       0
+                                   ) AS num_tickets,
+                                   CASE WHEN raw_json IS NOT NULL AND (raw_json->>'ticketPrice') ~ '^[0-9]+(\\.[0-9]+)?$'
+                                        THEN (raw_json->>'ticketPrice')::double precision ELSE 0.0 END AS ticket_price,
+                                   COALESCE(
+                                       CASE WHEN raw_json IS NOT NULL AND raw_json ? 'usingOnlineReg' AND jsonb_typeof(raw_json->'usingOnlineReg') = 'boolean'
+                                            THEN (raw_json->>'usingOnlineReg')::boolean ELSE TRUE END,
+                                       TRUE
+                                   ) AS using_online_reg,
+                                   COALESCE(
+                                       CASE WHEN raw_json IS NOT NULL AND raw_json ? 'privateEvent' AND jsonb_typeof(raw_json->'privateEvent') = 'boolean'
+                                            THEN (raw_json->>'privateEvent')::boolean ELSE FALSE END,
+                                       FALSE
+                                   ) AS private_event,
+                                   COALESCE(NULLIF(source_platform, ''), CASE WHEN LEFT(id, 3) = 'ES-' THEN 'omnitactica' ELSE '' END) AS source_platform,
                                    COALESCE(num_rounds, 0) AS num_rounds,
                                    COALESCE(current_round, 0) AS current_round,
                                    COALESCE(is_ended, FALSE) AS is_ended,
@@ -1719,10 +1769,12 @@ def _query_local_db_events_for_recommendations(
                     )
                     for row in (cur.fetchall() or []):
                         r = dict(row) if hasattr(row, "keys") else {}
+                        eid_row = str(r.get("id") or "")
+                        is_native = eid_row.startswith("ES-")
                         ev_dt = r.get("event_date")
                         end_dt = r.get("end_date")
                         db_events.append({
-                            "id": str(r.get("id") or ""),
+                            "id": eid_row,
                             "name": r.get("name") or "Tournament",
                             "event_date": ev_dt.isoformat() if hasattr(ev_dt, "isoformat") else str(ev_dt or ""),
                             "end_date": end_dt.isoformat() if hasattr(end_dt, "isoformat") else str(end_dt or ""),
@@ -1736,10 +1788,88 @@ def _query_local_db_events_for_recommendations(
                             "latitude": float(r["latitude"]) if r.get("latitude") is not None else None,
                             "longitude": float(r["longitude"]) if r.get("longitude") is not None else None,
                             "total_players": int(r.get("total_players") or 0),
+                            "num_tickets": int(r.get("num_tickets") or 0),
+                            "ticket_price": float(r.get("ticket_price") or 0.0),
+                            "using_online_reg": bool(r.get("using_online_reg", True)),
+                            "private_event": bool(r.get("private_event", False)),
                             "num_rounds": int(r.get("num_rounds") or 0),
                             "current_round": int(r.get("current_round") or 0),
                             "is_started": bool(int(r.get("current_round") or 0) >= 1),
                             "is_ended": bool(r.get("is_ended")),
+                            "is_native_event": is_native,
+                            "source_platform": "omnitactica" if is_native else (r.get("source_platform") or ""),
+                            "external_url": f"/app?event={eid_row}#community" if is_native else "",
+                            "circuits": r.get("circuits") or [],
+                            "game_system": target_sys,
+                        })
+                else:
+                    # Global view (no lat/lng): still include upcoming/live native ES-* tournaments for this game system
+                    cur.execute(
+                        """
+                        SELECT id, name, event_date, end_date, city, state, country,
+                               COALESCE(NULLIF(TRIM(venue_name), ''), NULLIF(TRIM(venue), ''), city) AS venue,
+                               NULLIF(TRIM(address), '') AS address,
+                               NULLIF(TRIM(postal_code), '') AS postal_code,
+                               NULLIF(latitude, 0.0) AS latitude,
+                               NULLIF(longitude, 0.0) AS longitude,
+                               COALESCE(total_players, 0) AS total_players,
+                               COALESCE(NULLIF(capacity, 0), 32) AS num_tickets,
+                               CASE WHEN raw_json IS NOT NULL AND (raw_json->>'ticketPrice') ~ '^[0-9]+(\\.[0-9]+)?$'
+                                    THEN (raw_json->>'ticketPrice')::double precision ELSE 0.0 END AS ticket_price,
+                               COALESCE(
+                                   CASE WHEN raw_json IS NOT NULL AND raw_json ? 'usingOnlineReg' AND jsonb_typeof(raw_json->'usingOnlineReg') = 'boolean'
+                                        THEN (raw_json->>'usingOnlineReg')::boolean ELSE TRUE END,
+                                   TRUE
+                               ) AS using_online_reg,
+                               COALESCE(
+                                   CASE WHEN raw_json IS NOT NULL AND raw_json ? 'privateEvent' AND jsonb_typeof(raw_json->'privateEvent') = 'boolean'
+                                        THEN (raw_json->>'privateEvent')::boolean ELSE FALSE END,
+                                   FALSE
+                               ) AS private_event,
+                               COALESCE(num_rounds, 0) AS num_rounds,
+                               COALESCE(current_round, 0) AS current_round,
+                               COALESCE(is_ended, FALSE) AS is_ended,
+                               circuits
+                        FROM events
+                        WHERE id LIKE 'ES-%%'
+                          AND COALESCE(game_system, '40k') = %s
+                          AND event_date >= CURRENT_DATE - INTERVAL '30 days'
+                        ORDER BY event_date ASC
+                        LIMIT 40;
+                        """,
+                        (target_sys,),
+                    )
+                    for row in (cur.fetchall() or []):
+                        r = dict(row) if hasattr(row, "keys") else {}
+                        eid_row = str(r.get("id") or "")
+                        ev_dt = r.get("event_date")
+                        end_dt = r.get("end_date")
+                        db_events.append({
+                            "id": eid_row,
+                            "name": r.get("name") or "Tournament",
+                            "event_date": ev_dt.isoformat() if hasattr(ev_dt, "isoformat") else str(ev_dt or ""),
+                            "end_date": end_dt.isoformat() if hasattr(end_dt, "isoformat") else str(end_dt or ""),
+                            "city": r.get("city") or "",
+                            "state": r.get("state") or "",
+                            "country": r.get("country") or "",
+                            "venue": r.get("venue") or "",
+                            "venue_name": r.get("venue") or "",
+                            "address": r.get("address") or "",
+                            "postal_code": r.get("postal_code") or "",
+                            "latitude": float(r["latitude"]) if r.get("latitude") is not None else None,
+                            "longitude": float(r["longitude"]) if r.get("longitude") is not None else None,
+                            "total_players": int(r.get("total_players") or 0),
+                            "num_tickets": int(r.get("num_tickets") or 0),
+                            "ticket_price": float(r.get("ticket_price") or 0.0),
+                            "using_online_reg": bool(r.get("using_online_reg", True)),
+                            "private_event": bool(r.get("private_event", False)),
+                            "num_rounds": int(r.get("num_rounds") or 0),
+                            "current_round": int(r.get("current_round") or 0),
+                            "is_started": bool(int(r.get("current_round") or 0) >= 1),
+                            "is_ended": bool(r.get("is_ended")),
+                            "is_native_event": True,
+                            "source_platform": "omnitactica",
+                            "external_url": f"/app?event={eid_row}#community",
                             "circuits": r.get("circuits") or [],
                             "game_system": target_sys,
                         })
@@ -2021,6 +2151,20 @@ def api_community_event_search(
                                         THEN NULLIF((raw_json->'coordinate'->>0)::double precision, 0.0) ELSE NULL END
                                ) AS longitude,
                                COALESCE(total_players, 0) AS total_players,
+                               COALESCE(
+                                   NULLIF(capacity, 0),
+                                   CASE WHEN raw_json IS NOT NULL AND (raw_json->>'numTickets') ~ '^[0-9]+$'
+                                        THEN (raw_json->>'numTickets')::int ELSE 0 END,
+                                   0
+                               ) AS num_tickets,
+                               CASE WHEN raw_json IS NOT NULL AND (raw_json->>'ticketPrice') ~ '^[0-9]+(\\.[0-9]+)?$'
+                                    THEN (raw_json->>'ticketPrice')::double precision ELSE 0.0 END AS ticket_price,
+                               COALESCE(
+                                   CASE WHEN raw_json IS NOT NULL AND raw_json ? 'usingOnlineReg' AND jsonb_typeof(raw_json->'usingOnlineReg') = 'boolean'
+                                        THEN (raw_json->>'usingOnlineReg')::boolean ELSE TRUE END,
+                                   TRUE
+                               ) AS using_online_reg,
+                               COALESCE(NULLIF(source_platform, ''), CASE WHEN LEFT(id, 3) = 'ES-' THEN 'omnitactica' ELSE '' END) AS source_platform,
                                COALESCE(num_rounds, 0) AS num_rounds,
                                COALESCE(current_round, 0) AS current_round,
                                COALESCE(is_ended, FALSE) AS is_ended,
@@ -2050,6 +2194,7 @@ def api_community_event_search(
                         eid = str(r.get("id") or "").strip()
                         if not eid or eid.startswith("bcp_"):
                             continue
+                        is_native = eid.startswith("ES-")
                         ev_dt = r.get("event_date")
                         end_dt = r.get("end_date")
                         item = {
@@ -2067,13 +2212,18 @@ def api_community_event_search(
                             "latitude": float(r["latitude"]) if r.get("latitude") is not None else None,
                             "longitude": float(r["longitude"]) if r.get("longitude") is not None else None,
                             "total_players": int(r.get("total_players") or 0),
+                            "num_tickets": int(r.get("num_tickets") or 0),
+                            "ticket_price": float(r.get("ticket_price") or 0.0),
+                            "using_online_reg": bool(r.get("using_online_reg", True)),
                             "num_rounds": int(r.get("num_rounds") or 0),
                             "current_round": int(r.get("current_round") or 0),
                             "is_started": bool(int(r.get("current_round") or 0) >= 1),
                             "is_ended": bool(r.get("is_ended")),
+                            "is_native_event": is_native,
+                            "source_platform": "omnitactica" if is_native else (r.get("source_platform") or ""),
                             "circuits": r.get("circuits") or [],
                             "game_system": target_sys,
-                            "external_url": f"https://www.bestcoastpairings.com/event/{eid}" if ":" not in eid else "",
+                            "external_url": f"/app?event={eid}#community" if is_native else (f"https://www.bestcoastpairings.com/event/{eid}" if ":" not in eid else ""),
                         }
                         if _matches_tokens(item):
                             matched_map[eid] = _merge_event_records(matched_map[eid], item) if eid in matched_map else item
@@ -2112,8 +2262,14 @@ def api_community_event_search(
         ev["drive_minutes"] = d_info["drive_minutes"]
         ev["drive_label"] = d_info["drive_label"]
         ev["is_local"] = bool(dist_mi is not None and dist_mi <= 50.0)
-        if not ev.get("external_url") and ":" not in eid and not eid.startswith("ES-"):
-            ev["external_url"] = f"https://www.bestcoastpairings.com/event/{eid}"
+        if not ev.get("external_url"):
+            if eid.startswith("ES-"):
+                ev["external_url"] = f"/app?event={eid}#community"
+            elif ":" not in eid:
+                ev["external_url"] = f"https://www.bestcoastpairings.com/event/{eid}"
+        if eid.startswith("ES-"):
+            ev["is_native_event"] = True
+            ev["source_platform"] = "omnitactica"
 
         if is_end:
             ev["countdown_label"] = "Completed"
@@ -2511,7 +2667,10 @@ class UpdateEventPlayerPayload(BaseModel):
 
 class SubmitArmylistPayload(BaseModel):
     player_id: Optional[str] = None
-    list_text: str
+    list_text: Optional[str] = ""
+    army_list: Optional[str] = None
+    faction: Optional[str] = None
+    detachment: Optional[str] = None
     army_id: Optional[str] = None
     sub_faction_id: Optional[str] = None
     send_notification: bool = True
@@ -2519,11 +2678,13 @@ class SubmitArmylistPayload(BaseModel):
 
 class CheckinPlayerPayload(BaseModel):
     player_id: Optional[str] = None
+    checked_in: Optional[bool] = True
     has_list: Optional[bool] = None
 
 
 class DropPlayerPayload(BaseModel):
     player_id: Optional[str] = None
+    dropped: Optional[bool] = True
 
 
 def _check_tournament_started_or_ended(ev: Dict[str, Any], rj: Optional[Dict[str, Any]] = None) -> Tuple[bool, bool]:
@@ -2600,11 +2761,31 @@ _COMMUNITY_REG_CACHE_TTL: float = 300.0
 def _invalidate_community_reg_cache(event_id: Optional[str] = None) -> None:
     if not event_id:
         _community_reg_cache.clear()
-        return
-    clean = str(event_id).strip()
-    for k in list(_community_reg_cache.keys()):
-        if k.startswith(f"{clean}:"):
-            _community_reg_cache.pop(k, None)
+    else:
+        clean = str(event_id).strip()
+        for k in list(_community_reg_cache.keys()):
+            if k.startswith(f"{clean}:"):
+                _community_reg_cache.pop(k, None)
+        try:
+            from routers.leaderboard import _event_details_cache
+            _event_details_cache.pop(clean, None)
+        except Exception:
+            pass
+        try:
+            from database import PostgresDatabase
+            PostgresDatabase._event_details_cache_dict.pop((clean, True), None)
+            PostgresDatabase._event_details_cache_dict.pop((clean, False), None)
+        except Exception:
+            pass
+    _community_recs_cache.clear()
+    _community_search_cache.clear()
+
+
+def invalidate_all_event_caches(event_id: Optional[str] = None) -> None:
+    """Clears L1 registration, recommendation, search, and event detail caches after event mutations."""
+    _invalidate_community_reg_cache(event_id)
+    if event_id and str(event_id).strip().startswith("ES-"):
+        _bcp_majors_cache.clear()
 
 
 @router.get("/api/community/events/{event_id}/registration", summary="Get Event Registration Metadata, User Status & Saved Army Lists")
@@ -2729,15 +2910,20 @@ def _sync_api_community_event_registration(
     except (ValueError, TypeError):
         total_players = 0
 
+    is_native_event = clean_eid.startswith("ES-")
+    external_ticket_url = str(ev.get("external_ticket_url") or rj.get("external_ticket_url") or "").strip()
     external_url = ev.get("external_url") or ev.get("externalUrl") or rj.get("externalUrl") or rj.get("external_url") or None
+    if is_native_event:
+        external_url = external_ticket_url or f"/app?event={clean_eid}#community"
     private_event = bool(ev.get("private_event") or ev.get("privateEvent") or rj.get("privateEvent") or (isinstance(rj.get("ticketing"), dict) and rj["ticketing"].get("privateEvent")) or False)
-    has_access_code = bool(ev.get("has_access_code") or ev.get("hasAccessCode") or rj.get("hasAccessCode") or rj.get("accessCode") or False)
-    requires_access_code = bool(private_event or has_access_code or ev.get("requires_access_code") or ev.get("requireAccessCode") or rj.get("requireAccessCode") or (isinstance(rj.get("ticketing"), dict) and rj["ticketing"].get("requiresAccessCode")))
+    has_access_code = bool(ev.get("has_access_code") or ev.get("hasAccessCode") or rj.get("hasAccessCode") or rj.get("accessCode") or rj.get("access_code") or False)
+    requires_access_code = bool(private_event or has_access_code or ev.get("requires_access_code") or ev.get("requireAccessCode") or rj.get("requireAccessCode") or rj.get("requires_access_code") or (isinstance(rj.get("ticketing"), dict) and rj["ticketing"].get("requiresAccessCode")))
 
+    pay_at_door = bool(ev.get("pay_at_door") or rj.get("pay_at_door") or False)
     is_sold_out = bool(num_tickets > 0 and total_players >= num_tickets)
     is_started, is_ended = _check_tournament_started_or_ended(ev, rj)
-    can_register_free = bool(using_online_reg and ticket_price == 0.0 and not is_sold_out and not is_started and not is_ended)
-    can_buy_ticket = bool(using_online_reg and ticket_price > 0.0 and not is_sold_out and not is_started and not is_ended)
+    can_register_free = bool(using_online_reg and (ticket_price == 0.0 or (is_native_event and pay_at_door)) and not is_sold_out and not is_started and not is_ended)
+    can_buy_ticket = bool(using_online_reg and ticket_price > 0.0 and not (is_native_event and pay_at_door) and not is_sold_out and not is_started and not is_ended)
 
     # Check user registration status and army lists
     is_registered = False
@@ -2785,15 +2971,16 @@ def _sync_api_community_event_registration(
         except Exception:
             is_registered = False
 
-        # Also check already-loaded event participants in `ev.get("players")` before making external HTTP calls
-        if isinstance(ev.get("players"), list) and ev.get("players"):
+        # Also check already-loaded event participants in `ev.get("players")` or native `ev.get("roster")` before making external HTTP calls
+        loaded_participants = (ev.get("players") or []) if isinstance(ev.get("players"), list) and ev.get("players") else (ev.get("roster") if isinstance(ev.get("roster"), list) else [])
+        if loaded_participants:
             target_uids = {str(k).strip() for k in (bcp_user_id, user.get("id"), user.get("player_id")) if k}
             target_names = {
                 str(n).strip().lower()
                 for n in (user_display, user.get("competitor_name"), user.get("full_name"), user.get("name"))
                 if n and len(str(n).strip()) > 2
             }
-            for ep in ev["players"]:
+            for ep in loaded_participants:
                 if not isinstance(ep, dict):
                     continue
                 ep_ids = {
@@ -2809,22 +2996,26 @@ def _sync_api_community_event_registration(
                         "player_id": str(ep.get("bcp_event_player_id") or ep_pid),
                         "bcp_player_id": str(ep.get("bcp_event_player_id") or ""),
                         "canonical_player_id": ep_pid,
-                        "first_name": fn,
-                        "last_name": ln,
+                        "first_name": ep.get("first_name") or fn,
+                        "last_name": ep.get("last_name") or ln,
                         "full_name": str(ep.get("full_name") or ep.get("name") or user_display or "").strip(),
                         "player_name": str(ep.get("full_name") or ep.get("name") or user_display or "").strip(),
                         "team_name": ep.get("team") or "",
                         "faction": ep.get("faction") if ep.get("faction") not in ("Unknown", "-", None) else "",
+                        "army_id": ep.get("army_id") or ep.get("armyId") or "",
                         "detachment": ep.get("detachment") or "",
-                        "checked_in": bool(ep.get("checked_in") or False),
+                        "sub_faction_id": ep.get("sub_faction_id") or ep.get("subFactionId") or "",
+                        "checked_in": bool(ep.get("checked_in") or ep.get("checkedIn") or False),
                         "dropped": bool(ep.get("dropped") or False),
-                        "has_list_submitted": bool(ep.get("has_list") or ep.get("army_list") or ep.get("list_id")),
+                        "has_list_submitted": bool(ep.get("has_list") or ep.get("has_list_submitted") or ep.get("listSubmitted") or ep.get("army_list") or ep.get("list_id")),
                         "army_list": ep.get("army_list") or "",
                         "list_id": str(ep.get("list_id") or ""),
                     }
                     if matched_reg:
                         for k, v in ep_reg.items():
-                            if v and not matched_reg.get(k):
+                            if k in ("checked_in", "dropped", "has_list_submitted"):
+                                matched_reg[k] = bool(v)
+                            elif v and not matched_reg.get(k):
                                 matched_reg[k] = v
                     else:
                         matched_reg = ep_reg
@@ -2976,28 +3167,37 @@ def _sync_api_community_event_registration(
 
         player_registration = None
         if matched_reg:
-            from bcp_adapter import bcp_adapter
             cand_pid = str(matched_reg.get("bcp_player_id") or matched_reg.get("player_id") or "").strip()
-            valid_cand = bool(
-                cand_pid
-                and cand_pid != clean_eid
-                and not cand_pid.startswith("user_")
-                and cand_pid != str(user.get("id") or "")
-                and cand_pid != str(bcp_user_id or "")
-            )
-            fallback_canonical_pid = str(
-                matched_reg.get("canonical_player_id")
-                or (cand_pid if (cand_pid and cand_pid != clean_eid and not cand_pid.startswith("user_")) else "")
-                or user.get("player_id")
-                or bcp_user_id
-                or ""
-            ).strip()
-            if not is_mock_env and (valid_cand or should_skip_live_bcp):
-                actual_pid = cand_pid if valid_cand else fallback_canonical_pid
+            if is_native_event:
+                actual_pid = str(
+                    matched_reg.get("canonical_player_id")
+                    or cand_pid
+                    or user.get("player_id")
+                    or user.get("id")
+                    or ""
+                ).strip()
             else:
-                # If candidate_pid is invalid, identical to event_id, or starts with user_, resolve the real one
-                resolved_pid = bcp_adapter.resolve_event_player_id(clean_eid, user["id"], candidate_pid=cand_pid, explicit_token=x_bcp_token)
-                actual_pid = resolved_pid or (cand_pid if valid_cand else ("" if is_mock_env else fallback_canonical_pid))
+                from bcp_adapter import bcp_adapter
+                valid_cand = bool(
+                    cand_pid
+                    and cand_pid != clean_eid
+                    and not cand_pid.startswith("user_")
+                    and cand_pid != str(user.get("id") or "")
+                    and cand_pid != str(bcp_user_id or "")
+                )
+                fallback_canonical_pid = str(
+                    matched_reg.get("canonical_player_id")
+                    or (cand_pid if (cand_pid and cand_pid != clean_eid and not cand_pid.startswith("user_")) else "")
+                    or user.get("player_id")
+                    or bcp_user_id
+                    or ""
+                ).strip()
+                if not is_mock_env and (valid_cand or should_skip_live_bcp):
+                    actual_pid = cand_pid if valid_cand else fallback_canonical_pid
+                else:
+                    # If candidate_pid is invalid, identical to event_id, or starts with user_, resolve the real one
+                    resolved_pid = bcp_adapter.resolve_event_player_id(clean_eid, user["id"], candidate_pid=cand_pid, explicit_token=x_bcp_token)
+                    actual_pid = resolved_pid or (cand_pid if valid_cand else ("" if is_mock_env else fallback_canonical_pid))
 
             fn_val = matched_reg.get("first_name") or fn
             ln_val = matched_reg.get("last_name") or ln
@@ -3052,6 +3252,9 @@ def _sync_api_community_event_registration(
         except Exception as e:
             logger.debug(f"Saved army lists fetch notice: {e}")
 
+    ev_game_sys = normalize_game_system(ev.get("game_system") or rj.get("game_system") or "40k", default="40k")
+    ev_gs_id = ev.get("gamesystem_id") or rj.get("gameSystemId") or ev_game_sys
+    native_share_url = f"/app?event={clean_eid}#community"
     resp_payload = {
         "success": True,
         "event_id": clean_eid,
@@ -3062,6 +3265,26 @@ def _sync_api_community_event_registration(
         "is_started": is_started,
         "is_ongoing": bool(is_started and not is_ended),
         "is_ended": is_ended,
+        "is_native_event": is_native_event,
+        "source_platform": "omnitactica" if is_native_event else (ev.get("source_platform") or "bcp"),
+        "game_system": ev_game_sys,
+        "gamesystem_id": ev_gs_id,
+        "scoring_mode": ev.get("scoring_mode") or rj.get("scoring_mode") or "wargame_vp",
+        "match_format": ev.get("match_format") or rj.get("match_format") or "1v1",
+        "best_of": int(ev.get("best_of") or rj.get("best_of") or 1),
+        "top_cut": int(ev.get("top_cut") or rj.get("top_cut") or 0),
+        "venue_mode": ev.get("venue_mode") or rj.get("venue_mode") or "in_person",
+        "online_platform": ev.get("online_platform") or rj.get("online_platform") or "",
+        "discord_url": ev.get("discord_url") or rj.get("discord_url") or "",
+        "stream_url": ev.get("stream_url") or rj.get("stream_url") or "",
+        "external_ticket_url": external_ticket_url,
+        "pay_at_door": pay_at_door,
+        "lists_at_checkin": bool(ev.get("lists_at_checkin") or rj.get("listsAtCheckin") or rj.get("lists_at_checkin") or False),
+        "lists_locked": bool(ev.get("lists_locked") or rj.get("listsLocked") or rj.get("lists_locked") or False),
+        "factions_locked": bool(ev.get("factions_locked") or rj.get("factionsLocked") or rj.get("factions_locked") or False),
+        "disable_checkin": bool(ev.get("disable_checkin") or rj.get("disableCheckin") or rj.get("disable_checkin") or False),
+        "hide_lists": bool(ev.get("hide_lists") or rj.get("hideLists") or rj.get("hide_lists") or False),
+        "organizer_id": ev.get("organizer_id") or rj.get("organizer_id") or "",
         "city": ev.get("city") or "",
         "state": ev.get("state") or "",
         "country": ev.get("country") or "",
@@ -3081,8 +3304,8 @@ def _sync_api_community_event_registration(
         "is_registered": is_registered,
         "player_registration": player_registration,
         "player": player_registration,
-        "bcp_url": f"https://www.bestcoastpairings.com/event/{clean_eid}",
-        "bcp_checkout_url": f"https://www.bestcoastpairings.com/event/{clean_eid}?checkout=true",
+        "bcp_url": native_share_url if is_native_event else f"https://www.bestcoastpairings.com/event/{clean_eid}",
+        "bcp_checkout_url": (external_ticket_url or native_share_url) if is_native_event else f"https://www.bestcoastpairings.com/event/{clean_eid}?checkout=true",
         "user_profile": user_profile,
         "army_lists": army_lists
     }
@@ -3113,9 +3336,12 @@ async def api_community_event_register(
     user_id = user["id"] if user else None
 
     clean_eid = str(event_id).strip()
-    ev = db.get_event_details(clean_eid)
-    if not ev:
-        ev = db.get_studio_event(clean_eid)
+    if clean_eid.startswith("ES-"):
+        ev = db.get_studio_event(clean_eid) or db.get_event_details(clean_eid)
+    else:
+        ev = db.get_event_details(clean_eid)
+        if not ev:
+            ev = db.get_studio_event(clean_eid)
 
     # If event not in DB, retrieve metadata from BCP
     if not ev and not clean_eid.startswith("ES-"):
@@ -3153,11 +3379,23 @@ async def api_community_event_register(
         try:
             user_regs = db.get_user_registered_tournaments(user_id)
             for r in (user_regs or []):
-                if str(r.get("id") or r.get("bcp_event_id") or "") == clean_eid:
+                if str(r.get("id") or r.get("bcp_event_id") or "") == clean_eid and not r.get("dropped"):
                     is_already_registered = True
                     break
         except Exception:
             is_already_registered = False
+        if not is_already_registered and clean_eid.startswith("ES-"):
+            u_pid = str(user.get("player_id") or user_id)
+            u_email = str(user.get("email") or "").strip().lower()
+            for rp in (ev.get("roster") or []):
+                if not isinstance(rp, dict) or rp.get("dropped"):
+                    continue
+                if str(rp.get("user_id") or "") == str(user_id) or str(rp.get("id") or "") == u_pid:
+                    is_already_registered = True
+                    break
+                if u_email and str(rp.get("email") or "").strip().lower() == u_email:
+                    is_already_registered = True
+                    break
 
     if (is_started or is_ended) and not is_already_registered:
         raise HTTPException(
@@ -3181,8 +3419,11 @@ async def api_community_event_register(
 
     total_players = 0
     try:
-        raw_players = ev.get("total_players") or ev.get("totalPlayers") or rj.get("totalPlayers") or len(ev.get("roster") or [])
-        total_players = int(raw_players or 0)
+        if clean_eid.startswith("ES-") and isinstance(ev.get("roster"), list):
+            total_players = sum(1 for rp in ev["roster"] if isinstance(rp, dict) and not rp.get("dropped"))
+        else:
+            raw_players = ev.get("total_players") or ev.get("totalPlayers") or rj.get("totalPlayers") or len(ev.get("roster") or [])
+            total_players = int(raw_players or 0)
     except (ValueError, TypeError):
         total_players = 0
 
@@ -3192,21 +3433,28 @@ async def api_community_event_register(
             detail="Online registration is closed for this tournament. Please register directly in-store with the Tournament Organizer."
         )
 
-    if num_tickets > 0 and total_players >= num_tickets:
+    if num_tickets > 0 and total_players >= num_tickets and not is_already_registered:
         raise HTTPException(
             status_code=400,
             detail=f"This tournament is sold out ({total_players}/{num_tickets} capacity reached)."
         )
 
-    if ticket_price > 0.0:
+    pay_at_door = bool(ev.get("pay_at_door") or rj.get("pay_at_door") or False)
+    if ticket_price > 0.0 and not (clean_eid.startswith("ES-") and pay_at_door):
+        if clean_eid.startswith("ES-"):
+            ext_tix = str(ev.get("external_ticket_url") or rj.get("external_ticket_url") or "").strip()
+            msg = f"This tournament requires a paid entry (${ticket_price:.2f})."
+            if ext_tix:
+                msg += f" Please purchase your entry at {ext_tix}."
+            raise HTTPException(status_code=400, detail=msg)
         raise HTTPException(
             status_code=400,
             detail=f"This tournament requires a paid ticket (${ticket_price:.2f}). Please purchase your ticket via Best Coast Pairings checkout."
         )
 
     private_event = bool(ev.get("private_event") or ev.get("privateEvent") or rj.get("privateEvent") or (isinstance(rj.get("ticketing"), dict) and rj["ticketing"].get("privateEvent")) or False)
-    has_access_code = bool(ev.get("has_access_code") or ev.get("hasAccessCode") or rj.get("hasAccessCode") or rj.get("accessCode") or False)
-    requires_access_code = bool(private_event or has_access_code or ev.get("requires_access_code") or ev.get("requireAccessCode") or rj.get("requireAccessCode") or (isinstance(rj.get("ticketing"), dict) and rj["ticketing"].get("requiresAccessCode")))
+    has_access_code = bool(ev.get("has_access_code") or ev.get("hasAccessCode") or rj.get("hasAccessCode") or rj.get("accessCode") or rj.get("access_code") or ev.get("access_code") or ev.get("accessCode") or False)
+    requires_access_code = bool(private_event or has_access_code or ev.get("requires_access_code") or ev.get("requireAccessCode") or rj.get("requireAccessCode") or rj.get("requires_access_code") or (isinstance(rj.get("ticketing"), dict) and rj["ticketing"].get("requiresAccessCode")))
 
     access_code = (payload.access_code or "").strip()
     if requires_access_code and not access_code:
@@ -3214,6 +3462,13 @@ async def api_community_event_register(
             status_code=400,
             detail="This tournament requires an Access Code. Please enter the access code provided by your Tournament Organizer."
         )
+    if clean_eid.startswith("ES-") and requires_access_code:
+        expected_code = str(ev.get("access_code") or ev.get("accessCode") or rj.get("access_code") or rj.get("accessCode") or "").strip()
+        if expected_code and access_code != expected_code:
+            raise HTTPException(
+                status_code=403,
+                detail="Invalid Access Code for this tournament."
+            )
 
     # Competitor name & email resolution
     full_name = (payload.name or "").strip()
@@ -3258,12 +3513,17 @@ async def api_community_event_register(
         except Exception as e:
             logger.debug(f"Saved army list lookup notice: {e}")
 
-    # Resolve human-readable names and official BCP gamesystem ObjectIds
-    gamesystem_id = ev.get("gamesystem_id") or rj.get("gameSystemId") or "WGMSzfKFYA"
+    # Resolve human-readable names and official gamesystem ObjectIds
+    gamesystem_id = ev.get("gamesystem_id") or rj.get("gameSystemId") or ev.get("game_system") or "WGMSzfKFYA"
     if army_id or sub_faction_id or faction or detachment:
         try:
-            from bcp_adapter import BcpAdapter
-            _, _, flist = BcpAdapter.fetch_gamesystem_factions(gamesystem_id)
+            flist = None
+            if clean_eid.startswith("ES-"):
+                norm_gs = normalize_game_system(ev.get("game_system") or rj.get("game_system") or gamesystem_id, default="40k")
+                flist = NATIVE_GAMESYSTEM_FACTIONS.get(norm_gs)
+            else:
+                from bcp_adapter import BcpAdapter
+                _, _, flist = BcpAdapter.fetch_gamesystem_factions(gamesystem_id)
             if flist:
                 matched_f = None
                 if army_id:
@@ -3294,34 +3554,32 @@ async def api_community_event_register(
 
     system_id = (payload.system_id or "").strip()
 
-    # Prepare player data for BCP
-    bcp_adapter_token = payload.bcp_token or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
-    bcp_user_id = user.get("bcp_user_id") if user else None
-
-    player_data_for_bcp = {
-        "name": full_name,
-        "first_name": fn,
-        "last_name": ln,
-        "email": email,
-        "team": team,
-        "faction": faction if faction != "Unassigned" else None,
-        "army": faction if faction != "Unassigned" else None,
-        "army_id": army_id or None,
-        "armyId": army_id or None,
-        "detachment": detachment or None,
-        "sub_faction_id": sub_faction_id or None,
-        "subFactionId": sub_faction_id or None,
-        "army_list": army_list or None,
-        "armyList": army_list or None,
-        "system_id": system_id or None,
-        "access_code": access_code or None,
-        "accessCode": access_code or None,
-        "bcp_user_id": bcp_user_id,
-        "checked_in": False
-    }
-
     # 1. Best Coast Pairings Events: strictly register via BCP API (zero backend DB writes)
     if not clean_eid.startswith("ES-"):
+        bcp_adapter_token = payload.bcp_token or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
+        bcp_user_id = user.get("bcp_user_id") if user else None
+
+        player_data_for_bcp = {
+            "name": full_name,
+            "first_name": fn,
+            "last_name": ln,
+            "email": email,
+            "team": team,
+            "faction": faction if faction != "Unassigned" else None,
+            "army": faction if faction != "Unassigned" else None,
+            "army_id": army_id or None,
+            "armyId": army_id or None,
+            "detachment": detachment or None,
+            "sub_faction_id": sub_faction_id or None,
+            "subFactionId": sub_faction_id or None,
+            "army_list": army_list or None,
+            "armyList": army_list or None,
+            "system_id": system_id or None,
+            "access_code": access_code or None,
+            "accessCode": access_code or None,
+            "bcp_user_id": bcp_user_id,
+            "checked_in": False
+        }
         try:
             from bcp_adapter import BcpAdapter
             bcp_registered, bcp_err, bcp_resp = BcpAdapter.register_player(
@@ -3424,8 +3682,79 @@ async def api_community_event_register(
             "is_registered": True
         }
 
-    # 2. Native Event Studio Tournament: Persist locally in OmniTactica database
-    effective_user_id = user_id or f"anon_{secrets.token_hex(6)}"
+    # 2. Native OmniTactica Tournament: Persist locally in OmniTactica canonical tables
+    effective_user_id = str(user_id) if user_id else f"anon_{secrets.token_hex(6)}"
+    ev_gs = normalize_game_system(ev.get("game_system") or rj.get("game_system") or gamesystem_id, default="40k")
+    resolved_native_pid = str((user.get("player_id") if user else None) or effective_user_id).strip()
+
+    # Look up competitor's existing Elo rating for this game system if present
+    player_elo = float(INITIAL_ELO)
+    try:
+        if hasattr(db, "get_connection") and not hasattr(db, "assert_called"):
+            with db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT current_elo FROM player_ratings WHERE player_id = %s AND game_system = %s LIMIT 1",
+                        (resolved_native_pid, ev_gs),
+                    )
+                    pr_row = cur.fetchone()
+                    if pr_row and pr_row[0] is not None:
+                        player_elo = round(float(pr_row[0]), 1)
+    except Exception:
+        player_elo = float(INITIAL_ELO)
+
+    roster = list(ev.get("roster") or [])
+    existing_idx = None
+    email_lower = email.lower() if email else ""
+    for idx, rp in enumerate(roster):
+        if not isinstance(rp, dict):
+            continue
+        if (
+            str(rp.get("id") or "") == resolved_native_pid
+            or (user_id and str(rp.get("user_id") or "") == str(user_id))
+            or (email_lower and str(rp.get("email") or "").strip().lower() == email_lower)
+        ):
+            existing_idx = idx
+            resolved_native_pid = str(rp.get("id") or resolved_native_pid)
+            break
+
+    prev_entry = roster[existing_idx] if existing_idx is not None else {}
+    checked_in_state = bool(prev_entry.get("checked_in") or prev_entry.get("checkedIn") or False)
+    final_army_list = army_list if army_list else str(prev_entry.get("army_list") or "")
+    new_p = {
+        "id": resolved_native_pid,
+        "user_id": effective_user_id,
+        "name": full_name,
+        "first_name": fn,
+        "last_name": ln,
+        "email": email,
+        "team": team,
+        "faction": faction,
+        "army_id": army_id,
+        "detachment": detachment,
+        "sub_faction_id": sub_faction_id,
+        "army_list": final_army_list,
+        "has_list_submitted": bool(final_army_list),
+        "listSubmitted": bool(final_army_list),
+        "checked_in": checked_in_state,
+        "checkedIn": checked_in_state,
+        "dropped": False,
+        "elo": prev_entry.get("elo") or player_elo,
+        "system_id": system_id or prev_entry.get("system_id") or "",
+    }
+    if existing_idx is not None:
+        merged_p = dict(prev_entry)
+        merged_p.update(new_p)
+        roster[existing_idx] = merged_p
+    else:
+        roster.append(new_p)
+
+    try:
+        db.save_studio_roster(clean_eid, roster)
+    except Exception as es_err:
+        logger.warning(f"Native roster save error for {clean_eid}: {es_err}")
+
+    active_total = sum(1 for rp in roster if isinstance(rp, dict) and not rp.get("dropped"))
     event_reg_record = {
         "id": clean_eid,
         "bcp_event_id": clean_eid,
@@ -3436,72 +3765,282 @@ async def api_community_event_register(
         "city": ev.get("city") or "",
         "state": ev.get("state") or "",
         "country": ev.get("country") or "",
+        "game_system": ev_gs,
+        "source_platform": "omnitactica",
+        "is_native_event": True,
         "faction": faction,
         "army_id": army_id,
         "detachment": detachment,
         "sub_faction_id": sub_faction_id,
-        "army_list": army_list,
-        "has_list_submitted": bool(army_list),
-        "checked_in": False,
+        "team": team,
+        "first_name": fn,
+        "last_name": ln,
+        "army_list": final_army_list,
+        "has_list_submitted": bool(final_army_list),
+        "checked_in": checked_in_state,
+        "dropped": False,
         "points": ev.get("points") or 2000,
-        "num_rounds": ev.get("num_rounds") or 5,
-        "total_players": total_players + 1,
-        "player_id": user.get("player_id") if user else effective_user_id,
-        "player_name": full_name
+        "num_rounds": ev.get("num_rounds") or 3,
+        "total_players": active_total,
+        "player_id": resolved_native_pid,
+        "player_name": full_name,
     }
+    db.add_user_registered_tournament(effective_user_id, event_reg_record)
 
-    saved_ok = db.add_user_registered_tournament(effective_user_id, event_reg_record)
-
-    try:
-        roster = list(ev.get("roster") or [])
-        new_p = {
-            "id": user.get("player_id") if user else effective_user_id,
-            "name": full_name,
-            "faction": faction,
-            "army_id": army_id,
-            "detachment": detachment,
-            "sub_faction_id": sub_faction_id,
-            "army_list": army_list,
-            "checked_in": False
-        }
-        roster.append(new_p)
-        db.save_studio_roster(clean_eid, roster)
-    except Exception as es_err:
-        logger.debug(f"Event Studio roster update notice: {es_err}")
-
-    _invalidate_community_reg_cache(clean_eid)
+    invalidate_all_event_caches(clean_eid)
     return {
         "success": True,
-        "message": f"Successfully registered for {ev.get('name') or 'Tournament'}!",
+        "message": f"Updated registration for {ev.get('name') or 'Tournament'}!" if existing_idx is not None else f"Successfully registered for {ev.get('name') or 'Tournament'}!",
         "event_id": clean_eid,
         "event_name": ev.get("name") or "Tournament",
         "player_name": full_name,
-        "player_id": user.get("player_id") if user else effective_user_id,
+        "player_id": resolved_native_pid,
         "faction": faction,
         "army_id": army_id,
         "detachment": detachment,
         "sub_faction_id": sub_faction_id,
-        "has_list_submitted": bool(army_list),
-        "army_list": army_list,
+        "has_list_submitted": bool(final_army_list),
+        "army_list": final_army_list,
         "bcp_synced": False,
+        "is_native_event": True,
+        "source_platform": "omnitactica",
         "bcp_notice": None,
-        "is_registered": True
+        "is_registered": True,
     }
 
 
 # =========================================================================
-# BCP REGISTRATION MANAGEMENT & CHECK-IN FLOW
+# GAMESYSTEM FACTIONS / ARCHETYPES & REGISTRATION MANAGEMENT FLOW
 # =========================================================================
+
+def _mk_factions(prefix: str, items: List[Tuple[str, List[str]]]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for idx, (fname, subs) in enumerate(items, start=1):
+        fid = f"{prefix}_f{idx}"
+        out.append({
+            "id": fid,
+            "name": fname,
+            "subFactions": [{"id": f"{fid}_s{sidx}", "name": sname} for sidx, sname in enumerate(subs, start=1)],
+        })
+    return out
+
+
+NATIVE_GAMESYSTEM_FACTIONS: Dict[str, List[Dict[str, Any]]] = {
+    "40k": _mk_factions("40k", [
+        ("Space Marines", ["Gladius Task Force", "Bloodless Vanguard", "Ironstorm Spearhead", "Firestorm Assault Force"]),
+        ("Blood Angels", ["Liberator Assault Group", "Angelic Inheritors"]),
+        ("Dark Angels", ["Inner Circle Task Force", "Wrath of the Rock"]),
+        ("Space Wolves", ["Champions of Russ", "Stormlance Task Force"]),
+        ("Black Templars", ["Righteous Crusaders"]),
+        ("Grey Knights", ["Teleport Strike Force", "Warpbane Task Force"]),
+        ("Adeptus Custodes", ["Shield Host", "Talons of the Emperor", "Solar Spearhead"]),
+        ("Adepta Sororitas", ["Hallowed Martyrs", "Bringers of Flame", "Army of Faith"]),
+        ("Adeptus Mechanicus", ["Skitarii Hunter Cohort", "Haloscreed Battle Clade"]),
+        ("Astra Militarum", ["Combined Regiment", "Bridgehead Strike"]),
+        ("Imperial Knights", ["Noble Lance"]),
+        ("Imperial Agents", ["Imperialis Fleet"]),
+        ("Chaos Space Marines", ["Pactbound Zealots", "Renegade Raiders", "Veterans of the Long War"]),
+        ("Death Guard", ["Plague Company", "Flyblown Host"]),
+        ("Thousand Sons", ["Cult of Magic", "Hexwarp Thrallband"]),
+        ("World Eaters", ["Berzerker Warband", "Vessels of Wrath"]),
+        ("Emperor's Children", ["Peerless Bladesmen", "Mercurial Host"]),
+        ("Chaos Daemons", ["Daemonic Incursion", "Legion of Excess"]),
+        ("Chaos Knights", ["Traitoris Lance"]),
+        ("Aeldari", ["Battle Host", "Aspect Host", "Ynnari"]),
+        ("Drukhari", ["Skysplinter Assault", "Realspace Raiders"]),
+        ("Tyranids", ["Invasion Fleet", "Synaptic Nexus", "Vanguard Onslaught"]),
+        ("Genestealer Cults", ["Host of Ascension", "Biosanctic Broodsurge"]),
+        ("Necrons", ["Awakened Dynasty", "Hypercrypt Legion", "Starshatter Arsenal"]),
+        ("Orks", ["War Horde", "Bully Boyz", "Taktikal Brigade"]),
+        ("T'au Empire", ["Kauyon", "Mont'ka", "Retaliation Cadre"]),
+        ("Leagues of Votann", ["Oathband"]),
+    ]),
+    "aos": _mk_factions("aos", [
+        ("Stormcast Eternals", ["Thunderhead Host", "Vanguard Wing"]),
+        ("Cities of Sigmar", ["Fortress-City Defenders"]),
+        ("Lumineth Realm-lords", ["Vanari Battlehost"]),
+        ("Sylvaneth", ["Outcasts"]),
+        ("Seraphon", ["Sunclaw Starhost"]),
+        ("Daughters of Khaine", ["Shadow Patrol"]),
+        ("Idoneth Deepkin", ["Akhelian Beastmasters"]),
+        ("Kharadron Overlords", ["Iron Sky Attack Squadron"]),
+        ("Fyreslayers", ["Warrior Kinband"]),
+        ("Slaves to Darkness", ["Godswrath Warband", "Darkoath Horde"]),
+        ("Blades of Khorne", ["Bloodbound Warhorde"]),
+        ("Disciples of Tzeentch", ["Wyrdflame Host"]),
+        ("Maggotkin of Nurgle", ["Tallyband of Nurgle"]),
+        ("Hedonites of Slaanesh", ["Depraved Carnival"]),
+        ("Skaven", ["Warpcog Convocation", "Claw-horde"]),
+        ("Soulblight Gravelords", ["Bacchanal of Blood"]),
+        ("Ossiarch Bonereapers", ["Mortisan Council"]),
+        ("Nighthaunt", ["Death Stalkers"]),
+        ("Flesh-eater Courts", ["Lords of the Manor"]),
+        ("Orruk Warclans", ["Ironjawz Brawl", "Kruleboyz Klaw"]),
+        ("Gloomspite Gitz", ["Squigalanche", "Troggherd"]),
+        ("Ogor Mawtribes", ["Beasthandlers"]),
+        ("Sons of Behemat", ["Taker Tribe"]),
+    ]),
+    "kill_team": _mk_factions("kt", [
+        ("Angels of Death", []), ("Phobos Strike Team", []), ("Scout Squad", []), ("Kasrkin", []),
+        ("Tempestus Aquilons", []), ("Death Korps", []), ("Kommandos", []), ("Wrecka Krew", []),
+        ("Legionaries", []), ("Nemesis Claw", []), ("Plague Marines", []), ("Warpcoven", []),
+        ("Corsair Voidscarred", []), ("Blades of Khaine", []), ("Hand of the Archon", []),
+        ("Hierotek Circle", []), ("Pathfinders", []), ("Vespid Stingwings", []), ("Hearthkyn Salvagers", []),
+    ]),
+    "the_old_world": _mk_factions("tow", [
+        ("Empire of Man", ["Grand Army"]), ("Kingdom of Bretonnia", ["Grand Army", "Exiles"]),
+        ("Dwarfen Mountain Holds", ["Grand Army", "Royal Clan"]), ("High Elf Realms", ["Grand Army"]),
+        ("Wood Elf Realms", ["Grand Army"]), ("Orc & Goblin Tribes", ["Grand Army", "Nomadic Waaagh!"]),
+        ("Warriors of Chaos", ["Grand Army", "Wolves of the Sea"]), ("Beastmen Brayherds", ["Grand Army"]),
+        ("Tomb Kings of Khemri", ["Grand Army", "Mortuary Cult"]), ("Vampire Counts", ["Grand Army"]),
+    ]),
+    "horus_heresy": _mk_factions("hh", [
+        ("Sons of Horus", ["Loyalist", "Traitor"]), ("Imperial Fists", ["Loyalist"]),
+        ("Blood Angels", ["Loyalist"]), ("Dark Angels", ["Loyalist"]), ("Ultramarines", ["Loyalist"]),
+        ("White Scars", ["Loyalist"]), ("Space Wolves", ["Loyalist"]), ("Iron Warriors", ["Traitor"]),
+        ("World Eaters", ["Traitor"]), ("Death Guard", ["Traitor"]), ("Alpha Legion", ["Traitor"]),
+        ("Word Bearers", ["Traitor"]), ("Mechanicum", []), ("Solar Auxilia", []), ("Legio Custodes", []),
+    ]),
+    "mtg": _mk_factions("mtg", [
+        ("Aggro / Red Deck Wins", ["Mono-Red", "Boros", "Gruul"]),
+        ("Midrange", ["Golgari", "Dimir", "Orzhov", "Jund", "Domain"]),
+        ("Control", ["Azorius", "Esper", "Jeskai", "UB Control"]),
+        ("Combo", ["Storm", "Reanimator", "Amulet Titan", "Omniscience"]),
+        ("Tempo", ["Izzet", "Simic", "UR Delver"]),
+        ("Ramp / Big Mana", ["Tron", "Eldrazi", "Mono-Green"]),
+        ("Commander / cEDH Partner Pair", ["Tymna / Kraùm (Blue Farm)", "RogSi", "Kinnan", "Sisay", "Najeela", "Tivit", "Magda"]),
+        ("Rogue / Brew", ["Custom Archetype"]),
+    ]),
+    "pokemon": _mk_factions("pkmn", [
+        ("Dragapult ex", []), ("Charizard ex", []), ("Gardevoir ex", []), ("Raging Bolt ex", []),
+        ("Lugia VSTAR / Archeops", []), ("Regidrago VSTAR", []), ("Gholdengo ex", []),
+        ("Terapagos ex", []), ("Miraidon ex", []), ("Lost Zone Box", []), ("Snorlax Control", []), ("Other Deck", []),
+    ]),
+    "one_piece": _mk_factions("optcg", [
+        ("Black (Lucci / Smoker / Teach)", []), ("Blue (Doffy / Nami / Boa)", []),
+        ("Purple (Luffy / Kaido)", []), ("Red/Purple (Law / Luffy)", []),
+        ("Yellow (Enel / Katakuri)", []), ("Green (Bonney / Uta)", []),
+        ("Black/Yellow Luffy", []), ("Red (Shanks / Zoro)", []),
+    ]),
+    "lorcana": _mk_factions("lor", [
+        ("Ruby / Amethyst", []), ("Ruby / Sapphire", []), ("Emerald / Steel", []),
+        ("Amber / Steel", []), ("Amethyst / Steel", []), ("Sapphire / Steel", []), ("Hyper Aggro", []),
+    ]),
+    "sw_unlimited": _mk_factions("swu", [
+        ("Sabine Wren", ["Aggro"]), ("Boba Fett", ["Cunning", "Command"]),
+        ("Han Solo", ["Cunning"]), ("Emperor Palpatine", ["Control"]),
+        ("Qi'ra", ["Vigilance"]), ("Cad Bane", ["Tarkintown"]), ("Rey / Luke", ["Midrange"]),
+    ]),
+    "flesh_blood": _mk_factions("fab", [
+        ("Aurora", ["Runeblade"]), ("Enigma", ["Illusionist"]), ("Nuu", ["Assassin"]),
+        ("Zen", ["Ninja"]), ("Azalea", ["Ranger"]), ("Kayo", ["Brute"]),
+        ("Dash I/O", ["Mechanologist"]), ("Victor Goldmane", ["Guardian"]), ("Kano", ["Wizard"]),
+    ]),
+    "yugioh": _mk_factions("ygo", [
+        ("Snake-Eye / Fire King", []), ("Yubel / Fiendsmith", []), ("Tenpai Dragon", []),
+        ("Ryzeal", []), ("Maliss", []), ("Voiceless Voice", []), ("Branded Despia", []), ("Labyrinth", []),
+    ]),
+    "digimon": _mk_factions("digi", [
+        ("Imperialdramon", []), ("MirageGaogamon", []), ("Takemikazuchi", []),
+        ("AncientGarurumon", []), ("Seven Great Demon Lords", []), ("Purple Hybrid", []),
+    ]),
+    "gundam_tcg": _mk_factions("gundam", [
+        ("Blue / White Federation", []), ("Green / Red Zeon", []), ("Wing Zero Ramp", []), ("Seed Strike", []),
+    ]),
+    "riftbound": _mk_factions("rift", [
+        ("Jinx Aggro", []), ("Viktor Control", []), ("Yasuo Tempo", []), ("Volibear Ramp", []), ("Ahri Midrange", []),
+    ]),
+    "mcp": _mk_factions("mcp", [
+        ("Avengers", []), ("Cabal", []), ("X-Men", []), ("Brotherhood of Mutants", []),
+        ("Spider-Foes", []), ("Web Warriors", []), ("Guardians of the Galaxy", []), ("Asgard", []),
+    ]),
+    "shatterpoint": _mk_factions("shp", [
+        ("Galactic Republic", []), ("Separatist Alliance", []), ("Rebel Alliance", []),
+        ("Galactic Empire", []), ("Mandalorians", []), ("Shadow Collective", []),
+    ]),
+    "sw_legion": _mk_factions("swl", [
+        ("Galactic Empire", []), ("Rebel Alliance", []), ("Galactic Republic", []),
+        ("Separatist Alliance", []), ("Shadow Collective", []),
+    ]),
+    "battletech": _mk_factions("bt", [
+        ("Inner Sphere", []), ("Clans", []), ("Mercenaries", []), ("ComStar / Word of Blake", []),
+    ]),
+    "infinity": _mk_factions("inf", [
+        ("PanOceania", []), ("Yu Jing", []), ("Ariadna", []), ("Haqqislam", []),
+        ("Nomads", []), ("Combined Army", []), ("ALEPH", []), ("O-12", []), ("JSA", []),
+    ]),
+    "warmachine": _mk_factions("wm", [
+        ("Cygnar", []), ("Khador", []), ("Orgoth", []), ("Dusk", []), ("Brineblood Marauders", []), ("Khymaera", []),
+    ]),
+    "bolt_action": _mk_factions("ba", [
+        ("United States", []), ("Germany", []), ("Great Britain", []), ("Soviet Union", []), ("Imperial Japan", []),
+    ]),
+    "trench_crusade": _mk_factions("tc", [
+        ("Trench Pilgrims", []), ("New Antioch", []), ("Iron Sultanate", []),
+        ("Heretic Legion", []), ("Court of the Seven-Headed Serpent", []), ("Black Grail", []),
+    ]),
+}
+
+
+_gamesystem_factions_l1_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+
 
 @router.get("/api/community/gamesystems/{gamesystem_id}/factions", summary="Get Official Factions and Detachments for Gamesystem")
 async def api_community_gamesystem_factions(gamesystem_id: str):
     """
-    Fetches the official list of factions and detachments (subfactions) for a gamesystem from BCP.
+    Fetches the official list of factions/archetypes and detachments/subfactions for any gamesystem.
+    Uses fast native OmniTactica catalog for TCGs & non-BCP wargames, and cached BCP catalog (with native fallback) for 40k/AoS.
     """
+    raw_id = str(gamesystem_id or "").strip()
+    raw_lower = raw_id.lower()
+    norm_gs = normalize_game_system(raw_id, default=raw_lower)
+
     from bcp_adapter import bcp_adapter
-    ok, err, factions = bcp_adapter.fetch_gamesystem_factions(gamesystem_id)
+    is_mocked = hasattr(bcp_adapter, "assert_called") or hasattr(getattr(bcp_adapter, "fetch_gamesystem_factions", None), "assert_called")
+
+    # Non-40k/AoS native game system slugs & aliases resolve immediately in <1ms without external calls
+    if not is_mocked and norm_gs in NATIVE_GAMESYSTEM_FACTIONS and norm_gs not in ("40k", "aos"):
+        flist = NATIVE_GAMESYSTEM_FACTIONS[norm_gs]
+        return {
+            "success": True,
+            "gamesystem_id": raw_id,
+            "game_system": norm_gs,
+            "count": len(flist),
+            "factions": flist,
+        }
+
+    bcp_gs_id = raw_id
+    norm_fallback_key = norm_gs if norm_gs in NATIVE_GAMESYSTEM_FACTIONS else None
+    if norm_gs == "40k" or raw_lower in ("40k", "wgmszfkfya"):
+        bcp_gs_id = "WGMSzfKFYA"
+        norm_fallback_key = "40k"
+    elif norm_gs == "aos" or raw_lower in ("aos", "23qdprpabn", "oy8fcpbf6o"):
+        bcp_gs_id = "23qDprPABN"
+        norm_fallback_key = "aos"
+
+    if not is_mocked:
+        cached = _gamesystem_factions_l1_cache.get(bcp_gs_id)
+        if cached and (time.time() - cached[0]) < 3600:
+            return {
+                "success": True,
+                "gamesystem_id": gamesystem_id,
+                "count": len(cached[1]),
+                "factions": cached[1],
+            }
+
+    ok, err, factions = bcp_adapter.fetch_gamesystem_factions(bcp_gs_id if not is_mocked else raw_id)
     if not ok:
+        if not is_mocked and norm_fallback_key and norm_fallback_key in NATIVE_GAMESYSTEM_FACTIONS:
+            fallback_factions = NATIVE_GAMESYSTEM_FACTIONS[norm_fallback_key]
+            return {
+                "success": True,
+                "gamesystem_id": raw_id,
+                "count": len(fallback_factions),
+                "factions": fallback_factions,
+            }
         raise HTTPException(status_code=502, detail=err or "Failed to fetch factions from BCP")
+    if not is_mocked and factions:
+        _gamesystem_factions_l1_cache[bcp_gs_id] = (time.time(), factions)
     return {
         "success": True,
         "gamesystem_id": gamesystem_id,
@@ -3510,7 +4049,34 @@ async def api_community_gamesystem_factions(gamesystem_id: str):
     }
 
 
-@router.post("/api/community/events/{event_id}/player", summary="Update Player Registration Details on BCP")
+def _find_native_roster_entry(
+    roster: List[Dict[str, Any]],
+    user_id: str,
+    session: Dict[str, Any],
+    cand_pid: str = "",
+) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
+    u_pid = str(session.get("player_id") or "").strip()
+    u_email = str(session.get("email") or "").strip().lower()
+    for idx, rp in enumerate(roster):
+        if not isinstance(rp, dict):
+            continue
+        rid = str(rp.get("id") or "").strip()
+        ruid = str(rp.get("user_id") or "").strip()
+        remail = str(rp.get("email") or "").strip().lower()
+        if cand_pid and rid == cand_pid:
+            return idx, rp
+        if ruid and ruid == str(user_id):
+            return idx, rp
+        if u_pid and rid == u_pid:
+            return idx, rp
+        if rid == str(user_id):
+            return idx, rp
+        if u_email and remail and remail == u_email:
+            return idx, rp
+    return None, None
+
+
+@router.post("/api/community/events/{event_id}/player", summary="Update Player Registration Details")
 async def api_community_update_player(
     event_id: str,
     payload: UpdateEventPlayerPayload,
@@ -3518,12 +4084,89 @@ async def api_community_update_player(
     token: Optional[str] = Query(None)
 ):
     """
-    Updates player registration fields (names, faction, detachment, team) on BCP via POST /v1/players/{player_id}.
+    Updates player registration fields (names, faction, detachment, team) natively for ES-* events or on BCP.
     """
     session = _get_user_session_or_401(request, token)
     user_id = session["id"]
     clean_eid = str(event_id).strip()
     cand_pid = str(payload.player_id or "").strip()
+
+    if clean_eid.startswith("ES-"):
+        db = get_database()
+        ev = db.get_studio_event(clean_eid)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Tournament not found.")
+        rj = ev.get("raw_json") if isinstance(ev.get("raw_json"), dict) else {}
+        factions_locked = bool(ev.get("factions_locked") or rj.get("factions_locked") or rj.get("factionsLocked") or False)
+        roster = list(ev.get("roster") or [])
+        idx, entry = _find_native_roster_entry(roster, user_id, session, cand_pid)
+        if idx is None or entry is None:
+            raise HTTPException(status_code=400, detail="Could not find your registration record for this tournament.")
+
+        changing_faction = bool(
+            (payload.faction_name is not None and payload.faction_name.strip() and payload.faction_name.strip() != str(entry.get("faction") or ""))
+            or (payload.army_id is not None and payload.army_id.strip() and payload.army_id.strip() != str(entry.get("army_id") or ""))
+            or (payload.detachment_name is not None and payload.detachment_name.strip() != str(entry.get("detachment") or ""))
+        )
+        if factions_locked and changing_faction:
+            raise HTTPException(status_code=400, detail="Factions and archetypes are locked by the Tournament Organizer.")
+
+        updated = dict(entry)
+        if payload.first_name is not None:
+            updated["first_name"] = payload.first_name.strip()
+        if payload.last_name is not None:
+            updated["last_name"] = payload.last_name.strip()
+        if payload.first_name is not None or payload.last_name is not None:
+            fn = str(updated.get("first_name") or "").strip()
+            ln = str(updated.get("last_name") or "").strip()
+            if fn or ln:
+                updated["name"] = f"{fn} {ln}".strip()
+        if payload.team_name is not None:
+            updated["team"] = payload.team_name.strip()
+        if payload.army_id is not None:
+            updated["army_id"] = payload.army_id.strip()
+        if payload.sub_faction_id is not None:
+            updated["sub_faction_id"] = payload.sub_faction_id.strip()
+        if payload.faction_name is not None and payload.faction_name.strip():
+            updated["faction"] = payload.faction_name.strip()
+        elif payload.army_id:
+            ev_gs = normalize_game_system(ev.get("game_system") or "40k", default="40k")
+            for f_item in NATIVE_GAMESYSTEM_FACTIONS.get(ev_gs, []):
+                if str(f_item.get("id")) == str(payload.army_id):
+                    updated["faction"] = f_item.get("name") or updated.get("faction") or "Unassigned"
+                    if payload.sub_faction_id and not payload.detachment_name:
+                        for sf_item in (f_item.get("subFactions") or []):
+                            if str(sf_item.get("id")) == str(payload.sub_faction_id):
+                                updated["detachment"] = sf_item.get("name") or ""
+                                break
+                    break
+        if payload.detachment_name is not None:
+            updated["detachment"] = payload.detachment_name.strip()
+
+        roster[idx] = updated
+        db.save_studio_roster(clean_eid, roster)
+        clean_pid = str(updated.get("id") or cand_pid or user_id)
+        db.add_user_registered_tournament(user_id, {
+            "bcp_event_id": clean_eid,
+            "id": clean_eid,
+            "player_id": clean_pid,
+            "first_name": updated.get("first_name") or "",
+            "last_name": updated.get("last_name") or "",
+            "name": updated.get("name") or "Competitor",
+            "faction": updated.get("faction") or "Unassigned",
+            "detachment": updated.get("detachment") or "",
+            "army_id": updated.get("army_id") or "",
+            "sub_faction_id": updated.get("sub_faction_id") or "",
+            "team": updated.get("team") or "",
+        })
+        invalidate_all_event_caches(clean_eid)
+        return {
+            "success": True,
+            "message": "Player details updated successfully",
+            "player_id": clean_pid,
+            "data": updated,
+        }
+
     x_bcp_token = request.headers.get("X-BCP-Token")
 
     from bcp_adapter import bcp_adapter
@@ -3577,48 +4220,6 @@ async def api_community_update_player(
     if not ok:
         raise HTTPException(status_code=400, detail=err or "Failed to update player details on BCP")
 
-    # For native Event Studio events, persist in OmniTactica database
-    if clean_eid.startswith("ES-"):
-        try:
-            db = get_database()
-            fn = payload.first_name or ""
-            ln = payload.last_name or ""
-            full_name = f"{fn} {ln}".strip() or session.get("display_name") or "Competitor"
-            fac_name = payload.faction_name or ""
-            det_name = payload.detachment_name or ""
-            if (not fac_name or not det_name) and (payload.army_id or payload.sub_faction_id):
-                try:
-                    _, _, flist = bcp_adapter.fetch_gamesystem_factions("WGMSzfKFYA")
-                    for f_item in (flist or []):
-                        if str(f_item.get("id")) == str(payload.army_id):
-                            if not fac_name:
-                                fac_name = f_item.get("name") or ""
-                            if payload.sub_faction_id and not det_name:
-                                for sf_item in (f_item.get("subFactions") or []):
-                                    if str(sf_item.get("id")) == str(payload.sub_faction_id):
-                                        det_name = sf_item.get("name") or ""
-                                        break
-                            break
-                except Exception:
-                    pass
-
-            db.add_user_registered_tournament(user_id, {
-                "bcp_event_id": clean_eid,
-                "id": clean_eid,
-                "player_id": clean_pid,
-                "bcp_player_id": clean_pid,
-                "first_name": fn,
-                "last_name": ln,
-                "name": full_name,
-                "faction": fac_name or set_fields.get("armyId") or "",
-                "detachment": det_name or set_fields.get("subFactionId") or "",
-                "army_id": payload.army_id or set_fields.get("armyId") or "",
-                "sub_faction_id": payload.sub_faction_id or set_fields.get("subFactionId") or "",
-                "team": payload.team_name or "",
-            })
-        except Exception as dberr:
-            logger.debug(f"Event Studio participant sync notice: {dberr}")
-
     _invalidate_community_reg_cache(clean_eid)
     return {
         "success": True,
@@ -3628,7 +4229,7 @@ async def api_community_update_player(
     }
 
 
-@router.post("/api/community/events/{event_id}/armylist", summary="Submit Army List to BCP")
+@router.post("/api/community/events/{event_id}/armylist", summary="Submit Army or Deck List")
 async def api_community_submit_armylist(
     event_id: str,
     payload: SubmitArmylistPayload,
@@ -3636,17 +4237,64 @@ async def api_community_submit_armylist(
     token: Optional[str] = Query(None)
 ):
     """
-    Submits or updates an army list on BCP via POST /v1/armylists.
+    Submits or updates an army/deck list natively for ES-* tournaments or on BCP via POST /v1/armylists.
     """
     session = _get_user_session_or_401(request, token)
     user_id = session["id"]
     clean_eid = str(event_id).strip()
     cand_pid = str(payload.player_id or "").strip()
-    list_text = str(payload.list_text or "").strip()
-    x_bcp_token = request.headers.get("X-BCP-Token")
+    list_text = str(payload.list_text or payload.army_list or "").strip()
     if not list_text:
         raise HTTPException(status_code=400, detail="Army list text cannot be empty")
 
+    if clean_eid.startswith("ES-"):
+        db = get_database()
+        ev = db.get_studio_event(clean_eid)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Tournament not found.")
+        rj = ev.get("raw_json") if isinstance(ev.get("raw_json"), dict) else {}
+        lists_locked = bool(ev.get("lists_locked") or rj.get("lists_locked") or rj.get("listsLocked") or False)
+        if lists_locked:
+            raise HTTPException(status_code=400, detail="List submissions are locked by the Tournament Organizer.")
+
+        roster = list(ev.get("roster") or [])
+        idx, entry = _find_native_roster_entry(roster, user_id, session, cand_pid)
+        if idx is None or entry is None:
+            raise HTTPException(status_code=400, detail="Could not find your registration record for this tournament.")
+
+        updated = dict(entry)
+        updated["army_list"] = list_text
+        updated["has_list_submitted"] = True
+        updated["listSubmitted"] = True
+        if payload.army_id:
+            updated["army_id"] = payload.army_id
+        if payload.sub_faction_id:
+            updated["sub_faction_id"] = payload.sub_faction_id
+        roster[idx] = updated
+        db.save_studio_roster(clean_eid, roster)
+
+        clean_pid = str(updated.get("id") or cand_pid or user_id)
+        reg_payload: Dict[str, Any] = {
+            "bcp_event_id": clean_eid,
+            "id": clean_eid,
+            "player_id": clean_pid,
+            "army_list": list_text,
+            "has_list_submitted": True,
+        }
+        if payload.army_id:
+            reg_payload["army_id"] = payload.army_id
+        if payload.sub_faction_id:
+            reg_payload["sub_faction_id"] = payload.sub_faction_id
+        db.add_user_registered_tournament(user_id, reg_payload)
+        invalidate_all_event_caches(clean_eid)
+        return {
+            "success": True,
+            "message": "List submitted successfully!",
+            "player_id": clean_pid,
+            "data": {"has_list_submitted": True},
+        }
+
+    x_bcp_token = request.headers.get("X-BCP-Token")
     from bcp_adapter import bcp_adapter
     clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid, explicit_token=x_bcp_token)
     if not clean_pid:
@@ -3684,26 +4332,6 @@ async def api_community_submit_armylist(
     if not ok:
         raise HTTPException(status_code=400, detail=err or "Failed to submit army list to BCP")
 
-    # For native Event Studio events, persist in OmniTactica database
-    if clean_eid.startswith("ES-"):
-        try:
-            db = get_database()
-            reg_payload = {
-                "bcp_event_id": clean_eid,
-                "id": clean_eid,
-                "player_id": clean_pid,
-                "bcp_player_id": clean_pid,
-                "army_list": list_text,
-                "has_list_submitted": True
-            }
-            if payload.army_id:
-                reg_payload["army_id"] = payload.army_id
-            if payload.sub_faction_id:
-                reg_payload["sub_faction_id"] = payload.sub_faction_id
-            db.add_user_registered_tournament(user_id, reg_payload)
-        except Exception as dberr:
-            logger.debug(f"Event Studio participant list sync notice: {dberr}")
-
     _invalidate_community_reg_cache(clean_eid)
     return {
         "success": True,
@@ -3713,7 +4341,7 @@ async def api_community_submit_armylist(
     }
 
 
-@router.post("/api/community/events/{event_id}/checkin", summary="Check-in Player to Tournament on BCP")
+@router.post("/api/community/events/{event_id}/checkin", summary="Check-in Player to Tournament")
 async def api_community_checkin_player(
     event_id: str,
     payload: CheckinPlayerPayload,
@@ -3721,16 +4349,60 @@ async def api_community_checkin_player(
     token: Optional[str] = Query(None)
 ):
     """
-    Checks in a competitor to a tournament on BCP via POST /v1/players/{player_id} with {"set": {"checkedIn": True}}.
+    Checks in a competitor natively for ES-* tournaments or on BCP.
     Guarded against checking in without a list when required.
     """
     session = _get_user_session_or_401(request, token)
     user_id = session["id"]
     clean_eid = str(event_id).strip()
     cand_pid = str(payload.player_id or "").strip()
-    x_bcp_token = request.headers.get("X-BCP-Token")
-
     db = get_database()
+
+    if clean_eid.startswith("ES-"):
+        ev = db.get_studio_event(clean_eid)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Tournament not found.")
+        rj = ev.get("raw_json") if isinstance(ev.get("raw_json"), dict) else {}
+        if bool(ev.get("disable_checkin") or rj.get("disable_checkin") or rj.get("disableCheckIn")):
+            raise HTTPException(status_code=400, detail="Player self check-in is currently disabled by the Tournament Organizer.")
+
+        roster = list(ev.get("roster") or [])
+        idx, entry = _find_native_roster_entry(roster, user_id, session, cand_pid)
+        if idx is None or entry is None:
+            raise HTTPException(status_code=400, detail="Could not find your registration record for this tournament.")
+
+        lists_at_checkin = bool(ev.get("lists_at_checkin", rj.get("lists_at_checkin", rj.get("listsAtCheckIn", False))))
+        has_list = payload.has_list if payload.has_list is not None else bool(entry.get("army_list") or entry.get("has_list_submitted") or entry.get("listSubmitted"))
+        if (lists_at_checkin and not has_list) or payload.has_list is False:
+            raise HTTPException(
+                status_code=400,
+                detail="A list must be submitted before checking in to this tournament."
+            )
+
+        updated = dict(entry)
+        updated["checked_in"] = True
+        updated["checkedIn"] = True
+        updated["dropped"] = False
+        roster[idx] = updated
+        db.save_studio_roster(clean_eid, roster)
+
+        clean_pid = str(updated.get("id") or cand_pid or user_id)
+        db.add_user_registered_tournament(user_id, {
+            "bcp_event_id": clean_eid,
+            "id": clean_eid,
+            "player_id": clean_pid,
+            "checked_in": True,
+            "dropped": False,
+        })
+        invalidate_all_event_caches(clean_eid)
+        return {
+            "success": True,
+            "message": "Successfully checked in to tournament!",
+            "player_id": clean_pid,
+            "data": {"checked_in": True},
+        }
+
+    x_bcp_token = request.headers.get("X-BCP-Token")
     # Pre-validation: check if player has a list submitted
     has_list = payload.has_list
     if has_list is None:
@@ -3782,19 +4454,6 @@ async def api_community_checkin_player(
             err_msg = "BCP requires an army list to be submitted before checking in. Please submit your list first."
         raise HTTPException(status_code=400, detail=err_msg)
 
-    # For native Event Studio events, persist in OmniTactica database
-    if clean_eid.startswith("ES-"):
-        try:
-            db.add_user_registered_tournament(user_id, {
-                "bcp_event_id": clean_eid,
-                "id": clean_eid,
-                "player_id": clean_pid,
-                "bcp_player_id": clean_pid,
-                "checked_in": True
-            })
-        except Exception as dberr:
-            logger.debug(f"Event Studio participant checkin sync notice: {dberr}")
-
     _invalidate_community_reg_cache(clean_eid)
     return {
         "success": True,
@@ -3804,7 +4463,7 @@ async def api_community_checkin_player(
     }
 
 
-@router.post("/api/community/events/{event_id}/drop", summary="Drop Player from Tournament on BCP")
+@router.post("/api/community/events/{event_id}/drop", summary="Drop Player from Tournament")
 async def api_community_drop_player(
     event_id: str,
     payload: DropPlayerPayload,
@@ -3812,14 +4471,49 @@ async def api_community_drop_player(
     token: Optional[str] = Query(None)
 ):
     """
-    Drops a competitor from a tournament on BCP via POST /v1/players/{player_id} with {"set": {"dropped": True}}.
+    Drops a competitor from a tournament natively for ES-* tournaments or on BCP.
     """
     session = _get_user_session_or_401(request, token)
     user_id = session["id"]
     clean_eid = str(event_id).strip()
     cand_pid = str(payload.player_id or "").strip()
-    x_bcp_token = request.headers.get("X-BCP-Token")
 
+    if clean_eid.startswith("ES-"):
+        db = get_database()
+        ev = db.get_studio_event(clean_eid)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Tournament not found.")
+        roster = list(ev.get("roster") or [])
+        idx, entry = _find_native_roster_entry(roster, user_id, session, cand_pid)
+        if idx is None or entry is None:
+            raise HTTPException(status_code=400, detail="Could not find your registration record for this tournament.")
+
+        target_dropped = True if payload.dropped is None else bool(payload.dropped)
+        updated = dict(entry)
+        updated["dropped"] = target_dropped
+        if target_dropped:
+            updated["checked_in"] = False
+            updated["checkedIn"] = False
+        roster[idx] = updated
+        db.save_studio_roster(clean_eid, roster)
+
+        clean_pid = str(updated.get("id") or cand_pid or user_id)
+        db.add_user_registered_tournament(user_id, {
+            "bcp_event_id": clean_eid,
+            "id": clean_eid,
+            "player_id": clean_pid,
+            "dropped": target_dropped,
+            "checked_in": False if target_dropped else bool(updated.get("checked_in")),
+        })
+        invalidate_all_event_caches(clean_eid)
+        return {
+            "success": True,
+            "message": "Successfully dropped from tournament." if target_dropped else "Successfully re-joined tournament.",
+            "player_id": clean_pid,
+            "data": {"dropped": target_dropped},
+        }
+
+    x_bcp_token = request.headers.get("X-BCP-Token")
     from bcp_adapter import bcp_adapter
     clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid, explicit_token=x_bcp_token)
     if not clean_pid:
@@ -3848,20 +4542,6 @@ async def api_community_drop_player(
 
     if not ok:
         raise HTTPException(status_code=400, detail=err or "Failed to drop from tournament on BCP")
-
-    # For native Event Studio events, persist in OmniTactica database
-    if clean_eid.startswith("ES-"):
-        try:
-            db = get_database()
-            db.add_user_registered_tournament(user_id, {
-                "bcp_event_id": clean_eid,
-                "id": clean_eid,
-                "player_id": clean_pid,
-                "bcp_player_id": clean_pid,
-                "dropped": True
-            })
-        except Exception as dberr:
-            logger.debug(f"Event Studio participant drop sync notice: {dberr}")
 
     _invalidate_community_reg_cache(clean_eid)
     return {

@@ -1251,9 +1251,23 @@ window.api = {
     });
   },
 
+  // EventStudio: Catalog (23 Game Systems + Format Presets)
+  async getStudioCatalog() {
+    return this._fetchJson('/api/eventstudio/catalog');
+  },
+
   // EventStudio: Generate Swiss Pairings
   async generateStudioPairings(eventId, payload = {}) {
     return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pairings/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Generate or Advance Single-Elimination Top Cut
+  async generateStudioTopCut(eventId, payload = {}) {
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/top_cut`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)

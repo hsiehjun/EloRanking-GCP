@@ -1475,6 +1475,29 @@ GAME_SYSTEM_ALIASES: Dict[str, str] = {
     "guild_ball": "guild_ball",
     "guildball": "guild_ball",
     "guild ball": "guild_ball",
+    # Event Studio wizard legacy/BCP option IDs -> canonical game_system slugs
+    "vyeod0fcyy": "kill_team",
+    "djtt7u0wv2": "the_old_world",
+    "6p119129pl": "horus_heresy",
+    "0b3e76fa-e943-432b-ab14-fd9f8fb0fb1f": "aos",
+    "413r539n11": "blood_bowl",
+    "cz33e3th2z": "mesbg",
+    "61c2k9332h": "underworlds",
+    "t357b79w24": "warcry",
+    "o3ug413y61": "necromunda",
+    "a93e6be8-d141-4bc9-a9f8-8cd4ebae9c94": "legions_imp",
+    "23h1180541": "bolt_action",
+    "3p2l1z7t8r": "mcp",
+    "4yg2vx6h8p": "sw_legion",
+    "83b0f568-545d-4d04-b082-d7952cd0aa08": "shatterpoint",
+    "a78dfcd4-e8df-40e0-bc5d-8842d5e87a08": "trench_crusade",
+    "5rx9v81b6q": "battletech",
+    "1d2a79f5-82bb-42c3-85cb-b1fd88c99a08": "alpha_strike",
+    "n2vb5tr8yu": "conquest",
+    "8kl3mn6pq9": "warmachine",
+    "9vx2zb5nm8": "infinity",
+    "4ty7ui0op3": "malifaux",
+    "7we0rt3yu6": "asoiaf",
 }
 for _s in BCP_GAME_SYSTEMS_CATALOG:
     _slug = _s["slug"]
@@ -1603,7 +1626,7 @@ def is_bcp_player_id(player_id: Optional[str]) -> bool:
     if not pid:
         return False
     low = pid.lower()
-    if low.startswith(("user_", "es_", "p_", "bcp_", "melee:", "ltcg:", "ls:", "td:", "nr:")) or ":" in pid:
+    if low.startswith(("user_", "es_", "es-", "pl-", "np_", "p_", "bcp_", "melee:", "ltcg:", "ls:", "td:", "nr:")) or ":" in pid:
         return False
     return True
 

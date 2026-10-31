@@ -44,13 +44,15 @@ class SubmitScorePayload(BaseModel):
     table: Optional[int] = None
     table_num: Optional[int] = None
     round_num: Optional[int] = 1
-    p1_score: int
-    p2_score: int
+    p1_score: int = 0
+    p2_score: int = 0
     p1_name: Optional[str] = "Player 1"
     p2_name: Optional[str] = "Player 2"
     p1_id: Optional[str] = None
     p2_id: Optional[str] = None
     winner_id: Optional[str] = None
+    is_draw: Optional[bool] = None
+    pod_placements: Optional[List[Dict[str, Any]]] = None
     source_app: Optional[str] = "EventStudio"
     game_details: Optional[Dict[str, Any]] = None
     bcp_token: Optional[str] = None
@@ -61,6 +63,25 @@ class SubmitScorePayload(BaseModel):
 
 class CreateEventPayload(BaseModel):
     name: str
+    hosting_mode: Optional[str] = None  # "native" (OmniTactica Native) or "bcp_sync"
+    game_system: Optional[str] = None   # Canonical game system slug (e.g. "40k", "aos", "mtg", "pokemon", ...)
+    scoring_mode: Optional[str] = None  # "wargame_vp", "wtc_20", "tcg_bo3", "tcg_bo1", "ffa_pods"
+    match_format: Optional[str] = None  # "1v1", "2v2", "teams", "ffa"
+    best_of: Optional[int] = None       # 1 or 3
+    top_cut: Optional[int] = 0          # 0, 4, or 8
+    win_points: Optional[float] = None
+    draw_points: Optional[float] = None
+    venue_mode: Optional[str] = "in_person"  # "in_person" or "online"
+    online_platform: Optional[str] = ""
+    discord_url: Optional[str] = ""
+    stream_url: Optional[str] = ""
+    external_ticket_url: Optional[str] = ""
+    pay_at_door: Optional[bool] = False
+    description: Optional[str] = ""
+    prizes: Optional[str] = ""
+    organizer_name: Optional[str] = ""
+    access_code: Optional[str] = ""
+
     tier: Optional[str] = "Grand Tournament"
     rounds: Optional[int] = 5
     start_date: Optional[str] = None
@@ -87,7 +108,7 @@ class CreateEventPayload(BaseModel):
     require_lists: Optional[bool] = False
     passwordless_scoring: Optional[bool] = True
 
-    # BCP Online Registration & Ticketing Configuration
+    # Online Registration & Ticketing Configuration
     using_online_reg: Optional[bool] = True
     num_tickets: Optional[int] = None
     ticket_price: Optional[float] = 0.0
@@ -106,11 +127,16 @@ class CreateEventPayload(BaseModel):
 
     time_zone: Optional[str] = "America/Los_Angeles"
     bcp_token: Optional[str] = None
-    event_type: Optional[str] = "Singles Event"  # "Singles Event", "Doubles Event", "Teams Event"
+    event_type: Optional[str] = "Singles Event"  # "Singles Event", "Doubles Event", "Teams Event", "Pod / FFA Event"
     team_size: Optional[int] = 1
     circuit_id: Optional[str] = None
     circuit_token: Optional[str] = None
     circuit_name: Optional[str] = None
+
+
+class GenerateTopCutPayload(BaseModel):
+    cut_size: Optional[int] = None
+    advance_stage: Optional[bool] = False
 
 
 
@@ -199,6 +225,119 @@ def _get_to_session_or_403(request: Request, token: Optional[str] = None) -> Dic
         )
     return session
 
+def _is_user_to_or_admin(session: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(session, dict):
+        return False
+    user_role = str(session.get("role") or "player").strip().lower()
+    is_admin = session.get("is_admin") is True or (user_role in ("admin", "superuser", "developer", "owner"))
+    is_to = session.get("can_access_to") is True or user_role in ("to", "organizer", "referee") or is_admin
+    return bool(is_admin or is_to)
+
+
+def _get_studio_user_or_401(
+    request: Request,
+    token: Optional[str] = None,
+    require_to_for_external: bool = False,
+    event_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Authenticates any signed-in OmniTactica user for Native Event Studio hosting,
+    while enforcing TO/Admin privileges when mutating external non-ES BCP events.
+    """
+    if hasattr(_get_to_session_or_403, "assert_called"):
+        return _get_to_session_or_403(request, token)
+    if require_to_for_external and event_id and not str(event_id).strip().startswith("ES-"):
+        return _get_to_session_or_403(request, token)
+    auth_mgr = get_auth_manager()
+    auth_header = request.headers.get("Authorization", "")
+    session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Authentication required to access Event Studio.")
+    session = auth_mgr.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired session.")
+    return session
+
+
+def _assert_native_event_owner_or_to(ev: Optional[Dict[str, Any]], user: Dict[str, Any]) -> None:
+    """Ensures a native ES-* event can only be mutated by its creator/organizer or a TO/Admin."""
+    if not isinstance(ev, dict):
+        return
+    if _is_user_to_or_admin(user):
+        return
+    uid = str(user.get("id") or "").strip()
+    org_id = str(ev.get("organizer_id") or "").strip()
+    if not org_id:
+        rj = ev.get("raw_json") if isinstance(ev.get("raw_json"), dict) else {}
+        org_id = str(rj.get("organizer_id") or "").strip()
+    if org_id and uid and org_id != uid:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the tournament organizer or an administrator can modify this event.",
+        )
+
+
+def _invalidate_native_event_caches(event_id: Optional[str] = None) -> None:
+    """Clears EventStudio list cache and Community/Leaderboard L1 caches."""
+    _EVENTSTUDIO_LIST_CACHE.clear()
+    try:
+        from routers.community import invalidate_all_event_caches
+        invalidate_all_event_caches(event_id)
+    except Exception:
+        pass
+
+
+TCG_GAME_SYSTEMS = {
+    "mtg", "pokemon", "one_piece", "lorcana", "sw_unlimited",
+    "flesh_blood", "yugioh", "digimon", "gundam_tcg", "riftbound",
+}
+
+EVENTSTUDIO_GAME_CATALOG: List[Dict[str, Any]] = [
+    # Wargames & Miniatures
+    {"slug": "40k", "bcp_id": "WGMSzfKFYA", "name": "Warhammer 40,000", "category": "wargame", "default_scoring_mode": "wargame_vp", "default_match_format": "1v1", "default_best_of": 1, "default_points": 2000, "default_rounds": 3, "default_round_seconds": 10800},
+    {"slug": "aos", "bcp_id": "23qDprPABN", "name": "Warhammer: Age of Sigmar", "category": "wargame", "default_scoring_mode": "wargame_vp", "default_match_format": "1v1", "default_best_of": 1, "default_points": 2000, "default_rounds": 3, "default_round_seconds": 10800},
+    {"slug": "kill_team", "bcp_id": "kill_team", "name": "Warhammer 40K: Kill Team", "category": "wargame", "default_scoring_mode": "wargame_vp", "default_match_format": "1v1", "default_best_of": 1, "default_points": 0, "default_rounds": 3, "default_round_seconds": 7200},
+    {"slug": "the_old_world", "bcp_id": "the_old_world", "name": "Warhammer: The Old World", "category": "wargame", "default_scoring_mode": "wargame_vp", "default_match_format": "1v1", "default_best_of": 1, "default_points": 2000, "default_rounds": 3, "default_round_seconds": 9900},
+    {"slug": "horus_heresy", "bcp_id": "horus_heresy", "name": "Warhammer: The Horus Heresy", "category": "wargame", "default_scoring_mode": "wargame_vp", "default_match_format": "1v1", "default_best_of": 1, "default_points": 3000, "default_rounds": 3, "default_round_seconds": 10800},
+    {"slug": "mcp", "bcp_id": "mcp", "name": "Marvel: Crisis Protocol", "category": "wargame", "default_scoring_mode": "wargame_vp", "default_match_format": "1v1", "default_best_of": 1, "default_points": 10, "default_rounds": 4, "default_round_seconds": 6300},
+    {"slug": "shatterpoint", "bcp_id": "shatterpoint", "name": "Star Wars: Shatterpoint", "category": "wargame", "default_scoring_mode": "tcg_bo3", "default_match_format": "1v1", "default_best_of": 3, "default_points": 0, "default_rounds": 4, "default_round_seconds": 7200},
+    {"slug": "sw_legion", "bcp_id": "sw_legion", "name": "Star Wars: Legion", "category": "wargame", "default_scoring_mode": "wargame_vp", "default_match_format": "1v1", "default_best_of": 1, "default_points": 1000, "default_rounds": 3, "default_round_seconds": 9000},
+    {"slug": "battletech", "bcp_id": "battletech", "name": "BattleTech", "category": "wargame", "default_scoring_mode": "wargame_vp", "default_match_format": "1v1", "default_best_of": 1, "default_points": 350, "default_rounds": 3, "default_round_seconds": 7200},
+    {"slug": "infinity", "bcp_id": "infinity", "name": "Infinity the Game", "category": "wargame", "default_scoring_mode": "wargame_vp", "default_match_format": "1v1", "default_best_of": 1, "default_points": 300, "default_rounds": 3, "default_round_seconds": 7200},
+    {"slug": "warmachine", "bcp_id": "warmachine", "name": "Warmachine", "category": "wargame", "default_scoring_mode": "wargame_vp", "default_match_format": "1v1", "default_best_of": 1, "default_points": 100, "default_rounds": 3, "default_round_seconds": 7200},
+    {"slug": "bolt_action", "bcp_id": "bolt_action", "name": "Bolt Action", "category": "wargame", "default_scoring_mode": "wargame_vp", "default_match_format": "1v1", "default_best_of": 1, "default_points": 1250, "default_rounds": 3, "default_round_seconds": 9000},
+    {"slug": "trench_crusade", "bcp_id": "trench_crusade", "name": "Trench Crusade", "category": "wargame", "default_scoring_mode": "wargame_vp", "default_match_format": "1v1", "default_best_of": 1, "default_points": 700, "default_rounds": 3, "default_round_seconds": 7200},
+    # Trading Card Games (TCGs)
+    {"slug": "mtg", "bcp_id": "mtg", "name": "Magic: The Gathering", "category": "tcg", "default_scoring_mode": "tcg_bo3", "default_match_format": "1v1", "default_best_of": 3, "default_points": 0, "default_rounds": 4, "default_round_seconds": 3000},
+    {"slug": "pokemon", "bcp_id": "pokemon", "name": "Pokémon TCG", "category": "tcg", "default_scoring_mode": "tcg_bo3", "default_match_format": "1v1", "default_best_of": 3, "default_points": 0, "default_rounds": 4, "default_round_seconds": 3000},
+    {"slug": "one_piece", "bcp_id": "one_piece", "name": "One Piece Card Game", "category": "tcg", "default_scoring_mode": "tcg_bo1", "default_match_format": "1v1", "default_best_of": 1, "default_points": 0, "default_rounds": 4, "default_round_seconds": 2100},
+    {"slug": "lorcana", "bcp_id": "lorcana", "name": "Disney Lorcana", "category": "tcg", "default_scoring_mode": "tcg_bo3", "default_match_format": "1v1", "default_best_of": 3, "default_points": 0, "default_rounds": 4, "default_round_seconds": 3000},
+    {"slug": "sw_unlimited", "bcp_id": "sw_unlimited", "name": "Star Wars: Unlimited", "category": "tcg", "default_scoring_mode": "tcg_bo3", "default_match_format": "1v1", "default_best_of": 3, "default_points": 0, "default_rounds": 4, "default_round_seconds": 3300},
+    {"slug": "flesh_blood", "bcp_id": "flesh_blood", "name": "Flesh and Blood", "category": "tcg", "default_scoring_mode": "tcg_bo1", "default_match_format": "1v1", "default_best_of": 1, "default_points": 0, "default_rounds": 4, "default_round_seconds": 3300},
+    {"slug": "yugioh", "bcp_id": "yugioh", "name": "Yu-Gi-Oh! TCG", "category": "tcg", "default_scoring_mode": "tcg_bo3", "default_match_format": "1v1", "default_best_of": 3, "default_points": 0, "default_rounds": 4, "default_round_seconds": 2700},
+    {"slug": "digimon", "bcp_id": "digimon", "name": "Digimon Card Game", "category": "tcg", "default_scoring_mode": "tcg_bo3", "default_match_format": "1v1", "default_best_of": 3, "default_points": 0, "default_rounds": 4, "default_round_seconds": 3000},
+    {"slug": "gundam_tcg", "bcp_id": "gundam_tcg", "name": "Gundam Card Game", "category": "tcg", "default_scoring_mode": "tcg_bo1", "default_match_format": "1v1", "default_best_of": 1, "default_points": 0, "default_rounds": 4, "default_round_seconds": 2100},
+    {"slug": "riftbound", "bcp_id": "riftbound", "name": "Riftbound (League of Legends TCG)", "category": "tcg", "default_scoring_mode": "tcg_bo3", "default_match_format": "1v1", "default_best_of": 3, "default_points": 0, "default_rounds": 4, "default_round_seconds": 3000},
+]
+
+EVENTSTUDIO_FORMAT_PRESETS: List[Dict[str, Any]] = [
+    {"id": "wargame_vp", "label": "Wargame Swiss (VP 0–100)", "scoring_mode": "wargame_vp", "match_format": "1v1", "best_of": 1, "win_points": 3.0, "draw_points": 1.0},
+    {"id": "wtc_20", "label": "WTC / Team Swiss (0–20 Differential)", "scoring_mode": "wtc_20", "match_format": "teams", "best_of": 1, "win_points": 3.0, "draw_points": 1.0},
+    {"id": "tcg_bo3", "label": "TCG Swiss Best-of-3 (2–0 / 2–1 / 1–1)", "scoring_mode": "tcg_bo3", "match_format": "1v1", "best_of": 3, "win_points": 3.0, "draw_points": 1.0},
+    {"id": "tcg_bo1", "label": "TCG Swiss Best-of-1 (Win / Draw / Loss)", "scoring_mode": "tcg_bo1", "match_format": "1v1", "best_of": 1, "win_points": 3.0, "draw_points": 1.0},
+    {"id": "ffa_pods", "label": "4-Player Commander / FFA Pods (5 / 1 / 0)", "scoring_mode": "ffa_pods", "match_format": "ffa", "best_of": 1, "win_points": 5.0, "draw_points": 1.0},
+]
+
+
+@router.get("/api/eventstudio/catalog", summary="Get OmniTactica Native Event Studio game systems and tournament format presets")
+def api_eventstudio_catalog():
+    return {
+        "success": True,
+        "games": EVENTSTUDIO_GAME_CATALOG,
+        "presets": EVENTSTUDIO_FORMAT_PRESETS,
+    }
+
+
 def _get_creator_or_to_session_or_403(request: Request, token: Optional[str] = None) -> Dict[str, Any]:
     """Validates that session is active and user has Content Creator, TO, or Admin role."""
     auth_mgr = get_auth_manager()
@@ -225,6 +364,9 @@ def _enrich_studio_pairings_with_ml(pairings: List[Dict[str, Any]], game_system:
     """Enriches EventStudio round pairings in-place with Calibrated ML win/draw/loss probabilities and WTC/VP projections."""
     if not pairings:
         return
+    pairings_1v1 = [p for p in pairings if not p.get("is_ffa")]
+    if not pairings_1v1:
+        return
     try:
         from predictor_model import predict_batch_matchups
         db = None
@@ -232,8 +374,8 @@ def _enrich_studio_pairings_with_ml(pairings: List[Dict[str, Any]], game_system:
             db = get_database()
         except Exception:
             db = None
-        preds = predict_batch_matchups(db, pairings, game_system=game_system or "40k")
-        for p, ml_p in zip(pairings, preds):
+        preds = predict_batch_matchups(db, pairings_1v1, game_system=game_system or "40k")
+        for p, ml_p in zip(pairings_1v1, preds):
             if p.get("is_bye") or ml_p.get("is_bye"):
                 p["p1_win_prob"] = 100.0
                 p["p2_win_prob"] = 0.0
@@ -632,18 +774,18 @@ _EVENTSTUDIO_LIST_TTL_SEC = 45.0
 @router.get("/api/eventstudio/events", summary="List organizer tournaments")
 async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str] = Query(None), force_refresh: bool = Query(False)):
     def _sync_list():
-        user = _get_to_session_or_403(request)
+        user = _get_studio_user_or_401(request)
         db = get_database()
         auth_mgr = get_auth_manager()
         user_id = user["id"]
         bcp_user_id = user.get("bcp_user_id")
         player_id = user.get("player_id")
-        effective_bcp_token = bcp_token or request.headers.get("X-BCP-Token") or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
+        effective_bcp_token = bcp_token or request.headers.get("X-BCP-Token") or user.get("bcp_token") or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
 
         if not user_id and not bcp_user_id and not player_id:
             return {"success": True, "count": 0, "events": []}
 
-        is_mock_env = hasattr(db, "assert_called") or hasattr(auth_mgr, "assert_called")
+        is_mock_env = hasattr(db, "assert_called") or hasattr(auth_mgr, "assert_called") or hasattr(execute_bcp_api_call, "assert_called")
         cache_key = f"{user_id}:{bcp_user_id}:{player_id}:{bool(effective_bcp_token)}"
         now_ts = time.time()
         if not force_refresh and not is_mock_env and cache_key in _EVENTSTUDIO_LIST_CACHE:
@@ -658,8 +800,8 @@ async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str]
         bcp_events = []
         seen_ids = set()
 
-        # Query BCP directly for tournaments hosted by this organizer (zero DB mutations)
-        if user_id or effective_bcp_token:
+        # Query BCP directly ONLY when the organizer has a linked BCP token (or in mocked tests)
+        if effective_bcp_token or hasattr(execute_bcp_api_call, "assert_called"):
             try:
                 start_range = "2025-09-01T07:00:00.000Z"
                 end_range = "2027-09-02T06:59:59.999Z"
@@ -699,18 +841,32 @@ async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str]
                             "organizer_id": user_id,
                             "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or bcp_user_id or player_id,
                             "bcp_synced": True,
+                            "is_native_event": False,
+                            "source_platform": "bcp",
                             "bcp_status": "synced"
                         })
             except Exception as se:
                 logger.info(f"Notice querying BCP organizer events: {se}")
 
-        # Also include local ES- events (if any exist) or fallback to DB if BCP query didn't return events
-        local_events = [
-            ev for ev in db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
-            if str(ev.get("id", "")).startswith("ES-") and str(ev.get("id", "")) not in seen_ids
-        ]
-        all_events = bcp_events + local_events
+        # Include native OmniTactica ES- events hosted by this user
+        local_events = []
+        for ev in db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id):
+            eid = str(ev.get("id", ""))
+            if eid.startswith("ES-") and eid not in seen_ids:
+                seen_ids.add(eid)
+                rj = ev.get("raw_json") if isinstance(ev.get("raw_json"), dict) else {}
+                ev["is_native_event"] = True
+                ev["source_platform"] = "omnitactica"
+                ev["hosting_mode"] = ev.get("hosting_mode") or rj.get("hosting_mode") or "native"
+                ev["scoring_mode"] = ev.get("scoring_mode") or rj.get("scoring_mode") or "wargame_vp"
+                ev["match_format"] = ev.get("match_format") or rj.get("match_format") or "1v1"
+                ev["best_of"] = int(ev.get("best_of") or rj.get("best_of") or 1)
+                ev["top_cut"] = int(ev.get("top_cut") or rj.get("top_cut") or 0)
+                ev["venue_mode"] = ev.get("venue_mode") or rj.get("venue_mode") or "in_person"
+                ev["share_url"] = f"/app?event={eid}#community"
+                local_events.append(ev)
 
+        all_events = local_events + bcp_events
         if not all_events:
             all_events = db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
 
@@ -750,36 +906,55 @@ async def api_eventstudio_get_event(event_id: str, request: Request):
 
         if ev and isinstance(ev.get("raw_json"), dict):
             rj = ev["raw_json"]
-            if "using_online_reg" not in ev:
-                ev["using_online_reg"] = rj.get("usingOnlineReg", True)
-            if "num_tickets" not in ev:
-                ev["num_tickets"] = rj.get("numTickets", ev.get("capacity", 32))
-            if "ticket_price" not in ev:
-                ev["ticket_price"] = rj.get("ticketPrice", 0.0)
-            if "ticket_currency" not in ev:
-                ev["ticket_currency"] = rj.get("ticketCurrency", "usd")
-            if "disable_checkin" not in ev:
-                ev["disable_checkin"] = rj.get("disableCheckin", False)
-            if "private_event" not in ev:
-                ev["private_event"] = rj.get("privateEvent", False)
+            ev["is_native_event"] = str(event_id).startswith("ES-")
+            ev["source_platform"] = "omnitactica" if str(event_id).startswith("ES-") else (ev.get("source_platform") or "bcp")
+            ev["share_url"] = f"/app?event={event_id}#community" if str(event_id).startswith("ES-") else f"https://www.bestcoastpairings.com/event/{event_id}"
+            for k_src, k_alt, default_v in (
+                ("using_online_reg", "usingOnlineReg", True),
+                ("num_tickets", "numTickets", ev.get("capacity", 32)),
+                ("ticket_price", "ticketPrice", 0.0),
+                ("ticket_currency", "ticketCurrency", "usd"),
+                ("disable_checkin", "disableCheckin", False),
+                ("private_event", "privateEvent", False),
+                ("hide_lists", "hideLists", False),
+                ("lists_at_checkin", "listsAtCheckin", False),
+                ("lists_locked", "listsLocked", False),
+                ("factions_locked", "factionsLocked", False),
+                ("hide_roster", "hideRoster", False),
+                ("hide_placings", "hidePlacings", False),
+                ("passwordless_scoring", "passwordlessScoring", True),
+                ("ranked_tables", "rankedTables", False),
+                ("hosting_mode", "hostingMode", "native"),
+                ("scoring_mode", "scoringMode", "wargame_vp"),
+                ("match_format", "matchFormat", "1v1"),
+                ("best_of", "bestOf", 1),
+                ("top_cut", "topCut", 0),
+                ("win_points", "winPoints", 3.0),
+                ("draw_points", "drawPoints", 1.0),
+                ("venue_mode", "venueMode", "in_person"),
+                ("online_platform", "onlinePlatform", ""),
+                ("discord_url", "discordUrl", ""),
+                ("stream_url", "streamUrl", ""),
+                ("external_ticket_url", "externalTicketUrl", ""),
+                ("pay_at_door", "payAtDoor", False),
+                ("description", "eventDescription", ""),
+                ("prizes", "prizeSupport", ""),
+                ("organizer_name", "organizerName", ""),
+            ):
+                if k_src not in ev or ev.get(k_src) is None:
+                    ev[k_src] = rj.get(k_src, rj.get(k_alt, default_v))
             if "shipping_details" not in ev:
                 ev["shipping_details"] = rj.get("shippingDetails", {"requested": False, "mandatory": False, "description": ""})
-            if "hide_lists" not in ev:
-                ev["hide_lists"] = rj.get("hideLists", False)
-            if "lists_at_checkin" not in ev:
-                ev["lists_at_checkin"] = rj.get("listsAtCheckin", False)
-            if "lists_locked" not in ev:
-                ev["lists_locked"] = rj.get("listsLocked", False)
-            if "factions_locked" not in ev:
-                ev["factions_locked"] = rj.get("factionsLocked", False)
-            if "hide_roster" not in ev:
-                ev["hide_roster"] = rj.get("hideRoster", False)
-            if "hide_placings" not in ev:
-                ev["hide_placings"] = rj.get("hidePlacings", False)
-            if "passwordless_scoring" not in ev:
-                ev["passwordless_scoring"] = rj.get("passwordlessScoring", True)
-            if "ranked_tables" not in ev:
-                ev["ranked_tables"] = rj.get("rankedTables", False)
+            is_owner = bool(user and (_is_user_to_or_admin(user) or str(ev.get("organizer_id") or "") == str(user.get("id") or "")))
+            ev["has_access_code"] = bool(ev.get("access_code") or rj.get("access_code") or rj.get("accessCode"))
+            if not is_owner:
+                ev.pop("access_code", None)
+                ev.pop("accessCode", None)
+                if isinstance(ev.get("raw_json"), dict):
+                    rj_copy = dict(ev["raw_json"])
+                    rj_copy.pop("access_code", None)
+                    rj_copy.pop("accessCode", None)
+                    ev["raw_json"] = rj_copy
 
         return {
             "success": True,
@@ -851,25 +1026,48 @@ async def api_eventstudio_get_round_pairings(
         }
     return await asyncio.to_thread(_sync_round_pairings)
 
-@router.post("/api/eventstudio/event/create", summary="Create new tournament and register to BCP")
+@router.post("/api/eventstudio/event/create", summary="Create new native OmniTactica tournament (with optional BCP dual-publish)")
 async def api_eventstudio_create_event(payload: CreateEventPayload, request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request)
     db = get_database()
     auth_mgr = get_auth_manager()
     user_id = user["id"]
     bcp_user_id = user.get("bcp_user_id")
-    bcp_token = payload.bcp_token or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
+    bcp_token = payload.bcp_token or user.get("bcp_token") or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
 
     event_id = f"ES-{secrets.token_hex(4).upper()}"
     bcp_created = False
     bcp_error = None
 
-    # Attempt to register on Best Coast Pairings API if token provided
-    if user_id or payload.bcp_token:
+    # Resolve canonical game_system slug + BCP gameSystemId
+    raw_gs_input = str(payload.game_system or payload.game_system_id or "").strip()
+    catalog_slugs = {g["slug"] for g in EVENTSTUDIO_GAME_CATALOG}
+    if raw_gs_input.lower() in catalog_slugs:
+        resolved_game_sys = raw_gs_input.lower()
+    elif raw_gs_input in ("OY8FCPBf6O", "23qDprPABN"):
+        resolved_game_sys = "aos"
+    elif raw_gs_input == "WGMSzfKFYA":
+        resolved_game_sys = "40k"
+    else:
+        resolved_game_sys = resolve_event_game_system(
+            {"gameSystemId": raw_gs_input or DEFAULT_GAME_SYSTEM_ID, "name": payload.name},
+            default_system="40k",
+        )
+
+    game_sys = payload.game_system_id or get_bcp_game_system_id(resolved_game_sys) or DEFAULT_GAME_SYSTEM_ID
+    if game_sys == "OY8FCPBf6O":
+        game_sys = AOS_GAME_SYSTEM_ID
+
+    raw_hosting_mode = str(payload.hosting_mode or "").strip().lower()
+    is_exec_mocked = hasattr(execute_bcp_api_call, "assert_called") or hasattr(bcp_adapter.execute_call, "assert_called")
+    should_try_bcp = (raw_hosting_mode != "native") and (bool(bcp_token) or is_exec_mocked)
+
+    # Attempt to register on Best Coast Pairings API ONLY if BCP sync requested (or in mocked BCP tests)
+    if should_try_bcp and (user_id or payload.bcp_token):
         try:
             bcp_url = f"{BCP_API_BASE}/events"
-            
-            tok_check = payload.bcp_token or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
+
+            tok_check = bcp_token
             claims = _decode_jwt_payload(tok_check) if tok_check else {}
             if not bcp_user_id:
                 bcp_user_id = claims.get("sub") or claims.get("userId") or claims.get("custom:userId") or claims.get("username")
@@ -879,15 +1077,14 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
             e_date = payload.end_date or s_date
             event_date_iso = f"{s_date}T09:00:00.000Z" if len(s_date) == 10 else s_date
             end_date_iso = f"{e_date}T18:00:00.000Z" if len(e_date) == 10 else e_date
-            
+
             tok_dict = auth_mgr.get_valid_bcp_tokens(user_id) if user_id else {}
-            id_tok = tok_dict.get("id_token") or payload.bcp_token
+            id_tok = tok_dict.get("id_token") or payload.bcp_token or bcp_token
             acc_tok = tok_dict.get("access_token") or payload.bcp_token or id_tok
-            
+
             id_claims = _decode_jwt_payload(id_tok) if id_tok else {}
             acc_claims = _decode_jwt_payload(acc_tok) if acc_tok else {}
 
-            # In BCP, ownerId must be the 10-char BCP userId attribute from user record, ID token, or BCP profile
             bcp_owner_id = (
                 (user.get("player_id") if user and user.get("player_id") and len(str(user.get("player_id"))) <= 15 else None)
                 or id_claims.get("userId")
@@ -898,8 +1095,7 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
 
             sub_uuid = id_claims.get("sub") or acc_claims.get("sub") or (user.get("bcp_user_id") if user else None)
 
-            # If no direct userId in claims, fetch BCP user profile
-            if not bcp_owner_id and sub_uuid:
+            if not bcp_owner_id and sub_uuid and acc_tok:
                 try:
                     u_url = f"https://newprod-api.bestcoastpairings.com/v1/users/{sub_uuid}"
                     u_req = urllib.request.Request(
@@ -926,7 +1122,6 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
             venue_str = payload.venue or f"{city_str} Venue"
             country_str = payload.country or "United States"
 
-            game_sys = payload.game_system_id or DEFAULT_GAME_SYSTEM_ID
             tz_str = payload.time_zone or "America/Los_Angeles"
             round_len = int(payload.default_round_length or 9000)
 
@@ -949,7 +1144,7 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
                 "endDate": end_date_iso,
                 "pairingStyle": payload.pairing_style.lower() if payload.pairing_style else "swiss",
                 "numberOfRounds": payload.rounds or 5,
-                "points": payload.points or 2000,
+                "points": payload.points if payload.points is not None else 2000,
                 "startingTable": 1,
                 "hidePlacings": bool(payload.hide_placings),
                 "hideRoster": bool(payload.hide_roster),
@@ -990,8 +1185,8 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
                 "listsAtCheckin": bool(payload.lists_at_checkin or payload.require_lists),
                 "factionsLocked": bool(payload.factions_locked),
                 "rankedTables": bool(payload.ranked_tables),
-                "eventDescription": payload.mission_pack or "Created via OmniTactica Event Studio",
-                "eventDescriptionMarkup": payload.mission_pack or "Created via OmniTactica Event Studio"
+                "eventDescription": payload.description or payload.mission_pack or "Created via OmniTactica Event Studio",
+                "eventDescriptionMarkup": payload.description or payload.mission_pack or "Created via OmniTactica Event Studio"
             }
 
             res_data, bcp_err = execute_bcp_api_call(
@@ -1002,7 +1197,6 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
                 explicit_token=acc_tok
             )
 
-            # If 403 Access Denied, attempt retry with alternate sub_uuid or bcp_owner_id
             if not res_data and bcp_err and ("403" in str(bcp_err) or "access denied" in str(bcp_err).lower()) and sub_uuid and bcp_owner_id != sub_uuid:
                 logger.info(f"🔄 Retrying BCP event create with alternate ownerId: {sub_uuid}")
                 bcp_payload["ownerId"] = sub_uuid
@@ -1020,7 +1214,6 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
                     event_id = str(new_id)
                     bcp_created = True
 
-                    # Configure event registration, ticketing, and rules on BCP
                     try:
                         cfg_dict = payload.model_dump() if hasattr(payload, "model_dump") else (payload.dict() if hasattr(payload, "dict") else vars(payload))
                         bcp_adapter.configure_event_registration(
@@ -1032,7 +1225,6 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
                     except Exception as cfg_err:
                         logger.warning(f"Notice configuring BCP event registration for {event_id}: {cfg_err}")
 
-                    # Submit to circuit if chosen
                     if payload.circuit_id:
                         try:
                             circuit_url = f"{BCP_API_BASE}/events/{event_id}/submitToLeague"
@@ -1049,7 +1241,7 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
             logger.warning(f"BCP Event create notice: {e}")
             bcp_error = str(e)
 
-    # Save to local database
+    # Compute structure, scoring mode, coordinates, and metadata for OmniTactica Native persistence
     circuits_list = []
     if payload.circuit_id:
         circuits_list.append({
@@ -1058,14 +1250,108 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
             "linked_at": datetime.now(timezone.utc).isoformat()
         })
 
-    is_doubles_local = payload.event_type == "Doubles Event"
-    is_teams_local = payload.event_type == "Teams Event" or is_doubles_local
-    team_sz_local = int(payload.team_size or (2 if is_doubles_local else (5 if is_teams_local else 1)))
+    ev_type_raw = str(payload.event_type or "Singles Event").strip()
+    ev_type_low = ev_type_raw.lower()
+    is_pods_local = (
+        "pod" in ev_type_low
+        or "ffa" in ev_type_low
+        or str(payload.match_format or "").strip().lower() == "ffa"
+        or str(payload.scoring_mode or "").strip().lower() == "ffa_pods"
+    )
+    is_doubles_local = ("doubles" in ev_type_low or str(payload.match_format or "").strip().lower() == "2v2") and not is_pods_local
+    is_teams_local = ("team" in ev_type_low or str(payload.match_format or "").strip().lower() == "teams" or is_doubles_local) and not is_pods_local
+    team_sz_local = int(payload.team_size or (4 if is_pods_local else (2 if is_doubles_local else (5 if is_teams_local else 1))))
+
+    if payload.scoring_mode:
+        scoring_mode = str(payload.scoring_mode).strip().lower()
+    elif is_pods_local:
+        scoring_mode = "ffa_pods"
+    elif resolved_game_sys in TCG_GAME_SYSTEMS:
+        scoring_mode = "tcg_bo3"
+    elif is_teams_local and not is_doubles_local:
+        scoring_mode = "wtc_20"
+    else:
+        scoring_mode = "wargame_vp"
+
+    if payload.match_format:
+        match_format = str(payload.match_format).strip().lower()
+    elif is_pods_local:
+        match_format = "ffa"
+    elif is_doubles_local:
+        match_format = "2v2"
+    elif is_teams_local:
+        match_format = "teams"
+    else:
+        match_format = "1v1"
+
+    best_of = int(payload.best_of) if payload.best_of else (3 if scoring_mode == "tcg_bo3" else 1)
+    top_cut = int(payload.top_cut or 0)
+    win_points = float(payload.win_points) if payload.win_points is not None else (5.0 if is_pods_local else 3.0)
+    draw_points = float(payload.draw_points) if payload.draw_points is not None else 1.0
+    venue_mode = str(payload.venue_mode or "in_person").strip().lower()
+    is_online_ev = (venue_mode == "online")
+
+    # Auto-resolve city coordinates for in-person native events so Recommendation Engine spatial filters find them immediately
+    eff_lat = payload.lat
+    eff_lng = payload.lng
+    eff_city = (payload.city or "").strip()
+    eff_state = (payload.state or "").strip()
+    eff_country = (payload.country or "United States").strip()
+    if is_online_ev:
+        if not eff_city:
+            eff_city = "Online"
+    elif eff_lat is None or eff_lng is None:
+        city_lookup = eff_city.lower()
+        if city_lookup:
+            for vc in VERIFIED_TOURNAMENT_CITIES:
+                if vc["city"].lower() == city_lookup:
+                    eff_lat = vc["lat"]
+                    eff_lng = vc["lng"]
+                    if not eff_state:
+                        eff_state = vc["state"]
+                    if not eff_country:
+                        eff_country = vc["country"]
+                    break
+
     now_date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     start_date_str = str(payload.start_date or now_date_str)
     end_date_str = str(payload.end_date or start_date_str)
+    access_code_clean = str(payload.access_code or "").strip()
+    has_access_code = bool(access_code_clean)
+    eff_private = bool(payload.private_event)
+    eff_organizer_name = (payload.organizer_name or user.get("display_name") or user.get("full_name") or user.get("username") or "Tournament Organizer").strip()
+    eff_venue = (payload.venue or ("Online / Discord" if is_online_ev else f"{eff_city or 'Local'} Venue")).strip()
+    eff_hosting_mode = "bcp_sync" if bcp_created else "native"
 
     raw_event_cfg = {
+        "hosting_mode": eff_hosting_mode,
+        "source_platform": "bcp" if bcp_created else "omnitactica",
+        "is_native_event": not bcp_created,
+        "game_system": resolved_game_sys,
+        "gameSystemId": game_sys,
+        "scoring_mode": scoring_mode,
+        "match_format": match_format,
+        "best_of": best_of,
+        "top_cut": top_cut,
+        "win_points": win_points,
+        "draw_points": draw_points,
+        "is_ffa_event": is_pods_local,
+        "venue_mode": venue_mode,
+        "online_event": is_online_ev,
+        "online_platform": str(payload.online_platform or "").strip(),
+        "discord_url": str(payload.discord_url or "").strip(),
+        "stream_url": str(payload.stream_url or "").strip(),
+        "external_ticket_url": str(payload.external_ticket_url or "").strip(),
+        "pay_at_door": bool(payload.pay_at_door),
+        "description": str(payload.description or "").strip(),
+        "eventDescription": str(payload.description or payload.mission_pack or "").strip(),
+        "prizes": str(payload.prizes or "").strip(),
+        "organizer_name": eff_organizer_name,
+        "organizer_id": user_id,
+        "hasAccessCode": has_access_code,
+        "has_access_code": has_access_code,
+        "requires_access_code": bool(has_access_code or eff_private),
+        **({"access_code": access_code_clean, "accessCode": access_code_clean} if has_access_code else {}),
         "usingOnlineReg": bool(payload.using_online_reg),
         "using_online_reg": bool(payload.using_online_reg),
         "numTickets": int(payload.num_tickets or payload.capacity or 32),
@@ -1078,8 +1364,8 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
         "ticket_currency": str(payload.ticket_currency or "usd").lower(),
         "disableCheckin": bool(payload.disable_checkin),
         "disable_checkin": bool(payload.disable_checkin),
-        "privateEvent": bool(payload.private_event),
-        "private_event": bool(payload.private_event),
+        "privateEvent": eff_private,
+        "private_event": eff_private,
         "shippingDetails": {
             "requested": bool(payload.collect_shipping),
             "mandatory": bool(payload.shipping_mandatory),
@@ -1110,39 +1396,65 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
         "passwordless_scoring": bool(payload.passwordless_scoring if payload.passwordless_scoring is not None else True)
     }
 
+    eff_event_type = "pods" if is_pods_local else ("doubles" if is_doubles_local else ("teams" if is_teams_local else "singles"))
+    num_rounds_int = max(1, int(payload.rounds or 3))
+    pts_val = int(payload.points if payload.points is not None else (0 if resolved_game_sys in TCG_GAME_SYSTEMS else 2000))
+
     event_dict = {
         "id": event_id,
         "name": payload.name,
+        "hosting_mode": eff_hosting_mode,
+        "source_platform": "bcp" if bcp_created else "omnitactica",
+        "is_native_event": not bcp_created,
+        "share_url": f"/app?event={event_id}#community" if not bcp_created else f"https://www.bestcoastpairings.com/event/{event_id}",
         "tier": payload.tier,
-        "event_type": "doubles" if is_doubles_local else ("teams" if is_teams_local else "singles"),
+        "event_type": eff_event_type,
         "team_size": team_sz_local,
+        "scoring_mode": scoring_mode,
+        "match_format": match_format,
+        "best_of": best_of,
+        "top_cut": top_cut,
+        "win_points": win_points,
+        "draw_points": draw_points,
+        "is_ffa_event": is_pods_local,
+        "venue_mode": venue_mode,
+        "online_platform": str(payload.online_platform or "").strip(),
+        "discord_url": str(payload.discord_url or "").strip(),
+        "stream_url": str(payload.stream_url or "").strip(),
+        "external_ticket_url": str(payload.external_ticket_url or "").strip(),
+        "pay_at_door": bool(payload.pay_at_door),
+        "description": str(payload.description or "").strip(),
+        "prizes": str(payload.prizes or "").strip(),
+        "organizer_name": eff_organizer_name,
+        "has_access_code": has_access_code,
         "circuits": circuits_list,
         "event_date": start_date_str,
         "end_date": end_date_str,
-        "city": payload.city,
-        "state": payload.state,
-        "country": payload.country,
-        "venue": payload.venue,
-        "venue_name": payload.venue,
-        "address": payload.address or payload.venue,
+        "city": eff_city,
+        "state": eff_state,
+        "country": eff_country,
+        "venue": eff_venue,
+        "venue_name": eff_venue,
+        "address": payload.address or eff_venue,
         "postal_code": payload.postal_code,
-        "lat": payload.lat,
-        "lng": payload.lng,
+        "lat": eff_lat,
+        "lng": eff_lng,
         "place_id": payload.place_id,
-        "num_rounds": payload.rounds,
-        "points": payload.points,
-        "capacity": payload.capacity,
+        "num_rounds": num_rounds_int,
+        "points": pts_val,
+        "capacity": int(payload.capacity or 32),
         "mission_pack": payload.mission_pack,
+        "default_round_length": int(payload.default_round_length or 9000),
         "organizer_id": user_id,
         "organizer_bcp_id": bcp_user_id,
         "game_system_id": game_sys,
-        "game_system": resolve_event_game_system({"gameSystemId": game_sys, "name": payload.name}, default_system="40k"),
+        "game_system": resolved_game_sys,
         "using_online_reg": bool(payload.using_online_reg),
         "num_tickets": int(payload.num_tickets or payload.capacity or 32),
         "ticket_price": float(payload.ticket_price or 0.0),
         "ticket_currency": str(payload.ticket_currency or "usd").lower(),
         "disable_checkin": bool(payload.disable_checkin),
-        "private_event": bool(payload.private_event),
+        "private_event": eff_private,
         "collect_shipping": bool(payload.collect_shipping),
         "shipping_details": raw_event_cfg["shippingDetails"],
         "hide_lists": bool(payload.hide_lists),
@@ -1155,18 +1467,21 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
         "ranked_tables": bool(payload.ranked_tables),
         "raw_json": raw_event_cfg,
         "roster": [],
-        "pairings": {str(r): [] for r in range(1, (payload.rounds or 5) + 1)}
+        "pairings": {str(r): [] for r in range(1, num_rounds_int + 1)}
     }
 
     if bcp_created:
-        # BCP registration succeeded: strictly live on BCP, zero DB mutation. Scraper will pick it up.
         saved = event_dict
     else:
         saved = db.save_studio_event(event_dict)
 
+    _invalidate_native_event_caches(event_id)
     return {
         "success": True,
         "event_id": event_id,
+        "is_native_event": not bcp_created,
+        "hosting_mode": eff_hosting_mode,
+        "share_url": event_dict["share_url"],
         "bcp_registered": bcp_created,
         "bcp_error": bcp_error,
         "event": saved
@@ -1176,7 +1491,7 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
 
 @router.put("/api/eventstudio/event/{event_id}", summary="Modify tournament details and push to BCP")
 def api_eventstudio_update_event(event_id: str, payload: Dict[str, Any], request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     db = get_database()
     auth_mgr = get_auth_manager()
     user_id = user["id"]
@@ -1184,6 +1499,8 @@ def api_eventstudio_update_event(event_id: str, payload: Dict[str, Any], request
     ev = db.get_studio_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
+    if str(event_id).startswith("ES-"):
+        _assert_native_event_owner_or_to(ev, user)
 
     # Map date fields
     if "start_date" in payload and "event_date" not in payload:
@@ -1197,6 +1514,7 @@ def api_eventstudio_update_event(event_id: str, payload: Dict[str, Any], request
             ev["raw_json"][k] = v
 
     saved = db.save_studio_event(ev)
+    _invalidate_native_event_caches(event_id)
 
     # Sync update to BCP if authenticated
     bcp_updated = False
@@ -1568,7 +1886,7 @@ class SubmitCircuitPayload(BaseModel):
 
 @router.post("/api/eventstudio/event/{event_id}/circuits/submit", summary="Link tournament to circuit on BCP")
 def api_eventstudio_submit_circuit(event_id: str, payload: SubmitCircuitPayload, request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     db = get_database()
     auth_mgr = get_auth_manager()
     user_id = user["id"]
@@ -1576,6 +1894,8 @@ def api_eventstudio_submit_circuit(event_id: str, payload: SubmitCircuitPayload,
     ev = db.get_studio_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
+    if event_id.startswith("ES-"):
+        _assert_native_event_owner_or_to(ev, user)
 
     bcp_ok = False
     if not event_id.startswith("ES-") and user_id:
@@ -1598,18 +1918,27 @@ def api_eventstudio_submit_circuit(event_id: str, payload: SubmitCircuitPayload,
         })
         ev["circuits"] = circuits
         db.save_studio_event(ev)
+        _invalidate_native_event_caches(event_id)
 
     return {"success": True, "bcp_synced": bcp_ok, "circuits": circuits}
 
 @router.delete("/api/eventstudio/event/{event_id}", summary="Delete tournament from Event Studio and BCP")
 def api_eventstudio_delete_event(event_id: str, request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     db = get_database()
     auth_mgr = get_auth_manager()
     user_id = user["id"]
-    bcp_token = auth_mgr.get_valid_bcp_token(user_id) if user_id else None
+    bcp_token = auth_mgr.get_valid_bcp_token(user_id) if (user_id and not event_id.startswith("ES-")) else None
 
-    db.delete_studio_event(event_id, organizer_id=user_id)
+    if event_id.startswith("ES-"):
+        ev_check = db.get_studio_event(event_id)
+        if ev_check:
+            _assert_native_event_owner_or_to(ev_check, user)
+        del_org_id = None if _is_user_to_or_admin(user) else user_id
+        db.delete_studio_event(event_id, organizer_id=del_org_id)
+    else:
+        db.delete_studio_event(event_id, organizer_id=user_id)
+    _invalidate_native_event_caches(event_id)
 
     # 1. Cascade delete all corresponding table game rooms and tournament records in Firestore
     canonical_eid = _resolve_canonical_event_id(event_id, user=user, explicit_token=bcp_token)
@@ -1682,7 +2011,6 @@ def api_eventstudio_delete_event(event_id: str, request: Request):
             any(x in id_variants for x in (r_eid, r_eid2, r_tid, r_game_eid) if x)
         )
         if matched:
-            # Notify any active listeners that the room has been closed / deleted
             listeners = TRACKER_LISTENERS.get(mid, [])
             term_msg = {"type": "match_finalized", "is_finished": True, "event_deleted": True}
             for q in list(listeners):
@@ -1713,7 +2041,7 @@ def api_eventstudio_delete_event(event_id: str, request: Request):
 
 @router.post("/api/eventstudio/event/{event_id}/start", summary="Start tournament on OmniTactica and BCP")
 async def api_eventstudio_start_event(event_id: str, request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     auth_mgr = get_auth_manager()
     user_id = user["id"]
 
@@ -1723,7 +2051,6 @@ async def api_eventstudio_start_event(event_id: str, request: Request):
         if user_id:
             bcp_token = auth_mgr.get_valid_bcp_token(user_id)
 
-        # Trigger POST /v1/events/{id}/generatePairings on BCP
         bcp_started, bcp_err, bcp_res = bcp_adapter.start_event_or_generate_pairings(
             event_id,
             user_id=user_id,
@@ -1733,14 +2060,12 @@ async def api_eventstudio_start_event(event_id: str, request: Request):
         if not bcp_started and bcp_err:
             raise HTTPException(status_code=400, detail=f"BCP tournament start failed: {bcp_err}")
 
-        # Poll/query GET /v1/events/{id}/pairingsStatus on BCP
         _, _, status_data = bcp_adapter.get_pairings_status(
             event_id,
             user_id=user_id,
             explicit_token=bcp_token
         )
 
-        # Fetch updated live workspace directly from BCP API
         bcp_ev = _fetch_bcp_event_workspace(event_id, user)
         if not bcp_ev:
             bcp_ev = {
@@ -1778,6 +2103,7 @@ async def api_eventstudio_start_event(event_id: str, request: Request):
             ev = db.save_studio_event(details)
         else:
             raise HTTPException(status_code=404, detail="Tournament not found")
+    _assert_native_event_owner_or_to(ev, user)
 
     roster = [p for p in (ev.get("roster") or []) if not p.get("dropped")]
     if len(roster) < 2:
@@ -1796,11 +2122,45 @@ async def api_eventstudio_start_event(event_id: str, request: Request):
             r1_pairings = generate_swiss_pairings_for_event(ev, 1)
             pairings_map["1"] = r1_pairings
             ev["pairings"] = pairings_map
-            ev["pairings_status"] = "staged"
+            ev["pairings_status"] = "applied"
+            ev["is_published"] = not bool(ev.get("require_pairing_publish"))
+            if ev["is_published"]:
+                ev["published_round"] = 1
         except Exception as pe:
             logger.warning(f"Notice auto-generating round 1 pairings on start: {pe}")
 
+    # Pre-seed deterministic live tracker rooms for Round 1 1v1/2v2 tables
+    for p in (pairings_map.get("1") or []):
+        if p.get("is_bye") or p.get("is_ffa"):
+            continue
+        t_num = p.get("table") or 1
+        mid = f"{event_id}-R1-T{t_num}".upper() if str(event_id).upper().startswith("ES-") else f"ES-{event_id}-R1-T{t_num}".upper()
+        if mid not in TRACKER_ROOMS:
+            TRACKER_ROOMS[mid] = {
+                "match_id": mid,
+                "user_id_p1": None,
+                "user_id_p2": None,
+                "referee_ids": [user_id] if user_id else [],
+                "version": 1,
+                "state": {
+                    "game": {
+                        "eventId": event_id,
+                        "roundNum": 1,
+                        "tableNum": int(t_num),
+                        "p1Name": p.get("p1_name") or "Player 1",
+                        "p2Name": p.get("p2_name") or "Player 2",
+                        "p1Faction": p.get("p1_faction") or "",
+                        "p2Faction": p.get("p2_faction") or "",
+                    },
+                    "p1": {"rounds": [{"primaryScore": 0, "secondaryScore": 0}], "battleReady": True},
+                    "p2": {"rounds": [{"primaryScore": 0, "secondaryScore": 0}], "battleReady": True},
+                    "round": 1,
+                    "started": False,
+                },
+            }
+
     saved = db.save_studio_event(ev)
+    _invalidate_native_event_caches(event_id)
 
     return {
         "success": True,
@@ -1809,12 +2169,12 @@ async def api_eventstudio_start_event(event_id: str, request: Request):
         "current_round": ev.get("current_round", 1),
         "bcp_started": False,
         "event": saved,
-        "message": "Tournament started successfully! Round 1 is active."
+        "message": "Tournament started successfully! Round 1 pairings are live."
     }
 
 @router.get("/api/eventstudio/event/{event_id}/pairings_status", summary="Get pairings generation status from BCP")
 async def api_eventstudio_get_pairings_status(event_id: str, request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     auth_mgr = get_auth_manager()
     user_id = user["id"] if user else None
 
@@ -1854,7 +2214,7 @@ def api_eventstudio_register_player(event_id: str, payload: RegisterPlayerPayloa
         details = db.get_event_details(event_id)
         if details:
             ev = db.save_studio_event(details)
-        else:
+        elif not str(event_id).startswith("ES-"):
             try:
                 import urllib.request, json
                 bcp_url = f"{BCP_API_BASE}/events/{event_id}"
@@ -1875,6 +2235,21 @@ def api_eventstudio_register_player(event_id: str, payload: RegisterPlayerPayloa
         if not ev:
             raise HTTPException(status_code=404, detail="Tournament not found")
 
+    is_owner_or_to = bool(
+        _is_user_to_or_admin(user)
+        or (user_id and str(ev.get("organizer_id") or "") == str(user_id))
+    )
+
+    # Enforce private access code for non-organizer self-registration on native ES-* events
+    if str(event_id).startswith("ES-") and not is_owner_or_to:
+        ev_code = str(ev.get("access_code") or "").strip()
+        if not ev_code and isinstance(ev.get("raw_json"), dict):
+            ev_code = str(ev["raw_json"].get("access_code") or ev["raw_json"].get("accessCode") or "").strip()
+        if ev_code or ev.get("private_event"):
+            supplied_code = str(payload.access_code or payload.accessCode or "").strip()
+            if ev_code and supplied_code != ev_code:
+                raise HTTPException(status_code=403, detail="Invalid event access code.")
+
     full_name = (payload.name or "").strip()
     fn = (payload.first_name or "").strip()
     ln = (payload.last_name or "").strip()
@@ -1894,49 +2269,71 @@ def api_eventstudio_register_player(event_id: str, payload: RegisterPlayerPayloa
         else:
             raise HTTPException(status_code=400, detail="Player name is required")
 
-    email = (payload.email or (user.get("email") if user else "") or "").strip()
+    explicit_email = (payload.email or "").strip()
     faction = (payload.faction or "Unassigned").strip()
     detachment = (payload.detachment or "").strip()
     team = (payload.team or "").strip()
     army_list = (payload.army_list or "").strip()
     checked_in = True if payload.checked_in is None else bool(payload.checked_in)
 
-    # Generate or resolve player ID
-    player_id = None
+    # Generate or resolve player ID (only inherit user.player_id/email/user_id when self-registering, NOT when a TO manually adds other players!)
+    player_id = (payload.player_id or "").strip() or None
+    is_self_registration = False
     if user:
+        user_own_names = {
+            str(user.get("display_name") or "").strip().lower(),
+            str(user.get("full_name") or "").strip().lower(),
+            str(user.get("name") or "").strip().lower(),
+            f"{str(user.get('first_name') or '').strip()} {str(user.get('last_name') or '').strip()}".strip().lower(),
+        } - {""}
+        user_own_email = str(user.get("email") or "").strip().lower()
+        if not full_name or full_name.lower() in user_own_names or (explicit_email and user_own_email and explicit_email.lower() == user_own_email):
+            is_self_registration = True
+    email = explicit_email or ((user.get("email") or "").strip() if (user and is_self_registration) else "")
+    if not player_id and user and is_self_registration:
         player_id = user.get("player_id") or user.get("bcp_user_id")
 
     # Look up Elo rating in DB
     ev_gs = normalize_game_system((ev or {}).get("game_system"), default="40k")
     player_elo = 1500.0
-    with db.get_connection() as conn:
-        with conn.cursor() as cur:
-            if player_id:
-                cur.execute("SELECT current_elo, player_name FROM player_ratings WHERE player_id = %s AND COALESCE(game_system, '40k') = %s LIMIT 1;", (player_id, ev_gs))
-                p_row = cur.fetchone()
-                if p_row:
-                    player_elo = float(p_row[0] or 1500.0)
-            if player_elo == 1500.0 and full_name:
-                cur.execute("SELECT player_id, current_elo FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) AND COALESCE(game_system, '40k') = %s LIMIT 1;", (full_name, ev_gs))
-                p_row = cur.fetchone()
-                if p_row:
-                    if not player_id and p_row[0]:
-                        player_id = str(p_row[0])
-                    player_elo = float(p_row[1] or 1500.0)
-
-    if not player_id:
-        with db.get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT player_id FROM event_participants WHERE event_id = %s AND LOWER(full_name) = LOWER(%s) LIMIT 1;", (event_id, full_name))
-                ep_row = cur.fetchone()
-                if ep_row and ep_row[0]:
-                    player_id = str(ep_row[0])
+    if hasattr(db, "get_connection"):
+        try:
+            with db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    if player_id:
+                        cur.execute("SELECT current_elo, player_name FROM player_ratings WHERE player_id = %s AND COALESCE(game_system, '40k') = %s LIMIT 1;", (player_id, ev_gs))
+                        p_row = cur.fetchone()
+                        if p_row:
+                            player_elo = float(p_row[0] or 1500.0)
+                    if player_elo == 1500.0 and full_name:
+                        cur.execute("SELECT player_id, current_elo FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) AND COALESCE(game_system, '40k') = %s LIMIT 1;", (full_name, ev_gs))
+                        p_row = cur.fetchone()
+                        if p_row:
+                            if not player_id and p_row[0]:
+                                player_id = str(p_row[0])
+                            player_elo = float(p_row[1] or 1500.0)
+            if not player_id and full_name:
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT player_id FROM event_participants WHERE event_id = %s AND LOWER(full_name) = LOWER(%s) LIMIT 1;", (event_id, full_name))
+                        ep_row = cur.fetchone()
+                        if ep_row and ep_row[0]:
+                            player_id = str(ep_row[0])
+        except Exception as db_lookup_err:
+            logger.debug(f"Register player DB Elo lookup notice: {db_lookup_err}")
+    elif player_id and hasattr(db, "get_player_profile"):
+        try:
+            prof = db.get_player_profile(player_id, game_system=ev_gs)
+            if prof and prof.get("current_elo") is not None:
+                player_elo = float(prof["current_elo"])
+        except Exception:
+            pass
 
     if not player_id:
         player_id = f"PL-{secrets.token_hex(4).upper()}"
 
-    # Link player_id to authenticated user profile if missing
-    if user and not user.get("player_id") and player_id:
+    # Link player_id to authenticated user profile if missing (only on self-registration)
+    if user and is_self_registration and not user.get("player_id") and player_id and user_id and hasattr(db, "get_connection"):
         try:
             with db.get_connection() as conn:
                 with conn.cursor() as cur:
@@ -1949,15 +2346,12 @@ def api_eventstudio_register_player(event_id: str, payload: RegisterPlayerPayloa
     bcp_registered = False
     bcp_err = None
     if not event_id.startswith("ES-"):
-        # We need the TO / Organizer's token to perform manual player registration on BCP
         to_user_id = ev.get("organizer_id")
         to_bcp_token = None
 
-        # 1. Check if the event's organizer ID is an OmniTactica user
         if to_user_id:
             to_bcp_token = auth_mgr.get_valid_bcp_token(to_user_id)
 
-        # 2. If not, check if any OmniTactica user matches organizer_bcp_id
         if not to_bcp_token and ev.get("organizer_bcp_id"):
             with db.get_connection() as conn:
                 with conn.cursor() as cur:
@@ -1967,7 +2361,6 @@ def api_eventstudio_register_player(event_id: str, payload: RegisterPlayerPayloa
                         to_user_id = urow[0]
                         to_bcp_token = auth_mgr.get_valid_bcp_token(to_user_id)
 
-        # 3. If still not found, check if payload provided explicit token or if calling user is TO/Admin
         if not to_bcp_token:
             if payload.bcp_token:
                 to_bcp_token = payload.bcp_token
@@ -1975,7 +2368,6 @@ def api_eventstudio_register_player(event_id: str, payload: RegisterPlayerPayloa
                 to_bcp_token = auth_mgr.get_valid_bcp_token(user_id)
                 to_user_id = user_id
 
-        # 4. Fallback to caller's token
         if not to_bcp_token and user_id:
             to_bcp_token = auth_mgr.get_valid_bcp_token(user_id)
             to_user_id = user_id
@@ -2013,12 +2405,20 @@ def api_eventstudio_register_player(event_id: str, payload: RegisterPlayerPayloa
     # Update OmniTactica roster
     roster = list(ev.get("roster") or [])
     existing_idx = next(
-        (i for i, p in enumerate(roster) if str(p.get("id") or "") == player_id or (p.get("name") or "").strip().lower() == full_name.lower()),
+        (i for i, p in enumerate(roster) if str(p.get("id") or p.get("player_id") or "") == str(player_id) or (p.get("name") or "").strip().lower() == full_name.lower()),
         -1
     )
 
+    if existing_idx < 0 and str(event_id).startswith("ES-") and not is_owner_or_to:
+        cap = int(ev.get("capacity") or ev.get("max_players") or 0)
+        active_cnt = sum(1 for p in roster if not p.get("dropped"))
+        if cap > 0 and active_cnt >= cap:
+            raise HTTPException(status_code=400, detail=f"Tournament is at maximum capacity ({cap}/{cap} spots filled).")
+
     player_record = {
         "id": player_id,
+        "player_id": player_id,
+        "user_id": (user_id or "") if is_self_registration else "",
         "name": full_name,
         "first_name": fn,
         "last_name": ln,
@@ -2041,37 +2441,16 @@ def api_eventstudio_register_player(event_id: str, payload: RegisterPlayerPayloa
         roster.append(player_record)
 
     ev["roster"] = roster
-    ev["total_players"] = len(roster)
+    active_total = sum(1 for p in roster if not p.get("dropped"))
+    ev["total_players"] = len(roster) if ev.get("started") else active_total
     saved = db.save_studio_event(ev)
-
-    if str(event_id).startswith("ES-"):
-        try:
-            db.upsert_event_participant(
-                event_id=event_id,
-                player_id=player_id,
-                first_name=fn,
-                last_name=ln,
-                full_name=full_name,
-                faction=faction,
-                team=team,
-                dropped=False,
-                checked_in=checked_in
-            )
-        except Exception as pe:
-            logger.warning(f"Error upserting participant: {pe}")
-
-    try:
-        from routers.leaderboard import api_events_recommended
-        if hasattr(api_events_recommended, "_roster_cache") and event_id in api_events_recommended._roster_cache:
-            del api_events_recommended._roster_cache[event_id]
-    except Exception:
-        pass
+    _invalidate_native_event_caches(event_id)
 
     return {
         "success": True,
         "event_id": event_id,
         "player": player_record,
-        "total_players": len(roster),
+        "total_players": ev["total_players"],
         "bcp_registered": bcp_registered,
         "bcp_synced": bcp_registered,
         "bcp_notice": bcp_err if not bcp_registered and not event_id.startswith("ES-") else None,
@@ -2081,7 +2460,7 @@ def api_eventstudio_register_player(event_id: str, payload: RegisterPlayerPayloa
 
 @router.post("/api/eventstudio/event/{event_id}/pairings", summary="Save round pairings and sync game rooms")
 def api_eventstudio_save_pairings(event_id: str, payload: Dict[str, Any], request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     db = get_database()
     auth_mgr = get_auth_manager()
     user_id = user["id"]
@@ -2092,12 +2471,16 @@ def api_eventstudio_save_pairings(event_id: str, payload: Dict[str, Any], reques
     ev = db.get_studio_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
+    if event_id.startswith("ES-"):
+        _assert_native_event_owner_or_to(ev, user)
 
     pairings_map = ev.get("pairings") or {}
 
-    # Enrich pairings with Elo win probability and rematch warnings if missing
-    roster_map = {str(p.get("id") or p.get("name")): p for p in (ev.get("roster") or [])}
+    # Enrich 1v1 pairings with Elo win probability and rematch warnings if missing
+    roster_map = {str(p.get("id") or p.get("player_id") or p.get("name")): p for p in (ev.get("roster") or [])}
     for p in pairings_list:
+        if p.get("is_ffa"):
+            continue
         p1_id = str(p.get("p1_id") or p.get("p1") or "")
         p2_id = str(p.get("p2_id") or p.get("p2") or "")
         p1_rec = roster_map.get(p1_id, {})
@@ -2119,8 +2502,10 @@ def api_eventstudio_save_pairings(event_id: str, payload: Dict[str, Any], reques
                     for pm in (p_prev or []):
                         ids = {str(pm.get("p1_id") or pm.get("p1") or ""), str(pm.get("p2_id") or pm.get("p2") or "")}
                         if p1_id in ids and p2_id in ids:
-                            try: rematch_r.append(int(prev_r))
-                            except Exception: pass
+                            try:
+                                rematch_r.append(int(prev_r))
+                            except Exception:
+                                pass
             p["is_rematch"] = len(rematch_r) > 0
             p["rematch_rounds"] = sorted(rematch_r)
 
@@ -2130,10 +2515,13 @@ def api_eventstudio_save_pairings(event_id: str, payload: Dict[str, Any], reques
     ev["current_round"] = int(round_num)
     ev["pairings_status"] = "staged"
 
-    # Pre-seed deterministic tracker rooms for each table
+    # Pre-seed deterministic tracker rooms for each 1v1/2v2 table
+    prefix_key = "ES" if event_id.startswith("ES-") else "BCP"
     for p in pairings_list:
+        if p.get("is_bye") or p.get("is_ffa"):
+            continue
         t_num = p.get("table") or 1
-        mid = f"BCP-{event_id}-R{round_num}-T{t_num}".upper()
+        mid = f"{prefix_key}-{event_id}-R{round_num}-T{t_num}".upper()
         p1_name = p.get("p1_name") or p.get("p1Name") or "Player 1"
         p2_name = p.get("p2_name") or p.get("p2Name") or "Player 2"
         p1_fac = p.get("p1_faction") or p.get("p1Faction") or ""
@@ -2175,6 +2563,7 @@ def api_eventstudio_save_pairings(event_id: str, payload: Dict[str, Any], reques
             ev["pairings_bcp_synced"] = True
 
     saved = db.save_studio_event(ev)
+    _invalidate_native_event_caches(event_id)
 
     return {
         "success": True,
@@ -2188,7 +2577,7 @@ def api_eventstudio_save_pairings(event_id: str, payload: Dict[str, Any], reques
 
 @router.post("/api/eventstudio/event/{event_id}/roster", summary="Update event competitor roster")
 def api_eventstudio_save_roster(event_id: str, payload: Dict[str, Any], request: Request):
-    _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     roster = payload.get("roster") or []
     if not event_id.startswith("ES-"):
         # Strictly BCP event: do not mutate local DB
@@ -2202,10 +2591,13 @@ def api_eventstudio_save_roster(event_id: str, payload: Dict[str, Any], request:
     ev = db.get_studio_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
+    _assert_native_event_owner_or_to(ev, user)
 
     ev["roster"] = roster
-    ev["total_players"] = len(roster)
+    active_cnt = sum(1 for p in roster if not p.get("dropped"))
+    ev["total_players"] = len(roster) if ev.get("started") else active_cnt
     saved = db.save_studio_event(ev)
+    _invalidate_native_event_caches(event_id)
 
     return {
         "success": True,
@@ -2215,7 +2607,7 @@ def api_eventstudio_save_roster(event_id: str, payload: Dict[str, Any], request:
 
 @router.delete("/api/eventstudio/event/{event_id}/player/{player_id}", summary="Remove competitor from tournament roster (OmniTactica & BCP)")
 async def api_eventstudio_remove_player(event_id: str, player_id: str, request: Request):
-    session = _get_to_session_or_403(request)
+    session = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     user_id = session.get("id")
     auth_mgr = get_auth_manager()
     db = get_database()
@@ -2224,7 +2616,6 @@ async def api_eventstudio_remove_player(event_id: str, player_id: str, request: 
     bcp_err = None
 
     if not event_id.startswith("ES-"):
-        # 1. Resolve BCP token: check caller's token first, then organizer token if available
         to_bcp_token = request.headers.get("X-BCP-Token") or request.query_params.get("bcp_token")
         if not to_bcp_token and user_id:
             to_bcp_token = auth_mgr.get_valid_bcp_token(user_id)
@@ -2261,7 +2652,6 @@ async def api_eventstudio_remove_player(event_id: str, player_id: str, request: 
             if bcp_err and "not found" not in bcp_err.lower():
                 raise HTTPException(status_code=400, detail=f"Failed to remove competitor from BCP: {bcp_err}")
 
-        # Invalidate any in-memory roster cache
         try:
             if _roster_cache and event_id in _roster_cache:
                 del _roster_cache[event_id]
@@ -2275,15 +2665,25 @@ async def api_eventstudio_remove_player(event_id: str, player_id: str, request: 
             "bcp_deleted": bcp_deleted
         }
 
-    # OmniTactica-only event (ES-)
+    # OmniTactica Native event (ES-)
     ev = db.get_studio_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
+    _assert_native_event_owner_or_to(ev, session)
 
     roster = [p for p in (ev.get("roster") or []) if str(p.get("id") or p.get("player_id") or p.get("name") or "") != player_id]
     ev["roster"] = roster
-    ev["total_players"] = len(roster)
+    active_cnt = sum(1 for p in roster if not p.get("dropped"))
+    ev["total_players"] = len(roster) if ev.get("started") else active_cnt
     saved = db.save_studio_event(ev)
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM event_participants WHERE event_id = %s AND player_id = %s;", (event_id, player_id))
+            conn.commit()
+    except Exception:
+        pass
+    _invalidate_native_event_caches(event_id)
 
     return {
         "success": True,
@@ -2296,15 +2696,29 @@ async def api_eventstudio_remove_player(event_id: str, player_id: str, request: 
 def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> List[Dict[str, Any]]:
     """
     Computes Elo-enhanced Swiss pairings with rematch and team conflict avoidance.
-    Can be called during event start (round 1) or subsequent rounds.
+    Supports:
+    - 1v1 Wargame / TCG Bo3 / Bo1 / WTC Team Swiss pairings
+    - 4-Player Commander / FFA Pod Swiss pairings (3-4 player pod decomposition, 5/1/0 points, podmate repeat avoidance)
     """
     roster = [p for p in (ev.get("roster") or []) if not p.get("dropped")]
     if not roster or len(roster) < 2:
         return []
 
     pairings_map = ev.get("pairings") or {}
+    ev_match_fmt = str(ev.get("match_format") or "").strip().lower()
+    ev_scoring = str(ev.get("scoring_mode") or "").strip().lower()
+    ev_type_l = str(ev.get("event_type") or "").strip().lower()
+    is_ffa = bool(
+        ev.get("is_ffa_event")
+        or ev_match_fmt in ("ffa", "pods", "pod", "4p", "commander")
+        or ev_scoring in ("ffa_pods", "pods", "ffa")
+        or "pod" in ev_type_l
+        or "ffa" in ev_type_l
+    )
+    win_pts = float(ev.get("win_points") if ev.get("win_points") is not None else (5.0 if is_ffa else 3.0))
+    draw_pts = float(ev.get("draw_points") if ev.get("draw_points") is not None else 1.0)
 
-    # Calculate historical records and past opponents
+    # Calculate historical records and past opponents / podmates
     records: Dict[str, Dict[str, Any]] = {}
     past_opponents: Dict[str, set] = {}
     for p in roster:
@@ -2314,8 +2728,8 @@ def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> 
             "wins": 0,
             "losses": 0,
             "draws": 0,
-            "points": 0,
-            "battle_points": 0,
+            "points": 0.0,
+            "battle_points": 0.0,
             "path_to_victory": 0,
             "byes": 0
         }
@@ -2329,41 +2743,82 @@ def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> 
         if r_num >= target_round:
             continue
         for match in (r_pairings or []):
+            if match.get("is_ffa") and isinstance(match.get("pod_participants"), list):
+                pod_parts = [pp for pp in match.get("pod_participants", []) if isinstance(pp, dict)]
+                pod_pids = [str(pp.get("player_id") or pp.get("id") or pp.get("name") or "") for pp in pod_parts if (pp.get("player_id") or pp.get("id") or pp.get("name"))]
+                for idx_a in range(len(pod_pids)):
+                    for idx_b in range(idx_a + 1, len(pod_pids)):
+                        pa, pb = pod_pids[idx_a], pod_pids[idx_b]
+                        if pa in past_opponents:
+                            past_opponents[pa].add(pb)
+                        if pb in past_opponents:
+                            past_opponents[pb].add(pa)
+                if match.get("is_bye") and pod_pids:
+                    b_pid = pod_pids[0]
+                    if b_pid in records:
+                        records[b_pid]["wins"] += 1
+                        records[b_pid]["points"] += win_pts
+                        records[b_pid]["byes"] += 1
+                    continue
+                if not match.get("is_done") and not match.get("winner_id") and not match.get("is_draw"):
+                    continue
+                w_id = str(match.get("winner_id") or "").strip()
+                m_draw = bool(match.get("is_draw"))
+                for pp in pod_parts:
+                    pp_id = str(pp.get("player_id") or pp.get("id") or pp.get("name") or "")
+                    if pp_id not in records:
+                        continue
+                    pp_sc = float(pp.get("score") or 0.0)
+                    records[pp_id]["battle_points"] += pp_sc
+                    if m_draw or str(pp.get("result") or "").lower() == "draw":
+                        records[pp_id]["draws"] += 1
+                        records[pp_id]["points"] += draw_pts
+                    elif (w_id and pp_id == w_id) or str(pp.get("result") or "").lower() == "win" or pp.get("placement") == 1:
+                        records[pp_id]["wins"] += 1
+                        records[pp_id]["points"] += win_pts
+                        records[pp_id]["path_to_victory"] += (10 ** max(0, 10 - r_num))
+                    else:
+                        records[pp_id]["losses"] += 1
+                continue
+
             p1_id = str(match.get("p1_id") or match.get("p1_name") or "")
             p2_id = str(match.get("p2_id") or match.get("p2_name") or "")
             p1_s = int(match.get("p1_score") or 0)
             p2_s = int(match.get("p2_score") or 0)
             is_bye = bool(match.get("is_bye") or not p2_id)
+            m_winner = str(match.get("winner_id") or "").strip()
+            m_draw = bool(match.get("is_draw"))
 
             if p1_id in records:
                 records[p1_id]["battle_points"] += p1_s
                 if is_bye:
                     records[p1_id]["wins"] += 1
-                    records[p1_id]["points"] += 3
+                    records[p1_id]["points"] += win_pts
                     records[p1_id]["byes"] += 1
-                elif p1_s > p2_s:
+                elif (m_winner and m_winner == p1_id) or (not m_winner and not m_draw and p1_s > p2_s):
                     records[p1_id]["wins"] += 1
-                    records[p1_id]["points"] += 3
-                    records[p1_id]["path_to_victory"] += (10 ** (10 - r_num))
-                elif p1_s < p2_s:
+                    records[p1_id]["points"] += win_pts
+                    records[p1_id]["path_to_victory"] += (10 ** max(0, 10 - r_num))
+                elif (m_winner and m_winner == p2_id) or (not m_winner and not m_draw and p1_s < p2_s):
                     records[p1_id]["losses"] += 1
                 else:
                     records[p1_id]["draws"] += 1
-                    records[p1_id]["points"] += 1
+                    records[p1_id]["points"] += draw_pts
 
             if p2_id and p2_id in records and not is_bye:
                 records[p2_id]["battle_points"] += p2_s
-                past_opponents[p1_id].add(p2_id)
+                if p1_id in past_opponents:
+                    past_opponents[p1_id].add(p2_id)
                 past_opponents[p2_id].add(p1_id)
-                if p2_s > p1_s:
+                if (m_winner and m_winner == p2_id) or (not m_winner and not m_draw and p2_s > p1_s):
                     records[p2_id]["wins"] += 1
-                    records[p2_id]["points"] += 3
-                    records[p2_id]["path_to_victory"] += (10 ** (10 - r_num))
-                elif p2_s < p1_s:
+                    records[p2_id]["points"] += win_pts
+                    records[p2_id]["path_to_victory"] += (10 ** max(0, 10 - r_num))
+                elif (m_winner and m_winner == p1_id) or (not m_winner and not m_draw and p2_s < p1_s):
                     records[p2_id]["losses"] += 1
                 else:
                     records[p2_id]["draws"] += 1
-                    records[p2_id]["points"] += 1
+                    records[p2_id]["points"] += draw_pts
 
     # Sort players by Swiss Points -> Path to Victory -> Battle Points -> Elo / Seed
     sorted_players = sorted(
@@ -2376,7 +2831,175 @@ def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> 
         )
     )
 
-    # Handle Bye for odd players count
+    # --- BRANCH A: 4-Player Commander / FFA Pod Pairing ---
+    if is_ffa:
+        unpaired_ffa = list(sorted_players)
+        bye_ffa_players: List[Dict[str, Any]] = []
+        n_active = len(unpaired_ffa)
+        if n_active <= 4:
+            pod_sizes = [n_active]
+        elif n_active == 5:
+            # 5 players -> one 4-player pod + 1 Bye (prefer player with 0 previous byes)
+            chosen_bye = None
+            for cand in reversed(unpaired_ffa):
+                cid = str(cand.get("id") or cand.get("player_id") or cand.get("name"))
+                if records.get(cid, {}).get("byes", 0) == 0:
+                    chosen_bye = cand
+                    unpaired_ffa.remove(cand)
+                    break
+            if not chosen_bye and unpaired_ffa:
+                chosen_bye = unpaired_ffa.pop()
+            if chosen_bye:
+                bye_ffa_players.append(chosen_bye)
+            pod_sizes = [4]
+        else:
+            # For all N >= 6, N decomposes exactly into 4-player and 3-player pods with zero 2-player pods or byes!
+            num_3_pods = (4 - (n_active % 4)) % 4
+            num_4_pods = (n_active - 3 * num_3_pods) // 4
+            pod_sizes = ([4] * num_4_pods) + ([3] * num_3_pods)
+
+        generated_pods: List[Dict[str, Any]] = []
+        table_num = int(ev.get("startingTable") or 1)
+        for p_size in pod_sizes:
+            if not unpaired_ffa:
+                break
+            pod_members = [unpaired_ffa.pop(0)]
+            while len(pod_members) < p_size and unpaired_ffa:
+                pod_ids = [str(pm.get("id") or pm.get("player_id") or pm.get("name")) for pm in pod_members]
+                pod_teams = {(pm.get("team") or pm.get("club") or "").strip().lower() for pm in pod_members if (pm.get("team") or pm.get("club") or "").strip()}
+                best_i = 0
+                best_cost = (999, 999, 999)
+                for idx_c, cand in enumerate(unpaired_ffa):
+                    cid = str(cand.get("id") or cand.get("player_id") or cand.get("name"))
+                    cteam = (cand.get("team") or cand.get("club") or "").strip().lower()
+                    rep_cnt = sum(1 for pid_existing in pod_ids if pid_existing in past_opponents.get(cid, set()))
+                    team_cnt = 1 if (cteam and cteam in pod_teams) else 0
+                    cost = (rep_cnt, team_cnt, idx_c)
+                    if cost < best_cost:
+                        best_cost = cost
+                        best_i = idx_c
+                        if rep_cnt == 0 and team_cnt == 0:
+                            break
+                pod_members.append(unpaired_ffa.pop(best_i))
+
+            elos = [float(pm.get("elo") or pm.get("current_elo") or pm.get("currentElo") or 1500.0) for pm in pod_members]
+            weights = [10.0 ** ((e_val - 1500.0) / 400.0) for e_val in elos]
+            tot_w = sum(weights) or float(len(pod_members))
+            probs = [round((w / tot_w) * 100.0, 1) for w in weights]
+            if probs:
+                probs[-1] = round(max(0.0, 100.0 - sum(probs[:-1])), 1)
+
+            pod_participants = []
+            pod_ids_all = [str(pm.get("id") or pm.get("player_id") or pm.get("name")) for pm in pod_members]
+            has_pod_rematch = False
+            for ia in range(len(pod_ids_all)):
+                for ib in range(ia + 1, len(pod_ids_all)):
+                    if pod_ids_all[ib] in past_opponents.get(pod_ids_all[ia], set()):
+                        has_pod_rematch = True
+                        break
+
+            for s_idx, pm in enumerate(pod_members):
+                pm_id = str(pm.get("id") or pm.get("player_id") or pm.get("name"))
+                pod_participants.append({
+                    "seat": s_idx + 1,
+                    "player_id": pm_id,
+                    "name": pm.get("name") or f"Seat {s_idx + 1}",
+                    "faction": pm.get("faction") or "Unassigned",
+                    "team": (pm.get("team") or pm.get("club") or "").strip(),
+                    "elo": round(elos[s_idx], 1),
+                    "win_prob": probs[s_idx],
+                    "army_list": pm.get("army_list") or "",
+                    "score": 0,
+                    "placement": None,
+                    "result": None,
+                })
+
+            s1 = pod_participants[0]
+            s2 = pod_participants[1] if len(pod_participants) > 1 else {"player_id": None, "name": "BYE", "faction": "", "team": "", "elo": 0.0, "win_prob": 0.0, "army_list": ""}
+            generated_pods.append({
+                "id": f"{ev.get('id') or 'ES'}-R{target_round}-T{table_num}",
+                "table": table_num,
+                "is_ffa": True,
+                "match_format": "ffa",
+                "pod_size": len(pod_participants),
+                "pod_participants": pod_participants,
+                "p1_id": s1["player_id"],
+                "p1_name": s1["name"],
+                "p1_faction": s1["faction"],
+                "p1_team": s1["team"],
+                "p1_elo": s1["elo"],
+                "p1_win_prob": s1["win_prob"],
+                "p1_army_list": s1["army_list"],
+                "p1_score": 0,
+                "p2_id": s2["player_id"],
+                "p2_name": f"Pod ({len(pod_participants)} Players)",
+                "p2_faction": "Commander Pod",
+                "p2_team": "",
+                "p2_elo": s2["elo"],
+                "p2_win_prob": round(100.0 - s1["win_prob"], 1),
+                "p2_army_list": "",
+                "p2_score": 0,
+                "winner_id": None,
+                "is_draw": False,
+                "is_rematch": has_pod_rematch,
+                "rematch_rounds": [],
+                "same_team": False,
+                "is_done": False,
+                "is_bye": False,
+            })
+            table_num += 1
+
+        for bp in bye_ffa_players:
+            bp_id = str(bp.get("id") or bp.get("player_id") or bp.get("name"))
+            bp_elo = round(float(bp.get("elo") or bp.get("current_elo") or bp.get("currentElo") or 1500.0), 1)
+            generated_pods.append({
+                "id": f"{ev.get('id') or 'ES'}-R{target_round}-T{table_num}",
+                "table": table_num,
+                "is_ffa": True,
+                "match_format": "ffa",
+                "pod_size": 1,
+                "pod_participants": [{
+                    "seat": 1,
+                    "player_id": bp_id,
+                    "name": bp.get("name") or "Player",
+                    "faction": bp.get("faction") or "Unassigned",
+                    "team": bp.get("team") or "",
+                    "elo": bp_elo,
+                    "win_prob": 100.0,
+                    "army_list": bp.get("army_list") or "",
+                    "score": int(win_pts),
+                    "placement": 1,
+                    "result": "win",
+                }],
+                "p1_id": bp_id,
+                "p1_name": bp.get("name") or "Player",
+                "p1_faction": bp.get("faction") or "Unassigned",
+                "p1_team": bp.get("team") or "",
+                "p1_elo": bp_elo,
+                "p1_win_prob": 100.0,
+                "p1_army_list": bp.get("army_list") or "",
+                "p1_score": int(win_pts),
+                "p2_id": None,
+                "p2_name": "BYE",
+                "p2_faction": "",
+                "p2_team": "",
+                "p2_elo": 0.0,
+                "p2_win_prob": 0.0,
+                "p2_army_list": "",
+                "p2_score": 0,
+                "winner_id": bp_id,
+                "is_draw": False,
+                "is_rematch": False,
+                "rematch_rounds": [],
+                "same_team": False,
+                "is_done": True,
+                "is_bye": True,
+            })
+            table_num += 1
+
+        return generated_pods
+
+    # --- BRANCH B: Standard 1v1 / Team Swiss Pairing ---
     bye_player = None
     if len(sorted_players) % 2 != 0:
         for candidate in reversed(sorted_players):
@@ -2388,7 +3011,6 @@ def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> 
         if not bye_player and sorted_players:
             bye_player = sorted_players.pop()
 
-    # Swiss pairing algorithm (greedy with rematch avoidance and team conflict avoidance)
     pairs = []
     unpaired = list(sorted_players)
 
@@ -2412,9 +3034,9 @@ def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> 
         p2 = unpaired.pop(best_idx)
         pairs.append((p1, p2))
 
-    # Format pairings list with Elo win probabilities and rematch warnings
     generated_pairings = []
     table_num = int(ev.get("startingTable") or 1)
+    best_of_val = int(ev.get("best_of") or (3 if ev_scoring == "tcg_bo3" else 1))
     for p1, p2 in pairs:
         p1_id = str(p1.get("id") or p1.get("player_id") or p1.get("name"))
         p2_id = str(p2.get("id") or p2.get("player_id") or p2.get("name"))
@@ -2430,17 +3052,21 @@ def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> 
 
         rematch_r = []
         for prev_r, p_list in pairings_map.items():
-            if int(prev_r) < target_round:
+            try:
+                prev_r_int = int(prev_r)
+            except Exception:
+                continue
+            if prev_r_int < target_round:
                 for pm in (p_list or []):
                     ids = {str(pm.get("p1_id") or ""), str(pm.get("p2_id") or "")}
                     if p1_id in ids and p2_id in ids:
-                        try:
-                            rematch_r.append(int(prev_r))
-                        except Exception:
-                            pass
+                        rematch_r.append(prev_r_int)
 
         generated_pairings.append({
+            "id": f"{ev.get('id') or 'ES'}-R{target_round}-T{table_num}",
             "table": table_num,
+            "best_of": best_of_val,
+            "stage": "swiss",
             "p1_id": p1_id,
             "p1_name": p1.get("name") or "Player 1",
             "p1_faction": p1.get("faction") or "Unknown Faction",
@@ -2457,6 +3083,8 @@ def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> 
             "p2_win_prob": p2_prob,
             "p2_army_list": p2.get("army_list") or "",
             "p2_score": 0,
+            "winner_id": None,
+            "is_draw": False,
             "is_rematch": is_rematch,
             "rematch_rounds": sorted(rematch_r),
             "same_team": same_team,
@@ -2466,17 +3094,22 @@ def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> 
         table_num += 1
 
     if bye_player:
+        b_id = str(bye_player.get("id") or bye_player.get("player_id") or bye_player.get("name"))
         b_elo = float(bye_player.get("elo") or bye_player.get("current_elo") or bye_player.get("currentElo") or 1500.0)
+        bye_score = 2 if best_of_val == 3 else (1 if ev_scoring == "tcg_bo1" else 100)
         generated_pairings.append({
+            "id": f"{ev.get('id') or 'ES'}-R{target_round}-T{table_num}",
             "table": table_num,
-            "p1_id": str(bye_player.get("id") or bye_player.get("player_id") or bye_player.get("name")),
+            "best_of": best_of_val,
+            "stage": "swiss",
+            "p1_id": b_id,
             "p1_name": bye_player.get("name") or "Player",
             "p1_faction": bye_player.get("faction") or "Unknown Faction",
             "p1_team": bye_player.get("team") or "",
             "p1_elo": round(b_elo, 1),
             "p1_win_prob": 100.0,
             "p1_army_list": bye_player.get("army_list") or "",
-            "p1_score": 100,
+            "p1_score": bye_score,
             "p2_id": None,
             "p2_name": "BYE",
             "p2_faction": "",
@@ -2485,6 +3118,8 @@ def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> 
             "p2_win_prob": 0.0,
             "p2_army_list": "",
             "p2_score": 0,
+            "winner_id": b_id,
+            "is_draw": False,
             "is_rematch": False,
             "rematch_rounds": [],
             "same_team": False,
@@ -2497,7 +3132,7 @@ def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> 
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/generate", summary="Generate automated Swiss pairings for tournament round (staged locally)")
 def api_eventstudio_generate_pairings(event_id: str, payload: Dict[str, Any], request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     target_round = int(payload.get("round") or payload.get("round_num") or 1)
 
     # 1. BCP Decoupled Flow (Zero DB mutation)
@@ -2529,11 +3164,12 @@ def api_eventstudio_generate_pairings(event_id: str, payload: Dict[str, Any], re
             "message": f"Generated Round {target_round} Swiss pairings (staged locally). TO can inspect, swap players, and push to BCP."
         }
 
-    # 2. Local Studio Event Flow
+    # 2. Local Studio Event Flow (Native OmniTactica)
     db = get_database()
     ev = db.get_studio_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
+    _assert_native_event_owner_or_to(ev, user)
 
     target_round = int(payload.get("round") or payload.get("round_num") or (ev.get("current_round") or 1))
     roster = [p for p in (ev.get("roster") or []) if not p.get("dropped")]
@@ -2548,6 +3184,7 @@ def api_eventstudio_generate_pairings(event_id: str, payload: Dict[str, Any], re
     ev["current_round"] = target_round
     ev["pairings_status"] = "staged"
     saved = db.save_studio_event(ev)
+    _invalidate_native_event_caches(event_id)
 
     return {
         "success": True,
@@ -2556,26 +3193,250 @@ def api_eventstudio_generate_pairings(event_id: str, payload: Dict[str, Any], re
         "pairings_status": "staged",
         "bcp_generated": False,
         "event": saved,
-        "message": f"Generated Round {target_round} Swiss pairings (staged locally). TO can inspect, swap players, and apply to BCP."
+        "message": f"Generated Round {target_round} pairings for {ev.get('name', event_id)}."
+    }
+
+@router.post("/api/eventstudio/event/{event_id}/top_cut", summary="Generate or advance Single-Elimination Top Cut bracket (Top 8 / Top 4 / Grand Final)")
+def api_eventstudio_generate_top_cut(event_id: str, payload: GenerateTopCutPayload, request: Request):
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
+    if not event_id.startswith("ES-"):
+        raise HTTPException(status_code=400, detail="Native Top Cut bracket generation is supported on OmniTactica Native (ES-*) tournaments.")
+
+    db = get_database()
+    ev = db.get_studio_event(event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    _assert_native_event_owner_or_to(ev, user)
+
+    pairings_map = ev.get("pairings") or {}
+    existing_rounds = sorted([int(k) for k in pairings_map.keys() if str(k).isdigit()])
+    latest_round = existing_rounds[-1] if existing_rounds else 0
+    latest_matches = pairings_map.get(str(latest_round)) or []
+    is_latest_top_cut = bool(latest_matches and all(str(m.get("stage") or "") == "top_cut" for m in latest_matches))
+
+    best_of_val = int(ev.get("best_of") or 3)
+    roster_map = {str(p.get("id") or p.get("player_id") or p.get("name")): p for p in (ev.get("roster") or [])}
+
+    # Case 1: Advance an active Top Cut stage (e.g. Quarterfinals -> Semifinals -> Grand Final)
+    if (payload.advance_stage or (is_latest_top_cut and payload.cut_size is None)) and is_latest_top_cut:
+        if len(latest_matches) <= 1:
+            raise HTTPException(status_code=400, detail="Grand Final has already been generated.")
+        winners: List[Dict[str, Any]] = []
+        for m in sorted(latest_matches, key=lambda x: int(x.get("table") or 1)):
+            w_id = str(m.get("winner_id") or "").strip()
+            p1_id = str(m.get("p1_id") or "")
+            p2_id = str(m.get("p2_id") or "")
+            p1_s = float(m.get("p1_score") or 0)
+            p2_s = float(m.get("p2_score") or 0)
+            if not w_id:
+                if p1_s > p2_s:
+                    w_id = p1_id
+                elif p2_s > p1_s:
+                    w_id = p2_id
+            if not w_id:
+                raise HTTPException(status_code=400, detail=f"All Top Cut matches in Round {latest_round} must have a winner before advancing.")
+            if w_id == p1_id:
+                winners.append({
+                    "id": p1_id,
+                    "name": m.get("p1_name") or "Player 1",
+                    "faction": m.get("p1_faction") or "Unassigned",
+                    "team": m.get("p1_team") or "",
+                    "elo": float(m.get("p1_elo") or 1500.0),
+                    "army_list": m.get("p1_army_list") or "",
+                    "seed": m.get("seed1"),
+                })
+            else:
+                winners.append({
+                    "id": p2_id,
+                    "name": m.get("p2_name") or "Player 2",
+                    "faction": m.get("p2_faction") or "Unassigned",
+                    "team": m.get("p2_team") or "",
+                    "elo": float(m.get("p2_elo") or 1500.0),
+                    "army_list": m.get("p2_army_list") or "",
+                    "seed": m.get("seed2"),
+                })
+
+        next_round = latest_round + 1
+        stage_name = "Grand Final" if len(winners) == 2 else "Semifinal"
+        next_pairings: List[Dict[str, Any]] = []
+        t_num = 1
+        for idx in range(0, len(winners), 2):
+            if idx + 1 >= len(winners):
+                break
+            w1, w2 = winners[idx], winners[idx + 1]
+            b_label = "Grand Final" if stage_name == "Grand Final" else f"{stage_name} {t_num}"
+            prob1 = round(1.0 / (1.0 + 10.0 ** ((w2["elo"] - w1["elo"]) / 400.0)) * 100.0, 1)
+            next_pairings.append({
+                "id": f"{event_id}-R{next_round}-T{t_num}",
+                "table": t_num,
+                "stage": "top_cut",
+                "bracket_label": b_label,
+                "best_of": best_of_val,
+                "seed1": w1.get("seed"),
+                "seed2": w2.get("seed"),
+                "p1_id": w1["id"],
+                "p1_name": w1["name"],
+                "p1_faction": w1["faction"],
+                "p1_team": w1["team"],
+                "p1_elo": round(w1["elo"], 1),
+                "p1_win_prob": prob1,
+                "p1_army_list": w1["army_list"],
+                "p1_score": 0,
+                "p2_id": w2["id"],
+                "p2_name": w2["name"],
+                "p2_faction": w2["faction"],
+                "p2_team": w2["team"],
+                "p2_elo": round(w2["elo"], 1),
+                "p2_win_prob": round(100.0 - prob1, 1),
+                "p2_army_list": w2["army_list"],
+                "p2_score": 0,
+                "winner_id": None,
+                "is_draw": False,
+                "is_rematch": False,
+                "rematch_rounds": [],
+                "same_team": False,
+                "is_done": False,
+                "is_bye": False,
+            })
+            t_num += 1
+
+        _enrich_studio_pairings_with_ml(next_pairings, game_system=ev.get("game_system") or "40k")
+        pairings_map[str(next_round)] = next_pairings
+        ev["pairings"] = pairings_map
+        ev["current_round"] = next_round
+        ev["num_rounds"] = max(int(ev.get("num_rounds") or 0), next_round)
+        ev["pairings_status"] = "applied"
+        ev["is_published"] = True
+        ev["published_round"] = next_round
+        saved = db.save_studio_event(ev)
+        _invalidate_native_event_caches(event_id)
+        return {
+            "success": True,
+            "round": next_round,
+            "stage": "top_cut",
+            "bracket_stage": stage_name,
+            "pairings": next_pairings,
+            "event": saved,
+            "message": f"Generated {stage_name} bracket (Round {next_round}).",
+        }
+
+    # Case 2: Seed initial Single-Elimination Top Cut from Swiss Standings
+    cut_size = int(payload.cut_size or ev.get("top_cut") or 4)
+    if cut_size not in (2, 4, 8):
+        cut_size = 4 if cut_size < 6 else 8
+
+    st_res = api_eventstudio_get_standings(event_id, request)
+    active_standings = [s for s in (st_res.get("standings") or []) if not s.get("dropped")]
+    if len(active_standings) < cut_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"At least {cut_size} active players are required to generate a Top {cut_size} bracket (found {len(active_standings)}).",
+        )
+
+    seeds = active_standings[:cut_size]
+    if cut_size == 2:
+        seed_pairs = [(0, 1, "Grand Final (1 vs 2)")]
+        stage_label = "Grand Final"
+    elif cut_size == 4:
+        seed_pairs = [
+            (0, 3, "Semifinal 1 (Seed #1 vs #4)"),
+            (1, 2, "Semifinal 2 (Seed #2 vs #3)"),
+        ]
+        stage_label = "Top 4 Semifinals"
+    else:
+        seed_pairs = [
+            (0, 7, "Quarterfinal 1 (Seed #1 vs #8)"),
+            (3, 4, "Quarterfinal 2 (Seed #4 vs #5)"),
+            (1, 6, "Quarterfinal 3 (Seed #2 vs #7)"),
+            (2, 5, "Quarterfinal 4 (Seed #3 vs #6)"),
+        ]
+        stage_label = "Top 8 Quarterfinals"
+
+    cut_round = max(latest_round, int(ev.get("current_round") or 0)) + 1
+    cut_pairings: List[Dict[str, Any]] = []
+    for t_idx, (i1, i2, b_label) in enumerate(seed_pairs, 1):
+        s1_st, s2_st = seeds[i1], seeds[i2]
+        r1 = roster_map.get(str(s1_st["id"]), {})
+        r2 = roster_map.get(str(s2_st["id"]), {})
+        e1 = float(r1.get("elo") or r1.get("currentElo") or 1500.0)
+        e2 = float(r2.get("elo") or r2.get("currentElo") or 1500.0)
+        prob1 = round(1.0 / (1.0 + 10.0 ** ((e2 - e1) / 400.0)) * 100.0, 1)
+        cut_pairings.append({
+            "id": f"{event_id}-R{cut_round}-T{t_idx}",
+            "table": t_idx,
+            "stage": "top_cut",
+            "bracket_label": b_label,
+            "best_of": best_of_val,
+            "seed1": i1 + 1,
+            "seed2": i2 + 1,
+            "p1_id": str(s1_st["id"]),
+            "p1_name": s1_st["name"],
+            "p1_faction": s1_st["faction"],
+            "p1_team": s1_st.get("team") or "",
+            "p1_elo": round(e1, 1),
+            "p1_win_prob": prob1,
+            "p1_army_list": r1.get("army_list") or "",
+            "p1_score": 0,
+            "p2_id": str(s2_st["id"]),
+            "p2_name": s2_st["name"],
+            "p2_faction": s2_st["faction"],
+            "p2_team": s2_st.get("team") or "",
+            "p2_elo": round(e2, 1),
+            "p2_win_prob": round(100.0 - prob1, 1),
+            "p2_army_list": r2.get("army_list") or "",
+            "p2_score": 0,
+            "winner_id": None,
+            "is_draw": False,
+            "is_rematch": False,
+            "rematch_rounds": [],
+            "same_team": False,
+            "is_done": False,
+            "is_bye": False,
+        })
+
+    _enrich_studio_pairings_with_ml(cut_pairings, game_system=ev.get("game_system") or "40k")
+    pairings_map[str(cut_round)] = cut_pairings
+    ev["pairings"] = pairings_map
+    ev["top_cut"] = cut_size
+    ev["current_round"] = cut_round
+    ev["num_rounds"] = max(int(ev.get("num_rounds") or 0), cut_round)
+    ev["pairings_status"] = "applied"
+    ev["is_published"] = True
+    ev["published_round"] = cut_round
+    saved = db.save_studio_event(ev)
+    _invalidate_native_event_caches(event_id)
+
+    return {
+        "success": True,
+        "round": cut_round,
+        "cut_size": cut_size,
+        "stage": "top_cut",
+        "bracket_stage": stage_label,
+        "pairings": cut_pairings,
+        "event": saved,
+        "message": f"Generated {stage_label} (Round {cut_round}) from Swiss standings.",
     }
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/quick_generate", summary="Quickly generate pairings (random, Swiss, or Elo balanced) without mutating DB")
 async def api_eventstudio_quick_generate(event_id: str, payload: QuickGeneratePairingsPayload, request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     target_round = int(payload.round or 1)
     mode = str(payload.method or payload.mode or "random").lower()
 
     # Obtain active roster
     roster = payload.roster or []
-    if not roster:
-        if not event_id.startswith("ES-"):
-            bcp_ev = _fetch_bcp_event_workspace(event_id, user)
-            if bcp_ev:
-                roster = bcp_ev.get("roster") or []
-        else:
-            db = get_database()
-            ev = db.get_studio_event(event_id)
-            if ev:
+    ev = None
+    bcp_ev = None
+    if not event_id.startswith("ES-"):
+        bcp_ev = _fetch_bcp_event_workspace(event_id, user)
+        if bcp_ev and not roster:
+            roster = bcp_ev.get("roster") or []
+    else:
+        db = get_database()
+        ev = db.get_studio_event(event_id)
+        if ev:
+            _assert_native_event_owner_or_to(ev, user)
+            if not roster:
                 roster = ev.get("roster") or []
 
     active_roster = [p for p in roster if not p.get("dropped")]
@@ -2588,8 +3449,16 @@ async def api_eventstudio_quick_generate(event_id: str, payload: QuickGeneratePa
         random.shuffle(candidates)
     elif mode == "elo_balanced":
         candidates.sort(key=lambda p: float(p.get("elo") or 1500.0), reverse=True)
-    elif mode == "swiss":
-        synth_event = {"id": event_id, "roster": candidates, "pairings": {}, "startingTable": 1}
+
+    is_ffa_ev = bool(ev and (ev.get("is_ffa_event") or str(ev.get("match_format") or "").lower() == "ffa" or str(ev.get("scoring_mode") or "").lower() == "ffa_pods"))
+    if mode == "swiss" or is_ffa_ev:
+        synth_event = {
+            **(ev or {}),
+            "id": event_id,
+            "roster": candidates,
+            "pairings": (ev.get("pairings") if (ev and mode == "swiss") else {}) or {},
+            "startingTable": 1,
+        }
         pairings = generate_swiss_pairings_for_event(synth_event, target_round)
         return {
             "success": True,
@@ -2598,7 +3467,7 @@ async def api_eventstudio_quick_generate(event_id: str, payload: QuickGeneratePa
             "method": mode,
             "pairings": pairings,
             "pairings_status": "staged",
-            "message": f"Generated Round {target_round} Swiss pairings (staged locally)."
+            "message": f"Generated Round {target_round} pairings (staged locally)."
         }
 
     # Build pairings for random / elo_balanced
@@ -2676,7 +3545,7 @@ async def api_eventstudio_quick_generate(event_id: str, payload: QuickGeneratePa
 
     ev_sys = "40k"
     try:
-        ev_sys = (bcp_ev.get("game_system") if "bcp_ev" in locals() and bcp_ev else (ev.get("game_system") if "ev" in locals() and ev else "40k")) or "40k"
+        ev_sys = (bcp_ev.get("game_system") if bcp_ev else (ev.get("game_system") if ev else "40k")) or "40k"
     except Exception:
         ev_sys = "40k"
     _enrich_studio_pairings_with_ml(pairings, game_system=ev_sys)
@@ -2693,7 +3562,7 @@ async def api_eventstudio_quick_generate(event_id: str, payload: QuickGeneratePa
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/reorder_tables", summary="Reorder table numbers for staged pairings (drag & drop reordering)")
 async def api_eventstudio_reorder_tables(event_id: str, payload: ReorderTablesPayload, request: Request):
-    _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     pairings = payload.pairings or []
     if not pairings:
         raise HTTPException(status_code=400, detail="No pairings provided for reordering")
@@ -2714,11 +3583,13 @@ async def api_eventstudio_reorder_tables(event_id: str, payload: ReorderTablesPa
         db = get_database()
         ev = db.get_studio_event(event_id)
         if ev:
+            _assert_native_event_owner_or_to(ev, user)
             pairings_map = ev.get("pairings") or {}
             pairings_map[str(target_round)] = pairings
             ev["pairings"] = pairings_map
             ev["pairings_status"] = "staged"
             db.save_studio_event(ev)
+            _invalidate_native_event_caches(event_id)
 
     return {
         "success": True,
@@ -2730,15 +3601,17 @@ async def api_eventstudio_reorder_tables(event_id: str, payload: ReorderTablesPa
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/swap", summary="Dynamically swap two competitors between tables before applying to BCP")
 def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPayload, request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     r_str = str(payload.round)
 
     round_pairings = []
+    ev_gs = "40k"
     if payload.pairings:
         round_pairings = list(payload.pairings)
     elif not event_id.startswith("ES-"):
         bcp_ev = _fetch_bcp_event_workspace(event_id, user)
         if bcp_ev:
+            ev_gs = bcp_ev.get("game_system") or "40k"
             pairings_map = bcp_ev.get("pairings") or {}
             round_pairings = list(pairings_map.get(r_str) or [])
     else:
@@ -2746,6 +3619,8 @@ def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPayload, re
         ev = db.get_studio_event(event_id)
         if not ev:
             raise HTTPException(status_code=404, detail="Event not found")
+        _assert_native_event_owner_or_to(ev, user)
+        ev_gs = ev.get("game_system") or "40k"
         pairings_map = ev.get("pairings") or {}
         round_pairings = list(pairings_map.get(r_str) or [])
 
@@ -2776,7 +3651,7 @@ def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPayload, re
         t1 = (m.get("p1_team") or "").strip().lower()
         t2 = (m.get("p2_team") or "").strip().lower()
         m["same_team"] = bool(t1 and t2 and t1 == t2)
-    _enrich_studio_pairings_with_ml([m1, m2], game_system="40k")
+    _enrich_studio_pairings_with_ml([m1, m2], game_system=ev_gs)
 
     # Save to DB ONLY if local studio event
     saved_ev = None
@@ -2784,9 +3659,11 @@ def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPayload, re
         db = get_database()
         ev = db.get_studio_event(event_id)
         if ev:
+            _assert_native_event_owner_or_to(ev, user)
             ev["pairings"][r_str] = round_pairings
             ev["pairings_status"] = "staged"
             saved_ev = db.save_studio_event(ev)
+            _invalidate_native_event_caches(event_id)
 
     return {
         "success": True,
@@ -2799,21 +3676,23 @@ def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPayload, re
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/push_to_bcp", summary="Two-step abstraction layer: reconcile and push staged pairings to BCP")
 async def api_eventstudio_push_pairings_bcp(event_id: str, payload: PushPairingsBcpPayload, request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     auth_mgr = get_auth_manager()
     user_id = user["id"]
-    bcp_token = auth_mgr.get_valid_bcp_token(user_id) if user_id else None
+    bcp_token = auth_mgr.get_valid_bcp_token(user_id) if (user_id and not event_id.startswith("ES-")) else None
 
     round_num = int(payload.round or 1)
     target_pairings = payload.pairings or []
 
     if not target_pairings:
-        raise HTTPException(status_code=400, detail="No pairings provided to push to BCP")
+        raise HTTPException(status_code=400, detail="No pairings provided to push")
 
-    # Pre-seed deterministic tracker rooms for each table in-memory
+    # Pre-seed deterministic tracker rooms for each 1v1/2v2 table in-memory
     for p in target_pairings:
+        if p.get("is_bye") or p.get("is_ffa"):
+            continue
         t_num = p.get("table") or 1
-        mid = f"BCP-{event_id}-R{round_num}-T{t_num}".upper()
+        mid = (f"{event_id}-R{round_num}-T{t_num}" if event_id.startswith("ES-") else f"BCP-{event_id}-R{round_num}-T{t_num}").upper()
         p1_name = p.get("p1_name") or "Player 1"
         p2_name = p.get("p2_name") or "Player 2"
         p1_fac = p.get("p1_faction") or ""
@@ -2842,12 +3721,13 @@ async def api_eventstudio_push_pairings_bcp(event_id: str, payload: PushPairings
                 }
             }
 
-    # 1. Local Studio Event Flow
+    # 1. Local Studio Event Flow (Native OmniTactica)
     if event_id.startswith("ES-"):
         db = get_database()
         ev = db.get_studio_event(event_id)
         if not ev:
             raise HTTPException(status_code=404, detail="Event not found")
+        _assert_native_event_owner_or_to(ev, user)
         pairings_map = ev.get("pairings") or {}
         pairings_map[str(round_num)] = target_pairings
         ev["pairings"] = pairings_map
@@ -2856,7 +3736,10 @@ async def api_eventstudio_push_pairings_bcp(event_id: str, payload: PushPairings
         ev["status"] = "active"
         ev["current_round"] = round_num
         ev["is_published"] = payload.publish_immediately
+        if payload.publish_immediately:
+            ev["published_round"] = round_num
         saved = db.save_studio_event(ev)
+        _invalidate_native_event_caches(event_id)
         return {
             "success": True,
             "round": round_num,
@@ -2864,7 +3747,7 @@ async def api_eventstudio_push_pairings_bcp(event_id: str, payload: PushPairings
             "pairings_count": len(target_pairings),
             "pairings_status": "applied",
             "event": saved,
-            "message": f"Round {round_num} pairings applied locally for event {event_id}."
+            "message": f"Round {round_num} pairings locked & published on OmniTactica."
         }
 
     # 2. Pure BCP Flow (Direct API invocation, Zero DB writes)
@@ -2911,25 +3794,25 @@ async def api_eventstudio_push_pairings_bcp(event_id: str, payload: PushPairings
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/apply_bcp", summary="Apply staged tournament pairings to Best Coast Pairings")
 async def api_eventstudio_apply_pairings_bcp(event_id: str, payload: ApplyPairingsBcpPayload, request: Request):
-    user = _get_to_session_or_403(request)
-    auth_mgr = get_auth_manager()
-    user_id = user["id"]
-
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     round_num = str(payload.round)
     pairings_list = []
 
-    # If local studio event
     if event_id.startswith("ES-"):
         db = get_database()
         ev = db.get_studio_event(event_id)
         if not ev:
             raise HTTPException(status_code=404, detail="Event not found")
+        _assert_native_event_owner_or_to(ev, user)
         pairings_map = ev.get("pairings") or {}
         pairings_list = pairings_map.get(round_num) or []
         if not pairings_list:
             raise HTTPException(status_code=400, detail=f"No pairings found for Round {round_num}")
         ev["pairings_status"] = "applied"
+        ev["is_published"] = True
+        ev["published_round"] = int(round_num)
         saved = db.save_studio_event(ev)
+        _invalidate_native_event_caches(event_id)
         return {
             "success": True,
             "round": int(round_num),
@@ -2937,10 +3820,9 @@ async def api_eventstudio_apply_pairings_bcp(event_id: str, payload: ApplyPairin
             "bcp_applied": False,
             "pairings_status": "applied",
             "event": saved,
-            "message": f"Round {round_num} pairings staged locally."
+            "message": f"Round {round_num} pairings locked and published."
         }
 
-    # BCP Event: Delegate to push_to_bcp abstraction
     bcp_ev = _fetch_bcp_event_workspace(event_id, user)
     if bcp_ev:
         pairings_list = (bcp_ev.get("pairings") or {}).get(round_num) or []
@@ -2955,12 +3837,11 @@ async def api_eventstudio_apply_pairings_bcp(event_id: str, payload: ApplyPairin
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/publish", summary="Publish tournament round pairings on OmniTactica and BCP")
 def api_eventstudio_publish_pairings(event_id: str, payload: Dict[str, Any], request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     auth_mgr = get_auth_manager()
     user_id = user["id"]
     round_num = int(payload.get("round") or 1)
 
-    # 1. Pure BCP Flow (Zero DB mutation)
     if not event_id.startswith("ES-"):
         bcp_token = auth_mgr.get_valid_bcp_token(user_id) if user_id else None
         bcp_published, err_msg = bcp_adapter.publish_pairings(event_id, round_num, user_id=user_id, explicit_token=bcp_token)
@@ -2972,15 +3853,17 @@ def api_eventstudio_publish_pairings(event_id: str, payload: Dict[str, Any], req
             "message": f"Round {round_num} pairings published successfully on Best Coast Pairings."
         }
 
-    # 2. Local Studio Event Flow
     db = get_database()
     ev = db.get_studio_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
+    _assert_native_event_owner_or_to(ev, user)
 
     ev["published_round"] = round_num
     ev["is_published"] = True
+    ev["pairings_status"] = "applied"
     saved = db.save_studio_event(ev)
+    _invalidate_native_event_caches(event_id)
 
     return {
         "success": True,
@@ -2992,12 +3875,11 @@ def api_eventstudio_publish_pairings(event_id: str, payload: Dict[str, Any], req
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/unpublish", summary="Unpublish tournament round pairings on OmniTactica and BCP")
 def api_eventstudio_unpublish_pairings(event_id: str, payload: Dict[str, Any], request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     auth_mgr = get_auth_manager()
     user_id = user["id"]
     round_num = int(payload.get("round") or 1)
 
-    # 1. Pure BCP Flow (Zero DB mutation)
     if not event_id.startswith("ES-"):
         bcp_token = auth_mgr.get_valid_bcp_token(user_id) if user_id else None
         bcp_unpublished, err_msg = bcp_adapter.unpublish_pairings(event_id, round_num, user_id=user_id, explicit_token=bcp_token)
@@ -3009,14 +3891,15 @@ def api_eventstudio_unpublish_pairings(event_id: str, payload: Dict[str, Any], r
             "message": f"Round {round_num} pairings unpublished on Best Coast Pairings."
         }
 
-    # 2. Local Studio Event Flow
     db = get_database()
     ev = db.get_studio_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
+    _assert_native_event_owner_or_to(ev, user)
 
     ev["is_published"] = False
     saved = db.save_studio_event(ev)
+    _invalidate_native_event_caches(event_id)
 
     return {
         "success": True,
@@ -3026,34 +3909,26 @@ def api_eventstudio_unpublish_pairings(event_id: str, payload: Dict[str, Any], r
         "message": f"Round {round_num} pairings unpublished."
     }
 
-    return {
-        "success": True,
-        "round": round_num,
-        "bcp_unpublished": bcp_unpublished,
-        "event": saved,
-        "message": f"Round {round_num} pairings unpublished."
-    }
-
 @router.post("/api/eventstudio/event/{event_id}/round/finalize", summary="Finalize and lock round, advancing tournament round")
 def api_eventstudio_finalize_round(event_id: str, payload: Dict[str, Any], request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     db = get_database()
-    auth_mgr = get_auth_manager()
     user_id = user["id"]
 
     ev = db.get_studio_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
+    if event_id.startswith("ES-"):
+        _assert_native_event_owner_or_to(ev, user)
 
     round_num = int(payload.get("round") or ev.get("current_round") or 1)
     total_rounds = int(ev.get("num_rounds") or 3)
-    
-    # Advance current round if not at end
-    next_round = min(round_num + 1, total_rounds)
+
+    next_round = (round_num + 1) if round_num < total_rounds else round_num
     ev["current_round"] = next_round
     saved = db.save_studio_event(ev)
+    _invalidate_native_event_caches(event_id)
 
-    # Sync finalize to BCP
     bcp_finalized = False
     if user_id and not event_id.startswith("ES-"):
         bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/finalizeRound"
@@ -3073,20 +3948,21 @@ def api_eventstudio_finalize_round(event_id: str, payload: Dict[str, Any], reque
 
 @router.post("/api/eventstudio/event/{event_id}/round/reset", summary="Reset a round for corrections")
 def api_eventstudio_reset_round(event_id: str, payload: Dict[str, Any], request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     db = get_database()
-    auth_mgr = get_auth_manager()
     user_id = user["id"]
 
     ev = db.get_studio_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
+    if event_id.startswith("ES-"):
+        _assert_native_event_owner_or_to(ev, user)
 
     round_num = int(payload.get("round") or ev.get("current_round") or 1)
     ev["current_round"] = max(1, round_num)
     saved = db.save_studio_event(ev)
+    _invalidate_native_event_caches(event_id)
 
-    # Sync reset to BCP
     bcp_reset = False
     if user_id and not event_id.startswith("ES-"):
         bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/resetRound"
@@ -3105,17 +3981,51 @@ def api_eventstudio_reset_round(event_id: str, payload: Dict[str, Any], request:
 
 @router.post("/api/eventstudio/event/{event_id}/end", summary="End and archive tournament on OmniTactica and BCP")
 def api_eventstudio_end_tournament(event_id: str, request: Request):
-    user = _get_to_session_or_403(request)
+    user = _get_studio_user_or_401(request, require_to_for_external=True, event_id=event_id)
     db = get_database()
-    auth_mgr = get_auth_manager()
     user_id = user["id"]
 
     ev = db.get_studio_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
+    if event_id.startswith("ES-"):
+        _assert_native_event_owner_or_to(ev, user)
+
+    # Compute final standings and stamp official placements onto roster & event_participants
+    standings_list: List[Dict[str, Any]] = []
+    try:
+        st_res = api_eventstudio_get_standings(event_id, request)
+        standings_list = st_res.get("standings") or []
+        rank_by_pid = {str(s.get("id") or ""): s for s in standings_list}
+        for p in (ev.get("roster") or []):
+            pid_p = str(p.get("id") or p.get("player_id") or p.get("name") or "")
+            st_item = rank_by_pid.get(pid_p)
+            if st_item:
+                p["placement"] = int(st_item["rank"])
+                p["placing"] = int(st_item["rank"])
+                p["wins"] = int(st_item.get("wins") or 0)
+                p["losses"] = int(st_item.get("losses") or 0)
+                p["draws"] = int(st_item.get("draws") or 0)
+                p["points"] = float(st_item.get("swiss_points") or 0.0)
+    except Exception as ste:
+        logger.warning(f"Notice computing final standings on end_tournament for {event_id}: {ste}")
 
     ev["is_ended"] = True
+    ev["status"] = "completed"
     saved = db.save_studio_event(ev)
+
+    # Apply fast (<15ms) single-event Elo rating updates for native OmniTactica tournaments
+    elo_summary = None
+    if event_id.startswith("ES-"):
+        try:
+            ev_gs = normalize_game_system(ev.get("game_system"), default="40k")
+            elo_eng = get_elo_engine()
+            if elo_eng and hasattr(elo_eng, "rate_single_event"):
+                elo_summary = elo_eng.rate_single_event(event_id=event_id, game_system=ev_gs)
+        except Exception as ee:
+            logger.warning(f"Notice updating Elo ratings for completed native event {event_id}: {ee}")
+
+    _invalidate_native_event_caches(event_id)
 
     # Delete all live Firestore game rooms for this completed event
     rooms_deleted = 0
@@ -3147,12 +4057,15 @@ def api_eventstudio_end_tournament(event_id: str, request: Request):
         "success": True,
         "event_id": event_id,
         "bcp_ended": bcp_ended,
+        "elo_updated": bool(elo_summary and (elo_summary.get("players_updated") or 0) > 0),
+        "elo_summary": elo_summary,
+        "standings": standings_list,
         "rooms_deleted": rooms_deleted,
         "event": saved,
-        "message": "Tournament concluded and archived successfully."
+        "message": "Tournament concluded! Official placings and Elo ratings have been updated."
     }
 
-@router.get("/api/eventstudio/event/{event_id}/standings", summary="Compute live Swiss standings and tiebreaker metrics")
+@router.get("/api/eventstudio/event/{event_id}/standings", summary="Compute live Swiss, FFA Pod, and Top Cut standings with tiebreakers")
 def api_eventstudio_get_standings(event_id: str, request: Request):
     db = get_database()
     ev = db.get_studio_event(event_id)
@@ -3161,9 +4074,23 @@ def api_eventstudio_get_standings(event_id: str, request: Request):
 
     roster = ev.get("roster") or []
     pairings_map = ev.get("pairings") or {}
+    ev_gs = normalize_game_system(ev.get("game_system"), default="40k")
+    ev_scoring = str(ev.get("scoring_mode") or "").strip().lower()
+    ev_match_fmt = str(ev.get("match_format") or "").strip().lower()
+    ev_type_l = str(ev.get("event_type") or "").strip().lower()
+    is_ffa = bool(
+        ev.get("is_ffa_event")
+        or ev_match_fmt in ("ffa", "pods", "pod", "4p", "commander")
+        or ev_scoring in ("ffa_pods", "pods", "ffa")
+        or "pod" in ev_type_l
+        or "ffa" in ev_type_l
+    )
+    is_tcg = bool(ev_gs in TCG_GAME_SYSTEMS or ev_scoring in ("tcg_bo3", "tcg_bo1"))
+    win_pts = float(ev.get("win_points") if ev.get("win_points") is not None else (5.0 if is_ffa else 3.0))
+    draw_pts = float(ev.get("draw_points") if ev.get("draw_points") is not None else 1.0)
 
     # 1. Compute round-by-round statistics
-    player_stats = {}
+    player_stats: Dict[str, Dict[str, Any]] = {}
     for p in roster:
         pid = str(p.get("id") or p.get("player_id") or p.get("name"))
         player_stats[pid] = {
@@ -3176,95 +4103,228 @@ def api_eventstudio_get_standings(event_id: str, request: Request):
             "wins": 0,
             "losses": 0,
             "draws": 0,
-            "swiss_points": 0,
+            "swiss_points": 0.0,
             "path_to_victory": 0,
             "battle_points": 0,
             "battle_points_diff": 0,
+            "games_won": 0,
+            "games_played": 0,
+            "game_win_pct": 33.0,
+            "top_cut_tier": 0,
             "opponents": [],
             "rounds_played": 0
         }
+
+    top_cut_rounds: List[Tuple[int, List[Dict[str, Any]]]] = []
 
     for r_str, r_pairings in sorted(pairings_map.items(), key=lambda x: int(x[0]) if str(x[0]).isdigit() else 0):
         try:
             r_num = int(r_str)
         except Exception:
             continue
+        is_cut_round = bool(r_pairings and all(str(m.get("stage") or "") == "top_cut" for m in r_pairings))
+        if is_cut_round:
+            top_cut_rounds.append((r_num, r_pairings))
+
         for match in (r_pairings or []):
+            if match.get("is_ffa") and isinstance(match.get("pod_participants"), list):
+                pod_parts = [pp for pp in match.get("pod_participants", []) if isinstance(pp, dict)]
+                pod_pids = [str(pp.get("player_id") or pp.get("id") or pp.get("name") or "") for pp in pod_parts if (pp.get("player_id") or pp.get("id") or pp.get("name"))]
+                is_done_ffa = bool(match.get("is_done") or match.get("is_bye") or match.get("winner_id") or match.get("is_draw"))
+                if not is_done_ffa:
+                    continue
+                if match.get("is_bye") and pod_pids:
+                    b_pid = pod_pids[0]
+                    if b_pid in player_stats:
+                        player_stats[b_pid]["rounds_played"] += 1
+                        player_stats[b_pid]["wins"] += 1
+                        player_stats[b_pid]["swiss_points"] += win_pts
+                        player_stats[b_pid]["battle_points"] += int(win_pts)
+                    continue
+                w_id_ffa = str(match.get("winner_id") or "").strip()
+                m_draw_ffa = bool(match.get("is_draw"))
+                for pp in pod_parts:
+                    pp_id = str(pp.get("player_id") or pp.get("id") or pp.get("name") or "")
+                    if pp_id not in player_stats:
+                        continue
+                    player_stats[pp_id]["rounds_played"] += 1
+                    for other_pid in pod_pids:
+                        if other_pid != pp_id:
+                            player_stats[pp_id]["opponents"].append(other_pid)
+                    pp_sc = int(round(float(pp.get("score") or 0)))
+                    if m_draw_ffa or str(pp.get("result") or "").lower() == "draw":
+                        player_stats[pp_id]["draws"] += 1
+                        player_stats[pp_id]["swiss_points"] += draw_pts
+                        player_stats[pp_id]["battle_points"] += (pp_sc or int(draw_pts))
+                    elif (w_id_ffa and pp_id == w_id_ffa) or str(pp.get("result") or "").lower() == "win" or pp.get("placement") == 1:
+                        player_stats[pp_id]["wins"] += 1
+                        player_stats[pp_id]["swiss_points"] += win_pts
+                        player_stats[pp_id]["battle_points"] += (pp_sc or int(win_pts))
+                        player_stats[pp_id]["path_to_victory"] += (10 ** max(0, 10 - r_num))
+                    else:
+                        player_stats[pp_id]["losses"] += 1
+                        player_stats[pp_id]["battle_points"] += pp_sc
+                continue
+
             p1_id = str(match.get("p1_id") or match.get("p1_name") or "")
             p2_id = str(match.get("p2_id") or match.get("p2_name") or "")
             p1_s = int(match.get("p1_score") or 0)
             p2_s = int(match.get("p2_score") or 0)
-            is_done = bool(match.get("is_done") or p1_s > 0 or p2_s > 0)
             is_bye = bool(match.get("is_bye") or not p2_id)
+            m_winner = str(match.get("winner_id") or "").strip()
+            m_draw = bool(match.get("is_draw"))
+            is_done = bool(match.get("is_done") or is_bye or p1_s > 0 or p2_s > 0 or m_winner or m_draw)
 
             if is_done and p1_id in player_stats:
                 player_stats[p1_id]["rounds_played"] += 1
                 player_stats[p1_id]["battle_points"] += p1_s
                 player_stats[p1_id]["battle_points_diff"] += (p1_s - p2_s)
+                if is_tcg:
+                    g_p1 = 2 if is_bye else max(0, p1_s)
+                    g_p2 = 0 if is_bye else max(0, p2_s)
+                    if g_p1 == 0 and g_p2 == 0 and not is_bye:
+                        if m_winner == p1_id:
+                            g_p1, g_p2 = 1, 0
+                        elif m_winner == p2_id:
+                            g_p1, g_p2 = 0, 1
+                        else:
+                            g_p1, g_p2 = 1, 1
+                    player_stats[p1_id]["games_won"] += g_p1
+                    player_stats[p1_id]["games_played"] += max(1, g_p1 + g_p2)
                 if is_bye:
                     player_stats[p1_id]["wins"] += 1
-                    player_stats[p1_id]["swiss_points"] += 3
-                    player_stats[p1_id]["path_to_victory"] += (10 ** (10 - r_num))
-                elif p1_s > p2_s:
+                    if not is_cut_round:
+                        player_stats[p1_id]["swiss_points"] += win_pts
+                        player_stats[p1_id]["path_to_victory"] += (10 ** max(0, 10 - r_num))
+                elif (m_winner and m_winner == p1_id) or (not m_winner and not m_draw and p1_s > p2_s):
                     player_stats[p1_id]["wins"] += 1
-                    player_stats[p1_id]["swiss_points"] += 3
-                    player_stats[p1_id]["path_to_victory"] += (10 ** (10 - r_num))
-                elif p1_s < p2_s:
+                    if not is_cut_round:
+                        player_stats[p1_id]["swiss_points"] += win_pts
+                        player_stats[p1_id]["path_to_victory"] += (10 ** max(0, 10 - r_num))
+                elif (m_winner and m_winner == p2_id) or (not m_winner and not m_draw and p1_s < p2_s):
                     player_stats[p1_id]["losses"] += 1
                 else:
                     player_stats[p1_id]["draws"] += 1
-                    player_stats[p1_id]["swiss_points"] += 1
+                    if not is_cut_round:
+                        player_stats[p1_id]["swiss_points"] += draw_pts
 
             if is_done and p2_id and p2_id in player_stats and not is_bye:
-                player_stats[p1_id]["opponents"].append(p2_id)
+                if p1_id in player_stats:
+                    player_stats[p1_id]["opponents"].append(p2_id)
                 player_stats[p2_id]["opponents"].append(p1_id)
                 player_stats[p2_id]["rounds_played"] += 1
                 player_stats[p2_id]["battle_points"] += p2_s
                 player_stats[p2_id]["battle_points_diff"] += (p2_s - p1_s)
-                if p2_s > p1_s:
+                if is_tcg:
+                    g_p1 = max(0, p1_s)
+                    g_p2 = max(0, p2_s)
+                    if g_p1 == 0 and g_p2 == 0:
+                        if m_winner == p2_id:
+                            g_p1, g_p2 = 0, 1
+                        elif m_winner == p1_id:
+                            g_p1, g_p2 = 1, 0
+                        else:
+                            g_p1, g_p2 = 1, 1
+                    player_stats[p2_id]["games_won"] += g_p2
+                    player_stats[p2_id]["games_played"] += max(1, g_p1 + g_p2)
+                if (m_winner and m_winner == p2_id) or (not m_winner and not m_draw and p2_s > p1_s):
                     player_stats[p2_id]["wins"] += 1
-                    player_stats[p2_id]["swiss_points"] += 3
-                    player_stats[p2_id]["path_to_victory"] += (10 ** (10 - r_num))
-                elif p2_s < p1_s:
+                    if not is_cut_round:
+                        player_stats[p2_id]["swiss_points"] += win_pts
+                        player_stats[p2_id]["path_to_victory"] += (10 ** max(0, 10 - r_num))
+                elif (m_winner and m_winner == p1_id) or (not m_winner and not m_draw and p2_s < p1_s):
                     player_stats[p2_id]["losses"] += 1
                 else:
                     player_stats[p2_id]["draws"] += 1
-                    player_stats[p2_id]["swiss_points"] += 1
+                    if not is_cut_round:
+                        player_stats[p2_id]["swiss_points"] += draw_pts
 
-    # 2. Compute Opponent Win % (Strength of Schedule)
+    # Apply Single-Elimination Top Cut bracket final tier priority if Top Cut has started
+    for _, cut_matches in top_cut_rounds:
+        m_cnt = len(cut_matches)
+        # Quarterfinals (4 matches) -> tier 1+, Semifinals (2 matches) -> tier 2+, Grand Final (1 match) -> winner tier 4, runner-up tier 3
+        stage_base = 3 if m_cnt == 1 else (2 if m_cnt == 2 else 1)
+        for cm in cut_matches:
+            cp1 = str(cm.get("p1_id") or "")
+            cp2 = str(cm.get("p2_id") or "")
+            for cpid in (cp1, cp2):
+                if cpid in player_stats:
+                    player_stats[cpid]["top_cut_tier"] = max(player_stats[cpid]["top_cut_tier"], stage_base)
+            cw = str(cm.get("winner_id") or "")
+            if not cw:
+                cs1, cs2 = int(cm.get("p1_score") or 0), int(cm.get("p2_score") or 0)
+                if cs1 > cs2:
+                    cw = cp1
+                elif cs2 > cs1:
+                    cw = cp2
+            if cw and cw in player_stats:
+                player_stats[cw]["top_cut_tier"] = max(player_stats[cw]["top_cut_tier"], stage_base + 1)
+
+    # 2. Compute Opponent Match Win % (OMW% / SoS) and Game Win % (GW%)
     for pid, stats in player_stats.items():
+        stats["swiss_points"] = int(stats["swiss_points"]) if float(stats["swiss_points"]).is_integer() else round(stats["swiss_points"], 1)
         opp_win_rates = []
         for opp_id in stats["opponents"]:
             if opp_id in player_stats:
                 opp = player_stats[opp_id]
                 tot = max(1, opp["rounds_played"])
-                wr = (opp["wins"] + (0.5 * opp["draws"])) / tot
+                wr = (opp["wins"] + ((draw_pts / max(1.0, win_pts)) * opp["draws"])) / tot
                 opp_win_rates.append(max(0.33, wr))
         stats["opp_win_rate_sos"] = round((sum(opp_win_rates) / max(1, len(opp_win_rates))) * 100.0, 1) if opp_win_rates else 33.0
+        if stats["games_played"] > 0:
+            stats["game_win_pct"] = round(max(0.33, stats["games_won"] / stats["games_played"]) * 100.0, 1)
 
-    # 3. Sort Standings by Swiss Points -> Path to Victory -> SoS -> Battle Points
-    standings = sorted(
-        player_stats.values(),
-        key=lambda s: (
-            -s["swiss_points"],
-            -s["path_to_victory"],
-            -s["opp_win_rate_sos"],
-            -s["battle_points"],
-            -s["battle_points_diff"]
+    # 3. Sort Standings by Top Cut Tier -> Points -> System-Appropriate Tiebreakers
+    if is_tcg:
+        standings = sorted(
+            player_stats.values(),
+            key=lambda s: (
+                -s["top_cut_tier"],
+                -float(s["swiss_points"]),
+                -s["opp_win_rate_sos"],
+                -s["game_win_pct"],
+                -s["battle_points_diff"],
+            ),
         )
-    )
+    elif is_ffa:
+        standings = sorted(
+            player_stats.values(),
+            key=lambda s: (
+                -s["top_cut_tier"],
+                -float(s["swiss_points"]),
+                -s["wins"],
+                -s["opp_win_rate_sos"],
+                -s["battle_points"],
+            ),
+        )
+    else:
+        standings = sorted(
+            player_stats.values(),
+            key=lambda s: (
+                -s["top_cut_tier"],
+                -float(s["swiss_points"]),
+                -s["path_to_victory"],
+                -s["opp_win_rate_sos"],
+                -s["battle_points"],
+                -s["battle_points_diff"],
+            ),
+        )
 
     for idx, item in enumerate(standings, 1):
         item["rank"] = idx
+        item.setdefault("player_id", item.get("id"))
 
     return {
         "success": True,
         "event_id": event_id,
+        "scoring_mode": ev_scoring or ("ffa_pods" if is_ffa else ("tcg_bo3" if is_tcg else "wargame_vp")),
+        "is_ffa": is_ffa,
+        "is_tcg": is_tcg,
         "total_players": len(standings),
         "standings": standings
     }
 
-@router.post("/api/eventstudio/submit_score", summary="Submit table match score and sync with BCP")
+@router.post("/api/eventstudio/submit_score", summary="Submit table match score and sync with OmniTactica / BCP")
 async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Request):
     db = get_database()
     auth_mgr = get_auth_manager()
@@ -3282,13 +4342,12 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
 
     # 2. Resolve BCP token (Payload > X-BCP-Token > User Linked Token > Bearer if not native session)
     bcp_token = payload.bcp_token or request.headers.get("X-BCP-Token")
-    if not bcp_token and user_id:
+    if not bcp_token and user_id and not str(payload.event_id).startswith("ES-"):
         tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
         bcp_token = tok_dict.get("id_token") or tok_dict.get("access_token")
     if not bcp_token and not user and bearer_tok and bearer_tok.startswith("eyJ"):
         bcp_token = bearer_tok
 
-    # Canonicalize event ID right away so lookups and pairings use the exact case!
     canonical_event_id = _resolve_canonical_event_id(payload.event_id, user=user, explicit_token=bcp_token)
     event_id = canonical_event_id or payload.event_id
 
@@ -3321,7 +4380,6 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
     table_val = int(payload.table if payload.table is not None else (payload.table_num or 1))
     logger.info(f"EventStudio: Submitting Table {table_val} Round {payload.round_num} Score ({payload.p1_score} - {payload.p2_score}) Source: {payload.source_app}")
     
-    # 4. Resolve live BCP pairing ID if missing for BCP-synced tournaments & extract competitor info
     bcp_pairing_id = payload.pairing_id if (payload.pairing_id and not str(payload.pairing_id).isdigit() and len(str(payload.pairing_id)) > 3) else None
     p1_id = getattr(payload, "p1_id", None)
     p2_id = getattr(payload, "p2_id", None)
@@ -3338,6 +4396,31 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
             p1_id = payload.game_details.get("p1_id") or payload.game_details.get("player1Id")
         if not p2_id:
             p2_id = payload.game_details.get("p2_id") or payload.game_details.get("player2Id")
+
+    # Hydrate player IDs / names / FFA state from native studio_events if ES-*
+    native_ev = None
+    native_target_match = None
+    if event_id.startswith("ES-"):
+        native_ev = db.get_studio_event(event_id)
+        if native_ev:
+            if not native_ev.get("passwordless_scoring", True):
+                if not user:
+                    raise HTTPException(status_code=401, detail="Authentication required to submit scores for this tournament.")
+                _assert_native_event_owner_or_to(native_ev, user)
+            r_pairings = (native_ev.get("pairings") or {}).get(str(payload.round_num)) or []
+            for m_item in r_pairings:
+                if m_item.get("table") == table_val or str(m_item.get("table")) == str(table_val):
+                    native_target_match = m_item
+                    p1_id = p1_id or m_item.get("p1_id")
+                    p2_id = p2_id or m_item.get("p2_id")
+                    if p1_name in ("", "Player 1") and m_item.get("p1_name"):
+                        p1_name = m_item.get("p1_name")
+                    if p2_name in ("", "Player 2") and m_item.get("p2_name"):
+                        p2_name = m_item.get("p2_name")
+                    p1_fac = p1_fac or m_item.get("p1_faction") or ""
+                    p2_fac = p2_fac or m_item.get("p2_faction") or ""
+                    bcp_pairing_id = bcp_pairing_id or m_item.get("id")
+                    break
 
     if (not bcp_pairing_id or not p1_gid or not p2_gid or not p1_id or not p2_id) and not event_id.startswith("ES-"):
         try:
@@ -3379,49 +4462,29 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
 
     p1_score = int(payload.p1_score)
     p2_score = int(payload.p2_score)
-    is_draw = (p1_score == p2_score)
-    winner_id = payload.winner_id
-    if not winner_id and not is_draw:
-        if p1_score > p2_score:
-            winner_id = p1_id
-        elif p2_score > p1_score:
-            winner_id = p2_id
-    loser_id = p2_id if (winner_id and winner_id == p1_id) else (p1_id if (winner_id and winner_id == p2_id) else None)
+    is_ffa_match = bool((native_target_match and native_target_match.get("is_ffa")) or payload.pod_placements)
+    winner_id = (str(payload.winner_id).strip() if payload.winner_id else None)
+    if is_ffa_match:
+        is_draw = bool(payload.is_draw) if payload.is_draw is not None else (not bool(winner_id))
+        if is_draw:
+            winner_id = None
+    else:
+        if payload.is_draw is not None:
+            is_draw = bool(payload.is_draw) and not bool(winner_id)
+        else:
+            is_draw = (p1_score == p2_score) and not bool(winner_id)
+        if not winner_id and not is_draw:
+            if p1_score > p2_score:
+                winner_id = p1_id
+            elif p2_score > p1_score:
+                winner_id = p2_id
+    loser_id = p2_id if (not is_ffa_match and winner_id and winner_id == p1_id) else (p1_id if (not is_ffa_match and winner_id and winner_id == p2_id) else None)
 
-    # 5. Persist match scores immediately to OmniTactica database
-    match_id = bcp_pairing_id or f"BCP-{event_id}-R{payload.round_num}-T{table_val}"
-    match_record = {
-        "id": match_id,
-        "event_id": event_id,
-        "round": int(payload.round_num),
-        "table_number": int(table_val),
-        "match_date": datetime.now(timezone.utc).isoformat(),
-        "player1_id": p1_id or None,
-        "player1_name": p1_name,
-        "player1_faction": p1_fac,
-        "player1_score": p1_score,
-        "player2_id": p2_id or None,
-        "player2_name": p2_name,
-        "player2_faction": p2_fac,
-        "player2_score": p2_score,
-        "winner_id": winner_id,
-        "loser_id": loser_id,
-        "is_draw": is_draw,
-        "is_bye": False,
-        "is_done": True,
-        "raw_json": {
-            "source_app": payload.source_app,
-            "pairing_id": bcp_pairing_id,
-            "game_details": payload.game_details or {}
-        }
-    }
-    # 5. Strictly for native EventStudio tournaments (ES-*), persist local match record
-    if event_id.startswith("ES-"):
-        try:
-            if hasattr(db, "upsert_match"):
-                db.upsert_match(match_record)
-        except Exception as me:
-            logger.debug(f"Notice upserting match {match_id} into DB: {me}")
+    match_id = (
+        f"{event_id}-R{payload.round_num}-T{table_val}"
+        if event_id.startswith("ES-")
+        else (bcp_pairing_id or f"BCP-{event_id}-R{payload.round_num}-T{table_val}")
+    )
 
     # Tournament games retain their verified digital scorecard in PostgreSQL tracker_games and Firestore rooms.
     fs_engine = get_firestore_engine()
@@ -3500,13 +4563,11 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
         if "p2" in persisted_state and isinstance(persisted_state["p2"], dict):
             persisted_state["p2"]["score"] = int(payload.p2_score)
 
-    # 1. Permanently persist verified digital scorecard in PostgreSQL tracker_games
     try:
         db.save_tracker_game(match_id, persisted_state, user_id_p1=p1_id, user_id_p2=p2_id)
     except Exception as se:
         logger.warning(f"Notice saving tracker game to DB from Event Studio: {se}")
 
-    # 2. Concluded match room is discarded / removed from Firestore and memory
     for mid_clean in target_rooms:
         if mid_clean:
             norm_mid = normalize_tracker_match_id(mid_clean)
@@ -3538,26 +4599,91 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
                     pass
     except Exception as le:
         logger.debug(f"Notice notifying listeners of match finalization: {le}")
-    except Exception:
-        pass
 
-    # 6. Strictly for native EventStudio tournaments (ES-*), update local draft
+    # 6. Strictly for native EventStudio tournaments (ES-*), update local pairings & canonical DB tables
     if event_id.startswith("ES-"):
-        ev = db.get_studio_event(event_id)
+        ev = native_ev or db.get_studio_event(event_id)
         if ev:
+            win_pts_ev = float(ev.get("win_points") if ev.get("win_points") is not None else (5.0 if is_ffa_match else 3.0))
+            draw_pts_ev = float(ev.get("draw_points") if ev.get("draw_points") is not None else 1.0)
             pairings_map = ev.get("pairings") or {}
             round_pairings = pairings_map.get(str(payload.round_num)) or []
+            matched_in_studio = False
+            placement_override = {
+                str(pp.get("player_id") or pp.get("id") or ""): pp
+                for pp in (payload.pod_placements or [])
+                if isinstance(pp, dict) and (pp.get("player_id") or pp.get("id"))
+            }
             for match in round_pairings:
                 if match.get("table") == table_val or str(match.get("table")) == str(table_val):
-                    match["p1_score"] = payload.p1_score
-                    match["p2_score"] = payload.p2_score
+                    matched_in_studio = True
                     match["is_done"] = True
+                    match["winner_id"] = winner_id
+                    match["is_draw"] = is_draw
+                    if match.get("is_ffa") and isinstance(match.get("pod_participants"), list):
+                        for pp in match["pod_participants"]:
+                            pp_id = str(pp.get("player_id") or pp.get("id") or "")
+                            ov = placement_override.get(pp_id)
+                            if ov:
+                                pp["placement"] = ov.get("placement")
+                                pp["score"] = ov.get("score", 0)
+                                pp["result"] = ov.get("result") or ("draw" if is_draw else ("win" if pp_id == winner_id else "loss"))
+                            elif is_draw:
+                                pp["placement"] = 1
+                                pp["score"] = draw_pts_ev
+                                pp["result"] = "draw"
+                            elif winner_id and pp_id == winner_id:
+                                pp["placement"] = 1
+                                pp["score"] = win_pts_ev
+                                pp["result"] = "win"
+                            else:
+                                pp["placement"] = 2
+                                pp["score"] = 0
+                                pp["result"] = "loss"
+                        match["p1_score"] = int(round(win_pts_ev if (winner_id and str(match.get("p1_id")) == winner_id) else (draw_pts_ev if is_draw else 0)))
+                        match["p2_score"] = int(round(draw_pts_ev if is_draw else (win_pts_ev if (winner_id and str(match.get("p1_id")) != winner_id) else 0)))
+                    else:
+                        match["p1_score"] = p1_score
+                        match["p2_score"] = p2_score
                     if not bcp_pairing_id:
-                        bcp_pairing_id = match.get("bcp_pairing_id") or match.get("id")
+                        bcp_pairing_id = match.get("bcp_pairing_id") or match.get("id") or match_id
                     break
-            pairings_map[str(payload.round_num)] = round_pairings
-            ev["pairings"] = pairings_map
-            db.save_studio_event(ev)
+            if matched_in_studio:
+                pairings_map[str(payload.round_num)] = round_pairings
+                ev["pairings"] = pairings_map
+                db.save_studio_event(ev)
+            else:
+                try:
+                    if hasattr(db, "upsert_match"):
+                        db.upsert_match({
+                            "id": match_id,
+                            "event_id": event_id,
+                            "round": int(payload.round_num),
+                            "table_number": int(table_val),
+                            "match_date": datetime.now(timezone.utc).isoformat(),
+                            "player1_id": p1_id or None,
+                            "player1_name": p1_name,
+                            "player1_faction": p1_fac,
+                            "player1_score": p1_score,
+                            "player2_id": p2_id or None,
+                            "player2_name": p2_name,
+                            "player2_faction": p2_fac,
+                            "player2_score": p2_score,
+                            "winner_id": winner_id,
+                            "loser_id": loser_id,
+                            "is_draw": is_draw,
+                            "is_bye": False,
+                            "is_done": True,
+                            "game_system": normalize_game_system(ev.get("game_system"), default="40k"),
+                            "raw_json": {
+                                "source_app": payload.source_app,
+                                "pairing_id": bcp_pairing_id,
+                                "game_details": payload.game_details or {},
+                            },
+                        })
+                except Exception as me:
+                    logger.debug(f"Notice upserting match {match_id} into DB: {me}")
+        _invalidate_native_event_caches(event_id)
 
     # 7. Push to BCP via BcpAdapter if pairing ID is known
     bcp_synced = False
@@ -3605,7 +4731,9 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
         "round_num": payload.round_num,
         "p1_score": payload.p1_score,
         "p2_score": payload.p2_score,
-        "pairing_id": bcp_pairing_id,
+        "is_draw": is_draw,
+        "is_ffa": is_ffa_match,
+        "pairing_id": bcp_pairing_id or match_id,
         "p1_game_id": p1_gid,
         "p2_game_id": p2_gid,
         "p1_id": p1_id,

@@ -1142,25 +1142,30 @@ function isBcpEventId(eventId) {
 }
 
 function getEventPlatform(eventId, ev = null) {
-  if (ev && ev.source_platform) return String(ev.source_platform).trim().toLowerCase();
+  if (ev && ev.is_native_event) return "omnitactica";
+  if (ev && ev.source_platform) {
+    const sp = String(ev.source_platform).trim().toLowerCase();
+    if (sp === "omnitactica" || sp === "eventstudio" || sp === "native") return "omnitactica";
+    return sp;
+  }
   const s = String(eventId || (ev && ev.id) || "").trim().toLowerCase();
   if (s.startsWith("melee:")) return "melee";
   if (s.startsWith("ltcg:")) return "limitless";
   if (s.startsWith("ls:")) return "longshanks";
   if (s.startsWith("td:")) return "topdeck";
-  if (s.startsWith("es_") || s.startsWith("es-")) return "eventstudio";
+  if (s.startsWith("es_") || s.startsWith("es-")) return "omnitactica";
   return "bcp";
 }
 
 function getPlatformDisplayName(platformOrEventId, ev = null) {
-  const plat = ["bcp", "melee", "limitless", "longshanks", "topdeck", "eventstudio"].includes(String(platformOrEventId || "").toLowerCase())
+  const plat = ["bcp", "melee", "limitless", "longshanks", "topdeck", "eventstudio", "omnitactica"].includes(String(platformOrEventId || "").toLowerCase())
     ? String(platformOrEventId).toLowerCase()
     : getEventPlatform(platformOrEventId, ev);
   if (plat === "melee") return "Melee.gg";
   if (plat === "limitless") return "Limitless TCG";
   if (plat === "longshanks") return "Longshanks";
   if (plat === "topdeck") return "TopDeck.gg";
-  if (plat === "eventstudio") return "OmniTactica Studio";
+  if (plat === "omnitactica" || plat === "eventstudio") return "⚡ OmniTactica";
   return "BCP";
 }
 
@@ -1174,6 +1179,9 @@ function getPlatformExternalEventUrl(eventId, ev = null) {
   const s = String(eventId || (ev && ev.id) || "").trim();
   if (!s) return "https://www.bestcoastpairings.com";
   const low = s.toLowerCase();
+  if (low.startsWith("es-") || low.startsWith("es_") || (ev && (ev.is_native_event || ev.source_platform === "omnitactica"))) {
+    return `/app?event=${encodeURIComponent(s)}#community`;
+  }
   const extId = (ev && ev.external_event_id) ? String(ev.external_event_id).trim() : (s.includes(":") ? s.split(":", 2)[1] : s);
   if (low.startsWith("melee:")) return `https://melee.gg/Tournament/View/${encodeURIComponent(extId)}`;
   if (low.startsWith("ltcg:")) {
@@ -1194,7 +1202,8 @@ function getPlatformBadgeHtml(platformOrEventId, ev = null) {
     longshanks: "background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.35);",
     topdeck: "background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.38);",
     melee: "background:rgba(244,63,94,0.15); color:#fb7185; border:1px solid rgba(244,63,94,0.35);",
-    eventstudio: "background:rgba(99,102,241,0.16); color:#818cf8; border:1px solid rgba(99,102,241,0.35);"
+    omnitactica: "background:linear-gradient(135deg, rgba(6,182,212,0.22), rgba(99,102,241,0.22)); color:#67e8f9; border:1px solid rgba(6,182,212,0.48);",
+    eventstudio: "background:linear-gradient(135deg, rgba(6,182,212,0.22), rgba(99,102,241,0.22)); color:#67e8f9; border:1px solid rgba(6,182,212,0.48);"
   };
   const st = styles[plat] || styles.bcp;
   return `<span class="badge" style="${st} font-size:0.64rem; font-weight:700; padding:1px 6px; border-radius:4px; white-space:nowrap;">${escapeHtml(label)}</span>`;

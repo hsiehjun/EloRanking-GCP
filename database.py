@@ -5889,10 +5889,15 @@ class PostgresDatabase:
                        venue, venue_name, address, postal_code, latitude, longitude, place_id,
                        total_players, num_rounds, current_round, is_ended,
                        COALESCE(game_system, '40k') as game_system,
+                       game_system_id,
+                       points, capacity, mission_pack,
+                       COALESCE(event_type, 'singles') as event_type,
+                       COALESCE(team_size, 1) as team_size,
+                       COALESCE(circuits, '[]'::jsonb) as circuits,
                        source_platform, external_event_id,
                        CASE
-                           WHEN POSITION(':' IN id) > 0 AND raw_json IS NOT NULL AND jsonb_typeof(raw_json) = 'object' THEN
-                               (raw_json - 'players' - 'pairings' - 'matches' - 'standings' - 'roundMatches' - 'decklists')
+                           WHEN (POSITION(':' IN id) > 0 OR LEFT(id, 3) = 'ES-') AND raw_json IS NOT NULL AND jsonb_typeof(raw_json) = 'object' THEN
+                               (raw_json - 'players' - 'pairings' - 'matches' - 'standings' - 'roundMatches' - 'decklists' - 'roster' - 'access_code' - 'accessCode')
                            WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json) = 'object' THEN
                                jsonb_build_object(
                                    'placingMetrics', COALESCE(raw_json->'placingMetrics', '[]'::jsonb),
@@ -5960,7 +5965,8 @@ class PostgresDatabase:
                                )
                            ELSE '{}'::jsonb
                        END as raw_json,
-                       CASE WHEN COALESCE(total_players, 0) = 0 THEN roster ELSE '[]'::jsonb END as roster,
+                       CASE WHEN COALESCE(total_players, 0) = 0 OR LEFT(id, 3) = 'ES-' THEN roster ELSE '[]'::jsonb END as roster,
+                       CASE WHEN LEFT(id, 3) = 'ES-' THEN COALESCE(pairings, '{}'::jsonb) ELSE '{}'::jsonb END as studio_pairings,
                        organizer_id, organizer_bcp_id,
                        COALESCE(started, false) as started,
                        COALESCE(pairings_status, 'draft') as pairings_status
@@ -5972,7 +5978,13 @@ class PostgresDatabase:
                     return None
                 res = dict(event_row)
                 ev_id_str = str(res.get("id") or event_id).strip()
-                if ":" in ev_id_str:
+                is_native_es = ev_id_str.startswith("ES-")
+                if is_native_es:
+                    res["source_platform"] = "omnitactica"
+                    res["is_native_event"] = True
+                    res["event_url"] = f"/app?event={ev_id_str}#community"
+                    res["external_url"] = res["event_url"]
+                elif ":" in ev_id_str:
                     plat_pfx, raw_ext = ev_id_str.split(":", 1)
                     plat_map = {"melee": "melee", "ltcg": "limitless", "td": "topdeck", "ls": "longshanks"}
                     res["source_platform"] = str(res.get("source_platform") or plat_map.get(plat_pfx, plat_pfx)).strip()
@@ -5989,6 +6001,19 @@ class PostgresDatabase:
                     if not res.get("external_url"):
                         res["external_url"] = res.get("event_url")
                 raw_meta = res.get("raw_json") if isinstance(res.get("raw_json"), dict) else {}
+                if is_native_es and isinstance(raw_meta, dict):
+                    for k_native in (
+                        "hosting_mode", "scoring_mode", "match_format", "best_of", "top_cut",
+                        "win_points", "draw_points", "tiebreakers", "venue_mode", "online_platform",
+                        "discord_url", "stream_url", "external_ticket_url", "description", "prizes",
+                        "organizer_name", "is_ffa_event", "hide_lists", "lists_at_checkin",
+                        "lists_locked", "factions_locked", "using_online_reg", "ticket_price",
+                        "ticket_currency", "private_event", "has_access_code",
+                    ):
+                        if raw_meta.get(k_native) is not None and res.get(k_native) is None:
+                            res[k_native] = raw_meta.get(k_native)
+                if raw_meta.get("is_ffa_event") or raw_meta.get("match_format") == "ffa" or str(res.get("event_type") or "").lower() in ("pods", "ffa"):
+                    res["is_ffa_event"] = True
                 raw_loc = raw_meta.get("location") if isinstance(raw_meta.get("location"), dict) else {}
                 if not res.get("city"):
                     res["city"] = raw_meta.get("city") or raw_loc.get("city") or ""
@@ -6060,6 +6085,19 @@ class PostgresDatabase:
                        m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
                        m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
                        m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
+                       CASE
+                           WHEN m.raw_json IS NOT NULL AND jsonb_typeof(m.raw_json) = 'object'
+                                AND (COALESCE((m.raw_json->>'is_ffa')::boolean, FALSE) OR m.raw_json->>'match_format' = 'ffa' OR m.raw_json ? 'stage' OR m.raw_json ? 'best_of')
+                           THEN jsonb_build_object(
+                               'is_ffa', COALESCE((m.raw_json->>'is_ffa')::boolean, m.raw_json->>'match_format' = 'ffa'),
+                               'match_format', m.raw_json->>'match_format',
+                               'pod_participants', COALESCE(m.raw_json->'pod_participants', '[]'::jsonb),
+                               'stage', m.raw_json->>'stage',
+                               'bracket_label', m.raw_json->>'bracket_label',
+                               'best_of', m.raw_json->'best_of'
+                           )
+                           ELSE NULL
+                       END as match_meta,
                        (tg.match_id IS NOT NULL) as has_tracker_game,
                        tg.match_id as tracker_match_id,
                        COALESCE(tg.is_finished, FALSE) as tracker_is_done,
@@ -6071,7 +6109,97 @@ class PostgresDatabase:
                 WHERE m.event_id = %s
                 ORDER BY m.round ASC, m.table_number ASC;
                 """, (ev_variants, event_id))
-                matches = [dict(r) for r in cursor.fetchall()]
+                matches = []
+                for r in cursor.fetchall():
+                    md = dict(r)
+                    mm = md.pop("match_meta", None)
+                    if isinstance(mm, dict):
+                        if mm.get("is_ffa") or mm.get("match_format") == "ffa":
+                            md["is_ffa"] = True
+                            md["match_format"] = "ffa"
+                            md["pod_participants"] = mm.get("pod_participants") or []
+                            res["is_ffa_event"] = True
+                        if mm.get("stage"):
+                            md["stage"] = mm.get("stage")
+                        if mm.get("bracket_label"):
+                            md["bracket_label"] = mm.get("bracket_label")
+                        if mm.get("best_of") is not None:
+                            md["best_of"] = mm.get("best_of")
+                    matches.append(md)
+
+                # Synthesize active/published studio_pairings for native ES-* events when rounds aren't yet in `matches`
+                studio_pairings_raw = res.pop("studio_pairings", None)
+                if is_native_es and isinstance(studio_pairings_raw, dict) and studio_pairings_raw:
+                    existing_rt = {(int(m.get("round") or 1), int(m.get("table_number") or 1)) for m in matches}
+                    pub_round = int((raw_meta.get("published_round") or raw_meta.get("publishedRound") or 0) if isinstance(raw_meta, dict) else 0)
+                    is_pub = bool((raw_meta.get("is_published") if isinstance(raw_meta, dict) else False) or res.get("started") or res.get("is_ended"))
+                    for r_str, r_list in sorted(studio_pairings_raw.items(), key=lambda kv: int(kv[0]) if str(kv[0]).isdigit() else 999):
+                        if not str(r_str).isdigit() or not isinstance(r_list, list):
+                            continue
+                        r_int = int(r_str)
+                        if not is_pub and pub_round > 0 and r_int > pub_round:
+                            continue
+                        if not is_pub and not any(bool(x.get("is_done") or x.get("status") == "completed") for x in r_list if isinstance(x, dict)):
+                            continue
+                        for idx_t, pm in enumerate(r_list, 1):
+                            if not isinstance(pm, dict):
+                                continue
+                            tbl_int = int(pm.get("table") or pm.get("table_number") or idx_t)
+                            if (r_int, tbl_int) in existing_rt:
+                                continue
+                            p1_s = pm.get("p1_score") if pm.get("p1_score") is not None else pm.get("p1Score")
+                            p2_s = pm.get("p2_score") if pm.get("p2_score") is not None else pm.get("p2Score")
+                            m_done = bool(pm.get("is_done") or pm.get("status") == "completed")
+                            is_bye_m = bool(pm.get("is_bye") or str(pm.get("p2_name") or "") == "BYE" or not (pm.get("p2_id") or pm.get("p2")))
+                            p1_pid = str(pm.get("p1_id") or pm.get("p1") or "") or None
+                            p2_pid = None if is_bye_m else (str(pm.get("p2_id") or pm.get("p2") or "") or None)
+                            w_pid = pm.get("winner_id")
+                            is_drw = bool(pm.get("is_draw"))
+                            if m_done and not w_pid and not is_drw:
+                                if is_bye_m and p1_pid:
+                                    w_pid = p1_pid
+                                elif p1_s is not None and p2_s is not None:
+                                    if float(p1_s) > float(p2_s):
+                                        w_pid = p1_pid
+                                    elif float(p2_s) > float(p1_s):
+                                        w_pid = p2_pid
+                                    else:
+                                        is_drw = True
+                            synth = {
+                                "id": str(pm.get("id") or f"{ev_id_str}-R{r_int}-T{tbl_int}"),
+                                "event_id": ev_id_str,
+                                "round": r_int,
+                                "table_number": tbl_int,
+                                "match_date": res.get("event_date"),
+                                "player1_id": p1_pid,
+                                "player1_name": pm.get("p1_name") or pm.get("player1_name") or "Player 1",
+                                "player1_faction": pm.get("p1_faction") or pm.get("player1_faction") or "",
+                                "player1_score": p1_s if m_done else None,
+                                "player2_id": p2_pid,
+                                "player2_name": "BYE" if is_bye_m else (pm.get("p2_name") or pm.get("player2_name") or "Player 2"),
+                                "player2_faction": "" if is_bye_m else (pm.get("p2_faction") or pm.get("player2_faction") or ""),
+                                "player2_score": p2_s if m_done else None,
+                                "winner_id": w_pid,
+                                "loser_id": (p2_pid if w_pid == p1_pid else (p1_pid if w_pid == p2_pid else None)),
+                                "is_draw": is_drw,
+                                "is_bye": is_bye_m,
+                                "is_done": m_done,
+                                "has_tracker_game": False,
+                                "tracker_match_id": None,
+                                "tracker_is_done": False,
+                                "tracker_started": False,
+                                "tracker_is_locked": False,
+                            }
+                            if pm.get("is_ffa") or pm.get("match_format") == "ffa" or isinstance(pm.get("pod_participants"), list):
+                                synth["is_ffa"] = True
+                                synth["match_format"] = "ffa"
+                                synth["pod_participants"] = pm.get("pod_participants") or []
+                                res["is_ffa_event"] = True
+                            if pm.get("stage"):
+                                synth["stage"] = pm.get("stage")
+                            if pm.get("bracket_label"):
+                                synth["bracket_label"] = pm.get("bracket_label")
+                            matches.append(synth)
 
                 # 3. Participants roster (indexed by player_id first, then batched fallback by player_name)
                 # Uses ORDER BY matches_played DESC NULLS LAST when resolving duplicate player_name rows
@@ -6157,9 +6285,77 @@ class PostgresDatabase:
                 """, (ev_gs, ev_gs, event_id, ev_gs))
                 participants = {r["player_id"]: dict(r) for r in cursor.fetchall()}
 
-                # 4. Compute official Best Coast Pairings Swiss standings & tiebreakers
+                # 4. Compute official Swiss / TCG / FFA Pod standings & tiebreakers
+                ev_win_pts = float(res.get("win_points") or (5.0 if res.get("is_ffa_event") else 3.0))
+                ev_draw_pts = float(res.get("draw_points") if res.get("draw_points") is not None else 1.0)
                 player_stats = {}
                 for m in matches:
+                    r_num = m.get("round", 1)
+                    is_done = m.get("is_done", True)
+                    if m.get("is_ffa") and isinstance(m.get("pod_participants"), list) and len(m.get("pod_participants")) >= 2:
+                        if not is_done and not m.get("winner_id") and not m.get("is_draw"):
+                            continue
+                        pod_parts = [pp for pp in m.get("pod_participants") if isinstance(pp, dict) and pp.get("player_id")]
+                        pod_pids = [str(pp["player_id"]) for pp in pod_parts]
+                        pod_winner = str(m.get("winner_id") or "")
+                        pod_draw = bool(m.get("is_draw"))
+                        for pp in pod_parts:
+                            pp_id = str(pp["player_id"])
+                            if pp_id not in player_stats:
+                                p_info = participants.get(pp_id, {})
+                                lfp = _extract_participant_list_fields(p_info)
+                                player_stats[pp_id] = {
+                                    "player_id": pp_id,
+                                    "bcp_event_player_id": lfp["bcp_event_player_id"],
+                                    "full_name": p_info.get("full_name") or pp.get("player_name") or "Player",
+                                    "faction": p_info.get("faction") or pp.get("faction") or "Unknown",
+                                    "detachment": lfp["detachment"],
+                                    "team": p_info.get("team") or "",
+                                    "dropped": p_info.get("dropped", False),
+                                    "checked_in": p_info.get("checked_in", True),
+                                    "pod_num": p_info.get("pod_num"),
+                                    "placement": p_info.get("placement"),
+                                    "official_placement": p_info.get("placement"),
+                                    "army_list": lfp["army_list"],
+                                    "list_url": lfp["list_url"],
+                                    "list_id": lfp["list_id"],
+                                    "has_list": lfp["has_list"],
+                                    "has_list_submitted": lfp["has_list_submitted"],
+                                    "current_elo": p_info.get("current_elo", 1500.0),
+                                    "peak_elo": p_info.get("peak_elo", 1500.0),
+                                    "global_win_rate": p_info.get("global_win_rate", 0.0),
+                                    "event_wins": 0,
+                                    "event_losses": 0,
+                                    "event_draws": 0,
+                                    "event_matches_count": 0,
+                                    "event_battle_points": 0,
+                                    "event_mov": 0,
+                                    "round_wins": {},
+                                    "opponents": [],
+                                }
+                            ps = player_stats[pp_id]
+                            if r_num not in ps["round_wins"]:
+                                ps["event_matches_count"] += 1
+                                is_w_pp = bool(pp.get("is_winner")) or (bool(pod_winner) and pp_id == pod_winner)
+                                is_d_pp = bool(pp.get("is_draw")) or (pod_draw and not is_w_pp)
+                                sc_pp = pp.get("score")
+                                if sc_pp is None:
+                                    sc_pp = ev_win_pts if is_w_pp else (ev_draw_pts if is_d_pp else 0)
+                                ps["event_battle_points"] += float(sc_pp or 0)
+                                if is_w_pp:
+                                    ps["event_wins"] += 1
+                                    ps["round_wins"][r_num] = 1
+                                elif is_d_pp:
+                                    ps["event_draws"] += 1
+                                    ps["round_wins"][r_num] = 0.5
+                                else:
+                                    ps["event_losses"] += 1
+                                    ps["round_wins"][r_num] = 0
+                                for opp_pid in pod_pids:
+                                    if opp_pid != pp_id:
+                                        ps["opponents"].append(opp_pid)
+                        continue
+
                     p1_id = m.get("player1_id")
                     p2_id = m.get("player2_id")
                     p1_name = m.get("player1_name") or "Player 1"
@@ -6171,8 +6367,6 @@ class PostgresDatabase:
                     has_scores = raw_p1_score is not None and raw_p2_score is not None
                     p1_score = raw_p1_score or 0
                     p2_score = raw_p2_score or 0
-                    r_num = m.get("round", 1)
-                    is_done = m.get("is_done", True)
 
                     # Skip unplayed / unscored pairings and 0-point dropped registration byes from Swiss match records
                     if not m.get("winner_id") and not m.get("is_draw") and not has_scores:
@@ -6376,6 +6570,9 @@ class PostgresDatabase:
                         r_fac = r_entry.get("faction") or r_entry.get("army") or "Unknown"
                         r_team = r_entry.get("team") or ""
                         r_elo = float(r_entry.get("currentElo") or r_entry.get("elo") or 1500.0)
+                        r_alist = str(r_entry.get("army_list") or r_entry.get("armyList") or "").strip()
+                        r_lid = str(r_entry.get("listId") or r_entry.get("list_id") or "") or None
+                        r_has_l = bool(r_lid or r_alist or r_entry.get("listSubmitted") or r_entry.get("has_list_submitted"))
                         entry_id = r_id or f"roster-{len(player_stats) + 1}"
                         player_stats[entry_id] = {
                             "player_id": entry_id,
@@ -6385,15 +6582,15 @@ class PostgresDatabase:
                             "detachment": str(r_entry.get("detachment") or ""),
                             "team": r_team,
                             "dropped": bool(r_entry.get("dropped", False)),
-                            "checked_in": bool(r_entry.get("checkedIn") or r_entry.get("checked_in", True)),
+                            "checked_in": bool(r_entry.get("checkedIn") if r_entry.get("checkedIn") is not None else r_entry.get("checked_in", True)),
                             "pod_num": None,
                             "placement": None,
                             "official_placement": None,
-                            "army_list": "",
+                            "army_list": r_alist,
                             "list_url": None,
-                            "list_id": str(r_entry.get("listId") or r_entry.get("list_id") or "") or None,
-                            "has_list": bool(r_entry.get("listId") or r_entry.get("list_id")),
-                            "has_list_submitted": bool(r_entry.get("listId") or r_entry.get("list_id")),
+                            "list_id": r_lid,
+                            "has_list": r_has_l,
+                            "has_list_submitted": r_has_l,
                             "current_elo": r_elo,
                             "peak_elo": r_elo,
                             "global_win_rate": 0.0,
@@ -6444,12 +6641,14 @@ class PostgresDatabase:
                 if max_rounds <= 0:
                     max_rounds = 6
 
-                # Compute win%, Swiss Points, and Path to Victory (PTV)
+                # Compute win%, Swiss/Pod Points, and Path to Victory (PTV)
                 # In BCP Swiss, earlier losses are more impactful than later losses (2^(N-r))
                 for p_id, ps in player_stats.items():
                     tot = ps["event_matches_count"]
                     ps["win_pct"] = (ps["event_wins"] + 0.5 * ps["event_draws"]) / max(1, tot)
-                    ps["swiss_points"] = 3 * ps["event_wins"] + 1 * ps["event_draws"]
+                    ps["swiss_points"] = round(ev_win_pts * ps["event_wins"] + ev_draw_pts * ps["event_draws"], 2)
+                    if isinstance(ps["swiss_points"], float) and ps["swiss_points"].is_integer():
+                        ps["swiss_points"] = int(ps["swiss_points"])
                     ptv = 0
                     for r, w in ps["round_wins"].items():
                         if w == 1:
@@ -6621,6 +6820,18 @@ class PostgresDatabase:
                                 pid_to_list_id.get(str(m.get("player2_id") or ""))
                                 or name_to_list_id.get(str(m.get("player2_name") or "").strip().lower())
                             )
+
+                # Enforce pre-tournament list privacy (`hide_lists`) on public native event detail views until Round 1 starts
+                if is_native_es and bool(res.get("hide_lists")) and not bool(res.get("started")) and not bool(res.get("is_ended")) and not has_matches:
+                    for p in final_players:
+                        if p.get("army_list"):
+                            p["army_list"] = ""
+                            p["list_hidden_until_start"] = True
+                    if isinstance(roster_list, list):
+                        roster_list = [
+                            ({**re, "army_list": "", "armyList": ""} if isinstance(re, dict) else re)
+                            for re in roster_list
+                        ]
 
                 res["players"] = final_players
                 res["roster"] = roster_list
@@ -19508,9 +19719,28 @@ class PostgresDatabase:
                         ("hide_placings", "hidePlacings", False),
                         ("passwordless_scoring", "passwordlessScoring", True),
                         ("ranked_tables", "rankedTables", False),
+                        ("hosting_mode", "hosting_mode", "native" if str(event_id).startswith("ES-") else "bcp_sync"),
+                        ("scoring_mode", "scoring_mode", "wargame_vp"),
+                        ("match_format", "match_format", "1v1"),
+                        ("best_of", "best_of", 1),
+                        ("top_cut", "top_cut", 0),
+                        ("win_points", "win_points", 3.0),
+                        ("draw_points", "draw_points", 1.0),
+                        ("tiebreakers", "tiebreakers", []),
+                        ("venue_mode", "venue_mode", "in_person"),
+                        ("online_platform", "online_platform", ""),
+                        ("discord_url", "discord_url", ""),
+                        ("stream_url", "stream_url", ""),
+                        ("external_ticket_url", "external_ticket_url", ""),
+                        ("description", "description", ""),
+                        ("prizes", "prizes", ""),
+                        ("organizer_name", "organizer_name", ""),
+                        ("is_ffa_event", "is_ffa_event", False),
+                        ("is_published", "is_published", False),
+                        ("published_round", "published_round", 0),
                     ]:
-                        if f_key not in ev:
-                            ev[f_key] = rj.get(rj_key, d_val)
+                        if f_key not in ev or ev.get(f_key) is None:
+                            ev[f_key] = rj.get(rj_key, rj.get(f_key, d_val))
 
                 return ev
 
@@ -19535,26 +19765,46 @@ class PostgresDatabase:
         if isinstance(raw_json_dict, str):
             try: raw_json_dict = json.loads(raw_json_dict)
             except Exception: raw_json_dict = {}
+        if not isinstance(raw_json_dict, dict):
+            raw_json_dict = {}
 
-        total_players = int(event_data.get("total_players") or event_data.get("totalPlayers") or len(event_data.get("roster") or []) or (raw_json_dict.get("totalPlayers") if isinstance(raw_json_dict, dict) else 0) or 0)
+        roster_list = event_data.get("roster")
+        started = bool(event_data.get("started", raw_json_dict.get("started", False)))
+        is_ended = bool(event_data.get("is_ended", event_data.get("isEnded", raw_json_dict.get("isEnded", raw_json_dict.get("ended", False)))))
+
+        if isinstance(roster_list, list):
+            if started or is_ended:
+                total_players = len(roster_list)
+            else:
+                total_players = len([p for p in roster_list if isinstance(p, dict) and not p.get("dropped")])
+        else:
+            total_players = int(
+                event_data.get("total_players")
+                if event_data.get("total_players") is not None
+                else (event_data.get("totalPlayers") or raw_json_dict.get("totalPlayers") or 0)
+            )
         num_rounds = int(
             event_data.get("numberOfRounds") or
             event_data.get("numRounds") or
             event_data.get("num_rounds") or
             event_data.get("rounds") or
-            (raw_json_dict.get("numberOfRounds") if isinstance(raw_json_dict, dict) else 0) or
-            (raw_json_dict.get("numRounds") if isinstance(raw_json_dict, dict) else 0) or
+            raw_json_dict.get("numberOfRounds") or
+            raw_json_dict.get("numRounds") or
             5
         )
-        current_round = int(event_data.get("current_round") or 1)
-        points = int(event_data.get("points") or 2000)
-        capacity = int(event_data.get("capacity") or 32)
+        current_round = int(event_data.get("current_round") or raw_json_dict.get("currentRound") or 1)
+        points = int(event_data.get("points") if event_data.get("points") is not None else 2000)
+        capacity = int(event_data.get("capacity") or event_data.get("num_tickets") or raw_json_dict.get("numTickets") or 32)
         mission_pack = event_data.get("mission_pack") or event_data.get("missionPack") or "11th Edition Core"
         organizer_id = event_data.get("organizer_id")
         organizer_bcp_id = event_data.get("organizer_bcp_id")
-        
+
         raw_et = str(event_data.get("event_type") or event_data.get("eventType") or "singles").lower()
-        if "doubles" in raw_et or event_data.get("doubles_event") or event_data.get("doublesEvent"):
+        raw_mf = str(event_data.get("match_format") or raw_json_dict.get("match_format") or "").lower()
+        if "pod" in raw_et or "ffa" in raw_et or raw_mf == "ffa" or event_data.get("is_ffa_event") or raw_json_dict.get("is_ffa_event"):
+            event_type = "pods"
+            default_ts = 4
+        elif "doubles" in raw_et or event_data.get("doubles_event") or event_data.get("doublesEvent"):
             event_type = "doubles"
             default_ts = 2
         elif "team" in raw_et or event_data.get("team_event") or event_data.get("teamEvent"):
@@ -19563,13 +19813,12 @@ class PostgresDatabase:
         else:
             event_type = "singles"
             default_ts = 1
-            
+
         team_size = int(event_data.get("team_size") or event_data.get("teamSize") or default_ts)
         circuits = event_data.get("circuits") or []
         circuits_json = json.dumps(circuits if isinstance(circuits, list) else [], default=str)
-        started = bool(event_data.get("started", False))
         pairings_status = str(event_data.get("pairings_status") or "draft")
-        
+
         game_system_id = event_data.get("game_system_id") or event_data.get("gameSystemId")
         raw_gs = (event_data.get("game_system") or "").strip().lower()
         if str(game_system_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O") or raw_gs == "aos":
@@ -19583,9 +19832,36 @@ class PostgresDatabase:
         if not game_system_id:
             game_system_id = AOS_GAME_SYSTEM_ID if game_system == "aos" else get_bcp_game_system_id(game_system)
 
-        roster_json = json.dumps(event_data.get("roster") or [], default=str)
+        merged_raw = dict(raw_json_dict)
+        for k_sync in (
+            "hosting_mode", "scoring_mode", "match_format", "best_of", "top_cut",
+            "win_points", "draw_points", "tiebreakers", "venue_mode", "online_platform",
+            "discord_url", "stream_url", "external_ticket_url", "description", "prizes",
+            "organizer_name", "is_ffa_event", "is_published", "published_round",
+            "usingOnlineReg", "numTickets", "ticketPrice", "ticketCurrency",
+            "disableCheckin", "privateEvent", "hasAccessCode", "access_code", "accessCode",
+            "hideLists", "listsAtCheckin", "listsLocked", "factionsLocked",
+            "hideRoster", "hidePlacings", "passwordlessScoring", "defaultRoundLength",
+            "placingMetrics", "team_standings",
+        ):
+            if k_sync in event_data and event_data.get(k_sync) is not None:
+                merged_raw[k_sync] = event_data.get(k_sync)
+        merged_raw["numberOfRounds"] = num_rounds
+        merged_raw["numRounds"] = num_rounds
+        merged_raw["currentRound"] = current_round
+        merged_raw["totalPlayers"] = total_players
+        merged_raw["numTickets"] = merged_raw.get("numTickets") or capacity
+        merged_raw["capacity"] = capacity
+        merged_raw["started"] = started
+        merged_raw["isEnded"] = is_ended
+        merged_raw["ended"] = is_ended
+        if event_type == "pods":
+            merged_raw["is_ffa_event"] = True
+            merged_raw["match_format"] = "ffa"
+
+        roster_json = json.dumps(roster_list if isinstance(roster_list, list) else [], default=str)
         pairings_json = json.dumps(event_data.get("pairings") or {}, default=str)
-        raw_json = json.dumps(event_data.get("raw_json") or event_data, default=str)
+        raw_json = json.dumps(merged_raw, default=str)
 
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
@@ -19594,18 +19870,18 @@ class PostgresDatabase:
                     cursor.execute("""
                     INSERT INTO events (
                         id, name, event_date, end_date, city, state, country, venue,
-                        tier, total_players, num_rounds, current_round, points, capacity,
+                        tier, total_players, num_rounds, current_round, is_ended, points, capacity,
                         mission_pack, organizer_id, organizer_bcp_id, roster, pairings,
                         raw_json, scraped_at, event_type, team_size, circuits,
                         venue_name, address, postal_code, latitude, longitude, place_id,
-                        started, pairings_status, game_system, game_system_id
+                        started, pairings_status, game_system, game_system_id, source_platform
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s::jsonb, %s::jsonb,
                         %s::jsonb, NOW(), %s, %s, %s::jsonb,
                         %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s
+                        %s, %s, %s, %s, 'omnitactica'
                     )
                     ON CONFLICT (id) DO UPDATE SET
                         name = EXCLUDED.name,
@@ -19616,9 +19892,10 @@ class PostgresDatabase:
                         state = EXCLUDED.state,
                         country = EXCLUDED.country,
                         venue = EXCLUDED.venue,
-                        total_players = GREATEST(COALESCE(events.total_players, 0), EXCLUDED.total_players),
-                        num_rounds = GREATEST(COALESCE(events.num_rounds, 0), EXCLUDED.num_rounds),
+                        total_players = EXCLUDED.total_players,
+                        num_rounds = EXCLUDED.num_rounds,
                         current_round = EXCLUDED.current_round,
+                        is_ended = EXCLUDED.is_ended,
                         points = EXCLUDED.points,
                         capacity = EXCLUDED.capacity,
                         mission_pack = EXCLUDED.mission_pack,
@@ -19629,21 +19906,22 @@ class PostgresDatabase:
                         organizer_bcp_id = COALESCE(EXCLUDED.organizer_bcp_id, events.organizer_bcp_id),
                         roster = COALESCE(EXCLUDED.roster, events.roster),
                         pairings = COALESCE(EXCLUDED.pairings, events.pairings),
-                        raw_json = COALESCE(EXCLUDED.raw_json, events.raw_json),
+                        raw_json = COALESCE(events.raw_json, '{}'::jsonb) || COALESCE(EXCLUDED.raw_json, '{}'::jsonb),
                         venue_name = COALESCE(EXCLUDED.venue_name, events.venue_name),
                         address = COALESCE(EXCLUDED.address, events.address),
                         postal_code = COALESCE(EXCLUDED.postal_code, events.postal_code),
                         latitude = COALESCE(EXCLUDED.latitude, events.latitude),
                         longitude = COALESCE(EXCLUDED.longitude, events.longitude),
                         place_id = COALESCE(EXCLUDED.place_id, events.place_id),
-                        started = COALESCE(EXCLUDED.started, events.started),
+                        started = EXCLUDED.started,
                         pairings_status = COALESCE(EXCLUDED.pairings_status, events.pairings_status),
                         game_system = COALESCE(EXCLUDED.game_system, events.game_system),
                         game_system_id = COALESCE(EXCLUDED.game_system_id, events.game_system_id),
+                        source_platform = 'omnitactica',
                         scraped_at = NOW();
                     """, (
                         event_id, name, event_date, end_date, city, state, country, venue,
-                        tier, total_players, num_rounds, current_round, points, capacity,
+                        tier, total_players, num_rounds, current_round, is_ended, points, capacity,
                         mission_pack, organizer_id, organizer_bcp_id, roster_json, pairings_json,
                         raw_json, event_type, team_size, circuits_json,
                         venue_name, address, postal_code,
@@ -19655,7 +19933,332 @@ class PostgresDatabase:
                     ))
             conn.commit()
 
-        return self.get_studio_event(event_id) or {"id": event_id, "name": name}
+        PostgresDatabase._event_details_cache_dict.pop(str(event_id), None)
+        PostgresDatabase._db_computed_placings_cache_dict.pop(str(event_id), None)
+        PostgresDatabase._events_list_cache_dict.clear()
+        saved_ev = self.get_studio_event(event_id) or {"id": event_id, "name": name}
+        if str(event_id).startswith("ES-") and ("roster" in event_data or "pairings" in event_data or saved_ev.get("roster") or saved_ev.get("pairings")):
+            try:
+                self.sync_native_event_canonical_tables(event_id, saved_ev)
+            except Exception as sync_err:
+                logger.warning(f"sync_native_event_canonical_tables warning for {event_id}: {sync_err}")
+        return saved_ev
+
+    def save_studio_roster(self, event_id: str, roster: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Persists native ES-* roster updates and synchronizes canonical event_participants & total_players."""
+        clean_eid = str(event_id or "").strip()
+        if not clean_eid or not clean_eid.startswith("ES-"):
+            return roster or []
+        ev = self.get_studio_event(clean_eid)
+        if not ev:
+            return roster or []
+        ev["roster"] = roster if isinstance(roster, list) else []
+        started = bool(ev.get("started") or ev.get("is_ended"))
+        ev["total_players"] = len(ev["roster"]) if started else len([p for p in ev["roster"] if isinstance(p, dict) and not p.get("dropped")])
+        self.save_studio_event(ev)
+        return ev["roster"]
+
+    def sync_native_event_canonical_tables(self, event_id: str, event_obj: Optional[Dict[str, Any]] = None) -> None:
+        """Synchronizes native ES-* event `roster` -> `players` & `event_participants` and published/scored `pairings` -> `matches` (& `match_participants`)."""
+        clean_eid = str(event_id or "").strip()
+        if not clean_eid or not clean_eid.startswith("ES-"):
+            return
+        ev = event_obj if isinstance(event_obj, dict) and event_obj.get("id") else self.get_studio_event(clean_eid)
+        if not ev:
+            return
+
+        game_system = normalize_game_system(ev.get("game_system") or "40k", default="40k")[:16]
+        roster = ev.get("roster") if isinstance(ev.get("roster"), list) else []
+        pairings_map = ev.get("pairings") if isinstance(ev.get("pairings"), dict) else {}
+        ev_date = ev.get("event_date") or datetime.now(timezone.utc)
+        is_started = bool(ev.get("started") or ev.get("is_ended"))
+        is_published = bool(ev.get("is_published"))
+        published_round = int(ev.get("published_round") or 0)
+        win_pts = float(ev.get("win_points") or (5.0 if ev.get("is_ffa_event") else 3.0))
+        draw_pts = float(ev.get("draw_points") if ev.get("draw_points") is not None else 1.0)
+
+        active_pids: Set[str] = set()
+        now_utc = datetime.now(timezone.utc)
+        mp_batch: List[Dict[str, Any]] = []
+        valid_match_ids: Set[str] = set()
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                # 1. Sync players & event_participants with authoritative checked_in / dropped / army_list / placement
+                for p in roster:
+                    if not isinstance(p, dict):
+                        continue
+                    raw_pid = str(p.get("id") or p.get("player_id") or "").strip()
+                    if not raw_pid:
+                        continue
+                    pid = _bound_id(raw_pid, 64)
+                    active_pids.add(pid)
+                    name = str(p.get("name") or p.get("full_name") or "Player").strip() or "Player"
+                    parts = name.split(" ", 1)
+                    fn = str(p.get("first_name") or (parts[0] if parts else "")).strip()
+                    ln = str(p.get("last_name") or (parts[1] if len(parts) > 1 else "")).strip()
+                    fac = str(p.get("faction") or "").strip()
+                    if fac.lower() in ("unassigned", "select faction (optional)"):
+                        fac = ""
+                    det = str(p.get("detachment") or "").strip()
+                    if det.lower() in ("standard", "select faction first", "no detachments available"):
+                        det = ""
+                    team = str(p.get("team") or "").strip() or None
+                    dropped = bool(p.get("dropped", False))
+                    checked_in = bool(p.get("checkedIn") if p.get("checkedIn") is not None else p.get("checked_in", False))
+                    alist = str(p.get("army_list") or p.get("armyList") or "").strip()
+                    has_list = bool(alist or p.get("listSubmitted") or p.get("has_list_submitted"))
+                    placement_val = int(p["placement"]) if p.get("placement") is not None and int(p.get("placement") or 0) > 0 else None
+                    bp_val = int(round(float(p["battle_points"]))) if p.get("battle_points") is not None else None
+
+                    cursor.execute(
+                        """
+                        INSERT INTO players (id, first_name, last_name, full_name, team, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO UPDATE SET
+                            first_name = CASE WHEN EXCLUDED.first_name != '' THEN EXCLUDED.first_name ELSE players.first_name END,
+                            last_name = CASE WHEN EXCLUDED.last_name != '' THEN EXCLUDED.last_name ELSE players.last_name END,
+                            full_name = CASE
+                                WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^(player($|[^a-zA-Z])|unknown)'
+                                THEN EXCLUDED.full_name
+                                ELSE COALESCE(NULLIF(players.full_name, ''), EXCLUDED.full_name)
+                            END,
+                            team = COALESCE(EXCLUDED.team, players.team),
+                            updated_at = EXCLUDED.updated_at;
+                        """,
+                        (pid, fn, ln, name, team, now_utc),
+                    )
+                    cursor.execute(
+                        """
+                        INSERT INTO event_participants (
+                            event_id, player_id, first_name, last_name, full_name, faction, detachment,
+                            team, dropped, checked_in, army_list, has_list_submitted, placement, battle_points
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (event_id, player_id) DO UPDATE SET
+                            first_name = EXCLUDED.first_name,
+                            last_name = EXCLUDED.last_name,
+                            full_name = EXCLUDED.full_name,
+                            faction = EXCLUDED.faction,
+                            detachment = EXCLUDED.detachment,
+                            team = EXCLUDED.team,
+                            dropped = EXCLUDED.dropped,
+                            checked_in = EXCLUDED.checked_in,
+                            army_list = CASE WHEN EXCLUDED.army_list != '' THEN EXCLUDED.army_list ELSE event_participants.army_list END,
+                            has_list_submitted = (EXCLUDED.has_list_submitted OR COALESCE(event_participants.has_list_submitted, FALSE)),
+                            placement = COALESCE(EXCLUDED.placement, event_participants.placement),
+                            battle_points = COALESCE(EXCLUDED.battle_points, event_participants.battle_points);
+                        """,
+                        (clean_eid, pid, fn, ln, name, fac, det, team, dropped, checked_in, alist, has_list, placement_val, bp_val),
+                    )
+
+                if active_pids:
+                    cursor.execute(
+                        """
+                        DELETE FROM event_participants
+                        WHERE event_id = %s
+                          AND NOT (player_id = ANY(%s))
+                          AND NOT EXISTS (
+                              SELECT 1 FROM matches m
+                              WHERE m.event_id = event_participants.event_id
+                                AND (m.player1_id = event_participants.player_id OR m.player2_id = event_participants.player_id)
+                          );
+                        """,
+                        (clean_eid, list(active_pids)),
+                    )
+                else:
+                    cursor.execute("DELETE FROM event_participants WHERE event_id = %s;", (clean_eid,))
+
+                # 2. Sync published / started / scored round pairings into canonical `matches`
+                known_ev = {clean_eid}
+                remapped_p: Set[Tuple[str, str]] = set()
+                upserted_pl: Set[Tuple[str, str]] = set()
+                for r_key, r_matches in sorted(pairings_map.items(), key=lambda kv: int(kv[0]) if str(kv[0]).isdigit() else 999):
+                    if not str(r_key).isdigit() or not isinstance(r_matches, list):
+                        continue
+                    r_num = int(r_key)
+                    round_has_scored = any(bool(x.get("is_done") or x.get("status") == "completed") for x in r_matches if isinstance(x, dict))
+                    round_is_live = bool(is_started or round_has_scored or (is_published and (published_round == 0 or r_num <= published_round)))
+                    if not round_is_live:
+                        continue
+
+                    for t_idx, m in enumerate(r_matches, 1):
+                        if not isinstance(m, dict):
+                            continue
+                        tbl = int(m.get("table") or m.get("table_number") or t_idx)
+                        mid = _bound_id(f"{clean_eid}-R{r_num}-T{tbl}", 64)
+                        valid_match_ids.add(mid)
+                        m_done = bool(m.get("is_done") or m.get("status") == "completed")
+
+                        # 4-Player FFA Pod match
+                        if m.get("is_ffa") or m.get("match_format") == "ffa" or (isinstance(m.get("pod_participants"), list) and len(m.get("pod_participants")) >= 2):
+                            raw_pod = [pp for pp in (m.get("pod_participants") or []) if isinstance(pp, dict) and (pp.get("player_id") or pp.get("id"))]
+                            if len(raw_pod) < 2:
+                                continue
+                            w_pid = str(m.get("winner_id") or "").strip() or None
+                            is_pod_draw = bool(m.get("is_draw") or m.get("is_pod_draw"))
+                            norm_pod_parts = []
+                            for seat_i, pp in enumerate(raw_pod, 1):
+                                pp_pid = _bound_id(str(pp.get("player_id") or pp.get("id")), 64)
+                                pp_name = str(pp.get("player_name") or pp.get("name") or pp_pid)
+                                pp_fac = str(pp.get("faction") or "")
+                                is_w_seat = bool(m_done and w_pid and pp_pid == w_pid)
+                                is_d_seat = bool(m_done and is_pod_draw and not is_w_seat)
+                                seat_sc = float(pp["score"]) if pp.get("score") is not None else ((win_pts if is_w_seat else (draw_pts if is_d_seat else 0.0)) if m_done else 0.0)
+                                seat_obj = {
+                                    "player_id": pp_pid,
+                                    "raw_player_id": pp_pid,
+                                    "player_name": pp_name,
+                                    "faction": pp_fac,
+                                    "detachment": str(pp.get("detachment") or "Commander Pod"),
+                                    "seat_order": seat_i,
+                                    "placement": (1 if is_w_seat else (1 if is_d_seat else 2)) if m_done else None,
+                                    "score": seat_sc,
+                                    "is_winner": is_w_seat,
+                                    "is_draw": is_d_seat,
+                                }
+                                norm_pod_parts.append(seat_obj)
+                                if m_done:
+                                    mp_batch.append({
+                                        "match_id": mid,
+                                        "event_id": clean_eid,
+                                        "player_id": pp_pid,
+                                        "player_name": pp_name,
+                                        "faction": pp_fac,
+                                        "detachment": seat_obj["detachment"],
+                                        "score": seat_sc,
+                                        "result": "W" if is_w_seat else ("D" if is_d_seat else "L"),
+                                        "placement": seat_obj["placement"],
+                                        "is_winner": is_w_seat,
+                                        "is_draw": is_d_seat,
+                                        "raw_json": seat_obj,
+                                    })
+                            w_seat_obj = next((x for x in norm_pod_parts if x["player_id"] == w_pid), None) if w_pid else None
+                            p1_seat = w_seat_obj or norm_pod_parts[0]
+                            other_seats = [x for x in norm_pod_parts if x["player_id"] != p1_seat["player_id"]]
+                            others_lbl = ", ".join(x["player_name"] for x in other_seats)
+                            match_payload = {
+                                "id": mid,
+                                "event_id": clean_eid,
+                                "game_system": game_system,
+                                "round": r_num,
+                                "table_number": tbl,
+                                "match_date": ev_date,
+                                "player1_id": p1_seat["player_id"],
+                                "player1_name": p1_seat["player_name"],
+                                "player1_faction": p1_seat["faction"],
+                                "player1_score": int(round(p1_seat["score"])) if m_done else None,
+                                "player2_id": other_seats[0]["player_id"] if other_seats else None,
+                                "player2_name": f"Pod ({others_lbl})" if others_lbl else "Pod",
+                                "player2_faction": "FFA Pod",
+                                "player2_score": int(round(draw_pts if is_pod_draw else 0)) if m_done else None,
+                                "winner_id": w_pid if m_done else None,
+                                "loser_id": None,
+                                "is_draw": bool(m_done and is_pod_draw),
+                                "is_bye": False,
+                                "is_done": m_done,
+                                "raw_json": {
+                                    "match_format": "ffa",
+                                    "is_ffa": True,
+                                    "pod_size": len(norm_pod_parts),
+                                    "is_pod_draw": is_pod_draw,
+                                    "is_done": m_done,
+                                    "pod_participants": norm_pod_parts,
+                                    "stage": m.get("stage") or "swiss",
+                                },
+                            }
+                            self._upsert_match_cursor(cursor, match_payload, known_events=known_ev, remapped_pairs=remapped_p, upserted_players=upserted_pl)
+                            continue
+
+                        # Standard 1v1 / Doubles / Teams / Top Cut match
+                        p1_id = _bound_opt_id(m.get("p1_id") or m.get("player1_id") or m.get("p1"), 64)
+                        is_bye = bool(m.get("is_bye") or str(m.get("p2_name") or "") == "BYE" or not (m.get("p2_id") or m.get("player2_id") or m.get("p2")))
+                        p2_id = None if is_bye else _bound_opt_id(m.get("p2_id") or m.get("player2_id") or m.get("p2"), 64)
+                        if not p1_id:
+                            continue
+                        raw_s1 = m.get("p1_score") if m.get("p1_score") is not None else m.get("p1Score")
+                        raw_s2 = m.get("p2_score") if m.get("p2_score") is not None else m.get("p2Score")
+                        if is_bye:
+                            m_done = True
+                            s1_int = int(raw_s1) if raw_s1 is not None and int(raw_s1) > 0 else (2 if ev.get("scoring_mode") == "tcg_bo3" else (1 if ev.get("scoring_mode") == "tcg_bo1" else 70))
+                            s2_int = 0
+                            winner_id = p1_id
+                            loser_id = None
+                            is_draw = False
+                        elif m_done and raw_s1 is not None and raw_s2 is not None:
+                            s1_int = int(round(float(raw_s1)))
+                            s2_int = int(round(float(raw_s2)))
+                            w_exp = _bound_opt_id(m.get("winner_id"), 64)
+                            if w_exp in (p1_id, p2_id):
+                                winner_id = w_exp
+                                loser_id = p2_id if w_exp == p1_id else p1_id
+                                is_draw = False
+                            elif bool(m.get("is_draw")) or s1_int == s2_int:
+                                winner_id = None
+                                loser_id = None
+                                is_draw = True
+                            elif s1_int > s2_int:
+                                winner_id = p1_id
+                                loser_id = p2_id
+                                is_draw = False
+                            else:
+                                winner_id = p2_id
+                                loser_id = p1_id
+                                is_draw = False
+                        else:
+                            s1_int = None
+                            s2_int = None
+                            winner_id = None
+                            loser_id = None
+                            is_draw = False
+
+                        rj_m: Dict[str, Any] = {}
+                        if m.get("stage"):
+                            rj_m["stage"] = m.get("stage")
+                        if m.get("bracket_label"):
+                            rj_m["bracket_label"] = m.get("bracket_label")
+                        if ev.get("best_of"):
+                            rj_m["best_of"] = ev.get("best_of")
+                        match_payload = {
+                            "id": mid,
+                            "event_id": clean_eid,
+                            "game_system": game_system,
+                            "round": r_num,
+                            "table_number": tbl,
+                            "match_date": ev_date,
+                            "player1_id": p1_id,
+                            "player1_name": m.get("p1_name") or m.get("player1_name") or "Player 1",
+                            "player1_faction": m.get("p1_faction") or m.get("player1_faction") or "",
+                            "player1_score": s1_int,
+                            "player2_id": p2_id,
+                            "player2_name": "BYE" if is_bye else (m.get("p2_name") or m.get("player2_name") or "Player 2"),
+                            "player2_faction": "" if is_bye else (m.get("p2_faction") or m.get("player2_faction") or ""),
+                            "player2_score": s2_int,
+                            "winner_id": winner_id,
+                            "loser_id": loser_id,
+                            "is_draw": is_draw,
+                            "is_bye": is_bye,
+                            "is_done": m_done,
+                            "raw_json": rj_m if rj_m else None,
+                        }
+                        self._upsert_match_cursor(cursor, match_payload, known_events=known_ev, remapped_pairs=remapped_p, upserted_players=upserted_pl)
+
+                # Prune unscored / re-paired stale match rows for this native event
+                if valid_match_ids:
+                    cursor.execute(
+                        "DELETE FROM matches WHERE event_id = %s AND NOT (id = ANY(%s)) AND COALESCE(is_done, FALSE) = FALSE;",
+                        (clean_eid, list(valid_match_ids)),
+                    )
+            conn.commit()
+
+        if mp_batch:
+            try:
+                self.upsert_match_participants_batch(mp_batch)
+            except Exception as mp_err:
+                logger.warning(f"FFA match_participants upsert warning for {clean_eid}: {mp_err}")
+
+        PostgresDatabase._event_details_cache_dict.pop(clean_eid, None)
+        PostgresDatabase._db_computed_placings_cache_dict.pop(clean_eid, None)
+        PostgresDatabase._events_list_cache_dict.clear()
 
     def delete_studio_event(self, event_id: str, organizer_id: Optional[str] = None) -> bool:
         """Deletes a native tournament event and marks deleted_studio_events without mutating BCP tables."""
@@ -19669,10 +20272,15 @@ class PostgresDatabase:
                 """)
                 cursor.execute("INSERT INTO deleted_studio_events (event_id, deleted_at) VALUES (%s, NOW()) ON CONFLICT (event_id) DO UPDATE SET deleted_at = NOW();", (event_id,))
                 if str(event_id).startswith("ES-"):
-                    cursor.execute("DELETE FROM events WHERE id = %s;", (event_id,))
-                    cursor.execute("DELETE FROM event_participants WHERE event_id = %s;", (event_id,))
+                    cursor.execute("DELETE FROM match_participants WHERE event_id = %s OR match_id LIKE %s;", (event_id, f"{event_id}-%"))
                     cursor.execute("DELETE FROM matches WHERE event_id = %s;", (event_id,))
+                    cursor.execute("DELETE FROM event_participants WHERE event_id = %s;", (event_id,))
+                    cursor.execute("DELETE FROM user_registered_tournaments WHERE event_id = %s;", (event_id,))
+                    cursor.execute("DELETE FROM events WHERE id = %s;", (event_id,))
             conn.commit()
+        PostgresDatabase._event_details_cache_dict.pop(str(event_id), None)
+        PostgresDatabase._db_computed_placings_cache_dict.pop(str(event_id), None)
+        PostgresDatabase._events_list_cache_dict.clear()
         return True
 
     def is_event_deleted(self, event_id: str) -> bool:

@@ -74,7 +74,7 @@ async function initStudio() {
   }
 
   const userRole = ((user && user.role) ? user.role : 'player').toLowerCase();
-  const canAccessTO = Boolean(user && (userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || user.is_admin || (typeof isUserTO === 'function' && isUserTO(user))));
+  const canAccessTO = Boolean(user && (user.id || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || user.is_admin || (typeof isUserTO === 'function' && isUserTO(user))));
 
   if (canAccessTO) {
     await loadStudioEvents();
@@ -136,16 +136,17 @@ function updateStudioAuthBadge() {
   const isLoggedIn = !!(user || (token && token.length > 20) || (typeof API !== 'undefined' && API.getAuthToken()));
   const userRole = ((user && user.role) ? user.role : 'player').toLowerCase();
   const isSuperAdmin = Boolean(user && (user.role === 'admin' || user.is_superadmin || user.is_admin));
-  const isTO = isSuperAdmin || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || Boolean(user && user.can_access_to);
+  const isCertifiedTO = isSuperAdmin || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || Boolean(user && user.can_access_to);
+  const isTO = Boolean(isLoggedIn && (Boolean(user && user.id) || isCertifiedTO));
 
   if (!isLoggedIn) {
     lockedGates.forEach(g => {
       g.style.display = "block";
       g.innerHTML = `
         <div style="font-size: 3rem; margin-bottom: 0.75rem;">🔑</div>
-        <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Sign In to OmniTactica</h3>
+        <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Sign In to Host Tournaments</h3>
         <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; max-width: 480px; margin: 0 auto 1.5rem;">
-          Event Studio is the dedicated Tournament Director suite. Please sign in or create an account to organize tournaments, manage competitor rosters, generate Swiss pairings, and sync match scores.
+          Sign in to create Wargame &amp; TCG tournaments natively on OmniTactica with 1-click player registration, Swiss/FFA/Top-Cut pairings, live Game Tracker, and automatic Elo ratings.
         </p>
         <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
           <a href="/login?redirect=%2F%23event-studio" class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;">🔑 Sign In / Register</a>
@@ -159,41 +160,14 @@ function updateStudioAuthBadge() {
       b.style.opacity = "0.5";
       b.style.cursor = "not-allowed";
     });
-  } else if (!isTO) {
-    // User is signed in as standard player without TO permissions
-    lockedGates.forEach(g => {
-      g.style.display = "block";
-      g.innerHTML = `
-        <div style="font-size: 3rem; margin-bottom: 0.75rem;">🛡️</div>
-        <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Tournament Organizer Access Required</h3>
-        <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; max-width: 480px; margin: 0 auto 1.25rem;">
-          Event Studio is restricted to certified Tournament Organizers and Platform Admins. Your account currently holds the <strong style="color: #38bdf8;">Player</strong> role.
-        </p>
-        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; text-align: left; font-size: 0.84rem; color: #94a3b8; max-width: 480px; margin-left: auto; margin-right: auto;">
-          <div style="font-weight: 700; color: #cbd5e1; margin-bottom: 0.4rem;">Are you a Tournament Organizer?</div>
-          <div>If you host local RTTs, Grand Tournaments, or game store leagues, request TO verification to unlock event creation, Swiss pairings, and BCP sync.</div>
-        </div>
-        <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
-          <button class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;" onclick="openRequestToModal()">📝 Request TO Verification</button>
-          <button class="btn btn-outline" style="font-size: 0.88rem; padding: 0.55rem 1.15rem;" onclick="typeof switchTab === 'function' ? switchTab('community') : window.location.href='/#community'">👥 Explore Community Hub</button>
-        </div>
-      `;
-    });
-    mainViews.forEach(v => { v.style.display = "none"; });
-    headerCreateBtns.forEach(b => {
-      b.disabled = true;
-      b.style.opacity = "0.5";
-      b.style.cursor = "not-allowed";
-    });
   } else {
-    // Certified TO or Admin
+    // Any signed-in OmniTactica user can host & direct native tournaments!
     lockedGates.forEach(g => { g.style.display = "none"; });
     headerCreateBtns.forEach(b => {
       b.disabled = false;
       b.style.opacity = "1";
       b.style.cursor = "pointer";
     });
-    // If on events tab or unselected, show events directory
     if (studioState.activeTab === 'events' || !studioState.activeTab) {
       const evView = document.getElementById("es-view-events");
       if (evView) evView.style.display = "block";
@@ -202,7 +176,7 @@ function updateStudioAuthBadge() {
 
   if (statusText) {
     if (isBcpConnected && isTO) {
-      const email = (user && (user.bcp_email || user.email || user.display_name)) || "BCP Organizer";
+      const email = (user && (user.bcp_email || user.email || user.display_name)) || "Organizer";
       if (banner) {
         banner.style.background = "rgba(16, 185, 129, 0.08)";
         banner.style.borderColor = "rgba(16, 185, 129, 0.25)";
@@ -211,27 +185,17 @@ function updateStudioAuthBadge() {
         dot.style.background = "#10b981";
         dot.style.boxShadow = "0 0 8px #10b981";
       }
-      statusText.innerHTML = `Connected to Best Coast Pairings as <strong style="color: #10b981;">${escapeHtml(email)}</strong> (${userRole.toUpperCase()})`;
-    } else if (user && !isTO) {
-      if (banner) {
-        banner.style.background = "rgba(239, 68, 68, 0.08)";
-        banner.style.borderColor = "rgba(239, 68, 68, 0.25)";
-      }
-      if (dot) {
-        dot.style.background = "#ef4444";
-        dot.style.boxShadow = "none";
-      }
-      statusText.innerHTML = `Signed in as <strong style="color: #38bdf8;">${escapeHtml(user.display_name || user.email)}</strong> (${userRole.toUpperCase()}) — <a href="javascript:void(0)" onclick="openRequestToModal()" style="color: #f59e0b; text-decoration: underline; font-weight: 600;">Request TO Verification</a>`;
+      statusText.innerHTML = `⚡ <strong>OmniTactica Native Hosting</strong> + BCP Connected as <strong style="color: #10b981;">${escapeHtml(email)}</strong>`;
     } else if (user) {
       if (banner) {
-        banner.style.background = "rgba(245, 158, 11, 0.08)";
-        banner.style.borderColor = "rgba(245, 158, 11, 0.25)";
+        banner.style.background = "rgba(6, 182, 212, 0.08)";
+        banner.style.borderColor = "rgba(6, 182, 212, 0.28)";
       }
       if (dot) {
-        dot.style.background = "#f59e0b";
-        dot.style.boxShadow = "none";
+        dot.style.background = "#06b6d4";
+        dot.style.boxShadow = "0 0 8px #06b6d4";
       }
-      statusText.innerHTML = `Signed in as <strong style="color: #38bdf8;">${escapeHtml(user.display_name || user.email)}</strong> (${userRole.toUpperCase()}) — <a href="javascript:void(0)" onclick="openBcpLinkModal()" style="color: #f59e0b; text-decoration: underline; font-weight: 600;">Link BCP Account</a> to unlock Event Studio`;
+      statusText.innerHTML = `⚡ <strong style="color: #67e8f9;">OmniTactica Native Hosting Active</strong> as <strong style="color: #fff;">${escapeHtml(user.display_name || user.email)}</strong> <span style="color: var(--text-muted); font-size: 0.78rem;">• Optional: <a href="javascript:void(0)" onclick="openBcpLinkModal()" style="color: #38bdf8; text-decoration: underline;">Link BCP</a> for dual-publishing</span>`;
     } else {
       if (banner) {
         banner.style.background = "rgba(56, 189, 248, 0.05)";
@@ -241,7 +205,7 @@ function updateStudioAuthBadge() {
         dot.style.background = "#94a3b8";
         dot.style.boxShadow = "none";
       }
-      statusText.innerHTML = `<span style="color: #94a3b8;">Guest Mode</span> — <a href="/login?redirect=%2F%23event-studio" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Sign In</a> to unlock Event Studio`;
+      statusText.innerHTML = `<span style="color: #94a3b8;">Guest Mode</span> — <a href="/login?redirect=%2F%23event-studio" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Sign In</a> to host tournaments`;
     }
   }
 }
@@ -575,7 +539,7 @@ async function pollTournamentWorkspaceQuietly(eventId) {
 
 async function pollStudioEventsQuietly() {
   const user = (typeof currentUser !== 'undefined') ? currentUser : null;
-  const isTO = Boolean(user && typeof isUserTO === 'function' && isUserTO(user));
+  const isTO = Boolean(user && (Boolean(user.id) || (typeof isUserTO === 'function' && isUserTO(user))));
   if (!isTO) return;
   try {
     const res = await window.api.getStudioEvents();
@@ -626,7 +590,7 @@ async function loadStudioEvents() {
     loadManagedStudioLeagues();
   }
   const user = (typeof currentUser !== 'undefined') ? currentUser : null;
-  const isTO = Boolean(user && typeof isUserTO === 'function' && isUserTO(user));
+  const isTO = Boolean(user && (Boolean(user.id) || (typeof isUserTO === 'function' && isUserTO(user))));
   if (!isTO) {
     studioState.eventsList = [];
     return;
@@ -724,8 +688,10 @@ function renderEventsDirectory() {
       } else if (isBcp) {
         bcpBadgeHtml = '<span class="badge badge-online" style="font-size: 0.7rem;">BCP SYNCED</span>';
       } else {
-        bcpBadgeHtml = '<span class="badge" style="font-size: 0.7rem; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);">LOCAL</span>';
+        bcpBadgeHtml = '<span class="badge" style="font-size: 0.7rem; background: linear-gradient(135deg, rgba(6,182,212,0.2), rgba(99,102,241,0.2)); color: #67e8f9; border: 1px solid rgba(6,182,212,0.45);">⚡ OMNITACTICA NATIVE</span>';
       }
+      const ptsNum = (ev.points !== undefined && ev.points !== null) ? Number(ev.points) : 2000;
+      const ptsSuffix = ptsNum > 0 ? ` (${ptsNum} pts)` : (ev.scoring_mode === 'ffa_pods' ? ' (FFA Pods)' : (String(ev.scoring_mode || '').startsWith('tcg') ? ' (TCG)' : ''));
 
       return `
         <div class="es-event-card" data-event-id="${escapeHtml(ev.id)}" style="background: var(--bg-card); border: 1px solid ${isDeletedOnBcp ? 'rgba(239,68,68,0.35)' : 'var(--border)'}; border-radius: var(--radius-lg); padding: 1.35rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1rem; transition: transform 0.2s ease, border-color 0.2s ease;">
@@ -737,7 +703,7 @@ function renderEventsDirectory() {
             <h4 style="margin: 0 0 0.4rem; color: #fff; font-size: 1.15rem; font-family: var(--font-heading); cursor: pointer;" onclick="switchStudioTab('manage', '${escapeHtml(ev.id)}')">${escapeHtml(ev.name)}</h4>
             <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.25rem;">
               <div>📅 ${escapeHtml(dateStr)} • 📍 ${escapeHtml(location)}</div>
-              <div>👥 <b>${playerCount} / ${capacity}</b> Players • 🎲 <b>${rounds}</b> Rounds (${ev.points || 2000} pts)</div>
+              <div>👥 <b>${playerCount} / ${capacity}</b> Players • 🎲 <b>${rounds}</b> Rounds${escapeHtml(ptsSuffix)}</div>
               ${isDeletedOnBcp ? '<div style="color: #ef4444; font-size: 0.75rem; font-weight: 600; margin-top: 0.2rem;">⚠️ Event deleted on BCP — preserved as local</div>' : ''}
             </div>
           </div>
@@ -748,6 +714,7 @@ function renderEventsDirectory() {
               <button type="button" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.32rem 0.65rem; border-color: rgba(239, 68, 68, 0.45); color: #f87171; font-weight: 700;" onclick="openUnifiedFloorOpsModal('${escapeHtml(ev.id)}', 'flags')">🚩 Live Floor &amp; Clocks</button>
             </div>
             <div style="display: flex; gap: 0.35rem; align-items: center;">
+              ${!isBcp ? `<button type="button" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; color: #67e8f9; border-color: rgba(6,182,212,0.35);" onclick="copyStudioShareLink('${escapeHtml(ev.id)}')" title="Copy Shareable Event Link">🔗 Share</button>` : ''}
               ${(isBcp && !isDeletedOnBcp) ? `<a href="${bcpUrl}" target="_blank" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; text-decoration: none;">🔗 BCP</a>` : ''}
               <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; color: #ef4444; border-color: rgba(239,68,68,0.35);" onclick="deleteStudioTournament('${escapeHtml(ev.id)}')">🗑️</button>
             </div>
@@ -819,23 +786,58 @@ async function submitCreateTournament() {
   const elPlaceId = document.getElementById("create-event-loc-place-id");
   const verifiedEl = document.getElementById("create-event-loc-verified");
 
-  const venueStr = venueInput ? venueInput.value.trim() : "";
+  const hostingModeInput = document.getElementById("create-event-hosting-mode");
+  const scoringModeInput = document.getElementById("create-event-scoring-mode");
+  const topCutInput = document.getElementById("create-event-top-cut");
+  const venueModeInput = document.getElementById("create-event-venue-mode");
+  const onlinePlatformInput = document.getElementById("create-event-online-platform");
+  const discordUrlInput = document.getElementById("create-event-discord-url");
+  const streamUrlInput = document.getElementById("create-event-stream-url");
+  const ticketUrlInput = document.getElementById("create-event-ticket-url");
+  const payAtDoorInput = document.getElementById("create-event-pay-at-door");
+  const accessCodeInput = document.getElementById("create-event-access-code");
+  const descriptionInput = document.getElementById("create-event-description");
+  const prizesInput = document.getElementById("create-event-prizes");
+
+  const venueModeVal = venueModeInput ? venueModeInput.value : "in_person";
+  const onlinePlatformVal = onlinePlatformInput ? onlinePlatformInput.value.trim() : "";
+  let venueStr = venueInput ? venueInput.value.trim() : "";
+  if (!venueStr && venueModeVal === "online") {
+    venueStr = onlinePlatformVal || "Online Tournament";
+  }
   if (!venueStr) {
     alert("⚠️ Please enter a venue or store location for your tournament.");
     if (venueInput) venueInput.focus();
     return;
   }
 
-  const numTicketsVal = numTicketsInput ? parseInt(numTicketsInput.value, 10) : (capacityInput ? parseInt(capacityInput.value, 10) : 32);
+  const hostingModeVal = hostingModeInput ? hostingModeInput.value : "native";
+  const scoringModeVal = scoringModeInput ? scoringModeInput.value : "wargame_vp";
+  const eventTypeVal = typeInput ? typeInput.value : "Singles Event";
+  const isFfaStruct = eventTypeVal === "Pods Event" || scoringModeVal === "ffa_pods";
+  const matchFormatVal = isFfaStruct ? "ffa" : (eventTypeVal === "Doubles Event" ? "2v2" : (eventTypeVal === "Teams Event" ? "teams" : "1v1"));
+  const bestOfVal = scoringModeVal === "tcg_bo3" ? 3 : 1;
+  const topCutVal = topCutInput ? (parseInt(topCutInput.value, 10) || 0) : 0;
+
+  const numTicketsVal = capacityInput ? (parseInt(capacityInput.value, 10) || 32) : (numTicketsInput ? parseInt(numTicketsInput.value, 10) : 32);
   const ticketPriceVal = ticketPriceInput ? parseFloat(ticketPriceInput.value) || 0 : 0;
   const ticketCurrencyVal = currencyInput ? currencyInput.value : "usd";
+  const parsedPts = pointsInput ? parseInt(pointsInput.value, 10) : 2000;
+  const pointsVal = !isNaN(parsedPts) ? parsedPts : 2000;
+  const gsVal = gameSystemInput ? gameSystemInput.value : "WGMSzfKFYA";
 
   const payload = {
     name: name,
-    game_system_id: gameSystemInput ? gameSystemInput.value : "WGMSzfKFYA",
+    hosting_mode: hostingModeVal,
+    game_system_id: gsVal,
+    game_system: gsVal,
+    scoring_mode: scoringModeVal,
+    match_format: matchFormatVal,
+    best_of: bestOfVal,
+    top_cut: topCutVal,
     tier: formatInput ? formatInput.value : "Grand Tournament",
-    event_type: typeInput ? typeInput.value : "Singles Event",
-    team_size: teamSizeInput ? parseInt(teamSizeInput.value, 10) : 5,
+    event_type: eventTypeVal,
+    team_size: isFfaStruct ? 4 : (teamSizeInput ? parseInt(teamSizeInput.value, 10) : 5),
     circuit_id: circuitInput ? circuitInput.value : "",
     circuit_token: circuitTokenInput ? circuitTokenInput.value.trim() : "",
     circuit_name: selectedCircuitName,
@@ -845,49 +847,60 @@ async function submitCreateTournament() {
     start_date: startInput ? startInput.value : "",
     end_date: endInput ? endInput.value : (startInput ? startInput.value : ""),
     capacity: numTicketsVal,
-    points: pointsInput ? parseInt(pointsInput.value, 10) : 2000,
+    points: pointsVal,
+    venue_mode: venueModeVal,
+    online_platform: onlinePlatformVal,
+    discord_url: discordUrlInput ? discordUrlInput.value.trim() : "",
+    stream_url: streamUrlInput ? streamUrlInput.value.trim() : "",
     venue: venueStr,
     address: elAddress && elAddress.value ? elAddress.value.trim() : venueStr,
     postal_code: elPostal && elPostal.value ? elPostal.value.trim() : "",
     place_id: elPlaceId && elPlaceId.value ? elPlaceId.value.trim() : "",
-    city: elCity && elCity.value ? elCity.value.trim() : (cityStateInput ? cityStateInput.value.trim() : "San Diego"),
-    state: elState && elState.value ? elState.value.trim() : "CA",
+    city: venueModeVal === "online" ? "Online" : (elCity && elCity.value ? elCity.value.trim() : (cityStateInput ? cityStateInput.value.trim() : "San Diego")),
+    state: venueModeVal === "online" ? "" : (elState && elState.value ? elState.value.trim() : "CA"),
     country: elCountry && elCountry.value ? elCountry.value.trim() : "United States",
     lat: elLat && elLat.value ? parseFloat(elLat.value) : 32.7157,
     lng: elLng && elLng.value ? parseFloat(elLng.value) : -117.1611,
     location_verified: verifiedEl ? verifiedEl.value === "true" : true,
 
-    // BCP Online Registration & Ticketing
+    // Registration, Ticketing & Player Pack
     using_online_reg: usingOnlineReg,
     num_tickets: numTicketsVal,
     ticket_price: ticketPriceVal,
     ticket_currency: ticketCurrencyVal,
+    pay_at_door: payAtDoorInput ? payAtDoorInput.checked : true,
+    external_ticket_url: ticketUrlInput ? ticketUrlInput.value.trim() : "",
     disable_checkin: allowCheckinInput ? !allowCheckinInput.checked : false,
     private_event: privateEventInput ? privateEventInput.checked : false,
+    access_code: accessCodeInput ? accessCodeInput.value.trim() : "",
+    description: descriptionInput ? descriptionInput.value.trim() : "",
+    prizes: prizesInput ? prizesInput.value.trim() : "",
     collect_shipping: shipYesRadio ? shipYesRadio.checked : false,
     shipping_mandatory: false,
     shipping_description: "",
 
     // Rules & Privacy
     hide_lists: hideListsInput ? hideListsInput.checked : true,
-    require_lists: requireListsInput ? requireListsInput.checked : true,
-    lists_at_checkin: requireListsInput ? requireListsInput.checked : true,
+    require_lists: requireListsInput ? requireListsInput.checked : false,
+    lists_at_checkin: requireListsInput ? requireListsInput.checked : false,
     lists_locked: listsLockedInput ? listsLockedInput.checked : false,
     list_submission_locked: false,
     factions_locked: factionsLockedInput ? factionsLockedInput.checked : false,
     hide_roster: hideRosterInput ? hideRosterInput.checked : false,
     passwordless_scoring: passwordlessInput ? passwordlessInput.checked : true,
     hide_placings: hidePlacingsInput ? hidePlacingsInput.checked : false,
-    bcp_token: getBcpToken()
+    bcp_token: hostingModeVal === "bcp" ? getBcpToken() : ""
   };
 
   if (btn) {
     btn.disabled = true;
-    btn.textContent = "⏳ Creating & Registering...";
+    btn.textContent = hostingModeVal === "bcp" ? "⏳ Creating & Syncing BCP..." : "⏳ Launching Tournament...";
   }
   if (status) {
     status.style.display = "block";
-    status.textContent = "Creating tournament and registering listing on Best Coast Pairings...";
+    status.textContent = hostingModeVal === "bcp"
+      ? "Creating tournament and registering listing on Best Coast Pairings..."
+      : "Publishing tournament natively to OmniTactica Community Hub...";
   }
 
   try {
@@ -901,6 +914,7 @@ async function submitCreateTournament() {
         num_rounds: payload.rounds,
         capacity: payload.capacity,
         points: payload.points,
+        scoring_mode: payload.scoring_mode,
         venue: payload.venue,
         city: payload.city,
         event_date: payload.start_date
@@ -916,17 +930,22 @@ async function submitCreateTournament() {
       if (typeof loadEvents === 'function') {
         try { loadEvents(); } catch(e) {}
       }
+      if (typeof refreshCommunityTournaments === 'function') {
+        try { refreshCommunityTournaments(); } catch(e) {}
+      }
       window.dispatchEvent(new CustomEvent('tournaments-updated', { detail: { eventId, action: 'create', event: newEvent } }));
 
       if (res.bcp_registered) {
-        alert(`🎉 Tournament "${name}" successfully created and registered on Best Coast Pairings!`);
+        alert(`🎉 Tournament "${name}" created and synced to Best Coast Pairings!`);
       } else {
-        alert(`🎉 Tournament "${name}" created in Event Studio!`);
+        alert(`⚡ Tournament "${name}" is now LIVE on OmniTactica!\n\nPlayers can discover it immediately in Community Hub, register in 1 click, submit lists, and check in.`);
       }
       if (nameInput) nameInput.value = "";
       if (venueInput) venueInput.value = "";
-      if (cityStateInput) cityStateInput.value = "";
-      
+      if (descriptionInput) descriptionInput.value = "";
+      if (prizesInput) prizesInput.value = "";
+      if (accessCodeInput) accessCodeInput.value = "";
+
       switchStudioTab("manage", eventId);
     } else {
       alert(res.message || res.detail || "Failed to create tournament.");
@@ -937,7 +956,7 @@ async function submitCreateTournament() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = "🚀 Create & Register on BCP";
+      btn.textContent = "⚡ Launch Tournament";
     }
     if (status) status.style.display = "none";
   }
@@ -984,12 +1003,18 @@ async function loadTournamentWorkspace(eventId) {
     const formatBadge = document.getElementById("manage-event-format-badge");
     if (formatBadge) {
       const et = String(ev.event_type || ev.eventType || "").toLowerCase();
-      if (et.includes("doubles")) {
+      if (ev.match_format === "ffa" || ev.scoring_mode === "ffa_pods" || et.includes("pod") || et.includes("ffa")) {
+        formatBadge.textContent = "🎲 4P FFA PODS";
+        formatBadge.style.display = "inline-block";
+      } else if (et.includes("doubles")) {
         formatBadge.textContent = "👥 DOUBLES";
         formatBadge.style.display = "inline-block";
       } else if (et.includes("team")) {
         const sz = ev.team_size || ev.teamSize || 5;
         formatBadge.textContent = `🛡️ TEAMS (${sz}-MAN)`;
+        formatBadge.style.display = "inline-block";
+      } else if (ev.scoring_mode === "tcg_bo3" || Number(ev.best_of || 1) === 3) {
+        formatBadge.textContent = "🃏 1V1 BO3";
         formatBadge.style.display = "inline-block";
       } else {
         formatBadge.textContent = "👤 SINGLES";
@@ -1031,9 +1056,25 @@ async function loadTournamentWorkspace(eventId) {
         bcpBadge.style.borderColor = "";
         bcpBadge.textContent = "BCP SYNCED";
       } else {
-        bcpBadge.style.display = "none";
+        bcpBadge.style.display = "inline-block";
+        bcpBadge.className = "badge";
+        bcpBadge.style.background = "rgba(6, 182, 212, 0.16)";
+        bcpBadge.style.color = "#67e8f9";
+        bcpBadge.style.borderColor = "rgba(6, 182, 212, 0.45)";
+        bcpBadge.textContent = "⚡ OMNITACTICA NATIVE";
       }
     }
+    const shareBtns = document.querySelectorAll("#btn-copy-native-link");
+    shareBtns.forEach(sBtn => {
+      sBtn.style.display = "inline-flex";
+    });
+    const topCutBtns = document.querySelectorAll("#btn-manage-top-cut");
+    const showTopCutBtn = !isBcp && (Number(ev.top_cut || 0) > 0 || String(ev.scoring_mode || "").startsWith("tcg") || ev.match_format !== "ffa");
+    topCutBtns.forEach(tcBtn => {
+      tcBtn.style.display = showTopCutBtn ? "inline-flex" : "none";
+      const cutN = Number(ev.top_cut || 4) >= 8 ? 8 : 4;
+      tcBtn.textContent = ev.top_cut_active ? "🏆 Advance Top Cut" : `🏆 Cut to Top ${cutN}`;
+    });
     const bcpLinks = document.querySelectorAll("#manage-event-bcp-link");
     bcpLinks.forEach(bLink => {
       if (isDeletedOnBcp || !isBcp) {
@@ -1270,7 +1311,10 @@ async function startTournamentEvent() {
     return;
   }
 
-  if (!confirm(`🚀 Start tournament "${ev.name}"? This will officially open Round 1 and generate pairings on Best Coast Pairings.`)) {
+  const startPrompt = isBcp
+    ? `🚀 Start tournament "${ev.name}"? This will officially open Round 1 and generate pairings on Best Coast Pairings.`
+    : `⚡ Start tournament "${ev.name}"? This will lock pre-start settings, open Round 1, and generate initial Swiss/Pod pairings.`;
+  if (!confirm(startPrompt)) {
     return;
   }
 
@@ -1326,17 +1370,38 @@ function renderPairingsSubtab() {
   const ev = studioState.activeTournament;
   if (!ev) return;
 
+  const isNative = String(ev.id || "").startsWith("ES-");
   const totalRounds = ev.num_rounds || ev.rounds || 5;
   const currentRound = studioState.currentRoundView || ev.current_round || 1;
+  const pairingsMap = ev.pairings || {};
+
+  // Discover all round numbers including any Single-Elimination Top Cut stages (> totalRounds)
+  const extraRoundNums = Object.keys(pairingsMap)
+    .map(k => parseInt(k, 10))
+    .filter(n => !isNaN(n) && n > totalRounds)
+    .sort((a, b) => a - b);
+  const allRoundNums = [];
+  for (let r = 1; r <= totalRounds; r++) allRoundNums.push(r);
+  extraRoundNums.forEach(r => { if (!allRoundNums.includes(r)) allRoundNums.push(r); });
 
   // Render Round Pills
   const pillsContainers = document.querySelectorAll("#manage-round-pills");
   pillsContainers.forEach(container => {
     let html = '';
-    for (let r = 1; r <= totalRounds; r++) {
+    allRoundNums.forEach(r => {
       const active = (r === currentRound) ? 'btn-primary' : 'btn-outline';
-      html += `<button class="btn ${active}" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;" onclick="selectRoundView(${r})">Round ${r}</button>`;
-    }
+      const rMatches = pairingsMap[String(r)] || [];
+      const firstStage = rMatches[0] && (rMatches[0].bracket_label || rMatches[0].stage);
+      let pillLabel = `Round ${r}`;
+      if (r > totalRounds || (rMatches[0] && rMatches[0].stage && rMatches[0].stage !== 'swiss')) {
+        const st = String(rMatches[0]?.stage || '').toLowerCase();
+        if (st === 'finals' || rMatches.length === 1) pillLabel = `👑 Final`;
+        else if (st === 'top_4' || rMatches.length === 2) pillLabel = `🏆 Top 4`;
+        else if (st === 'top_8' || rMatches.length === 4) pillLabel = `🏆 Top 8`;
+        else pillLabel = `🏆 ${firstStage || ('Playoff ' + r)}`;
+      }
+      html += `<button class="btn ${active}" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;" onclick="selectRoundView(${r})">${escapeHtml(pillLabel)}</button>`;
+    });
     container.innerHTML = html;
   });
 
@@ -1344,7 +1409,6 @@ function renderPairingsSubtab() {
   const pairingsContainers = document.querySelectorAll("#manage-pairings-list");
   if (!pairingsContainers.length) return;
 
-  const pairingsMap = ev.pairings || {};
   const roundPairings = pairingsMap[String(currentRound)] || [];
 
   const isPublished = Boolean(ev.is_published && (ev.published_round === currentRound || ev.publishedRound === currentRound));
@@ -1362,6 +1426,7 @@ function renderPairingsSubtab() {
   pushBtns.forEach(btn => {
     btn.style.display = isPrePairing ? "inline-block" : "none";
     btn.disabled = roundPairings.length === 0;
+    btn.textContent = isNative ? "✅ Lock & Activate Round" : "🚀 Push Pairings to BCP";
   });
 
   const editBtns = document.querySelectorAll("#btn-edit-pairings");
@@ -1405,7 +1470,7 @@ function renderPairingsSubtab() {
       statusBadge.style.background = "rgba(56, 189, 248, 0.15)";
       statusBadge.style.color = "#38bdf8";
       statusBadge.style.borderColor = "rgba(56, 189, 248, 0.35)";
-      statusBadge.textContent = "🟢 PUSHED TO BCP (UNPUBLISHED)";
+      statusBadge.textContent = isNative ? "🟢 ACTIVE ROUND (SCORING READY)" : "🟢 PUSHED TO BCP (UNPUBLISHED)";
     } else if (roundPairings.length > 0) {
       statusBadge.className = "badge";
       statusBadge.style.background = "rgba(234, 179, 8, 0.15)";
@@ -1448,6 +1513,65 @@ function renderPairingsSubtab() {
 
   const cardsHtml = roundPairings.map(match => {
     const table = match.table || 1;
+    const isFfaPod = Boolean(match.is_ffa || match.match_format === 'ffa' || (Array.isArray(match.pod_participants) && match.pod_participants.length >= 3));
+    const isBo3Match = Boolean(ev.scoring_mode === 'tcg_bo3' || Number(match.best_of || ev.best_of || 1) === 3);
+    const stageBadgeHtml = (match.bracket_label || (match.stage && match.stage !== 'swiss'))
+      ? `<span class="badge" style="background: rgba(251, 191, 36, 0.18); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.42); font-size: 0.68rem;">🏆 ${escapeHtml(match.bracket_label || match.stage)}</span>`
+      : '';
+
+    // 4-PLAYER FFA COMMANDER POD CARD
+    if (isFfaPod) {
+      const seats = Array.isArray(match.pod_participants) ? match.pod_participants : [];
+      const podDone = Boolean(match.is_done);
+      const podDraw = Boolean(match.is_draw);
+      const podWinnerId = match.winner_id ? String(match.winner_id) : '';
+      const seatsHtml = seats.map((s, idx) => {
+        const sid = String(s.player_id || s.id || '');
+        const sName = s.player_name || s.name || `Seat ${idx + 1}`;
+        const sFac = s.faction || 'Unassigned';
+        const sElo = Number(s.elo || 1500).toFixed(1);
+        const sWinPct = s.win_prob !== undefined ? `${s.win_prob}%` : `${Math.round(100 / Math.max(1, seats.length))}%`;
+        const isSeatWin = podDone && !podDraw && (s.outcome === 'win' || (podWinnerId && sid === podWinnerId));
+        return `
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.48rem 0.65rem; border-radius: 8px; background: ${isSeatWin ? 'rgba(16,185,129,0.14)' : 'rgba(255,255,255,0.03)'}; border: 1px solid ${isSeatWin ? 'rgba(16,185,129,0.45)' : 'rgba(255,255,255,0.07)'};">
+            <div style="min-width: 0; flex: 1;">
+              <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: 700;">S${idx + 1}</span>
+                <span style="font-weight: 700; color: #fff; font-size: 0.9rem;">${escapeHtml(sName)}</span>
+                <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem;">⭐ ${sElo}</span>
+                ${isSeatWin ? '<span class="badge" style="background: rgba(16,185,129,0.2); color: #34d399; font-size: 0.68rem;">🏆 POD WINNER (+5)</span>' : ''}
+                ${(podDone && podDraw) ? '<span class="badge" style="background: rgba(234,179,8,0.18); color: #facc15; font-size: 0.68rem;">🤝 DRAW (+1)</span>' : ''}
+              </div>
+              <div style="font-size: 0.73rem; color: #38bdf8; margin-top: 2px;">${escapeHtml(sFac)} <span style="color: var(--text-muted);">• 📐 ${sWinPct} Pod Win</span></div>
+            </div>
+            ${!isPrePairing ? `
+              <button type="button" class="btn ${isSeatWin ? 'btn-primary' : 'btn-outline'}" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; white-space: nowrap;" onclick="savePodResult(${table}, '${escapeHtml(sid)}', false)">
+                🏆 Win
+              </button>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="es-match-card" id="es-table-card-${table}" style="background: var(--bg-card); border: 1px solid ${podDone ? 'rgba(16,185,129,0.4)' : 'var(--border)'}; border-radius: var(--radius-lg); padding: 1.1rem; display: flex; flex-direction: column; gap: 0.6rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 0.45rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span style="font-weight: 800; font-family: var(--font-heading); color: #34d399;">POD ${table}</span>
+              <span class="badge" style="background: rgba(16,185,129,0.15); color: #34d399; font-size: 0.68rem;">🎲 ${seats.length}-Player FFA</span>
+            </div>
+            <span style="font-size: 0.72rem; color: ${podDone ? '#10b981' : 'var(--text-muted)'}; font-weight: 700;">${podDone ? '✅ Reported' : (isPrePairing ? 'Staged Pod' : 'Live Pod')}</span>
+          </div>
+          ${seatsHtml}
+          ${!isPrePairing ? `
+            <div style="display: flex; justify-content: flex-end; align-items: center; border-top: 1px dashed var(--border); padding-top: 0.45rem; gap: 0.5rem;">
+              <button type="button" class="btn btn-outline" style="font-size: 0.73rem; padding: 0.26rem 0.65rem; color: #facc15; border-color: rgba(234,179,8,0.4);" onclick="savePodResult(${table}, '', true)">🤝 Report Pod Draw (+1 All)</button>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
     const p1Name = match.p1_name || match.p1Name || "Player 1";
     const p1Fac = match.p1_faction || match.p1Faction || "";
     const p1Team = match.p1_team || match.p1Team || "";
@@ -1487,7 +1611,7 @@ function renderPairingsSubtab() {
     const rematchRounds = Array.isArray(match.rematch_rounds) && match.rematch_rounds.length > 0 ? match.rematch_rounds.join(', ') : '';
     const sameTeam = Boolean(match.same_team);
 
-    const matchId = `BCP-${ev.id}-R${currentRound}-T${table}`;
+    const matchId = isNative ? `${ev.id}-R${currentRound}-T${table}` : `BCP-${ev.id}-R${currentRound}-T${table}`;
     const pid = match.id || match.bcp_pairing_id || '';
     const cleanPid = pid && !String(pid).startsWith('bcp-pairing-') ? pid : '';
     const pairingParam = cleanPid ? `&pairing_id=${encodeURIComponent(cleanPid)}` : '';
@@ -1573,9 +1697,11 @@ function renderPairingsSubtab() {
         ` : ''}
         <!-- Card Header -->
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
             <span style="font-weight: 700; font-family: var(--font-heading); color: #38bdf8;">TABLE ${table}</span>
-            ${isBye ? '<span class="badge badge-accent">BYE</span>' : '<span style="font-size: 0.72rem; color: var(--text-muted);">Swiss Match</span>'}
+            ${stageBadgeHtml}
+            ${isBye ? '<span class="badge badge-accent">BYE</span>' : `<span style="font-size: 0.72rem; color: var(--text-muted);">${isBo3Match ? 'Best-of-3' : 'Swiss Match'}</span>`}
+            ${match.is_done ? '<span class="badge" style="background: rgba(16,185,129,0.18); color: #34d399; font-size: 0.66rem;">✓ Done</span>' : ''}
           </div>
           <div style="display: flex; align-items: center; gap: 0.4rem;">
             <button class="btn btn-outline" style="font-size: 0.7rem; padding: 0.18rem 0.45rem;" onclick="toggleTableBye(${table})" title="Toggle BYE for this table">${isBye ? 'Set Match' : 'Set BYE'}</button>
@@ -1617,6 +1743,17 @@ function renderPairingsSubtab() {
           <input type="number" id="score-p2-${table}" class="form-input" value="${p2Score}" min="0" max="100" style="width: 65px; text-align: center; font-weight: 700; font-size: 1.05rem;" ${isBye ? 'disabled' : ''}>
         </div>
 
+        ${(!isBye && isBo3Match) ? `
+          <div style="display: flex; align-items: center; justify-content: center; gap: 0.35rem; flex-wrap: wrap; padding-top: 0.2rem;">
+            <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: 700;">1-TAP BO3:</span>
+            <button type="button" class="btn btn-outline" style="font-size: 0.68rem; padding: 0.14rem 0.45rem;" onclick="setQuickBo3Score(${table}, 2, 0)">2-0</button>
+            <button type="button" class="btn btn-outline" style="font-size: 0.68rem; padding: 0.14rem 0.45rem;" onclick="setQuickBo3Score(${table}, 2, 1)">2-1</button>
+            <button type="button" class="btn btn-outline" style="font-size: 0.68rem; padding: 0.14rem 0.45rem; color: #facc15;" onclick="setQuickBo3Score(${table}, 1, 1)">1-1 Draw</button>
+            <button type="button" class="btn btn-outline" style="font-size: 0.68rem; padding: 0.14rem 0.45rem;" onclick="setQuickBo3Score(${table}, 1, 2)">1-2</button>
+            <button type="button" class="btn btn-outline" style="font-size: 0.68rem; padding: 0.14rem 0.45rem;" onclick="setQuickBo3Score(${table}, 0, 2)">0-2</button>
+          </div>
+        ` : ''}
+
         <!-- Card Footer Actions -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.35rem; border-top: 1px dashed var(--border); padding-top: 0.5rem;">
           <a href="${trackerUrl}" target="_blank" onclick="ensureStudioTrackerRoom(event, '${escapeHtml(ev.id)}', ${currentRound}, ${table}, '${escapeHtml(p1Name)}', '${escapeHtml(p2Name)}', '${escapeHtml(match.p1_id || '')}', '${escapeHtml(match.p2_id || '')}', '${escapeHtml(p1Fac)}', '${escapeHtml(p2Fac)}', '${escapeHtml(cleanPid)}')" style="font-size: 0.75rem; color: #a5b4fc; text-decoration: underline; font-weight: 600;" title="Open Game Tracker for Table ${table} as Referee/TO">🎲 Open Game Tracker ↗</a>
@@ -1632,7 +1769,8 @@ function renderPairingsSubtab() {
 }
 
 async function ensureStudioTrackerRoom(e, eventId, roundNum, tableNum, p1Name, p2Name, p1Id, p2Id, p1Fac, p2Fac, pairingId) {
-  const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`;
+  const isNative = String(eventId || "").startsWith("ES-");
+  const matchId = isNative ? `${eventId}-R${roundNum}-T${tableNum}` : `BCP-${eventId}-R${roundNum}-T${tableNum}`;
   try {
     if (window.api && typeof window.api.createTournamentTrackerRoom === 'function') {
       await window.api.createTournamentTrackerRoom({
@@ -1718,75 +1856,147 @@ async function saveTableScore(tableNum) {
   }
 
   try {
-    if (!String(ev.id).startsWith("ES-")) {
-      const pid = match ? (match.id || match.bcp_pairing_id) : null;
-      const cleanPid = pid && !String(pid).startsWith('bcp-pairing-') ? pid : null;
-      const p1Id = match ? (match.player1_id || match.player1Id || match.p1_id) : null;
-      const p2Id = match ? (match.player2_id || match.player2Id || match.p2_id) : null;
-      const p1Gid = match ? (match.player1GameId || match.p1_game_id) : null;
-      const p2Gid = match ? (match.player2GameId || match.p2_game_id) : null;
-      const p1Fac = match ? (match.player1_faction || match.player1Faction || match.p1_faction) : null;
-      const p2Fac = match ? (match.player2_faction || match.player2Faction || match.p2_faction) : null;
-      const winnerId = p1Score > p2Score ? p1Id : (p2Score > p1Score ? p2Id : null);
+    const isNative = String(ev.id || "").startsWith("ES-");
+    const pid = match ? (match.id || match.bcp_pairing_id) : null;
+    const cleanPid = pid && !String(pid).startsWith('bcp-pairing-') ? pid : null;
+    const p1Id = match ? (match.player1_id || match.player1Id || match.p1_id) : null;
+    const p2Id = match ? (match.player2_id || match.player2Id || match.p2_id) : null;
+    const p1Gid = match ? (match.player1GameId || match.p1_game_id) : null;
+    const p2Gid = match ? (match.player2GameId || match.p2_game_id) : null;
+    const p1Fac = match ? (match.player1_faction || match.player1Faction || match.p1_faction) : null;
+    const p2Fac = match ? (match.player2_faction || match.player2Faction || match.p2_faction) : null;
+    const isDraw = (p1Score === p2Score);
+    const winnerId = p1Score > p2Score ? p1Id : (p2Score > p1Score ? p2Id : null);
 
-      const res = await window.api.submitStudioScore({
-        event_id: ev.id,
-        table: Number(tableNum) || 1,
-        round_num: Number(currentRound) || 1,
-        p1_score: p1Score,
-        p2_score: p2Score,
-        pairing_id: cleanPid,
-        p1_name: match ? (match.p1_name || match.player1_name) : 'Player 1',
-        p2_name: match ? (match.p2_name || match.player2_name) : 'Player 2',
+    const res = await window.api.submitStudioScore({
+      match_id: isNative ? `${ev.id}-R${currentRound}-T${tableNum}` : undefined,
+      event_id: ev.id,
+      table: Number(tableNum) || 1,
+      round_num: Number(currentRound) || 1,
+      p1_score: p1Score,
+      p2_score: p2Score,
+      is_draw: isDraw,
+      pairing_id: cleanPid,
+      p1_name: match ? (match.p1_name || match.player1_name) : 'Player 1',
+      p2_name: match ? (match.p2_name || match.player2_name) : 'Player 2',
+      p1_id: p1Id,
+      p2_id: p2Id,
+      player1_id: p1Id,
+      player2_id: p2Id,
+      p1_faction: p1Fac,
+      p2_faction: p2Fac,
+      winner_id: winnerId,
+      game_details: {
         p1_id: p1Id,
         p2_id: p2Id,
         player1_id: p1Id,
         player2_id: p2Id,
+        p1_game_id: p1Gid,
+        p2_game_id: p2Gid,
+        player1GameId: p1Gid,
+        player2GameId: p2Gid,
         p1_faction: p1Fac,
         p2_faction: p2Fac,
         winner_id: winnerId,
-        game_details: {
-          p1_id: p1Id,
-          p2_id: p2Id,
-          player1_id: p1Id,
-          player2_id: p2Id,
-          p1_game_id: p1Gid,
-          p2_game_id: p2Gid,
-          player1GameId: p1Gid,
-          player2GameId: p2Gid,
-          p1_faction: p1Fac,
-          p2_faction: p2Fac,
-          winner_id: winnerId,
-          metaData: match ? (match.metaData || {}) : {}
-        },
-        source_app: 'EventStudio'
-      });
-      if (typeof pollTournamentWorkspaceQuietly === 'function') {
-        pollTournamentWorkspaceQuietly(ev.id);
-      }
-      if (res && res.bcp_synced) {
-        // Table scores pushed to BCP via backend submitScores endpoint
-        alert(`Table ${tableNum} score successfully submitted to Best Coast Pairings!`);
-      } else if (res && res.bcp_notice) {
-        alert(`BCP notice for Table ${tableNum}: ${res.bcp_notice}`);
-      } else {
-        alert(`Table ${tableNum} score submitted!`);
-      }
+        metaData: match ? (match.metaData || {}) : {}
+      },
+      source_app: 'EventStudio'
+    });
+    if (typeof pollTournamentWorkspaceQuietly === 'function') {
+      pollTournamentWorkspaceQuietly(ev.id);
+    }
+    if (!isNative && res && res.bcp_synced) {
+      alert(`Table ${tableNum} score successfully submitted to Best Coast Pairings!`);
+    } else if (!isNative && res && res.bcp_notice) {
+      alert(`BCP notice for Table ${tableNum}: ${res.bcp_notice}`);
     } else {
-      await window.api.saveStudioPairings(ev.id, {
-        round: currentRound,
-        pairings: roundPairings
-      });
-      if (typeof pollTournamentWorkspaceQuietly === 'function') {
-        pollTournamentWorkspaceQuietly(ev.id);
-      }
-      alert(`Table ${tableNum} score saved!`);
+      alert(`✅ Table ${tableNum} score saved (${p1Score} - ${p2Score})!`);
     }
   } catch (err) {
     console.error("Error saving score:", err);
     alert(`Failed to save score: ${err.message || err}`);
   }
 }
+
+async function setQuickBo3Score(tableNum, p1Games, p2Games) {
+  const p1El = document.getElementById(`score-p1-${tableNum}`);
+  const p2El = document.getElementById(`score-p2-${tableNum}`);
+  if (p1El) p1El.value = String(p1Games);
+  if (p2El) p2El.value = String(p2Games);
+  await saveTableScore(tableNum);
+}
+window.setQuickBo3Score = setQuickBo3Score;
+
+async function savePodResult(tableNum, winnerId, isDraw = false) {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+  const currentRound = studioState.currentRoundView || ev.current_round || 1;
+  try {
+    const res = await window.api.submitStudioScore({
+      match_id: `${ev.id}-R${currentRound}-T${tableNum}`,
+      event_id: ev.id,
+      table: Number(tableNum) || 1,
+      round_num: Number(currentRound) || 1,
+      p1_score: isDraw ? 1 : 5,
+      p2_score: isDraw ? 1 : 0,
+      is_draw: Boolean(isDraw),
+      winner_id: isDraw ? null : (winnerId || null),
+      source_app: 'EventStudio'
+    });
+    if (res && res.success) {
+      await loadTournamentWorkspace(ev.id);
+      renderPairingsSubtab();
+    } else {
+      alert((res && (res.detail || res.message)) || "Failed to record pod result.");
+    }
+  } catch (err) {
+    alert(`Failed to record pod result: ${err.message || err}`);
+  }
+}
+window.savePodResult = savePodResult;
+
+async function triggerStudioTopCut() {
+  const ev = studioState.activeTournament;
+  if (!ev || !ev.id) return;
+  const defaultCut = Number(ev.top_cut || 4) >= 8 ? 8 : 4;
+  const promptMsg = ev.top_cut_active
+    ? `🏆 Advance Single-Elimination Top Cut to the next playoff round based on completed bracket winners?`
+    : `🏆 Generate Single-Elimination Top ${defaultCut} Playoff Bracket from current Swiss standings?`;
+  if (!confirm(promptMsg)) return;
+  try {
+    const res = await window.api.generateStudioTopCut(ev.id, { top_cut: defaultCut });
+    if (res && res.success) {
+      studioState.activeTournament = res.event || ev;
+      studioState.currentRoundView = res.round || studioState.currentRoundView;
+      await loadTournamentWorkspace(ev.id);
+      studioState.currentRoundView = res.round || studioState.currentRoundView;
+      switchManageSubtab("pairings");
+      renderPairingsSubtab();
+      alert(`🏆 ${res.bracket_label || 'Top Cut'} bracket generated on Round ${res.round}!`);
+    } else {
+      alert((res && (res.detail || res.message)) || "Could not generate Top Cut.");
+    }
+  } catch (err) {
+    alert(`Top Cut generation Notice: ${err.message || err}`);
+  }
+}
+window.triggerStudioTopCut = triggerStudioTopCut;
+
+function copyStudioShareLink(explicitId = null) {
+  const targetId = explicitId || (studioState.activeTournament && studioState.activeTournament.id);
+  if (!targetId) return;
+  const url = `${window.location.origin}/app?event=${encodeURIComponent(targetId)}#community`;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(() => {
+      alert(`🔗 Shareable Tournament Link Copied!\n\n${url}`);
+    }).catch(() => {
+      prompt("Copy shareable tournament link:", url);
+    });
+  } else {
+    prompt("Copy shareable tournament link:", url);
+  }
+}
+window.copyStudioShareLink = copyStudioShareLink;
 
 let currentSwapState = null;
 
@@ -2130,24 +2340,30 @@ async function pushPairingsToBcp() {
 
   const publishImmediate = false; // Off by default: TO pushes pairings as unpublished draft, then uses Publish to Players button.
 
+  const isNative = String(ev.id || "").startsWith("ES-");
   const isPreTournament = !ev.started && currentRound === 1;
-  const actionText = isPreTournament ? "Start Event & Push Custom Pairings to BCP" : "Push Pairings to BCP";
+  const actionText = isNative
+    ? (isPreTournament ? "Start Event & Lock Round 1 Pairings" : `Lock & Activate Round ${currentRound} Pairings`)
+    : (isPreTournament ? "Start Event & Push Custom Pairings to BCP" : "Push Pairings to BCP");
 
-  if (!confirm(`🚀 ${actionText}?\n\nThis will synchronize ${roundPairings.length} table matchups for Round ${currentRound} to Best Coast Pairings (BCP) in unpublished mode. Players will not see matchups until you click Publish.`)) {
+  const confirmText = isNative
+    ? `⚡ ${actionText}?\n\nThis will lock ${roundPairings.length} table/pod matchups for Round ${currentRound} so scores can be entered and published to players.`
+    : `🚀 ${actionText}?\n\nThis will synchronize ${roundPairings.length} table matchups for Round ${currentRound} to Best Coast Pairings (BCP) in unpublished mode. Players will not see matchups until you click Publish.`;
+  if (!confirm(confirmText)) {
     return;
   }
 
   const pushBtns = document.querySelectorAll("#btn-push-pairings-bcp, #btn-apply-pairings-bcp");
   pushBtns.forEach(btn => {
     btn.disabled = true;
-    btn.innerHTML = `<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Pushing to BCP...`;
+    btn.innerHTML = `<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> ${isNative ? 'Locking Round...' : 'Pushing to BCP...'}`;
   });
 
   try {
     const payload = {
       round: currentRound,
       pairings: roundPairings,
-      publish_immediately: false,
+      publish_immediately: isNative ? true : false,
       start_if_unstarted: true
     };
 
@@ -2158,22 +2374,27 @@ async function pushPairingsToBcp() {
       } else {
         ev.pairings_status = "applied";
         ev.pairings_bcp_synced = true;
-        ev.is_published = false;
+        ev.is_published = isNative ? true : false;
+        if (isNative) ev.published_round = currentRound;
         if (isPreTournament) ev.started = true;
       }
       renderPairingsSubtab();
-      const bcpNote = res.bcp_applied ? " Matchups reconciled on BCP." : (res.bcp_notice ? ` (${res.bcp_notice})` : "");
-      alert(`✅ Success! Round ${currentRound} pairings synchronized to BCP.${bcpNote}\n\nMatchups are set in BCP. Click "📢 Publish to Players" when you are ready for competitors to see their tables!`);
+      if (isNative) {
+        alert(`✅ Round ${currentRound} pairings locked & published live to all players!`);
+      } else {
+        const bcpNote = res.bcp_applied ? " Matchups reconciled on BCP." : (res.bcp_notice ? ` (${res.bcp_notice})` : "");
+        alert(`✅ Success! Round ${currentRound} pairings synchronized to BCP.${bcpNote}\n\nMatchups are set in BCP. Click "📢 Publish to Players" when you are ready for competitors to see their tables!`);
+      }
     } else {
-      alert((res && (res.detail || res.message)) || "Failed to push pairings to BCP.");
+      alert((res && (res.detail || res.message)) || "Failed to activate pairings.");
     }
   } catch (err) {
-    console.error("Push pairings to BCP error:", err);
-    alert(`Failed to push pairings: ${err.message || err}`);
+    console.error("Push pairings error:", err);
+    alert(`Failed to activate pairings: ${err.message || err}`);
   } finally {
     pushBtns.forEach(btn => {
       btn.disabled = false;
-      btn.innerHTML = `🚀 Push Pairings to BCP`;
+      btn.innerHTML = isNative ? `✅ Lock & Activate Round` : `🚀 Push Pairings to BCP`;
     });
   }
 }
@@ -2522,16 +2743,18 @@ async function endAndArchiveTournament() {
   const ev = studioState.activeTournament;
   if (!ev) return;
 
-  if (!confirm(`🏆 Finalize and End "${ev.name}"? This will lock all final standings and tournament placements.`)) {
+  if (!confirm(`🏆 Finalize and End "${ev.name}"? This will lock official placements and update OmniTactica Elo ratings for all rated matches.`)) {
     return;
   }
 
   try {
     const res = await window.api.endStudioTournament(ev.id);
     if (res && res.success) {
-      studioState.activeTournament = res.event;
+      studioState.activeTournament = res.event || ev;
+      await loadTournamentWorkspace(ev.id);
       switchManageSubtab("standings");
-      alert(`🏆 "${ev.name}" concluded and archived successfully! Final standings are locked.`);
+      const eloCount = res.elo_rating && res.elo_rating.matches_rated ? ` • ⭐ ${res.elo_rating.matches_rated} matches rated for Elo!` : '';
+      alert(`🏆 "${ev.name}" concluded! Official placements locked${eloCount}`);
     } else {
       alert(res.message || "Failed to conclude tournament.");
     }
@@ -4181,27 +4404,123 @@ function updateDefaultRounds() {
   else if (val === "League") roundsInput.value = "4";
 }
 
+const STUDIO_TCG_SLUGS = new Set(["mtg", "pokemon", "yugioh", "onepiece", "lorcana", "fab", "swu", "digimon", "riftbound"]);
+const STUDIO_ZERO_PTS_SLUGS = new Set(["vyeOD0fcYY", "61c2k9332H", "t357b79w24", "3p2L1Z7t8r", "83b0f568-545d-4d04-b082-d7952cd0aa08", "0b3e76fa-e943-432b-ab14-fd9f8fb0fb1f"]);
+
 function onGameSystemChange() {
   const gs = document.getElementById("create-event-game-system");
   const nameInput = document.getElementById("create-event-name");
   const roundLen = document.getElementById("create-event-round-length");
+  const scoringMode = document.getElementById("create-event-scoring-mode");
+  const pointsInput = document.getElementById("create-event-points");
+  const topCutInput = document.getElementById("create-event-top-cut");
+  const hostingModeInput = document.getElementById("create-event-hosting-mode");
   if (!gs) return;
-  if (gs.value === "OY8FCPBf6O" || gs.value === "23qDprPABN") {
-    if (nameInput && (!nameInput.value || nameInput.placeholder.includes("40k") || nameInput.placeholder.includes("40K"))) {
+
+  const val = gs.value;
+  if (STUDIO_TCG_SLUGS.has(val)) {
+    if (hostingModeInput && hostingModeInput.value === "bcp") {
+      hostingModeInput.value = "native";
+    }
+    if (scoringMode && (scoringMode.value === "wargame_vp" || scoringMode.value === "wtc_20")) {
+      scoringMode.value = "tcg_bo3";
+    }
+    if (roundLen) roundLen.value = "3000";
+    if (pointsInput) pointsInput.value = "0";
+    if (topCutInput && topCutInput.value === "0") topCutInput.value = "8";
+    if (nameInput && !nameInput.value) {
+      const optText = gs.options[gs.selectedIndex] ? gs.options[gs.selectedIndex].text.split("(")[0].trim() : "TCG";
+      nameInput.placeholder = `e.g. Saturday ${optText} Store Championship`;
+    }
+  } else if (val === "OY8FCPBf6O" || val === "23qDprPABN") {
+    if (scoringMode && (scoringMode.value.startsWith("tcg") || scoringMode.value === "ffa_pods")) scoringMode.value = "wargame_vp";
+    const typeEl = document.getElementById("create-event-type");
+    if (typeEl && typeEl.value === "Pods Event") typeEl.value = "Singles Event";
+    if (pointsInput && pointsInput.value === "0") pointsInput.value = "2000";
+    if (topCutInput) topCutInput.value = "0";
+    if (nameInput && (!nameInput.value || nameInput.placeholder.includes("40k") || nameInput.placeholder.includes("40K") || nameInput.placeholder.includes("Championship"))) {
       nameInput.placeholder = "e.g. Adepticon Age of Sigmar Grand Tournament 2026";
     }
-    if (roundLen && roundLen.value === "9000") {
+    if (roundLen && (roundLen.value === "9000" || roundLen.value === "3000" || roundLen.value === "4800")) {
       roundLen.value = "9900"; // 165 minutes standard AoS
     }
-  } else if (gs.value === "WGMSzfKFYA") {
-    if (nameInput && nameInput.placeholder.includes("Sigmar")) {
+  } else if (val === "WGMSzfKFYA") {
+    if (scoringMode && (scoringMode.value.startsWith("tcg") || scoringMode.value === "ffa_pods")) scoringMode.value = "wargame_vp";
+    const typeEl = document.getElementById("create-event-type");
+    if (typeEl && typeEl.value === "Pods Event") typeEl.value = "Singles Event";
+    if (pointsInput && pointsInput.value === "0") pointsInput.value = "2000";
+    if (topCutInput) topCutInput.value = "0";
+    if (nameInput && (nameInput.placeholder.includes("Sigmar") || nameInput.placeholder.includes("Championship"))) {
       nameInput.placeholder = "e.g. Pacific Northwest 40K Grand Tournament 2026";
     }
-    if (roundLen && roundLen.value === "9900") {
+    if (roundLen && (roundLen.value === "9900" || roundLen.value === "3000" || roundLen.value === "4800")) {
       roundLen.value = "9000"; // 150 minutes standard 40k
+    }
+  } else {
+    if (scoringMode && (scoringMode.value.startsWith("tcg") || scoringMode.value === "ffa_pods")) scoringMode.value = "wargame_vp";
+    const typeEl = document.getElementById("create-event-type");
+    if (typeEl && typeEl.value === "Pods Event") typeEl.value = "Singles Event";
+    if (pointsInput) pointsInput.value = STUDIO_ZERO_PTS_SLUGS.has(val) ? "0" : "2000";
+  }
+}
+
+function onScoringModeChange() {
+  const scoringMode = document.getElementById("create-event-scoring-mode");
+  const typeEl = document.getElementById("create-event-type");
+  const roundLen = document.getElementById("create-event-round-length");
+  if (!scoringMode) return;
+  if (scoringMode.value === "ffa_pods") {
+    if (typeEl) typeEl.value = "Pods Event";
+    if (roundLen) roundLen.value = "4800";
+  } else if (typeEl && typeEl.value === "Pods Event") {
+    typeEl.value = "Singles Event";
+  }
+}
+window.onScoringModeChange = onScoringModeChange;
+
+function onVenueModeChange() {
+  const vm = document.getElementById("create-event-venue-mode");
+  const onlineBox = document.getElementById("create-online-fields-group");
+  const venueInput = document.getElementById("create-event-venue");
+  const isOnline = vm && vm.value === "online";
+  if (onlineBox) onlineBox.style.display = isOnline ? "block" : "none";
+  if (venueInput) {
+    venueInput.placeholder = isOnline ? "e.g. SpellTable / Tabletop Simulator / MTG Arena" : "e.g. Mox Boarding House";
+  }
+}
+window.onVenueModeChange = onVenueModeChange;
+
+function onHostingModeChange() {
+  const hm = document.getElementById("create-event-hosting-mode");
+  const btn = document.getElementById("btn-submit-create-event");
+  if (btn && hm) {
+    btn.textContent = hm.value === "bcp" ? "🚀 Create & Sync to BCP" : "⚡ Launch Tournament";
+  }
+}
+window.onHostingModeChange = onHostingModeChange;
+
+async function openHostEventWizard(presetGameSlug = null) {
+  if (typeof switchTab === "function") {
+    await switchTab("event-studio");
+  }
+  if (typeof switchStudioTab === "function") {
+    switchStudioTab("create");
+  }
+  const gsSelect = document.getElementById("create-event-game-system");
+  const targetSlug = presetGameSlug || (typeof currentGameSystem !== "undefined" ? currentGameSystem : "");
+  if (gsSelect && targetSlug) {
+    const slugMap = { "40k": "WGMSzfKFYA", "aos": "OY8FCPBf6O", "tow": "dJtT7U0Wv2", "heresy": "6p119129pL", "killteam": "vyeOD0fcYY" };
+    const mapped = slugMap[targetSlug] || targetSlug;
+    for (let i = 0; i < gsSelect.options.length; i++) {
+      if (gsSelect.options[i].value === mapped) {
+        gsSelect.selectedIndex = i;
+        onGameSystemChange();
+        break;
+      }
     }
   }
 }
+window.openHostEventWizard = openHostEventWizard;
 
 // Global window bindings for Event Studio
 window.initStudio = initStudio;
@@ -4290,6 +4609,18 @@ window.openStudioPublicListing = openStudioPublicListing;
 function toggleTeamOptions(context) {
   const typeEl = document.getElementById(`${context}-event-type`);
   const groupEl = document.getElementById(`${context}-team-size-group`);
+  if (typeEl && context === "create") {
+    const scoringMode = document.getElementById("create-event-scoring-mode");
+    const roundLen = document.getElementById("create-event-round-length");
+    if (typeEl.value === "Pods Event") {
+      if (scoringMode) scoringMode.value = "ffa_pods";
+      if (roundLen) roundLen.value = "4800";
+    } else if (typeEl.value === "Teams Event" && scoringMode && scoringMode.value === "ffa_pods") {
+      scoringMode.value = "wtc_20";
+    } else if (scoringMode && scoringMode.value === "ffa_pods") {
+      scoringMode.value = "wargame_vp";
+    }
+  }
   if (!typeEl || !groupEl) return;
   if (typeEl.value === "Teams Event") {
     groupEl.style.display = "block";

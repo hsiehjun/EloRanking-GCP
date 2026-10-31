@@ -802,10 +802,10 @@ function switchTab(tabName) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/#event-studio');
       return;
     }
-    const canAccessTO = Boolean(window.ENABLE_EVENT_STUDIO_TAB) && (typeof isUserTO === 'function' ? isUserTO(currentUser) : (() => {
-      const userRole = ((currentUser && currentUser.role) ? currentUser.role : 'player').toLowerCase();
-      return userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || Boolean(currentUser && (currentUser.is_admin || currentUser.can_access_to));
-    })());
+    const canAccessTO = Boolean(window.ENABLE_EVENT_STUDIO_TAB) && Boolean(
+      (currentUser && currentUser.id) ||
+      (typeof isUserTO === 'function' ? isUserTO(currentUser) : false)
+    );
     if (!canAccessTO) {
       return switchTab('my-hub');
     }
@@ -903,7 +903,7 @@ function handleMobileNavChange(val) {
     return;
   }
   if (val === 'event-studio') {
-    const isTO = Boolean(currentUser && typeof isUserTO === 'function' && isUserTO(currentUser));
+    const isTO = Boolean((currentUser && currentUser.id) || (currentUser && typeof isUserTO === 'function' && isUserTO(currentUser)));
     if (!isTO) {
       const mob = document.getElementById('mobile-nav-select');
       if (mob && typeof activeTab !== 'undefined') mob.value = activeTab;
@@ -1461,16 +1461,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
+  const params = new URLSearchParams(window.location.search);
+  const deepLinkEventId = params.get('event') ? params.get('event').trim() : '';
+  const openDeepLinkedEventIfAny = () => {
+    if (deepLinkEventId && typeof openEventModal === 'function') {
+      setTimeout(() => {
+        try { openEventModal(deepLinkEventId); } catch (e) {}
+      }, 80);
+    }
+  };
   const hashVal = window.location.hash ? window.location.hash.trim() : null;
   if (hashVal && typeof handleAppRoute === 'function') {
     const routeResult = handleAppRoute(hashVal);
     if (routeResult) {
       await awaitWithBootTimeout(routeResult);
+      openDeepLinkedEventIfAny();
       finishBootSplash();
       return;
     }
   }
-  const params = new URLSearchParams(window.location.search);
   let targetTab = hashVal ? hashVal.replace(/^[#/]+/, '') : params.get('tab');
   if (targetTab === 'my_hub' || targetTab === 'myhub') targetTab = 'my-hub';
   const shouldOpenChat = (targetTab === 'chat' || targetTab === 'messages' || targetTab === 'chats');
@@ -1478,12 +1487,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     // switchTab handles these aliases and sets the correct communitySubtab
   } else if (targetTab === 'community-hub' || targetTab === 'communityhub') {
     targetTab = 'community';
+  } else if (!targetTab && deepLinkEventId) {
+    targetTab = 'community';
   }
   if (targetTab === 'event-studio') {
-    const canAccessTO = Boolean(window.ENABLE_EVENT_STUDIO_TAB) && (typeof isUserTO === 'function' ? isUserTO(currentUser) : (() => {
-      const userRole = ((currentUser && currentUser.role) ? currentUser.role : 'player').toLowerCase();
-      return userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || Boolean(currentUser && (currentUser.is_admin || currentUser.can_access_to));
-    })());
+    const canAccessTO = Boolean(window.ENABLE_EVENT_STUDIO_TAB) && Boolean(
+      (currentUser && currentUser.id) ||
+      (typeof isUserTO === 'function' ? isUserTO(currentUser) : false)
+    );
     if (!canAccessTO) {
       targetTab = 'my-hub';
     }
@@ -1495,6 +1506,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
   await awaitWithBootTimeout(tabPromise);
+  openDeepLinkedEventIfAny();
   finishBootSplash();
 });
 
@@ -1509,8 +1521,8 @@ function openMobileMoreSheet() {
       if (eloEl && currentUser.current_elo) eloEl.textContent = `${Number(currentUser.current_elo).toFixed(1)} Elo`;
       if (avatarEl) avatarEl.textContent = (currentUser.faction_icon || '⚔️');
       const esBtn = document.getElementById('mobile-sheet-eventstudio-btn');
-      if (esBtn && typeof isUserTO === 'function') {
-        esBtn.style.display = (window.ENABLE_EVENT_STUDIO_TAB && isUserTO(currentUser)) ? 'flex' : 'none';
+      if (esBtn) {
+        esBtn.style.display = (window.ENABLE_EVENT_STUDIO_TAB && (Boolean(currentUser.id) || (typeof isUserTO === 'function' && isUserTO(currentUser)))) ? 'flex' : 'none';
       }
       const dtBtn = document.getElementById('mobile-sheet-dice-tracker-btn');
       if (dtBtn) {

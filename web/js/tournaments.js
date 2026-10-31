@@ -1560,15 +1560,28 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   }
 
   const bcpLink = document.getElementById('modal-event-bcp-link');
+  const isNativeModalEv = Boolean(/^es[-_]/i.test(String(eventId)) || (previewEv && (previewEv.is_native_event || previewEv.source_platform === 'omnitactica')));
   if (bcpLink) {
-    const extUrl = (typeof getPlatformExternalEventUrl === 'function')
-      ? getPlatformExternalEventUrl(eventId, previewEv)
-      : `https://www.bestcoastpairings.com/event/${encodeURIComponent(eventId)}`;
-    const platName = (typeof getPlatformDisplayName === 'function')
-      ? getPlatformDisplayName(eventId, previewEv)
-      : 'BCP';
-    bcpLink.href = extUrl;
-    bcpLink.textContent = `${platName} ↗`;
+    if (isNativeModalEv) {
+      bcpLink.href = 'javascript:void(0)';
+      bcpLink.removeAttribute('target');
+      bcpLink.textContent = '🔗 Share Link';
+      bcpLink.onclick = (e) => {
+        e.preventDefault();
+        if (typeof copyStudioShareLink === 'function') copyStudioShareLink(eventId);
+      };
+    } else {
+      const extUrl = (typeof getPlatformExternalEventUrl === 'function')
+        ? getPlatformExternalEventUrl(eventId, previewEv)
+        : `https://www.bestcoastpairings.com/event/${encodeURIComponent(eventId)}`;
+      const platName = (typeof getPlatformDisplayName === 'function')
+        ? getPlatformDisplayName(eventId, previewEv)
+        : 'BCP';
+      bcpLink.href = extUrl;
+      bcpLink.setAttribute('target', '_blank');
+      bcpLink.onclick = null;
+      bcpLink.textContent = `${platName} ↗`;
+    }
   }
 
   const hubTabEl = document.getElementById('tab-event-hub');
@@ -1914,6 +1927,68 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       }
       if (typeof window !== 'undefined' && window.modalStack) {
         window.modalStack = window.modalStack.filter(id => id !== 'event-details-loading-modal');
+      }
+    }
+
+    // Native Event Quick Actions (1-Click Register & Direct in Event Studio)
+    if (bcpLink && bcpLink.parentElement) {
+      let nativeRegBtn = document.getElementById('modal-event-native-reg-btn');
+      let nativeManageBtn = document.getElementById('modal-event-native-manage-btn');
+      const isNativeLoaded = Boolean(ev.is_native_event || ev.source_platform === 'omnitactica' || /^es[-_]/i.test(String(eventId)));
+      if (isNativeLoaded) {
+        bcpLink.href = 'javascript:void(0)';
+        bcpLink.removeAttribute('target');
+        bcpLink.textContent = '🔗 Share Link';
+        bcpLink.onclick = (e) => {
+          e.preventDefault();
+          if (typeof copyStudioShareLink === 'function') copyStudioShareLink(eventId);
+        };
+        if (!nativeRegBtn) {
+          nativeRegBtn = document.createElement('button');
+          nativeRegBtn.id = 'modal-event-native-reg-btn';
+          nativeRegBtn.type = 'button';
+          nativeRegBtn.className = 'btn btn-primary';
+          nativeRegBtn.style.cssText = 'font-size:0.75rem; padding:0.32rem 0.7rem; background:linear-gradient(135deg,#0ea5e9,#10b981); border:none; font-weight:700;';
+          bcpLink.parentElement.insertBefore(nativeRegBtn, bcpLink);
+        }
+        const isRegAlready = Boolean(userRegData && userRegData.is_registered);
+        if (!isEnded && (!ev.started || isRegAlready)) {
+          nativeRegBtn.style.display = 'inline-flex';
+          nativeRegBtn.textContent = isRegAlready ? '✅ Edit Entry / List' : '⚡ Register';
+          nativeRegBtn.onclick = () => {
+            if (typeof openEventRegistrationModal === 'function') openEventRegistrationModal(eventId);
+          };
+        } else {
+          nativeRegBtn.style.display = 'none';
+        }
+
+        const isOwnerOrTo = Boolean(
+          typeof currentUser !== 'undefined' && currentUser && (
+            (ev.organizer_id && String(ev.organizer_id) === String(currentUser.id)) ||
+            (typeof isUserTO === 'function' && isUserTO(currentUser))
+          )
+        );
+        if (!nativeManageBtn) {
+          nativeManageBtn = document.createElement('button');
+          nativeManageBtn.id = 'modal-event-native-manage-btn';
+          nativeManageBtn.type = 'button';
+          nativeManageBtn.className = 'btn btn-outline';
+          nativeManageBtn.style.cssText = 'font-size:0.75rem; padding:0.32rem 0.7rem; color:#67e8f9; border-color:rgba(6,182,212,0.45); font-weight:700;';
+          bcpLink.parentElement.insertBefore(nativeManageBtn, bcpLink);
+        }
+        if (isOwnerOrTo) {
+          nativeManageBtn.style.display = 'inline-flex';
+          nativeManageBtn.textContent = '👑 Direct Event';
+          nativeManageBtn.onclick = () => {
+            if (typeof closeModal === 'function') closeModal('event-modal');
+            if (typeof switchStudioTab === 'function') switchStudioTab('manage', eventId);
+          };
+        } else {
+          nativeManageBtn.style.display = 'none';
+        }
+      } else {
+        if (nativeRegBtn) nativeRegBtn.style.display = 'none';
+        if (nativeManageBtn) nativeManageBtn.style.display = 'none';
       }
     }
 

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Event Studio | OmniTactica Tournament Suite</title>
-  <link rel="manifest" href="/manifest.json?v=b78a3c165a">
+  <link rel="manifest" href="/manifest.json?v=f38b9b4b06">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -15,9 +15,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/styles.min.css?v=b78a3c165a">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=b78a3c165a">
-  <script>window.APP_VERSION = "b78a3c165a";</script>
+  <link rel="stylesheet" href="/css/styles.min.css?v=f38b9b4b06">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=f38b9b4b06">
+  <script>window.APP_VERSION = "f38b9b4b06";</script>
   <script>
     (function() {
       var _lastVerCheck = 0, _isReloading = false;
@@ -217,40 +217,92 @@
           <p class="es-sec-sub">Create a real tournament directly on Best Coast Pairings and Event Studio with full Swiss & scoring controls</p>
         </div>
         <div class="form-grid">
+          <!-- Hosting Platform Mode -->
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label class="form-label">Hosting Mode</label>
+            <select id="create-event-hosting-mode" class="form-input" onchange="typeof onHostingModeChange === 'function' && onHostingModeChange()">
+              <option value="native" selected>⚡ OmniTactica Native Hosting (Recommended — Instant Registration, Pairings, Top Cut &amp; Elo)</option>
+              <option value="bcp">🔄 Dual-Publish to Best Coast Pairings (Requires Linked BCP Organizer Account)</option>
+            </select>
+          </div>
+
           <!-- Game System Picker -->
           <div class="form-group" style="grid-column: 1 / -1;">
             <label class="form-label">Game System *</label>
             <select id="create-event-game-system" class="form-input" onchange="typeof onGameSystemChange === 'function' && onGameSystemChange()">
-              <option value="WGMSzfKFYA" selected>Warhammer 40k</option>
-              <option value="OY8FCPBf6O">Warhammer: Age of Sigmar</option>
-              <option value="vyeOD0fcYY">Kill Team</option>
-              <option value="dJtT7U0Wv2">Warhammer: The Old World</option>
-              <option value="6p119129pL">Warhammer: The Horus Heresy</option>
-              <option value="0b3e76fa-e943-432b-ab14-fd9f8fb0fb1f">Age of Sigmar: Spearhead</option>
-              <option value="413r539n11">Blood Bowl</option>
-              <option value="cZ33E3tH2z">Middle-earth Strategy Battle Game</option>
-              <option value="61c2k9332H">Warhammer Underworlds</option>
-              <option value="t357b79w24">Warcry</option>
-              <option value="O3uG413y61">Necromunda</option>
-              <option value="a93e6be8-d141-4bc9-a9f8-8cd4ebae9c94">Legions Imperialis</option>
-              <option value="23H1180541">Bolt Action</option>
-              <option value="3p2L1Z7t8r">Marvel: Crisis Protocol</option>
-              <option value="4yG2vX6H8p">Star Wars: Legion</option>
-              <option value="83b0f568-545d-4d04-b082-d7952cd0aa08">Star Wars: Shatterpoint</option>
-              <option value="a78dfcd4-e8df-40e0-bc5d-8842d5e87a08">Trench Crusade</option>
-              <option value="5rX9v81b6q">BattleTech (Classic)</option>
-              <option value="1d2a79f5-82bb-42c3-85cb-b1fd88c99a08">BattleTech: Alpha Strike</option>
-              <option value="N2vB5tR8yU">Conquest: TLAoK</option>
-              <option value="8kL3mN6pQ9">Warmachine</option>
-              <option value="9vX2zB5nM8">Infinity</option>
-              <option value="4tY7uI0oP3">Malifaux</option>
-              <option value="7wE0rT3yU6">A Song of Ice and Fire</option>
+              <optgroup label="⚔️ Tabletop Wargames">
+                <option value="WGMSzfKFYA" selected>Warhammer 40k</option>
+                <option value="OY8FCPBf6O">Warhammer: Age of Sigmar</option>
+                <option value="vyeOD0fcYY">Kill Team</option>
+                <option value="dJtT7U0Wv2">Warhammer: The Old World</option>
+                <option value="6p119129pL">Warhammer: The Horus Heresy</option>
+                <option value="0b3e76fa-e943-432b-ab14-fd9f8fb0fb1f">Age of Sigmar: Spearhead</option>
+                <option value="413r539n11">Blood Bowl</option>
+                <option value="cZ33E3tH2z">Middle-earth Strategy Battle Game</option>
+                <option value="61c2k9332H">Warhammer Underworlds</option>
+                <option value="t357b79w24">Warcry</option>
+                <option value="O3uG413y61">Necromunda</option>
+                <option value="a93e6be8-d141-4bc9-a9f8-8cd4ebae9c94">Legions Imperialis</option>
+                <option value="23H1180541">Bolt Action</option>
+                <option value="3p2L1Z7t8r">Marvel: Crisis Protocol</option>
+                <option value="4yG2vX6H8p">Star Wars: Legion</option>
+                <option value="83b0f568-545d-4d04-b082-d7952cd0aa08">Star Wars: Shatterpoint</option>
+                <option value="a78dfcd4-e8df-40e0-bc5d-8842d5e87a08">Trench Crusade</option>
+                <option value="5rX9v81b6q">BattleTech (Classic)</option>
+                <option value="1d2a79f5-82bb-42c3-85cb-b1fd88c99a08">BattleTech: Alpha Strike</option>
+                <option value="N2vB5tR8yU">Conquest: TLAoK</option>
+                <option value="8kL3mN6pQ9">Warmachine</option>
+                <option value="9vX2zB5nM8">Infinity</option>
+                <option value="4tY7uI0oP3">Malifaux</option>
+                <option value="7wE0rT3yU6">A Song of Ice and Fire</option>
+              </optgroup>
+              <optgroup label="🃏 Trading Card Games (TCG)">
+                <option value="mtg">Magic: The Gathering (Constructed / Modern / Standard / cEDH)</option>
+                <option value="pokemon">Pokémon TCG</option>
+                <option value="yugioh">Yu-Gi-Oh! TCG</option>
+                <option value="onepiece">One Piece Card Game</option>
+                <option value="lorcana">Disney Lorcana</option>
+                <option value="fab">Flesh and Blood</option>
+                <option value="swu">Star Wars: Unlimited</option>
+                <option value="digimon">Digimon Card Game</option>
+                <option value="riftbound">Riftbound (League of Legends TCG)</option>
+              </optgroup>
             </select>
           </div>
 
           <div class="form-group" style="grid-column: 1 / -1;">
             <label class="form-label">Tournament Name *</label>
             <input type="text" id="create-event-name" class="form-input" placeholder="e.g. San Diego Open 40k Grand Tournament 2026" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Event Structure</label>
+            <select id="create-event-type" class="form-input" onchange="toggleTeamOptions('create')">
+              <option value="Singles Event" selected>👤 Singles Event (Standard 1v1)</option>
+              <option value="Doubles Event">👥 Doubles Event (2-Player Tag Team)</option>
+              <option value="Teams Event">🛡️ Teams Event (WTC / Multi-Player)</option>
+              <option value="Pods Event">🎲 4-Player FFA Pods (Commander / Multiplayer)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Scoring &amp; Match Format</label>
+            <select id="create-event-scoring-mode" class="form-input" onchange="typeof onScoringModeChange === 'function' && onScoringModeChange()">
+              <option value="wargame_vp" selected>⚔️ Tabletop Wargame VP (0–100 Battle Points)</option>
+              <option value="wtc_20">🛡️ WTC 20-0 Differential Matrix</option>
+              <option value="tcg_bo3">🃏 TCG Best-of-3 (3/1/0 Match Pts + OMW%/GW%)</option>
+              <option value="tcg_bo1">⚡ TCG Best-of-1 (3/1/0 Match Pts + OMW%)</option>
+              <option value="ffa_pods">🎲 4-Player Commander Pods (5 Win / 1 Draw / 0 Loss)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Playoff Top Cut</label>
+            <select id="create-event-top-cut" class="form-input">
+              <option value="0" selected>No Top Cut (Pure Swiss Standings)</option>
+              <option value="4">🏆 Top 4 Single-Elimination Cut</option>
+              <option value="8">🏆 Top 8 Single-Elimination Cut</option>
+            </select>
           </div>
 
           <div class="form-group">
@@ -1231,6 +1283,6 @@
   <!-- Cloud Firestore SDK for Tournament Operations & Real-Time Desk -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <script src="/js/eventstudio.bundle.min.js?v=b78a3c165a"></script>
+  <script src="/js/eventstudio.bundle.min.js?v=f38b9b4b06"></script>
 </body>
 </html>
