@@ -2029,11 +2029,15 @@ def api_community_event_recommendations(
 
     all_candidates = list(bcp_upcoming) + list(db_events) + list(bcp_majors)
 
-    # Fast local SQL field stats enrichment (<10ms, zero remote HTTP calls)
+    # Fast local SQL field stats enrichment (<10ms, zero remote HTTP calls, upcoming/live candidates only)
     field_stats_map: Dict[str, Dict[str, Any]] = {}
     if hasattr(db, "get_events_field_stats") and all_candidates:
         try:
-            cand_ids = list(dict.fromkeys(str(e.get("id") or "") for e in all_candidates if e.get("id")))[:80]
+            cand_ids = list(dict.fromkeys(
+                str(e.get("id") or "")
+                for e in all_candidates
+                if e.get("id") and not e.get("is_ended")
+            ))[:45]
             if cand_ids:
                 field_stats_map = db.get_events_field_stats(cand_ids, game_system=target_sys) or {}
         except Exception:

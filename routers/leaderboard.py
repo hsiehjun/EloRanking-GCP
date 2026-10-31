@@ -757,11 +757,12 @@ def api_events_recommended(
                     WITH upcoming_ids AS MATERIALIZED (
                         SELECT id
                         FROM events
-                        WHERE event_date >= CURRENT_DATE - INTERVAL '14 days'
+                        WHERE COALESCE(is_ended, FALSE) = FALSE
+                          AND event_date >= CURRENT_DATE - INTERVAL '2 days'
                           AND event_date <= CURRENT_DATE + (INTERVAL '1 day' * %s)
                           AND COALESCE(game_system, '40k') = %s
                         ORDER BY event_date ASC
-                        LIMIT 150
+                        LIMIT 60
                     )
                     SELECT e.id, e.name, e.event_date, e.city, e.state, e.country,
                            e.total_players, e.num_rounds, e.is_ended, e.raw_json

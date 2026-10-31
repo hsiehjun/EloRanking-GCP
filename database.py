@@ -7815,48 +7815,56 @@ class PostgresDatabase:
         if not missing_ids:
             return result
 
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
-                WITH dedup_ep AS MATERIALIZED (
-                    SELECT DISTINCT event_id, player_id
-                    FROM event_participants
-                    WHERE event_id = ANY(%s) AND player_id IS NOT NULL AND player_id != ''
-                ),
-                pr_matched AS MATERIALIZED (
-                    SELECT u.player_id, pr.current_elo
-                    FROM (SELECT DISTINCT player_id FROM dedup_ep) u
-                    CROSS JOIN LATERAL (
-                        SELECT p.current_elo
-                        FROM player_ratings p
-                        WHERE p.player_id = u.player_id
-                          AND COALESCE(p.game_system, '40k') = %s
-                        LIMIT 1 OFFSET 0
-                    ) pr
-                )
-                SELECT 
-                    ep.event_id,
-                    ROUND(AVG(COALESCE(pr.current_elo, 1500.0))::numeric, 1) as avg_field_elo,
-                    COALESCE(MAX(pr.current_elo), 1500.0) as top_seed_elo,
-                    COUNT(*)::int as total_enrolled,
-                    COUNT(pr.current_elo)::int as rated_players_count
-                FROM dedup_ep ep
-                LEFT JOIN pr_matched pr
-                    ON ep.player_id = pr.player_id
-                GROUP BY ep.event_id;
-                """, (missing_ids, target_sys))
-                rows = cursor.fetchall()
-                fetched_map = {r["event_id"]: dict(r) for r in rows}
-                for eid in missing_ids:
-                    stat_row = fetched_map.get(eid)
-                    if stat_row is not None:
-                        result[eid] = stat_row
-                        if not is_mock_self:
-                            PostgresDatabase.set_cached(PostgresDatabase._events_field_stats_cache_dict, (target_sys, eid), stat_row)
-                    else:
-                        if not is_mock_self:
-                            PostgresDatabase.set_cached(PostgresDatabase._events_field_stats_cache_dict, (target_sys, eid), {})
-                return {k: v for k, v in result.items() if v}
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                    if not is_mock_self:
+                        cursor.execute("SET LOCAL statement_timeout = '260ms';")
+                    cursor.execute("""
+                    WITH dedup_ep AS MATERIALIZED (
+                        SELECT DISTINCT event_id, player_id
+                        FROM event_participants
+                        WHERE event_id = ANY(%s) AND player_id IS NOT NULL AND player_id != ''
+                        LIMIT 1200
+                    ),
+                    pr_matched AS MATERIALIZED (
+                        SELECT u.player_id, pr.current_elo
+                        FROM (SELECT DISTINCT player_id FROM dedup_ep) u
+                        CROSS JOIN LATERAL (
+                            SELECT p.current_elo
+                            FROM player_ratings p
+                            WHERE p.player_id = u.player_id
+                              AND COALESCE(p.game_system, '40k') = %s
+                            LIMIT 1 OFFSET 0
+                        ) pr
+                    )
+                    SELECT 
+                        ep.event_id,
+                        ROUND(AVG(COALESCE(pr.current_elo, 1500.0))::numeric, 1) as avg_field_elo,
+                        COALESCE(MAX(pr.current_elo), 1500.0) as top_seed_elo,
+                        COUNT(*)::int as total_enrolled,
+                        COUNT(pr.current_elo)::int as rated_players_count
+                    FROM dedup_ep ep
+                    LEFT JOIN pr_matched pr
+                        ON ep.player_id = pr.player_id
+                    GROUP BY ep.event_id;
+                    """, (missing_ids, target_sys))
+                    rows = cursor.fetchall()
+        except Exception as fs_err:
+            logger.debug(f"get_events_field_stats bounded timeout/notice: {fs_err}")
+            return {k: v for k, v in result.items() if v}
+
+        fetched_map = {r["event_id"]: dict(r) for r in rows}
+        for eid in missing_ids:
+            stat_row = fetched_map.get(eid)
+            if stat_row is not None:
+                result[eid] = stat_row
+                if not is_mock_self:
+                    PostgresDatabase.set_cached(PostgresDatabase._events_field_stats_cache_dict, (target_sys, eid), stat_row)
+            else:
+                if not is_mock_self:
+                    PostgresDatabase.set_cached(PostgresDatabase._events_field_stats_cache_dict, (target_sys, eid), {})
+        return {k: v for k, v in result.items() if v}
 
     def get_events_list(self, page=1, page_size=25, limit=None, query=None, status=None, sort_by="event_date", order="DESC", game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Returns paginated tournaments list with match counts."""
