@@ -7817,8 +7817,6 @@ class PostgresDatabase:
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                if not is_mock_self:
-                    cursor.execute("SET LOCAL enable_hashjoin = off; SET LOCAL enable_mergejoin = off;")
                 cursor.execute("""
                 WITH dedup_ep AS MATERIALIZED (
                     SELECT DISTINCT event_id, player_id
@@ -7826,11 +7824,15 @@ class PostgresDatabase:
                     WHERE event_id = ANY(%s) AND player_id IS NOT NULL AND player_id != ''
                 ),
                 pr_matched AS MATERIALIZED (
-                    SELECT pr.player_id, pr.current_elo
+                    SELECT u.player_id, pr.current_elo
                     FROM (SELECT DISTINCT player_id FROM dedup_ep) u
-                    JOIN player_ratings pr
-                      ON pr.player_id = u.player_id
-                     AND COALESCE(pr.game_system, '40k') = %s
+                    CROSS JOIN LATERAL (
+                        SELECT p.current_elo
+                        FROM player_ratings p
+                        WHERE p.player_id = u.player_id
+                          AND COALESCE(p.game_system, '40k') = %s
+                        LIMIT 1 OFFSET 0
+                    ) pr
                 )
                 SELECT 
                     ep.event_id,

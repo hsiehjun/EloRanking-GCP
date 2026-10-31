@@ -2007,7 +2007,7 @@ def api_community_event_recommendations(
         )
 
         wait_futs = [f for f in (fut_up, fut_maj, fut_db) if f is not None]
-        concurrent.futures.wait(wait_futs, timeout=0.62)
+        concurrent.futures.wait(wait_futs, timeout=0.55)
 
         if fut_up is not None and fut_up.done():
             try:
