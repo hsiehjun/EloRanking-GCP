@@ -7817,11 +7817,20 @@ class PostgresDatabase:
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                if not is_mock_self:
+                    cursor.execute("SET LOCAL enable_hashjoin = off; SET LOCAL enable_mergejoin = off;")
                 cursor.execute("""
-                WITH dedup_ep AS (
+                WITH dedup_ep AS MATERIALIZED (
                     SELECT DISTINCT event_id, player_id
                     FROM event_participants
                     WHERE event_id = ANY(%s) AND player_id IS NOT NULL AND player_id != ''
+                ),
+                pr_matched AS MATERIALIZED (
+                    SELECT pr.player_id, pr.current_elo
+                    FROM (SELECT DISTINCT player_id FROM dedup_ep) u
+                    JOIN player_ratings pr
+                      ON pr.player_id = u.player_id
+                     AND COALESCE(pr.game_system, '40k') = %s
                 )
                 SELECT 
                     ep.event_id,
@@ -7830,9 +7839,8 @@ class PostgresDatabase:
                     COUNT(*)::int as total_enrolled,
                     COUNT(pr.current_elo)::int as rated_players_count
                 FROM dedup_ep ep
-                LEFT JOIN player_ratings pr
+                LEFT JOIN pr_matched pr
                     ON ep.player_id = pr.player_id
-                   AND COALESCE(pr.game_system, '40k') = %s
                 GROUP BY ep.event_id;
                 """, (missing_ids, target_sys))
                 rows = cursor.fetchall()

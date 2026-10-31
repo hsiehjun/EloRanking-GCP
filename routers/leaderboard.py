@@ -693,27 +693,30 @@ def api_events_recommended(
     if not user_lat and target_city and target_city.strip().lower() in KNOWN_CITIES:
         user_lat, user_lng = KNOWN_CITIES[target_city.strip().lower()]
 
-    # 2. Query live upcoming events from BCP API
+    # 2. Query live upcoming events from BCP API, Multi-Platform APIs, and local DB concurrently (<550ms cap)
     bcp_events = []
     now_ts = time.time()
     effective_radius = int(radius_miles) if radius_miles and radius_miles > 0 else 50
     days_ahead = max(30, int(months_ahead * 30.5))
     target_sys = normalize_game_system(game_system)
-    bcp_sys_id = get_bcp_game_system_id(target_sys)
+    bcp_sys_id = get_bcp_game_system_id(target_sys, default=None)
     geo_key = f"{target_sys}_{round(user_lat, 2) if user_lat else None}_{round(user_lng, 2) if user_lng else None}_{effective_radius}_{months_ahead}"
-    
+    is_mock_db_rec = bool(hasattr(db, "_is_mock_instance") and db._is_mock_instance())
+
     if not hasattr(api_events_recommended, "_cache"):
         api_events_recommended._cache = {}
 
     cached_entry = api_events_recommended._cache.get(geo_key)
-    if cached_entry and (now_ts - cached_entry["timestamp"] < 600) and cached_entry["events"]:
+    has_fresh_bcp_cache = bool(cached_entry and (now_ts - cached_entry["timestamp"] < 600))
+    if has_fresh_bcp_cache:
         bcp_events = list(cached_entry["events"])
-    else:
+
+    def _fetch_live_bcp_batch():
+        if has_fresh_bcp_cache or not bcp_sys_id:
+            return []
         headers = DEFAULT_HEADERS.copy()
         fetched_bcp = []
-
         if user_lat and user_lng:
-            # Direct BCP API server-side geospatial query (exact matching BCP web app)
             params = {
                 "limit": 50,
                 "gameSystemId": bcp_sys_id,
@@ -725,108 +728,108 @@ def api_events_recommended(
                 "location": json.dumps({
                     "distance": effective_radius,
                     "distanceType": "miles",
-                    "center": {
-                        "lat": str(user_lat),
-                        "long": str(user_lng)
-                    }
-                })
+                    "center": {"lat": str(user_lat), "long": str(user_lng)},
+                }),
             }
-            next_key = None
-            for _ in range(2):  # Up to 100 events
-                if next_key:
-                    params["nextKey"] = next_key
-                url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
-                try:
-                    req = urllib.request.Request(url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=1.2) as resp:
-                        data = json.loads(resp.read().decode())
-                        evs = data.get("data", [])
-                        fetched_bcp.extend(evs)
-                        next_key = data.get("nextKey")
-                        if not next_key:
-                            break
-                except Exception as e:
-                    logger.warning(f"Live BCP geo query error: {e}")
-                    break
         else:
-            # Fast single-window query when no GPS coordinates are active
-            windows = [
-                (now_dt.strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=60)).strftime("%Y-%m-%dT23:59:59.999Z"))
-            ]
-            for s_iso, e_iso in windows:
-                next_key = None
-                params = {
-                    "limit": 50,
-                    "gameSystemId": bcp_sys_id,
-                    "startDate": s_iso,
-                    "endDate": e_iso
-                }
-                for _ in range(1):
-                    if next_key:
-                        params["nextKey"] = next_key
-                    url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
-                    try:
-                        req = urllib.request.Request(url, headers=headers)
-                        with urllib.request.urlopen(req, timeout=1.2) as resp:
-                            data = json.loads(resp.read().decode())
-                            evs = data.get("data", [])
-                            fetched_bcp.extend(evs)
-                            next_key = data.get("nextKey")
-                            if not next_key:
-                                break
-                    except Exception as e:
-                        logger.warning(f"Live BCP query error: {e}")
-                        break
+            params = {
+                "limit": 50,
+                "gameSystemId": bcp_sys_id,
+                "startDate": now_dt.strftime("%Y-%m-%dT00:00:00.000Z"),
+                "endDate": (now_dt + timedelta(days=60)).strftime("%Y-%m-%dT23:59:59.999Z"),
+            }
+        url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=0.50) as resp:
+                data = json.loads(resp.read().decode())
+                fetched_bcp.extend(data.get("data", []))
+        except Exception as e:
+            logger.debug(f"Live BCP query notice: {e}")
+        api_events_recommended._cache[geo_key] = {"timestamp": now_ts, "events": fetched_bcp}
+        return fetched_bcp
 
-        if fetched_bcp:
-            api_events_recommended._cache[geo_key] = {"timestamp": now_ts, "events": fetched_bcp}
-            bcp_events = list(fetched_bcp)
-
-        # Also merge with events already synced in local database
+    def _fetch_local_db_upcoming():
         try:
             with db.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                     cursor.execute("""
-                    SELECT id, name, event_date, city, state, country, total_players, num_rounds, is_ended, raw_json
-                    FROM events
-                    WHERE event_date >= CURRENT_DATE - INTERVAL '14 days'
-                      AND event_date <= CURRENT_DATE + (INTERVAL '1 day' * %s)
-                      AND COALESCE(game_system, '40k') = %s
-                    ORDER BY event_date ASC
-                    LIMIT 150;
+                    WITH upcoming_ids AS MATERIALIZED (
+                        SELECT id
+                        FROM events
+                        WHERE event_date >= CURRENT_DATE - INTERVAL '14 days'
+                          AND event_date <= CURRENT_DATE + (INTERVAL '1 day' * %s)
+                          AND COALESCE(game_system, '40k') = %s
+                        ORDER BY event_date ASC
+                        LIMIT 150
+                    )
+                    SELECT e.id, e.name, e.event_date, e.city, e.state, e.country,
+                           e.total_players, e.num_rounds, e.is_ended, e.raw_json
+                    FROM upcoming_ids u
+                    JOIN events e ON e.id = u.id
+                    ORDER BY e.event_date ASC;
                     """, (days_ahead, target_sys))
-                    db_evs = [dict(r) for r in cursor.fetchall()]
-                    seen_ids_temp = {e.get("id") or e.get("objectId") for e in bcp_events if e.get("id") or e.get("objectId")}
-                    for dbev in db_evs:
-                        if dbev.get("id") not in seen_ids_temp:
-                            bcp_events.append(dbev)
+                    return [dict(r) for r in cursor.fetchall()]
         except Exception as e:
             logger.warning(f"Database query notice: {e}")
+            return []
 
-    # Merge upcoming & live events from Melee.gg, Limitless TCG, and TopDeck.gg
-    is_mock_db_rec = bool(hasattr(db, "_is_mock_instance") and db._is_mock_instance())
-    if not is_mock_db_rec:
+    def _fetch_mp_upcoming():
+        if is_mock_db_rec:
+            return []
         try:
             from scripts.platform_discovery import discover_multiplatform_events
-            mp_discovered = discover_multiplatform_events(
+            return discover_multiplatform_events(
                 game_system=target_sys,
                 days_ahead=days_ahead,
                 user_lat=user_lat,
                 user_lng=user_lng,
                 radius_miles=float(effective_radius) if radius_miles else None,
-                include_online=bool(target_sys not in ("40k", "aos") or len(bcp_events) < 5),
+                include_online=bool(target_sys not in ("40k", "aos")),
                 majors_only=False,
-                timeout_s=2.4,
-            )
-            seen_rec_ids = {str(e.get("id") or e.get("objectId")) for e in bcp_events if (e.get("id") or e.get("objectId"))}
-            for mp_ev in mp_discovered:
-                mp_id = str(mp_ev.get("id") or "").strip()
-                if not mp_id or mp_id in seen_rec_ids or mp_ev.get("is_ended"):
-                    continue
-                seen_rec_ids.add(mp_id)
-                bcp_events.append(mp_ev)
+                timeout_s=0.48,
+            ) or []
         except Exception as mp_rec_err:
             logger.debug(f"Multi-platform recommended events notice ({target_sys}): {mp_rec_err}")
+            return []
+
+    if is_mock_db_rec:
+        if not has_fresh_bcp_cache:
+            bcp_events = _fetch_live_bcp_batch()
+        db_evs_res = _fetch_local_db_upcoming()
+        mp_evs_res = []
+    else:
+        import concurrent.futures as _cf
+        _rec_pool = _cf.ThreadPoolExecutor(max_workers=3)
+        try:
+            fut_bcp = None if (has_fresh_bcp_cache or not bcp_sys_id) else _rec_pool.submit(_fetch_live_bcp_batch)
+            fut_db = _rec_pool.submit(_fetch_local_db_upcoming)
+            fut_mp = _rec_pool.submit(_fetch_mp_upcoming)
+            _futs = [f for f in (fut_bcp, fut_db, fut_mp) if f is not None]
+            _cf.wait(_futs, timeout=0.55)
+            if fut_bcp is not None and fut_bcp.done():
+                try:
+                    bcp_events = list(fut_bcp.result() or [])
+                except Exception:
+                    pass
+            db_evs_res = fut_db.result() if fut_db.done() else []
+            mp_evs_res = fut_mp.result() if fut_mp.done() else []
+        finally:
+            _rec_pool.shutdown(wait=False)
+
+    seen_ids_temp = {str(e.get("id") or e.get("objectId")) for e in bcp_events if (e.get("id") or e.get("objectId"))}
+    for dbev in db_evs_res:
+        dbev_id = str(dbev.get("id") or "").strip()
+        if dbev_id and dbev_id not in seen_ids_temp:
+            seen_ids_temp.add(dbev_id)
+            bcp_events.append(dbev)
+    for mp_ev in mp_evs_res:
+        mp_id = str(mp_ev.get("id") or "").strip()
+        if not mp_id or mp_id in seen_ids_temp or mp_ev.get("is_ended"):
+            continue
+        seen_rec_id = mp_id
+        seen_ids_temp.add(seen_rec_id)
+        bcp_events.append(mp_ev)
 
     def haversine_miles(lat1, lon1, lat2, lon2):
         R = 3958.8
@@ -868,62 +871,46 @@ def api_events_recommended(
             uncached_eids.append(eid)
 
     if uncached_eids:
+        import threading
         from concurrent.futures import ThreadPoolExecutor
 
         def _fetch_single_bcp_roster(target_eid: str):
             try:
                 p_url = f"{BCP_API_BASE}/events/{target_eid}/players"
                 p_req = urllib.request.Request(p_url, headers=headers)
-                with urllib.request.urlopen(p_req, timeout=0.8) as p_resp:
+                with urllib.request.urlopen(p_req, timeout=0.6) as p_resp:
                     p_data = json.loads(p_resp.read().decode())
                     return target_eid, (p_data.get("active") or [])
             except Exception as pe:
                 logger.debug(f"Live roster fetch notice for {target_eid}: {pe}")
                 return target_eid, None
 
-        fetched_rosters = {}
-        all_p_ids = set()
-        all_p_names = set()
-        with ThreadPoolExecutor(max_workers=min(4, len(uncached_eids))) as pool:
-            for eid_res, active_p in pool.map(_fetch_single_bcp_roster, uncached_eids):
-                if active_p is None:
-                    continue
-                fetched_rosters[eid_res] = active_p
-                for p in active_p:
-                    u = p.get("user") or {}
-                    fn = u.get("firstName") or p.get("firstName") or ""
-                    ln = u.get("lastName") or p.get("lastName") or ""
-                    nm = f"{fn} {ln}".strip() or p.get("name")
-                    pid = u.get("id") or p.get("userId") or p.get("id")
-                    if pid:
-                        all_p_ids.add(str(pid))
-                    if nm:
-                        raw_nm = str(nm).strip()
-                        if raw_nm:
-                            all_p_names.add(raw_nm)
-                            all_p_names.add(raw_nm.title())
+        def _warm_bcp_rosters(eids_batch, sync_field_stats=None):
+            fetched_rosters = {}
+            all_p_ids = set()
+            all_p_names = set()
+            with ThreadPoolExecutor(max_workers=min(4, len(eids_batch))) as pool:
+                for eid_res, active_p in pool.map(_fetch_single_bcp_roster, eids_batch):
+                    if active_p is None:
+                        continue
+                    fetched_rosters[eid_res] = active_p
+                    for p in active_p:
+                        u = p.get("user") or {}
+                        fn = u.get("firstName") or p.get("firstName") or ""
+                        ln = u.get("lastName") or p.get("lastName") or ""
+                        nm = f"{fn} {ln}".strip() or p.get("name")
+                        pid = u.get("id") or p.get("userId") or p.get("id")
+                        if pid:
+                            all_p_ids.add(str(pid))
+                        if nm:
+                            raw_nm = str(nm).strip()
+                            if raw_nm:
+                                all_p_names.add(raw_nm)
+                                all_p_names.add(raw_nm.title())
 
-        found_ratings = {}
-        name_ratings = {}
-        if all_p_ids or all_p_names:
-            used_mem_lookup = False
-            if hasattr(db, "_is_mock_instance") and not db._is_mock_instance() and hasattr(db, "_get_itc_player_ratings_lookup"):
-                try:
-                    by_pid, by_name = db._get_itc_player_ratings_lookup(target_sys)
-                    if by_pid or by_name:
-                        for pid_k in all_p_ids:
-                            pr = by_pid.get(str(pid_k))
-                            if pr and pr.get("current_elo") is not None:
-                                found_ratings[str(pid_k)] = float(pr["current_elo"])
-                        for nm_k in all_p_names:
-                            nm_low = str(nm_k).strip().lower()
-                            pr = by_name.get(nm_low)
-                            if pr and pr.get("current_elo") is not None:
-                                name_ratings[nm_low] = float(pr["current_elo"])
-                        used_mem_lookup = True
-                except Exception:
-                    used_mem_lookup = False
-            if not used_mem_lookup:
+            found_ratings = {}
+            name_ratings = {}
+            if all_p_ids or all_p_names:
                 try:
                     with db.get_connection() as conn:
                         with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cur:
@@ -942,43 +929,48 @@ def api_events_recommended(
                 except Exception as dbe:
                     logger.debug(f"Batch roster rating lookup notice: {dbe}")
 
-        for eid_res, active_p in fetched_rosters.items():
-            if not active_p:
-                empty_stats = {
-                    "avg_field_elo": 1500.0,
-                    "top_seed_elo": 1500.0,
-                    "total_enrolled": 0,
-                    "rated_players_count": 0
-                }
-                field_stats[eid_res] = empty_stats
-                api_events_recommended._roster_cache[eid_res] = {
-                    "timestamp": now_ts,
-                    "stats": empty_stats
-                }
-                continue
+            ts_done = time.time()
+            for eid_res, active_p in fetched_rosters.items():
+                if not active_p:
+                    empty_stats = {
+                        "avg_field_elo": 1500.0,
+                        "top_seed_elo": 1500.0,
+                        "total_enrolled": 0,
+                        "rated_players_count": 0,
+                    }
+                    if sync_field_stats is not None:
+                        sync_field_stats[eid_res] = empty_stats
+                    api_events_recommended._roster_cache[eid_res] = {"timestamp": ts_done, "stats": empty_stats}
+                    continue
 
-            elos = []
-            for p in active_p:
-                u = p.get("user") or {}
-                fn = u.get("firstName") or p.get("firstName") or ""
-                ln = u.get("lastName") or p.get("lastName") or ""
-                nm = f"{fn} {ln}".strip().lower()
-                pid = str(u.get("id") or p.get("userId") or p.get("id") or "")
-                p_elo = found_ratings.get(pid) or name_ratings.get(nm)
-                elos.append(p_elo if p_elo else 1500.0)
-
-            if elos:
-                calculated_stats = {
-                    "avg_field_elo": round(sum(elos) / len(elos), 1),
-                    "top_seed_elo": round(max(elos), 1),
+                elos = []
+                for p in active_p:
+                    u = p.get("user") or {}
+                    fn = u.get("firstName") or p.get("firstName") or ""
+                    ln = u.get("lastName") or p.get("lastName") or ""
+                    nm = f"{fn} {ln}".strip().lower()
+                    pid = str(u.get("id") or p.get("userId") or p.get("id") or "")
+                    elo_val = found_ratings.get(pid)
+                    if elo_val is None and nm:
+                        elo_val = name_ratings.get(nm)
+                    if elo_val is not None:
+                        elos.append(float(elo_val))
+                    else:
+                        elos.append(1500.0)
+                stat_obj = {
+                    "avg_field_elo": round(sum(elos) / len(elos), 1) if elos else 1500.0,
+                    "top_seed_elo": round(max(elos), 1) if elos else 1500.0,
                     "total_enrolled": len(active_p),
-                    "rated_players_count": sum(1 for e in elos if e != 1500.0)
+                    "rated_players_count": sum(1 for x in elos if x != 1500.0),
                 }
-                field_stats[eid_res] = calculated_stats
-                api_events_recommended._roster_cache[eid_res] = {
-                    "timestamp": now_ts,
-                    "stats": calculated_stats
-                }
+                if sync_field_stats is not None:
+                    sync_field_stats[eid_res] = stat_obj
+                api_events_recommended._roster_cache[eid_res] = {"timestamp": ts_done, "stats": stat_obj}
+
+        if is_mock_db_rec or (time.time() - now_ts) < 0.15:
+            _warm_bcp_rosters(uncached_eids, field_stats)
+        else:
+            threading.Thread(target=_warm_bcp_rosters, args=(list(uncached_eids), None), daemon=True).start()
 
     for ev in bcp_events:
         ev_id = ev.get("id") or ev.get("objectId")

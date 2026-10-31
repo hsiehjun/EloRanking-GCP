@@ -1704,58 +1704,69 @@ def _query_local_db_events_for_recommendations(
                     lng_d = (drive_radius_miles / (69.0 * cos_l)) * 1.18
                     cur.execute(
                         """
-                        WITH cand AS (
-                            SELECT id, name, event_date, end_date, city, state, country,
-                                   COALESCE(NULLIF(TRIM(venue_name), ''), NULLIF(TRIM(venue), ''), city) AS venue,
-                                   NULLIF(TRIM(address), '') AS address,
-                                   NULLIF(TRIM(postal_code), '') AS postal_code,
-                                   COALESCE(
-                                       NULLIF(latitude, 0.0),
-                                       CASE WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json->'coordinate') = 'array' AND jsonb_array_length(raw_json->'coordinate') >= 2
-                                            THEN NULLIF((raw_json->'coordinate'->>1)::double precision, 0.0) ELSE NULL END
-                                   ) AS latitude,
-                                   COALESCE(
-                                       NULLIF(longitude, 0.0),
-                                       CASE WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json->'coordinate') = 'array' AND jsonb_array_length(raw_json->'coordinate') >= 2
-                                            THEN NULLIF((raw_json->'coordinate'->>0)::double precision, 0.0) ELSE NULL END
-                                   ) AS longitude,
-                                   COALESCE(total_players, 0) AS total_players,
-                                   COALESCE(
-                                       NULLIF(capacity, 0),
-                                       CASE WHEN raw_json IS NOT NULL AND (raw_json->>'numTickets') ~ '^[0-9]+$'
-                                            THEN (raw_json->>'numTickets')::int ELSE 0 END,
-                                       0
-                                   ) AS num_tickets,
-                                   CASE WHEN raw_json IS NOT NULL AND (raw_json->>'ticketPrice') ~ '^[0-9]+(\\.[0-9]+)?$'
-                                        THEN (raw_json->>'ticketPrice')::double precision ELSE 0.0 END AS ticket_price,
-                                   COALESCE(
-                                       CASE WHEN raw_json IS NOT NULL AND raw_json ? 'usingOnlineReg' AND jsonb_typeof(raw_json->'usingOnlineReg') = 'boolean'
-                                            THEN (raw_json->>'usingOnlineReg')::boolean ELSE TRUE END,
-                                       TRUE
-                                   ) AS using_online_reg,
-                                   COALESCE(
-                                       CASE WHEN raw_json IS NOT NULL AND raw_json ? 'privateEvent' AND jsonb_typeof(raw_json->'privateEvent') = 'boolean'
-                                            THEN (raw_json->>'privateEvent')::boolean ELSE FALSE END,
-                                       FALSE
-                                   ) AS private_event,
-                                   COALESCE(NULLIF(source_platform, ''), CASE WHEN LEFT(id, 3) = 'ES-' THEN 'omnitactica' ELSE '' END) AS source_platform,
-                                   COALESCE(num_rounds, 0) AS num_rounds,
-                                   COALESCE(current_round, 0) AS current_round,
-                                   COALESCE(is_ended, FALSE) AS is_ended,
-                                   circuits
+                        WITH top_ids AS MATERIALIZED (
+                            SELECT id
                             FROM events
                             WHERE COALESCE(game_system, '40k') = %s
                               AND event_date >= CURRENT_DATE - INTERVAL '90 days'
                               AND event_date <= CURRENT_DATE + INTERVAL '150 days'
                               AND (
-                                  (latitude BETWEEN %s AND %s AND longitude BETWEEN %s AND %s)
-                                  OR ((latitude IS NULL OR (latitude = 0.0 AND longitude = 0.0)) AND raw_json IS NOT NULL)
+                                  (latitude IS NOT NULL AND longitude IS NOT NULL
+                                   AND latitude BETWEEN %s AND %s
+                                   AND longitude BETWEEN %s AND %s
+                                   AND NOT (latitude = 0.0 AND longitude = 0.0))
+                                  OR id LIKE 'ES-%%'
                               )
+                            ORDER BY event_date DESC
+                            LIMIT 90
+                        ),
+                        cand AS (
+                            SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
+                                   COALESCE(NULLIF(TRIM(e.venue_name), ''), NULLIF(TRIM(e.venue), ''), e.city) AS venue,
+                                   NULLIF(TRIM(e.address), '') AS address,
+                                   NULLIF(TRIM(e.postal_code), '') AS postal_code,
+                                   COALESCE(
+                                       NULLIF(e.latitude, 0.0),
+                                       CASE WHEN e.raw_json IS NOT NULL AND jsonb_typeof(e.raw_json->'coordinate') = 'array' AND jsonb_array_length(e.raw_json->'coordinate') >= 2
+                                            THEN NULLIF((e.raw_json->'coordinate'->>1)::double precision, 0.0) ELSE NULL END
+                                   ) AS latitude,
+                                   COALESCE(
+                                       NULLIF(e.longitude, 0.0),
+                                       CASE WHEN e.raw_json IS NOT NULL AND jsonb_typeof(e.raw_json->'coordinate') = 'array' AND jsonb_array_length(e.raw_json->'coordinate') >= 2
+                                            THEN NULLIF((e.raw_json->'coordinate'->>0)::double precision, 0.0) ELSE NULL END
+                                   ) AS longitude,
+                                   COALESCE(e.total_players, 0) AS total_players,
+                                   COALESCE(
+                                       NULLIF(e.capacity, 0),
+                                       CASE WHEN e.raw_json IS NOT NULL AND (e.raw_json->>'numTickets') ~ '^[0-9]+$'
+                                            THEN (e.raw_json->>'numTickets')::int ELSE 0 END,
+                                       0
+                                   ) AS num_tickets,
+                                   CASE WHEN e.raw_json IS NOT NULL AND (e.raw_json->>'ticketPrice') ~ '^[0-9]+(\\.[0-9]+)?$'
+                                        THEN (e.raw_json->>'ticketPrice')::double precision ELSE 0.0 END AS ticket_price,
+                                   COALESCE(
+                                       CASE WHEN e.raw_json IS NOT NULL AND e.raw_json ? 'usingOnlineReg' AND jsonb_typeof(e.raw_json->'usingOnlineReg') = 'boolean'
+                                            THEN (e.raw_json->>'usingOnlineReg')::boolean ELSE TRUE END,
+                                       TRUE
+                                   ) AS using_online_reg,
+                                   COALESCE(
+                                       CASE WHEN e.raw_json IS NOT NULL AND e.raw_json ? 'privateEvent' AND jsonb_typeof(e.raw_json->'privateEvent') = 'boolean'
+                                            THEN (e.raw_json->>'privateEvent')::boolean ELSE FALSE END,
+                                       FALSE
+                                   ) AS private_event,
+                                   COALESCE(NULLIF(e.source_platform, ''), CASE WHEN LEFT(e.id, 3) = 'ES-' THEN 'omnitactica' ELSE '' END) AS source_platform,
+                                   COALESCE(e.num_rounds, 0) AS num_rounds,
+                                   COALESCE(e.current_round, 0) AS current_round,
+                                   COALESCE(e.is_ended, FALSE) AS is_ended,
+                                   e.circuits
+                            FROM top_ids t
+                            JOIN events e ON e.id = t.id
                         )
                         SELECT * FROM cand
-                        WHERE latitude BETWEEN %s AND %s
-                          AND longitude BETWEEN %s AND %s
-                          AND NOT (latitude = 0.0 AND longitude = 0.0)
+                        WHERE (
+                            (latitude BETWEEN %s AND %s AND longitude BETWEEN %s AND %s AND NOT (latitude = 0.0 AND longitude = 0.0))
+                            OR (LEFT(id, 3) = 'ES-' AND latitude IS NULL)
+                        )
                         ORDER BY event_date DESC
                         LIMIT 90;
                         """,
@@ -2136,56 +2147,65 @@ def api_community_event_search(
                     date_clause = "" if include_past else "AND event_date >= CURRENT_DATE - INTERVAL '2 days'"
                     cur.execute(
                         f"""
-                        SELECT id, name, event_date, end_date, city, state, country,
-                               COALESCE(NULLIF(TRIM(venue_name), ''), NULLIF(TRIM(venue), ''), city) AS venue,
-                               NULLIF(TRIM(address), '') AS address,
-                               NULLIF(TRIM(postal_code), '') AS postal_code,
+                        WITH matched_ids AS MATERIALIZED (
+                            SELECT id
+                            FROM events
+                            WHERE COALESCE(game_system, '40k') = %s
+                              {date_clause}
+                              AND event_date >= CURRENT_DATE - INTERVAL '365 days'
+                              AND (
+                                  name ILIKE %s
+                                  OR city ILIKE %s
+                                  OR state ILIKE %s
+                                  OR country ILIKE %s
+                                  OR venue_name ILIKE %s
+                                  OR venue ILIKE %s
+                              )
+                            ORDER BY
+                              CASE WHEN event_date >= CURRENT_DATE - INTERVAL '1 day' THEN 0 ELSE 1 END ASC,
+                              COALESCE(total_players, 0) DESC,
+                              event_date DESC
+                            LIMIT %s
+                        )
+                        SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
+                               COALESCE(NULLIF(TRIM(e.venue_name), ''), NULLIF(TRIM(e.venue), ''), e.city) AS venue,
+                               NULLIF(TRIM(e.address), '') AS address,
+                               NULLIF(TRIM(e.postal_code), '') AS postal_code,
                                COALESCE(
-                                   NULLIF(latitude, 0.0),
-                                   CASE WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json->'coordinate') = 'array' AND jsonb_array_length(raw_json->'coordinate') >= 2
-                                        THEN NULLIF((raw_json->'coordinate'->>1)::double precision, 0.0) ELSE NULL END
+                                   NULLIF(e.latitude, 0.0),
+                                   CASE WHEN e.raw_json IS NOT NULL AND jsonb_typeof(e.raw_json->'coordinate') = 'array' AND jsonb_array_length(e.raw_json->'coordinate') >= 2
+                                        THEN NULLIF((e.raw_json->'coordinate'->>1)::double precision, 0.0) ELSE NULL END
                                ) AS latitude,
                                COALESCE(
-                                   NULLIF(longitude, 0.0),
-                                   CASE WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json->'coordinate') = 'array' AND jsonb_array_length(raw_json->'coordinate') >= 2
-                                        THEN NULLIF((raw_json->'coordinate'->>0)::double precision, 0.0) ELSE NULL END
+                                   NULLIF(e.longitude, 0.0),
+                                   CASE WHEN e.raw_json IS NOT NULL AND jsonb_typeof(e.raw_json->'coordinate') = 'array' AND jsonb_array_length(e.raw_json->'coordinate') >= 2
+                                        THEN NULLIF((e.raw_json->'coordinate'->>0)::double precision, 0.0) ELSE NULL END
                                ) AS longitude,
-                               COALESCE(total_players, 0) AS total_players,
+                               COALESCE(e.total_players, 0) AS total_players,
                                COALESCE(
-                                   NULLIF(capacity, 0),
-                                   CASE WHEN raw_json IS NOT NULL AND (raw_json->>'numTickets') ~ '^[0-9]+$'
-                                        THEN (raw_json->>'numTickets')::int ELSE 0 END,
+                                   NULLIF(e.capacity, 0),
+                                   CASE WHEN e.raw_json IS NOT NULL AND (e.raw_json->>'numTickets') ~ '^[0-9]+$'
+                                        THEN (e.raw_json->>'numTickets')::int ELSE 0 END,
                                    0
                                ) AS num_tickets,
-                               CASE WHEN raw_json IS NOT NULL AND (raw_json->>'ticketPrice') ~ '^[0-9]+(\\.[0-9]+)?$'
-                                    THEN (raw_json->>'ticketPrice')::double precision ELSE 0.0 END AS ticket_price,
+                               CASE WHEN e.raw_json IS NOT NULL AND (e.raw_json->>'ticketPrice') ~ '^[0-9]+(\\.[0-9]+)?$'
+                                    THEN (e.raw_json->>'ticketPrice')::double precision ELSE 0.0 END AS ticket_price,
                                COALESCE(
-                                   CASE WHEN raw_json IS NOT NULL AND raw_json ? 'usingOnlineReg' AND jsonb_typeof(raw_json->'usingOnlineReg') = 'boolean'
-                                        THEN (raw_json->>'usingOnlineReg')::boolean ELSE TRUE END,
+                                   CASE WHEN e.raw_json IS NOT NULL AND e.raw_json ? 'usingOnlineReg' AND jsonb_typeof(e.raw_json->'usingOnlineReg') = 'boolean'
+                                        THEN (e.raw_json->>'usingOnlineReg')::boolean ELSE TRUE END,
                                    TRUE
                                ) AS using_online_reg,
-                               COALESCE(NULLIF(source_platform, ''), CASE WHEN LEFT(id, 3) = 'ES-' THEN 'omnitactica' ELSE '' END) AS source_platform,
-                               COALESCE(num_rounds, 0) AS num_rounds,
-                               COALESCE(current_round, 0) AS current_round,
-                               COALESCE(is_ended, FALSE) AS is_ended,
-                               circuits
-                        FROM events
-                        WHERE COALESCE(game_system, '40k') = %s
-                          {date_clause}
-                          AND event_date >= CURRENT_DATE - INTERVAL '365 days'
-                          AND (
-                              name ILIKE %s
-                              OR city ILIKE %s
-                              OR state ILIKE %s
-                              OR country ILIKE %s
-                              OR venue_name ILIKE %s
-                              OR venue ILIKE %s
-                          )
+                               COALESCE(NULLIF(e.source_platform, ''), CASE WHEN LEFT(e.id, 3) = 'ES-' THEN 'omnitactica' ELSE '' END) AS source_platform,
+                               COALESCE(e.num_rounds, 0) AS num_rounds,
+                               COALESCE(e.current_round, 0) AS current_round,
+                               COALESCE(e.is_ended, FALSE) AS is_ended,
+                               e.circuits
+                        FROM matched_ids m
+                        JOIN events e ON e.id = m.id
                         ORDER BY
-                          CASE WHEN event_date >= CURRENT_DATE - INTERVAL '1 day' THEN 0 ELSE 1 END ASC,
-                          COALESCE(total_players, 0) DESC,
-                          event_date DESC
-                        LIMIT %s;
+                          CASE WHEN e.event_date >= CURRENT_DATE - INTERVAL '1 day' THEN 0 ELSE 1 END ASC,
+                          COALESCE(e.total_players, 0) DESC,
+                          e.event_date DESC;
                         """,
                         (target_sys, like_pat, like_pat, like_pat, like_pat, like_pat, like_pat, int(limit) * 2),
                     )
@@ -2786,6 +2806,14 @@ def invalidate_all_event_caches(event_id: Optional[str] = None) -> None:
     _invalidate_community_reg_cache(event_id)
     if event_id and str(event_id).strip().startswith("ES-"):
         _bcp_majors_cache.clear()
+        try:
+            from routers.leaderboard import api_events_recommended
+            if hasattr(api_events_recommended, "_resp_cache"):
+                api_events_recommended._resp_cache.clear()
+            if hasattr(api_events_recommended, "_cache"):
+                api_events_recommended._cache.clear()
+        except Exception:
+            pass
 
 
 @router.get("/api/community/events/{event_id}/registration", summary="Get Event Registration Metadata, User Status & Saved Army Lists")
