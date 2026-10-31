@@ -6,6 +6,7 @@ PostgreSQL is strictly cold storage for finalized verified scorecards.
 
 import os
 import copy
+import time
 import logging
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timezone, timedelta

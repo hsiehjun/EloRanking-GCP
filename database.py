@@ -23745,7 +23745,7 @@ class PostgresDatabase:
         if not self._is_mock_instance() and hasattr(self, "get_faction_meta_stats"):
             try:
                 std_fmt = "standard_2000" if sys_norm in ("40k", "aos") else "all"
-                comp_mf = MetaEventFilter(
+                comp_mf = parse_meta_filters(
                     exclude_leagues=True,
                     event_structure="singles",
                     event_format=std_fmt,
@@ -23753,15 +23753,17 @@ class PostgresDatabase:
                 meta_data = self.get_faction_meta_stats(
                     game_system=sys_norm,
                     timeframe="90d",
-                    meta_filter=comp_mf,
+                    meta_filters=comp_mf,
+                    include_trends=False,
                 )
                 # Fallback if standard_2000 has 0 matches on unbackfilled test DB
                 if not isinstance(meta_data, dict) or not (meta_data.get("factions") or []):
-                    comp_mf_broad = MetaEventFilter(exclude_leagues=True, event_structure="singles")
+                    comp_mf_broad = parse_meta_filters(exclude_leagues=True, event_structure="singles")
                     meta_data = self.get_faction_meta_stats(
                         game_system=sys_norm,
                         timeframe="90d",
-                        meta_filter=comp_mf_broad,
+                        meta_filters=comp_mf_broad,
+                        include_trends=False,
                     )
             except Exception:
                 meta_data = None

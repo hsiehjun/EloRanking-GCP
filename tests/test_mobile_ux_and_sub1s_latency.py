@@ -245,6 +245,142 @@ class TestBackendSub1sLatencyGuarantees(unittest.TestCase):
         # Original cached dict must retain its monthly_trends untouched
         self.assertEqual(len(sample_payload["monthly_trends"]), 1)
 
+    def test_firestore_live_client_paths_rooms_and_broadcasts_cache(self):
+        """Non-mock Firestore client paths in list_active_rooms_for_user & get_active_broadcasts_for_events must execute cleanly with L1 TTL caches."""
+        from firestore_db import FirestoreRoomEngine
+
+        now_ms = int(time.time() * 1000)
+
+        class _DummySnap:
+            def __init__(self, doc_id, data, exists=True):
+                self.id = doc_id
+                self._data = data
+                self.exists = exists
+
+            def to_dict(self):
+                return self._data
+
+        class _DummyDocRef:
+            def __init__(self, parent_col, doc_id):
+                self.parent_col = parent_col
+                self.doc_id = doc_id
+
+            def get(self):
+                self.parent_col.client.doc_gets += 1
+                if self.doc_id == "_active_broadcasts":
+                    return _DummySnap(
+                        "_active_broadcasts",
+                        {
+                            "broadcasts": {
+                                "EV_CLOUD_1": {
+                                    "id": "bc_cloud_1",
+                                    "message": "Pairings Live on Cloud!",
+                                    "active": True,
+                                    "timestamp": now_ms,
+                                    "expiresAt": now_ms + 3600000,
+                                }
+                            }
+                        },
+                        exists=True,
+                    )
+                return _DummySnap(self.doc_id, {}, exists=False)
+
+        class _DummyQuery:
+            def __init__(self, col):
+                self.col = col
+
+            def where(self, *args, **kwargs):
+                return self
+
+            def limit(self, n):
+                return self
+
+            def stream(self):
+                self.col.client.room_streams += 1
+                return [
+                    _DummySnap(
+                        "WH40K-BCP-EV1-R1-T1",
+                        {
+                            "roomKey": "WH40K-BCP-EV1-R1-T1",
+                            "status": "in_progress",
+                            "user_id_p1": "u_alpha",
+                            "p1_name": "Alpha",
+                            "p2_name": "Bravo",
+                        },
+                    )
+                ]
+
+        class _DummyCol:
+            def __init__(self, client, name):
+                self.client = client
+                self.name = name
+
+            def where(self, *args, **kwargs):
+                return _DummyQuery(self)
+
+            def document(self, doc_id):
+                return _DummyDocRef(self, doc_id)
+
+        class _DummyFirestoreClient:
+            def __init__(self):
+                self.room_streams = 0
+                self.doc_gets = 0
+
+            def collection(self, name):
+                return _DummyCol(self, name)
+
+        eng = FirestoreRoomEngine()
+        dummy_client = _DummyFirestoreClient()
+        eng._client = dummy_client
+
+        # 1. Cold + warm list_active_rooms_for_user
+        rooms1 = eng.list_active_rooms_for_user(user_id="u_alpha")
+        self.assertEqual(len(rooms1), 1)
+        self.assertEqual(rooms1[0]["roomKey"], "WH40K-BCP-EV1-R1-T1")
+        self.assertEqual(dummy_client.room_streams, 1)
+
+        rooms2 = eng.list_active_rooms_for_user(user_id="u_alpha")
+        self.assertEqual(len(rooms2), 1)
+        self.assertEqual(dummy_client.room_streams, 1, "Second call within 8s must use L1 stream cache")
+
+        # 2. Cold + warm get_active_broadcasts_for_events
+        b1 = eng.get_active_broadcasts_for_events(["EV_CLOUD_1", "EV_OTHER"])
+        self.assertEqual(len(b1), 1)
+        self.assertEqual(b1[0]["event_id"], "EV_CLOUD_1")
+        self.assertEqual(dummy_client.doc_gets, 1)
+
+        b2 = eng.get_active_broadcasts_for_events(["EV_CLOUD_1", "EV_OTHER"])
+        self.assertEqual(len(b2), 1)
+        self.assertEqual(dummy_client.doc_gets, 1, "Second call within 15s must use L1 index cache")
+
+    def test_ml_predictor_meta_snapshot_uses_parse_meta_filters_notrends(self):
+        """get_ml_predictor_meta_snapshot must pass meta_filters and include_trends=False to get_faction_meta_stats."""
+        from database import PostgresDatabase
+
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        db._pool = MagicMock()
+        PostgresDatabase._faction_meta_cache_dict.pop("ml_comp_alpha_90d_v2_40k", None)
+
+        captured_kwargs = {}
+
+        def fake_meta_stats(**kwargs):
+            captured_kwargs.update(kwargs)
+            return {
+                "factions": [{"faction": "Orks", "total_matches": 500, "wins": 270, "losses": 225, "draws": 5, "win_rate": 54.0}],
+                "matchups_by_faction": {},
+            }
+
+        with patch.object(db, "_is_mock_instance", return_value=False), \
+             patch.object(db, "get_l2_cache", return_value=None, create=True), \
+             patch.object(db, "set_l2_cache", return_value=None, create=True), \
+             patch.object(db, "get_faction_meta_stats", side_effect=fake_meta_stats):
+            snap = db.get_competitive_faction_alpha_snapshot("40k")
+
+        self.assertIn("meta_filters", captured_kwargs)
+        self.assertIs(captured_kwargs.get("include_trends"), False)
+        self.assertIn("factions", snap)
+        self.assertIn("orks", snap["factions"])
+
 
 if __name__ == "__main__":
     unittest.main()
