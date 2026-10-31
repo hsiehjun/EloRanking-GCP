@@ -1662,6 +1662,60 @@ window.api = {
     return this._fetchJson(`/api/community/bcp_majors?${params.toString()}`);
   },
 
+  // Community Hub: Smart Tournament Recommendation Engine (Local + Driveable Majors/GTs/RTTs + Regional/Global Majors)
+  async getCommunityEventRecommendations(opts = {}, fetchOptions = {}) {
+    const {
+      lat = null,
+      lng = null,
+      locationName = '',
+      localRadiusMiles = 50,
+      maxDriveHours = 2.0,
+      majorsScope = 'regional',
+      gameSystem = '',
+      forceRefresh = false,
+    } = opts || {};
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const params = new URLSearchParams();
+    if (lat != null && lng != null) {
+      params.set('lat', String(lat));
+      params.set('lng', String(lng));
+    }
+    if (locationName) params.set('location_name', String(locationName));
+    if (localRadiusMiles != null) params.set('local_radius_miles', String(localRadiusMiles));
+    if (maxDriveHours != null) params.set('max_drive_hours', String(maxDriveHours));
+    if (majorsScope) params.set('majors_scope', String(majorsScope));
+    if (currentSys) params.set('game_system', currentSys);
+    if (forceRefresh) params.set('force_refresh', 'true');
+
+    const token = this.getAuthToken();
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const options = Object.assign({ headers }, fetchOptions);
+    return this._fetchJson(`/api/community/events/recommendations?${params.toString()}`, options);
+  },
+
+  // Community Hub: Instant Tournament Search across Majors, Upcoming & Past Events
+  async searchCommunityEvents(q, opts = {}, fetchOptions = {}) {
+    const {
+      lat = null,
+      lng = null,
+      gameSystem = '',
+      includePast = true,
+      limit = 40,
+    } = opts || {};
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const params = new URLSearchParams({
+      q: String(q || '').trim(),
+      include_past: includePast ? 'true' : 'false',
+      limit: String(limit),
+      game_system: currentSys || '40k',
+    });
+    if (lat != null && lng != null) {
+      params.set('lat', String(lat));
+      params.set('lng', String(lng));
+    }
+    return this._fetchJson(`/api/community/events/search?${params.toString()}`, fetchOptions);
+  },
+
   // Community Hub: Local Game Stores for Warhammer 40k
   async getCommunityStores(lat = null, lng = null, radiusMiles = 50, query = '', locationName = '') {
     const params = new URLSearchParams();

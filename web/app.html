@@ -6,7 +6,7 @@
   <title>OmniTactica • Tactical Suite</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json?v=454b2c6d84">
+  <link rel="manifest" href="/manifest.json?v=b78a3c165a">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,12 +23,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=454b2c6d84">
-  <link rel="stylesheet" href="/css/styles.min.css?v=454b2c6d84">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=454b2c6d84">
-  <link rel="preload" href="/js/app.bundle.min.js?v=454b2c6d84" as="script">
+  <link rel="stylesheet" href="/css/theme.css?v=b78a3c165a">
+  <link rel="stylesheet" href="/css/styles.min.css?v=b78a3c165a">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=b78a3c165a">
+  <link rel="preload" href="/js/app.bundle.min.js?v=b78a3c165a" as="script">
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <script>window.APP_VERSION = "454b2c6d84";</script>
+  <script>window.APP_VERSION = "b78a3c165a";</script>
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -605,71 +605,93 @@
           </div>
         </div>
 
-        <!-- SUBVIEW 2: TOURNAMENTS & EVENTS DISCOVERY HUB -->
+        <!-- SUBVIEW 2: TOURNAMENTS & EVENTS RECOMMENDATION ENGINE -->
         <div id="comm-subview-tournaments" class="comm-subview" style="display: none;">
-          <!-- Prominent View Mode Switcher Header -->
-          <div class="comm-tournaments-view-switch-banner" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; padding: 0.65rem 1rem;">
-            <div class="comm-tournaments-view-switch-left" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-              <span class="comm-view-switch-label" style="font-size: 0.75rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">DISPLAY VIEW:</span>
-              <div class="comm-scene-toggles-bar" style="margin: 0;">
-                <button type="button" id="btn-tournaments-view-feed" class="comm-toggle-btn" onclick="switchTournamentsViewMode('feed')" title="Tournament Cards Feed &amp; Destination Marquee" style="padding: 0.42rem 1.15rem; font-size: 0.85rem; font-weight: 800;">
-                  🃏 <span class="subtab-desktop-text">Cards Feed</span><span class="subtab-mobile-text">Event Cards</span>
-                </button>
-                <button type="button" id="btn-tournaments-view-calendar" class="comm-toggle-btn active" onclick="switchTournamentsViewMode('calendar')" title="Interactive Monthly Tournament Calendar" style="padding: 0.42rem 1.15rem; font-size: 0.85rem; font-weight: 800;">
-                  📅 <span class="subtab-desktop-text">Calendar View</span><span class="subtab-mobile-text">Calendar</span>
+          <!-- Concierge Search & View Mode Header -->
+          <div class="comm-rec-header-shell">
+            <div class="comm-rec-top-row">
+              <!-- Prominent Tournament, City, Venue & Major Search Bar -->
+              <div class="comm-rec-search-box">
+                <span class="comm-rec-search-icon" aria-hidden="true">🔍</span>
+                <input
+                  type="text"
+                  id="comm-tournaments-search"
+                  placeholder="Search tournaments, cities, venues, or Majors (e.g. California Cup, LVO, San Diego)..."
+                  oninput="filterCommunityTournaments(this.value)"
+                  class="comm-rec-search-input"
+                  autocomplete="off"
+                />
+                <button
+                  type="button"
+                  id="comm-tournaments-search-clear"
+                  class="comm-rec-search-clear"
+                  onclick="clearCommunityTournamentsSearch()"
+                  style="display: none;"
+                  aria-label="Clear tournament search"
+                  title="Clear search"
+                >✕</button>
+              </div>
+
+              <!-- View Switcher (Recommendations Feed vs Monthly Calendar) + Refresh -->
+              <div class="comm-rec-top-actions">
+                <div class="comm-scene-toggles-bar" style="margin: 0;">
+                  <button type="button" id="btn-tournaments-view-feed" class="comm-toggle-btn active" onclick="switchTournamentsViewMode('feed')" title="Smart Tournament Recommendations">
+                    ✨ <span class="subtab-desktop-text">Recommendations</span><span class="subtab-mobile-text">Event Cards</span>
+                  </button>
+                  <button type="button" id="btn-tournaments-view-calendar" class="comm-toggle-btn" onclick="switchTournamentsViewMode('calendar')" title="Monthly Tournament Calendar">
+                    📅 <span class="subtab-desktop-text">Calendar</span><span class="subtab-mobile-text">Calendar</span>
+                  </button>
+                </div>
+                <button type="button" id="comm-btn-refresh-tournaments" onclick="refreshCommunityTournaments(this)" class="btn btn-outline comm-toolbar-btn comm-rec-refresh-btn" title="Refresh Recommendations">
+                  <span class="refresh-icon">🔄</span> <span class="comm-refresh-label subtab-desktop-text">Refresh</span>
                 </button>
               </div>
             </div>
-            <div class="comm-tournaments-view-switch-right" style="display: flex; align-items: center; gap: 0.6rem;">
-              <span id="comm-tournaments-summary" class="comm-toolbar-meta" style="font-size: 0.76rem; color: #94a3b8;"></span>
-              <button type="button" id="comm-btn-refresh-tournaments" onclick="refreshCommunityTournaments(this)" class="btn btn-outline comm-toolbar-btn" title="Refresh Tournaments" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;">
-                <span class="refresh-icon">🔄</span> <span class="comm-refresh-label">Refresh</span>
-              </button>
+
+            <!-- Concierge Mode Lenses + Contextual Drive Time / Scope Selector -->
+            <div class="comm-rec-nav-row" id="comm-tournaments-filters">
+              <div class="comm-rec-tabs" role="tablist" aria-label="Tournament Recommendation Views">
+                <button type="button" class="comm-rec-tab active" id="comm-rec-tab-for_you" data-rec-tab="for_you" onclick="setCommunityRecTab('for_you')">
+                  <span>✨ For You</span>
+                </button>
+                <button type="button" class="comm-rec-tab" id="comm-rec-tab-driveable" data-rec-tab="driveable" onclick="setCommunityRecTab('driveable')">
+                  <span>🚗 <span class="subtab-desktop-text">Local &amp; Driveable</span><span class="subtab-mobile-text">Driveable</span> <span class="comm-rec-tab-count" id="count-rec-driveable">0</span></span>
+                </button>
+                <button type="button" class="comm-rec-tab" id="comm-rec-tab-majors" data-rec-tab="majors" onclick="setCommunityRecTab('majors')">
+                  <span>👑 <span class="subtab-desktop-text">Majors Circuit</span><span class="subtab-mobile-text">Majors</span> <span class="comm-rec-tab-count" id="count-rec-majors">0</span></span>
+                </button>
+                <button type="button" class="comm-rec-tab" id="comm-rec-tab-past" data-rec-tab="past" onclick="setCommunityRecTab('past')">
+                  <span>📜 <span class="subtab-desktop-text">Past Results</span><span class="subtab-mobile-text">Past</span> <span class="comm-rec-tab-count" id="count-rec-past">0</span></span>
+                </button>
+              </div>
+
+              <div class="comm-rec-context-controls">
+                <!-- Max Drive Selector (Shown on For You & Local/Driveable) -->
+                <div class="comm-drive-selector" id="comm-drive-selector-wrap" title="Maximum driving distance for regional GT, Major &amp; RTT recommendations">
+                  <span class="comm-drive-label">🚗 Max Drive:</span>
+                  <div class="comm-drive-pills">
+                    <button type="button" class="comm-drive-pill" data-hours="1" onclick="setCommunityMaxDriveHours(1)">1h</button>
+                    <button type="button" class="comm-drive-pill active" data-hours="2" onclick="setCommunityMaxDriveHours(2)">2h</button>
+                    <button type="button" class="comm-drive-pill" data-hours="3" onclick="setCommunityMaxDriveHours(3)">3h</button>
+                  </div>
+                </div>
+
+                <!-- Majors Scope Selector (Shown on Majors tab) -->
+                <div class="comm-drive-selector" id="comm-majors-scope-wrap" style="display: none;" title="Filter Premier Majors by Regional Affinity or Worldwide">
+                  <span class="comm-drive-label">🌎 Scope:</span>
+                  <div class="comm-drive-pills">
+                    <button type="button" class="comm-drive-pill active" data-scope="regional" onclick="setCommunityMajorsScope('regional')">Regional</button>
+                    <button type="button" class="comm-drive-pill" data-scope="global" onclick="setCommunityMajorsScope('global')">Worldwide</button>
+                  </div>
+                </div>
+
+                <span id="comm-tournaments-summary" class="comm-toolbar-meta" style="display: none;"></span>
+              </div>
             </div>
           </div>
 
-          <!-- Tournament Action Toolbar & Filters -->
-          <div class="comm-subview-toolbar comm-tournaments-toolbar" style="flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem;">
-            <div class="comm-toolbar-left" id="comm-tournaments-filters" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-              <!-- Base Filter Chips -->
-              <div class="comm-events-base-tabs" style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
-                <button type="button" class="comm-filter-chip active" id="filter-chip-events-all" data-filter="all" onclick="setCommunityEventsFilter('all')">
-                  <span><span class="subtab-desktop-text">All Events</span><span class="subtab-mobile-text">All</span> (<span id="count-events-all">0</span>)</span>
-                </button>
-                <button type="button" class="comm-filter-chip" id="filter-chip-events-upcoming" data-filter="upcoming" onclick="setCommunityEventsFilter('upcoming')">
-                  <span><span class="subtab-desktop-text">⚡ Upcoming &amp; Ongoing</span><span class="subtab-mobile-text">⚡ Upcoming</span> (<span id="count-events-upcoming">0</span>)</span>
-                </button>
-                <button type="button" class="comm-filter-chip" id="filter-chip-events-recent" data-filter="recent" onclick="setCommunityEventsFilter('recent')">
-                  <span><span class="subtab-desktop-text">📜 Recent Results</span><span class="subtab-mobile-text">📜 Recent</span> (<span id="count-events-recent">0</span>)</span>
-                </button>
-              </div>
-
-              <!-- Quick Action & Weekend Filters -->
-              <div class="comm-quick-filters-group" style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
-                <button type="button" class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-local" onclick="setTournamentsQuickFilter('local')" title="Show only local events within your community search radius">
-                  📍 Local Only
-                </button>
-                <button type="button" class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-weekend" onclick="setTournamentsQuickFilter('weekend')" title="Show tournaments happening this Friday through Sunday">
-                  ⚡ This Weekend
-                </button>
-                <button type="button" class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-next-weekend" onclick="setTournamentsQuickFilter('next_weekend')" title="Show tournaments scheduled for next weekend">
-                  📅 Next Weekend
-                </button>
-                <button type="button" class="comm-filter-chip comm-filter-chip-action" id="filter-chip-quick-majors" onclick="setTournamentsQuickFilter('majors')" title="Show Premier Majors, Super Majors &amp; GTs">
-                  🌟 Majors Only
-                </button>
-              </div>
-
-              <!-- Search Box -->
-              <div class="comm-tournaments-search-wrap" style="position: relative; min-width: 190px; max-width: 280px;">
-                <input type="text" id="comm-tournaments-search" placeholder="Search tournaments, venues, addresses, cities..." oninput="filterCommunityTournaments(this.value)" class="form-input" style="width: 100%; box-sizing: border-box; padding: 0.28rem 0.6rem 0.28rem 1.75rem; font-size: 0.78rem; height: 30px; border-radius: 6px; background: rgba(0,0,0,0.3); border: 1px solid var(--border);" />
-                <span style="position: absolute; left: 7px; top: 50%; transform: translateY(-50%); font-size: 0.72rem; color: #64748b; pointer-events: none;">🔍</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- CALENDAR VIEW (Default & Primary) -->
-          <div id="comm-tournaments-calendar-view" style="display: block;">
+          <!-- CALENDAR VIEW (Secondary Optional Toggle) -->
+          <div id="comm-tournaments-calendar-view" style="display: none;">
             <div class="comm-calendar-container">
               <!-- Calendar Navigation Header -->
               <div class="comm-calendar-header">
@@ -682,13 +704,13 @@
                 <div class="comm-calendar-legend" aria-label="Calendar Legend">
                   <span class="comm-legend-label">Legend:</span>
                   <span class="comm-legend-item" title="Local community event within your search radius">
-                    <span class="comm-legend-icon">📍</span> Local (In Radius)
+                    <span class="comm-legend-icon">📍</span> Local
                   </span>
-                  <span class="comm-legend-item" title="Global weekend Major, Super Major, or GT">
-                    <span class="comm-legend-icon">🌐</span> Global Major/GT
+                  <span class="comm-legend-item" title="Driveable or Premier Major/GT">
+                    <span class="comm-legend-icon">🚗</span> Driveable / Major
                   </span>
                   <span class="comm-legend-item" title="Completed event — click to view results &amp; army lists">
-                    <span class="comm-legend-icon" style="color: #94a3b8; font-weight: 800;">✓</span> Past Results
+                    <span class="comm-legend-icon" style="color: #94a3b8; font-weight: 800;">✓</span> Past
                   </span>
                   <span class="comm-legend-divider" aria-hidden="true"></span>
                   <span class="comm-legend-item">
@@ -698,10 +720,10 @@
                     <span class="comm-legend-swatch swatch-major"></span> Major
                   </span>
                   <span class="comm-legend-item">
-                    <span class="comm-legend-swatch swatch-gt"></span> GT (30+)
+                    <span class="comm-legend-swatch swatch-gt"></span> GT
                   </span>
                   <span class="comm-legend-item">
-                    <span class="comm-legend-swatch swatch-rtt"></span> Local RTT
+                    <span class="comm-legend-swatch swatch-rtt"></span> RTT
                   </span>
                 </div>
               </div>
@@ -725,31 +747,8 @@
             </div>
           </div>
 
-          <!-- FEED VIEW (Cards & Destination Marquee) -->
-          <div id="comm-tournaments-feed-view" style="display: none;">
-            <!-- Premier Majors & Destination Events Marquee Carousel -->
-            <div id="comm-majors-section" class="comm-majors-section">
-              <div class="comm-majors-header">
-                <div class="comm-majors-header-left">
-                  <span class="comm-majors-icon">🌟</span>
-                  <div>
-                    <h3 class="comm-majors-title">Premier Majors &amp; Destination Events</h3>
-                    <p class="comm-majors-subtitle">Super Majors, Grand Tournaments &amp; Premier Circuits Worldwide (All Distances)</p>
-                  </div>
-                </div>
-                <div class="comm-majors-controls">
-                  <button class="comm-carousel-arrow-btn" onclick="scrollMajorsCarousel(-1)" title="Scroll Left" aria-label="Scroll left">‹</button>
-                  <button class="comm-carousel-arrow-btn" onclick="scrollMajorsCarousel(1)" title="Scroll Right" aria-label="Scroll right">›</button>
-                </div>
-              </div>
-              <div id="comm-majors-carousel" class="comm-majors-carousel">
-                <div style="padding: 1.5rem; text-align: center; color: var(--text-muted); width: 100%;">
-                  <span class="spinner-mini" style="display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(56,189,248,0.25); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px;"></span>
-                  Loading Premier Major &amp; Destination Tournaments...
-                </div>
-              </div>
-            </div>
-
+          <!-- RECOMMENDATIONS FEED VIEW (Default & Primary on Desktop & Mobile) -->
+          <div id="comm-tournaments-feed-view" style="display: block;">
             <div id="comm-tournaments-content"></div>
           </div>
         </div>
@@ -3983,7 +3982,7 @@
   </div> <!-- #app-shell -->
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=454b2c6d84"></script>
+  <script src="/js/app.bundle.min.js?v=b78a3c165a"></script>
 
   <!-- Cloud Firestore Compat SDK for Real-time Matchmaking & Push Chat -->
   <script defer src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>

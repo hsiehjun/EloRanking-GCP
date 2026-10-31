@@ -67,7 +67,7 @@ class TestCompetitiveDefaultAndMobileUXStatic(unittest.TestCase):
         self.assertGreater(cal_idx, 0)
         self.assertLess(feed_idx, cal_idx, "Event Cards button must appear before Calendar button in #tab-community")
 
-        self.assertIn("window.innerWidth <= 768) ? 'feed' : 'calendar'", self.community_js)
+        self.assertIn("tournamentsViewMode: 'feed'", self.community_js)
         self.assertIn("window.innerWidth <= 768) ? 'cards' : 'both'", self.community_js)
         self.assertIn("mobile-scrolling-down", self.community_js)
         self.assertIn("mobile-scrolling-down", self.styles_min)

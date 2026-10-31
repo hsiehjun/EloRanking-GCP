@@ -368,6 +368,12 @@ function resolveEventObjById(eventIdOrObj) {
   }
   if (typeof communityState !== 'undefined' && communityState) {
     const pools = [
+      communityState.recommendations?.local_events,
+      communityState.recommendations?.driveable_events,
+      communityState.recommendations?.destination_majors,
+      communityState.recommendations?.past_results,
+      communityState.searchResults?.upcoming,
+      communityState.searchResults?.past,
       communityState.majorsList,
       communityState.overview?.events_upcoming,
       communityState.overview?.events_recent,

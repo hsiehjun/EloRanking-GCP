@@ -84,6 +84,13 @@ PRODUCTION_ENDPOINTS: List[str] = [
     "/api/community/bcp_upcoming?game_system=40k&lat=32.9628&lng=-117.0359&radius_miles=50",
     "/api/community/bcp_majors?game_system=40k",
     "/api/community/bcp_majors?game_system=aos",
+    "/api/community/events/recommendations?game_system=40k&lat=32.9628&lng=-117.0359&local_radius_miles=50&max_drive_hours=2&majors_scope=regional",
+    "/api/community/events/recommendations?game_system=40k&lat=32.7157&lng=-117.1611&local_radius_miles=50&max_drive_hours=2&majors_scope=regional",
+    "/api/community/events/recommendations?game_system=40k&lat=32.9628&lng=-117.0359&local_radius_miles=50&max_drive_hours=3&majors_scope=global",
+    "/api/community/events/recommendations?game_system=aos&lat=32.7157&lng=-117.1611&local_radius_miles=50&max_drive_hours=2&majors_scope=regional",
+    "/api/community/events/search?q=California&lat=32.9628&lng=-117.0359&game_system=40k",
+    "/api/community/events/search?q=Open&lat=32.9628&lng=-117.0359&game_system=40k",
+    "/api/community/events/search?q=San%20Diego&lat=32.9628&lng=-117.0359&game_system=40k",
     "/api/community/events/field_stats?event_ids=AFKEKlCznJYg,i5xrw1YYvhvk&game_system=40k",
     "/api/community/stores?lat=32.7157&lng=-117.1611&radius_miles=50",
     "/api/community/store/tournaments?store_name=At%20Ease%20Games&city=San%20Diego",
@@ -217,7 +224,7 @@ def main() -> int:
     max_ms = args.max_ms
 
     print("======================================================================")
-    print(" 🚀 OMNITACTICA SEQUENTIAL PRODUCTION LATENCY BENCHMARK (102 ENDPOINTS)")
+    print(f" 🚀 OMNITACTICA SEQUENTIAL PRODUCTION LATENCY BENCHMARK ({len(PRODUCTION_ENDPOINTS)} ENDPOINTS)")
     print(f"    Target: {base_url} | Strict Budget: < {max_ms:.0f}ms per endpoint")
     print("======================================================================")
 

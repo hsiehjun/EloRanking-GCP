@@ -108,14 +108,29 @@ def api_community_bcp_upcoming(
 
 _bcp_majors_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
 
+_SUPER_MAJOR_RE = re.compile(
+    r"\b(?:lvo|las vegas open|adepticon|nova open|super major|london grand tournament|lgt|world championship|wtc|world team championship)\b",
+    re.IGNORECASE,
+)
+_MAJOR_KEYWORD_RE = re.compile(
+    r"\b(?:us open|major|armadillo cup|championship|championships|california cup|bfs gt|trials gx)\b",
+    re.IGNORECASE,
+)
+_OPEN_STANDALONE_RE = re.compile(r"\bopen\b", re.IGNORECASE)
+_OPEN_EXCL_RE = re.compile(r"\b(?:open play|grand opening|open gaming|open table|tts)\b", re.IGNORECASE)
+_GT_KEYWORD_RE = re.compile(r"\b(?:gt|grand tournament|cup|brawl|clash|mwtc|invitational)\b", re.IGNORECASE)
+_RTT_KEYWORD_RE = re.compile(r"\brtt\b", re.IGNORECASE)
+
+
 def classify_tournament_tier(name: str, total_players: int = 0, num_tickets: int = 0, circuits: Optional[List[Any]] = None, num_rounds: int = 0) -> Dict[str, Any]:
     """Classifies an event into Super Major, Major, GT, or RTT with badges and styling.
     
     Strict rule:
     - <= 3 rounds (or RTT when rounds <= 3) is always an RTT.
-    - > 3 rounds (4+ rounds) is a GT, or Major / Super Major when a GT has large attendance.
+    - > 3 rounds (4+ rounds) is a GT, or Major / Super Major when a GT has large attendance or flagship pedigree.
     """
-    n_lower = (name or "").lower()
+    n_clean = (name or "").strip()
+    n_lower = n_clean.lower()
     circuits_list = circuits or []
     try:
         tot_p = int(total_players or 0)
@@ -130,24 +145,25 @@ def classify_tournament_tier(name: str, total_players: int = 0, num_tickets: int
     except (ValueError, TypeError):
         rounds = 0
 
-    if (rounds > 0 and rounds <= 3) or (rounds <= 3 and (" rtt" in f" {n_lower} " or "rtt " in f" {n_lower} ")):
+    if (rounds > 0 and rounds <= 3) or (rounds <= 3 and bool(_RTT_KEYWORD_RE.search(n_lower)) and tot_p < 36 and num_t < 48):
         return {"tier": "rtt", "badge": "⚔️ RTT", "color": "#94a3b8", "weight": 1}
 
     is_super = (
         tot_p >= 200 or num_t >= 350 or
-        any(k in n_lower for k in [
-            "lvo", "las vegas open", "adepticon", "nova open", "super major",
-            "london grand tournament", "lgt", "world championship", "wtc", "world team championship"
-        ])
+        bool(_SUPER_MAJOR_RE.search(n_lower))
     )
     if is_super:
         return {"tier": "super_major", "badge": "👑 SUPER MAJOR", "color": "#a855f7", "weight": 4}
 
+    has_open_tier = (
+        bool(_OPEN_STANDALONE_RE.search(n_lower))
+        and not bool(_OPEN_EXCL_RE.search(n_lower))
+        and (tot_p >= 48 or num_t >= 64 or rounds >= 5)
+    )
     is_major = (
         tot_p >= 70 or num_t >= 90 or rounds >= 6 or
-        any(k in n_lower for k in [
-            "us open", "open", "major", "armadillo cup", "championship", "california cup", "bfs gt", "trials gx"
-        ]) or
+        bool(_MAJOR_KEYWORD_RE.search(n_lower)) or
+        has_open_tier or
         any(isinstance(c, dict) and "open" in (c.get("name") or "").lower() for c in circuits_list)
     )
     if is_major:
@@ -155,7 +171,8 @@ def classify_tournament_tier(name: str, total_players: int = 0, num_tickets: int
 
     is_gt = (
         rounds > 3 or tot_p >= 28 or num_t >= 32 or
-        any(k in n_lower for k in ["gt", "grand tournament", "cup", "brawl", "clash"])
+        bool(_GT_KEYWORD_RE.search(n_lower)) or
+        (bool(_OPEN_STANDALONE_RE.search(n_lower)) and not bool(_OPEN_EXCL_RE.search(n_lower)) and (tot_p >= 24 or num_t >= 28))
     )
     if is_gt:
         return {"tier": "gt", "badge": "🏆 GRAND TOURNAMENT", "color": "#10b981", "weight": 2}
@@ -768,12 +785,23 @@ def _get_fast_db_majors_readonly(target_sys: str, min_players: int = 28) -> List
                     cur.execute("SET LOCAL statement_timeout = '350ms';")
                     cur.execute("""
                         SELECT id, name, event_date, end_date, city, state, country, venue, venue_name,
+                               address, postal_code,
+                               COALESCE(
+                                   NULLIF(latitude, 0.0),
+                                   CASE WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json->'coordinate') = 'array' AND jsonb_array_length(raw_json->'coordinate') >= 2
+                                        THEN (raw_json->'coordinate'->>1)::double precision ELSE NULL END
+                               ) AS latitude,
+                               COALESCE(
+                                   NULLIF(longitude, 0.0),
+                                   CASE WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json->'coordinate') = 'array' AND jsonb_array_length(raw_json->'coordinate') >= 2
+                                        THEN (raw_json->'coordinate'->>0)::double precision ELSE NULL END
+                               ) AS longitude,
                                COALESCE(total_players, 0) AS total_players,
                                COALESCE(num_rounds, 0) AS num_rounds,
                                COALESCE(is_ended, FALSE) AS is_ended
                         FROM events
                         WHERE COALESCE(game_system, '40k') = %s
-                          AND event_date >= (CURRENT_DATE - INTERVAL '90 days')::text
+                          AND event_date >= CURRENT_DATE - INTERVAL '90 days'
                           AND (COALESCE(total_players, 0) >= %s OR COALESCE(num_rounds, 0) >= 5)
                         ORDER BY event_date DESC
                         LIMIT 60;
@@ -790,15 +818,22 @@ def _get_fast_db_majors_readonly(target_sys: str, min_players: int = 28) -> List
                         )
                         if tier_info["tier"] == "rtt":
                             continue
+                        ev_dt = r.get("event_date")
+                        end_dt = r.get("end_date")
                         db_majors.append({
                             "id": eid_s,
                             "name": r.get("name") or "Tournament",
-                            "event_date": str(r.get("event_date") or ""),
-                            "end_date": str(r.get("end_date") or ""),
+                            "event_date": ev_dt.isoformat() if hasattr(ev_dt, "isoformat") else str(ev_dt or ""),
+                            "end_date": end_dt.isoformat() if hasattr(end_dt, "isoformat") else str(end_dt or ""),
                             "city": r.get("city") or "",
                             "state": r.get("state") or "",
                             "country": r.get("country") or "",
                             "venue": r.get("venue_name") or r.get("venue") or "",
+                            "venue_name": r.get("venue_name") or r.get("venue") or "",
+                            "address": r.get("address") or "",
+                            "postal_code": r.get("postal_code") or "",
+                            "latitude": float(r["latitude"]) if r.get("latitude") is not None else None,
+                            "longitude": float(r["longitude"]) if r.get("longitude") is not None else None,
                             "total_players": int(r.get("total_players") or 0),
                             "num_tickets": int(r.get("total_players") or 0),
                             "num_rounds": int(r.get("num_rounds") or 0),
@@ -921,6 +956,1200 @@ def api_community_bcp_majors(
         "count": len(majors),
         "game_system": target_sys
     }
+
+
+# =========================================================================
+# COMMUNITY HUB TOURNAMENT RECOMMENDATION & INSTANT SEARCH ENGINE
+# =========================================================================
+
+_community_recs_cache: Dict[Tuple[Any, ...], Tuple[float, Dict[str, Any]]] = {}
+_community_search_cache: Dict[Tuple[Any, ...], Tuple[float, Dict[str, Any]]] = {}
+
+_US_STATE_CODES = frozenset({
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI", "ID", "IL", "IN",
+    "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH",
+    "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT",
+    "VT", "VA", "WA", "WV", "WI", "WY",
+})
+_CA_PROVINCE_CODES = frozenset({
+    "AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT",
+})
+_CASUAL_NOISE_RE = re.compile(
+    r"\b(?:open play|casual play|free play|learn to play|demo day|hobby night|paint(?:ing)? night|"
+    r"paint(?:ing)? competition|armies on parade|swap meet|bazaar|flea market|escalation|slow grow|"
+    r"crusade|narrative league|combat patrol|boarding actions|spearhead|path to glory)\b",
+    re.IGNORECASE,
+)
+_VIRTUAL_EVENT_RE = re.compile(
+    r"\b(?:tts|tabletop simulator|spelltable|webcam|online league|online rtt|online gt|online tournament)\b",
+    re.IGNORECASE,
+)
+_LEAGUE_WORD_RE = re.compile(r"\bleagues?\b", re.IGNORECASE)
+_LEAGUE_COMPETITIVE_OVERRIDE_RE = re.compile(
+    r"\b(?:gt|grand tournament|major|super major|cup|championship|championships|invitational|qualifier|finals|rtt)\b",
+    re.IGNORECASE,
+)
+
+
+def _haversine_miles(lat1: Optional[float], lng1: Optional[float], lat2: Optional[float], lng2: Optional[float]) -> Optional[float]:
+    if lat1 is None or lng1 is None or lat2 is None or lng2 is None:
+        return None
+    try:
+        f_lat1, f_lng1 = float(lat1), float(lng1)
+        f_lat2, f_lng2 = float(lat2), float(lng2)
+        if (f_lat1 == 0.0 and f_lng1 == 0.0) or (f_lat2 == 0.0 and f_lng2 == 0.0):
+            return None
+        dlat = math.radians(f_lat2 - f_lat1)
+        dlng = math.radians(f_lng2 - f_lng1)
+        a = (
+            math.sin(dlat / 2.0) ** 2
+            + math.cos(math.radians(f_lat1)) * math.cos(math.radians(f_lat2)) * math.sin(dlng / 2.0) ** 2
+        )
+        c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+        return round(3959.0 * c, 1)
+    except Exception:
+        return None
+
+
+def normalize_country_and_region(
+    country: Optional[str] = "",
+    state: Optional[str] = "",
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+) -> Tuple[str, str]:
+    """Normalizes country/state/GPS into (country_code, continent_region)."""
+    c = (country or "").strip().lower()
+    st = (state or "").strip().upper()
+
+    if c in ("us", "usa", "u.s.", "u.s.a.", "united states", "united states of america"):
+        return ("US", "NA")
+    if c in ("ca", "can", "canada"):
+        return ("CA", "NA")
+    if c in ("mx", "mex", "mexico", "méxico"):
+        return ("MX", "NA")
+    if c in ("uk", "gb", "gbr", "united kingdom", "great britain", "england", "scotland", "wales", "northern ireland"):
+        return ("UK", "EU")
+    if c in ("au", "aus", "australia"):
+        return ("AU", "OCE")
+    if c in ("nz", "nzl", "new zealand"):
+        return ("NZ", "OCE")
+
+    eu_map = {
+        "es": "ES", "spain": "ES", "españa": "ES",
+        "fr": "FR", "france": "FR",
+        "de": "DE", "germany": "DE", "deutschland": "DE",
+        "it": "IT", "italy": "IT", "italia": "IT",
+        "pl": "PL", "poland": "PL", "polska": "PL",
+        "se": "SE", "sweden": "SE", "sverige": "SE",
+        "dk": "DK", "denmark": "DK", "danmark": "DK",
+        "no": "NO", "norway": "NO",
+        "fi": "FI", "finland": "FI",
+        "nl": "NL", "netherlands": "NL", "the netherlands": "NL",
+        "be": "BE", "belgium": "BE",
+        "at": "AT", "austria": "AT",
+        "ch": "CH", "switzerland": "CH",
+        "cz": "CZ", "czechia": "CZ", "czech republic": "CZ",
+        "ie": "IE", "ireland": "IE",
+        "pt": "PT", "portugal": "PT",
+    }
+    if c in eu_map:
+        return (eu_map[c], "EU")
+
+    if not c:
+        if st in _US_STATE_CODES:
+            return ("US", "NA")
+        if st in _CA_PROVINCE_CODES:
+            return ("CA", "NA")
+        if lat is not None and lng is not None:
+            try:
+                flat, flng = float(lat), float(lng)
+                if 24.4 <= flat <= 49.4 and -125.0 <= flng <= -66.5:
+                    return ("US", "NA")
+                if 49.4 < flat <= 70.0 and -141.0 <= flng <= -52.0:
+                    return ("CA", "NA")
+                if 14.5 <= flat < 24.4 and -118.0 <= flng <= -86.0:
+                    return ("MX", "NA")
+                if 35.0 <= flat <= 71.0 and -11.0 <= flng <= 32.0:
+                    return ("EU", "EU")
+                if -45.0 <= flat <= -10.0 and 112.0 <= flng <= 155.0:
+                    return ("AU", "OCE")
+            except Exception:
+                pass
+
+    if c:
+        return (c[:3].upper(), "GLOBAL")
+    return ("", "GLOBAL")
+
+
+def estimate_drive_time(
+    distance_miles: Optional[float],
+    user_country: str = "",
+    event_country: str = "",
+) -> Dict[str, Any]:
+    """Estimates realistic road miles and driving time from straight-line Haversine distance."""
+    if distance_miles is None:
+        return {
+            "road_miles": None,
+            "drive_minutes": None,
+            "drive_hours": None,
+            "drive_label": "",
+            "cross_border": False,
+        }
+    dm = max(0.0, float(distance_miles))
+    road_miles = max(1, int(round(dm * 1.20))) if dm >= 0.8 else 0
+    if dm <= 18.0:
+        avg_mph = 45.0
+    elif dm <= 45.0:
+        avg_mph = 52.0
+    else:
+        avg_mph = 58.0
+
+    raw_mins = (dm * 1.20 / avg_mph) * 60.0 if dm >= 1.0 else 5.0
+    cross_border = bool(user_country and event_country and user_country != event_country)
+    if cross_border:
+        raw_mins += 45.0
+
+    drive_mins = max(5, int(round(raw_mins / 5.0) * 5))
+    drive_hours = round(drive_mins / 60.0, 2)
+    if drive_mins < 60:
+        label = f"~{drive_mins}m drive"
+    else:
+        hrs = drive_mins // 60
+        rem = drive_mins % 60
+        label = f"~{hrs}h drive" if rem == 0 else f"~{hrs}h {rem}m drive"
+
+    return {
+        "road_miles": road_miles,
+        "drive_minutes": drive_mins,
+        "drive_hours": drive_hours,
+        "drive_label": label,
+        "cross_border": cross_border,
+    }
+
+
+def is_casual_or_irrelevant_event(ev: Dict[str, Any], game_system: str = "40k") -> Tuple[bool, str]:
+    """Identifies non-tournament noise (Open Play, casual leagues, TTS/online, synthetic IDs, dead 0/0 stubs)."""
+    eid = str(ev.get("id") or "").strip()
+    if not eid or eid.startswith("bcp_"):
+        return (True, "synthetic_or_empty_id")
+    if bool(ev.get("private_event")):
+        return (True, "private_event")
+
+    name = (ev.get("name") or "").strip()
+    city = (ev.get("city") or "").strip()
+    venue = (ev.get("venue_name") or ev.get("venue") or "").strip()
+    n_lower = name.lower()
+    city_lower = city.lower()
+
+    if city_lower in ("online", "virtual", "tts", "remote", "discord") or bool(_VIRTUAL_EVENT_RE.search(name)) or bool(_VIRTUAL_EVENT_RE.search(venue)):
+        return (True, "online_or_tts")
+
+    if bool(_CASUAL_NOISE_RE.search(name)):
+        return (True, "casual_non_tournament")
+
+    # Multi-week or ongoing casual league check
+    start_s = str(ev.get("event_date") or "")[:10]
+    end_s = str(ev.get("end_date") or "")[:10]
+    if len(start_s) == 10 and len(end_s) == 10 and end_s > start_s:
+        try:
+            d0 = datetime.strptime(start_s, "%Y-%m-%d").date()
+            d1 = datetime.strptime(end_s, "%Y-%m-%d").date()
+            if (d1 - d0).days > 4:
+                return (True, "multi_week_league")
+        except Exception:
+            pass
+
+    if bool(_LEAGUE_WORD_RE.search(n_lower)) and not bool(_LEAGUE_COMPETITIVE_OVERRIDE_RE.search(n_lower)):
+        return (True, "league_session")
+
+    tot_p = int(ev.get("total_players") or 0)
+    num_t = int(ev.get("num_tickets") or 0)
+    rounds = int(ev.get("num_rounds") or 0)
+    is_ended = bool(ev.get("is_ended"))
+
+    if is_ended and tot_p <= 2:
+        return (True, "empty_ended_stub")
+
+    if not is_ended and tot_p <= 0 and num_t <= 0 and rounds in (1, 2):
+        return (True, "casual_short_stub")
+
+    if not is_ended and tot_p <= 0 and num_t <= 0 and rounds == 0:
+        tier_chk = classify_tournament_tier(name, tot_p, num_t, ev.get("circuits") or [], num_rounds=rounds)
+        if tier_chk["tier"] == "rtt" and not bool(_RTT_KEYWORD_RE.search(n_lower)) and "tournament" not in n_lower:
+            return (True, "unstructured_zero_stub")
+
+    return (False, "")
+
+
+def _merge_event_records(base: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    """Merges duplicate event records from BCP live + local DB + Majors cache, keeping richest metadata."""
+    merged = dict(base)
+    for k, v in incoming.items():
+        if v is None or v == "" or v == []:
+            continue
+        cur = merged.get(k)
+        if k in ("total_players", "num_tickets", "num_rounds", "current_round", "ticket_price"):
+            try:
+                if float(v or 0) > float(cur or 0):
+                    merged[k] = v
+            except Exception:
+                pass
+        elif cur is None or cur == "" or cur == [] or cur == 0:
+            merged[k] = v
+    if bool(base.get("is_ended")) or bool(incoming.get("is_ended")):
+        merged["is_ended"] = True
+    return merged
+
+
+def score_and_categorize_community_events(
+    raw_candidates: List[Dict[str, Any]],
+    user_lat: Optional[float] = None,
+    user_lng: Optional[float] = None,
+    local_radius_miles: float = 50.0,
+    max_drive_hours: float = 2.0,
+    majors_scope: str = "regional",
+    game_system: str = "40k",
+    user_elo: Optional[float] = None,
+    familiar_venues: Optional[set] = None,
+    field_stats_map: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """
+    Core Tournament Recommendation Engine:
+    Filters casual/irrelevant noise, computes drive times & match scores, and organizes events into:
+      - top_picks (3-4 standout personalized picks)
+      - local_events (all real upcoming/live local tournaments within local_radius_miles)
+      - driveable_events (recommended Majors, GTs & strong RTTs within max_drive_hours)
+      - destination_majors (regional/national or worldwide Super Majors & Majors)
+      - past_results (recent completed local/regional tournaments)
+    """
+    target_sys = normalize_game_system(game_system, default="40k")
+    familiar_set = {str(v).strip().lower() for v in (familiar_venues or set()) if v}
+    fstats = field_stats_map or {}
+    now_utc = datetime.now(timezone.utc)
+    today_date = now_utc.date()
+    today_iso = today_date.strftime("%Y-%m-%d")
+
+    drive_radius_miles = max(float(local_radius_miles), round(float(max_drive_hours) * 52.0, 1))
+    max_drive_mins = int(round(float(max_drive_hours) * 60.0)) + 15
+
+    user_country, user_region = normalize_country_and_region("", "", user_lat, user_lng)
+
+    deduped: Dict[str, Dict[str, Any]] = {}
+    for raw_ev in raw_candidates or []:
+        if not isinstance(raw_ev, dict):
+            continue
+        eid = str(raw_ev.get("id") or "").strip()
+        if not eid:
+            continue
+        if eid in deduped:
+            deduped[eid] = _merge_event_records(deduped[eid], raw_ev)
+        else:
+            deduped[eid] = dict(raw_ev)
+
+    filtered_noise_count = 0
+    enriched_upcoming: List[Dict[str, Any]] = []
+    past_results: List[Dict[str, Any]] = []
+
+    for eid, ev in deduped.items():
+        # Determine ended status accurately using date + flags
+        ev_date_raw = str(ev.get("event_date") or "")
+        end_date_raw = str(ev.get("end_date") or "")
+        start_prefix = ev_date_raw[:10]
+        end_prefix = end_date_raw[:10] or start_prefix
+        is_ended = bool(ev.get("is_ended")) or bool(end_prefix and len(end_prefix) == 10 and end_prefix < today_iso)
+        ev["is_ended"] = is_ended
+
+        is_noise, _reason = is_casual_or_irrelevant_event(ev, game_system=target_sys)
+        if is_noise:
+            filtered_noise_count += 1
+            continue
+
+        tot_players = int(ev.get("total_players") or 0)
+        num_tickets = int(ev.get("num_tickets") or 0)
+        num_rounds = int(ev.get("num_rounds") or 0)
+        circuits = ev.get("circuits") or []
+
+        tier_info = classify_tournament_tier(
+            ev.get("name") or "",
+            total_players=tot_players,
+            num_tickets=num_tickets,
+            circuits=circuits,
+            num_rounds=num_rounds,
+        )
+        ev["tier"] = tier_info["tier"]
+        ev["tier_badge"] = tier_info["badge"]
+        ev["tier_color"] = tier_info["color"]
+        ev["tier_weight"] = tier_info["weight"]
+        ev["game_system"] = target_sys
+
+        # Compute Haversine distance & drive time
+        dist_mi = ev.get("distance_miles")
+        if user_lat is not None and user_lng is not None:
+            recalc = _haversine_miles(user_lat, user_lng, ev.get("latitude"), ev.get("longitude"))
+            if recalc is not None:
+                dist_mi = recalc
+        elif dist_mi is not None:
+            try:
+                dist_mi = round(float(dist_mi), 1)
+            except Exception:
+                dist_mi = None
+
+        ev_country, ev_region = normalize_country_and_region(
+            ev.get("country"), ev.get("state"), ev.get("latitude"), ev.get("longitude")
+        )
+        drive_info = estimate_drive_time(dist_mi, user_country=user_country, event_country=ev_country)
+
+        ev["distance_miles"] = dist_mi
+        ev["road_miles"] = drive_info["road_miles"]
+        ev["drive_minutes"] = drive_info["drive_minutes"]
+        ev["drive_hours"] = drive_info["drive_hours"]
+        ev["drive_label"] = drive_info["drive_label"]
+        ev["cross_border"] = drive_info["cross_border"]
+        ev["country_code"] = ev_country
+        ev["continent_region"] = ev_region
+        ev["is_local"] = bool(dist_mi is not None and dist_mi <= float(local_radius_miles))
+
+        # Days until & countdown label
+        days_until: Optional[int] = None
+        if len(start_prefix) == 10:
+            try:
+                d_start = datetime.strptime(start_prefix, "%Y-%m-%d").date()
+                days_until = (d_start - today_date).days
+            except Exception:
+                days_until = None
+        ev["days_until"] = days_until
+
+        is_live = bool(not is_ended and (ev.get("is_started") or (days_until is not None and days_until <= 0 and end_prefix >= today_iso)))
+        ev["is_live"] = is_live
+        if is_ended:
+            ev["countdown_label"] = "Completed"
+        elif is_live:
+            ev["countdown_label"] = "Live Now"
+        elif days_until == 0:
+            ev["countdown_label"] = "Today"
+        elif days_until == 1:
+            ev["countdown_label"] = "Tomorrow"
+        elif days_until is not None and days_until > 1:
+            ev["countdown_label"] = f"in {days_until}d"
+        else:
+            ev.setdefault("countdown_label", "")
+
+        # Field Elo stats enrichment
+        st = fstats.get(eid) or {}
+        if st.get("avg_field_elo"):
+            ev["avg_field_elo"] = st["avg_field_elo"]
+        if st.get("top_seed_elo"):
+            ev["top_seed_elo"] = st["top_seed_elo"]
+        if st.get("rated_players_count"):
+            ev["rated_players_count"] = st["rated_players_count"]
+
+        if not ev.get("external_url") and ":" not in eid and not eid.startswith("ES-"):
+            ev["external_url"] = f"https://www.bestcoastpairings.com/event/{eid}"
+
+        # Capacity & urgency metrics
+        fill_pct = 0
+        spots_left: Optional[int] = None
+        is_sold_out = False
+        if num_tickets > 0:
+            fill_pct = min(100, int(round((tot_players / float(num_tickets)) * 100.0)))
+            spots_left = max(0, num_tickets - tot_players)
+            is_sold_out = spots_left == 0 and tot_players >= num_tickets
+        ev["fill_pct"] = fill_pct
+        ev["spots_remaining"] = spots_left
+        ev["is_sold_out"] = is_sold_out
+
+        if is_ended:
+            if dist_mi is None and user_lat is not None:
+                # Only include local/driveable past results in regional Past Results feed
+                continue
+            if dist_mi is not None and dist_mi > drive_radius_miles:
+                continue
+            past_results.append(ev)
+            continue
+
+        # Score upcoming / live event (50 - 99 scale) + human-readable Why Recommended reasons
+        score = 52.0
+        reasons: List[str] = []
+
+        # 1. Proximity & Driveability
+        if dist_mi is not None:
+            if dist_mi <= 25.0:
+                score += 24.0
+                reasons.append(f"📍 Local ({drive_info['drive_label']})")
+            elif dist_mi <= float(local_radius_miles):
+                score += 19.0
+                reasons.append(f"📍 Nearby ({drive_info['drive_label']})")
+            elif drive_info["drive_minutes"] is not None and drive_info["drive_minutes"] <= max_drive_mins:
+                score += max(8.0, 17.0 - (dist_mi - float(local_radius_miles)) * 0.12)
+                reasons.append(f"🚗 {drive_info['drive_label']} ({int(round(dist_mi))} mi)")
+            elif ev_country and user_country and ev_country == user_country:
+                score += 5.0
+        elif ev_country and user_country and ev_country == user_country:
+            score += 6.0
+
+        if drive_info["cross_border"]:
+            score -= 8.0
+
+        # 2. Tier & Competitive Scale
+        tier = tier_info["tier"]
+        eff_size = max(tot_players, num_tickets)
+        if tier == "super_major":
+            score += 24.0
+            reasons.append(f"👑 {tot_players or eff_size}-Player Super Major" if (tot_players or eff_size) >= 60 else "👑 Flagship Super Major")
+        elif tier == "major":
+            score += 19.0
+            reasons.append(f"🌟 {tot_players or eff_size}-Player Major" if (tot_players or eff_size) >= 50 else "🌟 Regional Major")
+        elif tier == "gt":
+            score += 13.0
+            reasons.append(f"🏆 {num_rounds or 5}-Round GT" if num_rounds >= 4 else f"🏆 Grand Tournament ({tot_players or eff_size}p)")
+        else:
+            score += 6.0
+            if num_rounds >= 3:
+                reasons.append(f"⚔️ {num_rounds}-Round RTT")
+
+        # 3. Registration Momentum & Ticket Availability
+        if is_live:
+            score += 10.0
+            reasons.insert(0, "🔴 Live Rounds Underway")
+        elif not is_sold_out:
+            if spots_left is not None and 1 <= spots_left <= 6 and tot_players >= 10:
+                score += 7.0
+                reasons.append(f"🔥 {spots_left} Spot{'s' if spots_left != 1 else ''} Left")
+            elif fill_pct >= 75 and tot_players >= 12:
+                score += 5.0
+                reasons.append(f"🔥 {fill_pct}% Full")
+            elif tot_players >= 16:
+                score += 4.0
+        else:
+            score -= 5.0
+            reasons.append("🔒 Waitlist / Sold Out")
+
+        # 4. Date Horizon Sweet Spot (next 3 - 45 days is prime signup window)
+        if days_until is not None:
+            if 1 <= days_until <= 21:
+                score += 7.0
+            elif 22 <= days_until <= 60:
+                score += 5.0
+            elif days_until > 120:
+                score -= 3.0
+
+        # 5. Familiar Venue & Player Elo Fit
+        venue_key = (ev.get("venue_name") or ev.get("venue") or "").strip().lower()
+        city_key = (ev.get("city") or "").strip().lower()
+        if venue_key and venue_key in familiar_set:
+            score += 8.0
+            reasons.append("⭐ Familiar Venue")
+        elif city_key and city_key in familiar_set and dist_mi is not None and dist_mi <= drive_radius_miles:
+            score += 3.0
+
+        avg_elo = ev.get("avg_field_elo")
+        if user_elo and avg_elo:
+            try:
+                elo_gap = abs(float(avg_elo) - float(user_elo))
+                if elo_gap <= 85.0:
+                    score += 5.0
+                    reasons.append(f"🎯 Great Elo Fit ({int(round(float(avg_elo)))} avg)")
+            except Exception:
+                pass
+
+        ev["match_score"] = min(99, max(50, int(round(score))))
+        # Deduplicate reasons preserving order, cap at 3 crisp chips
+        dedup_reasons: List[str] = []
+        for r_txt in reasons:
+            if r_txt and r_txt not in dedup_reasons:
+                dedup_reasons.append(r_txt)
+        ev["why_reasons"] = dedup_reasons[:3]
+
+        # Primary concierge tag
+        if is_live:
+            ev["recommendation_tag"] = "🔴 Live Now"
+        elif ev["is_local"] and tier in ("super_major", "major", "gt"):
+            ev["recommendation_tag"] = "🏆 Local GT / Major"
+        elif ev["is_local"]:
+            ev["recommendation_tag"] = "📍 Local Scene"
+        elif dist_mi is not None and drive_info["drive_minutes"] is not None and drive_info["drive_minutes"] <= max_drive_mins:
+            if tier in ("super_major", "major"):
+                ev["recommendation_tag"] = "🚗 Driveable Major"
+            elif tier == "gt":
+                ev["recommendation_tag"] = "🚗 Driveable GT"
+            else:
+                ev["recommendation_tag"] = "🚗 Worth the Drive"
+        elif tier == "super_major":
+            ev["recommendation_tag"] = "👑 Super Major"
+        else:
+            ev["recommendation_tag"] = "🌟 Premier Circuit"
+
+        enriched_upcoming.append(ev)
+
+    # 1. Local Events: All valid upcoming/live tournaments within local_radius_miles
+    local_events = [
+        ev for ev in enriched_upcoming
+        if ev.get("distance_miles") is not None and float(ev["distance_miles"]) <= float(local_radius_miles)
+    ]
+    local_events.sort(
+        key=lambda x: (
+            0 if x.get("is_live") else 1,
+            str(x.get("event_date") or "9999"),
+            -int(x.get("match_score") or 0),
+        )
+    )
+
+    # 2. Driveable Events: Outside local_radius_miles, within max_drive_hours (Majors, GTs, and active RTTs)
+    local_ids = {ev["id"] for ev in local_events}
+    driveable_events: List[Dict[str, Any]] = []
+    for ev in enriched_upcoming:
+        if ev["id"] in local_ids:
+            continue
+        dm = ev.get("distance_miles")
+        dmins = ev.get("drive_minutes")
+        if dm is None or dmins is None:
+            continue
+        if dm > drive_radius_miles or dmins > max_drive_mins:
+            continue
+        # Beyond 50mi, recommend Super Majors, Majors, GTs, or active RTTs with real turnout/capacity
+        tier = ev.get("tier")
+        tot_p = int(ev.get("total_players") or 0)
+        num_t = int(ev.get("num_tickets") or 0)
+        if tier in ("super_major", "major", "gt") or tot_p >= 6 or num_t >= 12:
+            driveable_events.append(ev)
+
+    driveable_events.sort(
+        key=lambda x: (
+            0 if x.get("is_live") else 1,
+            -int(x.get("tier_weight") or 0) if int(x.get("tier_weight") or 0) >= 2 else 0,
+            -int(x.get("match_score") or 0),
+            str(x.get("event_date") or "9999"),
+        )
+    )
+
+    # 3. Destination Majors & Premier Circuit (Super Majors, Majors & large 48+ GTs)
+    majors_pool = [
+        ev for ev in enriched_upcoming
+        if ev.get("tier") in ("super_major", "major")
+        or (ev.get("tier") == "gt" and max(int(ev.get("total_players") or 0), int(ev.get("num_tickets") or 0)) >= 48)
+    ]
+
+    def _major_affinity_rank(ev: Dict[str, Any]) -> int:
+        if not user_country and user_region == "GLOBAL":
+            return 0
+        ec = ev.get("country_code") or ""
+        er = ev.get("continent_region") or "GLOBAL"
+        if user_country and ec == user_country:
+            return 0
+        if user_region != "GLOBAL" and er == user_region:
+            return 1
+        return 2
+
+    if majors_scope == "global" or (not user_country and user_region == "GLOBAL"):
+        destination_majors = sorted(
+            majors_pool,
+            key=lambda x: (
+                0 if x.get("is_live") else 1,
+                _major_affinity_rank(x) if user_country else 0,
+                -int(x.get("tier_weight") or 0),
+                -int(x.get("total_players") or 0),
+                str(x.get("event_date") or "9999"),
+            ),
+        )
+    else:
+        regional_majors = [ev for ev in majors_pool if _major_affinity_rank(ev) <= 1]
+        regional_majors.sort(
+            key=lambda x: (
+                0 if x.get("is_live") else 1,
+                _major_affinity_rank(x),
+                -int(x.get("tier_weight") or 0),
+                -int(x.get("match_score") or 0),
+                str(x.get("event_date") or "9999"),
+            )
+        )
+        if len(regional_majors) >= 4:
+            destination_majors = regional_majors
+        else:
+            reg_ids = {e["id"] for e in regional_majors}
+            global_fill = [
+                ev for ev in majors_pool
+                if ev["id"] not in reg_ids and ev.get("tier") in ("super_major", "major")
+            ]
+            global_fill.sort(key=lambda x: (-int(x.get("tier_weight") or 0), -int(x.get("total_players") or 0)))
+            destination_majors = regional_majors + global_fill[: max(0, 8 - len(regional_majors))]
+
+    # 4. Top Picks (3-4 curated concierge highlights across Local + Driveable Major/GT + Flagship Major)
+    top_picks: List[Dict[str, Any]] = []
+    picked_ids: set = set()
+
+    def _add_pick(cand: Optional[Dict[str, Any]]):
+        if cand and cand["id"] not in picked_ids and not cand.get("is_sold_out"):
+            picked_ids.add(cand["id"])
+            top_picks.append(cand)
+
+    if local_events:
+        best_local = max(local_events, key=lambda x: (int(x.get("match_score") or 0), int(x.get("tier_weight") or 0)))
+        _add_pick(best_local)
+
+    if driveable_events:
+        best_drive = max(driveable_events, key=lambda x: (int(x.get("tier_weight") or 0), int(x.get("match_score") or 0)))
+        _add_pick(best_drive)
+
+    if destination_majors:
+        for dm_ev in destination_majors:
+            if dm_ev["id"] not in picked_ids and _major_affinity_rank(dm_ev) <= 1:
+                _add_pick(dm_ev)
+                break
+
+    # Fill up to 3 top picks from highest remaining local/driveable match_score
+    remaining_pool = sorted(
+        local_events + driveable_events,
+        key=lambda x: (-int(x.get("match_score") or 0), str(x.get("event_date") or "9999")),
+    )
+    for cand in remaining_pool:
+        if len(top_picks) >= 3:
+            break
+        _add_pick(cand)
+
+    # 5. Past Results (most recent first)
+    past_results.sort(
+        key=lambda x: (
+            str(x.get("event_date") or ""),
+            int(x.get("total_players") or 0),
+        ),
+        reverse=True,
+    )
+    past_results = past_results[:30]
+
+    # 6. Unified clean calendar list
+    cal_map: Dict[str, Dict[str, Any]] = {}
+    for bucket in (local_events, driveable_events, destination_majors[:24], past_results[:20]):
+        for ev in bucket:
+            cal_map.setdefault(ev["id"], ev)
+
+    return {
+        "top_picks": top_picks,
+        "local_events": local_events,
+        "driveable_events": driveable_events,
+        "destination_majors": destination_majors[:30],
+        "past_results": past_results,
+        "calendar_events": list(cal_map.values()),
+        "summary": {
+            "local_count": len(local_events),
+            "driveable_count": len(driveable_events),
+            "majors_count": len(destination_majors[:30]),
+            "past_count": len(past_results),
+            "filtered_noise_count": filtered_noise_count,
+            "local_radius_miles": round(float(local_radius_miles), 1),
+            "drive_radius_miles": drive_radius_miles,
+            "max_drive_hours": round(float(max_drive_hours), 1),
+            "majors_scope": majors_scope,
+            "user_country": user_country,
+            "user_region": user_region,
+        },
+    }
+
+
+def _query_local_db_events_for_recommendations(
+    db,
+    user_lat: Optional[float],
+    user_lng: Optional[float],
+    drive_radius_miles: float,
+    target_sys: str,
+    player_id: Optional[str] = None,
+) -> Tuple[List[Dict[str, Any]], Optional[float], set]:
+    """Single fast (<25ms) read-only PostgreSQL batch fetching nearby DB events + optional user Elo & familiar venues."""
+    db_events: List[Dict[str, Any]] = []
+    user_elo: Optional[float] = None
+    familiar_venues: set = set()
+
+    if not db or getattr(db, "_pool", None) is None or (hasattr(db, "_is_mock_instance") and db._is_mock_instance()):
+        return (db_events, user_elo, familiar_venues)
+
+    try:
+        with db.get_connection() as conn:
+            cursor_factory = getattr(extras, "RealDictCursor", None) if extras else None
+            cursor_kw = {"cursor_factory": cursor_factory} if cursor_factory else {}
+            with conn.cursor(**cursor_kw) as cur:
+                cur.execute("SET LOCAL statement_timeout = '350ms';")
+                if user_lat is not None and user_lng is not None:
+                    lat_d = (drive_radius_miles / 69.0) * 1.18
+                    cos_l = max(0.05, abs(math.cos(math.radians(float(user_lat)))))
+                    lng_d = (drive_radius_miles / (69.0 * cos_l)) * 1.18
+                    cur.execute(
+                        """
+                        WITH cand AS (
+                            SELECT id, name, event_date, end_date, city, state, country,
+                                   COALESCE(NULLIF(TRIM(venue_name), ''), NULLIF(TRIM(venue), ''), city) AS venue,
+                                   NULLIF(TRIM(address), '') AS address,
+                                   NULLIF(TRIM(postal_code), '') AS postal_code,
+                                   COALESCE(
+                                       NULLIF(latitude, 0.0),
+                                       CASE WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json->'coordinate') = 'array' AND jsonb_array_length(raw_json->'coordinate') >= 2
+                                            THEN NULLIF((raw_json->'coordinate'->>1)::double precision, 0.0) ELSE NULL END
+                                   ) AS latitude,
+                                   COALESCE(
+                                       NULLIF(longitude, 0.0),
+                                       CASE WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json->'coordinate') = 'array' AND jsonb_array_length(raw_json->'coordinate') >= 2
+                                            THEN NULLIF((raw_json->'coordinate'->>0)::double precision, 0.0) ELSE NULL END
+                                   ) AS longitude,
+                                   COALESCE(total_players, 0) AS total_players,
+                                   COALESCE(num_rounds, 0) AS num_rounds,
+                                   COALESCE(current_round, 0) AS current_round,
+                                   COALESCE(is_ended, FALSE) AS is_ended,
+                                   circuits
+                            FROM events
+                            WHERE COALESCE(game_system, '40k') = %s
+                              AND event_date >= CURRENT_DATE - INTERVAL '90 days'
+                              AND event_date <= CURRENT_DATE + INTERVAL '150 days'
+                              AND (
+                                  (latitude BETWEEN %s AND %s AND longitude BETWEEN %s AND %s)
+                                  OR ((latitude IS NULL OR (latitude = 0.0 AND longitude = 0.0)) AND raw_json IS NOT NULL)
+                              )
+                        )
+                        SELECT * FROM cand
+                        WHERE latitude BETWEEN %s AND %s
+                          AND longitude BETWEEN %s AND %s
+                          AND NOT (latitude = 0.0 AND longitude = 0.0)
+                        ORDER BY event_date DESC
+                        LIMIT 90;
+                        """,
+                        (
+                            target_sys,
+                            float(user_lat) - lat_d, float(user_lat) + lat_d,
+                            float(user_lng) - lng_d, float(user_lng) + lng_d,
+                            float(user_lat) - lat_d, float(user_lat) + lat_d,
+                            float(user_lng) - lng_d, float(user_lng) + lng_d,
+                        ),
+                    )
+                    for row in (cur.fetchall() or []):
+                        r = dict(row) if hasattr(row, "keys") else {}
+                        ev_dt = r.get("event_date")
+                        end_dt = r.get("end_date")
+                        db_events.append({
+                            "id": str(r.get("id") or ""),
+                            "name": r.get("name") or "Tournament",
+                            "event_date": ev_dt.isoformat() if hasattr(ev_dt, "isoformat") else str(ev_dt or ""),
+                            "end_date": end_dt.isoformat() if hasattr(end_dt, "isoformat") else str(end_dt or ""),
+                            "city": r.get("city") or "",
+                            "state": r.get("state") or "",
+                            "country": r.get("country") or "",
+                            "venue": r.get("venue") or "",
+                            "venue_name": r.get("venue") or "",
+                            "address": r.get("address") or "",
+                            "postal_code": r.get("postal_code") or "",
+                            "latitude": float(r["latitude"]) if r.get("latitude") is not None else None,
+                            "longitude": float(r["longitude"]) if r.get("longitude") is not None else None,
+                            "total_players": int(r.get("total_players") or 0),
+                            "num_rounds": int(r.get("num_rounds") or 0),
+                            "current_round": int(r.get("current_round") or 0),
+                            "is_started": bool(int(r.get("current_round") or 0) >= 1),
+                            "is_ended": bool(r.get("is_ended")),
+                            "circuits": r.get("circuits") or [],
+                            "game_system": target_sys,
+                        })
+
+                if player_id:
+                    cur.execute(
+                        "SELECT current_elo FROM player_ratings WHERE player_id = %s AND COALESCE(game_system, '40k') = %s LIMIT 1;",
+                        (str(player_id), target_sys),
+                    )
+                    pr_row = cur.fetchone()
+                    if pr_row:
+                        pr_d = dict(pr_row) if hasattr(pr_row, "keys") else {"current_elo": pr_row[0]}
+                        if pr_d.get("current_elo") is not None:
+                            user_elo = float(pr_d["current_elo"])
+
+                    cur.execute(
+                        """
+                        SELECT DISTINCT COALESCE(NULLIF(TRIM(e.venue_name), ''), NULLIF(TRIM(e.venue), '')), LOWER(TRIM(COALESCE(e.city, '')))
+                        FROM event_participants ep
+                        JOIN events e ON e.id = ep.event_id
+                        WHERE ep.player_id = %s
+                        LIMIT 25;
+                        """,
+                        (str(player_id),),
+                    )
+                    for v_row in (cur.fetchall() or []):
+                        vals = list(v_row.values()) if hasattr(v_row, "values") else list(v_row)
+                        for val in vals:
+                            if val and str(val).strip():
+                                familiar_venues.add(str(val).strip().lower())
+    except Exception as db_rec_err:
+        logger.debug(f"Community recommendations DB query notice: {db_rec_err}")
+
+    return (db_events, user_elo, familiar_venues)
+
+
+@router.get("/api/community/events/recommendations", summary="Smart Community Hub Tournament Recommendation Engine")
+def api_community_event_recommendations(
+    request: Request,
+    lat: Optional[float] = Query(None),
+    lng: Optional[float] = Query(None),
+    location_name: Optional[str] = Query(None),
+    local_radius_miles: float = Query(50.0, ge=10.0, le=200.0),
+    max_drive_hours: float = Query(2.0, ge=0.5, le=6.0),
+    majors_scope: str = Query("regional", description="regional or global"),
+    game_system: Optional[str] = Query("40k"),
+    force_refresh: bool = Query(False),
+):
+    """
+    Returns noise-free, personalized tournament recommendations for Community Hub:
+    - Local Scene (within local_radius_miles)
+    - Driveable Majors, GTs & RTTs (up to max_drive_hours, default 2h drive / ~100 straight-line mi)
+    - Premier Majors & Super Majors (regional affinity or worldwide)
+    - Recent Past Results (completed local/regional events)
+    Strict <1s latency guarantee.
+    """
+    target_sys = normalize_game_system(game_system, default="40k")
+    scope_norm = "global" if str(majors_scope or "").strip().lower() == "global" else "regional"
+
+    auth_header = request.headers.get("Authorization", "") if request else ""
+    session_token = (request.cookies.get("session_token") if request else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    user = get_auth_manager().get_session(session_token) if session_token else None
+    player_id = (user.get("player_id") or user.get("bcp_user_id")) if user else None
+
+    db = get_database()
+    user_lat, user_lng = lat, lng
+    resolved_loc = location_name or ""
+
+    # Resolve location_name if lat/lng omitted
+    if (user_lat is None or user_lng is None) and resolved_loc and hasattr(db, "get_community_overview"):
+        try:
+            ov = db.get_community_overview(lat=None, lng=None, radius_miles=local_radius_miles, location_name=resolved_loc, include_bcp=False, game_system=target_sys)
+            center = (ov or {}).get("center") or {}
+            if center.get("lat") is not None and center.get("lng") is not None:
+                user_lat = float(center["lat"])
+                user_lng = float(center["lng"])
+                resolved_loc = center.get("label") or resolved_loc
+        except Exception:
+            pass
+
+    cache_key = (
+        round(float(user_lat), 2) if user_lat is not None else None,
+        round(float(user_lng), 2) if user_lng is not None else None,
+        int(round(local_radius_miles)),
+        round(float(max_drive_hours), 1),
+        scope_norm,
+        target_sys,
+        str(player_id or ""),
+    )
+    now_ts = time.time()
+    if not force_refresh:
+        cached = _community_recs_cache.get(cache_key)
+        if cached and (now_ts - cached[0]) < 180.0:
+            return cached[1]
+
+    drive_radius_miles = max(float(local_radius_miles), round(float(max_drive_hours) * 52.0, 1))
+
+    # Run BCP upcoming (at drive_radius_miles), live Majors cache, and local DB query in parallel (<600ms cap)
+    bcp_upcoming: List[Dict[str, Any]] = []
+    bcp_majors: List[Dict[str, Any]] = []
+    db_events: List[Dict[str, Any]] = []
+    user_elo: Optional[float] = None
+    familiar_venues: set = set()
+
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+    try:
+        fut_up = (
+            ex.submit(
+                db.fetch_bcp_upcoming_events,
+                user_lat=float(user_lat),
+                user_lng=float(user_lng),
+                radius_miles=drive_radius_miles,
+                days_ahead=120,
+                game_system=target_sys,
+                include_multiplatform=True,
+            )
+            if (user_lat is not None and user_lng is not None and hasattr(db, "fetch_bcp_upcoming_events"))
+            else None
+        )
+        fut_maj = ex.submit(fetch_live_bcp_majors, target_sys, 180, 28, 0.50)
+        fut_db = ex.submit(
+            _query_local_db_events_for_recommendations,
+            db, user_lat, user_lng, drive_radius_miles, target_sys, player_id,
+        )
+
+        wait_futs = [f for f in (fut_up, fut_maj, fut_db) if f is not None]
+        concurrent.futures.wait(wait_futs, timeout=0.62)
+
+        if fut_up is not None and fut_up.done():
+            try:
+                bcp_upcoming = fut_up.result() or []
+            except Exception:
+                bcp_upcoming = []
+        if fut_maj.done():
+            try:
+                bcp_majors = fut_maj.result() or []
+            except Exception:
+                bcp_majors = []
+        if fut_db.done():
+            try:
+                db_events, user_elo, familiar_venues = fut_db.result()
+            except Exception:
+                pass
+    finally:
+        ex.shutdown(wait=False)
+
+    all_candidates = list(bcp_upcoming) + list(db_events) + list(bcp_majors)
+
+    # Fast local SQL field stats enrichment (<10ms, zero remote HTTP calls)
+    field_stats_map: Dict[str, Dict[str, Any]] = {}
+    if hasattr(db, "get_events_field_stats") and all_candidates:
+        try:
+            cand_ids = list(dict.fromkeys(str(e.get("id") or "") for e in all_candidates if e.get("id")))[:80]
+            if cand_ids:
+                field_stats_map = db.get_events_field_stats(cand_ids, game_system=target_sys) or {}
+        except Exception:
+            field_stats_map = {}
+
+    categorized = score_and_categorize_community_events(
+        raw_candidates=all_candidates,
+        user_lat=user_lat,
+        user_lng=user_lng,
+        local_radius_miles=local_radius_miles,
+        max_drive_hours=max_drive_hours,
+        majors_scope=scope_norm,
+        game_system=target_sys,
+        user_elo=user_elo,
+        familiar_venues=familiar_venues,
+        field_stats_map=field_stats_map,
+    )
+
+    payload = {
+        "success": True,
+        "game_system": target_sys,
+        "center": {
+            "lat": user_lat,
+            "lng": user_lng,
+            "label": resolved_loc or ("Your Area" if user_lat is not None else "Global"),
+        },
+        **categorized,
+    }
+    _community_recs_cache[cache_key] = (time.time(), payload)
+    return payload
+
+
+@router.get("/api/community/events/search", summary="Instant search across upcoming Majors, local/regional tournaments, and past events")
+def api_community_event_search(
+    q: str = Query("", description="Event name, city, state, country, venue, or circuit"),
+    lat: Optional[float] = Query(None),
+    lng: Optional[float] = Query(None),
+    game_system: Optional[str] = Query("40k"),
+    include_past: bool = Query(True),
+    limit: int = Query(40, ge=1, le=100),
+):
+    """Fast (<100ms) tournament search combining local PostgreSQL events + warm live BCP Majors & Upcoming caches."""
+    query_str = (q or "").strip()
+    target_sys = normalize_game_system(game_system, default="40k")
+    if len(query_str) < 2:
+        return {"success": True, "query": query_str, "upcoming": [], "past": [], "events": [], "total": 0}
+
+    s_cache_key = (
+        query_str.lower(),
+        round(float(lat), 1) if lat is not None else None,
+        round(float(lng), 1) if lng is not None else None,
+        target_sys,
+        bool(include_past),
+        int(limit),
+    )
+    now_ts = time.time()
+    cached = _community_search_cache.get(s_cache_key)
+    if cached and (now_ts - cached[0]) < 60.0:
+        return cached[1]
+
+    q_lower = query_str.lower()
+    q_tokens = [tok for tok in re.split(r"\s+", q_lower) if tok]
+    db = get_database()
+    matched_map: Dict[str, Dict[str, Any]] = {}
+
+    def _matches_tokens(ev: Dict[str, Any]) -> bool:
+        circuits_txt = " ".join(
+            (c.get("name") or "") if isinstance(c, dict) else str(c)
+            for c in (ev.get("circuits") or [])
+        )
+        haystack = " ".join([
+            str(ev.get("name") or ""),
+            str(ev.get("city") or ""),
+            str(ev.get("state") or ""),
+            str(ev.get("country") or ""),
+            str(ev.get("venue_name") or ev.get("venue") or ""),
+            str(ev.get("address") or ""),
+            circuits_txt,
+        ]).lower()
+        return all(tok in haystack for tok in q_tokens)
+
+    # 1. Search warm RAM _bcp_majors_cache (<0.5ms)
+    maj_cached = _bcp_majors_cache.get(target_sys)
+    if maj_cached and isinstance(maj_cached[1], list):
+        for ev in maj_cached[1]:
+            if _matches_tokens(ev):
+                eid = str(ev.get("id") or "").strip()
+                if eid and not eid.startswith("bcp_"):
+                    matched_map[eid] = dict(ev)
+
+    # 2. Search warm RAM _bcp_upcoming_cache_dict (<1ms)
+    up_cache = getattr(db, "_bcp_upcoming_cache_dict", None)
+    if isinstance(up_cache, dict):
+        for ck, cv in list(up_cache.items()):
+            if isinstance(ck, tuple) and len(ck) >= 5 and ck[4] == target_sys and isinstance(cv, tuple) and len(cv) == 2 and isinstance(cv[0], list):
+                for ev in cv[0]:
+                    if _matches_tokens(ev):
+                        eid = str(ev.get("id") or "").strip()
+                        if eid and not eid.startswith("bcp_"):
+                            matched_map[eid] = _merge_event_records(matched_map[eid], ev) if eid in matched_map else dict(ev)
+
+    # 3. Search PostgreSQL events table (<30ms with 350ms statement_timeout)
+    if db and getattr(db, "_pool", None) is not None and not (hasattr(db, "_is_mock_instance") and db._is_mock_instance()):
+        try:
+            like_pat = f"%{query_str}%"
+            with db.get_connection() as conn:
+                cursor_factory = getattr(extras, "RealDictCursor", None) if extras else None
+                cursor_kw = {"cursor_factory": cursor_factory} if cursor_factory else {}
+                with conn.cursor(**cursor_kw) as cur:
+                    cur.execute("SET LOCAL statement_timeout = '350ms';")
+                    date_clause = "" if include_past else "AND event_date >= CURRENT_DATE - INTERVAL '2 days'"
+                    cur.execute(
+                        f"""
+                        SELECT id, name, event_date, end_date, city, state, country,
+                               COALESCE(NULLIF(TRIM(venue_name), ''), NULLIF(TRIM(venue), ''), city) AS venue,
+                               NULLIF(TRIM(address), '') AS address,
+                               NULLIF(TRIM(postal_code), '') AS postal_code,
+                               COALESCE(
+                                   NULLIF(latitude, 0.0),
+                                   CASE WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json->'coordinate') = 'array' AND jsonb_array_length(raw_json->'coordinate') >= 2
+                                        THEN NULLIF((raw_json->'coordinate'->>1)::double precision, 0.0) ELSE NULL END
+                               ) AS latitude,
+                               COALESCE(
+                                   NULLIF(longitude, 0.0),
+                                   CASE WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json->'coordinate') = 'array' AND jsonb_array_length(raw_json->'coordinate') >= 2
+                                        THEN NULLIF((raw_json->'coordinate'->>0)::double precision, 0.0) ELSE NULL END
+                               ) AS longitude,
+                               COALESCE(total_players, 0) AS total_players,
+                               COALESCE(num_rounds, 0) AS num_rounds,
+                               COALESCE(current_round, 0) AS current_round,
+                               COALESCE(is_ended, FALSE) AS is_ended,
+                               circuits
+                        FROM events
+                        WHERE COALESCE(game_system, '40k') = %s
+                          {date_clause}
+                          AND event_date >= CURRENT_DATE - INTERVAL '365 days'
+                          AND (
+                              name ILIKE %s
+                              OR city ILIKE %s
+                              OR state ILIKE %s
+                              OR country ILIKE %s
+                              OR venue_name ILIKE %s
+                              OR venue ILIKE %s
+                          )
+                        ORDER BY
+                          CASE WHEN event_date >= CURRENT_DATE - INTERVAL '1 day' THEN 0 ELSE 1 END ASC,
+                          COALESCE(total_players, 0) DESC,
+                          event_date DESC
+                        LIMIT %s;
+                        """,
+                        (target_sys, like_pat, like_pat, like_pat, like_pat, like_pat, like_pat, int(limit) * 2),
+                    )
+                    for row in (cur.fetchall() or []):
+                        r = dict(row) if hasattr(row, "keys") else {}
+                        eid = str(r.get("id") or "").strip()
+                        if not eid or eid.startswith("bcp_"):
+                            continue
+                        ev_dt = r.get("event_date")
+                        end_dt = r.get("end_date")
+                        item = {
+                            "id": eid,
+                            "name": r.get("name") or "Tournament",
+                            "event_date": ev_dt.isoformat() if hasattr(ev_dt, "isoformat") else str(ev_dt or ""),
+                            "end_date": end_dt.isoformat() if hasattr(end_dt, "isoformat") else str(end_dt or ""),
+                            "city": r.get("city") or "",
+                            "state": r.get("state") or "",
+                            "country": r.get("country") or "",
+                            "venue": r.get("venue") or "",
+                            "venue_name": r.get("venue") or "",
+                            "address": r.get("address") or "",
+                            "postal_code": r.get("postal_code") or "",
+                            "latitude": float(r["latitude"]) if r.get("latitude") is not None else None,
+                            "longitude": float(r["longitude"]) if r.get("longitude") is not None else None,
+                            "total_players": int(r.get("total_players") or 0),
+                            "num_rounds": int(r.get("num_rounds") or 0),
+                            "current_round": int(r.get("current_round") or 0),
+                            "is_started": bool(int(r.get("current_round") or 0) >= 1),
+                            "is_ended": bool(r.get("is_ended")),
+                            "circuits": r.get("circuits") or [],
+                            "game_system": target_sys,
+                            "external_url": f"https://www.bestcoastpairings.com/event/{eid}" if ":" not in eid else "",
+                        }
+                        if _matches_tokens(item):
+                            matched_map[eid] = _merge_event_records(matched_map[eid], item) if eid in matched_map else item
+        except Exception as s_err:
+            logger.debug(f"Community event search DB notice: {s_err}")
+
+    today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    user_country, _ = normalize_country_and_region("", "", lat, lng)
+    upcoming_out: List[Dict[str, Any]] = []
+    past_out: List[Dict[str, Any]] = []
+
+    for eid, ev in matched_map.items():
+        start_p = str(ev.get("event_date") or "")[:10]
+        end_p = str(ev.get("end_date") or "")[:10] or start_p
+        is_end = bool(ev.get("is_ended")) or bool(end_p and len(end_p) == 10 and end_p < today_iso)
+        ev["is_ended"] = is_end
+        if is_end and not include_past:
+            continue
+
+        tier_info = classify_tournament_tier(
+            ev.get("name") or "",
+            total_players=int(ev.get("total_players") or 0),
+            num_tickets=int(ev.get("num_tickets") or 0),
+            circuits=ev.get("circuits") or [],
+            num_rounds=int(ev.get("num_rounds") or 0),
+        )
+        ev["tier"] = tier_info["tier"]
+        ev["tier_badge"] = tier_info["badge"]
+        ev["tier_color"] = tier_info["color"]
+        ev["tier_weight"] = tier_info["weight"]
+
+        dist_mi = _haversine_miles(lat, lng, ev.get("latitude"), ev.get("longitude")) if (lat is not None and lng is not None) else ev.get("distance_miles")
+        ev_c, _ = normalize_country_and_region(ev.get("country"), ev.get("state"), ev.get("latitude"), ev.get("longitude"))
+        d_info = estimate_drive_time(dist_mi, user_country=user_country, event_country=ev_c)
+        ev["distance_miles"] = dist_mi
+        ev["drive_minutes"] = d_info["drive_minutes"]
+        ev["drive_label"] = d_info["drive_label"]
+        ev["is_local"] = bool(dist_mi is not None and dist_mi <= 50.0)
+        if not ev.get("external_url") and ":" not in eid and not eid.startswith("ES-"):
+            ev["external_url"] = f"https://www.bestcoastpairings.com/event/{eid}"
+
+        if is_end:
+            ev["countdown_label"] = "Completed"
+            past_out.append(ev)
+        else:
+            upcoming_out.append(ev)
+
+    upcoming_out.sort(
+        key=lambda x: (
+            0 if (q_lower in str(x.get("name") or "").lower()) else 1,
+            0 if (x.get("distance_miles") is not None and float(x["distance_miles"]) <= 120.0) else 1,
+            -int(x.get("tier_weight") or 0),
+            str(x.get("event_date") or "9999"),
+        )
+    )
+    past_out.sort(
+        key=lambda x: (
+            str(x.get("event_date") or ""),
+            int(x.get("total_players") or 0),
+        ),
+        reverse=True,
+    )
+
+    upcoming_out = upcoming_out[:limit]
+    past_out = past_out[: max(10, limit // 2)]
+    combined = upcoming_out + past_out
+    res_payload = {
+        "success": True,
+        "query": query_str,
+        "upcoming": upcoming_out,
+        "past": past_out,
+        "events": combined[:limit],
+        "total": len(upcoming_out) + len(past_out),
+    }
+    _community_search_cache[s_cache_key] = (time.time(), res_payload)
+    return res_payload
 
 _community_field_stats_cache: Dict[str, Dict[str, Any]] = {}
 
@@ -1111,9 +2340,27 @@ async def api_community_events_field_stats(
                     need_bcp_sync.append(eid)
 
             if need_bcp_sync:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(need_bcp_sync))) as executor:
-                    future_map = {executor.submit(compute_live_bcp_field_stats, eid, db, t_sys): eid for eid in need_bcp_sync}
-                    done, not_done = concurrent.futures.wait(future_map.keys(), timeout=4.0)
+                executor = concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(need_bcp_sync)))
+                try:
+                    future_map = {}
+                    for eid in need_bcp_sync:
+                        fut = executor.submit(compute_live_bcp_field_stats, eid, db, t_sys)
+                        future_map[fut] = eid
+
+                        def _store_when_done(f_done, _eid=eid, _t_sys=t_sys):
+                            try:
+                                res_stat = f_done.result()
+                                if isinstance(res_stat, dict):
+                                    _community_field_stats_cache[f"{_eid}:{_t_sys}"] = {
+                                        "timestamp": time.time(),
+                                        "stats": res_stat,
+                                    }
+                            except Exception:
+                                pass
+
+                        fut.add_done_callback(_store_when_done)
+
+                    done, not_done = concurrent.futures.wait(future_map.keys(), timeout=0.55)
                     for fut in done:
                         eid = future_map[fut]
                         c_key = f"{eid}:{t_sys}"
@@ -1135,20 +2382,16 @@ async def api_community_events_field_stats(
                         }
                     for fut in not_done:
                         eid = future_map[fut]
-                        c_key = f"{eid}:{t_sys}"
-                        empty_stat = {
+                        local_res[eid] = {
                             "event_id": eid,
                             "avg_field_elo": None,
                             "top_seed_elo": None,
                             "total_enrolled": 0,
                             "rated_players_count": 0,
-                            "status": "empty"
+                            "status": "pending"
                         }
-                        local_res[eid] = empty_stat
-                        _community_field_stats_cache[c_key] = {
-                            "timestamp": now_ts,
-                            "stats": empty_stat
-                        }
+                finally:
+                    executor.shutdown(wait=False)
             return local_res
 
         fetched_stats = await asyncio.to_thread(_resolve_missing_field_stats, missing_ids, target_sys)

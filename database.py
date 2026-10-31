@@ -21745,7 +21745,8 @@ class PostgresDatabase:
         if not isinstance(cache_store, dict):
             cache_store = PostgresDatabase._bcp_upcoming_cache_dict
 
-        def _recompute_dists(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        def _recompute_dists(items: List[Dict[str, Any]], strict_cap: bool = False) -> List[Dict[str, Any]]:
+            max_allowed = (effective_radius + 2.5) if strict_cap else (effective_radius * 1.25)
             out_list: List[Dict[str, Any]] = []
             for item in items:
                 cp = dict(item)
@@ -21761,7 +21762,7 @@ class PostgresDatabase:
                             a = math.sin(dlat / 2.0) ** 2 + math.cos(math.radians(float(user_lat))) * math.cos(math.radians(ef_lat)) * math.sin(dlng / 2.0) ** 2
                             c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
                             dm = round(3959.0 * c, 1)
-                            if dm > (effective_radius * 1.25):
+                            if dm > max_allowed:
                                 continue
                             cp["distance_miles"] = dm
                     except Exception:
@@ -21782,6 +21783,24 @@ class PostgresDatabase:
                 return _recompute_dists(cached)
 
             if not is_mock_env:
+                # Reuse any fresh superset radius/days cache entry for the same 0.1-deg grid cell (<0.5ms)
+                now_cache_ts = time.time()
+                for ck_cand, cv_cand in list(cache_store.items()):
+                    if (
+                        isinstance(ck_cand, tuple)
+                        and len(ck_cand) >= 5
+                        and ck_cand[0] == grid_lat
+                        and ck_cand[1] == grid_lng
+                        and ck_cand[2] >= effective_radius
+                        and ck_cand[3] >= days_ahead
+                        and ck_cand[4] == target_sys
+                        and (len(ck_cand) == 6) == bool(include_multiplatform)
+                        and isinstance(cv_cand, tuple)
+                        and len(cv_cand) == 2
+                        and isinstance(cv_cand[0], list)
+                        and (now_cache_ts - float(cv_cand[1] or 0.0)) < 900.0
+                    ):
+                        return _recompute_dists(cv_cand[0], strict_cap=True)
                 raw_entry = cache_store.get(cache_key)
                 if (
                     isinstance(raw_entry, tuple)
@@ -21849,26 +21868,47 @@ class PostgresDatabase:
                         with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_fb:
                             cur_fb.execute(
                                 """
-                                SELECT id, name, event_date, end_date, city, state, country,
-                                       COALESCE(NULLIF(TRIM(venue_name), ''), NULLIF(TRIM(venue), ''), city) AS venue,
-                                       NULLIF(TRIM(address), '') AS address,
-                                       NULLIF(TRIM(postal_code), '') AS postal_code,
-                                       latitude, longitude, COALESCE(total_players, 0) AS total_players,
-                                       COALESCE(num_rounds, 0) AS num_rounds, COALESCE(current_round, 0) AS current_round,
-                                       COALESCE(is_ended, FALSE) AS is_ended, circuits
-                                FROM events
-                                WHERE COALESCE(game_system, '40k') = %s
-                                  AND event_date >= CURRENT_DATE - INTERVAL '1 day'
-                                  AND event_date <= CURRENT_DATE + (%s * INTERVAL '1 day')
-                                  AND latitude BETWEEN %s AND %s
+                                WITH cand_fb AS (
+                                    SELECT id, name, event_date, end_date, city, state, country,
+                                           COALESCE(NULLIF(TRIM(venue_name), ''), NULLIF(TRIM(venue), ''), city) AS venue,
+                                           NULLIF(TRIM(address), '') AS address,
+                                           NULLIF(TRIM(postal_code), '') AS postal_code,
+                                           COALESCE(
+                                               NULLIF(latitude, 0.0),
+                                               CASE WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json->'coordinate') = 'array' AND jsonb_array_length(raw_json->'coordinate') >= 2
+                                                    THEN (raw_json->'coordinate'->>1)::double precision ELSE NULL END
+                                           ) AS latitude,
+                                           COALESCE(
+                                               NULLIF(longitude, 0.0),
+                                               CASE WHEN raw_json IS NOT NULL AND jsonb_typeof(raw_json->'coordinate') = 'array' AND jsonb_array_length(raw_json->'coordinate') >= 2
+                                                    THEN (raw_json->'coordinate'->>0)::double precision ELSE NULL END
+                                           ) AS longitude,
+                                           COALESCE(total_players, 0) AS total_players,
+                                           COALESCE(num_rounds, 0) AS num_rounds, COALESCE(current_round, 0) AS current_round,
+                                           COALESCE(is_ended, FALSE) AS is_ended, circuits
+                                    FROM events
+                                    WHERE COALESCE(game_system, '40k') = %s
+                                      AND event_date >= CURRENT_DATE - INTERVAL '1 day'
+                                      AND event_date <= CURRENT_DATE + (%s * INTERVAL '1 day')
+                                      AND (
+                                          (latitude BETWEEN %s AND %s AND longitude BETWEEN %s AND %s)
+                                          OR ((latitude IS NULL OR (latitude = 0.0 AND longitude = 0.0)) AND raw_json IS NOT NULL)
+                                      )
+                                )
+                                SELECT * FROM cand_fb
+                                WHERE latitude BETWEEN %s AND %s
                                   AND longitude BETWEEN %s AND %s
                                   AND NOT (latitude = 0.0 AND longitude = 0.0)
                                 ORDER BY event_date ASC
-                                LIMIT 45;
+                                LIMIT 55;
                                 """,
                                 (
                                     target_sys,
                                     int(days_ahead),
+                                    float(user_lat) - lat_d,
+                                    float(user_lat) + lat_d,
+                                    float(user_lng) - lng_d,
+                                    float(user_lng) + lng_d,
                                     float(user_lat) - lat_d,
                                     float(user_lat) + lat_d,
                                     float(user_lng) - lng_d,
@@ -22413,7 +22453,12 @@ class PostgresDatabase:
                             e.total_players, e.num_rounds, e.current_round, e.is_ended, e.circuits,
                             CASE WHEN e.event_date >= CURRENT_DATE - INTERVAL '1 day' THEN e.raw_json ELSE NULL END AS raw_json, -- e.raw_json,
                             COALESCE(
-                                CASE WHEN LOWER(TRIM(COALESCE(e.city, ''))) = 'online' THEN NULL ELSE e.latitude END,
+                                CASE WHEN LOWER(TRIM(COALESCE(e.city, ''))) = 'online' THEN NULL ELSE NULLIF(e.latitude, 0.0) END,
+                                CASE WHEN LOWER(TRIM(COALESCE(e.city, ''))) != 'online'
+                                      AND e.raw_json IS NOT NULL
+                                      AND jsonb_typeof(e.raw_json->'coordinate') = 'array'
+                                      AND jsonb_array_length(e.raw_json->'coordinate') >= 2
+                                     THEN NULLIF((e.raw_json->'coordinate'->>1)::double precision, 0.0) ELSE NULL END,
                                 CASE LOWER(TRIM(COALESCE(e.city, '')))
                                     WHEN 'san diego' THEN 32.7157
                                     WHEN 'los angeles' THEN 34.0522
@@ -22440,6 +22485,7 @@ class PostgresDatabase:
                                     WHEN 'long beach' THEN 33.7701
                                     WHEN 'irvine' THEN 33.6846
                                     WHEN 'riverside' THEN 33.9806
+                                    WHEN 'pomona' THEN 34.0551
                                     WHEN 'san francisco' THEN 37.7749
                                     WHEN 'san jose' THEN 37.3382
                                     WHEN 'sacramento' THEN 38.5816
@@ -22454,7 +22500,12 @@ class PostgresDatabase:
                                 END
                             ) AS ev_lat,
                             COALESCE(
-                                CASE WHEN LOWER(TRIM(COALESCE(e.city, ''))) = 'online' THEN NULL ELSE e.longitude END,
+                                CASE WHEN LOWER(TRIM(COALESCE(e.city, ''))) = 'online' THEN NULL ELSE NULLIF(e.longitude, 0.0) END,
+                                CASE WHEN LOWER(TRIM(COALESCE(e.city, ''))) != 'online'
+                                      AND e.raw_json IS NOT NULL
+                                      AND jsonb_typeof(e.raw_json->'coordinate') = 'array'
+                                      AND jsonb_array_length(e.raw_json->'coordinate') >= 2
+                                     THEN NULLIF((e.raw_json->'coordinate'->>0)::double precision, 0.0) ELSE NULL END,
                                 CASE LOWER(TRIM(COALESCE(e.city, '')))
                                     WHEN 'san diego' THEN -117.1611
                                     WHEN 'los angeles' THEN -118.2437
@@ -22481,6 +22532,7 @@ class PostgresDatabase:
                                     WHEN 'long beach' THEN -118.1937
                                     WHEN 'irvine' THEN -117.8265
                                     WHEN 'riverside' THEN -117.3755
+                                    WHEN 'pomona' THEN -117.7500
                                     WHEN 'san francisco' THEN -122.4194
                                     WHEN 'san jose' THEN -121.8863
                                     WHEN 'sacramento' THEN -121.4944
@@ -22497,7 +22549,7 @@ class PostgresDatabase:
                         FROM events e
                         WHERE (
                             (e.latitude BETWEEN %s AND %s AND e.longitude BETWEEN %s AND %s)
-                            OR (e.latitude IS NULL AND e.city IS NOT NULL AND e.city != '')
+                            OR ((e.latitude IS NULL OR (e.latitude = 0.0 AND e.longitude = 0.0)) AND ((e.city IS NOT NULL AND e.city != '') OR e.raw_json IS NOT NULL))
                         )
                           AND COALESCE(e.game_system, '40k') = %s
                           AND e.event_date >= CURRENT_DATE - INTERVAL '180 days'
